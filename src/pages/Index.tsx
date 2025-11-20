@@ -12,52 +12,64 @@ export default function Index() {
 
   return (
     <div className="flex flex-col">
-      {/* Hero Section - Tesla-inspired */}
-      <section className="relative bg-gradient-tesla text-foreground overflow-hidden">
-        {/* Glossy overlay */}
+      {/* Hero Section - Redesigned Layout */}
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden">
+        {/* Tesla-style gradient background */}
+        <div className="absolute inset-0 bg-gradient-tesla" />
         <div className="absolute inset-0 bg-gradient-glossy opacity-20" />
         
-        {/* Floating Carousel Element */}
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[600px] h-[400px] hidden lg:block animate-[float_6s_ease-in-out_infinite] opacity-95">
-          <div className="relative w-full h-full">
-            <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-3xl opacity-40 animate-pulse" />
-            <div className="relative backdrop-blur-md bg-white/5 rounded-3xl p-6 shadow-premium border border-white/10 hover:scale-105 transition-smooth">
-              <AspectRatio ratio={16/10}>
-                <HeroCarousel />
-              </AspectRatio>
-              <div className="absolute bottom-8 left-8 right-8 text-center">
-                <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4">
-                  <Sparkles className="w-6 h-6 mx-auto text-primary animate-pulse mb-2" />
-                  <p className="text-sm font-semibold text-white">Your Project Could Be Next!</p>
+        <div className="container relative z-10 px-4 py-20">
+          <div className="grid lg:grid-cols-2 gap-12 items-center max-w-7xl mx-auto">
+            {/* Left: Text Content */}
+            <div className="space-y-8 text-left">
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-white animate-fade-in leading-tight">
+                {t.home.heroTitle}
+              </h1>
+              <p className="text-xl md:text-2xl text-white/90 animate-fade-in">
+                {t.home.heroSubtitle}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 animate-fade-in">
+                <Button
+                  asChild
+                  size="lg"
+                  className="bg-white text-black hover:bg-white/90 shadow-glow hover:shadow-premium transition-smooth"
+                >
+                  <Link to="/apply">
+                    {t.home.submitProject}
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="border-white/30 text-white hover:bg-white/10"
+                >
+                  <Link to="/how-it-works">
+                    {t.home.howItWorks}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+
+            {/* Right: Horizontal Rectangular Carousel */}
+            <div className="animate-fade-in">
+              <div className="relative backdrop-blur-md bg-white/5 rounded-3xl p-6 shadow-premium border border-white/10 hover:scale-105 transition-smooth">
+                <AspectRatio ratio={16/10}>
+                  <HeroCarousel />
+                </AspectRatio>
+                <div className="absolute bottom-8 left-8 right-8 text-center">
+                  <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4">
+                    <Sparkles className="w-6 h-6 mx-auto text-white animate-pulse mb-2" />
+                    <p className="text-sm font-semibold text-white">Your Project Could Be Next!</p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="container mx-auto px-4 py-24 md:py-40 relative z-10">
-          <div className="max-w-4xl mx-auto lg:max-w-2xl text-center space-y-8 animate-fade-in">
-            <h1 className="text-5xl md:text-7xl font-bold leading-tight text-white">
-              {t.home.heroTitle}
-            </h1>
-            <p className="text-xl md:text-2xl text-white/80 max-w-2xl mx-auto">
-              {t.home.heroSubtitle}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center pt-6">
-              <Button asChild size="lg" className="bg-white text-black hover:bg-white/90 shadow-glow hover:shadow-premium transition-smooth">
-                <Link to="/apply">
-                  {t.home.submitProject}
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10">
-                <Link to="/how-it-works">
-                  {t.home.howItWorks}
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </div>
+        {/* Decorative Elements */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
       </section>
 

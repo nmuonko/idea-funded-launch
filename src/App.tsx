@@ -20,6 +20,7 @@ import AdminDashboard from "./pages/admin/Dashboard";
 import AdminSessions from "./pages/admin/Sessions";
 import AdminSubmissions from "./pages/admin/Submissions";
 import AdminContacts from "./pages/admin/Contacts";
+import PaymentSettings from "./pages/admin/PaymentSettings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -88,6 +89,7 @@ const App = () => (
                 <Route path="sessions" element={<AdminSessions />} />
                 <Route path="submissions" element={<AdminSubmissions />} />
                 <Route path="contacts" element={<AdminContacts />} />
+                <Route path="payment-settings" element={<PaymentSettings />} />
               </Route>
               
               <Route path="*" element={<NotFound />} />

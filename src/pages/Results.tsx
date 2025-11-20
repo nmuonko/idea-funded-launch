@@ -58,13 +58,10 @@ export default function Results() {
     setSearching(true);
     try {
       const { data, error } = await supabase
-        .from('user_submissions')
-        .select('*, sessions(name, status)')
-        .eq('project_code', projectCode.trim().toUpperCase())
-        .maybeSingle();
+        .rpc('search_submission_by_code', { search_code: projectCode.trim().toUpperCase() });
 
       if (error) throw error;
-      setSearchedSubmission(data);
+      setSearchedSubmission(data?.[0] || null);
     } catch (error) {
       console.error('Error searching project:', error);
       setSearchedSubmission(null);

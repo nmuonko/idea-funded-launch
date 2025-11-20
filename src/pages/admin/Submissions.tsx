@@ -191,7 +191,7 @@ export default function AdminSubmissions() {
                   <TableCell className="font-mono text-sm">{submission.project_code || 'N/A'}</TableCell>
                   <TableCell className="font-medium max-w-[200px] truncate">{submission.project_title}</TableCell>
                   <TableCell>{submission.city_province}</TableCell>
-                  <TableCell>${Number(submission.funding_needed).toLocaleString()}</TableCell>
+                  <TableCell>${String(submission.funding_needed).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</TableCell>
                   <TableCell>{getStatusBadge(submission.submission_status)}</TableCell>
                   <TableCell>{submission.sessions?.name}</TableCell>
                   <TableCell>
@@ -238,7 +238,7 @@ export default function AdminSubmissions() {
                             </div>
                             <div>
                               <Label className="text-muted-foreground">Est. Revenue</Label>
-                              <p className="font-semibold">${parseFloat(submission.estimated_monthly_revenue).toLocaleString()}/mo</p>
+                              <p className="font-semibold">${Number(submission.estimated_monthly_revenue).toLocaleString()}/mo</p>
                             </div>
                             <div>
                               <Label className="text-muted-foreground">Time to Profit</Label>

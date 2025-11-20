@@ -140,13 +140,6 @@ export default function Results() {
                   </p>
                 </div>
 
-                {activeSession.status === 'open' && (
-                  <div className="pt-2">
-                    <p className="text-sm text-muted-foreground">
-                      {t.common.loading} {activeSession.current_participant_count} / {activeSession.desired_max_participants} participants
-                    </p>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}

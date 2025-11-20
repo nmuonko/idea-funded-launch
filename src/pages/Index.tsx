@@ -2,64 +2,55 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Award, Shield, Users, ArrowRight, Sparkles } from 'lucide-react';
+import { Award, Shield, Users, ArrowRight, Sparkles, Scissors, UtensilsCrossed, Hammer, Smartphone, Sprout, Wifi } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AspectRatio } from '@/components/ui/aspect-ratio';
+import { HeroCarousel } from '@/components/HeroCarousel';
 
 export default function Index() {
   const { t } = useLanguage();
 
   return (
     <div className="flex flex-col">
-      {/* Hero Section */}
-      <section className="relative bg-gradient-primary text-primary-foreground overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-radial opacity-30" />
+      {/* Hero Section - Tesla-inspired */}
+      <section className="relative bg-gradient-tesla text-foreground overflow-hidden">
+        {/* Glossy overlay */}
+        <div className="absolute inset-0 bg-gradient-glossy opacity-20" />
         
-        {/* Floating Video/Image Element */}
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[500px] h-[500px] hidden lg:block animate-[float_6s_ease-in-out_infinite] opacity-90">
+        {/* Floating Carousel Element */}
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[600px] h-[400px] hidden lg:block animate-[float_6s_ease-in-out_infinite] opacity-95">
           <div className="relative w-full h-full">
-            <div className="absolute inset-0 bg-gradient-glow rounded-3xl blur-3xl opacity-40 animate-pulse" />
-            <div className="relative glass-strong rounded-3xl p-4 shadow-premium border-2 border-primary-foreground/20 hover:scale-105 transition-smooth">
-              <AspectRatio ratio={1}>
-                <div className="relative w-full h-full bg-gradient-subtle rounded-2xl overflow-hidden group">
-                  <video 
-                    autoPlay 
-                    muted 
-                    loop 
-                    playsInline
-                    className="w-full h-full object-cover"
-                    poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect fill='%23667eea' width='400' height='400'/%3E%3C/svg%3E"
-                  >
-                    <source src="https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-futuristic-devices-99790-large.mp4" type="video/mp4" />
-                  </video>
-                  <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end justify-center pb-8">
-                    <div className="text-center space-y-2">
-                      <Sparkles className="w-8 h-8 mx-auto text-warning animate-pulse" />
-                      <p className="text-sm font-semibold text-primary-foreground">Your Project Could Be Next!</p>
-                    </div>
-                  </div>
-                </div>
+            <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-3xl opacity-40 animate-pulse" />
+            <div className="relative backdrop-blur-md bg-white/5 rounded-3xl p-6 shadow-premium border border-white/10 hover:scale-105 transition-smooth">
+              <AspectRatio ratio={16/10}>
+                <HeroCarousel />
               </AspectRatio>
+              <div className="absolute bottom-8 left-8 right-8 text-center">
+                <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4">
+                  <Sparkles className="w-6 h-6 mx-auto text-primary animate-pulse mb-2" />
+                  <p className="text-sm font-semibold text-white">Your Project Could Be Next!</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="container mx-auto px-4 py-24 md:py-40 relative z-10">
           <div className="max-w-4xl mx-auto lg:max-w-2xl text-center space-y-8 animate-fade-in">
-            <h1 className="text-5xl md:text-7xl font-bold leading-tight">
+            <h1 className="text-5xl md:text-7xl font-bold leading-tight text-white">
               {t.home.heroTitle}
             </h1>
-            <p className="text-xl md:text-2xl text-primary-foreground/90 max-w-2xl mx-auto">
+            <p className="text-xl md:text-2xl text-white/80 max-w-2xl mx-auto">
               {t.home.heroSubtitle}
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-6">
-              <Button asChild size="lg" variant="secondary" className="shadow-glow hover:shadow-premium transition-smooth">
+              <Button asChild size="lg" className="bg-white text-black hover:bg-white/90 shadow-glow hover:shadow-premium transition-smooth">
                 <Link to="/apply">
                   {t.home.submitProject}
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline" className="glass text-primary-foreground border-primary-foreground/30 hover:bg-primary-foreground/20">
+              <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10">
                 <Link to="/how-it-works">
                   {t.home.howItWorks}
                 </Link>
@@ -125,8 +116,82 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Who We Are Section */}
+      {/* Project Ideas Section */}
       <section className="py-16 md:py-24 bg-background">
+        <div className="container mx-auto px-4">
+          <div className="text-center space-y-4 mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold">{t.home.projectIdeasTitle}</h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              {t.home.projectIdeasSubtitle}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in">
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-primary to-primary/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Scissors className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project1Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project1Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in" style={{ animationDelay: '0.1s' }}>
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-secondary to-secondary/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <UtensilsCrossed className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project2Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project2Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in" style={{ animationDelay: '0.2s' }}>
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-success to-success/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Hammer className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project3Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project3Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in" style={{ animationDelay: '0.3s' }}>
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-info to-info/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Smartphone className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project4Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project4Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in" style={{ animationDelay: '0.4s' }}>
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-warning to-warning/50 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Sprout className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project5Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project5Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="glass hover:shadow-glow transition-smooth group animate-scale-in" style={{ animationDelay: '0.5s' }}>
+              <CardHeader>
+                <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Wifi className="h-7 w-7 text-white" />
+                </div>
+                <CardTitle className="text-xl">{t.home.project6Title}</CardTitle>
+                <CardDescription className="text-base">{t.home.project6Desc}</CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
+        </div>
+      </section>
+
+      {/* Who We Are Section */}
+      <section className="py-16 md:py-24 bg-muted/30">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto">
             <Card className="glass-strong shadow-premium">
@@ -144,7 +209,7 @@ export default function Index() {
       </section>
 
       {/* Testimonials Section */}
-      <section className="py-16 md:py-24 bg-muted/30">
+      <section className="py-16 md:py-24 bg-background">
         <div className="container mx-auto px-4">
           <div className="text-center space-y-4 mb-12">
             <h2 className="text-3xl md:text-4xl font-bold">Success Stories</h2>
@@ -206,17 +271,18 @@ export default function Index() {
         </div>
       </section>
 
-      {/* CTA Section */}
-      <section className="py-16 md:py-24 bg-gradient-primary text-primary-foreground">
-        <div className="container mx-auto px-4 text-center">
+      {/* CTA Section - Tesla-inspired */}
+      <section className="py-16 md:py-24 bg-gradient-tesla text-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-glossy opacity-20" />
+        <div className="container mx-auto px-4 text-center relative z-10">
           <div className="max-w-3xl mx-auto space-y-6">
             <h2 className="text-3xl md:text-4xl font-bold">
               Ready to get started?
             </h2>
-            <p className="text-lg text-primary-foreground/90">
+            <p className="text-lg text-white/80">
               Join the competition and turn your idea into reality.
             </p>
-            <Button asChild size="lg" variant="secondary">
+            <Button asChild size="lg" className="bg-white text-black hover:bg-white/90 shadow-glow">
               <Link to="/apply">
                 {t.home.submitProject}
                 <ArrowRight className="ml-2 h-5 w-5" />

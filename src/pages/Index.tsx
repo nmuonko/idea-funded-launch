@@ -2,8 +2,9 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Award, Shield, Users, ArrowRight } from 'lucide-react';
+import { Award, Shield, Users, ArrowRight, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { AspectRatio } from '@/components/ui/aspect-ratio';
 
 export default function Index() {
   const { t } = useLanguage();
@@ -13,8 +14,38 @@ export default function Index() {
       {/* Hero Section */}
       <section className="relative bg-gradient-primary text-primary-foreground overflow-hidden">
         <div className="absolute inset-0 bg-gradient-radial opacity-30" />
+        
+        {/* Floating Video/Image Element */}
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[500px] h-[500px] hidden lg:block animate-[float_6s_ease-in-out_infinite] opacity-90">
+          <div className="relative w-full h-full">
+            <div className="absolute inset-0 bg-gradient-glow rounded-3xl blur-3xl opacity-40 animate-pulse" />
+            <div className="relative glass-strong rounded-3xl p-4 shadow-premium border-2 border-primary-foreground/20 hover:scale-105 transition-smooth">
+              <AspectRatio ratio={1}>
+                <div className="relative w-full h-full bg-gradient-subtle rounded-2xl overflow-hidden group">
+                  <video 
+                    autoPlay 
+                    muted 
+                    loop 
+                    playsInline
+                    className="w-full h-full object-cover"
+                    poster="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'%3E%3Crect fill='%23667eea' width='400' height='400'/%3E%3C/svg%3E"
+                  >
+                    <source src="https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-futuristic-devices-99790-large.mp4" type="video/mp4" />
+                  </video>
+                  <div className="absolute inset-0 bg-gradient-to-t from-primary/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-end justify-center pb-8">
+                    <div className="text-center space-y-2">
+                      <Sparkles className="w-8 h-8 mx-auto text-warning animate-pulse" />
+                      <p className="text-sm font-semibold text-primary-foreground">Your Project Could Be Next!</p>
+                    </div>
+                  </div>
+                </div>
+              </AspectRatio>
+            </div>
+          </div>
+        </div>
+
         <div className="container mx-auto px-4 py-24 md:py-40 relative z-10">
-          <div className="max-w-4xl mx-auto text-center space-y-8 animate-fade-in">
+          <div className="max-w-4xl mx-auto lg:max-w-2xl text-center space-y-8 animate-fade-in">
             <h1 className="text-5xl md:text-7xl font-bold leading-tight">
               {t.home.heroTitle}
             </h1>

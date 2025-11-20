@@ -6,24 +6,38 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Palette, X } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 
-type ThemeMode = 'default' | 'soft-light' | 'dark' | 'high-contrast' | 'custom';
+type ThemeMode = 'default' | 'soft-light' | 'dark' | 'darker' | 'high-contrast' | 'custom';
 
 const presetThemes = {
   default: {
     primary: '210 100% 55%',
     secondary: '160 80% 45%',
+    background: '0 0% 100%',
+    foreground: '220 20% 10%',
   },
   'soft-light': {
     primary: '200 80% 60%',
     secondary: '150 60% 55%',
+    background: '210 40% 98%',
+    foreground: '220 20% 15%',
   },
   dark: {
     primary: '210 100% 60%',
     secondary: '160 80% 50%',
+    background: '220 25% 8%',
+    foreground: '210 40% 98%',
+  },
+  darker: {
+    primary: '210 100% 65%',
+    secondary: '160 80% 55%',
+    background: '220 30% 4%',
+    foreground: '210 40% 98%',
   },
   'high-contrast': {
     primary: '220 100% 50%',
     secondary: '140 100% 40%',
+    background: '0 0% 100%',
+    foreground: '0 0% 0%',
   },
 };
 
@@ -51,6 +65,7 @@ export function ColorCustomization() {
     const theme = presetThemes[mode];
     const root = document.documentElement;
     
+    // Apply colors
     root.style.setProperty('--primary', theme.primary);
     root.style.setProperty('--secondary', theme.secondary);
     root.style.setProperty('--accent', theme.primary);
@@ -60,6 +75,17 @@ export function ColorCustomization() {
     root.style.setProperty('--sidebar-primary', theme.primary);
     root.style.setProperty('--sidebar-ring', theme.primary);
     root.style.setProperty('--shadow-glow', theme.primary);
+    
+    // Apply background and foreground
+    root.style.setProperty('--background', theme.background);
+    root.style.setProperty('--foreground', theme.foreground);
+    
+    // Update dark mode class
+    if (mode === 'dark' || mode === 'darker') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   };
 
   const applyCustomColor = (hue: number) => {
@@ -148,6 +174,13 @@ export function ColorCustomization() {
                     <RadioGroupItem value="dark" id="dark" />
                     <Label htmlFor="dark" className="cursor-pointer flex-1">
                       Dark Mode (Deep Ocean)
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="darker" id="darker" />
+                    <Label htmlFor="darker" className="cursor-pointer flex-1">
+                      Darker Mode (Midnight Black)
                     </Label>
                   </div>
                   

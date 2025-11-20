@@ -13,11 +13,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { PaymentDialog } from '@/components/PaymentDialog';
 
 export default function Apply() {
   const { t } = useLanguage();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [submissionId, setSubmissionId] = useState<string>('');
   const [formData, setFormData] = useState({
     fullName: '',
     whatsappNumber: '',
@@ -95,7 +98,7 @@ export default function Apply() {
     setLoading(true);
 
     try {
-      const { error } = await supabase.from('user_submissions').insert({
+      const { data, error } = await supabase.from('user_submissions').insert({
         session_id: activeSession.id,
         full_name: formData.fullName,
         whatsapp_number: formData.whatsappNumber,
@@ -111,17 +114,18 @@ export default function Apply() {
         number_of_hires: formData.willHire === 'yes' && formData.numberOfHires ? parseInt(formData.numberOfHires) : null,
         agreements_confirmed: true,
         payment_status: 'pending',
-      });
+      }).select().single();
 
       if (error) throw error;
 
+      // Open payment dialog
+      setSubmissionId(data.id);
+      setPaymentDialogOpen(true);
+      
       toast({
         title: t.common.success,
-        description: 'Application submitted! Proceed to payment to complete your submission.',
+        description: 'Application submitted! Please complete payment.',
       });
-
-      // In a real implementation, redirect to payment page
-      // For now, just show success message
     } catch (error) {
       console.error('Error submitting application:', error);
       toast({
@@ -512,6 +516,14 @@ export default function Apply() {
             )}
           </Button>
         </form>
+
+        {/* Payment Dialog */}
+        <PaymentDialog
+          open={paymentDialogOpen}
+          onOpenChange={setPaymentDialogOpen}
+          submissionId={submissionId}
+          amount={10}
+        />
       </div>
     </div>
   );

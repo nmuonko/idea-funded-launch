@@ -9,7 +9,6 @@ export const languages: { code: Language; name: string; flag: string }[] = [
 
 export const translations = {
   en: {
-    // Navigation
     nav: {
       home: 'Home',
       howItWorks: 'How It Works',
@@ -18,7 +17,6 @@ export const translations = {
       terms: 'Terms',
       contact: 'Contact',
     },
-    // Home page
     home: {
       heroTitle: 'Turn Your Idea into a Funded Project',
       heroSubtitle: 'Project Competition is a transparent, fair competition that gives small entrepreneurs a chance to receive funding and launch their projects.',
@@ -36,7 +34,6 @@ export const translations = {
       communityImpact: 'Community Impact',
       communityImpactDesc: 'Support to launch projects that create jobs and solve local problems',
     },
-    // How It Works page
     howItWorks: {
       title: 'How It Works',
       subtitle: 'Follow these simple steps to participate in Project Competition',
@@ -54,7 +51,6 @@ export const translations = {
       step6Desc: 'Winners are published on the Results page. After a session closes and reviews are finished, all participants receive an automatic message by email and WhatsApp with the results.',
       faqTitle: 'Frequently Asked Questions',
     },
-    // Application Form
     apply: {
       title: 'Submit Your Project',
       subtitle: 'Complete all sections to submit your project for review',
@@ -88,7 +84,6 @@ export const translations = {
       charactersRemaining: 'characters remaining',
       charactersUsed: 'characters used',
     },
-    // Results page
     results: {
       title: 'Competition Results',
       subtitle: 'Check the status of your submission and view winners',
@@ -113,7 +108,6 @@ export const translations = {
       location: 'Location',
       fundingAwarded: 'Funding Awarded',
     },
-    // Terms page
     terms: {
       title: 'Terms & Rules',
       subtitle: 'Please read these terms carefully before participating',
@@ -128,7 +122,6 @@ export const translations = {
       privacyTitle: 'Data & Privacy',
       privacyText: 'Basic statement explaining data is used only for running the competition and sending notifications.',
     },
-    // Contact page
     contact: {
       title: 'Contact Us',
       subtitle: 'Get in touch with our team',
@@ -147,7 +140,6 @@ export const translations = {
       messageSent: 'Message sent successfully!',
       messageError: 'Failed to send message. Please try again.',
     },
-    // FAQ
     faq: {
       q1: 'Why is there a $20 fee?',
       a1: 'The $20 fee helps cover the costs of running the competition, reviewing projects, and providing support to winners. It also shows that participants are serious about their ideas. The fee is non-refundable, even if you are not selected.',
@@ -164,7 +156,6 @@ export const translations = {
       q7: 'When will winners be announced?',
       a7: 'After a session is full, reviewers go through all the projects. When the review is completed, the progress bar on the Results page will reach 100%, winners will be listed there, and all participants will receive an email and WhatsApp message.',
     },
-    // Common
     common: {
       loading: 'Loading...',
       error: 'Error',
@@ -611,7 +602,7 @@ export const translations = {
       sessionFull: 'Etondi – kotalela ezali kokoba',
       sessionPublished: 'Matomba ebimuami',
       reviewProgress: 'Bokoli Ya Kotalela',
-      progressMessage: 'Ekipi na biso ezali kotalela misala sik'oyo',
+      progressMessage: 'Ekipi na biso ezali kotalela misala sikoyo',
       completionMessage: 'Ntango kotalela ekoki 100%, email na nsango ya WhatsApp ekotindama na baye bakɔti nyonso',
       checkYourStatus: 'Tala État Ya Mosala Na Yo',
       enterProjectCode: 'Kɔta code ya mosala na yo',
@@ -663,9 +654,9 @@ export const translations = {
       q1: 'Mpo na nini ezali na mbongo ya $20?',
       a1: 'Mbongo ya $20 esalisaka kofuta mikumba ya kosala concours, kotalela misala, mpe kopesa lisungi na balongwi. Emonisaka pe ete baye bakɔti bazali na makanisi ya solo. Mbongo ezongisami te, ata soki oponami te.',
       q2: 'Période etikalaka wapi efungwami?',
-      a2: 'Période moko etikalaka efungwami kino tokoki motángo ya bato oyo tolingi, kasi na date ya sikisiki te. Soki période etondi, ekangamaka automatiquement mpe bakoyamba lisusu soumissions ya sika te. Okoki komona soki période ya sik'oyo ezali efungwami to etondi na page ya Matomba mpe page ya application.',
+      a2: 'Période moko etikalaka efungwami kino tokoki motángo ya bato oyo tolingi, kasi na date ya sikisiki te. Soki période etondi, ekangamaka automatiquement mpe bakoyamba lisusu soumissions ya sika te. Okoki komona soki période ya sikoyo ezali efungwami to etondi na page ya Matomba mpe page ya application.',
       q3: 'Ndenge nini nakoki kolanda mosala ya kotalela?',
-      a3: 'Na page ya Matomba, okomona barre ya bokoli oyo emonisaka libaku nini mosala ya kotalela ekomi mpo na période ya sik'oyo. Okoki pe kokɔta code ya mosala na yo mpo na kotala état ya mosala na yo. Ntango période ekangama mpe kotalela esilisami, tokotinda email na nsango ya WhatsApp na baye bakɔti nyonso na matomba ya suka.',
+      a3: 'Na page ya Matomba, okomona barre ya bokoli oyo emonisaka libaku nini mosala ya kotalela ekomi mpo na période ya sikoyo. Okoki pe kokɔta code ya mosala na yo mpo na kotala état ya mosala na yo. Ntango période ekangama mpe kotalela esilisami, tokotinda email na nsango ya WhatsApp na baye bakɔti nyonso na matomba ya suka.',
       q4: 'Nini ekosalema soki naponami te?',
       a4: 'Soki mosala na yo eponami te, okozwa kaka email na nsango ya WhatsApp ntango matomba ekobimuama. Okoki kobongola makanisi na yo mpe kotinda yango lisusu na période oyo ekoya.',
       q5: 'Ndenge nini kotalela ezali na nkombo te?',

@@ -301,6 +301,16 @@ export type Database = {
         }
         Returns: boolean
       }
+      search_submission_by_code: {
+        Args: { search_code: string }
+        Returns: {
+          created_at: string
+          id: string
+          project_code: string
+          project_title: string
+          submission_status: string
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "user"

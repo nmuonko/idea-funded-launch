@@ -1,4 +1,4 @@
-import { languages, Language } from '@/lib/i18n';
+import { languages, Language } from '@/lib/i18n/translations';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
   DropdownMenu,

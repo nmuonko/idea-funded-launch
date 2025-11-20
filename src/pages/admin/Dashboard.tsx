@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Clock, Trophy, Mail } from 'lucide-react';
+import { Users, FileText, Clock, Trophy, Mail, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { SubmissionCharts } from '@/components/admin/SubmissionCharts';
 
 export default function AdminDashboard() {
   const { data: stats } = useQuery({
@@ -17,12 +18,20 @@ export default function AdminDashboard() {
         supabase.from('contact_messages').select('*', { count: 'exact', head: true }),
       ]);
 
+      // Calculate total funding requested
+      const { data: fundingData } = await supabase
+        .from('user_submissions')
+        .select('funding_needed');
+      
+      const totalFunding = fundingData?.reduce((sum, sub) => sum + sub.funding_needed, 0) || 0;
+
       return {
         totalSessions: sessions.count || 0,
         totalSubmissions: submissions.count || 0,
         pendingReviews: pending.count || 0,
         winners: selected.count || 0,
         contactMessages: contacts.count || 0,
+        totalFunding,
       };
     },
   });
@@ -67,6 +76,14 @@ export default function AdminDashboard() {
       description: 'Inbox messages',
       color: 'text-info',
       link: '/admin/contacts',
+    },
+    {
+      title: 'Total Funding',
+      value: `$${((stats?.totalFunding || 0) / 1000).toFixed(0)}k`,
+      icon: TrendingUp,
+      description: 'Requested capital',
+      color: 'text-secondary',
+      link: '/admin/submissions',
     },
   ];
 
@@ -146,6 +163,15 @@ export default function AdminDashboard() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Data Visualization Charts */}
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-2xl font-bold mb-2">Analytics & Insights</h2>
+          <p className="text-muted-foreground">Submission trends and statistics</p>
+        </div>
+        <SubmissionCharts />
       </div>
     </div>
   );

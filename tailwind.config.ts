@@ -50,14 +50,17 @@ export default {
         success: {
           DEFAULT: "hsl(var(--success))",
           foreground: "hsl(var(--success-foreground))",
+          dark: "hsl(var(--success-dark))",
         },
         warning: {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
+          dark: "hsl(var(--warning-dark))",
         },
         info: {
           DEFAULT: "hsl(var(--info))",
           foreground: "hsl(var(--info-foreground))",
+          dark: "hsl(var(--info-dark))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",

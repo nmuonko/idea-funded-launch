@@ -7,6 +7,7 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 
 export function Header() {
   const { t } = useLanguage();
+  const { user, isAdmin } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -47,7 +48,30 @@ export function Header() {
 
           {/* Right section */}
           <div className="flex items-center space-x-4">
+            <ColorCustomization />
             <LanguageSwitcher />
+            {user && (
+              <>
+                {isAdmin && (
+                  <Button asChild variant="outline" size="sm" className="gap-2">
+                    <Link to="/admin">
+                      <Shield className="h-4 w-4" />
+                      Admin
+                    </Link>
+                  </Button>
+                )}
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/auth">
+                    <User className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </>
+            )}
+            {!user && (
+              <Button asChild size="sm">
+                <Link to="/auth">Sign In</Link>
+              </Button>
+            )}
             
             {/* Mobile menu button */}
             <Button

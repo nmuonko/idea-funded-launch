@@ -294,6 +294,24 @@ export type Database = {
     }
     Functions: {
       generate_project_code: { Args: never; Returns: string }
+      get_public_session_info: {
+        Args: never
+        Returns: {
+          announcement_date: string
+          application_fee: number
+          currency: string
+          current_participant_count: number
+          desired_max_participants: number
+          enable_waitlist: boolean
+          id: string
+          name: string
+          payment_instructions: string
+          review_progress: number
+          start_date: string
+          status: string
+          waitlist_count: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

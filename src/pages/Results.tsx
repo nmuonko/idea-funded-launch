@@ -21,15 +21,15 @@ export default function Results() {
     queryKey: ['resultsSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .in('status', ['open', 'closed', 'results_published'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .rpc('get_public_session_info');
 
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
+      if (error) throw error;
+      
+      // Get the most recent session that is open, closed, or published
+      const recentSession = data?.find((s: any) => 
+        ['open', 'closed', 'results_published'].includes(s.status)
+      );
+      return recentSession || null;
     },
   });
 

@@ -47,12 +47,17 @@ All colors MUST be HSL.
     /* Status colors */
     --success: 142 76% 45%;
     --success-foreground: 0 0% 100%;
+    --success-dark: 142 76% 35%;
 
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
+    --warning-dark: 38 92% 40%;
 
     --info: 199 89% 48%;
     --info-foreground: 0 0% 100%;
+    --info-dark: 199 89% 38%;
+    
+    --destructive-dark: 0 84% 50%;
 
     /* Futuristic gradients */
     --gradient-start: 210 100% 55%;
@@ -113,12 +118,17 @@ All colors MUST be HSL.
     
     --success: 142 76% 50%;
     --success-foreground: 0 0% 100%;
+    --success-dark: 142 76% 40%;
     
     --warning: 38 92% 60%;
     --warning-foreground: 0 0% 100%;
+    --warning-dark: 38 92% 50%;
     
     --info: 199 89% 55%;
     --info-foreground: 0 0% 100%;
+    --info-dark: 199 89% 45%;
+    
+    --destructive-dark: 0 84% 55%;
     
     --gradient-start: 210 100% 60%;
     --gradient-mid: 180 100% 55%;

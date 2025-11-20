@@ -50,15 +50,13 @@ export default function Apply() {
     queryKey: ['activeSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('sessions')
-        .select('*')
-        .eq('status', 'open')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+        .rpc('get_public_session_info');
 
       if (error) throw error;
-      return data;
+      
+      // Get the first open session
+      const openSession = data?.find((s: any) => s.status === 'open');
+      return openSession || null;
     },
   });
 

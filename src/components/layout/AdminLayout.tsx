@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -14,6 +14,7 @@ export function AdminLayout() {
     { to: '/admin/sessions', icon: Users, label: 'Sessions' },
     { to: '/admin/submissions', icon: FileText, label: 'Submissions' },
     { to: '/admin/contacts', icon: Mail, label: 'Contact Messages' },
+    { to: '/admin/payment-settings', icon: CreditCard, label: 'Payment Settings' },
   ];
 
   const handleSignOut = async () => {

@@ -105,40 +105,67 @@ export type Database = {
       }
       sessions: {
         Row: {
+          afrimoney_number: string | null
+          airtel_money_number: string | null
           announcement_date: string | null
+          application_fee: number | null
           created_at: string
+          currency: string | null
           current_participant_count: number
           desired_max_participants: number
+          enable_waitlist: boolean | null
           id: string
+          m_pesa_number: string | null
           name: string
+          orange_money_number: string | null
+          payment_instructions: string | null
           review_progress: number
           start_date: string
           status: Database["public"]["Enums"]["session_status"]
           updated_at: string
+          waitlist_count: number | null
         }
         Insert: {
+          afrimoney_number?: string | null
+          airtel_money_number?: string | null
           announcement_date?: string | null
+          application_fee?: number | null
           created_at?: string
+          currency?: string | null
           current_participant_count?: number
           desired_max_participants?: number
+          enable_waitlist?: boolean | null
           id?: string
+          m_pesa_number?: string | null
           name: string
+          orange_money_number?: string | null
+          payment_instructions?: string | null
           review_progress?: number
           start_date?: string
           status?: Database["public"]["Enums"]["session_status"]
           updated_at?: string
+          waitlist_count?: number | null
         }
         Update: {
+          afrimoney_number?: string | null
+          airtel_money_number?: string | null
           announcement_date?: string | null
+          application_fee?: number | null
           created_at?: string
+          currency?: string | null
           current_participant_count?: number
           desired_max_participants?: number
+          enable_waitlist?: boolean | null
           id?: string
+          m_pesa_number?: string | null
           name?: string
+          orange_money_number?: string | null
+          payment_instructions?: string | null
           review_progress?: number
           start_date?: string
           status?: Database["public"]["Enums"]["session_status"]
           updated_at?: string
+          waitlist_count?: number | null
         }
         Relationships: []
       }
@@ -167,6 +194,7 @@ export type Database = {
         Row: {
           agreements_confirmed: boolean
           city_province: string
+          country: string | null
           created_at: string
           email: string
           estimated_monthly_revenue: number
@@ -175,11 +203,15 @@ export type Database = {
           funding_needed: number
           id: string
           number_of_hires: number | null
+          payment_amount: number | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_phone_number: string | null
+          payment_reference: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           project_code: string | null
           project_description: string
           project_title: string
+          project_type: string | null
           selection_timestamp: string | null
           session_id: string
           submission_status: Database["public"]["Enums"]["submission_status"]
@@ -191,6 +223,7 @@ export type Database = {
         Insert: {
           agreements_confirmed?: boolean
           city_province: string
+          country?: string | null
           created_at?: string
           email: string
           estimated_monthly_revenue: number
@@ -199,11 +232,15 @@ export type Database = {
           funding_needed: number
           id?: string
           number_of_hires?: number | null
+          payment_amount?: number | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_phone_number?: string | null
+          payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           project_code?: string | null
           project_description: string
           project_title: string
+          project_type?: string | null
           selection_timestamp?: string | null
           session_id: string
           submission_status?: Database["public"]["Enums"]["submission_status"]
@@ -215,6 +252,7 @@ export type Database = {
         Update: {
           agreements_confirmed?: boolean
           city_province?: string
+          country?: string | null
           created_at?: string
           email?: string
           estimated_monthly_revenue?: number
@@ -223,11 +261,15 @@ export type Database = {
           funding_needed?: number
           id?: string
           number_of_hires?: number | null
+          payment_amount?: number | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_phone_number?: string | null
+          payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           project_code?: string | null
           project_description?: string
           project_title?: string
+          project_type?: string | null
           selection_timestamp?: string | null
           session_id?: string
           submission_status?: Database["public"]["Enums"]["submission_status"]

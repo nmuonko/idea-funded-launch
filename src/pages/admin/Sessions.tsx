@@ -12,17 +12,33 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Edit, Users, Calendar, TrendingUp } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+
+const sessionSchema = z.object({
+  name: z.string()
+    .trim()
+    .min(1, { message: "Session name is required" })
+    .max(100, { message: "Session name must be less than 100 characters" }),
+  desiredMaxParticipants: z.number().min(10).max(500),
+});
 
 export default function AdminSessions() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<any>(null);
-  const [newSession, setNewSession] = useState({
-    name: '',
-    desiredMaxParticipants: 100,
-  });
   const [reviewProgress, setReviewProgress] = useState(0);
+
+  const form = useForm<z.infer<typeof sessionSchema>>({
+    resolver: zodResolver(sessionSchema),
+    defaultValues: {
+      name: '',
+      desiredMaxParticipants: 100,
+    },
+  });
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['adminSessions'],
@@ -38,12 +54,12 @@ export default function AdminSessions() {
   });
 
   const createSessionMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (values: z.infer<typeof sessionSchema>) => {
       const { data, error } = await supabase
         .from('sessions')
         .insert({
-          name: newSession.name,
-          desired_max_participants: newSession.desiredMaxParticipants,
+          name: values.name,
+          desired_max_participants: values.desiredMaxParticipants,
           status: 'open',
         })
         .select()
@@ -55,13 +71,17 @@ export default function AdminSessions() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adminSessions'] });
       setIsCreateOpen(false);
-      setNewSession({ name: '', desiredMaxParticipants: 100 });
+      form.reset();
       toast({ title: 'Success', description: 'Session created successfully' });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
+
+  const onSubmit = (values: z.infer<typeof sessionSchema>) => {
+    createSessionMutation.mutate(values);
+  };
 
   const updateSessionMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
@@ -129,33 +149,52 @@ export default function AdminSessions() {
               <DialogTitle>Create New Session</DialogTitle>
               <DialogDescription>Set up a new competition session</DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Session Name</Label>
-                <Input
-                  placeholder="e.g., Session Q1 2025"
-                  value={newSession.name}
-                  onChange={(e) => setNewSession({ ...newSession, name: e.target.value })}
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Session Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g., Session Q1 2025"
+                          maxLength={100}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Participants: {newSession.desiredMaxParticipants}</Label>
-                <Slider
-                  value={[newSession.desiredMaxParticipants]}
-                  onValueChange={([value]) => setNewSession({ ...newSession, desiredMaxParticipants: value })}
-                  min={10}
-                  max={500}
-                  step={10}
+                <FormField
+                  control={form.control}
+                  name="desiredMaxParticipants"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Max Participants: {field.value}</FormLabel>
+                      <FormControl>
+                        <Slider
+                          value={[field.value]}
+                          onValueChange={([value]) => field.onChange(value)}
+                          min={10}
+                          max={500}
+                          step={10}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <Button 
-                onClick={() => createSessionMutation.mutate()} 
-                disabled={!newSession.name || createSessionMutation.isPending}
-                className="w-full"
-              >
-                Create Session
-              </Button>
-            </div>
+                <Button 
+                  type="submit"
+                  disabled={createSessionMutation.isPending}
+                  className="w-full"
+                >
+                  Create Session
+                </Button>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>

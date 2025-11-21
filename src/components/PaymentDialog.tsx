@@ -9,6 +9,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, CreditCard, Phone, Banknote, CheckCircle2 } from 'lucide-react';
+import { z } from 'zod';
+
+const phoneNumberSchema = z.string()
+  .trim()
+  .min(1, { message: "Phone number is required" })
+  .max(20, { message: "Phone number must be less than 20 characters" })
+  .regex(/^[\d\s\+\-\(\)]+$/, { message: "Phone number can only contain digits, spaces, +, -, (, )" });
 
 interface PaymentDialogProps {
   open: boolean;
@@ -28,10 +35,12 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
   const [paymentComplete, setPaymentComplete] = useState(false);
 
   const handlePayment = async () => {
-    if (!phoneNumber) {
+    // Validate phone number
+    const validation = phoneNumberSchema.safeParse(phoneNumber);
+    if (!validation.success) {
       toast({
         title: t.common.error,
-        description: 'Please enter your mobile money number',
+        description: validation.error.errors[0].message,
         variant: 'destructive',
       });
       return;
@@ -46,6 +55,7 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
         .update({
           payment_method: paymentMethod,
           payment_status: 'paid',
+          payment_phone_number: validation.data,
         })
         .eq('id', submissionId);
 
@@ -178,6 +188,7 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
               placeholder="+243 XXX XXX XXX"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
+              maxLength={20}
             />
             <p className="text-sm text-muted-foreground">
               Enter your mobile money number for payment confirmation

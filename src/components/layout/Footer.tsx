@@ -7,26 +7,27 @@ export function Footer() {
   return (
     <footer className="border-t border-border bg-muted/50">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          {/* Brand */}
-          <div className="space-y-3">
-            <div className="flex items-center space-x-2">
-              <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center text-primary-foreground font-bold text-xl">
-                PC
-              </div>
-              <span className="font-semibold text-lg">
-                Project Competition
-              </span>
+        {/* Brand Section - Full Width */}
+        <div className="mb-12 pb-8 border-b border-border">
+          <div className="flex items-center space-x-2 mb-3">
+            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center text-primary-foreground font-bold text-xl">
+              PC
             </div>
-            <p className="text-sm text-muted-foreground">
-              {t.home.heroSubtitle}
-            </p>
+            <span className="font-semibold text-lg">
+              Project Competition
+            </span>
           </div>
+          <p className="text-sm text-muted-foreground text-justify max-w-2xl">
+            {t.home.heroSubtitle}
+          </p>
+        </div>
 
+        {/* 4-Column Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 md:gap-6">
           {/* Quick Links */}
-          <div>
+          <div className="flex flex-col">
             <h3 className="font-semibold mb-4">{t.nav.home}</h3>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-2 text-sm text-justify">
               <li>
                 <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">
                   {t.nav.howItWorks}
@@ -45,9 +46,10 @@ export function Footer() {
             </ul>
           </div>
 
-          <div>
+          {/* Legal */}
+          <div className="flex flex-col">
             <h3 className="font-semibold mb-4">Legal</h3>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-2 text-sm text-justify">
               <li>
                 <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">
                   Terms & Conditions
@@ -61,10 +63,10 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Support */}
-          <div>
+          {/* Support / Learn More */}
+          <div className="flex flex-col">
             <h3 className="font-semibold mb-4">{t.common.learnMore}</h3>
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-2 text-sm text-justify">
               <li>
                 <Link to="/contact" className="text-muted-foreground hover:text-foreground transition-colors">
                   {t.nav.contact}
@@ -74,9 +76,9 @@ export function Footer() {
           </div>
 
           {/* Contact */}
-          <div>
+          <div className="flex flex-col">
             <h3 className="font-semibold mb-4">{t.nav.contact}</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
+            <ul className="space-y-2 text-sm text-muted-foreground text-justify">
               <li>contact@projectcompetition.org</li>
               <li>+243 XXX XXX XXX</li>
               <li>Kinshasa, DRC</li>
@@ -84,7 +86,8 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 pt-8 border-t border-border text-center text-sm text-muted-foreground">
+        {/* Copyright */}
+        <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} Project Competition. All rights reserved.</p>
         </div>
       </div>

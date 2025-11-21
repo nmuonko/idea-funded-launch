@@ -1,17 +1,55 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+
+const phoneNumberSchema = z.string()
+  .trim()
+  .max(20, { message: "Phone number must be less than 20 characters" })
+  .regex(/^$|^[\d\s\+\-\(\)]+$/, { message: "Phone number can only contain digits, spaces, +, -, (, )" })
+  .optional()
+  .or(z.literal(""));
+
+const paymentSettingsSchema = z.object({
+  airtel_money_number: phoneNumberSchema,
+  m_pesa_number: phoneNumberSchema,
+  orange_money_number: phoneNumberSchema,
+  afrimoney_number: phoneNumberSchema,
+  payment_instructions: z.string().trim().max(1000, { message: "Instructions must be less than 1000 characters" }).optional().or(z.literal("")),
+});
+
+type PaymentSettingsFormData = z.infer<typeof paymentSettingsSchema>;
 
 export default function PaymentSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const form = useForm<PaymentSettingsFormData>({
+    resolver: zodResolver(paymentSettingsSchema),
+    defaultValues: {
+      airtel_money_number: "",
+      m_pesa_number: "",
+      orange_money_number: "",
+      afrimoney_number: "",
+      payment_instructions: "",
+    },
+  });
 
   // Fetch active session
   const { data: session, isLoading } = useQuery({
@@ -28,17 +66,22 @@ export default function PaymentSettings() {
     },
   });
 
-  const [formData, setFormData] = useState({
-    airtel_money_number: session?.airtel_money_number || "",
-    m_pesa_number: session?.m_pesa_number || "",
-    orange_money_number: session?.orange_money_number || "",
-    afrimoney_number: session?.afrimoney_number || "",
-    payment_instructions: session?.payment_instructions || "",
-  });
+  // Update form when session data loads
+  useEffect(() => {
+    if (session) {
+      form.reset({
+        airtel_money_number: session.airtel_money_number || "",
+        m_pesa_number: session.m_pesa_number || "",
+        orange_money_number: session.orange_money_number || "",
+        afrimoney_number: session.afrimoney_number || "",
+        payment_instructions: session.payment_instructions || "",
+      });
+    }
+  }, [session, form]);
 
   // Update session mutation
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
+    mutationFn: async (data: PaymentSettingsFormData) => {
       if (!session) throw new Error("No active session");
 
       const { error } = await supabase
@@ -64,9 +107,8 @@ export default function PaymentSettings() {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateSettingsMutation.mutate(formData);
+  const onSubmit = (data: PaymentSettingsFormData) => {
+    updateSettingsMutation.mutate(data);
   };
 
   if (isLoading) {
@@ -101,107 +143,142 @@ export default function PaymentSettings() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Mobile Money Numbers</CardTitle>
-            <CardDescription>
-              Enter the phone numbers where applicants should send payments
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="airtel">Airtel Money Number</Label>
-              <Input
-                id="airtel"
-                type="tel"
-                placeholder="+243 812 345 678"
-                value={formData.airtel_money_number}
-                onChange={(e) =>
-                  setFormData({ ...formData, airtel_money_number: e.target.value })
-                }
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Mobile Money Numbers</CardTitle>
+              <CardDescription>
+                Enter the phone numbers where applicants should send payments
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <FormField
+                control={form.control}
+                name="airtel_money_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Airtel Money Number</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="tel"
+                        placeholder="+243 812 345 678"
+                        maxLength={20}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="mpesa">M-Pesa Number</Label>
-              <Input
-                id="mpesa"
-                type="tel"
-                placeholder="+254 712 345 678"
-                value={formData.m_pesa_number}
-                onChange={(e) =>
-                  setFormData({ ...formData, m_pesa_number: e.target.value })
-                }
+              <FormField
+                control={form.control}
+                name="m_pesa_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>M-Pesa Number</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="tel"
+                        placeholder="+254 712 345 678"
+                        maxLength={20}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="orange">Orange Money Number</Label>
-              <Input
-                id="orange"
-                type="tel"
-                placeholder="+243 812 345 678"
-                value={formData.orange_money_number}
-                onChange={(e) =>
-                  setFormData({ ...formData, orange_money_number: e.target.value })
-                }
+              <FormField
+                control={form.control}
+                name="orange_money_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Orange Money Number</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="tel"
+                        placeholder="+243 812 345 678"
+                        maxLength={20}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="afrimoney">Afrimoney Number</Label>
-              <Input
-                id="afrimoney"
-                type="tel"
-                placeholder="+243 812 345 678"
-                value={formData.afrimoney_number}
-                onChange={(e) =>
-                  setFormData({ ...formData, afrimoney_number: e.target.value })
-                }
+              <FormField
+                control={form.control}
+                name="afrimoney_number"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Afrimoney Number</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="tel"
+                        placeholder="+243 812 345 678"
+                        maxLength={20}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Instructions</CardTitle>
-            <CardDescription>
-              Additional instructions for applicants (optional)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              placeholder="e.g., Please include your project code in the payment reference..."
-              value={formData.payment_instructions}
-              onChange={(e) =>
-                setFormData({ ...formData, payment_instructions: e.target.value })
-              }
-              rows={5}
-            />
-          </CardContent>
-        </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Payment Instructions</CardTitle>
+              <CardDescription>
+                Additional instructions for applicants (optional)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FormField
+                control={form.control}
+                name="payment_instructions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <Textarea
+                        placeholder="e.g., Please include your project code in the payment reference..."
+                        rows={5}
+                        maxLength={1000}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
 
-        <Button
-          type="submit"
-          size="lg"
-          disabled={updateSettingsMutation.isPending}
-          className="w-full sm:w-auto"
-        >
-          {updateSettingsMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="mr-2 h-4 w-4" />
-              Save Settings
-            </>
-          )}
-        </Button>
-      </form>
+          <Button
+            type="submit"
+            size="lg"
+            disabled={updateSettingsMutation.isPending}
+            className="w-full sm:w-auto"
+          >
+            {updateSettingsMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="mr-2 h-4 w-4" />
+                Save Settings
+              </>
+            )}
+          </Button>
+        </form>
+      </Form>
     </div>
   );
 }

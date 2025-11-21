@@ -9,6 +9,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Chatbot } from "@/components/Chatbot";
 import Index from "./pages/Index";
 import HowItWorks from "./pages/HowItWorks";
 import Apply from "./pages/Apply";
@@ -32,6 +33,7 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
+          <Chatbot />
           <BrowserRouter>
             <Routes>
               {/* Public routes with header/footer */}

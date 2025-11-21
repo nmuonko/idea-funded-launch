@@ -8,6 +8,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Mail, Phone, MapPin } from 'lucide-react';
+import { z } from 'zod';
+
+const contactSchema = z.object({
+  fullName: z.string().trim().min(1, 'Full name is required').max(100, 'Full name must be less than 100 characters'),
+  email: z.string().trim().email('Invalid email address').max(255, 'Email must be less than 255 characters'),
+  whatsappNumber: z.string().trim().max(20, 'WhatsApp number must be less than 20 characters').optional(),
+  subject: z.string().trim().min(1, 'Subject is required').max(200, 'Subject must be less than 200 characters'),
+  message: z.string().trim().min(1, 'Message is required').max(5000, 'Message must be less than 5000 characters'),
+});
 
 export default function Contact() {
   const { t } = useLanguage();
@@ -26,12 +35,24 @@ export default function Contact() {
     setLoading(true);
 
     try {
+      // Validate form data
+      const result = contactSchema.safeParse(formData);
+      if (!result.success) {
+        toast({
+          title: t.common.error,
+          description: result.error.issues[0].message,
+          variant: 'destructive',
+        });
+        setLoading(false);
+        return;
+      }
+
       const { error } = await supabase.from('contact_messages').insert({
-        full_name: formData.fullName,
-        email: formData.email,
-        whatsapp_number: formData.whatsappNumber || null,
-        subject: formData.subject,
-        message: formData.message,
+        full_name: result.data.fullName,
+        email: result.data.email,
+        whatsapp_number: result.data.whatsappNumber || null,
+        subject: result.data.subject,
+        message: result.data.message,
       });
 
       if (error) throw error;
@@ -127,6 +148,7 @@ export default function Contact() {
                     id="fullName"
                     value={formData.fullName}
                     onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                    maxLength={100}
                     required
                   />
                 </div>
@@ -140,6 +162,7 @@ export default function Contact() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    maxLength={255}
                     required
                   />
                 </div>
@@ -151,6 +174,7 @@ export default function Contact() {
                     type="tel"
                     value={formData.whatsappNumber}
                     onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
+                    maxLength={20}
                   />
                 </div>
 
@@ -162,6 +186,7 @@ export default function Contact() {
                     id="subject"
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                    maxLength={200}
                     required
                   />
                 </div>
@@ -175,6 +200,7 @@ export default function Contact() {
                     rows={6}
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                    maxLength={5000}
                     required
                   />
                 </div>

@@ -13,6 +13,21 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { z } from 'zod';
+
+const submissionEditSchema = z.object({
+  full_name: z.string().trim().min(1, "Name is required").max(200, "Name must be less than 200 characters"),
+  email: z.string().trim().email("Invalid email address").max(255, "Email must be less than 255 characters"),
+  whatsapp_number: z.string().trim().min(1, "WhatsApp number is required").max(20, "WhatsApp number must be less than 20 characters"),
+  country: z.string().trim().max(100, "Country must be less than 100 characters").optional(),
+  city_province: z.string().trim().min(1, "City/Province is required").max(100, "City/Province must be less than 100 characters"),
+  project_type: z.string().trim().max(100, "Project type must be less than 100 characters").optional(),
+  project_title: z.string().trim().min(1, "Project title is required").max(200, "Project title must be less than 200 characters"),
+  project_description: z.string().trim().min(1, "Project description is required").max(1000, "Project description must be less than 1000 characters"),
+  funding_needed: z.number().positive("Funding amount must be positive").max(999999999, "Funding amount is too large"),
+  payment_phone_number: z.string().trim().max(20, "Payment phone number must be less than 20 characters").optional(),
+  payment_reference: z.string().trim().max(100, "Payment reference must be less than 100 characters").optional(),
+});
 
 export default function AdminSubmissions() {
   const { toast } = useToast();
@@ -206,21 +221,36 @@ export default function AdminSubmissions() {
   const handleEditSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    updateSubmissionDetailsMutation.mutate({
-      id: editSubmission.id,
-      full_name: formData.get('full_name'),
-      email: formData.get('email'),
-      whatsapp_number: formData.get('whatsapp_number'),
-      country: formData.get('country'),
-      city_province: formData.get('city_province'),
-      project_type: formData.get('project_type'),
-      project_title: formData.get('project_title'),
-      project_description: formData.get('project_description'),
-      funding_needed: Number(formData.get('funding_needed')),
-      payment_method: formData.get('payment_method') as any,
-      payment_phone_number: formData.get('payment_phone_number'),
-      payment_reference: formData.get('payment_reference'),
-    });
+    
+    try {
+      const validatedData = submissionEditSchema.parse({
+        full_name: formData.get('full_name'),
+        email: formData.get('email'),
+        whatsapp_number: formData.get('whatsapp_number'),
+        country: formData.get('country') || undefined,
+        city_province: formData.get('city_province'),
+        project_type: formData.get('project_type') || undefined,
+        project_title: formData.get('project_title'),
+        project_description: formData.get('project_description'),
+        funding_needed: Number(formData.get('funding_needed')),
+        payment_phone_number: formData.get('payment_phone_number') || undefined,
+        payment_reference: formData.get('payment_reference') || undefined,
+      });
+
+      updateSubmissionDetailsMutation.mutate({
+        id: editSubmission.id,
+        ...validatedData,
+        payment_method: formData.get('payment_method') as any,
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        toast({
+          title: 'Validation Error',
+          description: error.errors[0].message,
+          variant: 'destructive',
+        });
+      }
+    }
   };
 
   return (
@@ -519,39 +549,39 @@ export default function AdminSubmissions() {
                               <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                   <Label htmlFor="full_name">Full Name</Label>
-                                  <Input id="full_name" name="full_name" defaultValue={editSubmission.full_name} required />
+                                  <Input id="full_name" name="full_name" defaultValue={editSubmission.full_name} required maxLength={200} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="email">Email</Label>
-                                  <Input id="email" name="email" type="email" defaultValue={editSubmission.email} required />
+                                  <Input id="email" name="email" type="email" defaultValue={editSubmission.email} required maxLength={255} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="whatsapp_number">WhatsApp Number</Label>
-                                  <Input id="whatsapp_number" name="whatsapp_number" defaultValue={editSubmission.whatsapp_number} required />
+                                  <Input id="whatsapp_number" name="whatsapp_number" defaultValue={editSubmission.whatsapp_number} required maxLength={20} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="country">Country</Label>
-                                  <Input id="country" name="country" defaultValue={editSubmission.country || ''} />
+                                  <Input id="country" name="country" defaultValue={editSubmission.country || ''} maxLength={100} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="city_province">City/Province</Label>
-                                  <Input id="city_province" name="city_province" defaultValue={editSubmission.city_province} required />
+                                  <Input id="city_province" name="city_province" defaultValue={editSubmission.city_province} required maxLength={100} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="project_type">Project Type</Label>
-                                  <Input id="project_type" name="project_type" defaultValue={editSubmission.project_type || ''} />
+                                  <Input id="project_type" name="project_type" defaultValue={editSubmission.project_type || ''} maxLength={100} />
                                 </div>
                                 <div className="col-span-2 space-y-2">
                                   <Label htmlFor="project_title">Project Title</Label>
-                                  <Input id="project_title" name="project_title" defaultValue={editSubmission.project_title} required />
+                                  <Input id="project_title" name="project_title" defaultValue={editSubmission.project_title} required maxLength={200} />
                                 </div>
                                 <div className="col-span-2 space-y-2">
                                   <Label htmlFor="project_description">Project Description</Label>
-                                  <Textarea id="project_description" name="project_description" defaultValue={editSubmission.project_description} rows={4} required />
+                                  <Textarea id="project_description" name="project_description" defaultValue={editSubmission.project_description} rows={4} required maxLength={1000} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="funding_needed">Funding Needed ($)</Label>
-                                  <Input id="funding_needed" name="funding_needed" type="number" defaultValue={editSubmission.funding_needed} required />
+                                  <Input id="funding_needed" name="funding_needed" type="number" defaultValue={editSubmission.funding_needed} required min="1" max="999999999" />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="payment_method">Payment Method</Label>
@@ -569,11 +599,11 @@ export default function AdminSubmissions() {
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="payment_phone_number">Payment Phone Number</Label>
-                                  <Input id="payment_phone_number" name="payment_phone_number" defaultValue={editSubmission.payment_phone_number || ''} />
+                                  <Input id="payment_phone_number" name="payment_phone_number" defaultValue={editSubmission.payment_phone_number || ''} maxLength={20} />
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor="payment_reference">Payment Reference</Label>
-                                  <Input id="payment_reference" name="payment_reference" defaultValue={editSubmission.payment_reference || ''} />
+                                  <Input id="payment_reference" name="payment_reference" defaultValue={editSubmission.payment_reference || ''} maxLength={100} />
                                 </div>
                               </div>
                               <div className="flex justify-end gap-2">

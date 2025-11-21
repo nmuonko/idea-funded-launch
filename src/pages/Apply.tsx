@@ -14,6 +14,22 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PaymentDialog } from '@/components/PaymentDialog';
+import { z } from 'zod';
+
+const applicationSchema = z.object({
+  fullName: z.string().trim().min(1, 'Full name is required').max(200, 'Full name must be less than 200 characters'),
+  whatsappNumber: z.string().trim().min(1, 'WhatsApp number is required').max(20, 'WhatsApp number must be less than 20 characters'),
+  email: z.string().trim().email('Invalid email address').max(255, 'Email must be less than 255 characters'),
+  cityProvince: z.string().trim().min(1, 'City/Province is required').max(100, 'City/Province must be less than 100 characters'),
+  projectTitle: z.string().trim().min(1, 'Project title is required').max(100, 'Project title must be less than 100 characters'),
+  projectDescription: z.string().trim().min(1, 'Project description is required').max(500, 'Project description must be less than 500 characters'),
+  estimatedRevenue: z.string().refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) >= 0, 'Estimated revenue must be a positive number'),
+  timeUntilProfit: z.string().min(1, 'Time until profit is required'),
+  feasibilityExplanation: z.string().trim().min(1, 'Feasibility explanation is required').max(300, 'Feasibility explanation must be less than 300 characters'),
+  fundingNeeded: z.string().refine((val) => ['500', '1000', '2000'].includes(val), 'Invalid funding amount'),
+  willHire: z.string().refine((val) => ['yes', 'no'].includes(val), 'Please select yes or no'),
+  numberOfHires: z.string().optional().refine((val) => !val || (!isNaN(parseInt(val)) && parseInt(val) >= 1), 'Number of hires must be at least 1'),
+});
 
 export default function Apply() {
   const { t } = useLanguage();
@@ -93,23 +109,49 @@ export default function Apply() {
       return;
     }
 
+    // Validate form data
+    const validationData = {
+      fullName: formData.fullName,
+      whatsappNumber: formData.whatsappNumber,
+      email: formData.email,
+      cityProvince: formData.cityProvince,
+      projectTitle: formData.projectTitle,
+      projectDescription: formData.projectDescription,
+      estimatedRevenue: formData.estimatedRevenue,
+      timeUntilProfit: formData.timeUntilProfit,
+      feasibilityExplanation: formData.feasibilityExplanation,
+      fundingNeeded: formData.fundingNeeded,
+      willHire: formData.willHire,
+      numberOfHires: formData.numberOfHires,
+    };
+
+    const result = applicationSchema.safeParse(validationData);
+    if (!result.success) {
+      toast({
+        title: t.common.error,
+        description: result.error.issues[0].message,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
 
     try {
       const { data, error } = await supabase.from('user_submissions').insert({
         session_id: activeSession.id,
-        full_name: formData.fullName,
-        whatsapp_number: formData.whatsappNumber,
-        email: formData.email,
-        city_province: formData.cityProvince,
-        project_title: formData.projectTitle,
-        project_description: formData.projectDescription,
-        estimated_monthly_revenue: parseFloat(formData.estimatedRevenue),
-        time_until_profit: formData.timeUntilProfit,
-        feasibility_explanation: formData.feasibilityExplanation,
-        funding_needed: parseInt(formData.fundingNeeded),
-        will_hire: formData.willHire === 'yes',
-        number_of_hires: formData.willHire === 'yes' && formData.numberOfHires ? parseInt(formData.numberOfHires) : null,
+        full_name: result.data.fullName,
+        whatsapp_number: result.data.whatsappNumber,
+        email: result.data.email,
+        city_province: result.data.cityProvince,
+        project_title: result.data.projectTitle,
+        project_description: result.data.projectDescription,
+        estimated_monthly_revenue: parseFloat(result.data.estimatedRevenue),
+        time_until_profit: result.data.timeUntilProfit,
+        feasibility_explanation: result.data.feasibilityExplanation,
+        funding_needed: parseInt(result.data.fundingNeeded),
+        will_hire: result.data.willHire === 'yes',
+        number_of_hires: result.data.willHire === 'yes' && result.data.numberOfHires ? parseInt(result.data.numberOfHires) : null,
         agreements_confirmed: true,
         payment_status: 'pending',
       }).select().single();
@@ -224,6 +266,7 @@ export default function Apply() {
                     id="fullName"
                     value={formData.fullName}
                     onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                    maxLength={200}
                     required
                   />
                 </div>
@@ -237,6 +280,7 @@ export default function Apply() {
                     type="tel"
                     value={formData.whatsappNumber}
                     onChange={(e) => setFormData({ ...formData, whatsappNumber: e.target.value })}
+                    maxLength={20}
                     required
                   />
                 </div>
@@ -252,6 +296,7 @@ export default function Apply() {
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    maxLength={255}
                     required
                   />
                 </div>
@@ -264,6 +309,7 @@ export default function Apply() {
                     id="cityProvince"
                     value={formData.cityProvince}
                     onChange={(e) => setFormData({ ...formData, cityProvince: e.target.value })}
+                    maxLength={100}
                     required
                   />
                 </div>

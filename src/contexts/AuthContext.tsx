@@ -23,41 +23,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const checkAdminStatus = async (userId?: string): Promise<boolean> => {
+  const checkAdminStatus = async (userEmail?: string): Promise<boolean> => {
     try {
-      const uid = userId || user?.id;
-      if (!uid) {
-        console.log('[Admin Check] No user ID');
+      const email = userEmail || user?.email;
+      if (!email) {
+        console.log('[Admin Check] No email available');
+        setIsAdmin(false);
         return false;
       }
 
-      // Get user email from auth
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user?.email) {
-        console.log('[Admin Check] No user email');
-        return false;
-      }
-
-      console.log('[Admin Check] Checking email:', userData.user.email);
+      console.log('[Admin Check] Checking email:', email);
 
       // Check if email exists in admin_users table
       const { data, error } = await supabase
         .from('admin_users')
         .select('email')
-        .eq('email', userData.user.email)
+        .eq('email', email)
         .maybeSingle();
 
       if (error) {
         console.error('[Admin Check] Error:', error);
+        setIsAdmin(false);
         return false;
       }
 
       const adminStatus = !!data;
-      console.log('[Admin Check] Result:', { found: adminStatus, data });
+      console.log('[Admin Check] Result:', { found: adminStatus, email });
       setIsAdmin(adminStatus);
       return adminStatus;
     } catch (error) {
       console.error('[Admin Check] Exception:', error);
+      setIsAdmin(false);
       return false;
     }
   };
@@ -66,28 +62,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('[Auth] State change:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
         // Check admin status immediately for logged-in users
-        if (session?.user) {
-          await checkAdminStatus(session.user.id);
+        if (session?.user?.email) {
+          await checkAdminStatus(session.user.email);
         } else {
           setIsAdmin(false);
         }
+        
+        // Always set loading to false after handling auth change
+        setLoading(false);
       }
     );
 
     // THEN check for existing session
     const initializeAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await checkAdminStatus(session.user.id);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('[Auth] Initialize:', session?.user?.email);
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user?.email) {
+          await checkAdminStatus(session.user.email);
+        }
+      } catch (error) {
+        console.error('[Auth] Init error:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     initializeAuth();

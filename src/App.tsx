@@ -17,6 +17,7 @@ import Results from "./pages/Results";
 import Terms from "./pages/Terms";
 import Contact from "./pages/Contact";
 import Auth from "./pages/Auth";
+import Profile from "./pages/Profile";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminSessions from "./pages/admin/Sessions";
 import AdminSubmissions from "./pages/admin/Submissions";
@@ -26,6 +27,7 @@ import SessionSettings from "./pages/admin/SessionSettings";
 import ContentManagement from "./pages/admin/ContentManagement";
 import AIAssistant from "./pages/admin/AIAssistant";
 import Analytics from "./pages/admin/Analytics";
+import AdminUsers from "./pages/admin/AdminUsers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -84,6 +86,15 @@ const App = () => (
                 </div>
               } />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/profile" element={
+                <ProtectedRoute>
+                  <div className="flex flex-col min-h-screen">
+                    <Header />
+                    <main className="flex-1"><Profile /></main>
+                    <Footer />
+                  </div>
+                </ProtectedRoute>
+              } />
               
               {/* Admin routes */}
               <Route path="/admin" element={
@@ -100,6 +111,7 @@ const App = () => (
                 <Route path="sessions" element={<AdminSessions />} />
                 <Route path="contacts" element={<AdminContacts />} />
                 <Route path="payment-settings" element={<PaymentSettings />} />
+                <Route path="users" element={<AdminUsers />} />
               </Route>
               
               <Route path="*" element={<NotFound />} />

@@ -1,12 +1,38 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Clock, Trophy, Mail, TrendingUp } from 'lucide-react';
+import { Users, FileText, Clock, Trophy, Mail, TrendingUp, Bug } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { SubmissionCharts } from '@/components/admin/SubmissionCharts';
+import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
 
 export default function AdminDashboard() {
+  const { user, isAdmin } = useAuth();
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+
+  useEffect(() => {
+    const checkDebug = async () => {
+      if (!user) return;
+      
+      const { data: adminCheck, error } = await supabase
+        .from('admin_users')
+        .select('email')
+        .eq('email', user.email || '')
+        .maybeSingle();
+
+      setDebugInfo({
+        userEmail: user.email,
+        isAdminFromContext: isAdmin,
+        adminRowFound: !!adminCheck,
+        adminRowData: adminCheck,
+        error: error?.message,
+      });
+    };
+
+    checkDebug();
+  }, [user, isAdmin]);
   const { data: stats } = useQuery({
     queryKey: ['adminStats'],
     queryFn: async () => {
@@ -89,6 +115,23 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Debug Info Card - Remove this after testing */}
+      {debugInfo && (
+        <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+              <Bug className="h-5 w-5" />
+              Admin Debug Info (Preview Only)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs overflow-auto p-2 bg-white dark:bg-gray-900 rounded">
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+
       <div>
         <h1 className="text-4xl font-bold mb-2">Admin Dashboard</h1>
         <p className="text-muted-foreground text-lg">

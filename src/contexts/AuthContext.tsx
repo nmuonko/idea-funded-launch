@@ -26,11 +26,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAdminStatus = async (userId?: string): Promise<boolean> => {
     try {
       const uid = userId || user?.id;
-      if (!uid) return false;
+      if (!uid) {
+        console.log('[Admin Check] No user ID');
+        return false;
+      }
 
       // Get user email from auth
       const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user?.email) return false;
+      if (!userData.user?.email) {
+        console.log('[Admin Check] No user email');
+        return false;
+      }
+
+      console.log('[Admin Check] Checking email:', userData.user.email);
 
       // Check if email exists in admin_users table
       const { data, error } = await supabase
@@ -40,15 +48,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (error) {
-        console.error('Error checking admin status:', error);
+        console.error('[Admin Check] Error:', error);
         return false;
       }
 
       const adminStatus = !!data;
+      console.log('[Admin Check] Result:', { found: adminStatus, data });
       setIsAdmin(adminStatus);
       return adminStatus;
     } catch (error) {
-      console.error('Error in checkAdminStatus:', error);
+      console.error('[Admin Check] Exception:', error);
       return false;
     }
   };
@@ -56,15 +65,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Defer admin check to avoid deadlock
+        // Check admin status immediately for logged-in users
         if (session?.user) {
-          setTimeout(() => {
-            checkAdminStatus(session.user.id);
-          }, 0);
+          await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
         }
@@ -72,17 +79,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const initializeAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        setTimeout(() => {
-          checkAdminStatus(session.user.id);
-        }, 0);
+        await checkAdminStatus(session.user.id);
       }
       setLoading(false);
-    });
+    };
+
+    initializeAuth();
 
     return () => subscription.unsubscribe();
   }, []);

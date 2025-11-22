@@ -1,39 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Clock, Trophy, Mail, TrendingUp, Bug } from 'lucide-react';
+import { Users, FileText, Clock, Trophy, Mail, TrendingUp, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { SubmissionCharts } from '@/components/admin/SubmissionCharts';
-import { useAuth } from '@/contexts/AuthContext';
-import { useState, useEffect } from 'react';
 
 export default function AdminDashboard() {
-  const { user, isAdmin } = useAuth();
-  const [debugInfo, setDebugInfo] = useState<any>(null);
-
-  useEffect(() => {
-    const checkDebug = async () => {
-      if (!user) return;
-      
-      const { data: adminCheck, error } = await supabase
-        .from('admin_users')
-        .select('email')
-        .eq('email', user.email || '')
-        .maybeSingle();
-
-      setDebugInfo({
-        userEmail: user.email,
-        isAdminFromContext: isAdmin,
-        adminRowFound: !!adminCheck,
-        adminRowData: adminCheck,
-        error: error?.message,
-      });
-    };
-
-    checkDebug();
-  }, [user, isAdmin]);
-
   // Fetch active session
   const { data: activeSession } = useQuery({
     queryKey: ['activeSession'],
@@ -122,7 +95,7 @@ export default function AdminDashboard() {
     {
       title: 'Fraud Detected',
       value: stats?.fraudCount || 0,
-      icon: Bug,
+      icon: AlertTriangle,
       description: 'Suspected cases',
       color: 'text-warning',
       link: '/admin/analytics',
@@ -155,26 +128,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Debug Info Card - Remove this after testing */}
-      {debugInfo && (
-        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300 text-sm">
-              <Bug className="h-4 w-4" />
-              🔍 Admin Status Debug
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs space-y-1">
-            <p><strong>Email:</strong> {debugInfo.userEmail}</p>
-            <p><strong>Is Admin (Context):</strong> {debugInfo.isAdminFromContext ? '✅ Yes' : '❌ No'}</p>
-            <p><strong>Admin Row Found:</strong> {debugInfo.adminRowFound ? '✅ Yes' : '❌ No'}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              This debug info will be removed once admin auth is verified working.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Active Session Info */}
       {activeSession && (
         <Card>

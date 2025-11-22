@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
-import { Mic, Square, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Mic, Square, Loader2, Download, Play, Trash2, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { Card } from '@/components/ui/card';
 
 interface VoiceRecorderProps {
   onTranscription: (text: string) => void;
@@ -15,17 +16,64 @@ interface VoiceRecorderProps {
 export function VoiceRecorder({ 
   onTranscription, 
   language,
-  maxDuration = 480, // 8 minutes default
+  maxDuration = 300, // 5 minutes default
   buttonVariant = 'outline',
   buttonSize = 'default'
 }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [recordedAudio, setRecordedAudio] = useState<{ blob: Blob; url: string } | null>(null);
+  const [waveformData, setWaveformData] = useState<number[]>([]);
+  
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      if (recordedAudio) {
+        URL.revokeObjectURL(recordedAudio.url);
+      }
+    };
+  }, [recordedAudio]);
+
+  const visualizeAudio = (stream: MediaStream) => {
+    audioContextRef.current = new AudioContext();
+    analyserRef.current = audioContextRef.current.createAnalyser();
+    const source = audioContextRef.current.createMediaStreamSource(stream);
+    
+    analyserRef.current.fftSize = 256;
+    source.connect(analyserRef.current);
+
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const updateWaveform = () => {
+      if (!analyserRef.current || !isRecording) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+      const normalizedData = Array.from(dataArray.slice(0, 32)).map(value => value / 255);
+      setWaveformData(normalizedData);
+
+      animationRef.current = requestAnimationFrame(updateWaveform);
+    };
+
+    updateWaveform();
+  };
 
   const startRecording = async () => {
     try {
@@ -38,6 +86,9 @@ export function VoiceRecorder({
           autoGainControl: true
         } 
       });
+
+      // Start waveform visualization
+      visualizeAudio(stream);
 
       // Try supported MIME types in order of preference
       const mimeTypes = [
@@ -68,12 +119,20 @@ export function VoiceRecorder({
         }
       };
 
-      mediaRecorder.onstop = async () => {
+      mediaRecorder.onstop = () => {
         const audioBlob = new Blob(chunksRef.current, { type: selectedMimeType });
-        await transcribeAudio(audioBlob);
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudio({ blob: audioBlob, url: audioUrl });
         
-        // Clean up
+        // Clean up stream and visualization
         stream.getTracks().forEach(track => track.stop());
+        if (audioContextRef.current) {
+          audioContextRef.current.close();
+        }
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+        }
+        setWaveformData([]);
       };
 
       // Request data every second for better chunking
@@ -118,7 +177,60 @@ export function VoiceRecorder({
     }
   };
 
-  const transcribeAudio = async (audioBlob: Blob) => {
+  const playRecording = () => {
+    if (!recordedAudio) return;
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+
+    const audio = new Audio(recordedAudio.url);
+    audioPlayerRef.current = audio;
+    
+    audio.onended = () => {
+      setIsPlaying(false);
+      audioPlayerRef.current = null;
+    };
+
+    audio.play();
+    setIsPlaying(true);
+  };
+
+  const downloadRecording = () => {
+    if (!recordedAudio) return;
+
+    const link = document.createElement('a');
+    link.href = recordedAudio.url;
+    link.download = `recording_${new Date().getTime()}.webm`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Download started",
+      description: "Your recording is being downloaded",
+    });
+  };
+
+  const deleteRecording = () => {
+    if (recordedAudio) {
+      URL.revokeObjectURL(recordedAudio.url);
+      setRecordedAudio(null);
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+      setIsPlaying(false);
+    }
+    setRecordingTime(0);
+  };
+
+  const transcribeAudio = async () => {
+    if (!recordedAudio) return;
+    const audioBlob = recordedAudio.blob;
     // Check minimum recording duration
     if (recordingTime < 1) {
       toast({
@@ -165,6 +277,7 @@ export function VoiceRecorder({
 
       if (data?.text) {
         onTranscription(data.text);
+        deleteRecording(); // Clean up after successful transcription
         toast({
           title: "Transcription complete",
           description: `${data.text.length} characters transcribed`,
@@ -181,7 +294,6 @@ export function VoiceRecorder({
       });
     } finally {
       setIsProcessing(false);
-      setRecordingTime(0);
     }
   };
 
@@ -191,26 +303,96 @@ export function VoiceRecorder({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (isProcessing) {
+  if (recordedAudio) {
     return (
-      <Button variant={buttonVariant} size={buttonSize} disabled>
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-        Processing...
-      </Button>
+      <Card className="p-4 space-y-4 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Recording ready ({formatTime(recordingTime)})</span>
+        </div>
+        
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={playRecording}
+            disabled={isProcessing}
+          >
+            <Play className={`h-4 w-4 mr-2 ${isPlaying ? 'animate-pulse' : ''}`} />
+            {isPlaying ? 'Playing...' : 'Play'}
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={downloadRecording}
+            disabled={isProcessing}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Download
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={deleteRecording}
+            disabled={isProcessing}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
+          </Button>
+          
+          <Button
+            variant="default"
+            size="sm"
+            onClick={transcribeAudio}
+            disabled={isProcessing}
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Send className="h-4 w-4 mr-2" />
+                Transcribe
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
     );
   }
 
   if (isRecording) {
     return (
-      <Button 
-        variant="destructive" 
-        size={buttonSize}
-        onClick={stopRecording}
-        className="animate-pulse"
-      >
-        <Square className="h-4 w-4 mr-2" />
-        Stop ({formatTime(recordingTime)})
-      </Button>
+      <Card className="p-4 space-y-4 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Recording... ({formatTime(recordingTime)})</span>
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={stopRecording}
+          >
+            <Square className="h-4 w-4 mr-2" />
+            Stop
+          </Button>
+        </div>
+        
+        {/* Waveform Visualization */}
+        <div className="flex items-center justify-center gap-1 h-16 bg-muted rounded-lg p-2">
+          {waveformData.map((value, index) => (
+            <div
+              key={index}
+              className="flex-1 bg-primary rounded-full transition-all duration-100 animate-pulse"
+              style={{
+                height: `${Math.max(10, value * 100)}%`,
+                opacity: 0.6 + value * 0.4,
+              }}
+            />
+          ))}
+        </div>
+      </Card>
     );
   }
 
@@ -221,7 +403,7 @@ export function VoiceRecorder({
       onClick={startRecording}
     >
       <Mic className="h-4 w-4 mr-2" />
-      Record Audio
+      Record Audio (Max {Math.floor(maxDuration / 60)} min)
     </Button>
   );
 }

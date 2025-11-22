@@ -6,6 +6,7 @@ import { Award, Shield, Users, ArrowRight, Sparkles, Scissors, UtensilsCrossed, 
 import { Link } from 'react-router-dom';
 import { AspectRatio } from '@/components/ui/aspect-ratio';
 import { HeroCarousel } from '@/components/HeroCarousel';
+import afrifundLogo from '@/assets/afrifund-logo.png';
 
 export default function Index() {
   const { t } = useLanguage();
@@ -59,8 +60,9 @@ export default function Index() {
                   <HeroCarousel />
                 </AspectRatio>
                 <div className="absolute bottom-8 left-8 right-8 text-center">
-                  <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4">
-                    <Sparkles className="w-6 h-6 mx-auto text-white animate-pulse mb-2" />
+                  <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4 flex items-center justify-center gap-3">
+                    <img src={afrifundLogo} alt="AfriFund Logo" className="w-8 h-8 object-contain" />
+                    <Sparkles className="w-6 h-6 text-white animate-pulse" />
                     <p className="text-sm font-semibold text-white">Your Project Could Be Next!</p>
                   </div>
                 </div>

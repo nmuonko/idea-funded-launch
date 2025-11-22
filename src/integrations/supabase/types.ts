@@ -476,6 +476,7 @@ export type Database = {
           application_fee: number
           currency: string
           current_participant_count: number
+          deadline_datetime: string
           desired_max_participants: number
           enable_waitlist: boolean
           id: string
@@ -484,6 +485,7 @@ export type Database = {
           review_progress: number
           start_date: string
           status: string
+          target_applicants: number
           waitlist_count: number
         }[]
       }

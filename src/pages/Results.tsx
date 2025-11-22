@@ -19,12 +19,12 @@ export default function Results() {
   const [countdown, setCountdown] = useState('');
 
   // IMPORTANT: All hooks must be called before any conditional returns
-  // Fetch active session WITH progress stats
+  // Fetch active session (public function - no auth required)
   const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['resultsSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .rpc('get_active_session');
+        .rpc('get_public_session_info');
 
       if (error) throw error;
       return data?.[0] || null;

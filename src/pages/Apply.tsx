@@ -62,12 +62,12 @@ export default function Apply() {
   const descriptionMaxLength = 500;
   const feasibilityMaxLength = 300;
 
-  // Fetch active session
+  // Fetch active session (public function - no auth required)
   const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['activeSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .rpc('get_active_session');
+        .rpc('get_public_session_info');
 
       if (error) throw error;
       return data?.[0] || null;

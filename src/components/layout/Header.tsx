@@ -6,6 +6,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ColorCustomization } from '@/components/ColorCustomization';
+import afrifundLogo from '@/assets/afrifund-logo.png';
 
 export function Header() {
   const { t } = useLanguage();
@@ -26,12 +27,14 @@ export function Header() {
       <nav className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center text-primary-foreground font-bold text-xl">
-              PC
-            </div>
+          <Link to="/" className="flex items-center space-x-3">
+            <img 
+              src={afrifundLogo} 
+              alt="AfriFund Logo" 
+              className="h-10 w-auto object-contain"
+            />
             <span className="hidden sm:inline-block font-semibold text-lg">
-              Project Competition
+              AfriFund
             </span>
           </Link>
 

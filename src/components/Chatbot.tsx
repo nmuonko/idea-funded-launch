@@ -13,6 +13,14 @@ export function Chatbot() {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: "Hi! How can I help you today?" }
   ]);
+  const [showQuickQuestions, setShowQuickQuestions] = useState(true);
+
+  const quickQuestions = [
+    "How to apply?",
+    "What are the requirements?",
+    "When are results announced?",
+    "Why are we paying the $20? Is it refundable?"
+  ];
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -121,15 +129,21 @@ export function Chatbot() {
     }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (messageText?: string) => {
+    const textToSend = messageText || input.trim();
+    if (!textToSend || isLoading) return;
 
-    const userMessage: Message = { role: "user", content: input };
+    const userMessage: Message = { role: "user", content: textToSend };
     setMessages(prev => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
+    setShowQuickQuestions(false);
 
     await streamChat(userMessage);
+  };
+
+  const handleQuickQuestion = (question: string) => {
+    handleSend(question);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -192,6 +206,24 @@ export function Chatbot() {
               </div>
             </div>
           )}
+          {showQuickQuestions && messages.length === 1 && !isLoading && (
+            <div className="space-y-2 mt-4">
+              <p className="text-xs text-muted-foreground">Quick questions:</p>
+              <div className="grid grid-cols-1 gap-2">
+                {quickQuestions.map((question, idx) => (
+                  <Button
+                    key={idx}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleQuickQuestion(question)}
+                    className="text-left justify-start text-xs h-auto py-2 px-3"
+                  >
+                    {question}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </ScrollArea>
 
@@ -204,7 +236,7 @@ export function Chatbot() {
             placeholder="Type your message..."
             disabled={isLoading}
           />
-          <Button onClick={handleSend} disabled={isLoading || !input.trim()}>
+          <Button onClick={() => handleSend()} disabled={isLoading || !input.trim()}>
             <Send className="h-4 w-4" />
           </Button>
         </div>

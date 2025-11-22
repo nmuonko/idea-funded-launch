@@ -147,6 +147,7 @@ export default function Apply() {
         city_province: result.data.cityProvince,
         project_title: result.data.projectTitle,
         project_description: result.data.projectDescription,
+        project_description_raw: result.data.projectDescription,
         estimated_monthly_revenue: parseFloat(result.data.estimatedRevenue),
         time_until_profit: result.data.timeUntilProfit,
         feasibility_explanation: result.data.feasibilityExplanation,
@@ -158,6 +159,24 @@ export default function Apply() {
       }).select().single();
 
       if (error) throw error;
+
+      // Trigger AI analysis in background (don't await to avoid blocking user)
+      supabase.functions.invoke('analyze-submission', {
+        body: { submissionId: data.id }
+      }).then(() => {
+        console.log('AI analysis triggered for submission:', data.id);
+      }).catch(err => {
+        console.error('Failed to trigger AI analysis:', err);
+      });
+
+      // Send confirmation email in background
+      supabase.functions.invoke('send-confirmation-email', {
+        body: { submissionId: data.id }
+      }).then(() => {
+        console.log('Confirmation email sent for submission:', data.id);
+      }).catch(err => {
+        console.error('Failed to send confirmation email:', err);
+      });
 
       // Open payment dialog
       setSubmissionId(data.id);

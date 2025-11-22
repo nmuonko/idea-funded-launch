@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { Resend } from "npm:resend@2.0.0";
+import { Resend } from "https://esm.sh/resend@4.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,11 +39,11 @@ serve(async (req) => {
 
     // Format strengths and risks as HTML lists
     const strengthsList = submission.ai_strengths
-      ? submission.ai_strengths.split('\n').filter(s => s.trim()).map(s => `<li>${s.replace(/^[•\-]\s*/, '')}</li>`).join('')
+      ? submission.ai_strengths.split('\n').filter((s: string) => s.trim()).map((s: string) => `<li>${s.replace(/^[•\-]\s*/, '')}</li>`).join('')
       : '<li>Your project shows promise and dedication</li>';
 
     const risksList = submission.ai_risks
-      ? submission.ai_risks.split('\n').filter(r => r.trim()).map(r => `<li>${r.replace(/^[•\-]\s*/, '')}</li>`).join('')
+      ? submission.ai_risks.split('\n').filter((r: string) => r.trim()).map((r: string) => `<li>${r.replace(/^[•\-]\s*/, '')}</li>`).join('')
       : '<li>Consider developing a more detailed implementation plan</li>';
 
     const emailHtml = `
@@ -140,7 +140,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error in send-feedback-email:', error);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: (error as Error).message }),
       { 
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

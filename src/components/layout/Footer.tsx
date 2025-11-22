@@ -11,11 +11,13 @@ export function Footer() {
         {/* Brand Section - Full Width */}
         <div className="mb-12 pb-8 border-b border-border">
           <div className="flex items-center space-x-3 mb-3">
-            <img 
-              src={afrifundLogo} 
-              alt="AfriFund Logo" 
-              className="h-10 w-auto object-contain"
-            />
+            <div className="bg-white rounded-lg p-2">
+              <img 
+                src={afrifundLogo} 
+                alt="AfriFund Logo" 
+                className="h-14 w-auto object-contain"
+              />
+            </div>
             <span className="font-semibold text-lg">
               AfriFund
             </span>

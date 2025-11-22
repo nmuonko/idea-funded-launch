@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PaymentDialog } from '@/components/PaymentDialog';
+import { VoiceRecorder } from '@/components/VoiceRecorder';
 import { z } from 'zod';
 
 const applicationSchema = z.object({
@@ -337,9 +338,20 @@ export default function Apply() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="projectDescription">
-                  {t.apply.projectDescription} <span className="text-destructive">*</span>
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="projectDescription">
+                    {t.apply.projectDescription} <span className="text-destructive">*</span>
+                  </Label>
+                  <VoiceRecorder 
+                    onTranscription={(text) => {
+                      const newText = formData.projectDescription + (formData.projectDescription ? ' ' : '') + text;
+                      setFormData({ ...formData, projectDescription: newText.slice(0, descriptionMaxLength) });
+                    }}
+                    maxDuration={480}
+                    buttonVariant="outline"
+                    buttonSize="sm"
+                  />
+                </div>
                 <Textarea
                   id="projectDescription"
                   rows={6}
@@ -347,6 +359,7 @@ export default function Apply() {
                   value={formData.projectDescription}
                   onChange={(e) => setFormData({ ...formData, projectDescription: e.target.value })}
                   required
+                  placeholder="Describe your project in detail or use the voice recorder..."
                 />
                 <p className="text-xs text-muted-foreground text-right">
                   {formData.projectDescription.length} / {descriptionMaxLength} {t.apply.charactersUsed}

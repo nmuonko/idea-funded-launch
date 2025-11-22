@@ -22,15 +22,10 @@ export default function Results() {
     queryKey: ['resultsSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .rpc('get_public_session_info');
+        .rpc('get_active_session');
 
       if (error) throw error;
-      
-      // Get the most recent session that is open, closed, or published
-      const recentSession = data?.find((s: any) => 
-        ['open', 'closed', 'results_published'].includes(s.status)
-      );
-      return recentSession || null;
+      return data?.[0] || null;
     },
   });
 
@@ -50,7 +45,7 @@ export default function Results() {
       if (error) throw error;
 
       const currentCount = count || 0;
-      const target = activeSession.desired_max_participants || 500;
+      const target = activeSession.target_applicants || activeSession.desired_max_participants || 500;
       const progress = target > 0 ? (currentCount / target) * 100 : 0;
 
       return {

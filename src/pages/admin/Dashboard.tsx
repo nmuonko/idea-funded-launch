@@ -33,67 +33,107 @@ export default function AdminDashboard() {
 
     checkDebug();
   }, [user, isAdmin]);
-  const { data: stats } = useQuery({
-    queryKey: ['adminStats'],
+
+  // Fetch active session
+  const { data: activeSession } = useQuery({
+    queryKey: ['activeSession'],
     queryFn: async () => {
-      const [sessions, submissions, pending, selected, contacts] = await Promise.all([
+      const { data, error } = await supabase
+        .rpc('get_active_session');
+      
+      if (error) throw error;
+      return data?.[0] || null;
+    },
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ['adminStats', activeSession?.id],
+    queryFn: async () => {
+      const [sessions, allSubmissions, pending, selected, contacts] = await Promise.all([
         supabase.from('sessions').select('*', { count: 'exact', head: true }),
-        supabase.from('user_submissions').select('*', { count: 'exact', head: true }),
-        supabase.from('user_submissions').select('*', { count: 'exact', head: true }).eq('submission_status', 'pending'),
+        supabase.from('user_submissions').select('*', { count: 'exact', head: true }).eq('payment_status', 'paid').eq('is_draft', false),
+        supabase.from('user_submissions').select('*', { count: 'exact', head: true }).eq('submission_status', 'pending').eq('payment_status', 'paid').eq('is_draft', false),
         supabase.from('user_submissions').select('*', { count: 'exact', head: true }).eq('submission_status', 'selected'),
         supabase.from('contact_messages').select('*', { count: 'exact', head: true }),
       ]);
 
+      // Get submissions for active session
+      let sessionSubmissions = null;
+      if (activeSession) {
+        sessionSubmissions = await supabase
+          .from('user_submissions')
+          .select('*')
+          .eq('session_id', activeSession.id)
+          .eq('payment_status', 'paid')
+          .eq('is_draft', false);
+      }
+
+      // Calculate session-specific stats
+      const sessionSubs = sessionSubmissions?.data || [];
+      const textSubs = sessionSubs.filter(s => s.submission_type === 'text').length;
+      const voiceSubs = sessionSubs.filter(s => s.submission_type === 'voice').length;
+      const scores = sessionSubs.filter(s => s.ai_overall_score != null).map(s => s.ai_overall_score);
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const fraudCount = sessionSubs.filter(s => s.is_suspected_fraud).length;
+
       // Calculate total funding requested
       const { data: fundingData } = await supabase
         .from('user_submissions')
-        .select('funding_needed');
+        .select('funding_needed')
+        .eq('payment_status', 'paid')
+        .eq('is_draft', false);
       
       const totalFunding = fundingData?.reduce((sum, sub) => sum + sub.funding_needed, 0) || 0;
 
       return {
         totalSessions: sessions.count || 0,
-        totalSubmissions: submissions.count || 0,
+        totalSubmissions: allSubmissions.count || 0,
+        sessionSubmissions: sessionSubs.length,
+        textSubmissions: textSubs,
+        voiceSubmissions: voiceSubs,
+        avgScore: avgScore.toFixed(1),
+        fraudCount,
         pendingReviews: pending.count || 0,
         winners: selected.count || 0,
         contactMessages: contacts.count || 0,
         totalFunding,
       };
     },
+    enabled: true,
   });
 
   const statCards = [
+    {
+      title: 'Session Submissions',
+      value: stats?.sessionSubmissions || 0,
+      icon: FileText,
+      description: `${stats?.textSubmissions || 0} text, ${stats?.voiceSubmissions || 0} voice`,
+      color: 'text-primary',
+      link: '/admin/submissions',
+    },
+    {
+      title: 'Average AI Score',
+      value: stats?.avgScore || '0.0',
+      icon: TrendingUp,
+      description: 'For active session',
+      color: 'text-secondary',
+      link: '/admin/analytics',
+    },
+    {
+      title: 'Fraud Detected',
+      value: stats?.fraudCount || 0,
+      icon: Bug,
+      description: 'Suspected cases',
+      color: 'text-warning',
+      link: '/admin/analytics',
+    },
     {
       title: 'Total Sessions',
       value: stats?.totalSessions || 0,
       icon: Clock,
       description: 'Competition sessions',
-      color: 'text-primary',
+      color: 'text-info',
       link: '/admin/sessions',
-    },
-    {
-      title: 'Total Submissions',
-      value: stats?.totalSubmissions || 0,
-      icon: FileText,
-      description: 'Project applications',
-      color: 'text-secondary',
-      link: '/admin/submissions',
-    },
-    {
-      title: 'Pending Reviews',
-      value: stats?.pendingReviews || 0,
-      icon: Users,
-      description: 'Awaiting evaluation',
-      color: 'text-warning',
-      link: '/admin/submissions',
-    },
-    {
-      title: 'Winners Selected',
-      value: stats?.winners || 0,
-      icon: Trophy,
-      description: 'Successful projects',
-      color: 'text-success',
-      link: '/admin/submissions',
     },
     {
       title: 'Contact Messages',
@@ -117,17 +157,50 @@ export default function AdminDashboard() {
     <div className="space-y-8">
       {/* Debug Info Card - Remove this after testing */}
       {debugInfo && (
-        <Card className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+        <Card className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
-              <Bug className="h-5 w-5" />
-              Admin Debug Info (Preview Only)
+            <CardTitle className="flex items-center gap-2 text-yellow-700 dark:text-yellow-300 text-sm">
+              <Bug className="h-4 w-4" />
+              🔍 Admin Status Debug
             </CardTitle>
           </CardHeader>
+          <CardContent className="text-xs space-y-1">
+            <p><strong>Email:</strong> {debugInfo.userEmail}</p>
+            <p><strong>Is Admin (Context):</strong> {debugInfo.isAdminFromContext ? '✅ Yes' : '❌ No'}</p>
+            <p><strong>Admin Row Found:</strong> {debugInfo.adminRowFound ? '✅ Yes' : '❌ No'}</p>
+            <p className="text-xs text-muted-foreground mt-2">
+              This debug info will be removed once admin auth is verified working.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Active Session Info */}
+      {activeSession && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Session: {activeSession.name}</CardTitle>
+            <CardDescription>Current competition session details</CardDescription>
+          </CardHeader>
           <CardContent>
-            <pre className="text-xs overflow-auto p-2 bg-white dark:bg-gray-900 rounded">
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div>
+                <p className="text-sm text-muted-foreground">Target Applicants</p>
+                <p className="text-2xl font-bold">{activeSession.target_applicants}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Current Count</p>
+                <p className="text-2xl font-bold">{activeSession.current_participant_count}</p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Progress</p>
+                <p className="text-2xl font-bold">
+                  {activeSession.target_applicants > 0
+                    ? ((activeSession.current_participant_count / activeSession.target_applicants) * 100).toFixed(1)
+                    : 0}%
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}

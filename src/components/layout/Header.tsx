@@ -89,7 +89,7 @@ export function Header() {
                     <DropdownMenuItem asChild>
                       <Link to="/admin" className="cursor-pointer">
                         <Shield className="mr-2 h-4 w-4" />
-                        Admin Panel
+                        Admin Portal
                       </Link>
                     </DropdownMenuItem>
                   )}

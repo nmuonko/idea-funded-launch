@@ -28,11 +28,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const uid = userId || user?.id;
       if (!uid) return false;
 
+      // Get user email from auth
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user?.email) return false;
+
+      // Check if email exists in admin_users table
       const { data, error } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', uid)
-        .eq('role', 'admin')
+        .from('admin_users')
+        .select('email')
+        .eq('email', userData.user.email)
         .maybeSingle();
 
       if (error) {

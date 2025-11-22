@@ -15,11 +15,7 @@ export default function Auth() {
   const { signIn, signUp, user } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (user) {
-      navigate('/');
-    }
-  }, [user, navigate]);
+  // Don't redirect if user is already logged in - let them access auth page
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();

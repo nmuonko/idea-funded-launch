@@ -1,17 +1,30 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Menu, X, User, Shield } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Menu, X, User, Shield, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ColorCustomization } from '@/components/ColorCustomization';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import afrifundLogo from '@/assets/afrifund-logo.png';
 
 export function Header() {
   const { t } = useLanguage();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
 
   const navLinks = [
     { to: '/', label: t.nav.home },
@@ -57,24 +70,37 @@ export function Header() {
           <div className="flex items-center space-x-4">
             <ColorCustomization />
             <LanguageSwitcher />
-            {user && (
-              <>
-                {isAdmin && (
-                  <Button asChild variant="outline" size="sm" className="gap-2">
-                    <Link to="/admin">
-                      <Shield className="h-4 w-4" />
-                      Admin
-                    </Link>
-                  </Button>
-                )}
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/auth">
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
                     <User className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </>
-            )}
-            {!user && (
+                    <span className="hidden sm:inline">Account</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem asChild>
+                    <Link to="/auth" className="cursor-pointer">
+                      <User className="mr-2 h-4 w-4" />
+                      Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin" className="cursor-pointer">
+                        <Shield className="mr-2 h-4 w-4" />
+                        Admin Panel
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
               <Button asChild size="sm">
                 <Link to="/auth">Sign In</Link>
               </Button>

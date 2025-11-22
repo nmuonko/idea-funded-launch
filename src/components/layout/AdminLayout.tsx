@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard, BarChart, Settings } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard, BarChart, Settings, BookText, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -11,10 +11,12 @@ export function AdminLayout() {
 
   const navItems = [
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { to: '/admin/sessions', icon: Users, label: 'Sessions' },
     { to: '/admin/submissions', icon: FileText, label: 'Submissions' },
-    { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
     { to: '/admin/session-settings', icon: Settings, label: 'Session Settings' },
+    { to: '/admin/content', icon: BookText, label: 'Content / Text' },
+    { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
+    { to: '/admin/ai-assistant', icon: Bot, label: 'AI Assistant' },
+    { to: '/admin/sessions', icon: Users, label: 'Sessions' },
     { to: '/admin/contacts', icon: Mail, label: 'Contact Messages' },
     { to: '/admin/payment-settings', icon: CreditCard, label: 'Payment Settings' },
   ];

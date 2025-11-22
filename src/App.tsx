@@ -22,6 +22,10 @@ import AdminSessions from "./pages/admin/Sessions";
 import AdminSubmissions from "./pages/admin/Submissions";
 import AdminContacts from "./pages/admin/Contacts";
 import PaymentSettings from "./pages/admin/PaymentSettings";
+import SessionSettings from "./pages/admin/SessionSettings";
+import ContentManagement from "./pages/admin/ContentManagement";
+import AIAssistant from "./pages/admin/AIAssistant";
+import Analytics from "./pages/admin/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -88,8 +92,12 @@ const App = () => (
                 </ProtectedRoute>
               }>
                 <Route index element={<AdminDashboard />} />
-                <Route path="sessions" element={<AdminSessions />} />
                 <Route path="submissions" element={<AdminSubmissions />} />
+                <Route path="session-settings" element={<SessionSettings />} />
+                <Route path="content" element={<ContentManagement />} />
+                <Route path="analytics" element={<Analytics />} />
+                <Route path="ai-assistant" element={<AIAssistant />} />
+                <Route path="sessions" element={<AdminSessions />} />
                 <Route path="contacts" element={<AdminContacts />} />
                 <Route path="payment-settings" element={<PaymentSettings />} />
               </Route>

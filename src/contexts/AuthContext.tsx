@@ -23,10 +23,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const checkAdminStatus = async (userEmail?: string, userId?: string): Promise<boolean> => {
+  const checkAdminStatus = async (userEmail?: string): Promise<boolean> => {
     try {
       const email = userEmail || user?.email;
-      const uid = userId || user?.id;
       
       if (!email) {
         console.log('[Admin Check] No email available');
@@ -36,48 +35,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       console.log('[Admin Check] Checking email:', email);
 
-      // Check both admin_users table and user_roles for redundancy
-      const checks = [
-        supabase
-          .from('admin_users')
-          .select('email')
-          .eq('email', email)
-          .maybeSingle()
-      ];
+      const { data, error } = await supabase
+        .from('admin_users')
+        .select('email')
+        .eq('email', email)
+        .maybeSingle();
 
-      // Only check user_roles if we have a user ID
-      if (uid) {
-        checks.push(
-          supabase
-            .from('user_roles')
-            .select('role')
-            .eq('user_id', uid)
-            .eq('role', 'admin')
-            .maybeSingle()
-        );
-      }
-
-      const results = await Promise.all(checks);
-      const adminCheck = results[0];
-      const roleCheck = results[1];
-
-      if (adminCheck.error && (!roleCheck || roleCheck.error)) {
-        console.error('[Admin Check] Checks failed:', { 
-          adminError: adminCheck.error, 
-          roleError: roleCheck?.error 
-        });
+      if (error) {
+        console.error('[Admin Check] Error:', error);
         setIsAdmin(false);
         return false;
       }
 
-      // Admin if found in either table
-      const adminStatus = !!adminCheck.data || (roleCheck && !!roleCheck.data);
-      console.log('[Admin Check] Result:', { 
-        found: adminStatus, 
-        email,
-        inAdminUsers: !!adminCheck.data,
-        inUserRoles: roleCheck ? !!roleCheck.data : 'not checked'
-      });
+      const adminStatus = !!data;
+      console.log('[Admin Check] Result:', { found: adminStatus, email });
       setIsAdmin(adminStatus);
       return adminStatus;
     } catch (error) {
@@ -102,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user?.email) {
-          await checkAdminStatus(session.user.email, session.user.id);
+          await checkAdminStatus(session.user.email);
         } else {
           setIsAdmin(false);
         }
@@ -127,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user?.email) {
-          await checkAdminStatus(session.user.email, session.user.id);
+          await checkAdminStatus(session.user.email);
         } else {
           setIsAdmin(false);
         }

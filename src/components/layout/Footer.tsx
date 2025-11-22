@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
+import afrifundLogo from '@/assets/afrifund-logo.png';
 
 export function Footer() {
   const { t } = useLanguage();
@@ -9,12 +10,14 @@ export function Footer() {
       <div className="container mx-auto px-4 py-12">
         {/* Brand Section - Full Width */}
         <div className="mb-12 pb-8 border-b border-border">
-          <div className="flex items-center space-x-2 mb-3">
-            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center text-primary-foreground font-bold text-xl">
-              PC
-            </div>
+          <div className="flex items-center space-x-3 mb-3">
+            <img 
+              src={afrifundLogo} 
+              alt="AfriFund Logo" 
+              className="h-10 w-auto object-contain"
+            />
             <span className="font-semibold text-lg">
-              Project Competition
+              AfriFund
             </span>
           </div>
           <p className="text-sm text-muted-foreground text-justify max-w-2xl">

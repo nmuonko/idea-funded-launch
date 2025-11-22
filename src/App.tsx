@@ -28,6 +28,7 @@ import ContentManagement from "./pages/admin/ContentManagement";
 import AIAssistant from "./pages/admin/AIAssistant";
 import Analytics from "./pages/admin/Analytics";
 import AdminUsers from "./pages/admin/AdminUsers";
+import CommandCenter from "./pages/admin/CommandCenter";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -112,6 +113,7 @@ const App = () => (
                 <Route path="contacts" element={<AdminContacts />} />
                 <Route path="payment-settings" element={<PaymentSettings />} />
                 <Route path="users" element={<AdminUsers />} />
+                <Route path="command-center" element={<CommandCenter />} />
               </Route>
               
               <Route path="*" element={<NotFound />} />

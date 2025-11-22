@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.admin-ai-assistant]
 verify_jwt = true
+
+[functions.ai-command-center]
+verify_jwt = true

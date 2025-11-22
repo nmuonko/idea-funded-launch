@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,15 +8,16 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Search } from 'lucide-react';
+import { Loader2, Search, Target, Users, Clock } from 'lucide-react';
 
 export default function Results() {
   const { t } = useLanguage();
   const [projectCode, setProjectCode] = useState('');
   const [searchedSubmission, setSearchedSubmission] = useState<any>(null);
   const [searching, setSearching] = useState(false);
+  const [countdown, setCountdown] = useState('');
 
-  // Fetch active session
+  // Fetch active session WITH progress stats
   const { data: activeSession, isLoading: sessionLoading } = useQuery({
     queryKey: ['resultsSession'],
     queryFn: async () => {
@@ -32,6 +33,65 @@ export default function Results() {
       return recentSession || null;
     },
   });
+
+  // Calculate real-time progress
+  const { data: progressStats } = useQuery({
+    queryKey: ['sessionProgress', activeSession?.id],
+    queryFn: async () => {
+      if (!activeSession) return null;
+
+      const { count, error } = await supabase
+        .from('user_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', activeSession.id)
+        .eq('payment_status', 'paid')
+        .eq('is_draft', false);
+
+      if (error) throw error;
+
+      const currentCount = count || 0;
+      const target = activeSession.desired_max_participants || 500;
+      const progress = target > 0 ? (currentCount / target) * 100 : 0;
+
+      return {
+        current: currentCount,
+        target,
+        progress,
+      };
+    },
+    enabled: !!activeSession,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Countdown timer
+  useEffect(() => {
+    const updateCountdown = () => {
+      if (!activeSession?.deadline_datetime) {
+        setCountdown('No deadline set');
+        return;
+      }
+
+      const now = new Date().getTime();
+      const deadline = new Date(activeSession.deadline_datetime).getTime();
+      const distance = deadline - now;
+
+      if (distance < 0) {
+        setCountdown('Deadline passed');
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+      setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [activeSession]);
 
   // Fetch winners for published sessions
   const { data: winners } = useQuery({
@@ -116,8 +176,65 @@ export default function Results() {
         </div>
 
         <div className="max-w-4xl mx-auto space-y-8">
-          {/* Session Status */}
-          {activeSession && (
+          {/* Session Progress with Countdown */}
+          {activeSession && progressStats && (
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="text-2xl">Current Application Session: {activeSession.name}</CardTitle>
+                <CardDescription>{getSessionStatusLabel()}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium">Application Progress</span>
+                    <span className="text-muted-foreground">
+                      {progressStats.current} / {progressStats.target} applicants
+                    </span>
+                  </div>
+                  <Progress value={progressStats.progress} className="h-3" />
+                  <p className="text-center text-lg font-semibold text-primary">
+                    {progressStats.progress.toFixed(1)}% of target reached
+                  </p>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="flex items-center gap-3 p-4 border rounded-lg">
+                    <Target className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Target</p>
+                      <p className="text-2xl font-bold">{progressStats.target}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 border rounded-lg">
+                    <Users className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Current Applications</p>
+                      <p className="text-2xl font-bold">{progressStats.current}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 p-4 border rounded-lg">
+                    <Clock className="h-8 w-8 text-primary" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">Time Remaining</p>
+                      <p className="text-lg font-bold">{countdown}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {activeSession.deadline_datetime && (
+                  <p className="text-center text-sm text-muted-foreground">
+                    Application deadline: {new Date(activeSession.deadline_datetime).toLocaleDateString()} at{' '}
+                    {new Date(activeSession.deadline_datetime).toLocaleTimeString()}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Session Status - Keep original if no progress stats */}
+          {activeSession && !progressStats && (
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="text-2xl">{t.results.sessionStatus}</CardTitle>
@@ -136,7 +253,6 @@ export default function Results() {
                     {activeSession.review_progress < 100 ? t.results.progressMessage : t.results.completionMessage}
                   </p>
                 </div>
-
               </CardContent>
             </Card>
           )}

@@ -136,6 +136,7 @@ export type Database = {
           created_at: string
           currency: string | null
           current_participant_count: number
+          deadline_datetime: string | null
           desired_max_participants: number
           enable_waitlist: boolean | null
           id: string
@@ -146,6 +147,7 @@ export type Database = {
           review_progress: number
           start_date: string
           status: Database["public"]["Enums"]["session_status"]
+          target_applicants: number | null
           updated_at: string
           waitlist_count: number | null
         }
@@ -157,6 +159,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           current_participant_count?: number
+          deadline_datetime?: string | null
           desired_max_participants?: number
           enable_waitlist?: boolean | null
           id?: string
@@ -167,6 +170,7 @@ export type Database = {
           review_progress?: number
           start_date?: string
           status?: Database["public"]["Enums"]["session_status"]
+          target_applicants?: number | null
           updated_at?: string
           waitlist_count?: number | null
         }
@@ -178,6 +182,7 @@ export type Database = {
           created_at?: string
           currency?: string | null
           current_participant_count?: number
+          deadline_datetime?: string | null
           desired_max_participants?: number
           enable_waitlist?: boolean | null
           id?: string
@@ -188,6 +193,7 @@ export type Database = {
           review_progress?: number
           start_date?: string
           status?: Database["public"]["Enums"]["session_status"]
+          target_applicants?: number | null
           updated_at?: string
           waitlist_count?: number | null
         }
@@ -229,6 +235,12 @@ export type Database = {
           ai_translation_fr: string | null
           ai_translation_ln: string | null
           ai_translation_sw: string | null
+          amount_due: number | null
+          audience_voice_audio_url: string | null
+          audience_voice_text: string | null
+          budget_details: string | null
+          budget_voice_audio_url: string | null
+          budget_voice_text: string | null
           category: string | null
           city_province: string
           country: string | null
@@ -236,11 +248,18 @@ export type Database = {
           duplicate_of_submission_id: string | null
           email: string
           estimated_monthly_revenue: number
+          expected_impact: string | null
           feasibility_explanation: string
+          feasibility_explanation_extended: string | null
+          feasibility_voice_audio_url: string | null
+          feasibility_voice_text: string | null
           fraud_flags: string | null
           full_name: string
           funding_needed: number
           id: string
+          impact_voice_audio_url: string | null
+          impact_voice_text: string | null
+          is_draft: boolean | null
           is_possible_duplicate: boolean | null
           is_suspected_fraud: boolean | null
           language_detected: string | null
@@ -250,18 +269,31 @@ export type Database = {
           payment_phone_number: string | null
           payment_reference: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
+          preferred_language: string | null
+          problem_to_solve: string | null
+          problem_voice_audio_url: string | null
+          problem_voice_text: string | null
           project_code: string | null
           project_description: string
           project_description_raw: string | null
+          project_description_voice_audio_url: string | null
+          project_description_voice_text: string | null
           project_title: string
+          project_title_voice_audio_url: string | null
+          project_title_voice_text: string | null
           project_type: string | null
           selection_timestamp: string | null
           session_id: string
           status: string | null
           submission_status: Database["public"]["Enums"]["submission_status"]
+          submission_type: string | null
+          target_audience: string | null
           time_until_profit: string
           updated_at: string
           whatsapp_number: string
+          why_selected: string | null
+          why_voice_audio_url: string | null
+          why_voice_text: string | null
           will_hire: boolean
         }
         Insert: {
@@ -278,6 +310,12 @@ export type Database = {
           ai_translation_fr?: string | null
           ai_translation_ln?: string | null
           ai_translation_sw?: string | null
+          amount_due?: number | null
+          audience_voice_audio_url?: string | null
+          audience_voice_text?: string | null
+          budget_details?: string | null
+          budget_voice_audio_url?: string | null
+          budget_voice_text?: string | null
           category?: string | null
           city_province: string
           country?: string | null
@@ -285,11 +323,18 @@ export type Database = {
           duplicate_of_submission_id?: string | null
           email: string
           estimated_monthly_revenue: number
+          expected_impact?: string | null
           feasibility_explanation: string
+          feasibility_explanation_extended?: string | null
+          feasibility_voice_audio_url?: string | null
+          feasibility_voice_text?: string | null
           fraud_flags?: string | null
           full_name: string
           funding_needed: number
           id?: string
+          impact_voice_audio_url?: string | null
+          impact_voice_text?: string | null
+          is_draft?: boolean | null
           is_possible_duplicate?: boolean | null
           is_suspected_fraud?: boolean | null
           language_detected?: string | null
@@ -299,18 +344,31 @@ export type Database = {
           payment_phone_number?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
+          preferred_language?: string | null
+          problem_to_solve?: string | null
+          problem_voice_audio_url?: string | null
+          problem_voice_text?: string | null
           project_code?: string | null
           project_description: string
           project_description_raw?: string | null
+          project_description_voice_audio_url?: string | null
+          project_description_voice_text?: string | null
           project_title: string
+          project_title_voice_audio_url?: string | null
+          project_title_voice_text?: string | null
           project_type?: string | null
           selection_timestamp?: string | null
           session_id: string
           status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
+          submission_type?: string | null
+          target_audience?: string | null
           time_until_profit: string
           updated_at?: string
           whatsapp_number: string
+          why_selected?: string | null
+          why_voice_audio_url?: string | null
+          why_voice_text?: string | null
           will_hire?: boolean
         }
         Update: {
@@ -327,6 +385,12 @@ export type Database = {
           ai_translation_fr?: string | null
           ai_translation_ln?: string | null
           ai_translation_sw?: string | null
+          amount_due?: number | null
+          audience_voice_audio_url?: string | null
+          audience_voice_text?: string | null
+          budget_details?: string | null
+          budget_voice_audio_url?: string | null
+          budget_voice_text?: string | null
           category?: string | null
           city_province?: string
           country?: string | null
@@ -334,11 +398,18 @@ export type Database = {
           duplicate_of_submission_id?: string | null
           email?: string
           estimated_monthly_revenue?: number
+          expected_impact?: string | null
           feasibility_explanation?: string
+          feasibility_explanation_extended?: string | null
+          feasibility_voice_audio_url?: string | null
+          feasibility_voice_text?: string | null
           fraud_flags?: string | null
           full_name?: string
           funding_needed?: number
           id?: string
+          impact_voice_audio_url?: string | null
+          impact_voice_text?: string | null
+          is_draft?: boolean | null
           is_possible_duplicate?: boolean | null
           is_suspected_fraud?: boolean | null
           language_detected?: string | null
@@ -348,18 +419,31 @@ export type Database = {
           payment_phone_number?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
+          preferred_language?: string | null
+          problem_to_solve?: string | null
+          problem_voice_audio_url?: string | null
+          problem_voice_text?: string | null
           project_code?: string | null
           project_description?: string
           project_description_raw?: string | null
+          project_description_voice_audio_url?: string | null
+          project_description_voice_text?: string | null
           project_title?: string
+          project_title_voice_audio_url?: string | null
+          project_title_voice_text?: string | null
           project_type?: string | null
           selection_timestamp?: string | null
           session_id?: string
           status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
+          submission_type?: string | null
+          target_audience?: string | null
           time_until_profit?: string
           updated_at?: string
           whatsapp_number?: string
+          why_selected?: string | null
+          why_voice_audio_url?: string | null
+          why_voice_text?: string | null
           will_hire?: boolean
         }
         Relationships: [
@@ -401,6 +485,17 @@ export type Database = {
           start_date: string
           status: string
           waitlist_count: number
+        }[]
+      }
+      get_session_progress: {
+        Args: { session_uuid: string }
+        Returns: {
+          current_count: number
+          deadline_datetime: string
+          progress_percentage: number
+          session_name: string
+          status: string
+          target_applicants: number
         }[]
       }
       has_role: {

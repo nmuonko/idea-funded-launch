@@ -24,8 +24,14 @@ export function Header() {
   console.log('[Header] Render:', { user: user?.email, isAdmin });
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+    console.log('[Header] Sign out clicked');
+    try {
+      await signOut();
+      console.log('[Header] Sign out successful, navigating to home');
+      navigate('/');
+    } catch (error) {
+      console.error('[Header] Sign out error:', error);
+    }
   };
 
   const navLinks = [

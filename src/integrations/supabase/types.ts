@@ -167,6 +167,7 @@ export type Database = {
           desired_max_participants: number
           enable_waitlist: boolean | null
           id: string
+          is_active: boolean | null
           m_pesa_number: string | null
           name: string
           orange_money_number: string | null
@@ -190,6 +191,7 @@ export type Database = {
           desired_max_participants?: number
           enable_waitlist?: boolean | null
           id?: string
+          is_active?: boolean | null
           m_pesa_number?: string | null
           name: string
           orange_money_number?: string | null
@@ -213,6 +215,7 @@ export type Database = {
           desired_max_participants?: number
           enable_waitlist?: boolean | null
           id?: string
+          is_active?: boolean | null
           m_pesa_number?: string | null
           name?: string
           orange_money_number?: string | null
@@ -523,6 +526,21 @@ export type Database = {
     }
     Functions: {
       generate_project_code: { Args: never; Returns: string }
+      get_active_session: {
+        Args: never
+        Returns: {
+          current_participant_count: number
+          deadline_datetime: string
+          desired_max_participants: number
+          id: string
+          is_active: boolean
+          name: string
+          review_progress: number
+          start_date: string
+          status: string
+          target_applicants: number
+        }[]
+      }
       get_public_session_info: {
         Args: never
         Returns: {

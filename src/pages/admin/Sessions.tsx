@@ -10,19 +10,23 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Edit, Users, Calendar, TrendingUp } from 'lucide-react';
+import { Plus, Edit, Users, Calendar, TrendingUp, Target, CheckCircle } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Switch } from '@/components/ui/switch';
 
 const sessionSchema = z.object({
   name: z.string()
     .trim()
     .min(1, { message: "Session name is required" })
     .max(100, { message: "Session name must be less than 100 characters" }),
-  desiredMaxParticipants: z.number().min(10).max(500),
+  targetApplicants: z.number().min(10, "Must be at least 10").max(10000, "Cannot exceed 10,000"),
+  desiredMaxParticipants: z.number().min(10).max(10000),
+  deadlineDatetime: z.string().optional(),
+  isActive: z.boolean().default(false),
 });
 
 export default function AdminSessions() {
@@ -36,7 +40,10 @@ export default function AdminSessions() {
     resolver: zodResolver(sessionSchema),
     defaultValues: {
       name: '',
+      targetApplicants: 500,
       desiredMaxParticipants: 100,
+      deadlineDatetime: '',
+      isActive: false,
     },
   });
 
@@ -60,6 +67,9 @@ export default function AdminSessions() {
         .insert({
           name: values.name,
           desired_max_participants: values.desiredMaxParticipants,
+          target_applicants: values.targetApplicants,
+          deadline_datetime: values.deadlineDatetime || null,
+          is_active: values.isActive,
           status: 'open',
         })
         .select()
@@ -78,10 +88,6 @@ export default function AdminSessions() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     },
   });
-
-  const onSubmit = (values: z.infer<typeof sessionSchema>) => {
-    createSessionMutation.mutate(values);
-  };
 
   const updateSessionMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: any }) => {
@@ -102,52 +108,66 @@ export default function AdminSessions() {
     },
   });
 
+  const onSubmit = (values: z.infer<typeof sessionSchema>) => {
+    createSessionMutation.mutate(values);
+  };
+
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, 'default' | 'secondary' | 'outline'> = {
+    const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
       open: 'default',
       closed: 'secondary',
       results_published: 'outline',
     };
-    return <Badge variant={variants[status] || 'default'}>{status.replace('_', ' ').toUpperCase()}</Badge>;
+    return <Badge variant={variants[status] || 'default'}>{status}</Badge>;
   };
 
-  const handleUpdateReviewProgress = () => {
-    if (!selectedSession) return;
+  const handleUpdateReviewProgress = (sessionId: string, progress: number) => {
     updateSessionMutation.mutate({
-      id: selectedSession.id,
-      updates: { review_progress: reviewProgress },
+      id: sessionId,
+      updates: { review_progress: progress },
     });
   };
 
-  const handlePublishResults = () => {
-    if (!selectedSession) return;
+  const handlePublishResults = (sessionId: string) => {
     updateSessionMutation.mutate({
-      id: selectedSession.id,
-      updates: { 
-        status: 'results_published',
-        announcement_date: new Date().toISOString(),
-      },
+      id: sessionId,
+      updates: { status: 'results_published' },
+    });
+  };
+
+  const handleToggleActive = (sessionId: string, currentStatus: boolean) => {
+    updateSessionMutation.mutate({
+      id: sessionId,
+      updates: { is_active: !currentStatus },
+    });
+  };
+
+  const handleUpdateSettings = (sessionId: string, updates: any) => {
+    updateSessionMutation.mutate({
+      id: sessionId,
+      updates,
     });
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold mb-2">Sessions Management</h1>
-          <p className="text-muted-foreground">Create and manage competition sessions</p>
+          <h1 className="text-3xl font-bold">Session Management</h1>
+          <p className="text-muted-foreground">Configure competition sessions, targets, and deadlines</p>
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2 shadow-glow">
-              <Plus className="h-4 w-4" />
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
               New Session
             </Button>
           </DialogTrigger>
-          <DialogContent className="glass-strong">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Create New Session</DialogTitle>
-              <DialogDescription>Set up a new competition session</DialogDescription>
+              <DialogDescription>Set up a new competition session with custom parameters</DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -158,97 +178,158 @@ export default function AdminSessions() {
                     <FormItem>
                       <FormLabel>Session Name</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="e.g., Session Q1 2025"
-                          maxLength={100}
-                          {...field}
-                        />
+                        <Input placeholder="e.g., Session 1 - 2025" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                
+                <FormField
+                  control={form.control}
+                  name="targetApplicants"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Target Applicants (for progress bar)</FormLabel>
+                      <FormControl>
+                        <div className="space-y-2">
+                          <Input 
+                            type="number" 
+                            {...field}
+                            onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                          />
+                          <Slider
+                            min={10}
+                            max={5000}
+                            step={10}
+                            value={[field.value]}
+                            onValueChange={(value) => field.onChange(value[0])}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormDescription>
+                        This number will be displayed on the public results page
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="desiredMaxParticipants"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Max Participants: {field.value}</FormLabel>
+                      <FormLabel>Maximum Participants (hard limit)</FormLabel>
                       <FormControl>
-                        <Slider
-                          value={[field.value]}
-                          onValueChange={([value]) => field.onChange(value)}
-                          min={10}
-                          max={500}
-                          step={10}
+                        <Input 
+                          type="number" 
+                          {...field}
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Applications will be blocked once this limit is reached
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="deadlineDatetime"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Application Deadline</FormLabel>
+                      <FormControl>
+                        <Input type="datetime-local" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Countdown timer will be displayed on the results page
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="isActive"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Set as Active Session</FormLabel>
+                        <FormDescription>
+                          Make this the current active session (will deactivate others)
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
                         />
                       </FormControl>
                     </FormItem>
                   )}
                 />
-                <Button 
-                  type="submit"
-                  disabled={createSessionMutation.isPending}
-                  className="w-full"
-                >
-                  Create Session
-                </Button>
+
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createSessionMutation.isPending}>
+                    Create Session
+                  </Button>
+                </div>
               </form>
             </Form>
           </DialogContent>
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" />
-              Active Sessions
-            </CardTitle>
+      {/* Summary Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Sessions</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-primary">
-              {sessions?.filter(s => s.status === 'open').length || 0}
+            <div className="text-2xl font-bold">{sessions?.length || 0}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Sessions</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {sessions?.filter((s: any) => s.is_active).length || 0}
             </div>
           </CardContent>
         </Card>
-        
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-secondary" />
-              Total Sessions
-            </CardTitle>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Avg Participants</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-secondary">
-              {sessions?.length || 0}
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-success" />
-              Avg Participants
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-success">
-              {sessions?.length 
-                ? Math.round(sessions.reduce((sum, s) => sum + s.current_participant_count, 0) / sessions.length)
+            <div className="text-2xl font-bold">
+              {sessions && sessions.length > 0
+                ? Math.round(sessions.reduce((sum: number, s: any) => sum + s.current_participant_count, 0) / sessions.length)
                 : 0}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="glass-strong">
+      {/* Sessions Table */}
+      <Card>
         <CardHeader>
           <CardTitle>All Sessions</CardTitle>
-          <CardDescription>Manage existing competition sessions</CardDescription>
+          <CardDescription>Manage your competition sessions and their settings</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
@@ -256,64 +337,97 @@ export default function AdminSessions() {
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Active</TableHead>
                 <TableHead>Participants</TableHead>
-                <TableHead>Review Progress</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>Target</TableHead>
+                <TableHead>Progress</TableHead>
+                <TableHead>Deadline</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sessions?.map((session) => (
+              {sessions?.map((session: any) => (
                 <TableRow key={session.id}>
                   <TableCell className="font-medium">{session.name}</TableCell>
                   <TableCell>{getStatusBadge(session.status)}</TableCell>
                   <TableCell>
-                    {session.current_participant_count} / {session.desired_max_participants}
+                    <Switch
+                      checked={session.is_active}
+                      onCheckedChange={() => handleToggleActive(session.id, session.is_active)}
+                    />
                   </TableCell>
+                  <TableCell>{session.current_participant_count}</TableCell>
+                  <TableCell>{session.target_applicants || 'N/A'}</TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <Progress value={session.review_progress} className="w-20" />
-                      <span className="text-sm text-muted-foreground">{session.review_progress}%</span>
+                      <Progress 
+                        value={
+                          session.target_applicants > 0
+                            ? (session.current_participant_count / session.target_applicants) * 100
+                            : 0
+                        } 
+                        className="w-20"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {session.target_applicants > 0
+                          ? `${Math.round((session.current_participant_count / session.target_applicants) * 100)}%`
+                          : 'N/A'}
+                      </span>
                     </div>
                   </TableCell>
-                  <TableCell>{new Date(session.created_at).toLocaleDateString()}</TableCell>
+                  <TableCell>
+                    {session.deadline_datetime 
+                      ? new Date(session.deadline_datetime).toLocaleDateString()
+                      : 'Not set'}
+                  </TableCell>
                   <TableCell>
                     <Dialog>
                       <DialogTrigger asChild>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setSelectedSession(session);
-                            setReviewProgress(session.review_progress);
-                          }}
-                        >
+                        <Button variant="ghost" size="sm">
                           <Edit className="h-4 w-4" />
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="glass-strong">
+                      <DialogContent className="max-w-2xl">
                         <DialogHeader>
-                          <DialogTitle>Manage Session: {session.name}</DialogTitle>
-                          <DialogDescription>Update session settings and progress</DialogDescription>
+                          <DialogTitle>Edit Session: {session.name}</DialogTitle>
+                          <DialogDescription>Update session settings and parameters</DialogDescription>
                         </DialogHeader>
                         <div className="space-y-4">
-                          <div>
-                            <Label>Review Progress: {reviewProgress}%</Label>
-                            <Slider
-                              value={[reviewProgress]}
-                              onValueChange={([value]) => setReviewProgress(value)}
-                              max={100}
-                              step={5}
-                              className="mt-2"
+                          <div className="space-y-2">
+                            <Label>Target Applicants</Label>
+                            <Input 
+                              type="number"
+                              defaultValue={session.target_applicants}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value);
+                                if (!isNaN(value)) {
+                                  handleUpdateSettings(session.id, { target_applicants: value });
+                                }
+                              }}
                             />
                           </div>
-                          <Button onClick={handleUpdateReviewProgress} className="w-full">
-                            Update Progress
-                          </Button>
-                          {session.status === 'closed' && (
+                          <div className="space-y-2">
+                            <Label>Deadline</Label>
+                            <Input 
+                              type="datetime-local"
+                              defaultValue={session.deadline_datetime ? new Date(session.deadline_datetime).toISOString().slice(0, 16) : ''}
+                              onChange={(e) => {
+                                handleUpdateSettings(session.id, { deadline_datetime: e.target.value || null });
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Review Progress: {session.review_progress}%</Label>
+                            <Slider
+                              value={[session.review_progress]}
+                              onValueChange={(value) => handleUpdateReviewProgress(session.id, value[0])}
+                              max={100}
+                              step={1}
+                            />
+                          </div>
+                          {session.review_progress >= 100 && session.status !== 'results_published' && (
                             <Button 
-                              onClick={handlePublishResults} 
-                              variant="secondary"
+                              onClick={() => handlePublishResults(session.id)}
                               className="w-full"
                             >
                               Publish Results

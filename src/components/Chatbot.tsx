@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -19,10 +20,17 @@ export function Chatbot() {
     "How to apply?",
     "What are the requirements?",
     "When are results announced?",
-    "Why are we paying the $20? Is it refundable?"
+    "Why are we paying the $20? Is it refundable?",
+    "Who is eligible to apply?",
+    "What is the maximum funding amount?",
+    "What are the application deadlines?",
+    "Can I apply if I'm not from DRC?",
+    "How long does the review process take?",
+    "What types of projects are prioritized?"
   ];
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -33,6 +41,47 @@ export function Chatbot() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Load chat history when component mounts
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('session_id', sessionId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          const loadedMessages: Message[] = data.map(msg => ({
+            role: msg.role as "user" | "assistant",
+            content: msg.content
+          }));
+          setMessages(loadedMessages);
+          setShowQuickQuestions(false);
+        }
+      } catch (error) {
+        console.error('Error loading chat history:', error);
+      }
+    };
+
+    loadChatHistory();
+  }, [sessionId]);
+
+  // Save message to database
+  const saveMessage = async (message: Message) => {
+    try {
+      await supabase.from('chat_messages').insert({
+        session_id: sessionId,
+        role: message.role,
+        content: message.content
+      });
+    } catch (error) {
+      console.error('Error saving message:', error);
+    }
+  };
 
   const streamChat = async (userMessage: Message) => {
     try {
@@ -74,7 +123,8 @@ export function Chatbot() {
       let assistantContent = "";
 
       // Add placeholder assistant message
-      setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+      const assistantPlaceholder: Message = { role: "assistant", content: "" };
+      setMessages(prev => [...prev, assistantPlaceholder]);
 
       while (!streamDone) {
         const { done, value } = await reader.read();
@@ -117,6 +167,11 @@ export function Chatbot() {
         }
       }
 
+      // Save final assistant message
+      if (assistantContent) {
+        await saveMessage({ role: "assistant", content: assistantContent });
+      }
+
       setIsLoading(false);
     } catch (error) {
       console.error("Chat error:", error);
@@ -135,6 +190,7 @@ export function Chatbot() {
 
     const userMessage: Message = { role: "user", content: textToSend };
     setMessages(prev => [...prev, userMessage]);
+    await saveMessage(userMessage);
     setInput("");
     setIsLoading(true);
     setShowQuickQuestions(false);
@@ -201,14 +257,19 @@ export function Chatbot() {
           ))}
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-4 py-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="bg-muted rounded-lg px-4 py-3 flex items-center gap-2">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                  <span className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                </div>
+                <span className="text-xs text-muted-foreground">AI is thinking...</span>
               </div>
             </div>
           )}
           {showQuickQuestions && messages.length === 1 && !isLoading && (
             <div className="space-y-2 mt-4">
-              <p className="text-xs text-muted-foreground">Quick questions:</p>
+              <p className="text-xs text-muted-foreground font-semibold">Quick questions:</p>
               <div className="grid grid-cols-1 gap-2">
                 {quickQuestions.map((question, idx) => (
                   <Button
@@ -216,7 +277,7 @@ export function Chatbot() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleQuickQuestion(question)}
-                    className="text-left justify-start text-xs h-auto py-2 px-3"
+                    className="text-left justify-start text-xs h-auto py-2 px-3 hover:bg-primary/10 transition-colors"
                   >
                     {question}
                   </Button>

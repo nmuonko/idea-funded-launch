@@ -48,8 +48,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const adminStatus = !!data;
-      console.log('[Admin Check] Result:', { found: adminStatus, email });
+      console.log('[Admin Check] Result:', { found: adminStatus, email, data });
       setIsAdmin(adminStatus);
+      console.log('[Admin Check] isAdmin state set to:', adminStatus);
       return adminStatus;
     } catch (error) {
       console.error('[Admin Check] Exception:', error);

@@ -217,15 +217,33 @@ export type Database = {
       user_submissions: {
         Row: {
           agreements_confirmed: boolean
+          ai_feasibility_score: number | null
+          ai_feedback_short: string | null
+          ai_impact_score: number | null
+          ai_last_reviewed_at: string | null
+          ai_overall_score: number | null
+          ai_risks: string | null
+          ai_strengths: string | null
+          ai_summary: string | null
+          ai_translation_en: string | null
+          ai_translation_fr: string | null
+          ai_translation_ln: string | null
+          ai_translation_sw: string | null
+          category: string | null
           city_province: string
           country: string | null
           created_at: string
+          duplicate_of_submission_id: string | null
           email: string
           estimated_monthly_revenue: number
           feasibility_explanation: string
+          fraud_flags: string | null
           full_name: string
           funding_needed: number
           id: string
+          is_possible_duplicate: boolean | null
+          is_suspected_fraud: boolean | null
+          language_detected: string | null
           number_of_hires: number | null
           payment_amount: number | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
@@ -234,10 +252,12 @@ export type Database = {
           payment_status: Database["public"]["Enums"]["payment_status"]
           project_code: string | null
           project_description: string
+          project_description_raw: string | null
           project_title: string
           project_type: string | null
           selection_timestamp: string | null
           session_id: string
+          status: string | null
           submission_status: Database["public"]["Enums"]["submission_status"]
           time_until_profit: string
           updated_at: string
@@ -246,15 +266,33 @@ export type Database = {
         }
         Insert: {
           agreements_confirmed?: boolean
+          ai_feasibility_score?: number | null
+          ai_feedback_short?: string | null
+          ai_impact_score?: number | null
+          ai_last_reviewed_at?: string | null
+          ai_overall_score?: number | null
+          ai_risks?: string | null
+          ai_strengths?: string | null
+          ai_summary?: string | null
+          ai_translation_en?: string | null
+          ai_translation_fr?: string | null
+          ai_translation_ln?: string | null
+          ai_translation_sw?: string | null
+          category?: string | null
           city_province: string
           country?: string | null
           created_at?: string
+          duplicate_of_submission_id?: string | null
           email: string
           estimated_monthly_revenue: number
           feasibility_explanation: string
+          fraud_flags?: string | null
           full_name: string
           funding_needed: number
           id?: string
+          is_possible_duplicate?: boolean | null
+          is_suspected_fraud?: boolean | null
+          language_detected?: string | null
           number_of_hires?: number | null
           payment_amount?: number | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
@@ -263,10 +301,12 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           project_code?: string | null
           project_description: string
+          project_description_raw?: string | null
           project_title: string
           project_type?: string | null
           selection_timestamp?: string | null
           session_id: string
+          status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
           time_until_profit: string
           updated_at?: string
@@ -275,15 +315,33 @@ export type Database = {
         }
         Update: {
           agreements_confirmed?: boolean
+          ai_feasibility_score?: number | null
+          ai_feedback_short?: string | null
+          ai_impact_score?: number | null
+          ai_last_reviewed_at?: string | null
+          ai_overall_score?: number | null
+          ai_risks?: string | null
+          ai_strengths?: string | null
+          ai_summary?: string | null
+          ai_translation_en?: string | null
+          ai_translation_fr?: string | null
+          ai_translation_ln?: string | null
+          ai_translation_sw?: string | null
+          category?: string | null
           city_province?: string
           country?: string | null
           created_at?: string
+          duplicate_of_submission_id?: string | null
           email?: string
           estimated_monthly_revenue?: number
           feasibility_explanation?: string
+          fraud_flags?: string | null
           full_name?: string
           funding_needed?: number
           id?: string
+          is_possible_duplicate?: boolean | null
+          is_suspected_fraud?: boolean | null
+          language_detected?: string | null
           number_of_hires?: number | null
           payment_amount?: number | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
@@ -292,10 +350,12 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           project_code?: string | null
           project_description?: string
+          project_description_raw?: string | null
           project_title?: string
           project_type?: string | null
           selection_timestamp?: string | null
           session_id?: string
+          status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
           time_until_profit?: string
           updated_at?: string
@@ -303,6 +363,13 @@ export type Database = {
           will_hire?: boolean
         }
         Relationships: [
+          {
+            foreignKeyName: "user_submissions_duplicate_of_submission_id_fkey"
+            columns: ["duplicate_of_submission_id"]
+            isOneToOne: false
+            referencedRelation: "user_submissions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "user_submissions_session_id_fkey"
             columns: ["session_id"]

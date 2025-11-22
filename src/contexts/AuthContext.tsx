@@ -34,12 +34,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       console.log('[Admin Check] Checking email:', email);
 
-      // Check if email exists in admin_users table
-      const { data, error } = await supabase
+      // Add timeout to prevent infinite hanging
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Admin check timeout')), 5000)
+      );
+
+      const queryPromise = supabase
         .from('admin_users')
         .select('email')
         .eq('email', email)
         .maybeSingle();
+
+      // Race between query and timeout
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
 
       if (error) {
         console.error('[Admin Check] Error:', error);

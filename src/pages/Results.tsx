@@ -18,6 +18,7 @@ export default function Results() {
   const [searching, setSearching] = useState(false);
   const [countdown, setCountdown] = useState('');
 
+  // IMPORTANT: All hooks must be called before any conditional returns
   // Fetch active session WITH progress stats
   const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['resultsSession'],
@@ -30,6 +31,85 @@ export default function Results() {
     },
   });
 
+  // Calculate real-time progress
+  const { data: progressStats } = useQuery({
+    queryKey: ['sessionProgress', activeSession?.id],
+    queryFn: async () => {
+      if (!activeSession) return null;
+
+      const { count, error } = await supabase
+        .from('user_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('session_id', activeSession.id)
+        .eq('payment_status', 'paid')
+        .eq('is_draft', false);
+
+      if (error) throw error;
+
+      const currentCount = count || 0;
+      const target = activeSession.target_applicants || activeSession.desired_max_participants || 500;
+      const progress = target > 0 ? (currentCount / target) * 100 : 0;
+
+      return {
+        current: currentCount,
+        target,
+        progress,
+      };
+    },
+    enabled: !!activeSession,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Fetch winners for published sessions
+  const { data: winners } = useQuery({
+    queryKey: ['winners', activeSession?.id],
+    queryFn: async () => {
+      if (!activeSession || activeSession.status !== 'results_published') return [];
+      
+      const { data, error } = await supabase
+        .from('user_submissions')
+        .select('project_code, project_title, city_province, funding_needed')
+        .eq('session_id', activeSession.id)
+        .eq('submission_status', 'selected')
+        .order('project_code');
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!activeSession && activeSession.status === 'results_published',
+  });
+
+  // Countdown timer
+  useEffect(() => {
+    const updateCountdown = () => {
+      if (!activeSession?.deadline_datetime) {
+        setCountdown('No deadline set');
+        return;
+      }
+
+      const now = new Date().getTime();
+      const deadline = new Date(activeSession.deadline_datetime).getTime();
+      const distance = deadline - now;
+
+      if (distance < 0) {
+        setCountdown('Deadline passed');
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+      setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [activeSession]);
+
+  // NOW conditional returns are safe - all hooks have been called
   // Show loading state
   if (sessionLoading) {
     return (
@@ -74,84 +154,6 @@ export default function Results() {
     );
   }
 
-  // Calculate real-time progress
-  const { data: progressStats } = useQuery({
-    queryKey: ['sessionProgress', activeSession?.id],
-    queryFn: async () => {
-      if (!activeSession) return null;
-
-      const { count, error } = await supabase
-        .from('user_submissions')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', activeSession.id)
-        .eq('payment_status', 'paid')
-        .eq('is_draft', false);
-
-      if (error) throw error;
-
-      const currentCount = count || 0;
-      const target = activeSession.target_applicants || activeSession.desired_max_participants || 500;
-      const progress = target > 0 ? (currentCount / target) * 100 : 0;
-
-      return {
-        current: currentCount,
-        target,
-        progress,
-      };
-    },
-    enabled: !!activeSession,
-    refetchInterval: 30000, // Refresh every 30 seconds
-  });
-
-  // Countdown timer
-  useEffect(() => {
-    const updateCountdown = () => {
-      if (!activeSession?.deadline_datetime) {
-        setCountdown('No deadline set');
-        return;
-      }
-
-      const now = new Date().getTime();
-      const deadline = new Date(activeSession.deadline_datetime).getTime();
-      const distance = deadline - now;
-
-      if (distance < 0) {
-        setCountdown('Deadline passed');
-        return;
-      }
-
-      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-
-      setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [activeSession]);
-
-  // Fetch winners for published sessions
-  const { data: winners } = useQuery({
-    queryKey: ['winners', activeSession?.id],
-    queryFn: async () => {
-      if (!activeSession || activeSession.status !== 'results_published') return [];
-      
-      const { data, error } = await supabase
-        .from('user_submissions')
-        .select('project_code, project_title, city_province, funding_needed')
-        .eq('session_id', activeSession.id)
-        .eq('submission_status', 'selected')
-        .order('project_code');
-
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!activeSession && activeSession.status === 'results_published',
-  });
-
   const handleSearch = async () => {
     if (!projectCode.trim()) return;
 
@@ -195,14 +197,6 @@ export default function Results() {
         return '';
     }
   };
-
-  if (sessionLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   return (
     <div className="py-16 md:py-24">

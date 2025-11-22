@@ -21,6 +21,8 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const navigate = useNavigate();
 
+  console.log('[Header] Render:', { user: user?.email, isAdmin });
+
   const handleSignOut = async () => {
     await signOut();
     navigate('/');

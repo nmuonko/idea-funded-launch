@@ -34,6 +34,7 @@ export default function AdminSubmissions() {
   const queryClient = useQueryClient();
   const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
   const [editSubmission, setEditSubmission] = useState<any>(null);
+  const [showFrenchTranslation, setShowFrenchTranslation] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [cityFilter, setCityFilter] = useState('all');
   const [countryFilter, setCountryFilter] = useState('all');
@@ -122,17 +123,34 @@ export default function AdminSubmissions() {
         .from('user_submissions')
         .update({ 
           submission_status: status as any,
-          ...(status === 'selected' ? { selection_timestamp: new Date().toISOString() } : {}),
+          status: status,
+          ...(status === 'selected' || status === 'winner' ? { selection_timestamp: new Date().toISOString() } : {}),
         })
         .eq('id', id);
       
       if (error) throw error;
+
+      // If marking as not_selected, send feedback email
+      if (status === 'not_selected') {
+        const { error: emailError } = await supabase.functions.invoke('send-feedback-email', {
+          body: { submissionId: id }
+        });
+        if (emailError) {
+          console.error('Failed to send feedback email:', emailError);
+          throw new Error('Status updated but feedback email failed to send.');
+        }
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminSubmissions'] });
       queryClient.invalidateQueries({ queryKey: ['adminStats'] });
       setSelectedSubmission(null);
-      toast({ title: 'Success', description: 'Submission status updated' });
+      toast({ 
+        title: 'Success', 
+        description: variables.status === 'not_selected' 
+          ? 'Submission marked as not selected. Feedback email sent to applicant.'
+          : 'Submission status updated'
+      });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -180,7 +198,10 @@ export default function AdminSubmissions() {
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
       pending: { variant: 'secondary', label: 'Pending' },
+      submitted: { variant: 'secondary', label: 'Submitted' },
       under_review: { variant: 'default', label: 'Under Review' },
+      shortlisted: { variant: 'default', label: 'Shortlisted' },
+      winner: { variant: 'default', label: 'Winner' },
       not_selected: { variant: 'outline', label: 'Not Selected' },
       selected: { variant: 'default', label: 'Selected' },
     };
@@ -283,7 +304,10 @@ export default function AdminSubmissions() {
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="submitted">Submitted</SelectItem>
                 <SelectItem value="under_review">Under Review</SelectItem>
+                <SelectItem value="shortlisted">Shortlisted</SelectItem>
+                <SelectItem value="winner">Winner</SelectItem>
                 <SelectItem value="not_selected">Not Selected</SelectItem>
                 <SelectItem value="selected">Selected</SelectItem>
               </SelectContent>
@@ -415,7 +439,15 @@ export default function AdminSubmissions() {
                   </TableCell>
                   <TableCell className="max-w-[200px]">
                     <div className="font-medium truncate">{submission.project_title}</div>
-                    <div className="text-xs text-muted-foreground">${String(submission.funding_needed).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}</div>
+                    <div className="text-xs text-muted-foreground">
+                      ${String(submission.funding_needed).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      {submission.category && <span className="ml-2">• {submission.category}</span>}
+                    </div>
+                    {submission.ai_overall_score && (
+                      <div className="text-xs font-semibold text-primary mt-1">
+                        Score: {submission.ai_overall_score}/10
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div>{submission.country}</div>
@@ -448,34 +480,121 @@ export default function AdminSubmissions() {
                             View
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-3xl glass-strong max-h-[80vh] overflow-y-auto">
+                        <DialogContent className="max-w-4xl glass-strong max-h-[85vh] overflow-y-auto">
                           <DialogHeader>
                             <DialogTitle className="flex items-center gap-2">
                               <FileText className="h-5 w-5" />
-                              Submission Details
+                              Judge Dashboard: {submission.project_title}
                             </DialogTitle>
-                            <DialogDescription>Code: {submission.project_code || 'Pending payment'}</DialogDescription>
+                            <DialogDescription>
+                              Code: {submission.project_code || 'Pending payment'} | 
+                              Language: {submission.language_detected || 'N/A'} | 
+                              Category: {submission.category || 'N/A'}
+                            </DialogDescription>
                           </DialogHeader>
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <Label className="text-muted-foreground">Project Title</Label>
-                                <p className="font-semibold">{submission.project_title}</p>
+                          <div className="space-y-6">
+                            {/* AI Scores Section */}
+                            {submission.ai_overall_score && (
+                              <div className="grid grid-cols-3 gap-4 p-4 bg-primary/10 rounded-lg">
+                                <div className="text-center">
+                                  <Label className="text-xs text-muted-foreground">Overall Score</Label>
+                                  <p className="text-3xl font-bold text-primary">{submission.ai_overall_score}/10</p>
+                                </div>
+                                <div className="text-center">
+                                  <Label className="text-xs text-muted-foreground">Impact Score</Label>
+                                  <p className="text-3xl font-bold">{submission.ai_impact_score}/10</p>
+                                </div>
+                                <div className="text-center">
+                                  <Label className="text-xs text-muted-foreground">Feasibility Score</Label>
+                                  <p className="text-3xl font-bold">{submission.ai_feasibility_score}/10</p>
+                                </div>
                               </div>
+                            )}
+
+                            {/* Fraud Flags */}
+                            {(submission.is_suspected_fraud || submission.is_possible_duplicate) && (
+                              <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                                <Label className="text-destructive font-semibold">⚠️ Security Alerts</Label>
+                                {submission.is_suspected_fraud && (
+                                  <p className="text-sm mt-2">🚨 Suspected Fraud</p>
+                                )}
+                                {submission.is_possible_duplicate && (
+                                  <p className="text-sm mt-1">📋 Possible Duplicate</p>
+                                )}
+                                {submission.fraud_flags && (
+                                  <p className="text-sm mt-2 text-muted-foreground">{submission.fraud_flags}</p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* AI Summary with Translation Toggle */}
+                            {submission.ai_summary && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-muted-foreground">AI Summary</Label>
+                                  {submission.ai_translation_fr && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setShowFrenchTranslation(!showFrenchTranslation)}
+                                    >
+                                      {showFrenchTranslation ? 'Show English' : 'Traduire en Français'}
+                                    </Button>
+                                  )}
+                                </div>
+                                <p className="text-sm p-3 bg-muted/50 rounded-lg">
+                                  {showFrenchTranslation && submission.ai_translation_fr 
+                                    ? submission.ai_translation_fr 
+                                    : submission.ai_summary}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* AI Strengths */}
+                            {submission.ai_strengths && (
                               <div>
-                                <Label className="text-muted-foreground">City/Province</Label>
-                                <p className="font-semibold">{submission.city_province}</p>
+                                <Label className="text-green-600 dark:text-green-400">✓ Key Strengths</Label>
+                                <div className="text-sm mt-2 p-3 bg-green-50 dark:bg-green-950/20 rounded-lg whitespace-pre-line">
+                                  {submission.ai_strengths}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* AI Risks */}
+                            {submission.ai_risks && (
+                              <div>
+                                <Label className="text-amber-600 dark:text-amber-400">⚠ Key Risks</Label>
+                                <div className="text-sm mt-2 p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg whitespace-pre-line">
+                                  {submission.ai_risks}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="border-t pt-4">
+                              <Label className="text-muted-foreground">Applicant Information</Label>
+                              <div className="grid grid-cols-2 gap-4 mt-2">
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Name</p>
+                                  <p className="font-semibold">{submission.full_name}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Location</p>
+                                  <p className="font-semibold">{submission.city_province}, {submission.country}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">Email</p>
+                                  <p className="text-sm">{submission.email}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-muted-foreground">WhatsApp</p>
+                                  <p className="text-sm">{submission.whatsapp_number}</p>
+                                </div>
                               </div>
                             </div>
 
                             <div>
-                              <Label className="text-muted-foreground">Project Description</Label>
+                              <Label className="text-muted-foreground">Project Description (Original)</Label>
                               <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg">{submission.project_description}</p>
-                            </div>
-
-                            <div>
-                              <Label className="text-muted-foreground">Feasibility Explanation</Label>
-                              <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg">{submission.feasibility_explanation}</p>
                             </div>
 
                             <div className="grid grid-cols-3 gap-4">
@@ -493,38 +612,43 @@ export default function AdminSubmissions() {
                               </div>
                             </div>
 
-                            <div>
-                              <Label className="text-muted-foreground">Will Hire?</Label>
-                              <p className="font-semibold">
-                                {submission.will_hire ? `Yes (${submission.number_of_hires} people)` : 'No'}
-                              </p>
-                            </div>
-
-                            <div className="border-t pt-4 space-y-2">
-                              <Label>Update Status</Label>
-                              <div className="flex gap-2">
+                            <div className="border-t pt-4 space-y-3">
+                              <Label>Judge Actions</Label>
+                              <div className="flex flex-wrap gap-2">
                                 <Button
                                   variant="outline"
                                   onClick={() => updateSubmissionMutation.mutate({ id: submission.id, status: 'under_review' })}
                                   disabled={updateSubmissionMutation.isPending}
                                 >
-                                  Under Review
+                                  Mark Under Review
                                 </Button>
                                 <Button
                                   variant="default"
-                                  onClick={() => updateSubmissionMutation.mutate({ id: submission.id, status: 'selected' })}
+                                  onClick={() => updateSubmissionMutation.mutate({ id: submission.id, status: 'shortlisted' })}
+                                  disabled={updateSubmissionMutation.isPending}
+                                >
+                                  📋 Shortlist
+                                </Button>
+                                <Button
+                                  variant="default"
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => updateSubmissionMutation.mutate({ id: submission.id, status: 'winner' })}
                                   disabled={updateSubmissionMutation.isPending}
                                 >
                                   <Trophy className="h-4 w-4 mr-2" />
-                                  Select Winner
+                                  Mark as Winner
                                 </Button>
                                 <Button
-                                  variant="outline"
-                                  onClick={() => updateSubmissionMutation.mutate({ id: submission.id, status: 'not_selected' })}
+                                  variant="destructive"
+                                  onClick={() => {
+                                    if (confirm('This will send a feedback email to the applicant. Continue?')) {
+                                      updateSubmissionMutation.mutate({ id: submission.id, status: 'not_selected' });
+                                    }
+                                  }}
                                   disabled={updateSubmissionMutation.isPending}
                                 >
                                   <X className="h-4 w-4 mr-2" />
-                                  Not Selected
+                                  Mark Not Selected (Sends Email)
                                 </Button>
                               </div>
                             </div>

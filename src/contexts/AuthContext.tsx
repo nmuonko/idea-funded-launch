@@ -59,46 +59,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        console.log('[Auth] State change:', event, session?.user?.email);
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Check admin status immediately for logged-in users
-        if (session?.user?.email) {
-          await checkAdminStatus(session.user.email);
-        } else {
-          setIsAdmin(false);
-        }
-        
-        // Always set loading to false after handling auth change
-        setLoading(false);
-      }
-    );
+    let mounted = true;
 
-    // THEN check for existing session
     const initializeAuth = async () => {
       try {
+        // Get initial session
         const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!mounted) return;
+        
         console.log('[Auth] Initialize:', session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user?.email) {
           await checkAdminStatus(session.user.email);
+        } else {
+          setIsAdmin(false);
         }
       } catch (error) {
         console.error('[Auth] Init error:', error);
+        setIsAdmin(false);
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+          console.log('[Auth] Loading complete');
+        }
       }
     };
 
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+        
+        console.log('[Auth] State change:', event, session?.user?.email);
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user?.email) {
+          await checkAdminStatus(session.user.email);
+        } else {
+          setIsAdmin(false);
+        }
+        
+        setLoading(false);
+        console.log('[Auth] Loading complete after state change');
+      }
+    );
+
     initializeAuth();
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {

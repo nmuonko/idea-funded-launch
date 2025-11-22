@@ -28,11 +28,13 @@ export function Header() {
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-3">
-            <img 
-              src={afrifundLogo} 
-              alt="AfriFund Logo" 
-              className="h-10 w-auto object-contain"
-            />
+            <div className="bg-white rounded-lg p-1.5">
+              <img 
+                src={afrifundLogo} 
+                alt="AfriFund Logo" 
+                className="h-12 w-auto object-contain"
+              />
+            </div>
             <span className="hidden sm:inline-block font-semibold text-lg">
               AfriFund
             </span>

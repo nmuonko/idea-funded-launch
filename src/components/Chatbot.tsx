@@ -1,11 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Loader2, Trash2, Languages } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { VoiceRecorder } from '@/components/VoiceRecorder';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -31,6 +39,7 @@ export function Chatbot() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [language, setLanguage] = useState<'en' | 'fr' | 'sw' | 'ln'>('en');
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -202,6 +211,36 @@ export function Chatbot() {
     handleSend(question);
   };
 
+  const handleVoiceTranscription = (text: string) => {
+    setInput(text);
+  };
+
+  const clearChatHistory = async () => {
+    try {
+      const { error } = await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('session_id', sessionId);
+
+      if (error) throw error;
+
+      setMessages([{ role: "assistant", content: "Hi! How can I help you today?" }]);
+      setShowQuickQuestions(true);
+      
+      toast({
+        title: "Chat cleared",
+        description: "Your conversation history has been cleared.",
+      });
+    } catch (error) {
+      console.error('Error clearing chat history:', error);
+      toast({
+        title: "Error",
+        description: "Failed to clear chat history.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -228,13 +267,35 @@ export function Chatbot() {
           <MessageCircle className="h-5 w-5 text-primary" />
           <h3 className="font-semibold">Chat Support</h3>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setIsOpen(false)}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select value={language} onValueChange={(value: any) => setLanguage(value)}>
+            <SelectTrigger className="w-[100px] h-8">
+              <Languages className="h-4 w-4 mr-1" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="fr">Français</SelectItem>
+              <SelectItem value="sw">Swahili</SelectItem>
+              <SelectItem value="ln">Lingala</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={clearChatHistory}
+            title="Clear chat history"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
@@ -288,7 +349,7 @@ export function Chatbot() {
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t">
+      <div className="p-4 border-t space-y-2">
         <div className="flex gap-2">
           <Input
             value={input}
@@ -296,6 +357,13 @@ export function Chatbot() {
             onKeyPress={handleKeyPress}
             placeholder="Type your message..."
             disabled={isLoading}
+          />
+          <VoiceRecorder 
+            onTranscription={handleVoiceTranscription}
+            language={language}
+            maxDuration={120}
+            buttonVariant="ghost"
+            buttonSize="icon"
           />
           <Button onClick={() => handleSend()} disabled={isLoading || !input.trim()}>
             <Send className="h-4 w-4" />

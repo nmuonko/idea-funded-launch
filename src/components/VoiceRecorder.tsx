@@ -39,8 +39,24 @@ export function VoiceRecorder({
         } 
       });
 
+      // Try supported MIME types in order of preference
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4',
+        'audio/ogg;codecs=opus'
+      ];
+      
+      let selectedMimeType = mimeTypes[0];
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          selectedMimeType = mimeType;
+          break;
+        }
+      }
+
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
+        mimeType: selectedMimeType
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -53,14 +69,15 @@ export function VoiceRecorder({
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(chunksRef.current, { type: selectedMimeType });
         await transcribeAudio(audioBlob);
         
         // Clean up
         stream.getTracks().forEach(track => track.stop());
       };
 
-      mediaRecorder.start();
+      // Request data every second for better chunking
+      mediaRecorder.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
 
@@ -102,6 +119,26 @@ export function VoiceRecorder({
   };
 
   const transcribeAudio = async (audioBlob: Blob) => {
+    // Check minimum recording duration
+    if (recordingTime < 1) {
+      toast({
+        title: "Recording too short",
+        description: "Please record for at least 1 second.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if blob has data
+    if (audioBlob.size < 1000) {
+      toast({
+        title: "Recording too short or empty",
+        description: "Please try recording again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsProcessing(true);
     try {
       // Convert blob to base64
@@ -119,7 +156,8 @@ export function VoiceRecorder({
       const { data, error } = await supabase.functions.invoke('transcribe-audio', {
         body: { 
           audio: base64Audio,
-          language: language
+          language: language,
+          mimeType: audioBlob.type
         }
       });
 

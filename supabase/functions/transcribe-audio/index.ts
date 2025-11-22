@@ -42,27 +42,38 @@ serve(async (req) => {
   }
 
   try {
-    const { audio, language } = await req.json()
+    const { audio, language, mimeType } = await req.json()
     
     if (!audio) {
       throw new Error('No audio data provided')
     }
 
-    console.log('Transcribing audio with language:', language || 'auto-detect')
+    console.log('Transcribing audio with language:', language || 'auto-detect', 'mimeType:', mimeType)
 
     // Process audio in chunks
     const binaryAudio = processBase64Chunks(audio)
     
-    // Prepare form data
+    if (binaryAudio.length < 1000) {
+      throw new Error('Audio data too small or corrupted')
+    }
+    
+    // Prepare form data with appropriate mime type
     const formData = new FormData()
-    const blob = new Blob([binaryAudio], { type: 'audio/webm' })
-    formData.append('file', blob, 'audio.webm')
+    // Default to webm if no mime type provided
+    const audioType = mimeType || 'audio/webm'
+    const fileExtension = audioType.includes('mp4') ? 'mp4' : 
+                         audioType.includes('ogg') ? 'ogg' : 'webm'
+    
+    const blob = new Blob([binaryAudio], { type: audioType })
+    formData.append('file', blob, `audio.${fileExtension}`)
     formData.append('model', 'whisper-1')
     
     // Add language if specified for better accuracy
     if (language) {
       formData.append('language', language)
     }
+    
+    console.log('Sending audio to OpenAI:', blob.size, 'bytes')
 
     // Send to OpenAI
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {

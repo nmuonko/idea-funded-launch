@@ -63,7 +63,7 @@ export default function Apply() {
   const feasibilityMaxLength = 300;
 
   // Fetch active session
-  const { data: activeSession, isLoading: sessionLoading } = useQuery({
+  const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['activeSession'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -73,6 +73,50 @@ export default function Apply() {
       return data?.[0] || null;
     },
   });
+
+  // Show loading state
+  if (sessionLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Show error if session can't load
+  if (sessionError) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <Card>
+          <CardHeader>
+            <CardTitle>Error Loading Session</CardTitle>
+            <CardDescription>Unable to load the active session. Please try again later.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show no active session message
+  if (!activeSession) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <Card>
+          <CardHeader>
+            <CardTitle>No Active Session</CardTitle>
+            <CardDescription>
+              There is currently no active funding session. Please check back later or contact us for more information.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="outline">
+              <Link to="/">Return Home</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

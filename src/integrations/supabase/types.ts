@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_ai_logs: {
+        Row: {
+          action_description: string
+          admin_email: string
+          details_json: Json | null
+          error_message: string | null
+          id: string
+          success: boolean
+          timestamp: string
+        }
+        Insert: {
+          action_description: string
+          admin_email: string
+          details_json?: Json | null
+          error_message?: string | null
+          id?: string
+          success?: boolean
+          timestamp?: string
+        }
+        Update: {
+          action_description?: string
+          admin_email?: string
+          details_json?: Json | null
+          error_message?: string | null
+          id?: string
+          success?: boolean
+          timestamp?: string
+        }
+        Relationships: []
+      }
       admin_users: {
         Row: {
           created_at: string
@@ -83,6 +113,30 @@ export type Database = {
           message?: string
           subject?: string
           whatsapp_number?: string | null
+        }
+        Relationships: []
+      }
+      feature_flags: {
+        Row: {
+          created_at: string
+          description: string | null
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          key: string
+          updated_at?: string
+          value?: Json
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          key?: string
+          updated_at?: string
+          value?: Json
         }
         Relationships: []
       }
@@ -253,6 +307,42 @@ export type Database = {
           key?: string
           updated_at?: string | null
           value?: string
+        }
+        Relationships: []
+      }
+      theme_settings: {
+        Row: {
+          accent_color: string
+          button_style: string | null
+          created_at: string
+          hero_background_style: string
+          id: string
+          primary_color: string
+          secondary_color: string
+          typography_preset: string
+          updated_at: string
+        }
+        Insert: {
+          accent_color?: string
+          button_style?: string | null
+          created_at?: string
+          hero_background_style?: string
+          id?: string
+          primary_color?: string
+          secondary_color?: string
+          typography_preset?: string
+          updated_at?: string
+        }
+        Update: {
+          accent_color?: string
+          button_style?: string | null
+          created_at?: string
+          hero_background_style?: string
+          id?: string
+          primary_color?: string
+          secondary_color?: string
+          typography_preset?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -513,6 +603,65 @@ export type Database = {
           },
           {
             foreignKeyName: "user_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      winners: {
+        Row: {
+          award_amount: number
+          country: string
+          created_at: string
+          display_order: number
+          id: string
+          image_url: string | null
+          is_published: boolean
+          project_name: string
+          session_id: string | null
+          short_quote: string | null
+          testimonial_text: string | null
+          updated_at: string
+          winner_name: string
+          year: number
+        }
+        Insert: {
+          award_amount: number
+          country: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_published?: boolean
+          project_name: string
+          session_id?: string | null
+          short_quote?: string | null
+          testimonial_text?: string | null
+          updated_at?: string
+          winner_name: string
+          year: number
+        }
+        Update: {
+          award_amount?: number
+          country?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          image_url?: string | null
+          is_published?: boolean
+          project_name?: string
+          session_id?: string | null
+          short_quote?: string | null
+          testimonial_text?: string | null
+          updated_at?: string
+          winner_name?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winners_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "sessions"

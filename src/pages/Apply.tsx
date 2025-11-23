@@ -62,15 +62,20 @@ export default function Apply() {
   const descriptionMaxLength = 500;
   const feasibilityMaxLength = 300;
 
-  // Fetch active session (public function - no auth required)
+  // Fetch active session (direct query - RPC was hanging)
   const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['activeSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .rpc('get_public_session_info');
+        .from('sessions')
+        .select('id, name, start_date, announcement_date, status, desired_max_participants, current_participant_count, application_fee, currency, enable_waitlist, waitlist_count, review_progress, payment_instructions, target_applicants, deadline_datetime')
+        .in('status', ['open', 'closed', 'results_published'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (error) throw error;
-      return data?.[0] || null;
+      return data;
     },
   });
 

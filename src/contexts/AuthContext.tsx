@@ -23,10 +23,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  const checkAdminStatus = async (userId?: string, userEmail?: string): Promise<boolean> => {
+  const checkAdminStatus = async (userId?: string): Promise<boolean> => {
     try {
       const uid = userId || user?.id;
-      const email = userEmail || user?.email;
       
       if (!uid) {
         console.log('[Admin Check] No user ID available');
@@ -34,39 +33,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      console.log('[Admin Check] Checking user:', { uid, email });
+      console.log('[Admin Check] Checking user:', { uid });
 
-      // First try: Check user_roles table via has_role function
+      // Check user_roles table via has_role function (single source of truth)
       const { data: hasRole, error: roleError } = await supabase
         .rpc('has_role', { _user_id: uid, _role: 'admin' });
 
-      if (!roleError && hasRole) {
-        console.log('[Admin Check] Found admin role in user_roles');
+      if (roleError) {
+        console.error('[Admin Check] Error checking role:', roleError);
+        setIsAdmin(false);
+        return false;
+      }
+
+      if (hasRole) {
+        console.log('[Admin Check] User IS admin');
         setIsAdmin(true);
         return true;
       }
 
-      // Second try: Check admin_users table directly
-      if (email) {
-        console.log('[Admin Check] Checking admin_users table for:', email);
-        const { data: adminData, error: adminError } = await supabase
-          .from('admin_users')
-          .select('email')
-          .eq('email', email)
-          .maybeSingle();
-        
-        if (!adminError && adminData) {
-          console.log('[Admin Check] Found admin in admin_users table');
-          setIsAdmin(true);
-          return true;
-        }
-        
-        if (adminError) {
-          console.error('[Admin Check] Admin table error:', adminError);
-        }
-      }
-
-      console.log('[Admin Check] User is not admin');
+      console.log('[Admin Check] User is NOT admin');
       setIsAdmin(false);
       return false;
     } catch (error) {
@@ -91,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          await checkAdminStatus(session.user.id, session.user.email);
+          await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
         }
@@ -116,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          await checkAdminStatus(session.user.id, session.user.email);
+          await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
         }

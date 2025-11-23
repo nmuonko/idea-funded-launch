@@ -36,8 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[Admin Check] Checking user:', { uid });
 
       // Check user_roles table via has_role function (single source of truth)
+      console.log('[Admin Check] Calling has_role RPC...');
       const { data: hasRole, error: roleError } = await supabase
         .rpc('has_role', { _user_id: uid, _role: 'admin' });
+
+      console.log('[Admin Check] RPC Response:', { hasRole, roleError });
 
       if (roleError) {
         console.error('[Admin Check] Error checking role:', roleError);
@@ -45,13 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      if (hasRole) {
-        console.log('[Admin Check] User IS admin');
+      if (hasRole === true) {
+        console.log('[Admin Check] ✅ User IS admin');
         setIsAdmin(true);
         return true;
       }
 
-      console.log('[Admin Check] User is NOT admin');
+      console.log('[Admin Check] ❌ User is NOT admin');
       setIsAdmin(false);
       return false;
     } catch (error) {

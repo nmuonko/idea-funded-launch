@@ -13,17 +13,54 @@ serve(async (req) => {
   }
 
   try {
-    const { command, userEmail } = await req.json();
+    // Extract and verify JWT token
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    const token = authHeader.replace('Bearer ', '');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Verify token and get user
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Verify user has admin role
+    const { data: userRole, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .single();
+
+    if (roleError || !userRole) {
+      return new Response(
+        JSON.stringify({ error: 'Forbidden: Admin access required' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Get user email from authenticated user, not from request body
+    const userEmail = user.email;
+    const { command } = await req.json();
+
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     
     if (!OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not configured');
     }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Use GPT to interpret the command and map it to actions
     const systemPrompt = `You are an AI assistant that helps manage the AfriFund application database. 
@@ -202,21 +239,25 @@ Examples:
   } catch (error) {
     console.error('Error in ai-command-center function:', error);
     
-    // Try to log the error
+    // Try to log the error - use authenticated user email if available
     try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      const { userEmail } = await req.json();
-      await supabase
-        .from('admin_ai_logs')
-        .insert({
-          admin_email: userEmail || 'unknown',
-          action_description: 'Error occurred',
-          error_message: (error as Error).message || String(error),
-          success: false
-        });
+      const authHeader = req.headers.get('Authorization');
+      if (authHeader) {
+        const token = authHeader.replace('Bearer ', '');
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        
+        const { data: { user } } = await supabase.auth.getUser(token);
+        await supabase
+          .from('admin_ai_logs')
+          .insert({
+            admin_email: user?.email || 'unknown',
+            action_description: 'Error occurred',
+            error_message: (error as Error).message || String(error),
+            success: false
+          });
+      }
     } catch (logError) {
       console.error('Failed to log error:', logError);
     }

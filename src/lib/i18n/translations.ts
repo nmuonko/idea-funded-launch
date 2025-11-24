@@ -324,7 +324,7 @@ export const translations = {
       title: 'Contactez-nous',
       subtitle: 'Entrez en contact avec notre équipe',
       aboutUs: 'À propos de nous',
-      aboutText: 'Project Competition est une petite équipe indépendante qui croit aux chances équitables pour les entrepreneurs locaux. La communication se fait principalement par e-mail et WhatsApp.',
+      aboutText: 'AfriFund est une petite équipe indépendante qui croit aux chances équitables pour les entrepreneurs locaux. La communication se fait principalement par e-mail et WhatsApp.',
       contactEmail: 'E-mail',
       contactWhatsApp: 'WhatsApp',
       contactLocation: 'Emplacement',

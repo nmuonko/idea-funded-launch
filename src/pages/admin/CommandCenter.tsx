@@ -73,8 +73,7 @@ export default function CommandCenter() {
     mutationFn: async (cmd: string) => {
       const { data, error } = await supabase.functions.invoke('ai-command-center', {
         body: {
-          command: cmd,
-          userEmail: user?.email || 'unknown'
+          command: cmd
         }
       });
 

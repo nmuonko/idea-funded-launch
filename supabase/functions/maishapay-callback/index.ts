@@ -23,6 +23,22 @@ const handler = async (req: Request): Promise<Response> => {
   try {
     console.log('[MaishaPay Callback] Processing callback...');
 
+    // TODO: CRITICAL SECURITY - Implement webhook signature verification
+    // Before processing any payment, verify the request is actually from MaishaPay
+    // 1. Get webhook secret from environment: MAISHAPAY_WEBHOOK_SECRET
+    // 2. Verify signature using MaishaPay's HMAC algorithm
+    // 3. Reject requests with invalid signatures
+    // Reference: Check MaishaPay API documentation for signature verification details
+    
+    const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
+    if (!webhookSecret) {
+      console.warn('[MaishaPay Callback] WARNING: MAISHAPAY_WEBHOOK_SECRET not configured - signature verification disabled');
+    }
+
+    // TODO: Add signature verification here when webhook secret is configured
+    // Example: const signature = req.headers.get('x-maishapay-signature');
+    // if (!verifySignature(req.body, signature, webhookSecret)) { return 403; }
+
     // Parse the request - MaishaPay might send form-urlencoded, JSON, or plain text
     const contentType = req.headers.get('content-type') ?? '';
     let params: URLSearchParams;

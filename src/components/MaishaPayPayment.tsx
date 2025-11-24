@@ -86,7 +86,7 @@ export const MaishaPayPayment: React.FC<MaishaPayPaymentProps> = ({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <CreditCard className="h-5 w-5" />
-          AfriFund – Project Competition Payment
+          AfriFund – Application Payment
         </CardTitle>
         <CardDescription>
           Complete your application by paying the non-refundable entry fee

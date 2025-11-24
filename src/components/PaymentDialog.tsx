@@ -196,7 +196,6 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount, curren
             <input type="hidden" name="montant" value={amount} />
             <input type="hidden" name="devise" value={currency} />
             <input type="hidden" name="callbackUrl" value={CALLBACK_URL} />
-            <input type="hidden" name="reference" value={paymentReference} />
           </form>
 
           <div className="flex gap-3 pt-4">

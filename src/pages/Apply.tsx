@@ -13,8 +13,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { MaishaPayPayment } from '@/components/MaishaPayPayment';
+import { MaishaPayCheckout } from '@/components/MaishaPayCheckout';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { ProgressIndicator } from '@/components/ProgressIndicator';
+import { generateConfirmationId } from '@/utils/confirmationId';
 
 import { z } from 'zod';
 
@@ -39,6 +41,8 @@ export default function Apply() {
   const [loading, setLoading] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [submissionId, setSubmissionId] = useState<string>('');
+  const [confirmationId, setConfirmationId] = useState<string>('');
+  const [currentStep, setCurrentStep] = useState(0); // 0: Project Details, 1: Payment, 2: Confirmation
   const [formData, setFormData] = useState({
     fullName: '',
     whatsappNumber: '',
@@ -186,6 +190,14 @@ export default function Apply() {
     setLoading(true);
 
     try {
+      // Generate confirmation ID
+      const newConfirmationId = generateConfirmationId();
+      
+      // Get session fee
+      const sessionFee = activeSession.application_fee || 20;
+      const sessionCurrency = activeSession.currency || 'USD';
+
+      // Create draft submission with confirmation ID
       const { data, error } = await supabase.from('user_submissions').insert({
         session_id: activeSession.id,
         full_name: result.data.fullName,
@@ -203,48 +215,25 @@ export default function Apply() {
         number_of_hires: result.data.willHire === 'yes' && result.data.numberOfHires ? parseInt(result.data.numberOfHires) : null,
         agreements_confirmed: true,
         payment_status: 'pending',
+        payment_provider: 'maishapay',
+        payment_amount: sessionFee,
+        payment_currency: sessionCurrency,
+        amount_due: sessionFee,
+        confirmation_id: newConfirmationId,
+        is_draft: true,
       }).select().single();
 
       if (error) throw error;
 
-      // Trigger AI analysis in background (don't await to avoid blocking user)
-      supabase.functions.invoke('analyze-submission', {
-        body: { submissionId: data.id }
-      }).then(() => {
-        console.log('AI analysis triggered for submission:', data.id);
-      }).catch(err => {
-        console.error('Failed to trigger AI analysis:', err);
-      });
-
-      // Send confirmation email in background (temporarily disabled)
-      // supabase.functions.invoke('send-confirmation-email', {
-      //   body: { submissionId: data.id }
-      // }).then(() => {
-      //   console.log('Confirmation email sent for submission:', data.id);
-      // }).catch(err => {
-      //   console.error('Failed to send confirmation email:', err);
-      // });
-
-      // Update submission with session fee
-      const sessionFee = activeSession.application_fee || 20;
-      const sessionCurrency = activeSession.currency || 'USD';
-      
-      await supabase
-        .from('user_submissions')
-        .update({
-          payment_amount: sessionFee,
-          payment_currency: sessionCurrency,
-          amount_due: sessionFee,
-        })
-        .eq('id', data.id);
-
-      // Open payment dialog
+      // Set state for payment dialog
       setSubmissionId(data.id);
+      setConfirmationId(newConfirmationId);
+      setCurrentStep(1); // Move to payment step
       setPaymentDialogOpen(true);
       
       toast({
         title: t.common.success,
-        description: 'Application submitted! Please complete payment.',
+        description: 'Project details saved! Please complete payment to submit.',
       });
     } catch (error) {
       console.error('Error submitting application:', error);
@@ -644,12 +633,25 @@ export default function Apply() {
 
         {/* Payment Dialog */}
         <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-          <DialogContent className="max-w-lg">
-            <MaishaPayPayment
-              submissionId={submissionId}
-              amount={activeSession?.application_fee || 20}
-              currency={activeSession?.currency || 'USD'}
-            />
+          <DialogContent className="max-w-3xl">
+            {currentStep === 1 && submissionId && confirmationId && (
+              <>
+                <ProgressIndicator
+                  steps={[
+                    { label: 'Project Details', description: 'Application form' },
+                    { label: 'Payment', description: 'Entry fee' },
+                    { label: 'Confirmation', description: 'Track status' },
+                  ]}
+                  currentStep={currentStep}
+                  className="mb-6"
+                />
+                <MaishaPayCheckout
+                  confirmationId={confirmationId}
+                  applicantEmail={formData.email}
+                  applicantName={formData.fullName}
+                />
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>

@@ -13,10 +13,21 @@ import { Link } from 'react-router-dom';
 
 export default function Results() {
   const { t } = useLanguage();
-  const [projectCode, setProjectCode] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchedSubmission, setSearchedSubmission] = useState<any>(null);
   const [searching, setSearching] = useState(false);
   const [countdown, setCountdown] = useState('');
+
+  // Check if there's a ref parameter in URL
+  const [searchParams] = new URL(window.location.href).searchParams.entries();
+  const refFromUrl = new URLSearchParams(window.location.search).get('ref');
+
+  useEffect(() => {
+    if (refFromUrl) {
+      setSearchInput(refFromUrl);
+      handleSearch(refFromUrl);
+    }
+  }, [refFromUrl]);
 
   // IMPORTANT: All hooks must be called before any conditional returns
   // Fetch active session (direct query - RPC was hanging)
@@ -159,16 +170,29 @@ export default function Results() {
     );
   }
 
-  const handleSearch = async () => {
-    if (!projectCode.trim()) return;
+  const handleSearch = async (searchTerm?: string) => {
+    const term = searchTerm || searchInput;
+    if (!term.trim()) return;
 
     setSearching(true);
     try {
-      const { data, error } = await supabase
-        .rpc('search_submission_by_code', { search_code: projectCode.trim().toUpperCase() });
+      // Try searching by confirmation ID first
+      const { data: byConfirmation, error: confError } = await supabase
+        .from('user_submissions')
+        .select('*')
+        .eq('confirmation_id', term.trim().toUpperCase())
+        .maybeSingle();
 
-      if (error) throw error;
-      setSearchedSubmission(data?.[0] || null);
+      if (byConfirmation) {
+        setSearchedSubmission(byConfirmation);
+      } else {
+        // Fallback to project code search
+        const { data, error } = await supabase
+          .rpc('search_submission_by_code', { search_code: term.trim().toUpperCase() });
+
+        if (error) throw error;
+        setSearchedSubmission(data?.[0] || null);
+      }
     } catch (error) {
       console.error('Error searching project:', error);
       setSearchedSubmission(null);
@@ -296,31 +320,34 @@ export default function Results() {
             </Card>
           )}
 
-          {/* Project Code Lookup */}
+          {/* Confirmation ID / Project Code Lookup */}
           <Card className="shadow-card">
             <CardHeader>
-              <CardTitle className="text-2xl">{t.results.checkYourStatus}</CardTitle>
+              <CardTitle className="text-2xl">Track Your Application</CardTitle>
+              <CardDescription>
+                Search using your Confirmation ID (AFF-YYYYMMDD-XXXXXXXX) or Project Code
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
                 <div className="flex-1 space-y-2">
-                  <Label htmlFor="projectCode">{t.results.enterProjectCode}</Label>
+                  <Label htmlFor="searchInput">Confirmation ID or Project Code</Label>
                   <Input
-                    id="projectCode"
-                    placeholder="PC-2025-XXXX"
-                    value={projectCode}
-                    onChange={(e) => setProjectCode(e.target.value.toUpperCase())}
+                    id="searchInput"
+                    placeholder="AFF-20251124-ABC123 or PC-2025-XXXX"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value.toUpperCase())}
                     onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                   />
                 </div>
                 <div className="flex items-end">
-                  <Button onClick={handleSearch} disabled={searching || !projectCode.trim()}>
+                  <Button onClick={() => handleSearch()} disabled={searching || !searchInput.trim()}>
                     {searching ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
                         <Search className="h-4 w-4 mr-2" />
-                        {t.results.checkStatus}
+                        Search
                       </>
                     )}
                   </Button>
@@ -331,26 +358,62 @@ export default function Results() {
                 <Card className="bg-muted/50">
                   <CardContent className="pt-6">
                     <div className="space-y-3">
+                      {searchedSubmission.confirmation_id && (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Confirmation ID:</span>
+                          <code className="text-sm font-mono bg-muted px-2 py-1 rounded">
+                            {searchedSubmission.confirmation_id}
+                          </code>
+                        </div>
+                      )}
+                      {searchedSubmission.project_code && (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Project Code:</span>
+                          <span>{searchedSubmission.project_code}</span>
+                        </div>
+                      )}
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold">{t.results.projectCode}:</span>
-                        <span>{searchedSubmission.project_code}</span>
+                        <span className="font-semibold">Applicant Name:</span>
+                        <span>{searchedSubmission.full_name}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold">{t.results.projectTitle}:</span>
+                        <span className="font-semibold">Project Title:</span>
                         <span>{searchedSubmission.project_title}</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold">{t.common.loading}:</span>
+                        <span className="font-semibold">Payment Status:</span>
+                        <Badge
+                          variant={
+                            searchedSubmission.payment_status === 'paid'
+                              ? 'default'
+                              : searchedSubmission.payment_status === 'failed'
+                              ? 'destructive'
+                              : 'secondary'
+                          }
+                        >
+                          {searchedSubmission.payment_status?.toUpperCase()}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold">Competition Status:</span>
                         {getStatusBadge(searchedSubmission.submission_status)}
                       </div>
+                      {searchedSubmission.submitted_at && (
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold">Submitted:</span>
+                          <span className="text-sm">
+                            {new Date(searchedSubmission.submitted_at).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {projectCode && !searching && searchedSubmission === null && (
-                <p className="text-sm text-muted-foreground text-center">
-                  No project found with this code
+              {searchedSubmission === null && !searching && searchInput.trim() && (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No application found with this ID or code.
                 </p>
               )}
             </CardContent>

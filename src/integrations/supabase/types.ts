@@ -443,6 +443,7 @@ export type Database = {
           budget_voice_text: string | null
           category: string | null
           city_province: string
+          confirmation_id: string | null
           country: string | null
           created_at: string
           duplicate_of_submission_id: string | null
@@ -470,8 +471,10 @@ export type Database = {
           payment_amount: number | null
           payment_currency: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_operator_id: string | null
           payment_phone_number: string | null
           payment_provider: string | null
+          payment_ref_id: string | null
           payment_reference: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           preferred_language: string | null
@@ -492,6 +495,7 @@ export type Database = {
           status: string | null
           submission_status: Database["public"]["Enums"]["submission_status"]
           submission_type: string | null
+          submitted_at: string | null
           target_audience: string | null
           time_until_profit: string
           updated_at: string
@@ -523,6 +527,7 @@ export type Database = {
           budget_voice_text?: string | null
           category?: string | null
           city_province: string
+          confirmation_id?: string | null
           country?: string | null
           created_at?: string
           duplicate_of_submission_id?: string | null
@@ -550,8 +555,10 @@ export type Database = {
           payment_amount?: number | null
           payment_currency?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_operator_id?: string | null
           payment_phone_number?: string | null
           payment_provider?: string | null
+          payment_ref_id?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           preferred_language?: string | null
@@ -572,6 +579,7 @@ export type Database = {
           status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
           submission_type?: string | null
+          submitted_at?: string | null
           target_audience?: string | null
           time_until_profit: string
           updated_at?: string
@@ -603,6 +611,7 @@ export type Database = {
           budget_voice_text?: string | null
           category?: string | null
           city_province?: string
+          confirmation_id?: string | null
           country?: string | null
           created_at?: string
           duplicate_of_submission_id?: string | null
@@ -630,8 +639,10 @@ export type Database = {
           payment_amount?: number | null
           payment_currency?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_operator_id?: string | null
           payment_phone_number?: string | null
           payment_provider?: string | null
+          payment_ref_id?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           preferred_language?: string | null
@@ -652,6 +663,7 @@ export type Database = {
           status?: string | null
           submission_status?: Database["public"]["Enums"]["submission_status"]
           submission_type?: string | null
+          submitted_at?: string | null
           target_audience?: string | null
           time_until_profit?: string
           updated_at?: string

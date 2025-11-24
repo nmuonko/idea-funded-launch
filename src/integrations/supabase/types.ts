@@ -181,6 +181,59 @@ export type Database = {
           },
         ]
       }
+      payments: {
+        Row: {
+          amount: number | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string
+          operator_ref_id: string | null
+          provider: string
+          raw_payload: Json | null
+          status: string
+          submission_id: string | null
+          transaction_ref_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          operator_ref_id?: string | null
+          provider?: string
+          raw_payload?: Json | null
+          status: string
+          submission_id?: string | null
+          transaction_ref_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          operator_ref_id?: string | null
+          provider?: string
+          raw_payload?: Json | null
+          status?: string
+          submission_id?: string | null
+          transaction_ref_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "user_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null

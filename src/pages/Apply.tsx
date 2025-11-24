@@ -645,11 +645,13 @@ export default function Apply() {
                   currentStep={currentStep}
                   className="mb-6"
                 />
-                <MaishaPayCheckout
-                  confirmationId={confirmationId}
-                  applicantEmail={formData.email}
-                  applicantName={formData.fullName}
-                />
+          <MaishaPayCheckout
+            confirmationId={confirmationId}
+            applicantEmail={formData.email}
+            applicantName={formData.fullName}
+            submissionId={submissionId}
+            amount={activeSession?.application_fee || 20}
+          />
               </>
             )}
           </DialogContent>

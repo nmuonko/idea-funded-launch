@@ -102,20 +102,70 @@ serve(async (req) => {
     // Build full callback URL with submission ID
     const fullCallbackUrl = `${callbackUrl}?submission_id=${submissionId}`;
 
-    // Build URL with query parameters (MaishaPay expects GET-style redirect URL)
-    const checkoutUrl = new URL("https://marchand.maishapay.online/payment/vers1.0/merchant/checkout");
-    checkoutUrl.searchParams.set("publicApiKey", publicApiKey);
-    checkoutUrl.searchParams.set("secretApiKey", secretApiKey);
-    checkoutUrl.searchParams.set("gatewayMode", gatewayMode);
-    checkoutUrl.searchParams.set("montant", amount.toString());
-    checkoutUrl.searchParams.set("devise", "USD");
-    checkoutUrl.searchParams.set("callbackUrl", fullCallbackUrl);
-    checkoutUrl.searchParams.set("reference", confirmationId);
-    checkoutUrl.searchParams.set("email_client", email);
+    // MaishaPay checkout URL
+    const checkoutUrl = "https://marchand.maishapay.online/payment/vers1.0/merchant/checkout";
 
-    const redirectUrl = checkoutUrl.toString();
+    // Build form data for POST (MaishaPay requires POST, not GET)
+    const formHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redirecting to Payment...</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .loader {
+      text-align: center;
+    }
+    .spinner {
+      border: 4px solid rgba(255,255,255,0.3);
+      border-top: 4px solid white;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loader">
+    <div class="spinner"></div>
+    <h2>Redirecting to MaishaPay...</h2>
+    <p>Please wait while we redirect you to the secure payment page.</p>
+  </div>
+  <form id="maishapay-form" method="POST" action="${checkoutUrl}">
+    <input type="hidden" name="publicApiKey" value="${publicApiKey}" />
+    <input type="hidden" name="secretApiKey" value="${secretApiKey}" />
+    <input type="hidden" name="gatewayMode" value="${gatewayMode}" />
+    <input type="hidden" name="montant" value="${amount}" />
+    <input type="hidden" name="devise" value="USD" />
+    <input type="hidden" name="callbackUrl" value="${fullCallbackUrl}" />
+    <input type="hidden" name="reference" value="${confirmationId}" />
+    <input type="hidden" name="email_client" value="${email}" />
+  </form>
+  <script>
+    // Auto-submit the form immediately
+    document.getElementById('maishapay-form').submit();
+  </script>
+</body>
+</html>
+    `.trim();
 
-    console.log("[MaishaPay Create] Payment URL generated successfully", {
+    console.log("[MaishaPay Create] Generated auto-submit form", {
       mode,
       gatewayMode,
       amount,
@@ -123,17 +173,14 @@ serve(async (req) => {
       callbackUrl: fullCallbackUrl,
     });
 
-    return new Response(
-      JSON.stringify({ 
-        redirectUrl,
-        mode,
-        confirmationId,
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    // Return HTML that auto-submits to MaishaPay via POST
+    return new Response(formHtml, {
+      status: 200,
+      headers: { 
+        ...corsHeaders, 
+        "Content-Type": "text/html; charset=utf-8" 
+      },
+    });
   } catch (err: any) {
     console.error("[MaishaPay Create] Exception:", err.message, err.stack);
     return new Response(

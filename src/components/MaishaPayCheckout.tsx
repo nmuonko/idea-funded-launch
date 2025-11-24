@@ -74,22 +74,34 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         return;
       }
 
-      const data = await res.json();
-      console.log('[MaishaPayCheckout] Response data:', { hasRedirectUrl: !!data.redirectUrl, mode: data.mode });
+      // Edge function returns HTML with auto-submit form for POST to MaishaPay
+      const html = await res.text();
+      console.log('[MaishaPayCheckout] Received HTML form, creating iframe to auto-submit');
 
-      if (!data.redirectUrl) {
-        console.error('[MaishaPayCheckout] Missing redirectUrl in response:', data);
-        setPaymentError('Payment service did not return a checkout URL. Please contact support.');
-        toast.error('Payment initialization failed. Please contact support.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      console.log('[MaishaPayCheckout] Redirecting to MaishaPay checkout...');
       toast.info('Redirecting to secure payment page...');
 
-      // Full page navigation to MaishaPay checkout
-      window.location.href = data.redirectUrl;
+      // Create a full-page iframe to display the auto-submit form
+      // This allows the form to POST to MaishaPay properly
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '0';
+      iframe.style.left = '0';
+      iframe.style.width = '100%';
+      iframe.style.height = '100%';
+      iframe.style.border = 'none';
+      iframe.style.zIndex = '9999';
+      document.body.appendChild(iframe);
+
+      // Write the HTML into the iframe
+      const iframeDoc = iframe.contentWindow?.document;
+      if (iframeDoc) {
+        iframeDoc.open();
+        iframeDoc.write(html);
+        iframeDoc.close();
+      }
+
+      // Note: The HTML contains auto-submit script that will POST to MaishaPay
+      // User will see loading screen then be redirected to MaishaPay
 
     } catch (error: any) {
       console.error('[MaishaPayCheckout] Exception:', error);

@@ -14,9 +14,10 @@ interface PaymentDialogProps {
   onOpenChange: (open: boolean) => void;
   submissionId: string;
   amount: number;
+  currency?: string;
 }
 
-export function PaymentDialog({ open, onOpenChange, submissionId, amount }: PaymentDialogProps) {
+export function PaymentDialog({ open, onOpenChange, submissionId, amount, currency = 'USD' }: PaymentDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -125,7 +126,7 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Amount:</span>
-                  <span className="font-semibold">${amount} USD</span>
+                  <span className="font-semibold">${amount} {currency}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Mode:</span>

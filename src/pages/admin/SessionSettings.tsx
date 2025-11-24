@@ -67,6 +67,18 @@ export default function SessionSettings() {
       return;
     }
 
+    const session = sessions.find(s => s.id === selectedSession);
+    const applicationFee = session?.application_fee || 20;
+
+    if (applicationFee < 20) {
+      toast({
+        title: "Error",
+        description: "Application fee must be at least $20",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const { error } = await supabase
@@ -74,6 +86,8 @@ export default function SessionSettings() {
         .update({
           target_applicants: targetApplicants,
           deadline_datetime: deadlineDate ? new Date(deadlineDate).toISOString() : null,
+          application_fee: applicationFee,
+          currency: session?.currency || 'USD',
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedSession);
@@ -166,6 +180,59 @@ export default function SessionSettings() {
             <p className="text-sm text-muted-foreground">
               The countdown timer on the public page will show time remaining until this date
             </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="applicationFee">Application Fee (minimum $20)</Label>
+              <Input
+                id="applicationFee"
+                type="number"
+                min="20"
+                step="0.01"
+                value={sessions.find(s => s.id === selectedSession)?.application_fee || 20}
+                onChange={(e) => {
+                  const session = sessions.find(s => s.id === selectedSession);
+                  if (session) {
+                    setSessions(sessions.map(s => 
+                      s.id === selectedSession 
+                        ? { ...s, application_fee: parseFloat(e.target.value) || 20 }
+                        : s
+                    ));
+                  }
+                }}
+                placeholder="20.00"
+              />
+              <p className="text-sm text-muted-foreground">
+                The payment amount applicants will be charged
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="currency">Currency</Label>
+              <select
+                id="currency"
+                className="w-full rounded-md border border-input bg-background px-3 py-2"
+                value={sessions.find(s => s.id === selectedSession)?.currency || 'USD'}
+                onChange={(e) => {
+                  const session = sessions.find(s => s.id === selectedSession);
+                  if (session) {
+                    setSessions(sessions.map(s => 
+                      s.id === selectedSession 
+                        ? { ...s, currency: e.target.value }
+                        : s
+                    ));
+                  }
+                }}
+              >
+                <option value="USD">USD ($)</option>
+                <option value="CDF">CDF (FC)</option>
+                <option value="EUR">EUR (€)</option>
+              </select>
+              <p className="text-sm text-muted-foreground">
+                Currency for application fees
+              </p>
+            </div>
           </div>
 
           <Button onClick={handleSave} disabled={saving}>

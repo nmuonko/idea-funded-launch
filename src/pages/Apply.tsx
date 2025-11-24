@@ -224,6 +224,19 @@ export default function Apply() {
         console.error('Failed to send confirmation email:', err);
       });
 
+      // Update submission with session fee
+      const sessionFee = activeSession.application_fee || 20;
+      const sessionCurrency = activeSession.currency || 'USD';
+      
+      await supabase
+        .from('user_submissions')
+        .update({
+          payment_amount: sessionFee,
+          payment_currency: sessionCurrency,
+          amount_due: sessionFee,
+        })
+        .eq('id', data.id);
+
       // Open payment dialog
       setSubmissionId(data.id);
       setPaymentDialogOpen(true);
@@ -633,7 +646,8 @@ export default function Apply() {
           open={paymentDialogOpen}
           onOpenChange={setPaymentDialogOpen}
           submissionId={submissionId}
-          amount={10}
+          amount={activeSession?.application_fee || 20}
+          currency={activeSession?.currency || 'USD'}
         />
       </div>
     </div>

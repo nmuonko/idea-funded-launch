@@ -26,3 +26,9 @@ verify_jwt = false
 
 [functions.send-payment-confirmation-email]
 verify_jwt = false
+
+[functions.maishapay-create-payment]
+verify_jwt = false
+
+[functions.send-admin-payment-notification]
+verify_jwt = false

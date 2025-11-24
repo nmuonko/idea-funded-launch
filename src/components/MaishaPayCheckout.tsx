@@ -1,137 +1,101 @@
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, CreditCard, Copy, Check } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { useState } from "react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle, CreditCard, Copy, Check, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface MaishaPayCheckoutProps {
   confirmationId: string;
   applicantEmail: string;
-  applicantName?: string;
+  applicantName: string;
+  submissionId: string;
+  amount?: number;
 }
 
 export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
   confirmationId,
   applicantEmail,
   applicantName,
+  submissionId,
+  amount = 20,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Read environment variables - using exact names as specified
-  const mode = (import.meta.env.VITE_MAISHAPAY_MODE ?? "sandbox").toLowerCase();
-  const sandboxPublic  = import.meta.env.VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY as string | undefined;
-  const sandboxSecret  = import.meta.env.VITE_MAISHAPAY_SANDBOX_SECRET_KEY as string | undefined;
-  const livePublic     = import.meta.env.VITE_MAISHAPAY_LIVE_PUBLIC_KEY as string | undefined;
-  const liveSecret     = import.meta.env.VITE_MAISHAPAY_LIVE_SECRET_KEY as string | undefined;
-  const callbackUrl    = import.meta.env.VITE_MAISHAPAY_CALLBACK_URL as string | undefined;
-  const entryFeeStr    = import.meta.env.VITE_MAISHAPAY_ENTRY_FEE_USD ?? "20";
-
-  // DEBUG: Log all env vars to see which are undefined
-  console.log("MAISHAPAY ENV DEBUG", {
-    mode: import.meta.env.VITE_MAISHAPAY_MODE,
-    sandboxPublic: import.meta.env.VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY,
-    sandboxSecret: import.meta.env.VITE_MAISHAPAY_SANDBOX_SECRET_KEY,
-    livePublic: import.meta.env.VITE_MAISHAPAY_LIVE_PUBLIC_KEY,
-    liveSecret: import.meta.env.VITE_MAISHAPAY_LIVE_SECRET_KEY,
-    callbackUrl: import.meta.env.VITE_MAISHAPAY_CALLBACK_URL,
-    entryFee: import.meta.env.VITE_MAISHAPAY_ENTRY_FEE_USD,
-  });
-
-  const isLive = mode === 'live';
-  const gatewayMode = isLive ? 1 : 0;
-
-  const publicApiKey = isLive ? livePublic : sandboxPublic;
-  const secretApiKey = isLive ? liveSecret : sandboxSecret;
-
-  const entryFee = Number(entryFeeStr);
-
-  // Validation - exactly as requested
-  const missingConfig =
-    !publicApiKey ||
-    !secretApiKey ||
-    !callbackUrl ||
-    !Number.isFinite(entryFee);
-
-  const hasValidConfig = !missingConfig;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    if (!hasValidConfig) {
-      e.preventDefault();
-      toast.error('Payment configuration incomplete. Please contact support.');
-      return;
-    }
-
-    setIsSubmitting(true);
-    toast.info('Redirecting to MaishaPay secure checkout...');
-  };
-
   const copyConfirmationId = () => {
     navigator.clipboard.writeText(confirmationId);
     setCopied(true);
-    toast.success('Confirmation ID copied to clipboard');
+    toast.success("Confirmation ID copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
+  const handlePayment = async () => {
+    setIsSubmitting(true);
+    
+    try {
+      console.log('[MaishaPay Checkout] Initiating payment:', {
+        submissionId,
+        confirmationId,
+        amount,
+        email: applicantEmail,
+      });
+
+      // Call backend edge function to create payment
+      const { data, error } = await supabase.functions.invoke('maishapay-create-payment', {
+        body: {
+          submissionId,
+          amount,
+          confirmationId,
+          email: applicantEmail,
+          name: applicantName,
+        },
+      });
+
+      if (error) {
+        console.error('[MaishaPay Checkout] Error from edge function:', error);
+        throw error;
+      }
+
+      if (!data?.redirectUrl) {
+        throw new Error('No redirect URL received from payment service');
+      }
+
+      console.log('[MaishaPay Checkout] Received redirect URL, redirecting...');
+      toast.info('Redirecting to MaishaPay checkout...');
+
+      // Redirect to MaishaPay
+      window.location.href = data.redirectUrl;
+
+    } catch (error: any) {
+      console.error('[MaishaPay Checkout] Payment initiation failed:', error);
+      toast.error(error.message || 'Failed to initiate payment. Please try again.');
+      setIsSubmitting(false);
+    }
+  };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
+    <Card className="w-full">
       <CardHeader>
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-2">
-            <CreditCard className="h-6 w-6 text-primary" />
-            <div>
-              <CardTitle>AfriFund – Project Competition Payment</CardTitle>
-              <CardDescription>Complete your application by paying the non-refundable entry fee</CardDescription>
-            </div>
-          </div>
-          <Badge variant={isLive ? 'default' : 'secondary'} className={isLive ? 'bg-emerald-500' : 'bg-yellow-500'}>
-            {isLive ? '🔒 LIVE MODE' : '🧪 SANDBOX TEST'}
-          </Badge>
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="h-5 w-5" />
+          Complete Your Payment
+        </CardTitle>
+        <CardDescription>
+          Pay the application fee to submit your project to AfriFund
+        </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Configuration Warning */}
-        {!hasValidConfig && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="font-semibold">
-              Payment system configuration is incomplete. Please contact support at info@afri-fund.org
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Mode Info Alert */}
-        {!isLive && hasValidConfig && (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              <strong>Test Mode Active:</strong> This is a sandbox payment. No real money will be charged.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Application Fee Display */}
-        <div className="p-4 bg-muted/50 rounded-lg border-2 border-primary/20">
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-medium text-muted-foreground">Application Fee:</span>
-            <span className="text-3xl font-bold text-primary">${entryFee.toFixed(2)} USD</span>
-          </div>
-        </div>
-
-        {/* Confirmation ID Section */}
-        <div className="space-y-2">
-          <label className="text-sm font-semibold">Your Confirmation ID:</label>
+      <CardContent className="space-y-4">
+        {/* Confirmation ID Display */}
+        <div className="p-4 bg-muted rounded-lg border-2 border-border">
+          <label className="text-sm font-semibold text-muted-foreground block mb-2">
+            Your Confirmation ID:
+          </label>
           <div className="flex items-center gap-2">
-            <div className="flex-1 p-3 bg-emerald-50 dark:bg-emerald-950 rounded-lg border-2 border-emerald-200 dark:border-emerald-800">
-              <code className="text-lg font-mono font-bold text-emerald-700 dark:text-emerald-300">
-                {confirmationId}
-              </code>
-            </div>
+            <code className="flex-1 text-lg font-mono font-bold">
+              {confirmationId}
+            </code>
             <Button
               type="button"
               variant="outline"
@@ -139,58 +103,66 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
               onClick={copyConfirmationId}
               className="shrink-0"
             >
-              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+              {copied ? (
+                <Check className="h-4 w-4 text-emerald-600" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            ⚠️ <strong>Keep this ID safe!</strong> You will use it to track your competition status on the Results page.
+          <p className="text-xs text-muted-foreground mt-2">
+            ⚠️ <strong>Save this ID!</strong> You'll need it to track your application status.
           </p>
         </div>
 
-        {/* Checkout Form */}
-        <form action={checkoutUrl} method="POST" onSubmit={handleSubmit} className="space-y-4">
-          {/* Hidden fields for MaishaPay */}
-          <input type="hidden" name="gatewayMode" value={gatewayMode.toString()} />
-          <input type="hidden" name="publicApiKey" value={publicApiKey ?? ''} />
-          <input type="hidden" name="secretApiKey" value={secretApiKey ?? ''} />
-          <input type="hidden" name="montant" value={entryFee.toString()} />
-          <input type="hidden" name="devise" value="USD" />
-          <input type="hidden" name="callbackUrl" value={callbackUrl ?? ''} />
-          
-          {/* Optional fields - MaishaPay may use these */}
-          <input type="hidden" name="reference" value={confirmationId} />
-          <input type="hidden" name="customerEmail" value={applicantEmail} />
-          <input type="hidden" name="customerName" value={applicantName ?? ''} />
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Important:</strong> Your project will only be submitted after successful payment. The application fee is non-refundable.
+          </AlertDescription>
+        </Alert>
 
-          <Button
-            type="submit"
-            className={cn(
-              'w-full h-12 text-base font-semibold',
-              isLive && 'bg-emerald-600 hover:bg-emerald-700'
-            )}
-            size="lg"
-            disabled={!hasValidConfig || isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <span className="animate-spin mr-2">⏳</span>
-                Redirecting...
-              </>
-            ) : (
-              `${isLive ? 'Pay with MaishaPay' : 'Pay with MaishaPay (Test)'}`
-            )}
-          </Button>
-        </form>
-
-        {/* Footer Info */}
-        <div className="text-center space-y-2">
-          <p className="text-xs text-muted-foreground">
-            🔒 You will be redirected to MaishaPay's secure checkout page
-          </p>
-          <p className="text-xs text-muted-foreground">
-            After successful payment, you'll receive a confirmation email
-          </p>
+        {/* Payment Amount */}
+        <div className="flex justify-between items-center p-3 bg-primary/10 rounded-lg">
+          <span className="text-sm font-medium">Application Fee:</span>
+          <span className="text-2xl font-bold">${amount.toFixed(2)} USD</span>
         </div>
+
+        {/* Applicant Info */}
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Applicant:</span>
+            <span className="font-medium">{applicantName}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Email:</span>
+            <span className="font-medium">{applicantEmail}</span>
+          </div>
+        </div>
+
+        {/* Payment Button */}
+        <Button
+          onClick={handlePayment}
+          className="w-full"
+          size="lg"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Redirecting to MaishaPay...
+            </>
+          ) : (
+            <>
+              <CreditCard className="mr-2 h-4 w-4" />
+              Proceed to Payment
+            </>
+          )}
+        </Button>
+
+        <p className="text-xs text-muted-foreground text-center">
+          You will be redirected to MaishaPay's secure checkout page
+        </p>
       </CardContent>
     </Card>
   );

@@ -3,7 +3,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CreditCard, Copy, Check, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface MaishaPayCheckoutProps {
@@ -23,6 +22,7 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const copyConfirmationId = () => {
     navigator.clipboard.writeText(confirmationId);
@@ -33,64 +33,68 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
 
   const handlePayment = async () => {
     setIsSubmitting(true);
+    setPaymentError(null);
     
     try {
-      console.log('[Frontend] Initiating payment with POST request:', {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+      console.log('[MaishaPayCheckout] Starting payment:', {
         submissionId,
         confirmationId,
         amount,
         email: applicantEmail,
-        name: applicantName,
       });
 
-      // Call backend edge function via POST - supabase.functions.invoke handles this
-      const { data, error } = await supabase.functions.invoke('maishapay-create-payment', {
-        body: {
+      // Call backend edge function via fetch POST
+      const res = await fetch(`${supabaseUrl}/functions/v1/maishapay-create-payment`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": anonKey,
+          "Authorization": `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({
           submissionId,
           amount,
           confirmationId,
           email: applicantEmail,
           name: applicantName,
-        },
+        }),
       });
 
-      console.log('[Frontend] Edge function response:', { 
-        success: !!data, 
-        hasError: !!error,
-        dataKeys: data ? Object.keys(data) : [],
-      });
+      console.log('[MaishaPayCheckout] Response status:', res.status);
 
-      if (error) {
-        console.error('[Frontend] Edge function returned error:', error);
-        toast.error(`Payment failed: ${error.message || 'Unknown error'}. Please try again.`);
+      if (!res.ok) {
+        const text = await res.text();
+        console.error('[MaishaPayCheckout] Error response:', res.status, text);
+        setPaymentError(`Payment failed (${res.status}). Please try again or contact support.`);
+        toast.error('Payment initialization failed. Please try again.');
         setIsSubmitting(false);
         return;
       }
 
-      if (!data) {
-        console.error('[Frontend] No data returned from edge function');
-        toast.error('Payment service unavailable. Please try again later.');
-        setIsSubmitting(false);
-        return;
-      }
+      const data = await res.json();
+      console.log('[MaishaPayCheckout] Response data:', { hasRedirectUrl: !!data.redirectUrl, mode: data.mode });
 
       if (!data.redirectUrl) {
-        console.error('[Frontend] Missing redirectUrl in response:', data);
-        toast.error('Invalid payment response. Please contact support.');
+        console.error('[MaishaPayCheckout] Missing redirectUrl in response:', data);
+        setPaymentError('Payment service did not return a checkout URL. Please contact support.');
+        toast.error('Payment initialization failed. Please contact support.');
         setIsSubmitting(false);
         return;
       }
 
-      console.log('[Frontend] Successfully received redirect URL, navigating to MaishaPay...');
+      console.log('[MaishaPayCheckout] Redirecting to MaishaPay checkout...');
       toast.info('Redirecting to secure payment page...');
 
-      // Important: Use window.location.href to redirect (not window.open or fetch)
-      // This is a full page navigation, not an API call
+      // Full page navigation to MaishaPay checkout
       window.location.href = data.redirectUrl;
 
     } catch (error: any) {
-      console.error('[Frontend] Unexpected exception during payment:', error);
-      toast.error(`Error: ${error.message || 'An unexpected error occurred'}. Please try again.`);
+      console.error('[MaishaPayCheckout] Exception:', error);
+      setPaymentError(`Unexpected error: ${error.message}. Please try again.`);
+      toast.error('An unexpected error occurred. Please try again.');
       setIsSubmitting(false);
     }
   };
@@ -107,6 +111,14 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Error Display */}
+        {paymentError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{paymentError}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Confirmation ID Display */}
         <div className="p-4 bg-muted rounded-lg border-2 border-border">
           <label className="text-sm font-semibold text-muted-foreground block mb-2">

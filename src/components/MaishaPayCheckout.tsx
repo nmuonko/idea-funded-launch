@@ -21,38 +21,42 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Read environment variables
-  const mode = (import.meta.env.VITE_MAISHAPAY_MODE ?? 'sandbox').toLowerCase();
+  // Read environment variables - using exact names as specified
+  const mode = (import.meta.env.VITE_MAISHAPAY_MODE ?? "sandbox").toLowerCase();
+  const sandboxPublic  = import.meta.env.VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY as string | undefined;
+  const sandboxSecret  = import.meta.env.VITE_MAISHAPAY_SANDBOX_SECRET_KEY as string | undefined;
+  const livePublic     = import.meta.env.VITE_MAISHAPAY_LIVE_PUBLIC_KEY as string | undefined;
+  const liveSecret     = import.meta.env.VITE_MAISHAPAY_LIVE_SECRET_KEY as string | undefined;
+  const callbackUrl    = import.meta.env.VITE_MAISHAPAY_CALLBACK_URL as string | undefined;
+  const entryFeeStr    = import.meta.env.VITE_MAISHAPAY_ENTRY_FEE_USD ?? "20";
+
+  // DEBUG: Log all env vars to see which are undefined
+  console.log("MAISHAPAY ENV DEBUG", {
+    mode: import.meta.env.VITE_MAISHAPAY_MODE,
+    sandboxPublic: import.meta.env.VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY,
+    sandboxSecret: import.meta.env.VITE_MAISHAPAY_SANDBOX_SECRET_KEY,
+    livePublic: import.meta.env.VITE_MAISHAPAY_LIVE_PUBLIC_KEY,
+    liveSecret: import.meta.env.VITE_MAISHAPAY_LIVE_SECRET_KEY,
+    callbackUrl: import.meta.env.VITE_MAISHAPAY_CALLBACK_URL,
+    entryFee: import.meta.env.VITE_MAISHAPAY_ENTRY_FEE_USD,
+  });
+
   const isLive = mode === 'live';
   const gatewayMode = isLive ? 1 : 0;
-
-  const sandboxPublic = import.meta.env.VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY as string | undefined;
-  const sandboxSecret = import.meta.env.VITE_MAISHAPAY_SANDBOX_SECRET_KEY as string | undefined;
-  const livePublic = import.meta.env.VITE_MAISHAPAY_LIVE_PUBLIC_KEY as string | undefined;
-  const liveSecret = import.meta.env.VITE_MAISHAPAY_LIVE_SECRET_KEY as string | undefined;
 
   const publicApiKey = isLive ? livePublic : sandboxPublic;
   const secretApiKey = isLive ? liveSecret : sandboxSecret;
 
-  const callbackUrl = import.meta.env.VITE_MAISHAPAY_CALLBACK_URL as string | undefined;
-  const entryFeeStr = import.meta.env.VITE_MAISHAPAY_ENTRY_FEE_USD ?? '20';
   const entryFee = Number(entryFeeStr);
 
-  // Validation
-  const hasValidConfig =
-    publicApiKey &&
-    secretApiKey &&
-    callbackUrl &&
-    Number.isFinite(entryFee) &&
-    entryFee > 0;
+  // Validation - exactly as requested
+  const missingConfig =
+    !publicApiKey ||
+    !secretApiKey ||
+    !callbackUrl ||
+    !Number.isFinite(entryFee);
 
-  // Log configuration issues
-  if (!hasValidConfig) {
-    if (!publicApiKey) console.error('Missing VITE_MAISHAPAY_SANDBOX/LIVE_PUBLIC_KEY');
-    if (!secretApiKey) console.error('Missing VITE_MAISHAPAY_SANDBOX/LIVE_SECRET_KEY');
-    if (!callbackUrl) console.error('Missing VITE_MAISHAPAY_CALLBACK_URL');
-    if (!Number.isFinite(entryFee) || entryFee <= 0) console.error('Invalid VITE_MAISHAPAY_ENTRY_FEE_USD');
-  }
+  const hasValidConfig = !missingConfig;
 
   const handleSubmit = (e: React.FormEvent) => {
     if (!hasValidConfig) {

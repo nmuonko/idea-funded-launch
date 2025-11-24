@@ -61,7 +61,6 @@ export default function Index() {
                 </AspectRatio>
                 <div className="absolute bottom-8 left-8 right-8 text-center">
                   <div className="backdrop-blur-sm bg-black/30 rounded-2xl p-4 flex items-center justify-center gap-3">
-                    <img src={afrifundLogo} alt="AfriFund Logo" className="w-8 h-8 object-contain" />
                     <Sparkles className="w-6 h-6 text-white animate-pulse" />
                     <p className="text-sm font-semibold text-white">Your Project Could Be Next!</p>
                   </div>

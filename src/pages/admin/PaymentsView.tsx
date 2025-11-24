@@ -21,9 +21,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Search, CheckCircle, XCircle, Clock, DollarSign, TestTube } from 'lucide-react';
+import { Loader2, Search, CheckCircle, XCircle, Clock, DollarSign, TestTube, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 type PaymentStatus = 'pending' | 'paid' | 'failed' | '';
 
@@ -32,6 +40,9 @@ export default function PaymentsView() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<PaymentStatus>('');
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<any>(null);
+  const [newAmount, setNewAmount] = useState<string>('');
 
   // Fetch all submissions with payment info
   const { data: payments, isLoading } = useQuery({
@@ -79,6 +90,64 @@ export default function PaymentsView() {
       });
     },
   });
+
+  // Update payment amount mutation
+  const updateAmountMutation = useMutation({
+    mutationFn: async ({ submissionId, amount }: { submissionId: string; amount: number }) => {
+      if (amount < 20) {
+        throw new Error('Minimum payment amount is $20');
+      }
+      
+      const { error } = await supabase
+        .from('user_submissions')
+        .update({ payment_amount: amount })
+        .eq('id', submissionId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-payments'] });
+      setEditDialogOpen(false);
+      setSelectedPayment(null);
+      setNewAmount('');
+      toast({
+        title: 'Amount Updated',
+        description: 'Payment amount has been updated successfully',
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update payment amount',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const openEditDialog = (payment: any) => {
+    setSelectedPayment(payment);
+    setNewAmount(payment.payment_amount?.toString() || '20');
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateAmount = () => {
+    if (!selectedPayment) return;
+    
+    const amount = parseFloat(newAmount);
+    if (isNaN(amount) || amount < 20) {
+      toast({
+        title: 'Invalid Amount',
+        description: 'Please enter a valid amount (minimum $20)',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    updateAmountMutation.mutate({
+      submissionId: selectedPayment.id,
+      amount,
+    });
+  };
 
   const filteredPayments = payments?.filter(
     (payment) =>
@@ -244,20 +313,30 @@ export default function PaymentsView() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {payment.payment_status !== 'paid' && (
+                        <div className="flex gap-2">
                           <Button
                             size="sm"
-                            variant="outline"
-                            onClick={() => markAsPaidMutation.mutate(payment.id)}
-                            disabled={markAsPaidMutation.isPending}
+                            variant="ghost"
+                            onClick={() => openEditDialog(payment)}
+                            disabled={updateAmountMutation.isPending}
                           >
-                            {markAsPaidMutation.isPending ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              'Mark as Paid'
-                            )}
+                            <Pencil className="h-3 w-3" />
                           </Button>
-                        )}
+                          {payment.payment_status !== 'paid' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => markAsPaidMutation.mutate(payment.id)}
+                              disabled={markAsPaidMutation.isPending}
+                            >
+                              {markAsPaidMutation.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                'Mark as Paid'
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -267,6 +346,72 @@ export default function PaymentsView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Amount Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Payment Amount</DialogTitle>
+            <DialogDescription>
+              Update the payment amount for {selectedPayment?.full_name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="amount">Current Amount</Label>
+              <Input
+                value={`$${selectedPayment?.payment_amount || 0} ${selectedPayment?.payment_currency || 'USD'}`}
+                disabled
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="newAmount">New Amount (minimum $20)</Label>
+              <Input
+                id="newAmount"
+                type="number"
+                min="20"
+                step="0.01"
+                value={newAmount}
+                onChange={(e) => setNewAmount(e.target.value)}
+                placeholder="Enter new amount"
+              />
+            </div>
+
+            {selectedPayment && parseFloat(newAmount) >= 20 && parseFloat(newAmount) !== selectedPayment.payment_amount && (
+              <Alert>
+                <AlertDescription>
+                  Are you sure you want to change the amount from <strong>${selectedPayment.payment_amount}</strong> to <strong>${parseFloat(newAmount).toFixed(2)}</strong>?
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditDialogOpen(false)}
+              disabled={updateAmountMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateAmount}
+              disabled={updateAmountMutation.isPending || parseFloat(newAmount) < 20}
+            >
+              {updateAmountMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update Amount'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

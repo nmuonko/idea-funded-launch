@@ -88,7 +88,7 @@ export function Footer() {
 
         {/* Copyright */}
         <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} Project Competition. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} AfriFund. All rights reserved.</p>
         </div>
       </div>
     </footer>;

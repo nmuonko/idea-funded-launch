@@ -215,14 +215,14 @@ export default function Apply() {
         console.error('Failed to trigger AI analysis:', err);
       });
 
-      // Send confirmation email in background
-      supabase.functions.invoke('send-confirmation-email', {
-        body: { submissionId: data.id }
-      }).then(() => {
-        console.log('Confirmation email sent for submission:', data.id);
-      }).catch(err => {
-        console.error('Failed to send confirmation email:', err);
-      });
+      // Send confirmation email in background (temporarily disabled)
+      // supabase.functions.invoke('send-confirmation-email', {
+      //   body: { submissionId: data.id }
+      // }).then(() => {
+      //   console.log('Confirmation email sent for submission:', data.id);
+      // }).catch(err => {
+      //   console.error('Failed to send confirmation email:', err);
+      // });
 
       // Update submission with session fee
       const sessionFee = activeSession.application_fee || 20;

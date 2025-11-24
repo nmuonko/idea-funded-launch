@@ -1,12 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, CreditCard, CheckCircle2, AlertCircle, TestTube } from 'lucide-react';
+import { CreditCard, CheckCircle2, AlertCircle, TestTube } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PaymentDialogProps {
@@ -20,50 +19,79 @@ interface PaymentDialogProps {
 export function PaymentDialog({ open, onOpenChange, submissionId, amount, currency = 'USD' }: PaymentDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [paymentReference, setPaymentReference] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
 
-  const handleMaishaPayPayment = async () => {
-    setLoading(true);
+  // MaishaPay Sandbox Credentials
+  const MAISHAPAY_GATEWAY_MODE = "0"; // 0 = sandbox, 1 = live
+  const MAISHAPAY_PUBLIC_KEY = "MP-SBPK-Z2721hl2syS9mGA0yr2UQyMMl9aH0XqL1Th1Wb/kW0N.WzUdG1cTS9LnvlcP3pVdfe$3o40h$S5Ho9Fd$ft$5J80PF0hi9lybS6OX8U.4wlnk$$kSpj8.Nrp";
+  const MAISHAPAY_SECRET_KEY = "MP-SBPK-dYtr5M37IwOW.r4eMMnyt$1/47BpC.dsKGHuoP0yWOHLOy.h2yB$qHMQ027TnXy4a/K$17qcT9nDECmHz4J.XmHjHc/Fvzc3OB$ZuqD2F/lRYi5$68a.5z/$";
+  // Construct callback URL using Supabase project URL
+  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://qvhrbcvymhjxjnshbjki.supabase.co';
+  const CALLBACK_URL = `${SUPABASE_URL}/functions/v1/maishapay-callback`;
 
+  useEffect(() => {
+    if (open) {
+      // Generate unique payment reference
+      const reference = `AFRIFUND-${submissionId}-${Date.now()}`;
+      setPaymentReference(reference);
+      
+      // Update submission with reference
+      updateSubmissionReference(reference);
+    }
+  }, [open, submissionId]);
+
+  const updateSubmissionReference = async (reference: string) => {
     try {
-      console.log('[PaymentDialog] Initiating MaishaPay payment for submission:', submissionId);
-
-      // Call edge function to create MaishaPay payment
-      const { data, error } = await supabase.functions.invoke('create-maishapay-payment', {
-        body: { submissionId }
-      });
+      console.log('[MaishaPay] Updating submission with reference:', reference);
+      
+      const { error } = await supabase
+        .from('user_submissions')
+        .update({
+          maishapay_reference: reference,
+          payment_status: 'pending',
+        })
+        .eq('id', submissionId);
 
       if (error) {
-        console.error('[PaymentDialog] Edge function error:', error);
+        console.error('[MaishaPay] Failed to update submission reference:', error);
         throw error;
       }
 
-      console.log('[PaymentDialog] MaishaPay payment created:', data);
-
-      if (!data.success || !data.checkoutUrl) {
-        throw new Error(data.error || 'Failed to create payment');
-      }
-
-      toast({
-        title: 'Redirecting to Payment',
-        description: 'You will be redirected to MaishaPay to complete payment (SANDBOX TEST).',
-      });
-
-      // Redirect to MaishaPay checkout
-      setTimeout(() => {
-        window.location.href = data.checkoutUrl;
-      }, 1000);
-
-    } catch (error: any) {
-      console.error('[PaymentDialog] Payment error:', error);
+      console.log('[MaishaPay] Submission updated with reference');
+    } catch (error) {
+      console.error('[MaishaPay] Error updating submission:', error);
       toast({
         title: t.common.error,
-        description: error.message || 'Failed to initiate payment. Please try again.',
+        description: 'Failed to prepare payment. Please try again.',
         variant: 'destructive',
       });
-      setLoading(false);
     }
+  };
+
+  const handleSubmit = () => {
+    if (!paymentReference) {
+      toast({
+        title: t.common.error,
+        description: 'Payment reference not ready. Please wait a moment.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    
+    toast({
+      title: 'Redirecting to Payment',
+      description: 'You will be redirected to MaishaPay to complete payment (SANDBOX TEST).',
+    });
+
+    // Submit form to MaishaPay
+    setTimeout(() => {
+      formRef.current?.submit();
+    }, 500);
   };
 
   if (paymentComplete) {
@@ -132,6 +160,12 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount, curren
                   <span className="text-muted-foreground">Mode:</span>
                   <span className="font-semibold text-warning">SANDBOX TEST</span>
                 </div>
+                {paymentReference && (
+                  <div className="flex justify-between text-xs pt-2 border-t">
+                    <span className="text-muted-foreground">Reference:</span>
+                    <span className="font-mono">{paymentReference}</span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -149,31 +183,38 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount, curren
             </CardContent>
           </Card>
 
+          {/* Hidden form that POSTs to MaishaPay */}
+          <form
+            ref={formRef}
+            action="https://marchand.maishapay.online/payment/vers1.0/merchant/checkout"
+            method="POST"
+            style={{ display: 'none' }}
+          >
+            <input type="hidden" name="gatewayMode" value={MAISHAPAY_GATEWAY_MODE} />
+            <input type="hidden" name="publicApiKey" value={MAISHAPAY_PUBLIC_KEY} />
+            <input type="hidden" name="secretApiKey" value={MAISHAPAY_SECRET_KEY} />
+            <input type="hidden" name="montant" value={amount} />
+            <input type="hidden" name="devise" value={currency} />
+            <input type="hidden" name="callbackUrl" value={CALLBACK_URL} />
+            <input type="hidden" name="reference" value={paymentReference} />
+          </form>
+
           <div className="flex gap-3 pt-4">
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
               className="flex-1"
-              disabled={loading}
+              disabled={isSubmitting}
             >
               Cancel
             </Button>
             <Button
-              onClick={handleMaishaPayPayment}
-              disabled={loading}
+              onClick={handleSubmit}
+              disabled={isSubmitting || !paymentReference}
               className="flex-1 shadow-glow"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Redirecting...
-                </>
-              ) : (
-                <>
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Pay with MaishaPay (Test)
-                </>
-              )}
+              <CreditCard className="mr-2 h-4 w-4" />
+              Pay with MaishaPay (Test)
             </Button>
           </div>
 

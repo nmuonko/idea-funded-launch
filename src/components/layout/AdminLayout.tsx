@@ -36,7 +36,7 @@ export function AdminLayout() {
           <h2 className="text-2xl font-bold bg-gradient-glow bg-clip-text text-transparent">
             Admin Panel
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">Project Competition</p>
+          <p className="text-sm text-muted-foreground mt-1">AfriFund</p>
         </div>
 
         <nav className="space-y-2">

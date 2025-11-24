@@ -237,7 +237,7 @@ export default function Index() {
                 name: "Marie K.",
                 location: "Lubumbashi",
                 session: "Session 3 Winner",
-                text: "Grâce à Project Competition, j'ai pu lancer mon petit projet de couture. Le financement m'a permis d'acheter des machines et de former trois autres femmes.",
+                text: "Grâce à AfriFund, j'ai pu lancer mon petit projet de couture. Le financement m'a permis d'acheter des machines et de former trois autres femmes.",
                 rating: 5,
               },
               {

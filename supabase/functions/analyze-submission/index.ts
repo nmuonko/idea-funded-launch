@@ -120,9 +120,11 @@ Respond in JSON format:
   "is_suspected_fraud": true/false,
   "fraud_flags": "Brief explanation if fraud is suspected, or empty string if not",
   "is_possible_duplicate": true/false,
-  "duplicate_of_submission_id": "UUID of duplicate submission or null",
+  "duplicate_of_submission_id": null,
   "duplicate_explanation": "Explanation if duplicate detected"
-}`;
+}
+
+IMPORTANT: The duplicate_of_submission_id field must be null. Do not include any UUID values.`;
 
     const fraudResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -157,6 +159,14 @@ Respond in JSON format:
         : fraudAnalysis.duplicate_explanation;
     }
 
+    // Validate duplicate_of_submission_id - must be null or valid UUID
+    let duplicateId = null;
+    if (fraudAnalysis.duplicate_of_submission_id && 
+        typeof fraudAnalysis.duplicate_of_submission_id === 'string' &&
+        fraudAnalysis.duplicate_of_submission_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      duplicateId = fraudAnalysis.duplicate_of_submission_id;
+    }
+
     // Update submission with AI analysis
     const { error: updateError } = await supabase
       .from('user_submissions')
@@ -177,7 +187,7 @@ Respond in JSON format:
         is_suspected_fraud: fraudAnalysis.is_suspected_fraud,
         fraud_flags: combinedFraudFlags,
         is_possible_duplicate: fraudAnalysis.is_possible_duplicate,
-        duplicate_of_submission_id: fraudAnalysis.duplicate_of_submission_id,
+        duplicate_of_submission_id: duplicateId,
         ai_last_reviewed_at: new Date().toISOString(),
       })
       .eq('id', submissionId);

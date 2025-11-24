@@ -80,7 +80,7 @@ export function Footer() {
             <h3 className="font-semibold mb-4">{t.nav.contact}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground text-justify">
               <li>info@afri-fund.org</li>
-              <li>+243 XXX XXX XXX</li>
+              <li>+243 972 809 832</li>
               <li>Kinshasa, DRC</li>
             </ul>
           </div>

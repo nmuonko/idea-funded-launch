@@ -1,82 +1,100 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
-interface PaymentRequest {
-  submissionId: string;
-  amount: number;
-  confirmationId: string;
-  email: string;
-  name: string;
-}
-
-const handler = async (req: Request): Promise<Response> => {
-  console.log('[MaishaPay Create Payment] Received request:', {
-    method: req.method,
-    headers: Object.fromEntries(req.headers.entries()),
-  });
-
-  // Handle CORS preflight requests
+serve(async (req) => {
+  // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    console.log("[MaishaPay] Handling OPTIONS preflight");
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
-  // Validate HTTP method
+  // ONLY allow POST from frontend
   if (req.method !== "POST") {
-    console.error('[MaishaPay Create Payment] Invalid method:', req.method);
+    console.error("[MaishaPay] Invalid method:", req.method);
     return new Response(
-      JSON.stringify({ error: `Method ${req.method} not allowed. Use POST.` }),
+      JSON.stringify({ error: "Method Not Allowed", method: req.method }),
       {
         status: 405,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   }
 
   try {
-    const { submissionId, amount, confirmationId, email, name }: PaymentRequest = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const submissionId = String(body.submissionId ?? "");
+    const amount = Number(body.amount ?? 0);
+    const confirmationId = String(body.confirmationId ?? "");
+    const email = String(body.email ?? "");
+    const name = String(body.name ?? "");
 
-    console.log('[MaishaPay Create Payment] Processing request:', {
+    console.log("[MaishaPay] Processing payment request:", {
       submissionId,
       amount,
       confirmationId,
       email,
+      name,
     });
 
-    // Read environment variables (using VITE_ prefixed names from Lovable Cloud Secrets)
-    const mode = (Deno.env.get("MAISHAPAY_MODE") ?? "sandbox").toLowerCase();
-    const sandboxPublicKey = Deno.env.get("VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY");
-    const sandboxSecretKey = Deno.env.get("VITE_MAISHAPAY_SANDBOX_SECRET_KEY");
-    const livePublicKey = Deno.env.get("VITE_MAISHAPAY_LIVE_PUBLIC_KEY");
-    const liveSecretKey = Deno.env.get("VITE_MAISHAPAY_LIVE_SECRET_KEY");
-    const callbackUrl = Deno.env.get("MAISHAPAY_CALLBACK_URL");
-    const frontendBaseUrl = Deno.env.get("FRONTEND_BASE_URL") || "https://afrifund.lovable.app";
-
-    // Determine which keys to use
-    const isLive = mode === "live";
-    const publicApiKey = isLive ? livePublicKey : sandboxPublicKey;
-    const secretApiKey = isLive ? liveSecretKey : sandboxSecretKey;
-    const gatewayMode = isLive ? "1" : "0";
-
-    // Validate configuration
-    if (!publicApiKey || !secretApiKey || !callbackUrl) {
-      console.error('[MaishaPay Create Payment] Missing configuration:', {
-        hasPublicKey: !!publicApiKey,
-        hasSecretKey: !!secretApiKey,
-        hasCallbackUrl: !!callbackUrl,
-      });
-      throw new Error("MaishaPay configuration incomplete");
+    if (!amount || !confirmationId || !email || !submissionId) {
+      console.error("[MaishaPay] Missing required fields");
+      return new Response(
+        JSON.stringify({ error: "Missing required fields: submissionId, amount, confirmationId, or email" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    console.log('[MaishaPay Create Payment] Using mode:', mode, 'Gateway:', gatewayMode);
+    // Read secrets from Deno.env
+    const mode = (Deno.env.get("MAISHAPAY_MODE") ?? "sandbox").toLowerCase();
+    const isLive = mode === "live";
 
-    // Construct full callback URL with submission ID
+    const sandboxPublic = Deno.env.get("VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY");
+    const sandboxSecret = Deno.env.get("VITE_MAISHAPAY_SANDBOX_SECRET_KEY");
+    const livePublic = Deno.env.get("VITE_MAISHAPAY_LIVE_PUBLIC_KEY");
+    const liveSecret = Deno.env.get("VITE_MAISHAPAY_LIVE_SECRET_KEY");
+    const callbackUrl = Deno.env.get("MAISHAPAY_CALLBACK_URL");
+
+    const publicApiKey = isLive ? livePublic : sandboxPublic;
+    const secretApiKey = isLive ? liveSecret : sandboxSecret;
+
+    console.log("[MaishaPay] Configuration check:", {
+      mode,
+      isLive,
+      hasSandboxPublic: !!sandboxPublic,
+      hasSandboxSecret: !!sandboxSecret,
+      hasLivePublic: !!livePublic,
+      hasLiveSecret: !!liveSecret,
+      hasCallback: !!callbackUrl,
+      usingPublicKey: !!publicApiKey,
+      usingSecretKey: !!secretApiKey,
+    });
+
+    if (!publicApiKey || !secretApiKey || !callbackUrl) {
+      console.error("[MaishaPay] Configuration incomplete");
+      return new Response(
+        JSON.stringify({ error: "MaishaPay configuration incomplete. Please contact support." }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
+    const gatewayMode = isLive ? "1" : "0";
+
+    // Build full callback URL with submission ID
     const fullCallbackUrl = `${callbackUrl}?submission_id=${submissionId}`;
 
-    // Construct MaishaPay checkout URL with query parameters
+    // Build URL with query parameters (MaishaPay expects GET-style redirect URL)
     const checkoutUrl = new URL("https://marchand.maishapay.online/payment/vers1.0/merchant/checkout");
     checkoutUrl.searchParams.set("publicApiKey", publicApiKey);
     checkoutUrl.searchParams.set("secretApiKey", secretApiKey);
@@ -89,9 +107,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     const redirectUrl = checkoutUrl.toString();
 
-    console.log('[MaishaPay Create Payment] Generated redirect URL (keys hidden)');
-    console.log('[MaishaPay Create Payment] Callback URL:', fullCallbackUrl);
-    console.log('[MaishaPay Create Payment] Reference:', confirmationId);
+    console.log("[MaishaPay] Payment URL generated successfully", {
+      mode,
+      gatewayMode,
+      amount,
+      reference: confirmationId,
+      callbackUrl: fullCallbackUrl,
+    });
 
     return new Response(
       JSON.stringify({ 
@@ -101,22 +123,17 @@ const handler = async (req: Request): Promise<Response> => {
       }),
       {
         status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders,
-        },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
-  } catch (error: any) {
-    console.error('[MaishaPay Create Payment] Error:', error);
+  } catch (err: any) {
+    console.error("[MaishaPay] Exception:", err.message, err.stack);
     return new Response(
-      JSON.stringify({ error: error.message || "Failed to create payment" }),
+      JSON.stringify({ error: "Internal server error", details: err.message }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      }
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   }
-};
-
-serve(handler);
+});

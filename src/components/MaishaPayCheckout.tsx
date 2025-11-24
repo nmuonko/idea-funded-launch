@@ -35,7 +35,7 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
     setIsSubmitting(true);
     
     try {
-      console.log('[Frontend] Calling maishapay-create-payment:', {
+      console.log('[Frontend] Initiating payment with POST request:', {
         submissionId,
         confirmationId,
         amount,
@@ -43,7 +43,7 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         name: applicantName,
       });
 
-      // Call backend edge function to create payment
+      // Call backend edge function via POST - supabase.functions.invoke handles this
       const { data, error } = await supabase.functions.invoke('maishapay-create-payment', {
         body: {
           submissionId,
@@ -54,32 +54,43 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         },
       });
 
-      console.log('[Frontend] Payment response:', { data, error });
+      console.log('[Frontend] Edge function response:', { 
+        success: !!data, 
+        hasError: !!error,
+        dataKeys: data ? Object.keys(data) : [],
+      });
 
       if (error) {
-        console.error('[Frontend] Error from edge function:', error);
-        const errorMessage = error.message || 'Failed to create payment';
-        toast.error(`Payment Error: ${errorMessage}. Please try again or contact support.`);
+        console.error('[Frontend] Edge function returned error:', error);
+        toast.error(`Payment failed: ${error.message || 'Unknown error'}. Please try again.`);
         setIsSubmitting(false);
         return;
       }
 
-      if (!data?.redirectUrl) {
-        console.error('[Frontend] No redirect URL in response:', data);
-        toast.error('No payment URL received. Please try again or contact support.');
+      if (!data) {
+        console.error('[Frontend] No data returned from edge function');
+        toast.error('Payment service unavailable. Please try again later.');
         setIsSubmitting(false);
         return;
       }
 
-      console.log('[Frontend] Redirecting to MaishaPay:', data.redirectUrl);
-      toast.info('Redirecting to MaishaPay checkout...');
+      if (!data.redirectUrl) {
+        console.error('[Frontend] Missing redirectUrl in response:', data);
+        toast.error('Invalid payment response. Please contact support.');
+        setIsSubmitting(false);
+        return;
+      }
 
-      // Redirect to MaishaPay
+      console.log('[Frontend] Successfully received redirect URL, navigating to MaishaPay...');
+      toast.info('Redirecting to secure payment page...');
+
+      // Important: Use window.location.href to redirect (not window.open or fetch)
+      // This is a full page navigation, not an API call
       window.location.href = data.redirectUrl;
 
     } catch (error: any) {
-      console.error('[Frontend] Payment initiation exception:', error);
-      toast.error(`Unexpected Error: ${error.message || 'Please try again or contact support.'}`);
+      console.error('[Frontend] Unexpected exception during payment:', error);
+      toast.error(`Error: ${error.message || 'An unexpected error occurred'}. Please try again.`);
       setIsSubmitting(false);
     }
   };

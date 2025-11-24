@@ -35,11 +35,12 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
     setIsSubmitting(true);
     
     try {
-      console.log('[MaishaPay Checkout] Initiating payment:', {
+      console.log('[Frontend] Calling maishapay-create-payment:', {
         submissionId,
         confirmationId,
         amount,
         email: applicantEmail,
+        name: applicantName,
       });
 
       // Call backend edge function to create payment
@@ -53,24 +54,32 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         },
       });
 
+      console.log('[Frontend] Payment response:', { data, error });
+
       if (error) {
-        console.error('[MaishaPay Checkout] Error from edge function:', error);
-        throw error;
+        console.error('[Frontend] Error from edge function:', error);
+        const errorMessage = error.message || 'Failed to create payment';
+        toast.error(`Payment Error: ${errorMessage}. Please try again or contact support.`);
+        setIsSubmitting(false);
+        return;
       }
 
       if (!data?.redirectUrl) {
-        throw new Error('No redirect URL received from payment service');
+        console.error('[Frontend] No redirect URL in response:', data);
+        toast.error('No payment URL received. Please try again or contact support.');
+        setIsSubmitting(false);
+        return;
       }
 
-      console.log('[MaishaPay Checkout] Received redirect URL, redirecting...');
+      console.log('[Frontend] Redirecting to MaishaPay:', data.redirectUrl);
       toast.info('Redirecting to MaishaPay checkout...');
 
       // Redirect to MaishaPay
       window.location.href = data.redirectUrl;
 
     } catch (error: any) {
-      console.error('[MaishaPay Checkout] Payment initiation failed:', error);
-      toast.error(error.message || 'Failed to initiate payment. Please try again.');
+      console.error('[Frontend] Payment initiation exception:', error);
+      toast.error(`Unexpected Error: ${error.message || 'Please try again or contact support.'}`);
       setIsSubmitting(false);
     }
   };

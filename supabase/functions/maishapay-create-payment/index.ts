@@ -14,9 +14,26 @@ interface PaymentRequest {
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  console.log('[MaishaPay Create Payment] Received request:', {
+    method: req.method,
+    headers: Object.fromEntries(req.headers.entries()),
+  });
+
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // Validate HTTP method
+  if (req.method !== "POST") {
+    console.error('[MaishaPay Create Payment] Invalid method:', req.method);
+    return new Response(
+      JSON.stringify({ error: `Method ${req.method} not allowed. Use POST.` }),
+      {
+        status: 405,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      }
+    );
   }
 
   try {

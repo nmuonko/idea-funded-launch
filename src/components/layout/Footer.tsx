@@ -1,22 +1,17 @@
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import afrifundLogo from '@/assets/afrifund-logo.png';
-
 export function Footer() {
-  const { t } = useLanguage();
-
-  return (
-    <footer className="border-t border-border bg-muted/50">
+  const {
+    t
+  } = useLanguage();
+  return <footer className="border-t border-border bg-muted/50">
       <div className="container mx-auto px-4 py-12">
         {/* Brand Section - Full Width */}
         <div className="mb-12 pb-8 border-b border-border">
           <div className="flex items-center space-x-3 mb-3">
             <div className="bg-white rounded-lg p-2">
-              <img 
-                src={afrifundLogo} 
-                alt="AfriFund Logo" 
-                className="h-14 w-auto object-contain"
-              />
+              <img src={afrifundLogo} alt="AfriFund Logo" className="h-14 w-auto object-contain" />
             </div>
             <span className="font-semibold text-lg">
               AfriFund
@@ -84,7 +79,7 @@ export function Footer() {
           <div className="flex flex-col">
             <h3 className="font-semibold mb-4">{t.nav.contact}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground text-justify">
-              <li>contact@projectcompetition.org</li>
+              <li>info@afri-fund.org</li>
               <li>+243 XXX XXX XXX</li>
               <li>Kinshasa, DRC</li>
             </ul>
@@ -96,6 +91,5 @@ export function Footer() {
           <p>&copy; {new Date().getFullYear()} Project Competition. All rights reserved.</p>
         </div>
       </div>
-    </footer>
-  );
+    </footer>;
 }

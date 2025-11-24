@@ -12,24 +12,68 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== 'POST') {
+    console.log('[MaishaPay Callback] Non-POST request received:', req.method);
+    return new Response('Method Not Allowed', { 
+      status: 405, 
+      headers: corsHeaders 
+    });
+  }
+
   try {
-    // Parse form data from MaishaPay (application/x-www-form-urlencoded)
-    const contentType = req.headers.get('content-type') || '';
-    let callbackData: any = {};
+    console.log('[MaishaPay Callback] Processing callback...');
+
+    // Parse the request - MaishaPay might send form-urlencoded, JSON, or plain text
+    const contentType = req.headers.get('content-type') ?? '';
+    let params: URLSearchParams;
 
     if (contentType.includes('application/x-www-form-urlencoded')) {
-      const formData = await req.formData();
-      callbackData = Object.fromEntries(formData.entries());
+      const bodyText = await req.text();
+      params = new URLSearchParams(bodyText);
+      console.log('[MaishaPay Callback] Parsed form-urlencoded data');
     } else if (contentType.includes('application/json')) {
-      callbackData = await req.json();
+      const json = await req.json();
+      params = new URLSearchParams(
+        Object.entries(json).map(([k, v]) => [k, String(v)])
+      );
+      console.log('[MaishaPay Callback] Parsed JSON data');
     } else {
-      // Try parsing as text and convert to object
-      const text = await req.text();
-      const params = new URLSearchParams(text);
-      callbackData = Object.fromEntries(params.entries());
+      const bodyText = await req.text();
+      params = new URLSearchParams(bodyText);
+      console.log('[MaishaPay Callback] Parsed text data');
     }
-    
-    console.log('[MaishaPay Callback] Received:', JSON.stringify(callbackData, null, 2));
+
+    // Extract submission ID from the callback URL query params
+    const url = new URL(req.url);
+    const submissionId = url.searchParams.get('submission_id');
+
+    if (!submissionId) {
+      console.error('[MaishaPay Callback] No submission_id in callback URL');
+      return new Response(
+        JSON.stringify({ error: 'Missing submission_id parameter' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Extract MaishaPay payment data
+    const status = params.get('status') ?? params.get('payment_status') ?? '';
+    const description = params.get('description') ?? '';
+    const transactionRefId = params.get('transactionRefId') ?? 
+                            params.get('transaction_id') ?? 
+                            params.get('id') ?? '';
+    const operatorRefId = params.get('operatorRefId') ?? 
+                         params.get('operator_ref_id') ?? '';
+    const montant = params.get('montant') ?? params.get('amount') ?? '';
+    const devise = params.get('devise') ?? params.get('currency') ?? 'USD';
+
+    console.log('[MaishaPay Callback] Payment data:', {
+      submissionId,
+      status,
+      transactionRefId,
+      operatorRefId,
+      montant,
+      devise,
+    });
 
     // Initialize Supabase client
     const supabaseClient = createClient(
@@ -37,134 +81,111 @@ const handler = async (req: Request): Promise<Response> => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Extract data from callback (adjust based on actual MaishaPay callback structure)
-    const reference = callbackData.reference || callbackData.merchant_reference;
-    const transactionId = callbackData.transaction_id || callbackData.id;
-    const status = callbackData.status || callbackData.payment_status;
-    const amount = callbackData.amount;
-    const currency = callbackData.currency;
-    
-    console.log('[MaishaPay Callback] Extracted:', { reference, transactionId, status, amount, currency });
+    // Determine payment status
+    const normalizedStatus = status.toLowerCase();
+    const paymentStatus: 'paid' | 'failed' | 'pending' = 
+      normalizedStatus === 'success' || 
+      normalizedStatus === 'paid' || 
+      normalizedStatus === '1' ||
+      normalizedStatus.includes('success')
+        ? 'paid'
+        : normalizedStatus === 'failed' || normalizedStatus === 'error'
+        ? 'failed'
+        : 'pending';
 
-    if (!reference) {
-      console.error('[MaishaPay Callback] No reference found in callback');
-      return new Response(
-        JSON.stringify({ error: 'Invalid callback: missing reference' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    console.log('[MaishaPay Callback] Determined payment status:', paymentStatus);
 
-    // Find submission by reference
-    const { data: submission, error: fetchError } = await supabaseClient
-      .from('user_submissions')
-      .select('*')
-      .eq('maishapay_reference', reference)
+    // Store payment record in payments table
+    const { data: paymentRecord, error: paymentError } = await supabaseClient
+      .from('payments')
+      .insert({
+        provider: 'maishapay',
+        status: paymentStatus,
+        description,
+        transaction_ref_id: transactionRefId,
+        operator_ref_id: operatorRefId,
+        amount: montant ? Number(montant) : null,
+        currency: devise,
+        submission_id: submissionId,
+        raw_payload: Object.fromEntries(params.entries()),
+      })
+      .select()
       .single();
 
-    if (fetchError || !submission) {
-      console.error('[MaishaPay Callback] Submission not found for reference:', reference, fetchError);
-      return new Response(
-        JSON.stringify({ error: 'Submission not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (paymentError) {
+      console.error('[MaishaPay Callback] Error inserting payment record:', paymentError);
+    } else {
+      console.log('[MaishaPay Callback] Payment record created:', paymentRecord?.id);
     }
 
-    console.log('[MaishaPay Callback] Found submission:', submission.id);
-
-    // Determine payment status based on MaishaPay status
-    let paymentStatus = 'pending';
-    
-    // MaishaPay may use different status strings - adjust based on their actual API
-    const successStatuses = ['success', 'completed', 'paid', 'successful'];
-    const failedStatuses = ['failed', 'cancelled', 'rejected', 'declined'];
-    
-    if (successStatuses.some(s => status?.toLowerCase().includes(s))) {
-      paymentStatus = 'paid';
-    } else if (failedStatuses.some(s => status?.toLowerCase().includes(s))) {
-      paymentStatus = 'failed';
-    }
-
-    console.log('[MaishaPay Callback] Determined payment_status:', paymentStatus);
-
-    // Verify amount matches (if provided)
-    if (amount && submission.payment_amount && parseFloat(amount) !== parseFloat(submission.payment_amount)) {
-      console.warn('[MaishaPay Callback] Amount mismatch:', {
-        expected: submission.payment_amount,
-        received: amount
-      });
-    }
-
-    // Update submission
-    const updateData: any = {
-      payment_status: paymentStatus,
-      maishapay_transaction_id: transactionId,
-      maishapay_raw_response: callbackData,
-      updated_at: new Date().toISOString(),
-    };
-
-    // If payment is successful, keep is_draft = false (it's already false from submission)
-    // The auto_generate_project_code trigger will handle project code generation
-
+    // Update user_submissions table
     const { error: updateError } = await supabaseClient
       .from('user_submissions')
-      .update(updateData)
-      .eq('id', submission.id);
+      .update({
+        payment_status: paymentStatus,
+        maishapay_transaction_id: transactionRefId,
+        maishapay_raw_response: Object.fromEntries(params.entries()),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', submissionId);
 
     if (updateError) {
-      console.error('[MaishaPay Callback] Failed to update submission:', updateError);
-      return new Response(
-        JSON.stringify({ error: 'Failed to update submission' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error('[MaishaPay Callback] Error updating submission:', updateError);
+    } else {
+      console.log('[MaishaPay Callback] Submission updated successfully');
     }
 
-    console.log('[MaishaPay Callback] Submission updated successfully:', {
-      submissionId: submission.id,
-      paymentStatus,
-      transactionId
-    });
-
-    // Trigger payment confirmation email if payment is successful
+    // If payment successful, trigger confirmation email after a short delay
     if (paymentStatus === 'paid') {
-      try {
-        // Wait a moment for project code to be generated by trigger
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        await supabaseClient.functions.invoke('send-payment-confirmation-email', {
-          body: { submissionId: submission.id }
-        });
-        console.log('[MaishaPay Callback] Payment confirmation email triggered');
-      } catch (emailError) {
-        // Log error but don't fail the payment callback
-        console.error('[MaishaPay Callback] Failed to send payment email:', emailError);
-      }
+      console.log('[MaishaPay Callback] Payment successful, triggering confirmation email...');
+      
+      setTimeout(async () => {
+        try {
+          const { error: emailError } = await supabaseClient.functions.invoke(
+            'send-payment-confirmation-email',
+            {
+              body: { submissionId },
+            }
+          );
+
+          if (emailError) {
+            console.error('[MaishaPay Callback] Error sending confirmation email:', emailError);
+          } else {
+            console.log('[MaishaPay Callback] Confirmation email triggered');
+          }
+        } catch (err) {
+          console.error('[MaishaPay Callback] Exception sending confirmation email:', err);
+        }
+      }, 2000);
     }
 
-    // If this is a webhook (not user redirect), return 200
-    if (req.headers.get('user-agent')?.includes('MaishaPay') || 
-        req.headers.get('x-maishapay-signature')) {
-      return new Response(
-        JSON.stringify({ success: true, message: 'Callback processed' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Redirect user to payment result page
+    const frontendBase = Deno.env.get('FRONTEND_BASE_URL') || 'http://localhost:8080';
+    const redirectUrl = new URL('/payment/result', frontendBase);
+    redirectUrl.searchParams.set('status', status);
+    redirectUrl.searchParams.set('description', description);
+    redirectUrl.searchParams.set('transactionRefId', transactionRefId);
+    redirectUrl.searchParams.set('operatorRefId', operatorRefId);
+    redirectUrl.searchParams.set('submissionId', submissionId);
 
-    // If this is a user redirect, send them to the result page
-    const resultUrl = `${Deno.env.get('SUPABASE_URL')?.replace('/rest/v1', '')}/payment/result?status=${paymentStatus}&reference=${reference}`;
-    
+    console.log('[MaishaPay Callback] Redirecting to:', redirectUrl.toString());
+
     return new Response(null, {
-      status: 302,
-      headers: {
-        ...corsHeaders,
-        'Location': resultUrl,
+      status: 303,
+      headers: { 
+        ...corsHeaders, 
+        'Location': redirectUrl.toString() 
       },
     });
 
   } catch (error: any) {
-    console.error('[MaishaPay Callback] Error:', error);
+    console.error('[MaishaPay Callback] Exception:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
     );
   }
 };

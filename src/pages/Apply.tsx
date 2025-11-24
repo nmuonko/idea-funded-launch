@@ -13,7 +13,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { PaymentDialog } from '@/components/PaymentDialog';
+import { MaishaPayPayment } from '@/components/MaishaPayPayment';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 import { z } from 'zod';
 
@@ -642,13 +643,15 @@ export default function Apply() {
         </form>
 
         {/* Payment Dialog */}
-        <PaymentDialog
-          open={paymentDialogOpen}
-          onOpenChange={setPaymentDialogOpen}
-          submissionId={submissionId}
-          amount={activeSession?.application_fee || 20}
-          currency={activeSession?.currency || 'USD'}
-        />
+        <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <MaishaPayPayment
+              submissionId={submissionId}
+              amount={activeSession?.application_fee || 20}
+              currency={activeSession?.currency || 'USD'}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

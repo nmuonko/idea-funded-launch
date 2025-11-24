@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { VoiceRecorder } from '@/components/VoiceRecorder';
+
 import {
   Select,
   SelectContent,
@@ -211,9 +211,6 @@ export function Chatbot() {
     handleSend(question);
   };
 
-  const handleVoiceTranscription = (text: string) => {
-    setInput(text);
-  };
 
   const clearChatHistory = async () => {
     try {
@@ -261,7 +258,7 @@ export function Chatbot() {
   }
 
   return (
-    <Card className="fixed bottom-6 right-6 w-[380px] h-[500px] shadow-2xl flex flex-col z-50">
+    <Card className="fixed bottom-6 right-6 w-[380px] h-[500px] shadow-2xl flex flex-col z-[9999]">
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-5 w-5 text-primary" />
@@ -357,13 +354,6 @@ export function Chatbot() {
             onKeyPress={handleKeyPress}
             placeholder="Type your message..."
             disabled={isLoading}
-          />
-          <VoiceRecorder 
-            onTranscription={handleVoiceTranscription}
-            language={language}
-            maxDuration={120}
-            buttonVariant="ghost"
-            buttonSize="icon"
           />
           <Button onClick={() => handleSend()} disabled={isLoading || !input.trim()}>
             <Send className="h-4 w-4" />

@@ -81,7 +81,7 @@ export function Footer() {
             <ul className="space-y-2 text-sm text-muted-foreground text-justify">
               <li>info@afri-fund.org</li>
               <li>+243 972 809 832</li>
-              <li>Kinshasa, DRC</li>
+              <li>Lubumbashi, DRC</li>
             </ul>
           </div>
         </div>

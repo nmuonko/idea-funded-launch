@@ -29,12 +29,12 @@ const handler = async (req: Request): Promise<Response> => {
       email,
     });
 
-    // Read environment variables
+    // Read environment variables (using VITE_ prefixed names from Lovable Cloud Secrets)
     const mode = (Deno.env.get("MAISHAPAY_MODE") ?? "sandbox").toLowerCase();
-    const sandboxPublicKey = Deno.env.get("MAISHAPAY_SANDBOX_PUBLIC_KEY");
-    const sandboxSecretKey = Deno.env.get("MAISHAPAY_SANDBOX_SECRET_KEY");
-    const livePublicKey = Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY");
-    const liveSecretKey = Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY");
+    const sandboxPublicKey = Deno.env.get("VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY");
+    const sandboxSecretKey = Deno.env.get("VITE_MAISHAPAY_SANDBOX_SECRET_KEY");
+    const livePublicKey = Deno.env.get("VITE_MAISHAPAY_LIVE_PUBLIC_KEY");
+    const liveSecretKey = Deno.env.get("VITE_MAISHAPAY_LIVE_SECRET_KEY");
     const callbackUrl = Deno.env.get("MAISHAPAY_CALLBACK_URL");
     const frontendBaseUrl = Deno.env.get("FRONTEND_BASE_URL") || "https://afrifund.lovable.app";
 

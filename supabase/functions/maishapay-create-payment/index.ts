@@ -105,6 +105,18 @@ serve(async (req) => {
     // MaishaPay checkout URL
     const checkoutUrl = "https://marchand.maishapay.online/payment/vers1.0/merchant/checkout";
 
+    // Log what we're about to send (without exposing full keys)
+    console.log("[MaishaPay Create] Preparing form POST with:", {
+      checkoutUrl,
+      publicKeyPrefix: publicApiKey?.substring(0, 10) + "...",
+      secretKeyPrefix: secretApiKey?.substring(0, 10) + "...",
+      gatewayMode,
+      amount,
+      currency: "USD",
+      reference: confirmationId,
+      email,
+    });
+
     // Build form data for POST (MaishaPay requires POST, not GET)
     const formHtml = `
 <!DOCTYPE html>

@@ -20,3 +20,9 @@ verify_jwt = true
 
 [functions.ai-command-center]
 verify_jwt = true
+
+[functions.create-maishapay-payment]
+verify_jwt = false
+
+[functions.maishapay-callback]
+verify_jwt = false

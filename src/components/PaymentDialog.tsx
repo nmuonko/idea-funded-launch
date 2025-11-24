@@ -3,19 +3,11 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, CreditCard, Phone, Banknote, CheckCircle2 } from 'lucide-react';
-import { z } from 'zod';
-
-const phoneNumberSchema = z.string()
-  .trim()
-  .min(1, { message: "Phone number is required" })
-  .max(20, { message: "Phone number must be less than 20 characters" })
-  .regex(/^[\d\s\+\-\(\)]+$/, { message: "Phone number can only contain digits, spaces, +, -, (, )" });
+import { Loader2, CreditCard, CheckCircle2, AlertCircle, TestTube } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PaymentDialogProps {
   open: boolean;
@@ -24,63 +16,51 @@ interface PaymentDialogProps {
   amount: number;
 }
 
-type PaymentMethod = 'm_pesa' | 'airtel_money' | 'orange_money' | 'afrimoney';
-
 export function PaymentDialog({ open, onOpenChange, submissionId, amount }: PaymentDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('m_pesa');
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [paymentComplete, setPaymentComplete] = useState(false);
 
-  const handlePayment = async () => {
-    // Validate phone number
-    const validation = phoneNumberSchema.safeParse(phoneNumber);
-    if (!validation.success) {
-      toast({
-        title: t.common.error,
-        description: validation.error.errors[0].message,
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleMaishaPayPayment = async () => {
     setLoading(true);
 
     try {
-      // Update submission with payment method
-      const { error } = await supabase
-        .from('user_submissions')
-        .update({
-          payment_method: paymentMethod,
-          payment_status: 'paid',
-          payment_phone_number: validation.data,
-        })
-        .eq('id', submissionId);
+      console.log('[PaymentDialog] Initiating MaishaPay payment for submission:', submissionId);
 
-      if (error) throw error;
-
-      setPaymentComplete(true);
-      
-      toast({
-        title: t.common.success,
-        description: 'Payment confirmed! Your project code will be generated.',
+      // Call edge function to create MaishaPay payment
+      const { data, error } = await supabase.functions.invoke('create-maishapay-payment', {
+        body: { submissionId }
       });
 
-      // Close dialog after 2 seconds
+      if (error) {
+        console.error('[PaymentDialog] Edge function error:', error);
+        throw error;
+      }
+
+      console.log('[PaymentDialog] MaishaPay payment created:', data);
+
+      if (!data.success || !data.checkoutUrl) {
+        throw new Error(data.error || 'Failed to create payment');
+      }
+
+      toast({
+        title: 'Redirecting to Payment',
+        description: 'You will be redirected to MaishaPay to complete payment (SANDBOX TEST).',
+      });
+
+      // Redirect to MaishaPay checkout
       setTimeout(() => {
-        onOpenChange(false);
-        window.location.href = '/results';
-      }, 2000);
+        window.location.href = data.checkoutUrl;
+      }, 1000);
+
     } catch (error: any) {
-      console.error('Payment error:', error);
+      console.error('[PaymentDialog] Payment error:', error);
       toast({
         title: t.common.error,
-        description: 'Payment failed. Please try again.',
+        description: error.message || 'Failed to initiate payment. Please try again.',
         variant: 'destructive',
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -109,98 +89,60 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="glass-strong max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Complete Your Payment</DialogTitle>
+          <DialogTitle className="text-2xl flex items-center gap-2">
+            Complete Your Payment
+            <TestTube className="h-5 w-5 text-warning" />
+          </DialogTitle>
           <DialogDescription className="text-base">
             Application fee: <span className="font-bold text-primary">${amount}</span>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          <div className="space-y-4">
-            <Label className="text-base font-semibold">Select Payment Provider</Label>
-            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)}>
-              <Card className={`cursor-pointer transition-smooth ${paymentMethod === 'm_pesa' ? 'ring-2 ring-primary shadow-glow' : ''}`}>
-                <CardContent className="flex items-center space-x-4 p-4">
-                  <RadioGroupItem value="m_pesa" id="m_pesa" />
-                  <Label htmlFor="m_pesa" className="flex items-center gap-3 flex-1 cursor-pointer">
-                    <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Phone className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">Vodacom M-Pesa</p>
-                      <p className="text-sm text-muted-foreground">Pay with M-Pesa</p>
-                    </div>
-                  </Label>
-                </CardContent>
-              </Card>
+          <Alert className="bg-warning/10 border-warning">
+            <AlertCircle className="h-4 w-4 text-warning" />
+            <AlertDescription className="text-sm">
+              <strong>SANDBOX TEST MODE:</strong> This is a test payment. No real money will be charged.
+            </AlertDescription>
+          </Alert>
 
-              <Card className={`cursor-pointer transition-smooth ${paymentMethod === 'airtel_money' ? 'ring-2 ring-primary shadow-glow' : ''}`}>
-                <CardContent className="flex items-center space-x-4 p-4">
-                  <RadioGroupItem value="airtel_money" id="airtel_money" />
-                  <Label htmlFor="airtel_money" className="flex items-center gap-3 flex-1 cursor-pointer">
-                    <div className="h-10 w-10 rounded-lg bg-destructive/10 flex items-center justify-center">
-                      <Phone className="h-5 w-5 text-destructive" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">Airtel Money</p>
-                      <p className="text-sm text-muted-foreground">Pay with Airtel Money</p>
-                    </div>
-                  </Label>
-                </CardContent>
-              </Card>
+          <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-center gap-4">
+                <div className="h-16 w-16 rounded-xl bg-primary/20 flex items-center justify-center">
+                  <CreditCard className="h-8 w-8 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-lg">MaishaPay</h3>
+                  <p className="text-sm text-muted-foreground">Secure Payment Gateway (Test Mode)</p>
+                </div>
+              </div>
 
-              <Card className={`cursor-pointer transition-smooth ${paymentMethod === 'orange_money' ? 'ring-2 ring-primary shadow-glow' : ''}`}>
-                <CardContent className="flex items-center space-x-4 p-4">
-                  <RadioGroupItem value="orange_money" id="orange_money" />
-                  <Label htmlFor="orange_money" className="flex items-center gap-3 flex-1 cursor-pointer">
-                    <div className="h-10 w-10 rounded-lg bg-warning/10 flex items-center justify-center">
-                      <Phone className="h-5 w-5 text-warning" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">Orange Money</p>
-                      <p className="text-sm text-muted-foreground">Pay with Orange Money</p>
-                    </div>
-                  </Label>
-                </CardContent>
-              </Card>
-
-              <Card className={`cursor-pointer transition-smooth ${paymentMethod === 'afrimoney' ? 'ring-2 ring-primary shadow-glow' : ''}`}>
-                <CardContent className="flex items-center space-x-4 p-4">
-                  <RadioGroupItem value="afrimoney" id="afrimoney" />
-                  <Label htmlFor="afrimoney" className="flex items-center gap-3 flex-1 cursor-pointer">
-                    <div className="h-10 w-10 rounded-lg bg-success/10 flex items-center justify-center">
-                      <Phone className="h-5 w-5 text-success" />
-                    </div>
-                    <div>
-                      <p className="font-semibold">Afrimoney</p>
-                      <p className="text-sm text-muted-foreground">Pay with Afrimoney</p>
-                    </div>
-                  </Label>
-                </CardContent>
-              </Card>
-            </RadioGroup>
-          </div>
-
-          <div className="space-y-2 animate-fade-in">
-            <Label>Mobile Money Number</Label>
-            <Input
-              type="tel"
-              placeholder="+243 XXX XXX XXX"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              maxLength={20}
-            />
-            <p className="text-sm text-muted-foreground">
-              Enter your mobile money number for payment confirmation
-            </p>
-          </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Payment Method:</span>
+                  <span className="font-semibold">MaishaPay</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Amount:</span>
+                  <span className="font-semibold">${amount} USD</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Mode:</span>
+                  <span className="font-semibold text-warning">SANDBOX TEST</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card className="bg-muted/50 animate-fade-in">
             <CardContent className="p-4 space-y-2 text-sm">
-              <p className="font-semibold">Payment Instructions:</p>
+              <p className="font-semibold">Payment Process:</p>
               <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                <li>You will receive a payment request on your phone</li>
-                <li>Enter your PIN to authorize the payment</li>
+                <li>Click "Pay with MaishaPay" below</li>
+                <li>You will be redirected to MaishaPay's secure checkout</li>
+                <li>Complete the test payment on their platform</li>
+                <li>You will be redirected back to see your result</li>
                 <li>Your project code will be generated automatically</li>
               </ol>
             </CardContent>
@@ -216,17 +158,20 @@ export function PaymentDialog({ open, onOpenChange, submissionId, amount }: Paym
               Cancel
             </Button>
             <Button
-              onClick={handlePayment}
+              onClick={handleMaishaPayPayment}
               disabled={loading}
               className="flex-1 shadow-glow"
             >
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
+                  Redirecting...
                 </>
               ) : (
-                'Confirm Payment'
+                <>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Pay with MaishaPay (Test)
+                </>
               )}
             </Button>
           </div>

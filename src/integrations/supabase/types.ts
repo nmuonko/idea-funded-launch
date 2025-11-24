@@ -410,10 +410,15 @@ export type Database = {
           is_possible_duplicate: boolean | null
           is_suspected_fraud: boolean | null
           language_detected: string | null
+          maishapay_raw_response: Json | null
+          maishapay_reference: string | null
+          maishapay_transaction_id: string | null
           number_of_hires: number | null
           payment_amount: number | null
+          payment_currency: string | null
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           payment_phone_number: string | null
+          payment_provider: string | null
           payment_reference: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           preferred_language: string | null
@@ -485,10 +490,15 @@ export type Database = {
           is_possible_duplicate?: boolean | null
           is_suspected_fraud?: boolean | null
           language_detected?: string | null
+          maishapay_raw_response?: Json | null
+          maishapay_reference?: string | null
+          maishapay_transaction_id?: string | null
           number_of_hires?: number | null
           payment_amount?: number | null
+          payment_currency?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           payment_phone_number?: string | null
+          payment_provider?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           preferred_language?: string | null
@@ -560,10 +570,15 @@ export type Database = {
           is_possible_duplicate?: boolean | null
           is_suspected_fraud?: boolean | null
           language_detected?: string | null
+          maishapay_raw_response?: Json | null
+          maishapay_reference?: string | null
+          maishapay_transaction_id?: string | null
           number_of_hires?: number | null
           payment_amount?: number | null
+          payment_currency?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           payment_phone_number?: string | null
+          payment_provider?: string | null
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           preferred_language?: string | null

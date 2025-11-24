@@ -1,0 +1,142 @@
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const handler = async (req: Request): Promise<Response> => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const callbackData = await req.json();
+    
+    console.log('[MaishaPay Callback] Received:', JSON.stringify(callbackData, null, 2));
+
+    // Initialize Supabase client
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // Extract data from callback (adjust based on actual MaishaPay callback structure)
+    const reference = callbackData.reference || callbackData.merchant_reference;
+    const transactionId = callbackData.transaction_id || callbackData.id;
+    const status = callbackData.status || callbackData.payment_status;
+    const amount = callbackData.amount;
+    const currency = callbackData.currency;
+    
+    console.log('[MaishaPay Callback] Extracted:', { reference, transactionId, status, amount, currency });
+
+    if (!reference) {
+      console.error('[MaishaPay Callback] No reference found in callback');
+      return new Response(
+        JSON.stringify({ error: 'Invalid callback: missing reference' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Find submission by reference
+    const { data: submission, error: fetchError } = await supabaseClient
+      .from('user_submissions')
+      .select('*')
+      .eq('maishapay_reference', reference)
+      .single();
+
+    if (fetchError || !submission) {
+      console.error('[MaishaPay Callback] Submission not found for reference:', reference, fetchError);
+      return new Response(
+        JSON.stringify({ error: 'Submission not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[MaishaPay Callback] Found submission:', submission.id);
+
+    // Determine payment status based on MaishaPay status
+    let paymentStatus = 'pending';
+    
+    // MaishaPay may use different status strings - adjust based on their actual API
+    const successStatuses = ['success', 'completed', 'paid', 'successful'];
+    const failedStatuses = ['failed', 'cancelled', 'rejected', 'declined'];
+    
+    if (successStatuses.some(s => status?.toLowerCase().includes(s))) {
+      paymentStatus = 'paid';
+    } else if (failedStatuses.some(s => status?.toLowerCase().includes(s))) {
+      paymentStatus = 'failed';
+    }
+
+    console.log('[MaishaPay Callback] Determined payment_status:', paymentStatus);
+
+    // Verify amount matches (if provided)
+    if (amount && submission.payment_amount && parseFloat(amount) !== parseFloat(submission.payment_amount)) {
+      console.warn('[MaishaPay Callback] Amount mismatch:', {
+        expected: submission.payment_amount,
+        received: amount
+      });
+    }
+
+    // Update submission
+    const updateData: any = {
+      payment_status: paymentStatus,
+      maishapay_transaction_id: transactionId,
+      maishapay_raw_response: callbackData,
+      updated_at: new Date().toISOString(),
+    };
+
+    // If payment is successful, keep is_draft = false (it's already false from submission)
+    // The auto_generate_project_code trigger will handle project code generation
+
+    const { error: updateError } = await supabaseClient
+      .from('user_submissions')
+      .update(updateData)
+      .eq('id', submission.id);
+
+    if (updateError) {
+      console.error('[MaishaPay Callback] Failed to update submission:', updateError);
+      return new Response(
+        JSON.stringify({ error: 'Failed to update submission' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[MaishaPay Callback] Submission updated successfully:', {
+      submissionId: submission.id,
+      paymentStatus,
+      transactionId
+    });
+
+    // If this is a webhook (not user redirect), return 200
+    if (req.headers.get('user-agent')?.includes('MaishaPay') || 
+        req.headers.get('x-maishapay-signature')) {
+      return new Response(
+        JSON.stringify({ success: true, message: 'Callback processed' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // If this is a user redirect, send them to the result page
+    const resultUrl = `${Deno.env.get('SUPABASE_URL')?.replace('/rest/v1', '')}/payment/result?status=${paymentStatus}&reference=${reference}`;
+    
+    return new Response(null, {
+      status: 302,
+      headers: {
+        ...corsHeaders,
+        'Location': resultUrl,
+      },
+    });
+
+  } catch (error: any) {
+    console.error('[MaishaPay Callback] Error:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+};
+
+serve(handler);

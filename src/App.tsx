@@ -18,11 +18,13 @@ import Terms from "./pages/Terms";
 import Contact from "./pages/Contact";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
+import PaymentResult from "./pages/PaymentResult";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminSessions from "./pages/admin/Sessions";
 import AdminSubmissions from "./pages/admin/Submissions";
 import AdminContacts from "./pages/admin/Contacts";
 import PaymentSettings from "./pages/admin/PaymentSettings";
+import PaymentsView from "./pages/admin/PaymentsView";
 import SessionSettings from "./pages/admin/SessionSettings";
 import ContentManagement from "./pages/admin/ContentManagement";
 import AIAssistant from "./pages/admin/AIAssistant";
@@ -87,6 +89,7 @@ const App = () => (
                 </div>
               } />
               <Route path="/auth" element={<Auth />} />
+              <Route path="/payment/result" element={<PaymentResult />} />
               <Route path="/profile" element={
                 <ProtectedRoute>
                   <div className="flex flex-col min-h-screen">
@@ -105,6 +108,7 @@ const App = () => (
               }>
                 <Route index element={<AdminDashboard />} />
                 <Route path="submissions" element={<AdminSubmissions />} />
+                <Route path="payments" element={<PaymentsView />} />
                 <Route path="session-settings" element={<SessionSettings />} />
                 <Route path="content" element={<ContentManagement />} />
                 <Route path="analytics" element={<Analytics />} />

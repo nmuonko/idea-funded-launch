@@ -8,15 +8,17 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  console.log("[MaishaPay Create] Request received:", req.method);
+
   // CORS preflight
   if (req.method === "OPTIONS") {
-    console.log("[MaishaPay] Handling OPTIONS preflight");
+    console.log("[MaishaPay Create] Handling OPTIONS preflight");
     return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
   // ONLY allow POST from frontend
   if (req.method !== "POST") {
-    console.error("[MaishaPay] Invalid method:", req.method);
+    console.error("[MaishaPay Create] Invalid method:", req.method);
     return new Response(
       JSON.stringify({ error: "Method Not Allowed", method: req.method }),
       {
@@ -32,20 +34,20 @@ serve(async (req) => {
     const amount = Number(body.amount ?? 0);
     const confirmationId = String(body.confirmationId ?? "");
     const email = String(body.email ?? "");
-    const name = String(body.name ?? "");
 
-    console.log("[MaishaPay] Processing payment request:", {
+    console.log("[MaishaPay Create] Processing payment request:", {
       submissionId,
       amount,
       confirmationId,
       email,
-      name,
     });
 
     if (!amount || !confirmationId || !email || !submissionId) {
-      console.error("[MaishaPay] Missing required fields");
+      console.error("[MaishaPay Create] Missing required fields");
       return new Response(
-        JSON.stringify({ error: "Missing required fields: submissionId, amount, confirmationId, or email" }),
+        JSON.stringify({ 
+          error: "Missing required fields: submissionId, amount, confirmationId, or email" 
+        }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -53,20 +55,24 @@ serve(async (req) => {
       );
     }
 
-    // Read secrets from Deno.env
+    // Read secrets from Deno.env - BACKEND ONLY
     const mode = (Deno.env.get("MAISHAPAY_MODE") ?? "sandbox").toLowerCase();
     const isLive = mode === "live";
 
-    const sandboxPublic = Deno.env.get("VITE_MAISHAPAY_SANDBOX_PUBLIC_KEY");
-    const sandboxSecret = Deno.env.get("VITE_MAISHAPAY_SANDBOX_SECRET_KEY");
-    const livePublic = Deno.env.get("VITE_MAISHAPAY_LIVE_PUBLIC_KEY");
-    const liveSecret = Deno.env.get("VITE_MAISHAPAY_LIVE_SECRET_KEY");
+    // Use old secret names that exist in the project
+    const sandboxPublic = Deno.env.get("MAISHAPAY_PUBLIC_KEY_TEST");
+    const sandboxSecret = Deno.env.get("MAISHAPAY_SECRET_KEY_TEST");
+    
+    // For live mode - these may not exist yet
+    const livePublic = Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY");
+    const liveSecret = Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY");
+    
     const callbackUrl = Deno.env.get("MAISHAPAY_CALLBACK_URL");
 
     const publicApiKey = isLive ? livePublic : sandboxPublic;
     const secretApiKey = isLive ? liveSecret : sandboxSecret;
 
-    console.log("[MaishaPay] Configuration check:", {
+    console.log("[MaishaPay Create] Configuration check:", {
       mode,
       isLive,
       hasSandboxPublic: !!sandboxPublic,
@@ -79,9 +85,11 @@ serve(async (req) => {
     });
 
     if (!publicApiKey || !secretApiKey || !callbackUrl) {
-      console.error("[MaishaPay] Configuration incomplete");
+      console.error("[MaishaPay Create] Configuration incomplete");
       return new Response(
-        JSON.stringify({ error: "MaishaPay configuration incomplete. Please contact support." }),
+        JSON.stringify({ 
+          error: "MaishaPay configuration incomplete. Please contact support." 
+        }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -107,7 +115,7 @@ serve(async (req) => {
 
     const redirectUrl = checkoutUrl.toString();
 
-    console.log("[MaishaPay] Payment URL generated successfully", {
+    console.log("[MaishaPay Create] Payment URL generated successfully", {
       mode,
       gatewayMode,
       amount,
@@ -127,7 +135,7 @@ serve(async (req) => {
       }
     );
   } catch (err: any) {
-    console.error("[MaishaPay] Exception:", err.message, err.stack);
+    console.error("[MaishaPay Create] Exception:", err.message, err.stack);
     return new Response(
       JSON.stringify({ error: "Internal server error", details: err.message }),
       {

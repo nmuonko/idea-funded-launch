@@ -13,7 +13,21 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const callbackData = await req.json();
+    // Parse form data from MaishaPay (application/x-www-form-urlencoded)
+    const contentType = req.headers.get('content-type') || '';
+    let callbackData: any = {};
+
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      const formData = await req.formData();
+      callbackData = Object.fromEntries(formData.entries());
+    } else if (contentType.includes('application/json')) {
+      callbackData = await req.json();
+    } else {
+      // Try parsing as text and convert to object
+      const text = await req.text();
+      const params = new URLSearchParams(text);
+      callbackData = Object.fromEntries(params.entries());
+    }
     
     console.log('[MaishaPay Callback] Received:', JSON.stringify(callbackData, null, 2));
 

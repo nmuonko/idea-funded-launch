@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Menu, X, User, Shield, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ColorCustomization } from '@/components/ColorCustomization';
 import {
@@ -19,9 +21,44 @@ export function Header() {
   const { t } = useLanguage();
   const { user, isAdmin, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileData, setProfileData] = useState<{ full_name?: string; avatar_url?: string } | null>(null);
   const navigate = useNavigate();
 
   console.log('[Header] Render:', { user: user?.email, isAdmin });
+
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+    }
+  }, [user]);
+
+  const loadProfile = async () => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('full_name, avatar_url')
+        .eq('user_id', user?.id)
+        .single();
+      
+      if (data) {
+        setProfileData(data);
+      }
+    } catch (error) {
+      console.error('[Header] Error loading profile:', error);
+    }
+  };
+
+  const getInitials = () => {
+    if (profileData?.full_name) {
+      return profileData.full_name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+    }
+    return user?.email?.charAt(0)?.toUpperCase() || '?';
+  };
 
   const handleSignOut = async () => {
     console.log('[Header] Sign out clicked');
@@ -83,9 +120,16 @@ export function Header() {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <User className="h-4 w-4" />
-                    <span className="hidden sm:inline">Account</span>
+                  <Button variant="outline" size="sm" className="gap-2 h-9">
+                    <Avatar className="h-6 w-6">
+                      <AvatarImage src={profileData?.avatar_url} />
+                      <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                        {getInitials()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="hidden sm:inline">
+                      {profileData?.full_name?.split(' ')[0] || 'Account'}
+                    </span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">

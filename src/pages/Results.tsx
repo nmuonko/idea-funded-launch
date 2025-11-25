@@ -8,7 +8,8 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Search, Target, Users, Clock } from 'lucide-react';
+import { Loader2, Search, Clock } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Link } from 'react-router-dom';
 
 export default function Results() {
@@ -19,7 +20,6 @@ export default function Results() {
   const [countdown, setCountdown] = useState('');
 
   // Check if there's a ref parameter in URL
-  const [searchParams] = new URL(window.location.href).searchParams.entries();
   const refFromUrl = new URLSearchParams(window.location.search).get('ref');
 
   useEffect(() => {
@@ -29,8 +29,7 @@ export default function Results() {
     }
   }, [refFromUrl]);
 
-  // IMPORTANT: All hooks must be called before any conditional returns
-  // Fetch active session (direct query - RPC was hanging)
+  // Fetch active session
   const { data: activeSession, isLoading: sessionLoading, error: sessionError } = useQuery({
     queryKey: ['resultsSession'],
     queryFn: async () => {
@@ -47,34 +46,10 @@ export default function Results() {
     },
   });
 
-  // Calculate real-time progress
-  const { data: progressStats } = useQuery({
-    queryKey: ['sessionProgress', activeSession?.id],
-    queryFn: async () => {
-      if (!activeSession) return null;
-
-      const { count, error } = await supabase
-        .from('user_submissions')
-        .select('*', { count: 'exact', head: true })
-        .eq('session_id', activeSession.id)
-        .eq('payment_status', 'paid')
-        .eq('is_draft', false);
-
-      if (error) throw error;
-
-      const currentCount = count || 0;
-      const target = activeSession.target_applicants || activeSession.desired_max_participants || 500;
-      const progress = target > 0 ? (currentCount / target) * 100 : 0;
-
-      return {
-        current: currentCount,
-        target,
-        progress,
-      };
-    },
-    enabled: !!activeSession,
-    refetchInterval: 30000, // Refresh every 30 seconds
-  });
+  // Check if deadline has passed
+  const deadlinePassed = activeSession?.deadline_datetime 
+    ? new Date(activeSession.deadline_datetime).getTime() < new Date().getTime()
+    : false;
 
   // Fetch winners for published sessions
   const { data: winners } = useQuery({
@@ -83,11 +58,11 @@ export default function Results() {
       if (!activeSession || activeSession.status !== 'results_published') return [];
       
       const { data, error } = await supabase
-        .from('user_submissions')
-        .select('project_code, project_title, city_province, funding_needed')
+        .from('winners')
+        .select('*')
         .eq('session_id', activeSession.id)
-        .eq('submission_status', 'selected')
-        .order('project_code');
+        .eq('is_published', true)
+        .order('display_order');
 
       if (error) throw error;
       return data;
@@ -125,7 +100,6 @@ export default function Results() {
     return () => clearInterval(interval);
   }, [activeSession]);
 
-  // NOW conditional returns are safe - all hooks have been called
   // Show loading state
   if (sessionLoading) {
     return (
@@ -239,50 +213,35 @@ export default function Results() {
         </div>
 
         <div className="max-w-4xl mx-auto space-y-8">
-          {/* Session Progress with Countdown */}
-          {activeSession && progressStats && (
+          {/* Session Progress Card */}
+          {activeSession && (
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="text-2xl">Current Application Session: {activeSession.name}</CardTitle>
                 <CardDescription>{getSessionStatusLabel()}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Progress Bar */}
+                {/* Review Progress Bar */}
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="font-medium">Application Progress</span>
-                    <span className="text-muted-foreground">
-                      {progressStats.current} / {progressStats.target} applicants
-                    </span>
+                    <span className="font-medium">Review Progress</span>
                   </div>
-                  <Progress value={progressStats.progress} className="h-3" />
-                  <p className="text-center text-lg font-semibold text-primary">
-                    {progressStats.progress.toFixed(1)}% of target reached
+                  <Progress value={deadlinePassed ? activeSession.review_progress : 0} className="h-3" />
+                  <p className="text-center text-sm text-muted-foreground">
+                    {!deadlinePassed ? (
+                      "Review will start after the deadline"
+                    ) : (
+                      `Review in progress: ${activeSession.review_progress}% completed`
+                    )}
                   </p>
                 </div>
 
-                {/* Stats Grid */}
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="flex items-center gap-3 p-4 border rounded-lg">
-                    <Target className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Target</p>
-                      <p className="text-2xl font-bold">{progressStats.target}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-4 border rounded-lg">
-                    <Users className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Current Applications</p>
-                      <p className="text-2xl font-bold">{progressStats.current}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-4 border rounded-lg">
-                    <Clock className="h-8 w-8 text-primary" />
-                    <div>
-                      <p className="text-sm text-muted-foreground">Time Remaining</p>
-                      <p className="text-lg font-bold">{countdown}</p>
-                    </div>
+                {/* Countdown Timer */}
+                <div className="flex items-center justify-center gap-3 p-4 border rounded-lg">
+                  <Clock className="h-8 w-8 text-primary" />
+                  <div>
+                    <p className="text-sm text-muted-foreground">Time Remaining</p>
+                    <p className="text-lg font-bold">{countdown}</p>
                   </div>
                 </div>
 
@@ -296,31 +255,61 @@ export default function Results() {
             </Card>
           )}
 
-          {/* Session Status - Keep original if no progress stats */}
-          {activeSession && !progressStats && (
+          {/* Results pending message or Winners */}
+          {activeSession && activeSession.status !== 'results_published' && (
             <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="text-2xl">{t.results.sessionStatus}</CardTitle>
-                <CardDescription>
-                  {activeSession.name} - {getSessionStatusLabel()}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="font-medium">{t.results.reviewProgress}</span>
-                    <span className="text-muted-foreground">{activeSession.review_progress}%</span>
-                  </div>
-                  <Progress value={activeSession.review_progress} className="h-3" />
-                  <p className="text-sm text-muted-foreground">
-                    {activeSession.review_progress < 100 ? t.results.progressMessage : t.results.completionMessage}
-                  </p>
-                </div>
+              <CardContent className="py-8">
+                <p className="text-center text-muted-foreground">
+                  {!deadlinePassed 
+                    ? "Results will be published after the review process is completed."
+                    : "Review in progress. Results will be published soon."
+                  }
+                </p>
               </CardContent>
             </Card>
           )}
 
-          {/* Confirmation ID / Project Code Lookup */}
+          {/* Winners List */}
+          {activeSession?.status === 'results_published' && (
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="text-2xl">Winners Announced</CardTitle>
+                <CardDescription>{activeSession.name}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {winners && winners.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Full Name</TableHead>
+                          <TableHead>Project / Business</TableHead>
+                          <TableHead>Country</TableHead>
+                          <TableHead>Award</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {winners.map((winner: any) => (
+                          <TableRow key={winner.id}>
+                            <TableCell className="font-medium">{winner.winner_name}</TableCell>
+                            <TableCell>{winner.project_name}</TableCell>
+                            <TableCell>{winner.country}</TableCell>
+                            <TableCell className="font-semibold text-primary">
+                              ${winner.award_amount?.toLocaleString()}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">No winners announced yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Track Application */}
           <Card className="shadow-card">
             <CardHeader>
               <CardTitle className="text-2xl">Track Your Application</CardTitle>
@@ -418,44 +407,6 @@ export default function Results() {
               )}
             </CardContent>
           </Card>
-
-          {/* Winners List */}
-          {activeSession?.status === 'results_published' && (
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="text-2xl">{t.results.winnersTitle}</CardTitle>
-                <CardDescription>{activeSession.name}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {winners && winners.length > 0 ? (
-                  <div className="space-y-3">
-                    {winners.map((winner: any) => (
-                      <Card key={winner.project_code} className="bg-success/5 border-success/20">
-                        <CardContent className="pt-6">
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div>
-                              <p className="text-sm text-muted-foreground">{t.results.projectCode}</p>
-                              <p className="font-semibold">{winner.project_code}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">{t.results.projectTitle}</p>
-                              <p className="font-semibold">{winner.project_title}</p>
-                            </div>
-                            <div>
-                              <p className="text-sm text-muted-foreground">{t.results.fundingAwarded}</p>
-                              <p className="font-semibold text-success">${winner.funding_needed}</p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-center text-muted-foreground">{t.results.noWinners}</p>
-                )}
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
     </div>

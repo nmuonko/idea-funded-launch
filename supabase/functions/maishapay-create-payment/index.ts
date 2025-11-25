@@ -47,7 +47,7 @@ serve(async (req) => {
     });
 
     // Check if configuration is complete
-    if (!mode || mode !== "live" || !livePublic || !liveSecret || !callbackUrl) {
+    if (!mode || mode !== "1" || !livePublic || !liveSecret || !callbackUrl) {
       console.error("[MAISHAPAY LIVE] Configuration incomplete:", {
         mode,
         hasPublicKey: !!livePublic,

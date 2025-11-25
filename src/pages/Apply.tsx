@@ -74,9 +74,7 @@ export default function Apply() {
       const { data, error } = await supabase
         .from('sessions')
         .select('id, name, start_date, announcement_date, status, desired_max_participants, current_participant_count, application_fee, currency, enable_waitlist, waitlist_count, review_progress, payment_instructions, target_applicants, deadline_datetime')
-        .in('status', ['open', 'closed', 'results_published'])
-        .order('created_at', { ascending: false })
-        .limit(1)
+        .eq('is_active', true)
         .maybeSingle();
 
       if (error) throw error;

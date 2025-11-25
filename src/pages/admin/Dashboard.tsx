@@ -12,10 +12,13 @@ export default function AdminDashboard() {
     queryKey: ['activeSession'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .rpc('get_active_session');
+        .from('sessions')
+        .select('*')
+        .eq('is_active', true)
+        .maybeSingle();
       
       if (error) throw error;
-      return data?.[0] || null;
+      return data;
     },
   });
 

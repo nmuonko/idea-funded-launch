@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Upload, AlertCircle, Mail } from 'lucide-react';
+import { Loader2, Upload, AlertCircle, Mail, Lock, CheckCircle2 } from 'lucide-react';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -23,6 +25,10 @@ export default function Profile() {
   const [city, setCity] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -124,6 +130,67 @@ export default function Profile() {
     }
   };
 
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: 'Error',
+        description: 'New passwords do not match.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        title: 'Error',
+        description: 'Password must be at least 6 characters long.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setChangingPassword(true);
+      
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Password updated successfully!',
+      });
+
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const calculateProfileCompletion = () => {
+    let completed = 0;
+    const total = 4;
+
+    if (fullName) completed++;
+    if (dateOfBirth) completed++;
+    if (city) completed++;
+    if (avatarUrl) completed++;
+
+    return Math.round((completed / total) * 100);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -172,6 +239,8 @@ export default function Profile() {
     return user.email?.charAt(0)?.toUpperCase() || '?';
   };
 
+  const profileCompletion = calculateProfileCompletion();
+
   return (
     <div className="container max-w-2xl mx-auto py-8 px-4">
       {/* Email Verification Banner */}
@@ -209,6 +278,25 @@ export default function Profile() {
         <CardHeader>
           <CardTitle>Profile Settings</CardTitle>
           <CardDescription>Manage your account information</CardDescription>
+          
+          {/* Profile Completion Indicator */}
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Profile Completion</span>
+              <span className="text-muted-foreground">{profileCompletion}%</span>
+            </div>
+            <Progress value={profileCompletion} className="h-2" />
+            {profileCompletion === 100 ? (
+              <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Your profile is complete!</span>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Complete all fields to unlock full features
+              </p>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -304,6 +392,63 @@ export default function Profile() {
               Save Changes
             </Button>
           </form>
+
+          <Separator className="my-8" />
+
+          {/* Password Change Section */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-primary" />
+              <h3 className="text-lg font-semibold">Change Password</h3>
+            </div>
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="currentPassword">Current Password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Enter current password"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">New Password</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password (min 6 characters)"
+                  minLength={6}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  minLength={6}
+                  required
+                />
+              </div>
+
+              <Button 
+                type="submit" 
+                className="w-full" 
+                disabled={changingPassword || !newPassword || !confirmPassword}
+              >
+                {changingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Update Password
+              </Button>
+            </form>
+          </div>
         </CardContent>
       </Card>
     </div>

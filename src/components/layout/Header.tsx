@@ -101,12 +101,12 @@ export function Header() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-6">
+          <div className="hidden lg:flex items-center space-x-4 xl:space-x-6">
             {navLinks.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}
-                className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors"
+                className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors whitespace-nowrap"
               >
                 {link.label}
               </Link>
@@ -114,7 +114,7 @@ export function Header() {
           </div>
 
           {/* Right section */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 lg:space-x-4">
             <ColorCustomization />
             <LanguageSwitcher />
             {user ? (
@@ -164,7 +164,7 @@ export function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="lg:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               {mobileMenuOpen ? (
@@ -178,7 +178,7 @@ export function Header() {
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <div className="md:hidden py-4 border-t border-border">
+          <div className="lg:hidden py-4 border-t border-border">
             <div className="flex flex-col space-y-3">
               {navLinks.map((link) => (
                 <Link

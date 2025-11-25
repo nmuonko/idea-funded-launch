@@ -34,7 +34,24 @@ export function SubmissionCharts() {
 
       if (error) throw error;
 
-      // Process data for different charts
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const weekStart = new Date(now);
+      weekStart.setDate(weekStart.getDate() - 7);
+      const lastWeekStart = new Date(weekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+
+      // Real-time metrics
+      const todaySubmissions = submissions?.filter(s => new Date(s.created_at) >= todayStart).length || 0;
+      const thisWeekSubmissions = submissions?.filter(s => new Date(s.created_at) >= weekStart).length || 0;
+      const lastWeekSubmissions = submissions?.filter(s => 
+        new Date(s.created_at) >= lastWeekStart && new Date(s.created_at) < weekStart
+      ).length || 0;
+      const weekTrend = lastWeekSubmissions > 0 
+        ? ((thisWeekSubmissions - lastWeekSubmissions) / lastWeekSubmissions * 100).toFixed(1)
+        : '0';
+
+      // Process data for different charts - group by date
       const submissionsByDate = submissions?.reduce((acc: any, sub) => {
         const date = new Date(sub.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         const existing = acc.find((item: any) => item.date === date);
@@ -74,6 +91,13 @@ export function SubmissionCharts() {
         submissionsByStatus,
         submissionsByCity,
         fundingOverTime,
+        realTimeMetrics: {
+          today: todaySubmissions,
+          thisWeek: thisWeekSubmissions,
+          lastWeek: lastWeekSubmissions,
+          weekTrend: parseFloat(weekTrend),
+          trendDirection: parseFloat(weekTrend) >= 0 ? 'up' : 'down'
+        }
       };
     },
   });
@@ -103,9 +127,44 @@ export function SubmissionCharts() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Submissions Over Time - Line Chart */}
-      <Card className="glass-strong">
+    <div className="space-y-6">
+      {/* Real-time Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="glass border-primary/20">
+          <CardHeader className="pb-3">
+            <CardDescription>Today's Submissions</CardDescription>
+            <CardTitle className="text-3xl font-bold text-primary flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              {chartData?.realTimeMetrics.today || 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        
+        <Card className="glass border-secondary/20">
+          <CardHeader className="pb-3">
+            <CardDescription>This Week</CardDescription>
+            <CardTitle className="text-3xl font-bold text-secondary">
+              {chartData?.realTimeMetrics.thisWeek || 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        
+        <Card className={`glass ${chartData?.realTimeMetrics.trendDirection === 'up' ? 'border-success/20' : 'border-warning/20'}`}>
+          <CardHeader className="pb-3">
+            <CardDescription>Week-over-Week Trend</CardDescription>
+            <CardTitle className={`text-3xl font-bold flex items-center gap-2 ${
+              chartData?.realTimeMetrics.trendDirection === 'up' ? 'text-success' : 'text-warning'
+            }`}>
+              {chartData?.realTimeMetrics.trendDirection === 'up' ? '↑' : '↓'}
+              {Math.abs(chartData?.realTimeMetrics.weekTrend || 0)}%
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Submissions Over Time - Line Chart */}
+        <Card className="glass-strong">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <div className="h-2 w-2 rounded-full bg-primary animate-glow-pulse" />
@@ -254,6 +313,7 @@ export function SubmissionCharts() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

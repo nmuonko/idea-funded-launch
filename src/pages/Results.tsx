@@ -259,12 +259,12 @@ export default function Results() {
           {activeSession && activeSession.status !== 'results_published' && (
             <Card className="shadow-card">
               <CardContent className="py-8">
-                <p className="text-center text-muted-foreground">
-                  {!deadlinePassed 
-                    ? "Results will be published after the review process is completed."
-                    : "Review in progress. Results will be published soon."
-                  }
-                </p>
+              <p className="text-center text-muted-foreground">
+                {!deadlinePassed 
+                  ? "Results will be published after the deadline and once the review process is completed."
+                  : "Review in progress. Results will be published soon."
+                }
+              </p>
               </CardContent>
             </Card>
           )}

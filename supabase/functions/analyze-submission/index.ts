@@ -178,8 +178,8 @@ Scoring criteria:
     const analysisData = await analysisResponse.json();
     const analysis = JSON.parse(analysisData.choices[0].message.content);
 
-    // AI-based fraud detection for plagiarism and content quality
-    const fraudPrompt = `You are a fraud detection expert for AfriFund. Analyze this project submission for potential fraud, spam, or plagiarism.
+    // Enhanced AI-based fraud detection with similarity scoring
+    const fraudPrompt = `You are a fraud detection expert for AfriFund. Analyze this project submission for potential fraud, spam, plagiarism, and calculate similarity scores.
 
 Project Title: ${submission.project_title}
 Project Description: ${projectDescription}
@@ -195,7 +195,8 @@ Your task is to check for:
 2. Unrealistic or impossible claims (e.g., "will make $1 billion in 1 month")
 3. Spam, nonsense text, or AI-generated garbage
 4. Suspicious patterns in language or structure
-5. Compare with recent submissions to detect similar/copied content:
+5. Calculate similarity percentage with existing submissions (0-100%)
+6. Compare with recent submissions to detect similar/copied content:
 ${existingSubmissions?.slice(0, 15).map(s => `Title: ${s.project_title}, Desc: ${s.project_description?.substring(0, 150)}`).join('\n\n')}
 
 Respond in JSON format:
@@ -203,8 +204,15 @@ Respond in JSON format:
   "ai_fraud_detected": true/false,
   "ai_fraud_reason": "Brief explanation if AI detects fraud issues, or empty string if not",
   "content_similarity_found": true/false,
-  "similarity_explanation": "Explanation if similar content detected in other submissions"
+  "similarity_score": 0-100 (percentage of similarity with most similar existing submission),
+  "similarity_explanation": "Explanation if similar content detected, mention which aspects are similar"
 }
+
+IMPORTANT: 
+- similarity_score should be 0 if no significant similarity found
+- similarity_score above 70 indicates high likelihood of plagiarism
+- similarity_score between 40-70 indicates moderate similarity worth reviewing
+- Consider both semantic meaning and word-level similarity
 
 Focus on content quality and plagiarism detection. Database-level duplicates are already flagged.`;
 
@@ -233,6 +241,11 @@ Focus on content quality and plagiarism detection. Database-level duplicates are
     const fraudData = await fraudResponse.json();
     const aiFraudAnalysis = JSON.parse(fraudData.choices[0].message.content);
 
+    // Extract similarity score
+    const similarityScore = aiFraudAnalysis.similarity_score || 0;
+    const isSimilarityHigh = similarityScore >= 70;
+    const isSimilarityModerate = similarityScore >= 40 && similarityScore < 70;
+
     // Combine all fraud detection results
     if (aiFraudAnalysis.ai_fraud_detected) {
       fraudFlags.push(`AI detected: ${aiFraudAnalysis.ai_fraud_reason}`);
@@ -240,8 +253,14 @@ Focus on content quality and plagiarism detection. Database-level duplicates are
     }
 
     if (aiFraudAnalysis.content_similarity_found) {
-      fraudFlags.push(`Similar content: ${aiFraudAnalysis.similarity_explanation}`);
-      isPossibleDuplicate = true;
+      if (isSimilarityHigh) {
+        fraudFlags.push(`High similarity (${similarityScore}%): ${aiFraudAnalysis.similarity_explanation}`);
+        isSuspectedFraud = true;
+        isPossibleDuplicate = true;
+      } else if (isSimilarityModerate) {
+        fraudFlags.push(`Moderate similarity (${similarityScore}%): ${aiFraudAnalysis.similarity_explanation}`);
+        isPossibleDuplicate = true;
+      }
     }
 
     // Find the most likely duplicate submission ID (if any)
@@ -283,6 +302,44 @@ Focus on content quality and plagiarism detection. Database-level duplicates are
 
     console.log(`AI analysis completed for submission ${submissionId}`);
 
+    // Send fraud alert email if fraud detected
+    if (isSuspectedFraud || isSimilarityHigh) {
+      try {
+        console.log(`Sending fraud alert for submission ${submissionId}`);
+        
+        const fraudAlertResponse = await fetch(`${supabaseUrl}/functions/v1/send-fraud-alert-email`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            submissionId: submission.id,
+            confirmationId: submission.confirmation_id,
+            applicantName: submission.full_name,
+            applicantEmail: submission.email,
+            projectTitle: submission.project_title,
+            fraudFlags: fraudFlags,
+            similarityScore: similarityScore > 0 ? similarityScore : undefined,
+            duplicateCounts: {
+              emails: duplicateEmails?.length || 0,
+              phones: duplicatePhones?.length || 0,
+              sameUser: duplicateFromSameUser?.length || 0,
+            },
+          }),
+        });
+
+        if (!fraudAlertResponse.ok) {
+          console.error('Failed to send fraud alert email:', await fraudAlertResponse.text());
+        } else {
+          console.log('Fraud alert email sent successfully');
+        }
+      } catch (emailError) {
+        console.error('Error sending fraud alert email:', emailError);
+        // Don't fail the entire analysis if email fails
+      }
+    }
+
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -291,6 +348,7 @@ Focus on content quality and plagiarism detection. Database-level duplicates are
           is_suspected_fraud: isSuspectedFraud,
           fraud_flags: combinedFraudFlags,
           is_possible_duplicate: isPossibleDuplicate,
+          similarity_score: similarityScore,
           duplicate_count: {
             emails: duplicateEmails?.length || 0,
             phones: duplicatePhones?.length || 0,

@@ -72,11 +72,54 @@ serve(async (req) => {
       throw new Error(`Failed to fetch submission: ${fetchError?.message}`);
     }
 
-    // Fetch all existing submissions for duplicate detection
-    const { data: existingSubmissions } = await supabase
-      .from('user_submissions')
-      .select('id, project_description, project_title')
-      .neq('id', submissionId);
+    // Enhanced fraud detection: Check for duplicates in database
+    const [
+      { data: existingSubmissions },
+      { data: duplicateEmails },
+      { data: duplicatePhones },
+      { data: duplicateFromSameUser }
+    ] = await Promise.all([
+      supabase
+        .from('user_submissions')
+        .select('id, project_description, project_title, email, whatsapp_number')
+        .neq('id', submissionId),
+      supabase
+        .from('user_submissions')
+        .select('id, email, full_name, project_title')
+        .eq('email', submission.email)
+        .neq('id', submissionId),
+      supabase
+        .from('user_submissions')
+        .select('id, whatsapp_number, full_name, project_title')
+        .eq('whatsapp_number', submission.whatsapp_number)
+        .neq('id', submissionId),
+      supabase
+        .from('user_submissions')
+        .select('id, project_description, project_title')
+        .eq('email', submission.email)
+        .eq('whatsapp_number', submission.whatsapp_number)
+        .neq('id', submissionId)
+    ]);
+
+    // Check for exact or near-duplicate patterns
+    let fraudFlags: string[] = [];
+    let isSuspectedFraud = false;
+    let isPossibleDuplicate = false;
+
+    if (duplicateEmails && duplicateEmails.length > 0) {
+      fraudFlags.push(`Duplicate email found: ${duplicateEmails.length} other submission(s) with same email`);
+      isSuspectedFraud = true;
+    }
+
+    if (duplicatePhones && duplicatePhones.length > 0) {
+      fraudFlags.push(`Duplicate phone number: ${duplicatePhones.length} other submission(s) with same WhatsApp number`);
+      isSuspectedFraud = true;
+    }
+
+    if (duplicateFromSameUser && duplicateFromSameUser.length > 0) {
+      fraudFlags.push(`Multiple submissions detected: ${duplicateFromSameUser.length} submission(s) from same email + phone combination`);
+      isPossibleDuplicate = true;
+    }
 
     const projectDescription = submission.project_description;
 
@@ -135,32 +178,35 @@ Scoring criteria:
     const analysisData = await analysisResponse.json();
     const analysis = JSON.parse(analysisData.choices[0].message.content);
 
-    // Fraud detection
+    // AI-based fraud detection for plagiarism and content quality
     const fraudPrompt = `You are a fraud detection expert for AfriFund. Analyze this project submission for potential fraud, spam, or plagiarism.
 
 Project Title: ${submission.project_title}
 Project Description: ${projectDescription}
 Applicant Email: ${submission.email}
 
-Check for:
-1. Copied/plagiarized content from the internet
-2. Unrealistic claims or budget
-3. Spam or nonsense text
-4. Suspicious patterns
+DATABASE CHECKS ALREADY PERFORMED:
+- Duplicate email check: ${duplicateEmails?.length || 0} matches found
+- Duplicate phone check: ${duplicatePhones?.length || 0} matches found
+- Same user multiple submissions: ${duplicateFromSameUser?.length || 0} found
 
-Also compare with these existing submissions to detect duplicates:
-${existingSubmissions?.slice(0, 20).map(s => `Title: ${s.project_title}, Desc: ${s.project_description?.substring(0, 200)}`).join('\n\n')}
+Your task is to check for:
+1. Copied/plagiarized content from the internet or well-known sources
+2. Unrealistic or impossible claims (e.g., "will make $1 billion in 1 month")
+3. Spam, nonsense text, or AI-generated garbage
+4. Suspicious patterns in language or structure
+5. Compare with recent submissions to detect similar/copied content:
+${existingSubmissions?.slice(0, 15).map(s => `Title: ${s.project_title}, Desc: ${s.project_description?.substring(0, 150)}`).join('\n\n')}
 
 Respond in JSON format:
 {
-  "is_suspected_fraud": true/false,
-  "fraud_flags": "Brief explanation if fraud is suspected, or empty string if not",
-  "is_possible_duplicate": true/false,
-  "duplicate_of_submission_id": null,
-  "duplicate_explanation": "Explanation if duplicate detected"
+  "ai_fraud_detected": true/false,
+  "ai_fraud_reason": "Brief explanation if AI detects fraud issues, or empty string if not",
+  "content_similarity_found": true/false,
+  "similarity_explanation": "Explanation if similar content detected in other submissions"
 }
 
-IMPORTANT: The duplicate_of_submission_id field must be null. Do not include any UUID values.`;
+Focus on content quality and plagiarism detection. Database-level duplicates are already flagged.`;
 
     const fraudResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -185,23 +231,26 @@ IMPORTANT: The duplicate_of_submission_id field must be null. Do not include any
     }
 
     const fraudData = await fraudResponse.json();
-    const fraudAnalysis = JSON.parse(fraudData.choices[0].message.content);
+    const aiFraudAnalysis = JSON.parse(fraudData.choices[0].message.content);
 
-    // Combine fraud flags with duplicate explanation
-    let combinedFraudFlags = fraudAnalysis.fraud_flags || '';
-    if (fraudAnalysis.is_possible_duplicate && fraudAnalysis.duplicate_explanation) {
-      combinedFraudFlags = combinedFraudFlags 
-        ? `${combinedFraudFlags}. ${fraudAnalysis.duplicate_explanation}`
-        : fraudAnalysis.duplicate_explanation;
+    // Combine all fraud detection results
+    if (aiFraudAnalysis.ai_fraud_detected) {
+      fraudFlags.push(`AI detected: ${aiFraudAnalysis.ai_fraud_reason}`);
+      isSuspectedFraud = true;
     }
 
-    // Validate duplicate_of_submission_id - must be null or valid UUID
+    if (aiFraudAnalysis.content_similarity_found) {
+      fraudFlags.push(`Similar content: ${aiFraudAnalysis.similarity_explanation}`);
+      isPossibleDuplicate = true;
+    }
+
+    // Find the most likely duplicate submission ID (if any)
     let duplicateId = null;
-    if (fraudAnalysis.duplicate_of_submission_id && 
-        typeof fraudAnalysis.duplicate_of_submission_id === 'string' &&
-        fraudAnalysis.duplicate_of_submission_id.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-      duplicateId = fraudAnalysis.duplicate_of_submission_id;
+    if (duplicateFromSameUser && duplicateFromSameUser.length > 0) {
+      duplicateId = duplicateFromSameUser[0].id;
     }
+
+    const combinedFraudFlags = fraudFlags.join(' | ');
 
     // Update submission with AI analysis
     const { error: updateError } = await supabase
@@ -220,9 +269,9 @@ IMPORTANT: The duplicate_of_submission_id field must be null. Do not include any
         ai_translation_fr: analysis.ai_translation_fr,
         ai_translation_sw: analysis.ai_translation_sw,
         ai_translation_ln: analysis.ai_translation_ln,
-        is_suspected_fraud: fraudAnalysis.is_suspected_fraud,
-        fraud_flags: combinedFraudFlags,
-        is_possible_duplicate: fraudAnalysis.is_possible_duplicate,
+        is_suspected_fraud: isSuspectedFraud,
+        fraud_flags: combinedFraudFlags || null,
+        is_possible_duplicate: isPossibleDuplicate,
         duplicate_of_submission_id: duplicateId,
         ai_last_reviewed_at: new Date().toISOString(),
       })
@@ -239,7 +288,14 @@ IMPORTANT: The duplicate_of_submission_id field must be null. Do not include any
         success: true, 
         analysis: {
           ...analysis,
-          ...fraudAnalysis
+          is_suspected_fraud: isSuspectedFraud,
+          fraud_flags: combinedFraudFlags,
+          is_possible_duplicate: isPossibleDuplicate,
+          duplicate_count: {
+            emails: duplicateEmails?.length || 0,
+            phones: duplicatePhones?.length || 0,
+            sameUser: duplicateFromSameUser?.length || 0
+          }
         }
       }),
       { 

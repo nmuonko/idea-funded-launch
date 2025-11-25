@@ -9,7 +9,7 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signUp: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   checkAdminStatus: () => Promise<boolean>;
 }
@@ -156,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
       
@@ -165,6 +165,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         options: {
           emailRedirectTo: redirectUrl,
+          data: {
+            full_name: fullName,
+            display_name: fullName,
+            date_of_birth: dateOfBirth,
+            city: city,
+          },
         },
       });
       

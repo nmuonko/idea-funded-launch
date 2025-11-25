@@ -13,6 +13,9 @@ import { Loader2 } from 'lucide-react';
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [city, setCity] = useState('');
   const [loading, setLoading] = useState(false);
   const [isResetPassword, setIsResetPassword] = useState(false);
   const { signIn, signUp } = useAuth();
@@ -34,11 +37,14 @@ export default function Auth() {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await signUp(email, password);
+    const { error } = await signUp(email, password, fullName, dateOfBirth, city);
     setLoading(false);
     if (!error) {
       setEmail('');
       setPassword('');
+      setFullName('');
+      setDateOfBirth('');
+      setCity('');
       toast({
         title: 'Success',
         description: 'Account created! Check your email to verify.',
@@ -174,6 +180,38 @@ export default function Auth() {
               
               <TabsContent value="signup">
                 <form onSubmit={handleSignUp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-fullname">Full Name</Label>
+                    <Input
+                      id="signup-fullname"
+                      type="text"
+                      placeholder="John Doe"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-dob">Date of Birth</Label>
+                    <Input
+                      id="signup-dob"
+                      type="date"
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-city">City</Label>
+                    <Input
+                      id="signup-city"
+                      type="text"
+                      placeholder="Kinshasa"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      required
+                    />
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="signup-email">Email</Label>
                     <Input

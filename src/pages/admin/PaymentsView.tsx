@@ -33,13 +33,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-type PaymentStatus = 'pending' | 'paid' | 'failed' | '';
+type PaymentStatus = 'pending' | 'paid' | 'failed' | 'all';
 
 export default function PaymentsView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<PaymentStatus>('');
+  const [filterStatus, setFilterStatus] = useState<PaymentStatus>('all');
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<any>(null);
   const [newAmount, setNewAmount] = useState<string>('');
@@ -53,7 +53,7 @@ export default function PaymentsView() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (filterStatus) {
+      if (filterStatus && filterStatus !== 'all') {
         query = query.eq('payment_status', filterStatus);
       }
 
@@ -236,7 +236,7 @@ export default function PaymentsView() {
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
+                  <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="paid">Paid</SelectItem>
                   <SelectItem value="failed">Failed</SelectItem>

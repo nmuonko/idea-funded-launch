@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, Filter, Trophy, X, FileText, Search, Edit, CheckCircle } from 'lucide-react';
+import { Eye, Filter, Trophy, X, FileText, Search, Edit, CheckCircle, Check } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -42,6 +42,7 @@ export default function AdminSubmissions() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const itemsPerPage = 10;
 
   const { data: submissions } = useQuery({
@@ -195,6 +196,70 @@ export default function AdminSubmissions() {
     },
   });
 
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async ({ ids, status }: { ids: string[]; status: string }) => {
+      const { error } = await supabase
+        .from('user_submissions')
+        .update({ 
+          submission_status: status as any,
+          status: status,
+          ...(status === 'selected' ? { selection_timestamp: new Date().toISOString() } : {}),
+        })
+        .in('id', ids);
+      
+      if (error) throw error;
+
+      // Send feedback emails for not_selected status
+      if (status === 'not_selected') {
+        await Promise.all(
+          ids.map(id =>
+            supabase.functions.invoke('send-feedback-email', {
+              body: { submissionId: id }
+            })
+          )
+        );
+      }
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['adminSubmissions'] });
+      queryClient.invalidateQueries({ queryKey: ['adminStats'] });
+      setSelectedIds(new Set());
+      toast({ 
+        title: 'Success', 
+        description: `${variables.ids.length} submission(s) updated to ${variables.status}`
+      });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedSubmissions?.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedSubmissions?.map(s => s.id) || []));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkAction = (status: string) => {
+    if (selectedIds.size === 0) {
+      toast({ title: 'No Selection', description: 'Please select submissions first', variant: 'destructive' });
+      return;
+    }
+    bulkUpdateMutation.mutate({ ids: Array.from(selectedIds), status });
+  };
+
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
       pending: { variant: 'secondary', label: 'Pending' },
@@ -292,6 +357,38 @@ export default function AdminSubmissions() {
               className="pl-9"
             />
           </div>
+          {selectedIds.size > 0 && (
+            <div className="flex gap-2 ml-auto">
+              <Badge variant="secondary" className="px-3 py-1">
+                {selectedIds.size} selected
+              </Badge>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => handleBulkAction('selected')}
+                disabled={bulkUpdateMutation.isPending}
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Approve Selected
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBulkAction('not_selected')}
+                disabled={bulkUpdateMutation.isPending}
+              >
+                <X className="h-4 w-4 mr-1" />
+                Reject Selected
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-4 items-center flex-wrap">
@@ -416,6 +513,14 @@ export default function AdminSubmissions() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size === paginatedSubmissions?.length && paginatedSubmissions.length > 0}
+                    onChange={toggleSelectAll}
+                    className="cursor-pointer"
+                  />
+                </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead>Project</TableHead>
@@ -429,6 +534,14 @@ export default function AdminSubmissions() {
             <TableBody>
               {paginatedSubmissions?.map((submission) => (
                 <TableRow key={submission.id}>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(submission.id)}
+                      onChange={() => toggleSelect(submission.id)}
+                      className="cursor-pointer"
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{submission.full_name}</div>
                     <div className="text-xs text-muted-foreground">{submission.project_code || 'N/A'}</div>

@@ -241,6 +241,15 @@ export default function Apply() {
         confirmationId: newConfirmationId,
       });
 
+      // Send admin notification about new draft submission (background task)
+      supabase.functions.invoke('notify-new-submission', {
+        body: { submissionId: data.id }
+      }).then(() => {
+        console.log("[Apply] Admin notification sent");
+      }).catch((err) => {
+        console.error("[Apply] Failed to send admin notification:", err);
+      });
+
       // Set state for payment dialog
       setSubmissionId(data.id);
       setConfirmationId(newConfirmationId);

@@ -33,6 +33,7 @@ import AdminUsers from "./pages/admin/AdminUsers";
 import CommandCenter from "./pages/admin/CommandCenter";
 import WinnersManagement from "./pages/admin/WinnersManagement";
 import Winners from "./pages/Winners";
+import Leaderboard from "./pages/Leaderboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -80,6 +81,13 @@ const App = () => (
                 <div className="flex flex-col min-h-screen">
                   <Header />
                   <main className="flex-1"><Winners /></main>
+                  <Footer />
+                </div>
+              } />
+              <Route path="/leaderboard" element={
+                <div className="flex flex-col min-h-screen">
+                  <Header />
+                  <main className="flex-1"><Leaderboard /></main>
                   <Footer />
                 </div>
               } />

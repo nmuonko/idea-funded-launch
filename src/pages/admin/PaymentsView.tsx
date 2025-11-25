@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Search, CheckCircle, XCircle, Clock, DollarSign, TestTube, Pencil } from 'lucide-react';
+import { Loader2, Search, CheckCircle, XCircle, Clock, DollarSign, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -202,17 +202,13 @@ export default function PaymentsView() {
         </div>
       </div>
 
-      <Alert className="bg-warning/10 border-warning">
-        <TestTube className="h-4 w-4 text-warning" />
-        <AlertDescription>
-          <strong>SANDBOX TEST MODE:</strong> All payments are in test mode using MaishaPay sandbox.
-        </AlertDescription>
-      </Alert>
-
       <Card>
         <CardHeader>
           <CardTitle>Payment Filters</CardTitle>
-          <CardDescription>Search and filter payments</CardDescription>
+          <CardDescription className="flex items-center gap-2">
+            <span>Search and filter payments</span>
+            <Badge variant="default" className="bg-green-600">LIVE MODE</Badge>
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

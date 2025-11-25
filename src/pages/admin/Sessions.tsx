@@ -157,7 +157,20 @@ export default function AdminSessions() {
     });
   };
 
-  const handleToggleActive = (sessionId: string, currentStatus: boolean) => {
+  const handleToggleActive = async (sessionId: string, currentStatus: boolean) => {
+    if (!currentStatus) {
+      // If activating this session, deactivate all others first
+      const { error: deactivateError } = await supabase
+        .from('sessions')
+        .update({ is_active: false })
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+      
+      if (deactivateError) {
+        toast({ title: 'Error', description: 'Failed to deactivate other sessions', variant: 'destructive' });
+        return;
+      }
+    }
+    
     updateSessionMutation.mutate({
       id: sessionId,
       updates: { is_active: !currentStatus },

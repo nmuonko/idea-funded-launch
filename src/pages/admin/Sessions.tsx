@@ -33,6 +33,7 @@ export default function AdminSessions() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [reviewProgress, setReviewProgress] = useState(0);
   const [winnerForm, setWinnerForm] = useState({
@@ -123,7 +124,26 @@ export default function AdminSessions() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adminSessions'] });
       setSelectedSession(null);
+      setIsEditOpen(false);
       toast({ title: 'Success', description: 'Session updated successfully' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      const { error } = await supabase
+        .from('sessions')
+        .delete()
+        .eq('id', sessionId);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adminSessions'] });
+      toast({ title: 'Success', description: 'Session deleted successfully' });
     },
     onError: (error: any) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -238,6 +258,24 @@ export default function AdminSessions() {
       toast({ title: 'Success', description: `Winner ${!currentStatus ? 'published' : 'unpublished'} successfully` });
       refetchWinners();
     }
+  };
+
+  const handleEditSession = (session: any) => {
+    setSelectedSession(session);
+    setIsEditOpen(true);
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    if (window.confirm('Are you sure you want to delete this session? This action cannot be undone.')) {
+      deleteSessionMutation.mutate(sessionId);
+    }
+  };
+
+  const handleChangeStatus = (sessionId: string, newStatus: string) => {
+    updateSessionMutation.mutate({
+      id: sessionId,
+      updates: { status: newStatus },
+    });
   };
 
   return (
@@ -472,166 +510,204 @@ export default function AdminSessions() {
                       : 'Not set'}
                   </TableCell>
                    <TableCell>
-                     <Dialog onOpenChange={(open) => open && setSelectedSession(session)}>
-                       <DialogTrigger asChild>
-                         <Button variant="ghost" size="sm">
-                           <Edit className="h-4 w-4" />
-                         </Button>
-                       </DialogTrigger>
-                       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                         <DialogHeader>
-                           <DialogTitle>Edit Session: {session.name}</DialogTitle>
-                           <DialogDescription>Update session settings, review progress, and manage winners</DialogDescription>
-                         </DialogHeader>
-                         <div className="space-y-6">
-                           {/* Session Settings */}
-                           <div className="space-y-4">
-                             <h3 className="text-lg font-semibold">Session Settings</h3>
-                             <div className="space-y-2">
-                               <Label>Target Applicants</Label>
-                               <Input 
-                                 type="number"
-                                 defaultValue={session.target_applicants}
-                                 onChange={(e) => {
-                                   const value = parseInt(e.target.value);
-                                   if (!isNaN(value)) {
-                                     handleUpdateSettings(session.id, { target_applicants: value });
-                                   }
-                                 }}
-                               />
+                     <div className="flex items-center gap-1">
+                       <Dialog onOpenChange={(open) => open && setSelectedSession(session)}>
+                         <DialogTrigger asChild>
+                           <Button variant="ghost" size="sm" title="Edit session">
+                             <Edit className="h-4 w-4" />
+                           </Button>
+                         </DialogTrigger>
+                         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                           <DialogHeader>
+                             <DialogTitle>Edit Session: {session.name}</DialogTitle>
+                             <DialogDescription>Update session settings, review progress, and manage winners</DialogDescription>
+                           </DialogHeader>
+                           <div className="space-y-6">
+                             {/* Session Basic Info */}
+                             <div className="space-y-4 border-b pb-4">
+                               <h3 className="text-lg font-semibold">Basic Information</h3>
+                               <div className="space-y-2">
+                                 <Label>Session Name</Label>
+                                 <Input 
+                                   defaultValue={session.name}
+                                   onBlur={(e) => {
+                                     if (e.target.value && e.target.value !== session.name) {
+                                       handleUpdateSettings(session.id, { name: e.target.value });
+                                     }
+                                   }}
+                                 />
+                               </div>
+                               <div className="space-y-2">
+                                 <Label>Status</Label>
+                                 <select
+                                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                   defaultValue={session.status}
+                                   onChange={(e) => handleUpdateSettings(session.id, { status: e.target.value })}
+                                 >
+                                   <option value="open">Open</option>
+                                   <option value="closed">Closed</option>
+                                   <option value="results_published">Results Published</option>
+                                 </select>
+                               </div>
                              </div>
-                             <div className="space-y-2">
-                               <Label>Deadline</Label>
-                               <Input 
-                                 type="datetime-local"
-                                 defaultValue={session.deadline_datetime ? new Date(session.deadline_datetime).toISOString().slice(0, 16) : ''}
-                                 onChange={(e) => {
-                                   handleUpdateSettings(session.id, { deadline_datetime: e.target.value || null });
-                                 }}
-                               />
-                             </div>
-                             <div className="space-y-2">
-                               <Label>Review Progress: {session.review_progress}%</Label>
-                               <Slider
-                                 value={[session.review_progress]}
-                                 onValueChange={(value) => handleUpdateReviewProgress(session.id, value[0])}
-                                 max={100}
-                                 step={1}
-                               />
-                             </div>
-                             {session.review_progress >= 100 && session.status !== 'results_published' && (
-                               <Button 
-                                 onClick={() => handlePublishResults(session.id)}
-                                 className="w-full"
-                               >
-                                 Publish Results
-                               </Button>
-                             )}
-                           </div>
 
-                           {/* Winner Management */}
-                           <div className="space-y-4 border-t pt-6">
-                             <h3 className="text-lg font-semibold">Winner Management</h3>
-                             
-                             {/* Add Winner Form */}
-                             <Card>
-                               <CardHeader>
-                                 <CardTitle className="text-base">Add New Winner</CardTitle>
-                               </CardHeader>
-                               <CardContent className="space-y-4">
-                                 <div className="grid grid-cols-2 gap-4">
-                                   <div className="space-y-2">
-                                     <Label>Full Name</Label>
-                                     <Input 
-                                       value={winnerForm.winner_name}
-                                       onChange={(e) => setWinnerForm({...winnerForm, winner_name: e.target.value})}
-                                       placeholder="John Doe"
-                                     />
-                                   </div>
-                                   <div className="space-y-2">
-                                     <Label>Project / Business Name</Label>
-                                     <Input 
-                                       value={winnerForm.project_name}
-                                       onChange={(e) => setWinnerForm({...winnerForm, project_name: e.target.value})}
-                                       placeholder="EcoFarm Solutions"
-                                     />
-                                   </div>
-                                   <div className="space-y-2">
-                                     <Label>Country</Label>
-                                     <Input 
-                                       value={winnerForm.country}
-                                       onChange={(e) => setWinnerForm({...winnerForm, country: e.target.value})}
-                                       placeholder="DRC"
-                                     />
-                                   </div>
-                                   <div className="space-y-2">
-                                     <Label>Award Amount (USD)</Label>
-                                     <Input 
-                                       type="number"
-                                       value={winnerForm.award_amount}
-                                       onChange={(e) => setWinnerForm({...winnerForm, award_amount: e.target.value})}
-                                       placeholder="5000"
-                                     />
-                                   </div>
-                                 </div>
-                                 <Button onClick={handleAddWinner} className="w-full">
-                                   <Plus className="h-4 w-4 mr-2" />
-                                   Add Winner
+                             {/* Session Settings */}
+                             <div className="space-y-4">
+                               <h3 className="text-lg font-semibold">Session Settings</h3>
+                               <div className="space-y-2">
+                                 <Label>Target Applicants</Label>
+                                 <Input 
+                                   type="number"
+                                   defaultValue={session.target_applicants}
+                                   onChange={(e) => {
+                                     const value = parseInt(e.target.value);
+                                     if (!isNaN(value)) {
+                                       handleUpdateSettings(session.id, { target_applicants: value });
+                                     }
+                                   }}
+                                 />
+                               </div>
+                               <div className="space-y-2">
+                                 <Label>Deadline</Label>
+                                 <Input 
+                                   type="datetime-local"
+                                   defaultValue={session.deadline_datetime ? new Date(session.deadline_datetime).toISOString().slice(0, 16) : ''}
+                                   onChange={(e) => {
+                                     handleUpdateSettings(session.id, { deadline_datetime: e.target.value || null });
+                                   }}
+                                 />
+                               </div>
+                               <div className="space-y-2">
+                                 <Label>Review Progress: {session.review_progress}%</Label>
+                                 <Slider
+                                   value={[session.review_progress]}
+                                   onValueChange={(value) => handleUpdateReviewProgress(session.id, value[0])}
+                                   max={100}
+                                   step={1}
+                                 />
+                               </div>
+                               {session.review_progress >= 100 && session.status !== 'results_published' && (
+                                 <Button 
+                                   onClick={() => handlePublishResults(session.id)}
+                                   className="w-full"
+                                 >
+                                   Publish Results
                                  </Button>
-                               </CardContent>
-                             </Card>
+                               )}
+                             </div>
 
-                             {/* Winners List */}
-                             {winners && winners.length > 0 && (
+                             {/* Winner Management */}
+                             <div className="space-y-4 border-t pt-6">
+                               <h3 className="text-lg font-semibold">Winner Management</h3>
+                               
+                               {/* Add Winner Form */}
                                <Card>
                                  <CardHeader>
-                                   <CardTitle className="text-base">Current Winners</CardTitle>
+                                   <CardTitle className="text-base">Add New Winner</CardTitle>
                                  </CardHeader>
-                                 <CardContent>
-                                   <Table>
-                                     <TableHeader>
-                                       <TableRow>
-                                         <TableHead>Name</TableHead>
-                                         <TableHead>Project</TableHead>
-                                         <TableHead>Country</TableHead>
-                                         <TableHead>Award</TableHead>
-                                         <TableHead>Published</TableHead>
-                                         <TableHead>Actions</TableHead>
-                                       </TableRow>
-                                     </TableHeader>
-                                     <TableBody>
-                                       {winners.map((winner: any) => (
-                                         <TableRow key={winner.id}>
-                                           <TableCell>{winner.winner_name}</TableCell>
-                                           <TableCell>{winner.project_name}</TableCell>
-                                           <TableCell>{winner.country}</TableCell>
-                                           <TableCell>${winner.award_amount?.toLocaleString()}</TableCell>
-                                           <TableCell>
-                                             <Switch
-                                               checked={winner.is_published}
-                                               onCheckedChange={() => handleToggleWinnerPublish(winner.id, winner.is_published)}
-                                             />
-                                           </TableCell>
-                                           <TableCell>
-                                             <Button 
-                                               variant="ghost" 
-                                               size="sm"
-                                               onClick={() => handleDeleteWinner(winner.id)}
-                                             >
-                                               <Trash2 className="h-4 w-4 text-destructive" />
-                                             </Button>
-                                           </TableCell>
-                                         </TableRow>
-                                       ))}
-                                     </TableBody>
-                                   </Table>
+                                 <CardContent className="space-y-4">
+                                   <div className="grid grid-cols-2 gap-4">
+                                     <div className="space-y-2">
+                                       <Label>Full Name</Label>
+                                       <Input 
+                                         value={winnerForm.winner_name}
+                                         onChange={(e) => setWinnerForm({...winnerForm, winner_name: e.target.value})}
+                                         placeholder="John Doe"
+                                       />
+                                     </div>
+                                     <div className="space-y-2">
+                                       <Label>Project / Business Name</Label>
+                                       <Input 
+                                         value={winnerForm.project_name}
+                                         onChange={(e) => setWinnerForm({...winnerForm, project_name: e.target.value})}
+                                         placeholder="EcoFarm Solutions"
+                                       />
+                                     </div>
+                                     <div className="space-y-2">
+                                       <Label>Country</Label>
+                                       <Input 
+                                         value={winnerForm.country}
+                                         onChange={(e) => setWinnerForm({...winnerForm, country: e.target.value})}
+                                         placeholder="DRC"
+                                       />
+                                     </div>
+                                     <div className="space-y-2">
+                                       <Label>Award Amount (USD)</Label>
+                                       <Input 
+                                         type="number"
+                                         value={winnerForm.award_amount}
+                                         onChange={(e) => setWinnerForm({...winnerForm, award_amount: e.target.value})}
+                                         placeholder="5000"
+                                       />
+                                     </div>
+                                   </div>
+                                   <Button onClick={handleAddWinner} className="w-full">
+                                     <Plus className="h-4 w-4 mr-2" />
+                                     Add Winner
+                                   </Button>
                                  </CardContent>
                                </Card>
-                             )}
+
+                               {/* Winners List */}
+                               {winners && winners.length > 0 && (
+                                 <Card>
+                                   <CardHeader>
+                                     <CardTitle className="text-base">Current Winners</CardTitle>
+                                   </CardHeader>
+                                   <CardContent>
+                                     <Table>
+                                       <TableHeader>
+                                         <TableRow>
+                                           <TableHead>Name</TableHead>
+                                           <TableHead>Project</TableHead>
+                                           <TableHead>Country</TableHead>
+                                           <TableHead>Award</TableHead>
+                                           <TableHead>Published</TableHead>
+                                           <TableHead>Actions</TableHead>
+                                         </TableRow>
+                                       </TableHeader>
+                                       <TableBody>
+                                         {winners.map((winner: any) => (
+                                           <TableRow key={winner.id}>
+                                             <TableCell>{winner.winner_name}</TableCell>
+                                             <TableCell>{winner.project_name}</TableCell>
+                                             <TableCell>{winner.country}</TableCell>
+                                             <TableCell>${winner.award_amount?.toLocaleString()}</TableCell>
+                                             <TableCell>
+                                               <Switch
+                                                 checked={winner.is_published}
+                                                 onCheckedChange={() => handleToggleWinnerPublish(winner.id, winner.is_published)}
+                                               />
+                                             </TableCell>
+                                             <TableCell>
+                                               <Button 
+                                                 variant="ghost" 
+                                                 size="sm"
+                                                 onClick={() => handleDeleteWinner(winner.id)}
+                                               >
+                                                 <Trash2 className="h-4 w-4 text-destructive" />
+                                               </Button>
+                                             </TableCell>
+                                           </TableRow>
+                                         ))}
+                                       </TableBody>
+                                     </Table>
+                                   </CardContent>
+                                 </Card>
+                               )}
+                             </div>
                            </div>
-                         </div>
-                       </DialogContent>
-                     </Dialog>
+                         </DialogContent>
+                       </Dialog>
+                       <Button 
+                         variant="ghost" 
+                         size="sm" 
+                         onClick={() => handleDeleteSession(session.id)}
+                         title="Delete session"
+                       >
+                         <Trash2 className="h-4 w-4 text-destructive" />
+                       </Button>
+                     </div>
                    </TableCell>
                 </TableRow>
               ))}

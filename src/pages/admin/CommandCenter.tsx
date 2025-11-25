@@ -288,21 +288,26 @@ export default function CommandCenter() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Example Commands</CardTitle>
+          <CardDescription>Click any command to try it out (English or French)</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {[
-              'Change the homepage title to "Turn Your Idea into Reality"',
-              'Set the active session target to 750 applicants',
-              'Add a winner named Marie from DRC with project AgriTech, award $1000',
-              'Turn off voice submissions',
-              'Change the primary color to dark blue',
-              'Update the How It Works intro text'
+              'Set Session 2 as the active session and close applications',
+              'Add a winner to Session 2 with confirmation ID AFF-20251225-000123, name Marie K., project \'Solar Kivu\', award $1,000',
+              'Change the application deadline for the active session to December 25, 2025 at 7:00 AM',
+              'Update the homepage hero title to \'Transform Africa Through Innovation\'',
+              'Publish all winners for the active session',
+              'Set the active session status to \'results_published\'',
+              'Change primary theme color to blue (#1a365d)',
+              'Enable the \'show_public_results\' feature flag',
+              'Fermer les candidatures pour la session active',
+              'Ajouter un gagnant nommé Jean avec le projet \'Eau Propre\' et un prix de 5000$'
             ].map((example, idx) => (
               <Button
                 key={idx}
                 variant="outline"
-                className="justify-start text-left h-auto py-2"
+                className="justify-start text-left h-auto py-3"
                 onClick={() => setCommand(example)}
               >
                 <span className="text-sm">{example}</span>

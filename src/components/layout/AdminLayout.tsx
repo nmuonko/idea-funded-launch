@@ -19,7 +19,6 @@ export function AdminLayout() {
     { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
     { to: '/admin/ai-assistant', icon: Bot, label: 'AI Assistant' },
     { to: '/admin/contacts', icon: Mail, label: 'Contact Messages' },
-    { to: '/admin/payment-settings', icon: CreditCard, label: 'Payment Settings' },
     { to: '/admin/users', icon: Shield, label: 'Admin Users' },
   ];
 

@@ -24,7 +24,6 @@ import AdminDashboard from "./pages/admin/Dashboard";
 import AdminSessions from "./pages/admin/Sessions";
 import AdminSubmissions from "./pages/admin/Submissions";
 import AdminContacts from "./pages/admin/Contacts";
-import PaymentSettings from "./pages/admin/PaymentSettings";
 import PaymentsView from "./pages/admin/PaymentsView";
 import SessionSettings from "./pages/admin/SessionSettings";
 import ContentManagement from "./pages/admin/ContentManagement";
@@ -32,6 +31,8 @@ import AIAssistant from "./pages/admin/AIAssistant";
 import Analytics from "./pages/admin/Analytics";
 import AdminUsers from "./pages/admin/AdminUsers";
 import CommandCenter from "./pages/admin/CommandCenter";
+import WinnersManagement from "./pages/admin/WinnersManagement";
+import Winners from "./pages/Winners";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -72,6 +73,13 @@ const App = () => (
                 <div className="flex flex-col min-h-screen">
                   <Header />
                   <main className="flex-1"><Results /></main>
+                  <Footer />
+                </div>
+              } />
+              <Route path="/winners" element={
+                <div className="flex flex-col min-h-screen">
+                  <Header />
+                  <main className="flex-1"><Winners /></main>
                   <Footer />
                 </div>
               } />
@@ -123,7 +131,7 @@ const App = () => (
                 <Route path="ai-assistant" element={<AIAssistant />} />
                 <Route path="sessions" element={<AdminSessions />} />
                 <Route path="contacts" element={<AdminContacts />} />
-                <Route path="payment-settings" element={<PaymentSettings />} />
+                <Route path="winners-export" element={<WinnersManagement />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="command-center" element={<CommandCenter />} />
               </Route>

@@ -70,6 +70,8 @@ You can perform the following operations:
    - Update sessions table (fields: is_active, target_applicants, deadline_datetime, name, status)
    - Set active session (set is_active=true for one session, false for all others)
    - Change session status: 'open', 'closed', 'results_published'
+   - IMPORTANT: For "set_active_session" action, put the session identifier in "where" field (e.g., {"name": "Session 1"})
+   - IMPORTANT: If command includes both setting active session AND changing status (like "close applications"), include both in the data field
 
 2. **Winners Management**:
    - Insert new winners (fields: winner_name, project_name, country, award_amount, year, session_id, is_published)
@@ -92,23 +94,30 @@ When given a command in English or French, respond with a JSON object that speci
 {
   "action": "update_site_content" | "update_session" | "set_active_session" | "create_winner" | "update_winner" | "delete_winner" | "update_feature_flag" | "update_theme" | "query_data" | "confirm_required",
   "table": string,
-  "data": object,
-  "where": object (for updates),
+  "data": object (for set_active_session, can include status changes like {"status": "closed"}),
+  "where": object (REQUIRED for set_active_session and update_* actions - specifies which record(s) to target),
   "confirmation_message": string (only for destructive actions),
   "response_message": string (what to tell the user)
 }
+
+CRITICAL: Always include "where" clause for these actions:
+- set_active_session: use where to identify session (e.g., {"name": "Session 1"} or {"name": "Session 2"})
+- update_session: use where to identify which session (e.g., {"is_active": true} or {"name": "Session 1"})
+- update_winner: use where to identify which winner(s) (e.g., {"session_id": "xxx"} or {"id": "xxx"})
 
 For destructive actions (like deleting records or bulk updates), set action to "confirm_required" and provide a confirmation_message.
 Always provide a friendly response_message explaining what you will do or have done.
 
 Examples:
 - "Change the homepage title to 'Test Title'" → {"action": "update_site_content", "data": {"key": "homepage_hero_title", "value": "Test Title"}, "response_message": "I'll update the homepage title to 'Test Title'."}
-- "Set Session 2 as active" → {"action": "set_active_session", "data": {"session_name": "Session 2"}, "response_message": "I'll set Session 2 as the active session."}
-- "Add a winner named John from DRC with project Solar Power, award $1000" → {"action": "create_winner", "data": {...}, "response_message": "I'll create a winner record for John."}
-- "Publish all winners for active session" → {"action": "update_winner", "where": {"session_id": "active_session_id"}, "data": {"is_published": true}, "response_message": "I'll publish all winners for the active session."}
-- "Change deadline to December 25, 2025 at 7:00 AM" → {"action": "update_session", "where": {"is_active": true}, "data": {"deadline_datetime": "2025-12-25T07:00:00Z"}, "response_message": "I'll update the deadline."}
+- "Set Session 1 as active" → {"action": "set_active_session", "where": {"name": "Session 1"}, "data": {}, "response_message": "I'll set Session 1 as the active session."}
+- "Set Session 2 as active and close applications" → {"action": "set_active_session", "where": {"name": "Session 2"}, "data": {"status": "closed"}, "response_message": "I'll set Session 2 as the active session and close applications."}
+- "Close applications for active session" → {"action": "update_session", "where": {"is_active": true}, "data": {"status": "closed"}, "response_message": "I'll close applications for the active session."}
+- "Add a winner named John from DRC with project Solar Power, award $1000" → {"action": "create_winner", "data": {"winner_name": "John", "country": "DRC", "project_name": "Solar Power", "award_amount": 1000, "year": 2025}, "response_message": "I'll create a winner record for John."}
+- "Publish all winners for active session" → {"action": "update_winner", "where": {"is_published": false}, "data": {"is_published": true}, "response_message": "I'll publish all unpublished winners."}
+- "Change deadline to December 25, 2025 at 7:00 AM" → {"action": "update_session", "where": {"is_active": true}, "data": {"deadline_datetime": "2025-12-25T07:00:00Z"}, "response_message": "I'll update the deadline for the active session."}
 
-Support both English and French commands (e.g., "Fermer les candidatures" = "Close applications")`;
+Support both English and French commands (e.g., "Fermer les candidatures" = "Close applications", "Activer Session 1" = "Set Session 1 as active")`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -186,7 +195,7 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
 
       case 'set_active_session': {
         if (!actionPlan.where || Object.keys(actionPlan.where).length === 0) {
-          throw new Error('Please specify which session to activate (e.g., by name or id)');
+          throw new Error('Please specify which session to activate (e.g., by name "Session 1" or by id)');
         }
         
         // First, get the session to activate
@@ -197,7 +206,7 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
           .single();
         
         if (findError || !targetSession) {
-          throw new Error(`Could not find session matching ${JSON.stringify(actionPlan.where)}`);
+          throw new Error(`Could not find session with ${JSON.stringify(actionPlan.where)}. Available sessions might be "Session 1" or "Session 2".`);
         }
 
         // Deactivate all sessions
@@ -206,14 +215,28 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
           .update({ is_active: false })
           .neq('id', '00000000-0000-0000-0000-000000000000');
 
-        // Then activate the specified session
+        // Prepare update data - start with is_active true
+        const updateData: any = { is_active: true };
+        
+        // If actionPlan.data contains additional fields (like status), include them
+        if (actionPlan.data && Object.keys(actionPlan.data).length > 0) {
+          Object.assign(updateData, actionPlan.data);
+        }
+
+        // Then activate the specified session (and optionally update other fields)
         const { data, error } = await supabase
           .from('sessions')
-          .update({ is_active: true })
+          .update(updateData)
           .eq('id', targetSession.id);
         
         if (error) throw error;
-        result = { success: true, data, message: `Activated session: ${targetSession.name}` };
+        
+        let message = `Activated session: ${targetSession.name}`;
+        if (updateData.status) {
+          message += ` and set status to '${updateData.status}'`;
+        }
+        
+        result = { success: true, data, message };
         break;
       }
 

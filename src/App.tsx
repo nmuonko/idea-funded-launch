@@ -15,6 +15,7 @@ import HowItWorks from "./pages/HowItWorks";
 import Apply from "./pages/Apply";
 import Results from "./pages/Results";
 import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
 import Contact from "./pages/Contact";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
@@ -78,6 +79,13 @@ const App = () => (
                 <div className="flex flex-col min-h-screen">
                   <Header />
                   <main className="flex-1"><Terms /></main>
+                  <Footer />
+                </div>
+              } />
+              <Route path="/privacy" element={
+                <div className="flex flex-col min-h-screen">
+                  <Header />
+                  <main className="flex-1"><Privacy /></main>
                   <Footer />
                 </div>
               } />

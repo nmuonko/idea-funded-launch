@@ -51,11 +51,11 @@ export default function Results() {
     ? new Date(activeSession.deadline_datetime).getTime() < new Date().getTime()
     : false;
 
-  // Fetch winners for published sessions
+  // Fetch winners for the active session
   const { data: winners } = useQuery({
     queryKey: ['winners', activeSession?.id],
     queryFn: async () => {
-      if (!activeSession || activeSession.status !== 'results_published') return [];
+      if (!activeSession) return [];
       
       const { data, error } = await supabase
         .from('winners')
@@ -67,7 +67,7 @@ export default function Results() {
       if (error) throw error;
       return data;
     },
-    enabled: !!activeSession && activeSession.status === 'results_published',
+    enabled: !!activeSession,
   });
 
   // Countdown timer
@@ -246,26 +246,11 @@ export default function Results() {
             </Card>
           )}
 
-          {/* Results pending message or Winners */}
-          {activeSession && activeSession.status !== 'results_published' && (
-            <Card className="shadow-card">
-              <CardContent className="py-8">
-              <p className="text-center text-muted-foreground">
-                {!deadlinePassed 
-                  ? "Results will be published after the deadline and once the review process is completed."
-                  : "Review in progress. Results will be published soon."
-                }
-              </p>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Winners List */}
-          {activeSession?.status === 'results_published' && (
+          {/* Winners Section */}
+          {activeSession && (
             <Card className="shadow-card">
               <CardHeader>
-                <CardTitle className="text-2xl">Winners Announced</CardTitle>
-                <CardDescription>{activeSession.name}</CardDescription>
+                <CardTitle className="text-2xl">Winners – {activeSession.name}</CardTitle>
               </CardHeader>
               <CardContent>
                 {winners && winners.length > 0 ? (
@@ -274,7 +259,7 @@ export default function Results() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Full Name</TableHead>
-                          <TableHead>Project / Business</TableHead>
+                          <TableHead>Project</TableHead>
                           <TableHead>Country</TableHead>
                           <TableHead>Award</TableHead>
                         </TableRow>
@@ -294,7 +279,9 @@ export default function Results() {
                     </Table>
                   </div>
                 ) : (
-                  <p className="text-center text-muted-foreground py-8">No winners announced yet.</p>
+                  <p className="text-center text-muted-foreground py-8">
+                    No winners yet. Results will be published after the deadline and once the review process is completed.
+                  </p>
                 )}
               </CardContent>
             </Card>

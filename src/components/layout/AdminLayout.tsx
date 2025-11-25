@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard, BarChart, BookText, Bot, Shield, Sparkles, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard, BarChart, BookText, Bot, Shield, Sparkles, DollarSign, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -17,6 +17,7 @@ export function AdminLayout() {
     { to: '/admin/sessions', icon: Users, label: 'Sessions' },
     { to: '/admin/content', icon: BookText, label: 'Content Management' },
     { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
+    { to: '/admin/fraud-review', icon: AlertTriangle, label: 'Fraud Review' },
     { to: '/admin/ai-assistant', icon: Bot, label: 'AI Assistant' },
     { to: '/admin/contacts', icon: Mail, label: 'Contact Messages' },
     { to: '/admin/users', icon: Shield, label: 'Admin Users' },

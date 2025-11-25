@@ -32,6 +32,7 @@ import Analytics from "./pages/admin/Analytics";
 import AdminUsers from "./pages/admin/AdminUsers";
 import CommandCenter from "./pages/admin/CommandCenter";
 import WinnersManagement from "./pages/admin/WinnersManagement";
+import FraudReview from "./pages/admin/FraudReview";
 import Winners from "./pages/Winners";
 import Leaderboard from "./pages/Leaderboard";
 import NotFound from "./pages/NotFound";
@@ -136,6 +137,7 @@ const App = () => (
                 <Route path="session-settings" element={<SessionSettings />} />
                 <Route path="content" element={<ContentManagement />} />
                 <Route path="analytics" element={<Analytics />} />
+                <Route path="fraud-review" element={<FraudReview />} />
                 <Route path="ai-assistant" element={<AIAssistant />} />
                 <Route path="sessions" element={<AdminSessions />} />
                 <Route path="contacts" element={<AdminContacts />} />

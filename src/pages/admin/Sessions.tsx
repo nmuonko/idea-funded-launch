@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Edit, Users, Calendar, TrendingUp, Target, CheckCircle } from 'lucide-react';
+import { Plus, Edit, Users, Calendar, TrendingUp, Target, CheckCircle, Trash2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -35,6 +35,12 @@ export default function AdminSessions() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [reviewProgress, setReviewProgress] = useState(0);
+  const [winnerForm, setWinnerForm] = useState({
+    winner_name: '',
+    project_name: '',
+    country: '',
+    award_amount: '',
+  });
 
   const form = useForm<z.infer<typeof sessionSchema>>({
     resolver: zodResolver(sessionSchema),
@@ -58,6 +64,22 @@ export default function AdminSessions() {
       if (error) throw error;
       return data;
     },
+  });
+
+  const { data: winners, refetch: refetchWinners } = useQuery({
+    queryKey: ['winners', selectedSession?.id],
+    queryFn: async () => {
+      if (!selectedSession) return [];
+      const { data, error } = await supabase
+        .from('winners')
+        .select('*')
+        .eq('session_id', selectedSession.id)
+        .order('display_order');
+      
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!selectedSession,
   });
 
   const createSessionMutation = useMutation({
@@ -147,6 +169,62 @@ export default function AdminSessions() {
       id: sessionId,
       updates,
     });
+  };
+
+  const handleAddWinner = async () => {
+    if (!selectedSession || !winnerForm.winner_name || !winnerForm.project_name || !winnerForm.country || !winnerForm.award_amount) {
+      toast({ title: 'Error', description: 'Please fill all winner fields', variant: 'destructive' });
+      return;
+    }
+
+    const { error } = await supabase
+      .from('winners')
+      .insert({
+        session_id: selectedSession.id,
+        winner_name: winnerForm.winner_name,
+        project_name: winnerForm.project_name,
+        country: winnerForm.country,
+        award_amount: parseFloat(winnerForm.award_amount),
+        year: new Date().getFullYear(),
+        is_published: false,
+        display_order: (winners?.length || 0) + 1,
+      });
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Success', description: 'Winner added successfully' });
+      setWinnerForm({ winner_name: '', project_name: '', country: '', award_amount: '' });
+      refetchWinners();
+    }
+  };
+
+  const handleDeleteWinner = async (winnerId: string) => {
+    const { error } = await supabase
+      .from('winners')
+      .delete()
+      .eq('id', winnerId);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Success', description: 'Winner deleted successfully' });
+      refetchWinners();
+    }
+  };
+
+  const handleToggleWinnerPublish = async (winnerId: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from('winners')
+      .update({ is_published: !currentStatus })
+      .eq('id', winnerId);
+
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Success', description: `Winner ${!currentStatus ? 'published' : 'unpublished'} successfully` });
+      refetchWinners();
+    }
   };
 
   return (
@@ -380,63 +458,168 @@ export default function AdminSessions() {
                       ? new Date(session.deadline_datetime).toLocaleDateString()
                       : 'Not set'}
                   </TableCell>
-                  <TableCell>
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle>Edit Session: {session.name}</DialogTitle>
-                          <DialogDescription>Update session settings and parameters</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label>Target Applicants</Label>
-                            <Input 
-                              type="number"
-                              defaultValue={session.target_applicants}
-                              onChange={(e) => {
-                                const value = parseInt(e.target.value);
-                                if (!isNaN(value)) {
-                                  handleUpdateSettings(session.id, { target_applicants: value });
-                                }
-                              }}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Deadline</Label>
-                            <Input 
-                              type="datetime-local"
-                              defaultValue={session.deadline_datetime ? new Date(session.deadline_datetime).toISOString().slice(0, 16) : ''}
-                              onChange={(e) => {
-                                handleUpdateSettings(session.id, { deadline_datetime: e.target.value || null });
-                              }}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Review Progress: {session.review_progress}%</Label>
-                            <Slider
-                              value={[session.review_progress]}
-                              onValueChange={(value) => handleUpdateReviewProgress(session.id, value[0])}
-                              max={100}
-                              step={1}
-                            />
-                          </div>
-                          {session.review_progress >= 100 && session.status !== 'results_published' && (
-                            <Button 
-                              onClick={() => handlePublishResults(session.id)}
-                              className="w-full"
-                            >
-                              Publish Results
-                            </Button>
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </TableCell>
+                   <TableCell>
+                     <Dialog onOpenChange={(open) => open && setSelectedSession(session)}>
+                       <DialogTrigger asChild>
+                         <Button variant="ghost" size="sm">
+                           <Edit className="h-4 w-4" />
+                         </Button>
+                       </DialogTrigger>
+                       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                         <DialogHeader>
+                           <DialogTitle>Edit Session: {session.name}</DialogTitle>
+                           <DialogDescription>Update session settings, review progress, and manage winners</DialogDescription>
+                         </DialogHeader>
+                         <div className="space-y-6">
+                           {/* Session Settings */}
+                           <div className="space-y-4">
+                             <h3 className="text-lg font-semibold">Session Settings</h3>
+                             <div className="space-y-2">
+                               <Label>Target Applicants</Label>
+                               <Input 
+                                 type="number"
+                                 defaultValue={session.target_applicants}
+                                 onChange={(e) => {
+                                   const value = parseInt(e.target.value);
+                                   if (!isNaN(value)) {
+                                     handleUpdateSettings(session.id, { target_applicants: value });
+                                   }
+                                 }}
+                               />
+                             </div>
+                             <div className="space-y-2">
+                               <Label>Deadline</Label>
+                               <Input 
+                                 type="datetime-local"
+                                 defaultValue={session.deadline_datetime ? new Date(session.deadline_datetime).toISOString().slice(0, 16) : ''}
+                                 onChange={(e) => {
+                                   handleUpdateSettings(session.id, { deadline_datetime: e.target.value || null });
+                                 }}
+                               />
+                             </div>
+                             <div className="space-y-2">
+                               <Label>Review Progress: {session.review_progress}%</Label>
+                               <Slider
+                                 value={[session.review_progress]}
+                                 onValueChange={(value) => handleUpdateReviewProgress(session.id, value[0])}
+                                 max={100}
+                                 step={1}
+                               />
+                             </div>
+                             {session.review_progress >= 100 && session.status !== 'results_published' && (
+                               <Button 
+                                 onClick={() => handlePublishResults(session.id)}
+                                 className="w-full"
+                               >
+                                 Publish Results
+                               </Button>
+                             )}
+                           </div>
+
+                           {/* Winner Management */}
+                           <div className="space-y-4 border-t pt-6">
+                             <h3 className="text-lg font-semibold">Winner Management</h3>
+                             
+                             {/* Add Winner Form */}
+                             <Card>
+                               <CardHeader>
+                                 <CardTitle className="text-base">Add New Winner</CardTitle>
+                               </CardHeader>
+                               <CardContent className="space-y-4">
+                                 <div className="grid grid-cols-2 gap-4">
+                                   <div className="space-y-2">
+                                     <Label>Full Name</Label>
+                                     <Input 
+                                       value={winnerForm.winner_name}
+                                       onChange={(e) => setWinnerForm({...winnerForm, winner_name: e.target.value})}
+                                       placeholder="John Doe"
+                                     />
+                                   </div>
+                                   <div className="space-y-2">
+                                     <Label>Project / Business Name</Label>
+                                     <Input 
+                                       value={winnerForm.project_name}
+                                       onChange={(e) => setWinnerForm({...winnerForm, project_name: e.target.value})}
+                                       placeholder="EcoFarm Solutions"
+                                     />
+                                   </div>
+                                   <div className="space-y-2">
+                                     <Label>Country</Label>
+                                     <Input 
+                                       value={winnerForm.country}
+                                       onChange={(e) => setWinnerForm({...winnerForm, country: e.target.value})}
+                                       placeholder="DRC"
+                                     />
+                                   </div>
+                                   <div className="space-y-2">
+                                     <Label>Award Amount (USD)</Label>
+                                     <Input 
+                                       type="number"
+                                       value={winnerForm.award_amount}
+                                       onChange={(e) => setWinnerForm({...winnerForm, award_amount: e.target.value})}
+                                       placeholder="5000"
+                                     />
+                                   </div>
+                                 </div>
+                                 <Button onClick={handleAddWinner} className="w-full">
+                                   <Plus className="h-4 w-4 mr-2" />
+                                   Add Winner
+                                 </Button>
+                               </CardContent>
+                             </Card>
+
+                             {/* Winners List */}
+                             {winners && winners.length > 0 && (
+                               <Card>
+                                 <CardHeader>
+                                   <CardTitle className="text-base">Current Winners</CardTitle>
+                                 </CardHeader>
+                                 <CardContent>
+                                   <Table>
+                                     <TableHeader>
+                                       <TableRow>
+                                         <TableHead>Name</TableHead>
+                                         <TableHead>Project</TableHead>
+                                         <TableHead>Country</TableHead>
+                                         <TableHead>Award</TableHead>
+                                         <TableHead>Published</TableHead>
+                                         <TableHead>Actions</TableHead>
+                                       </TableRow>
+                                     </TableHeader>
+                                     <TableBody>
+                                       {winners.map((winner: any) => (
+                                         <TableRow key={winner.id}>
+                                           <TableCell>{winner.winner_name}</TableCell>
+                                           <TableCell>{winner.project_name}</TableCell>
+                                           <TableCell>{winner.country}</TableCell>
+                                           <TableCell>${winner.award_amount?.toLocaleString()}</TableCell>
+                                           <TableCell>
+                                             <Switch
+                                               checked={winner.is_published}
+                                               onCheckedChange={() => handleToggleWinnerPublish(winner.id, winner.is_published)}
+                                             />
+                                           </TableCell>
+                                           <TableCell>
+                                             <Button 
+                                               variant="ghost" 
+                                               size="sm"
+                                               onClick={() => handleDeleteWinner(winner.id)}
+                                             >
+                                               <Trash2 className="h-4 w-4 text-destructive" />
+                                             </Button>
+                                           </TableCell>
+                                         </TableRow>
+                                       ))}
+                                     </TableBody>
+                                   </Table>
+                                 </CardContent>
+                               </Card>
+                             )}
+                           </div>
+                         </div>
+                       </DialogContent>
+                     </Dialog>
+                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -62,18 +62,35 @@ serve(async (req) => {
       throw new Error('OPENAI_API_KEY is not configured');
     }
 
-    // Use GPT to interpret the command and map it to actions
+    // Enhanced system prompt with more capabilities
     const systemPrompt = `You are an AI assistant that helps manage the AfriFund application database. 
 You can perform the following operations:
-1. Update site_content table (keys: homepage_hero_title, homepage_hero_subtitle, how_it_works_intro, results_page_intro, footer_contact_text, etc.)
-2. Update sessions table (fields: is_active, target_applicants, deadline_datetime, name, description, status)
-3. Insert/update winners table (fields: winner_name, project_name, country, award_amount, year, testimonial_text, short_quote, image_url, display_order, is_published, session_id)
-4. Update feature_flags table (keys: enable_voice_submission, show_public_results)
-5. Update theme_settings table (fields: primary_color, secondary_color, accent_color, hero_background_style, button_style, typography_preset)
 
-When given a command, respond with a JSON object that specifies the action to take:
+1. **Session Management**: 
+   - Update sessions table (fields: is_active, target_applicants, deadline_datetime, name, status)
+   - Set active session (set is_active=true for one session, false for all others)
+   - Change session status: 'open', 'closed', 'results_published'
+
+2. **Winners Management**:
+   - Insert new winners (fields: winner_name, project_name, country, award_amount, year, session_id, is_published)
+   - Update winners (modify award_amount, publish/unpublish winners via is_published field)
+   - Delete winners
+
+3. **Content Management**:
+   - Update site_content table (keys: homepage_hero_title, homepage_hero_subtitle, how_it_works_intro, results_page_intro, footer_contact_text, etc.)
+   - Update page content on homepage, results page, contact page, footer
+
+4. **Feature Flags**:
+   - Update feature_flags table (keys: enable_voice_submission, show_public_results, applications_enabled, etc.)
+   - Enable/disable features via boolean values
+
+5. **Theme Settings**:
+   - Update theme_settings table (fields: primary_color, secondary_color, accent_color, hero_background_style, button_style, typography_preset)
+   - Change colors (must be valid HSL format like hsl(220, 85%, 30%))
+
+When given a command in English or French, respond with a JSON object that specifies the action to take:
 {
-  "action": "update_site_content" | "update_session" | "create_winner" | "update_winner" | "update_feature_flag" | "update_theme" | "query_data" | "confirm_required",
+  "action": "update_site_content" | "update_session" | "set_active_session" | "create_winner" | "update_winner" | "delete_winner" | "update_feature_flag" | "update_theme" | "query_data" | "confirm_required",
   "table": string,
   "data": object,
   "where": object (for updates),
@@ -81,13 +98,17 @@ When given a command, respond with a JSON object that specifies the action to ta
   "response_message": string (what to tell the user)
 }
 
-For destructive actions (like deleting all winners), set action to "confirm_required" and provide a confirmation_message.
+For destructive actions (like deleting records or bulk updates), set action to "confirm_required" and provide a confirmation_message.
 Always provide a friendly response_message explaining what you will do or have done.
 
 Examples:
 - "Change the homepage title to 'Test Title'" → {"action": "update_site_content", "data": {"key": "homepage_hero_title", "value": "Test Title"}, "response_message": "I'll update the homepage title to 'Test Title'."}
-- "Set active session target to 800" → {"action": "update_session", "where": {"is_active": true}, "data": {"target_applicants": 800}, "response_message": "I'll set the active session target to 800 applicants."}
-- "Add a winner named John from DRC" → {"action": "create_winner", "data": {...}, "response_message": "I'll create a winner record for John."}`;
+- "Set Session 2 as active" → {"action": "set_active_session", "data": {"session_name": "Session 2"}, "response_message": "I'll set Session 2 as the active session."}
+- "Add a winner named John from DRC with project Solar Power, award $1000" → {"action": "create_winner", "data": {...}, "response_message": "I'll create a winner record for John."}
+- "Publish all winners for active session" → {"action": "update_winner", "where": {"session_id": "active_session_id"}, "data": {"is_published": true}, "response_message": "I'll publish all winners for the active session."}
+- "Change deadline to December 25, 2025 at 7:00 AM" → {"action": "update_session", "where": {"is_active": true}, "data": {"deadline_datetime": "2025-12-25T07:00:00Z"}, "response_message": "I'll update the deadline."}
+
+Support both English and French commands (e.g., "Fermer les candidatures" = "Close applications")`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -160,6 +181,24 @@ Examples:
         break;
       }
 
+      case 'set_active_session': {
+        // First, deactivate all sessions
+        await supabase
+          .from('sessions')
+          .update({ is_active: false })
+          .neq('id', '00000000-0000-0000-0000-000000000000');
+
+        // Then activate the specified session
+        const { data, error } = await supabase
+          .from('sessions')
+          .update({ is_active: true })
+          .match(actionPlan.where || {});
+        
+        if (error) throw error;
+        result = { success: true, data };
+        break;
+      }
+
       case 'create_winner': {
         const { data, error } = await supabase
           .from('winners')
@@ -175,6 +214,17 @@ Examples:
         const { data, error } = await supabase
           .from('winners')
           .update(actionPlan.data)
+          .match(actionPlan.where || {});
+        
+        if (error) throw error;
+        result = { success: true, data };
+        break;
+      }
+
+      case 'delete_winner': {
+        const { data, error } = await supabase
+          .from('winners')
+          .delete()
           .match(actionPlan.where || {});
         
         if (error) throw error;

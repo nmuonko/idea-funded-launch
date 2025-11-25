@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,10 +7,17 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Search, Clock } from 'lucide-react';
+import { Loader2, Search, Clock, Trophy } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Link } from 'react-router-dom';
 import SessionProgressSteps from '@/components/SessionProgressSteps';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 export default function Results() {
   const {
     t
@@ -19,6 +26,8 @@ export default function Results() {
   const [searchedSubmission, setSearchedSubmission] = useState<any>(null);
   const [searching, setSearching] = useState(false);
   const [countdown, setCountdown] = useState('');
+  const [countryFilter, setCountryFilter] = useState('all');
+  const [projectSearch, setProjectSearch] = useState('');
 
   // Check if there's a ref parameter in URL
   const refFromUrl = new URLSearchParams(window.location.search).get('ref');
@@ -67,6 +76,27 @@ export default function Results() {
     },
     enabled: !!activeSession
   });
+
+  // Get unique countries from winners
+  const countries = useMemo(() => {
+    if (!winners) return [];
+    const uniqueCountries = new Set(winners.map((w: any) => w.country));
+    return Array.from(uniqueCountries).sort();
+  }, [winners]);
+
+  // Filter winners based on country and project search
+  const filteredWinners = useMemo(() => {
+    if (!winners) return [];
+    
+    return winners.filter((winner: any) => {
+      const matchesCountry = countryFilter === 'all' || winner.country === countryFilter;
+      const matchesProject = projectSearch === '' || 
+        winner.project_name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+        winner.winner_name.toLowerCase().includes(projectSearch.toLowerCase());
+      
+      return matchesCountry && matchesProject;
+    });
+  }, [winners, countryFilter, projectSearch]);
 
   // Countdown timer
   useEffect(() => {
@@ -238,31 +268,79 @@ export default function Results() {
           {/* Winners Section */}
           {activeSession && <Card className="shadow-card">
               <CardHeader>
-                <CardTitle className="text-2xl">Winners – {activeSession.name}</CardTitle>
+                <CardTitle className="text-2xl flex items-center gap-2">
+                  <Trophy className="h-6 w-6" />
+                  Winners – {activeSession.name}
+                </CardTitle>
+                <CardDescription>
+                  <Link to="/winners" className="text-primary hover:underline">
+                    View all winners from past sessions →
+                  </Link>
+                </CardDescription>
               </CardHeader>
-              <CardContent>
-                {winners && winners.length > 0 ? <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Full Name</TableHead>
-                          <TableHead>Project</TableHead>
-                          <TableHead>Country</TableHead>
-                          <TableHead>Award</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {winners.map((winner: any) => <TableRow key={winner.id}>
-                            <TableCell className="font-medium">{winner.winner_name}</TableCell>
-                            <TableCell>{winner.project_name}</TableCell>
-                            <TableCell>{winner.country}</TableCell>
-                            <TableCell className="font-semibold text-primary">
-                              ${winner.award_amount?.toLocaleString()}
-                            </TableCell>
-                          </TableRow>)}
-                      </TableBody>
-                    </Table>
-                  </div> : <p className="text-center text-muted-foreground py-8">
+              <CardContent className="space-y-6">
+                {winners && winners.length > 0 ? <>
+                    {/* Filters */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="country-filter">Filter by Country</Label>
+                        <Select value={countryFilter} onValueChange={setCountryFilter}>
+                          <SelectTrigger id="country-filter">
+                            <SelectValue placeholder="All Countries" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All Countries</SelectItem>
+                            {countries.map((country) => (
+                              <SelectItem key={country} value={country}>
+                                {country}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="project-search">Search by Project or Name</Label>
+                        <Input
+                          id="project-search"
+                          placeholder="Search project or winner name..."
+                          value={projectSearch}
+                          onChange={(e) => setProjectSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Winners Table */}
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Full Name</TableHead>
+                            <TableHead>Project</TableHead>
+                            <TableHead>Country</TableHead>
+                            <TableHead>Award</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredWinners.length > 0 ? (
+                            filteredWinners.map((winner: any) => <TableRow key={winner.id}>
+                              <TableCell className="font-medium">{winner.winner_name}</TableCell>
+                              <TableCell>{winner.project_name}</TableCell>
+                              <TableCell>{winner.country}</TableCell>
+                              <TableCell className="font-semibold text-primary">
+                                ${winner.award_amount?.toLocaleString()}
+                              </TableCell>
+                            </TableRow>)
+                          ) : (
+                            <TableRow>
+                              <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                                No winners match your filters.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </> : <p className="text-center text-muted-foreground py-8">
                     No winners yet. Results will be published after the deadline and once the review process is completed.
                   </p>}
               </CardContent>

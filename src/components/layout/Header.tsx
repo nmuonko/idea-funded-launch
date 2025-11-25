@@ -39,6 +39,7 @@ export function Header() {
     { to: '/how-it-works', label: t.nav.howItWorks },
     { to: '/apply', label: t.nav.apply },
     { to: '/results', label: t.nav.results },
+    { to: '/winners', label: 'Winners' },
     { to: '/terms', label: t.nav.terms },
     { to: '/contact', label: t.nav.contact },
   ];

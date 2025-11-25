@@ -74,6 +74,18 @@ serve(async (req) => {
 
     if (sessError) throw sessError;
 
+    const { data: payments, error: payError } = await supabase
+      .from('payments')
+      .select('*');
+
+    if (payError) throw payError;
+
+    const { data: winners, error: winError } = await supabase
+      .from('winners')
+      .select('*');
+
+    if (winError) throw winError;
+
     // Calculate statistics
     const totalSubmissions = submissions?.length || 0;
     const textSubmissions = submissions?.filter(s => s.submission_type === 'text').length || 0;
@@ -95,6 +107,16 @@ serve(async (req) => {
       }
     });
 
+    // Payment statistics
+    const paidPayments = payments?.filter(p => p.status === 'paid').length || 0;
+    const pendingPayments = payments?.filter(p => p.status === 'pending').length || 0;
+    const failedPayments = payments?.filter(p => p.status === 'failed').length || 0;
+
+    // Session info
+    const activeSession = sessions?.find(s => s.is_active);
+    const totalWinners = winners?.length || 0;
+    const publishedWinners = winners?.filter(w => w.is_published).length || 0;
+
     // Build context for AI
     const dataContext = `
 Current Competition Statistics:
@@ -104,6 +126,20 @@ Current Competition Statistics:
 - Average AI Overall Score: ${avgScore.toFixed(2)}/100
 - Suspected Fraud Cases: ${fraudCount}
 - Active Sessions: ${sessions?.length || 0}
+
+Payment Statistics:
+- Paid: ${paidPayments}
+- Pending: ${pendingPayments}
+- Failed: ${failedPayments}
+
+Session Information:
+- Active Session: ${activeSession?.name || 'None'}
+- Active Session Status: ${activeSession?.status || 'N/A'}
+- Active Session Participants: ${activeSession?.current_participant_count || 0}
+
+Winners:
+- Total Winners: ${totalWinners}
+- Published Winners: ${publishedWinners}
 
 Submissions by Country:
 ${Object.entries(countryCounts).map(([country, count]) => `- ${country}: ${count}`).join('\n')}
@@ -116,10 +152,16 @@ ${Object.entries(categoryCounts).map(([category, count]) => `- ${category}: ${co
     const messages = [
       {
         role: 'system',
-        content: `You are an AI assistant helping an administrator manage a project competition in the DRC. 
-You have access to real-time data about submissions and sessions. 
+        content: `You are an AI assistant helping an administrator manage the AfriFund competition platform. 
+You have access to real-time data about submissions, payments, sessions, and winners. 
 Be helpful, concise, and provide actionable insights.
 When answering questions, reference the specific data provided.
+You can answer questions like:
+- Which session is currently active?
+- How many people have applied?
+- What is the payment status breakdown?
+- How many winners have been announced?
+- What are the submission statistics by country or category?
 
 ${dataContext}`
       },

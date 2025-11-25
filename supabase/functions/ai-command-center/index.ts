@@ -171,10 +171,13 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
       }
 
       case 'update_session': {
+        if (!actionPlan.where || Object.keys(actionPlan.where).length === 0) {
+          throw new Error('UPDATE requires a WHERE clause. Please specify which session to update (e.g., by session name or is_active=true)');
+        }
         const { data, error } = await supabase
           .from('sessions')
           .update(actionPlan.data)
-          .match(actionPlan.where || {});
+          .match(actionPlan.where);
         
         if (error) throw error;
         result = { success: true, data };
@@ -182,7 +185,22 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
       }
 
       case 'set_active_session': {
-        // First, deactivate all sessions
+        if (!actionPlan.where || Object.keys(actionPlan.where).length === 0) {
+          throw new Error('Please specify which session to activate (e.g., by name or id)');
+        }
+        
+        // First, get the session to activate
+        const { data: targetSession, error: findError } = await supabase
+          .from('sessions')
+          .select('id, name')
+          .match(actionPlan.where)
+          .single();
+        
+        if (findError || !targetSession) {
+          throw new Error(`Could not find session matching ${JSON.stringify(actionPlan.where)}`);
+        }
+
+        // Deactivate all sessions
         await supabase
           .from('sessions')
           .update({ is_active: false })
@@ -192,10 +210,10 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
         const { data, error } = await supabase
           .from('sessions')
           .update({ is_active: true })
-          .match(actionPlan.where || {});
+          .eq('id', targetSession.id);
         
         if (error) throw error;
-        result = { success: true, data };
+        result = { success: true, data, message: `Activated session: ${targetSession.name}` };
         break;
       }
 
@@ -211,10 +229,13 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
       }
 
       case 'update_winner': {
+        if (!actionPlan.where || Object.keys(actionPlan.where).length === 0) {
+          throw new Error('UPDATE requires a WHERE clause. Please specify which winner(s) to update (e.g., by session_id or winner id)');
+        }
         const { data, error } = await supabase
           .from('winners')
           .update(actionPlan.data)
-          .match(actionPlan.where || {});
+          .match(actionPlan.where);
         
         if (error) throw error;
         result = { success: true, data };
@@ -247,10 +268,21 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
       }
 
       case 'update_theme': {
+        // Get the first theme_settings record (there should only be one)
+        const { data: themeRecord } = await supabase
+          .from('theme_settings')
+          .select('id')
+          .limit(1)
+          .single();
+        
+        if (!themeRecord) {
+          throw new Error('No theme settings found. Please create a theme settings record first.');
+        }
+        
         const { data, error } = await supabase
           .from('theme_settings')
           .update(actionPlan.data)
-          .eq('id', actionPlan.where?.id || (await supabase.from('theme_settings').select('id').limit(1).single()).data?.id);
+          .eq('id', themeRecord.id);
         
         if (error) throw error;
         result = { success: true, data };
@@ -289,6 +321,16 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
   } catch (error) {
     console.error('Error in ai-command-center function:', error);
     
+    // Create a friendly error message
+    let friendlyMessage = (error as Error).message || 'An error occurred processing your command';
+    
+    // Add specific guidance for common errors
+    if (friendlyMessage.includes('UPDATE requires a WHERE clause')) {
+      friendlyMessage += '. Try specifying which record to update, for example: "Update Session 1 deadline" or "Update active session status".';
+    } else if (friendlyMessage.includes('Could not find session')) {
+      friendlyMessage += '. Please check the session name or ID and try again.';
+    }
+    
     // Try to log the error - use authenticated user email if available
     try {
       const authHeader = req.headers.get('Authorization');
@@ -303,8 +345,8 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
           .from('admin_ai_logs')
           .insert({
             admin_email: user?.email || 'unknown',
-            action_description: 'Error occurred',
-            error_message: (error as Error).message || String(error),
+            action_description: 'Command failed',
+            error_message: friendlyMessage,
             success: false
           });
       }
@@ -315,7 +357,7 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
     return new Response(
       JSON.stringify({ 
         success: false,
-        error: (error as Error).message || 'An error occurred processing your command'
+        error: friendlyMessage
       }),
       { 
         status: 500,

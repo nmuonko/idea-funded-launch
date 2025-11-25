@@ -120,16 +120,62 @@ export default function AdminSubmissions() {
 
   const updateSubmissionMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
+      // Map status to proper enum values
+      const statusMap: Record<string, string> = {
+        'winner': 'selected',
+        'shortlisted': 'under_review',
+      };
+      const finalStatus = statusMap[status] || status;
+      
+      const updates: any = { 
+        submission_status: finalStatus as any,
+      };
+      
+      // Add selection timestamp for selected/winner status
+      if (status === 'selected' || status === 'winner') {
+        updates.selection_timestamp = new Date().toISOString();
+      }
+      
       const { error } = await supabase
         .from('user_submissions')
-        .update({ 
-          submission_status: status as any,
-          status: status,
-          ...(status === 'selected' || status === 'winner' ? { selection_timestamp: new Date().toISOString() } : {}),
-        })
+        .update(updates)
         .eq('id', id);
       
       if (error) throw error;
+
+      // If marking as winner, also add to winners table
+      if (status === 'winner') {
+        const { data: submission } = await supabase
+          .from('user_submissions')
+          .select('*, sessions(id, name)')
+          .eq('id', id)
+          .single();
+        
+        if (submission && submission.sessions) {
+          // Check if winner already exists
+          const { data: existingWinner } = await supabase
+            .from('winners')
+            .select('id')
+            .eq('session_id', submission.session_id)
+            .eq('winner_name', submission.full_name)
+            .eq('project_name', submission.project_title)
+            .single();
+          
+          if (!existingWinner) {
+            await supabase
+              .from('winners')
+              .insert({
+                session_id: submission.session_id,
+                winner_name: submission.full_name,
+                project_name: submission.project_title,
+                country: submission.country || 'Not specified',
+                award_amount: submission.funding_needed || 0,
+                year: new Date().getFullYear(),
+                is_published: false,
+              });
+          }
+        }
+      }
 
       // If marking as not_selected, send feedback email
       if (status === 'not_selected') {
@@ -145,11 +191,14 @@ export default function AdminSubmissions() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['adminSubmissions'] });
       queryClient.invalidateQueries({ queryKey: ['adminStats'] });
+      queryClient.invalidateQueries({ queryKey: ['winners'] });
       setSelectedSubmission(null);
       toast({ 
         title: 'Success', 
         description: variables.status === 'not_selected' 
           ? 'Submission marked as not selected. Feedback email sent to applicant.'
+          : variables.status === 'winner'
+          ? 'Submission marked as winner and added to winners list.'
           : 'Submission status updated'
       });
     },
@@ -198,13 +247,24 @@ export default function AdminSubmissions() {
 
   const bulkUpdateMutation = useMutation({
     mutationFn: async ({ ids, status }: { ids: string[]; status: string }) => {
+      // Map status to proper enum values
+      const statusMap: Record<string, string> = {
+        'winner': 'selected',
+        'shortlisted': 'under_review',
+      };
+      const finalStatus = statusMap[status] || status;
+      
+      const updates: any = { 
+        submission_status: finalStatus as any,
+      };
+      
+      if (status === 'selected') {
+        updates.selection_timestamp = new Date().toISOString();
+      }
+      
       const { error } = await supabase
         .from('user_submissions')
-        .update({ 
-          submission_status: status as any,
-          status: status,
-          ...(status === 'selected' ? { selection_timestamp: new Date().toISOString() } : {}),
-        })
+        .update(updates)
         .in('id', ids);
       
       if (error) throw error;
@@ -593,8 +653,8 @@ export default function AdminSubmissions() {
                             View
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-4xl glass-strong max-h-[85vh] overflow-y-auto">
-                          <DialogHeader>
+                        <DialogContent className="max-w-4xl glass-strong max-h-[90vh] flex flex-col">
+                          <DialogHeader className="flex-shrink-0">
                             <DialogTitle className="flex items-center gap-2">
                               <FileText className="h-5 w-5" />
                               Judge Dashboard: {submission.project_title}
@@ -605,7 +665,7 @@ export default function AdminSubmissions() {
                               Category: {submission.category || 'N/A'}
                             </DialogDescription>
                           </DialogHeader>
-                          <div className="space-y-6">
+                          <div className="space-y-6 overflow-y-auto flex-1 pr-2">
                             {/* AI Scores Section */}
                             {submission.ai_overall_score && (
                               <div className="grid grid-cols-3 gap-4 p-4 bg-primary/10 rounded-lg">
@@ -702,13 +762,40 @@ export default function AdminSubmissions() {
                                   <p className="text-xs text-muted-foreground">WhatsApp</p>
                                   <p className="text-sm">{submission.whatsapp_number}</p>
                                 </div>
+                                {submission.project_type && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">Project Type</p>
+                                    <p className="text-sm">{submission.project_type}</p>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
                             <div>
                               <Label className="text-muted-foreground">Project Description (Original)</Label>
-                              <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg">{submission.project_description}</p>
+                              <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg whitespace-pre-line">{submission.project_description}</p>
                             </div>
+
+                            {submission.feasibility_explanation && (
+                              <div>
+                                <Label className="text-muted-foreground">Feasibility Explanation</Label>
+                                <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg whitespace-pre-line">{submission.feasibility_explanation}</p>
+                              </div>
+                            )}
+
+                            {submission.problem_to_solve && (
+                              <div>
+                                <Label className="text-muted-foreground">Problem to Solve</Label>
+                                <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg whitespace-pre-line">{submission.problem_to_solve}</p>
+                              </div>
+                            )}
+
+                            {submission.target_audience && (
+                              <div>
+                                <Label className="text-muted-foreground">Target Audience</Label>
+                                <p className="text-sm mt-1 p-3 bg-muted/50 rounded-lg whitespace-pre-line">{submission.target_audience}</p>
+                              </div>
+                            )}
 
                             <div className="grid grid-cols-3 gap-4">
                               <div>
@@ -724,6 +811,15 @@ export default function AdminSubmissions() {
                                 <p className="font-semibold">{submission.time_until_profit}</p>
                               </div>
                             </div>
+
+                            {submission.will_hire && (
+                              <div className="p-4 bg-info/10 rounded-lg">
+                                <Label className="text-info">👥 Hiring Plans</Label>
+                                <p className="text-sm mt-1">
+                                  Plans to hire {submission.number_of_hires || 'staff'}
+                                </p>
+                              </div>
+                            )}
 
                             <div className="border-t pt-4 space-y-3">
                               <Label>Judge Actions</Label>

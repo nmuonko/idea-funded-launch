@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle, CreditCard, Copy, Check, Loader2 } from "lucide-react";
+import { AlertCircle, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 
 interface MaishaPayCheckoutProps {
@@ -20,9 +20,7 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
   submissionId,
   amount = 20,
 }) => {
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   const copyConfirmationId = () => {
     navigator.clipboard.writeText(confirmationId);
@@ -31,106 +29,28 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePayment = async () => {
-    setIsSubmitting(true);
-    setPaymentError(null);
+  const handlePayment = () => {
+    console.log("[MAISHAPAY RESET] Payment button clicked");
+    console.log("[MAISHAPAY RESET] Submission data:", {
+      submissionId,
+      confirmationId,
+      amount,
+      email: applicantEmail,
+      name: applicantName,
+    });
     
-    try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-      console.log('[MaishaPayCheckout] Starting payment:', {
-        submissionId,
-        confirmationId,
-        amount,
-        email: applicantEmail,
-      });
-
-      // Call backend edge function via fetch POST
-      const res = await fetch(`${supabaseUrl}/functions/v1/maishapay-create-payment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": anonKey,
-          "Authorization": `Bearer ${anonKey}`,
-        },
-        body: JSON.stringify({
-          submissionId,
-          amount,
-          confirmationId,
-          email: applicantEmail,
-          name: applicantName,
-        }),
-      });
-
-      console.log('[MaishaPayCheckout] Response status:', res.status);
-
-      if (!res.ok) {
-        const text = await res.text();
-        console.error('[MaishaPayCheckout] Error response:', res.status, text);
-        setPaymentError(`Payment failed (${res.status}). Please try again or contact support.`);
-        toast.error('Payment initialization failed. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Edge function returns HTML with auto-submit form for POST to MaishaPay
-      const html = await res.text();
-      console.log('[MaishaPayCheckout] Received HTML form, creating iframe to auto-submit');
-
-      toast.info('Redirecting to secure payment page...');
-
-      // Create a full-page iframe to display the auto-submit form
-      // This allows the form to POST to MaishaPay properly
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.top = '0';
-      iframe.style.left = '0';
-      iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.border = 'none';
-      iframe.style.zIndex = '9999';
-      document.body.appendChild(iframe);
-
-      // Write the HTML into the iframe
-      const iframeDoc = iframe.contentWindow?.document;
-      if (iframeDoc) {
-        iframeDoc.open();
-        iframeDoc.write(html);
-        iframeDoc.close();
-      }
-
-      // Note: The HTML contains auto-submit script that will POST to MaishaPay
-      // User will see loading screen then be redirected to MaishaPay
-
-    } catch (error: any) {
-      console.error('[MaishaPayCheckout] Exception:', error);
-      setPaymentError(`Unexpected error: ${error.message}. Please try again.`);
-      toast.error('An unexpected error occurred. Please try again.');
-      setIsSubmitting(false);
-    }
+    toast.info("Payment system is being configured. Please wait for live keys.");
   };
 
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Complete Your Payment
-        </CardTitle>
+        <CardTitle>Complete Your Payment</CardTitle>
         <CardDescription>
           Pay the application fee to submit your project to AfriFund
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Error Display */}
-        {paymentError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{paymentError}</AlertDescription>
-          </Alert>
-        )}
-
         {/* Confirmation ID Display */}
         <div className="p-4 bg-muted rounded-lg border-2 border-border">
           <label className="text-sm font-semibold text-muted-foreground block mb-2">
@@ -162,7 +82,7 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            <strong>Important:</strong> Your project will only be submitted after successful payment. The application fee is non-refundable.
+            <strong>Setup in Progress:</strong> Payment system is being configured with live credentials.
           </AlertDescription>
         </Alert>
 
@@ -184,28 +104,17 @@ export const MaishaPayCheckout: React.FC<MaishaPayCheckoutProps> = ({
           </div>
         </div>
 
-        {/* Payment Button */}
+        {/* Payment Button - Placeholder */}
         <Button
           onClick={handlePayment}
-          className="w-full"
+          className="w-full bg-emerald-600 hover:bg-emerald-700"
           size="lg"
-          disabled={isSubmitting}
         >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Redirecting to MaishaPay...
-            </>
-          ) : (
-            <>
-              <CreditCard className="mr-2 h-4 w-4" />
-              Proceed to Payment
-            </>
-          )}
+          Pay with MaishaPay (LIVE – setup pending)
         </Button>
 
         <p className="text-xs text-muted-foreground text-center">
-          You will be redirected to MaishaPay's secure checkout page
+          Payment will be processed with MaishaPay once live credentials are configured
         </p>
       </CardContent>
     </Card>

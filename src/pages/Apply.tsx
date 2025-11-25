@@ -131,6 +131,8 @@ export default function Apply() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log("[Apply] Form submission started");
+
     if (!activeSession) {
       toast({
         title: t.common.error,
@@ -192,10 +194,19 @@ export default function Apply() {
     try {
       // Generate confirmation ID
       const newConfirmationId = generateConfirmationId();
+      console.log("[Apply] Generated confirmation ID:", newConfirmationId);
       
       // Get session fee
       const sessionFee = activeSession.application_fee || 20;
       const sessionCurrency = activeSession.currency || 'USD';
+
+      console.log("[Apply] Creating draft submission with:", {
+        confirmationId: newConfirmationId,
+        sessionFee,
+        sessionCurrency,
+        fullName: result.data.fullName,
+        email: result.data.email,
+      });
 
       // Create draft submission with confirmation ID
       const { data, error } = await supabase.from('user_submissions').insert({
@@ -225,11 +236,18 @@ export default function Apply() {
 
       if (error) throw error;
 
+      console.log("[Apply] Draft submission created successfully:", {
+        submissionId: data.id,
+        confirmationId: newConfirmationId,
+      });
+
       // Set state for payment dialog
       setSubmissionId(data.id);
       setConfirmationId(newConfirmationId);
       setCurrentStep(1); // Move to payment step
       setPaymentDialogOpen(true);
+      
+      console.log("[Apply] Opening payment dialog");
       
       toast({
         title: t.common.success,

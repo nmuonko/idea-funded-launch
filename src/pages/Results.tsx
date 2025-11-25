@@ -4,13 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Loader2, Search, Clock } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Link } from 'react-router-dom';
+import SessionProgressSteps from '@/components/SessionProgressSteps';
 
 export default function Results() {
   const { t } = useLanguage();
@@ -221,20 +221,11 @@ export default function Results() {
                 <CardDescription>{getSessionStatusLabel()}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Review Progress Bar */}
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="font-medium">Review Progress</span>
-                  </div>
-                  <Progress value={deadlinePassed ? activeSession.review_progress : 0} className="h-3" />
-                  <p className="text-center text-sm text-muted-foreground">
-                    {!deadlinePassed ? (
-                      "Review will start after the deadline"
-                    ) : (
-                      `Review in progress: ${activeSession.review_progress}% completed`
-                    )}
-                  </p>
-                </div>
+                {/* Session Progress Steps */}
+                <SessionProgressSteps 
+                  status={activeSession.status}
+                  deadlinePassed={deadlinePassed}
+                />
 
                 {/* Countdown Timer */}
                 <div className="flex items-center justify-center gap-3 p-4 border rounded-lg">

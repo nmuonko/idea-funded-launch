@@ -40,6 +40,7 @@ export function Header() {
     { to: '/apply', label: t.nav.apply },
     { to: '/results', label: t.nav.results },
     { to: '/winners', label: 'Winners' },
+    { to: '/leaderboard', label: 'Leaderboard' },
     { to: '/terms', label: t.nav.terms },
     { to: '/contact', label: t.nav.contact },
   ];

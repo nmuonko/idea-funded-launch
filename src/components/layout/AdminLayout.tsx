@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, FileText, Mail, LogOut, ArrowLeft, CreditCard, BarChart, BookText, Bot, Shield, Sparkles, DollarSign, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, BarChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -11,16 +11,9 @@ export function AdminLayout() {
 
   const navItems = [
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { to: '/admin/command-center', icon: Sparkles, label: 'AI Command Center' },
-    { to: '/admin/submissions', icon: FileText, label: 'Submissions' },
-    { to: '/admin/payments', icon: DollarSign, label: 'Payments' },
-    { to: '/admin/sessions', icon: Users, label: 'Sessions' },
-    { to: '/admin/content', icon: BookText, label: 'Content Management' },
-    { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
-    { to: '/admin/fraud-review', icon: AlertTriangle, label: 'Fraud Review' },
-    { to: '/admin/ai-assistant', icon: Bot, label: 'AI Assistant' },
-    { to: '/admin/contacts', icon: Mail, label: 'Contact Messages' },
-    { to: '/admin/users', icon: Shield, label: 'Admin Users' },
+    { to: '/admin/orders', icon: CreditCard, label: 'Orders' },
+    { to: '/admin/users', icon: Users, label: 'User Management' },
+    { to: '/admin/settings', icon: BarChart, label: 'Settings' },
   ];
 
   const handleSignOut = async () => {
@@ -36,7 +29,7 @@ export function AdminLayout() {
           <h2 className="text-2xl font-bold bg-gradient-glow bg-clip-text text-transparent">
             Admin Panel
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">AfriFund</p>
+          <p className="text-sm text-muted-foreground mt-1">AfriShop</p>
         </div>
 
         <nav className="space-y-2">

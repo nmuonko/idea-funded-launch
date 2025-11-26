@@ -1,6 +1,6 @@
-import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
+import AccessDenied from '@/pages/AccessDenied';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -21,16 +21,16 @@ export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRout
     );
   }
 
-  // Not logged in - redirect to auth
-  if (!user) {
-    console.log('[ProtectedRoute] No user, redirecting to /auth');
-    return <Navigate to="/auth" replace />;
+  // Admin required but user is not logged in or not admin - show access denied
+  if (requireAdmin && (!user || !isAdmin)) {
+    console.log('[ProtectedRoute] Admin access denied:', { hasUser: !!user, isAdmin });
+    return <AccessDenied />;
   }
 
-  // Admin required but user is not admin
-  if (requireAdmin && !isAdmin) {
-    console.log('[ProtectedRoute] Admin required but user is not admin, redirecting to /');
-    return <Navigate to="/" replace />;
+  // Regular protected route - user must be logged in
+  if (!user) {
+    console.log('[ProtectedRoute] No user, showing access denied');
+    return <AccessDenied />;
   }
 
   console.log('[ProtectedRoute] Access granted');

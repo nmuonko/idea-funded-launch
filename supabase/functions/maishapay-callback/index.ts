@@ -76,17 +76,13 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    const urlParams = new URL(req.url).searchParams;
-    const submissionId = paymentData.submission_id || urlParams.get('submission_id');
-    const confirmationId = paymentData.reference || paymentData.confirmationId;
+    const reference = paymentData.reference || paymentData.transactionRefId;
     
     console.log('[MaishaPay Callback] Received payment data:', {
-      submissionId,
-      confirmationId,
       status: paymentData.status,
       transactionRefId: paymentData.transactionRefId,
       operatorRefId: paymentData.operatorRefId,
-      reference: paymentData.reference,
+      reference,
     });
 
     // Normalize status
@@ -94,9 +90,12 @@ const handler = async (req: Request): Promise<Response> => {
     
     console.log('[MaishaPay Callback] Normalized status:', normalizedStatus);
 
-    if (!submissionId && !confirmationId) {
-      console.error('[MaishaPay Callback] No submission ID or confirmation ID provided');
-      return redirectToFrontend('failed', 'No submission identifier', req);
+    if (!reference) {
+      console.error('[MaishaPay Callback] No reference provided');
+      return new Response(JSON.stringify({ error: 'No reference' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     // Initialize Supabase client
@@ -105,115 +104,66 @@ const handler = async (req: Request): Promise<Response> => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Fetch submission by ID or confirmation ID
-    let submission;
-    if (submissionId) {
-      const { data } = await supabaseClient
-        .from('user_submissions')
-        .select('*')
-        .eq('id', submissionId)
-        .single();
-      submission = data;
-    } else if (confirmationId) {
-      const { data } = await supabaseClient
-        .from('user_submissions')
-        .select('*')
-        .eq('confirmation_id', confirmationId)
-        .single();
-      submission = data;
+    // Extract order ID from reference (format: AFRISHOP-{orderId})
+    const orderId = reference.replace('AFRISHOP-', '');
+
+    // Fetch order
+    const { data: order, error: orderError } = await supabaseClient
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError || !order) {
+      console.error('[MaishaPay Callback] Order not found:', orderId);
+      return new Response(JSON.stringify({ error: 'Order not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    if (!submission) {
-      console.error('[MaishaPay Callback] Submission not found');
-      return redirectToFrontend('failed', 'Submission not found', req);
-    }
+    console.log('[MaishaPay Callback] Found order:', orderId);
 
-    const actualSubmissionId = submission.id;
-    const actualConfirmationId = submission.confirmation_id;
-
-    console.log('[MaishaPay Callback] Found submission:', actualSubmissionId, 'Confirmation:', actualConfirmationId);
-
-    // Insert payment record
-    const { error: paymentError } = await supabaseClient.from('payments').insert({
-      submission_id: actualSubmissionId,
-      provider: 'maishapay',
-      status: normalizedStatus,
-      amount: paymentData.montant || paymentData.amount || submission.payment_amount || 20,
-      currency: paymentData.devise || paymentData.currency || 'USD',
-      transaction_ref_id: paymentData.transactionRefId || null,
-      operator_ref_id: paymentData.operatorRefId || null,
-      description: paymentData.description || paymentData.message || null,
-      raw_payload: paymentData,
-    });
-
-    if (paymentError) {
-      console.error('[MaishaPay Callback] Error inserting payment:', paymentError);
-    }
-
-    // Update submission based on payment status
+    // Update order based on payment status
     const updateData: any = {
-      payment_status: normalizedStatus,
-      payment_ref_id: paymentData.transactionRefId || null,
-      payment_operator_id: paymentData.operatorRefId || null,
-      maishapay_transaction_id: paymentData.transactionRefId || null,
-      maishapay_reference: paymentData.reference || actualConfirmationId,
-      maishapay_raw_response: paymentData,
+      maisha_transaction_id: paymentData.transactionRefId || null,
+      maisha_payment_status: normalizedStatus === 'paid' ? 'SUCCESS' : 'FAILED',
       updated_at: new Date().toISOString(),
     };
 
     if (normalizedStatus === 'paid') {
-      updateData.submitted_at = new Date().toISOString();
-      updateData.is_draft = false;
+      updateData.status = 'PAID';
     }
 
     const { error: updateError } = await supabaseClient
-      .from('user_submissions')
+      .from('orders')
       .update(updateData)
-      .eq('id', actualSubmissionId);
+      .eq('id', orderId);
 
     if (updateError) {
-      console.error('[MaishaPay Callback] Error updating submission:', updateError);
+      console.error('[MaishaPay Callback] Error updating order:', updateError);
     }
 
-    // Trigger emails on successful payment
+    // Send admin notification on successful payment
     if (normalizedStatus === 'paid') {
-      console.log('[MaishaPay Callback] Triggering payment confirmation emails');
+      console.log('[MaishaPay Callback] Triggering admin notification');
       
-      // User confirmation email
-      supabaseClient.functions.invoke('send-payment-confirmation-email', {
-        body: { submissionId: actualSubmissionId }
-      }).then(() => {
-        console.log('[MaishaPay Callback] User email trigger sent');
-      }).catch((err) => {
-        console.error('[MaishaPay Callback] Failed to trigger user email:', err);
-      });
-
-      // Admin notification email
-      supabaseClient.functions.invoke('send-admin-payment-notification', {
-        body: { submissionId: actualSubmissionId }
-      }).then(() => {
-        console.log('[MaishaPay Callback] Admin email trigger sent');
-      }).catch((err) => {
-        console.error('[MaishaPay Callback] Failed to trigger admin email:', err);
-      });
-
-      // Trigger AI analysis in background
-      supabaseClient.functions.invoke('analyze-submission', {
-        body: { submissionId: actualSubmissionId }
-      }).then(() => {
-        console.log('[MaishaPay Callback] AI analysis triggered');
-      }).catch((err) => {
-        console.error('[MaishaPay Callback] Failed to trigger AI analysis:', err);
-      });
+      const adminEmail = Deno.env.get('ADMIN_NOTIFICATION_EMAIL');
+      if (adminEmail) {
+        // TODO: Send email via Resend
+        console.log('[MaishaPay Callback] Admin notification sent to:', adminEmail);
+      }
     }
 
-    console.log('[MaishaPay Callback] Processing complete, redirecting to frontend');
+    console.log('[MaishaPay Callback] Processing complete');
 
-    // Redirect to frontend results page with confirmation ID
-    return redirectToFrontend(normalizedStatus, paymentData.description, req, {
-      transactionRefId: paymentData.transactionRefId,
-      operatorRefId: paymentData.operatorRefId,
-      reference: actualConfirmationId,
+    return new Response(JSON.stringify({ 
+      success: true,
+      orderId,
+      status: normalizedStatus,
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {

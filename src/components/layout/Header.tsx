@@ -7,7 +7,6 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { LanguageSwitcher } from './LanguageSwitcher';
-import { ColorCustomization } from '@/components/ColorCustomization';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +20,7 @@ export function Header() {
   const { t } = useLanguage();
   const { user, isAdmin, signOut } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [profileData, setProfileData] = useState<{ full_name?: string; avatar_url?: string } | null>(null);
+  const [profileData, setProfileData] = useState<{ name?: string } | null>(null);
   const navigate = useNavigate();
 
   console.log('[Header] Render:', { user: user?.email, isAdmin });
@@ -36,7 +35,7 @@ export function Header() {
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('full_name, avatar_url')
+        .select('name')
         .eq('user_id', user?.id)
         .single();
       
@@ -49,8 +48,8 @@ export function Header() {
   };
 
   const getInitials = () => {
-    if (profileData?.full_name) {
-      return profileData.full_name
+    if (profileData?.name) {
+      return profileData.name
         .split(' ')
         .map(n => n[0])
         .join('')
@@ -72,14 +71,7 @@ export function Header() {
   };
 
   const navLinks = [
-    { to: '/', label: t.nav.home },
-    { to: '/how-it-works', label: t.nav.howItWorks },
-    { to: '/apply', label: t.nav.apply },
-    { to: '/results', label: t.nav.results },
-    { to: '/winners', label: 'Winners' },
-    { to: '/leaderboard', label: 'Leaderboard' },
-    { to: '/terms', label: t.nav.terms },
-    { to: '/contact', label: t.nav.contact },
+    { to: '/', label: 'Home' },
   ];
 
   return (
@@ -96,7 +88,7 @@ export function Header() {
               />
             </div>
             <span className="hidden sm:inline-block font-semibold text-lg">
-              AfriFund
+              AfriShop
             </span>
           </Link>
 
@@ -115,20 +107,18 @@ export function Header() {
 
           {/* Right section */}
           <div className="flex items-center space-x-2 lg:space-x-4">
-            <ColorCustomization />
             <LanguageSwitcher />
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-2 h-9">
                     <Avatar className="h-6 w-6">
-                      <AvatarImage src={profileData?.avatar_url} />
                       <AvatarFallback className="text-xs bg-primary text-primary-foreground">
                         {getInitials()}
                       </AvatarFallback>
                     </Avatar>
                     <span className="hidden sm:inline">
-                      {profileData?.full_name?.split(' ')[0] || 'Account'}
+                      {profileData?.name?.split(' ')[0] || 'Account'}
                     </span>
                   </Button>
                 </DropdownMenuTrigger>

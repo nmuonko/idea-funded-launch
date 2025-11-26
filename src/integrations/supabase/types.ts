@@ -14,36 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      admin_ai_logs: {
-        Row: {
-          action_description: string
-          admin_email: string
-          details_json: Json | null
-          error_message: string | null
-          id: string
-          success: boolean
-          timestamp: string
-        }
-        Insert: {
-          action_description: string
-          admin_email: string
-          details_json?: Json | null
-          error_message?: string | null
-          id?: string
-          success?: boolean
-          timestamp?: string
-        }
-        Update: {
-          action_description?: string
-          admin_email?: string
-          details_json?: Json | null
-          error_message?: string | null
-          id?: string
-          success?: boolean
-          timestamp?: string
-        }
-        Relationships: []
-      }
       admin_users: {
         Row: {
           created_at: string
@@ -62,348 +32,163 @@ export type Database = {
         }
         Relationships: []
       }
-      chat_messages: {
+      order_items: {
         Row: {
-          content: string
           created_at: string
           id: string
-          role: string
-          session_id: string
-        }
-        Insert: {
-          content: string
-          created_at?: string
-          id?: string
-          role: string
-          session_id: string
-        }
-        Update: {
-          content?: string
-          created_at?: string
-          id?: string
-          role?: string
-          session_id?: string
-        }
-        Relationships: []
-      }
-      contact_messages: {
-        Row: {
-          created_at: string
-          email: string
-          full_name: string
-          id: string
-          message: string
-          subject: string
-          whatsapp_number: string | null
-        }
-        Insert: {
-          created_at?: string
-          email: string
-          full_name: string
-          id?: string
-          message: string
-          subject: string
-          whatsapp_number?: string | null
-        }
-        Update: {
-          created_at?: string
-          email?: string
-          full_name?: string
-          id?: string
-          message?: string
-          subject?: string
-          whatsapp_number?: string | null
-        }
-        Relationships: []
-      }
-      feature_flags: {
-        Row: {
-          created_at: string
-          description: string | null
-          key: string
+          notes: string | null
+          order_id: string
+          product_url: string
+          quantity: number
+          store: Database["public"]["Enums"]["store_type"]
+          subtotal_usd: number | null
+          title: string | null
+          unit_price_usd: number | null
           updated_at: string
-          value: Json
         }
         Insert: {
           created_at?: string
-          description?: string | null
-          key: string
+          id?: string
+          notes?: string | null
+          order_id: string
+          product_url: string
+          quantity?: number
+          store: Database["public"]["Enums"]["store_type"]
+          subtotal_usd?: number | null
+          title?: string | null
+          unit_price_usd?: number | null
           updated_at?: string
-          value?: Json
         }
         Update: {
           created_at?: string
-          description?: string | null
-          key?: string
+          id?: string
+          notes?: string | null
+          order_id?: string
+          product_url?: string
+          quantity?: number
+          store?: Database["public"]["Enums"]["store_type"]
+          subtotal_usd?: number | null
+          title?: string | null
+          unit_price_usd?: number | null
           updated_at?: string
-          value?: Json
-        }
-        Relationships: []
-      }
-      notification_logs: {
-        Row: {
-          channel: Database["public"]["Enums"]["notification_channel"]
-          created_at: string
-          error_message: string | null
-          id: string
-          sent_at: string
-          status: string
-          submission_id: string
-          type: Database["public"]["Enums"]["notification_type"]
-        }
-        Insert: {
-          channel: Database["public"]["Enums"]["notification_channel"]
-          created_at?: string
-          error_message?: string | null
-          id?: string
-          sent_at?: string
-          status: string
-          submission_id: string
-          type: Database["public"]["Enums"]["notification_type"]
-        }
-        Update: {
-          channel?: Database["public"]["Enums"]["notification_channel"]
-          created_at?: string
-          error_message?: string | null
-          id?: string
-          sent_at?: string
-          status?: string
-          submission_id?: string
-          type?: Database["public"]["Enums"]["notification_type"]
         }
         Relationships: [
           {
-            foreignKeyName: "notification_logs_submission_id_fkey"
-            columns: ["submission_id"]
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
             isOneToOne: false
-            referencedRelation: "user_submissions"
+            referencedRelation: "orders"
             referencedColumns: ["id"]
           },
         ]
       }
-      payments: {
+      orders: {
         Row: {
-          amount: number | null
-          created_at: string | null
-          currency: string | null
-          description: string | null
-          id: string
-          operator_ref_id: string | null
-          provider: string
-          raw_payload: Json | null
-          status: string
-          submission_id: string | null
-          transaction_ref_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          amount?: number | null
-          created_at?: string | null
-          currency?: string | null
-          description?: string | null
-          id?: string
-          operator_ref_id?: string | null
-          provider?: string
-          raw_payload?: Json | null
-          status: string
-          submission_id?: string | null
-          transaction_ref_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          amount?: number | null
-          created_at?: string | null
-          currency?: string | null
-          description?: string | null
-          id?: string
-          operator_ref_id?: string | null
-          provider?: string
-          raw_payload?: Json | null
-          status?: string
-          submission_id?: string | null
-          transaction_ref_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "payments_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "user_submissions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      profiles: {
-        Row: {
-          avatar_url: string | null
-          city: string | null
           created_at: string
-          date_of_birth: string | null
-          display_name: string | null
-          full_name: string | null
+          exchange_rate_used: number | null
           id: string
+          item_total_usd: number | null
+          maisha_payment_status: string | null
+          maisha_transaction_id: string | null
+          service_fee_usd: number | null
+          shipping_city: Database["public"]["Enums"]["shipping_city"] | null
+          shipping_fee_usd: number | null
+          status: Database["public"]["Enums"]["order_status"]
+          total_cdf: number | null
+          total_usd: number | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          avatar_url?: string | null
-          city?: string | null
           created_at?: string
-          date_of_birth?: string | null
-          display_name?: string | null
-          full_name?: string | null
+          exchange_rate_used?: number | null
           id?: string
+          item_total_usd?: number | null
+          maisha_payment_status?: string | null
+          maisha_transaction_id?: string | null
+          service_fee_usd?: number | null
+          shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
+          shipping_fee_usd?: number | null
+          status?: Database["public"]["Enums"]["order_status"]
+          total_cdf?: number | null
+          total_usd?: number | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          avatar_url?: string | null
-          city?: string | null
           created_at?: string
-          date_of_birth?: string | null
-          display_name?: string | null
-          full_name?: string | null
+          exchange_rate_used?: number | null
           id?: string
+          item_total_usd?: number | null
+          maisha_payment_status?: string | null
+          maisha_transaction_id?: string | null
+          service_fee_usd?: number | null
+          shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
+          shipping_fee_usd?: number | null
+          status?: Database["public"]["Enums"]["order_status"]
+          total_cdf?: number | null
+          total_usd?: number | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
       }
-      sessions: {
+      profiles: {
         Row: {
-          afrimoney_number: string | null
-          airtel_money_number: string | null
-          announcement_date: string | null
-          application_fee: number | null
           created_at: string
-          currency: string | null
-          current_participant_count: number
-          deadline_datetime: string | null
-          desired_max_participants: number
-          enable_waitlist: boolean | null
+          full_name: string | null
           id: string
-          is_active: boolean | null
-          m_pesa_number: string | null
-          name: string
-          orange_money_number: string | null
-          payment_instructions: string | null
-          review_progress: number
-          start_date: string
-          status: Database["public"]["Enums"]["session_status"]
-          target_applicants: number | null
+          name: string | null
+          phone: string | null
           updated_at: string
-          waitlist_count: number | null
+          user_id: string
         }
         Insert: {
-          afrimoney_number?: string | null
-          airtel_money_number?: string | null
-          announcement_date?: string | null
-          application_fee?: number | null
           created_at?: string
-          currency?: string | null
-          current_participant_count?: number
-          deadline_datetime?: string | null
-          desired_max_participants?: number
-          enable_waitlist?: boolean | null
+          full_name?: string | null
           id?: string
-          is_active?: boolean | null
-          m_pesa_number?: string | null
-          name: string
-          orange_money_number?: string | null
-          payment_instructions?: string | null
-          review_progress?: number
-          start_date?: string
-          status?: Database["public"]["Enums"]["session_status"]
-          target_applicants?: number | null
+          name?: string | null
+          phone?: string | null
           updated_at?: string
-          waitlist_count?: number | null
+          user_id: string
         }
         Update: {
-          afrimoney_number?: string | null
-          airtel_money_number?: string | null
-          announcement_date?: string | null
-          application_fee?: number | null
           created_at?: string
-          currency?: string | null
-          current_participant_count?: number
-          deadline_datetime?: string | null
-          desired_max_participants?: number
-          enable_waitlist?: boolean | null
+          full_name?: string | null
           id?: string
-          is_active?: boolean | null
-          m_pesa_number?: string | null
-          name?: string
-          orange_money_number?: string | null
-          payment_instructions?: string | null
-          review_progress?: number
-          start_date?: string
-          status?: Database["public"]["Enums"]["session_status"]
-          target_applicants?: number | null
+          name?: string | null
+          phone?: string | null
           updated_at?: string
-          waitlist_count?: number | null
+          user_id?: string
         }
         Relationships: []
       }
-      site_content: {
+      settings: {
         Row: {
-          created_at: string | null
-          description: string | null
-          id: string
-          key: string
-          updated_at: string | null
-          value: string
-        }
-        Insert: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          key: string
-          updated_at?: string | null
-          value: string
-        }
-        Update: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          key?: string
-          updated_at?: string | null
-          value?: string
-        }
-        Relationships: []
-      }
-      theme_settings: {
-        Row: {
-          accent_color: string
-          button_style: string | null
           created_at: string
-          hero_background_style: string
+          exchange_rate_usd_to_cdf: number
           id: string
-          primary_color: string
-          secondary_color: string
-          typography_preset: string
+          service_fee_percent: number
+          shipping_base_fee_usd: number
+          shipping_percent: number
           updated_at: string
         }
         Insert: {
-          accent_color?: string
-          button_style?: string | null
           created_at?: string
-          hero_background_style?: string
+          exchange_rate_usd_to_cdf?: number
           id?: string
-          primary_color?: string
-          secondary_color?: string
-          typography_preset?: string
+          service_fee_percent?: number
+          shipping_base_fee_usd?: number
+          shipping_percent?: number
           updated_at?: string
         }
         Update: {
-          accent_color?: string
-          button_style?: string | null
           created_at?: string
-          hero_background_style?: string
+          exchange_rate_usd_to_cdf?: number
           id?: string
-          primary_color?: string
-          secondary_color?: string
-          typography_preset?: string
+          service_fee_percent?: number
+          shipping_base_fee_usd?: number
+          shipping_percent?: number
           updated_at?: string
         }
         Relationships: []
@@ -428,335 +213,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      user_submissions: {
-        Row: {
-          agreements_confirmed: boolean
-          ai_feasibility_score: number | null
-          ai_feedback_short: string | null
-          ai_impact_score: number | null
-          ai_last_reviewed_at: string | null
-          ai_overall_score: number | null
-          ai_risks: string | null
-          ai_strengths: string | null
-          ai_summary: string | null
-          ai_translation_en: string | null
-          ai_translation_fr: string | null
-          ai_translation_ln: string | null
-          ai_translation_sw: string | null
-          amount_due: number | null
-          audience_voice_audio_url: string | null
-          audience_voice_text: string | null
-          budget_details: string | null
-          budget_voice_audio_url: string | null
-          budget_voice_text: string | null
-          category: string | null
-          city_province: string
-          confirmation_id: string | null
-          country: string | null
-          created_at: string
-          duplicate_of_submission_id: string | null
-          email: string
-          estimated_monthly_revenue: number
-          expected_impact: string | null
-          feasibility_explanation: string
-          feasibility_explanation_extended: string | null
-          feasibility_voice_audio_url: string | null
-          feasibility_voice_text: string | null
-          fraud_flags: string | null
-          full_name: string
-          funding_needed: number
-          id: string
-          impact_voice_audio_url: string | null
-          impact_voice_text: string | null
-          is_draft: boolean | null
-          is_possible_duplicate: boolean | null
-          is_suspected_fraud: boolean | null
-          language_detected: string | null
-          maishapay_raw_response: Json | null
-          maishapay_reference: string | null
-          maishapay_transaction_id: string | null
-          number_of_hires: number | null
-          payment_amount: number | null
-          payment_currency: string | null
-          payment_method: Database["public"]["Enums"]["payment_method"] | null
-          payment_operator_id: string | null
-          payment_phone_number: string | null
-          payment_provider: string | null
-          payment_ref_id: string | null
-          payment_reference: string | null
-          payment_status: Database["public"]["Enums"]["payment_status"]
-          preferred_language: string | null
-          problem_to_solve: string | null
-          problem_voice_audio_url: string | null
-          problem_voice_text: string | null
-          project_code: string | null
-          project_description: string
-          project_description_raw: string | null
-          project_description_voice_audio_url: string | null
-          project_description_voice_text: string | null
-          project_title: string
-          project_title_voice_audio_url: string | null
-          project_title_voice_text: string | null
-          project_type: string | null
-          selection_timestamp: string | null
-          session_id: string
-          status: string | null
-          submission_status: Database["public"]["Enums"]["submission_status"]
-          submission_type: string | null
-          submitted_at: string | null
-          target_audience: string | null
-          time_until_profit: string
-          updated_at: string
-          whatsapp_number: string
-          why_selected: string | null
-          why_voice_audio_url: string | null
-          why_voice_text: string | null
-          will_hire: boolean
-        }
-        Insert: {
-          agreements_confirmed?: boolean
-          ai_feasibility_score?: number | null
-          ai_feedback_short?: string | null
-          ai_impact_score?: number | null
-          ai_last_reviewed_at?: string | null
-          ai_overall_score?: number | null
-          ai_risks?: string | null
-          ai_strengths?: string | null
-          ai_summary?: string | null
-          ai_translation_en?: string | null
-          ai_translation_fr?: string | null
-          ai_translation_ln?: string | null
-          ai_translation_sw?: string | null
-          amount_due?: number | null
-          audience_voice_audio_url?: string | null
-          audience_voice_text?: string | null
-          budget_details?: string | null
-          budget_voice_audio_url?: string | null
-          budget_voice_text?: string | null
-          category?: string | null
-          city_province: string
-          confirmation_id?: string | null
-          country?: string | null
-          created_at?: string
-          duplicate_of_submission_id?: string | null
-          email: string
-          estimated_monthly_revenue: number
-          expected_impact?: string | null
-          feasibility_explanation: string
-          feasibility_explanation_extended?: string | null
-          feasibility_voice_audio_url?: string | null
-          feasibility_voice_text?: string | null
-          fraud_flags?: string | null
-          full_name: string
-          funding_needed: number
-          id?: string
-          impact_voice_audio_url?: string | null
-          impact_voice_text?: string | null
-          is_draft?: boolean | null
-          is_possible_duplicate?: boolean | null
-          is_suspected_fraud?: boolean | null
-          language_detected?: string | null
-          maishapay_raw_response?: Json | null
-          maishapay_reference?: string | null
-          maishapay_transaction_id?: string | null
-          number_of_hires?: number | null
-          payment_amount?: number | null
-          payment_currency?: string | null
-          payment_method?: Database["public"]["Enums"]["payment_method"] | null
-          payment_operator_id?: string | null
-          payment_phone_number?: string | null
-          payment_provider?: string | null
-          payment_ref_id?: string | null
-          payment_reference?: string | null
-          payment_status?: Database["public"]["Enums"]["payment_status"]
-          preferred_language?: string | null
-          problem_to_solve?: string | null
-          problem_voice_audio_url?: string | null
-          problem_voice_text?: string | null
-          project_code?: string | null
-          project_description: string
-          project_description_raw?: string | null
-          project_description_voice_audio_url?: string | null
-          project_description_voice_text?: string | null
-          project_title: string
-          project_title_voice_audio_url?: string | null
-          project_title_voice_text?: string | null
-          project_type?: string | null
-          selection_timestamp?: string | null
-          session_id: string
-          status?: string | null
-          submission_status?: Database["public"]["Enums"]["submission_status"]
-          submission_type?: string | null
-          submitted_at?: string | null
-          target_audience?: string | null
-          time_until_profit: string
-          updated_at?: string
-          whatsapp_number: string
-          why_selected?: string | null
-          why_voice_audio_url?: string | null
-          why_voice_text?: string | null
-          will_hire?: boolean
-        }
-        Update: {
-          agreements_confirmed?: boolean
-          ai_feasibility_score?: number | null
-          ai_feedback_short?: string | null
-          ai_impact_score?: number | null
-          ai_last_reviewed_at?: string | null
-          ai_overall_score?: number | null
-          ai_risks?: string | null
-          ai_strengths?: string | null
-          ai_summary?: string | null
-          ai_translation_en?: string | null
-          ai_translation_fr?: string | null
-          ai_translation_ln?: string | null
-          ai_translation_sw?: string | null
-          amount_due?: number | null
-          audience_voice_audio_url?: string | null
-          audience_voice_text?: string | null
-          budget_details?: string | null
-          budget_voice_audio_url?: string | null
-          budget_voice_text?: string | null
-          category?: string | null
-          city_province?: string
-          confirmation_id?: string | null
-          country?: string | null
-          created_at?: string
-          duplicate_of_submission_id?: string | null
-          email?: string
-          estimated_monthly_revenue?: number
-          expected_impact?: string | null
-          feasibility_explanation?: string
-          feasibility_explanation_extended?: string | null
-          feasibility_voice_audio_url?: string | null
-          feasibility_voice_text?: string | null
-          fraud_flags?: string | null
-          full_name?: string
-          funding_needed?: number
-          id?: string
-          impact_voice_audio_url?: string | null
-          impact_voice_text?: string | null
-          is_draft?: boolean | null
-          is_possible_duplicate?: boolean | null
-          is_suspected_fraud?: boolean | null
-          language_detected?: string | null
-          maishapay_raw_response?: Json | null
-          maishapay_reference?: string | null
-          maishapay_transaction_id?: string | null
-          number_of_hires?: number | null
-          payment_amount?: number | null
-          payment_currency?: string | null
-          payment_method?: Database["public"]["Enums"]["payment_method"] | null
-          payment_operator_id?: string | null
-          payment_phone_number?: string | null
-          payment_provider?: string | null
-          payment_ref_id?: string | null
-          payment_reference?: string | null
-          payment_status?: Database["public"]["Enums"]["payment_status"]
-          preferred_language?: string | null
-          problem_to_solve?: string | null
-          problem_voice_audio_url?: string | null
-          problem_voice_text?: string | null
-          project_code?: string | null
-          project_description?: string
-          project_description_raw?: string | null
-          project_description_voice_audio_url?: string | null
-          project_description_voice_text?: string | null
-          project_title?: string
-          project_title_voice_audio_url?: string | null
-          project_title_voice_text?: string | null
-          project_type?: string | null
-          selection_timestamp?: string | null
-          session_id?: string
-          status?: string | null
-          submission_status?: Database["public"]["Enums"]["submission_status"]
-          submission_type?: string | null
-          submitted_at?: string | null
-          target_audience?: string | null
-          time_until_profit?: string
-          updated_at?: string
-          whatsapp_number?: string
-          why_selected?: string | null
-          why_voice_audio_url?: string | null
-          why_voice_text?: string | null
-          will_hire?: boolean
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_submissions_duplicate_of_submission_id_fkey"
-            columns: ["duplicate_of_submission_id"]
-            isOneToOne: false
-            referencedRelation: "user_submissions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_submissions_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      winners: {
-        Row: {
-          award_amount: number
-          country: string
-          created_at: string
-          display_order: number
-          id: string
-          image_url: string | null
-          is_published: boolean
-          project_name: string
-          session_id: string | null
-          short_quote: string | null
-          testimonial_text: string | null
-          updated_at: string
-          winner_name: string
-          year: number
-        }
-        Insert: {
-          award_amount: number
-          country: string
-          created_at?: string
-          display_order?: number
-          id?: string
-          image_url?: string | null
-          is_published?: boolean
-          project_name: string
-          session_id?: string | null
-          short_quote?: string | null
-          testimonial_text?: string | null
-          updated_at?: string
-          winner_name: string
-          year: number
-        }
-        Update: {
-          award_amount?: number
-          country?: string
-          created_at?: string
-          display_order?: number
-          id?: string
-          image_url?: string | null
-          is_published?: boolean
-          project_name?: string
-          session_id?: string | null
-          short_quote?: string | null
-          testimonial_text?: string | null
-          updated_at?: string
-          winner_name?: string
-          year?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "winners_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {
@@ -830,16 +286,24 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
-      notification_channel: "email" | "whatsapp"
-      notification_type: "winner" | "non_winner" | "info"
-      payment_method: "airtel_money" | "orange_money" | "m_pesa" | "afrimoney"
-      payment_status: "pending" | "paid" | "failed"
-      session_status: "open" | "closed" | "results_published"
-      submission_status:
-        | "pending"
-        | "under_review"
-        | "selected"
-        | "not_selected"
+      order_status:
+        | "DRAFT"
+        | "PENDING_PAYMENT"
+        | "PAID"
+        | "PROCESSING"
+        | "SHIPPED"
+        | "READY_FOR_PICKUP"
+        | "COMPLETED"
+        | "CANCELLED"
+      shipping_city: "KINSHASA" | "LUBUMBASHI" | "OTHER"
+      store_type:
+        | "AMAZON"
+        | "EBAY"
+        | "WALMART"
+        | "CARVANA"
+        | "CARGURUS"
+        | "BESTBUY"
+        | "OTHER"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -968,16 +432,25 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
-      notification_channel: ["email", "whatsapp"],
-      notification_type: ["winner", "non_winner", "info"],
-      payment_method: ["airtel_money", "orange_money", "m_pesa", "afrimoney"],
-      payment_status: ["pending", "paid", "failed"],
-      session_status: ["open", "closed", "results_published"],
-      submission_status: [
-        "pending",
-        "under_review",
-        "selected",
-        "not_selected",
+      order_status: [
+        "DRAFT",
+        "PENDING_PAYMENT",
+        "PAID",
+        "PROCESSING",
+        "SHIPPED",
+        "READY_FOR_PICKUP",
+        "COMPLETED",
+        "CANCELLED",
+      ],
+      shipping_city: ["KINSHASA", "LUBUMBASHI", "OTHER"],
+      store_type: [
+        "AMAZON",
+        "EBAY",
+        "WALMART",
+        "CARVANA",
+        "CARGURUS",
+        "BESTBUY",
+        "OTHER",
       ],
     },
   },

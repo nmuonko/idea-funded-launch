@@ -13,9 +13,8 @@ import NotFound from "./pages/NotFound";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
 import AdminOrderDetail from "./pages/admin/OrderDetail";
-import AdminSettings from "./pages/admin/Settings";
-import AdminUsers from "./pages/admin/Users";
 import AdminFeesSettings from "./pages/admin/FeesSettings";
+import AdminUsers from "./pages/admin/Users";
 import AdminShipping from "./pages/admin/Shipping";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
@@ -63,10 +62,9 @@ const App = () => (
               <Route path="ticket-analytics" element={<TicketAnalytics />} />
               <Route path="knowledge-base" element={<AdminKnowledgeBase />} />
               <Route path="users" element={<AdminUsers />} />
-              <Route path="fees" element={<AdminFeesSettings />} />
               <Route path="shipping" element={<AdminShipping />} />
               <Route path="analytics" element={<AdminAnalytics />} />
-              <Route path="settings" element={<AdminSettings />} />
+              <Route path="settings" element={<AdminFeesSettings />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />

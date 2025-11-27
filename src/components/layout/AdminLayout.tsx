@@ -19,7 +19,6 @@ export function AdminLayout() {
     { to: '/admin/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
     { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
     { to: '/admin/users', icon: Users, label: 'User Management' },
-    { to: '/admin/fees', icon: DollarSign, label: 'Fees & Markup' },
     { to: '/admin/settings', icon: Settings, label: 'Settings' },
   ];
 

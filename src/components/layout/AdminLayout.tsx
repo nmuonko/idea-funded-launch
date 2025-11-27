@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -12,6 +12,7 @@ export function AdminLayout() {
   const navItems = [
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
     { to: '/admin/orders', icon: CreditCard, label: 'Orders' },
+    { to: '/admin/payments', icon: Wallet, label: 'Payments' },
     { to: '/admin/shipping', icon: Truck, label: 'Shipping' },
     { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
     { to: '/admin/users', icon: Users, label: 'User Management' },

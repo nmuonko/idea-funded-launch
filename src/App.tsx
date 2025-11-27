@@ -8,6 +8,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
+import Support from "./pages/Support";
 import NotFound from "./pages/NotFound";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
@@ -19,6 +20,7 @@ import AdminShipping from "./pages/admin/Shipping";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportTickets from "./pages/admin/SupportTickets";
+import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -38,6 +40,11 @@ const App = () => (
                 <Profile />
               </ProtectedRoute>
             } />
+            <Route path="/support" element={
+              <ProtectedRoute>
+                <Support />
+              </ProtectedRoute>
+            } />
             
             {/* Admin Routes */}
             <Route path="/admin" element={
@@ -50,6 +57,7 @@ const App = () => (
               <Route path="orders/:id" element={<AdminOrderDetail />} />
               <Route path="payments" element={<AdminPayments />} />
               <Route path="support" element={<AdminSupportTickets />} />
+              <Route path="ticket-analytics" element={<TicketAnalytics />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="fees" element={<AdminFeesSettings />} />
               <Route path="shipping" element={<AdminShipping />} />

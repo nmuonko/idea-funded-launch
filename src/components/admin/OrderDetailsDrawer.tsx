@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
+import { AIAssistantPanel } from './AIAssistantPanel';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;
@@ -262,7 +263,10 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
 
               <Separator />
 
-              {/* Timeline */}
+              {/* AI Assistant */}
+              <AIAssistantPanel order={order} />
+
+              <Separator />
               <div>
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <Calendar className="h-4 w-4" />

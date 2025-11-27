@@ -32,6 +32,47 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_assistant_logs: {
+        Row: {
+          action_type: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          order_id: string | null
+          prompt: string | null
+          response: string | null
+          user_id: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          order_id?: string | null
+          prompt?: string | null
+          response?: string | null
+          user_id: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          order_id?: string | null
+          prompt?: string | null
+          response?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_assistant_logs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_actions: {
         Row: {
           action_message: string | null
@@ -125,7 +166,10 @@ export type Database = {
           admin_notes: string | null
           approved_at: string | null
           approved_by: string | null
+          carrier: string | null
           created_at: string
+          delivered_at: string | null
+          estimated_delivery: string | null
           exchange_rate_used: number | null
           id: string
           info_requested: boolean | null
@@ -140,11 +184,13 @@ export type Database = {
           rejected_by: string | null
           rejection_reason: string | null
           service_fee_usd: number | null
+          shipped_at: string | null
           shipping_city: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd: number | null
           status: Database["public"]["Enums"]["order_status"]
           total_cdf: number | null
           total_usd: number | null
+          tracking_number: string | null
           updated_at: string
           user_id: string
         }
@@ -152,7 +198,10 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          carrier?: string | null
           created_at?: string
+          delivered_at?: string | null
+          estimated_delivery?: string | null
           exchange_rate_used?: number | null
           id?: string
           info_requested?: boolean | null
@@ -167,11 +216,13 @@ export type Database = {
           rejected_by?: string | null
           rejection_reason?: string | null
           service_fee_usd?: number | null
+          shipped_at?: string | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd?: number | null
           status?: Database["public"]["Enums"]["order_status"]
           total_cdf?: number | null
           total_usd?: number | null
+          tracking_number?: string | null
           updated_at?: string
           user_id: string
         }
@@ -179,7 +230,10 @@ export type Database = {
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
+          carrier?: string | null
           created_at?: string
+          delivered_at?: string | null
+          estimated_delivery?: string | null
           exchange_rate_used?: number | null
           id?: string
           info_requested?: boolean | null
@@ -194,11 +248,13 @@ export type Database = {
           rejected_by?: string | null
           rejection_reason?: string | null
           service_fee_usd?: number | null
+          shipped_at?: string | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd?: number | null
           status?: Database["public"]["Enums"]["order_status"]
           total_cdf?: number | null
           total_usd?: number | null
+          tracking_number?: string | null
           updated_at?: string
           user_id?: string
         }

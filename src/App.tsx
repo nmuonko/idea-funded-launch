@@ -15,6 +15,8 @@ import AdminOrderDetail from "./pages/admin/OrderDetail";
 import AdminSettings from "./pages/admin/Settings";
 import AdminUsers from "./pages/admin/Users";
 import AdminFeesSettings from "./pages/admin/FeesSettings";
+import AdminShipping from "./pages/admin/Shipping";
+import AdminAnalytics from "./pages/admin/Analytics";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -45,8 +47,10 @@ const App = () => (
               <Route path="orders" element={<AdminOrders />} />
               <Route path="orders/:id" element={<AdminOrderDetail />} />
               <Route path="users" element={<AdminUsers />} />
-              <Route path="settings" element={<AdminSettings />} />
               <Route path="fees" element={<AdminFeesSettings />} />
+              <Route path="shipping" element={<AdminShipping />} />
+              <Route path="analytics" element={<AdminAnalytics />} />
+              <Route path="settings" element={<AdminSettings />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />

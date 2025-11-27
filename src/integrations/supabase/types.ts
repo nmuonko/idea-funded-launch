@@ -132,6 +132,10 @@ export type Database = {
           item_total_usd: number | null
           maisha_payment_status: string | null
           maisha_transaction_id: string | null
+          payment_notes: string | null
+          payment_verification_method: string | null
+          payment_verified_at: string | null
+          payment_verified_by: string | null
           rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
@@ -155,6 +159,10 @@ export type Database = {
           item_total_usd?: number | null
           maisha_payment_status?: string | null
           maisha_transaction_id?: string | null
+          payment_notes?: string | null
+          payment_verification_method?: string | null
+          payment_verified_at?: string | null
+          payment_verified_by?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -178,6 +186,10 @@ export type Database = {
           item_total_usd?: number | null
           maisha_payment_status?: string | null
           maisha_transaction_id?: string | null
+          payment_notes?: string | null
+          payment_verification_method?: string | null
+          payment_verified_at?: string | null
+          payment_verified_by?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -224,8 +236,12 @@ export type Database = {
       }
       settings: {
         Row: {
+          category_markups: Json | null
           created_at: string
+          discount_codes: Json | null
           exchange_rate_usd_to_cdf: number
+          extra_fees: Json | null
+          global_markup_percent: number | null
           id: string
           service_fee_percent: number
           shipping_base_fee_usd: number
@@ -233,8 +249,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          category_markups?: Json | null
           created_at?: string
+          discount_codes?: Json | null
           exchange_rate_usd_to_cdf?: number
+          extra_fees?: Json | null
+          global_markup_percent?: number | null
           id?: string
           service_fee_percent?: number
           shipping_base_fee_usd?: number
@@ -242,8 +262,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          category_markups?: Json | null
           created_at?: string
+          discount_codes?: Json | null
           exchange_rate_usd_to_cdf?: number
+          extra_fees?: Json | null
+          global_markup_percent?: number | null
           id?: string
           service_fee_percent?: number
           shipping_base_fee_usd?: number

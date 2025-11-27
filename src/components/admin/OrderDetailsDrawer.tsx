@@ -19,6 +19,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
+import { PaymentVerificationPanel } from './PaymentVerificationPanel';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;
@@ -256,18 +257,8 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
 
               <Separator />
 
-              {/* Payment Status */}
-              <div>
-                <h3 className="text-sm font-semibold mb-2">Payment Status</h3>
-                <Badge variant={order.maisha_payment_status === 'verified' ? 'default' : 'secondary'}>
-                  {order.maisha_payment_status || 'Pending'}
-                </Badge>
-                {order.maisha_transaction_id && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Transaction: {order.maisha_transaction_id}
-                  </p>
-                )}
-              </div>
+              {/* Payment Verification */}
+              <PaymentVerificationPanel order={order} onUpdate={loadOrderDetails} />
 
               <Separator />
 

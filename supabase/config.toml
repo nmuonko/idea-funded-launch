@@ -74,3 +74,6 @@ verify_jwt = true
 
 [functions.admin-order-action]
 verify_jwt = true
+
+[functions.verify-maisha-payment]
+verify_jwt = true

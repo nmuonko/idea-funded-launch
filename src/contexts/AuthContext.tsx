@@ -85,7 +85,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (session?.user) {
           console.log('[Auth] Checking admin status for:', session.user.id);
-          // Check admin status synchronously - do NOT use setTimeout
           await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
@@ -101,25 +100,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Set up auth state listener
+    // CRITICAL: onAuthStateChange callback must NOT be async and must NOT call Supabase functions directly
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (!mounted) return;
         
         console.log('[Auth] State change event:', event, session?.user?.email);
-        setLoading(true); // Set loading while checking
         setSession(session);
         setUser(session?.user ?? null);
         
+        // Defer admin check to avoid deadlock - CRITICAL for Supabase auth
         if (session?.user) {
-          console.log('[Auth] Checking admin status after state change');
-          await checkAdminStatus(session.user.id);
+          const userId = session.user.id;
+          setTimeout(() => {
+            console.log('[Auth] Deferred admin check for:', userId);
+            checkAdminStatus(userId).then(() => {
+              setLoading(false);
+            });
+          }, 0);
         } else {
           setIsAdmin(false);
+          setLoading(false);
         }
-        
-        console.log('[Auth] Auth state change complete');
-        setLoading(false);
       }
     );
 

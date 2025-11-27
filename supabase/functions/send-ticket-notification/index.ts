@@ -14,7 +14,7 @@ const corsHeaders = {
 interface NotificationRequest {
   ticketId?: string;
   ticketSubject: string;
-  type: 'created' | 'updated' | 'admin_reply' | 'customer_reply' | 'status_change';
+  type: 'created' | 'updated' | 'admin_reply' | 'customer_reply' | 'status_change' | 'escalated';
   newStatus?: string;
 }
 
@@ -115,6 +115,21 @@ const handler = async (req: Request): Promise<Response> => {
           });
         }
       }
+    } else if (type === 'escalated' && ticketId) {
+      // Notify admin about escalated ticket
+      emailResponse = await resend.emails.send({
+        from: fromEmail,
+        to: [adminEmail],
+        subject: `🚨 URGENT: Ticket Escalated - ${ticketSubject}`,
+        html: `
+          <h1 style="color: #ef4444;">⚠️ Support Ticket Escalated</h1>
+          <p>A support ticket has been escalated due to being open for more than 24 hours:</p>
+          <p><strong>Subject:</strong> ${ticketSubject}</p>
+          <p><strong>Ticket ID:</strong> ${ticketId}</p>
+          <p style="color: #dc2626; font-weight: bold;">This ticket now requires urgent attention from senior support staff.</p>
+          <p><a href="${Deno.env.get("FRONTEND_BASE_URL")}/admin/support" style="background-color: #ef4444; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">View Ticket</a></p>
+        `,
+      });
     }
 
     console.log("Notification email sent:", emailResponse);

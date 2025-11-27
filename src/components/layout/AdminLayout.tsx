@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet, MessageSquare, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AdminLayout() {
@@ -16,6 +16,7 @@ export function AdminLayout() {
     { to: '/admin/shipping', icon: Truck, label: 'Shipping' },
     { to: '/admin/support', icon: MessageSquare, label: 'Support Tickets' },
     { to: '/admin/ticket-analytics', icon: BarChart3, label: 'Ticket Analytics' },
+    { to: '/admin/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
     { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
     { to: '/admin/users', icon: Users, label: 'User Management' },
     { to: '/admin/fees', icon: DollarSign, label: 'Fees & Markup' },

@@ -73,6 +73,45 @@ export type Database = {
           },
         ]
       }
+      knowledge_base_articles: {
+        Row: {
+          category: string
+          content: string
+          created_at: string
+          created_by: string
+          id: string
+          published: boolean | null
+          tags: string[] | null
+          title: string
+          updated_at: string
+          view_count: number | null
+        }
+        Insert: {
+          category: string
+          content: string
+          created_at?: string
+          created_by: string
+          id?: string
+          published?: boolean | null
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          view_count?: number | null
+        }
+        Update: {
+          category?: string
+          content?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          published?: boolean | null
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          view_count?: number | null
+        }
+        Relationships: []
+      }
       order_actions: {
         Row: {
           action_message: string | null
@@ -337,9 +376,13 @@ export type Database = {
           assigned_to: string | null
           created_at: string
           description: string
+          escalated: boolean | null
+          escalated_at: string | null
           id: string
           order_id: string | null
           priority: Database["public"]["Enums"]["ticket_priority"]
+          rated_at: string | null
+          rating: number | null
           resolved_at: string | null
           status: Database["public"]["Enums"]["ticket_status"]
           subject: string
@@ -350,9 +393,13 @@ export type Database = {
           assigned_to?: string | null
           created_at?: string
           description: string
+          escalated?: boolean | null
+          escalated_at?: string | null
           id?: string
           order_id?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          rated_at?: string | null
+          rating?: number | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           subject: string
@@ -363,9 +410,13 @@ export type Database = {
           assigned_to?: string | null
           created_at?: string
           description?: string
+          escalated?: boolean | null
+          escalated_at?: string | null
           id?: string
           order_id?: string | null
           priority?: Database["public"]["Enums"]["ticket_priority"]
+          rated_at?: string | null
+          rating?: number | null
           resolved_at?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           subject?: string

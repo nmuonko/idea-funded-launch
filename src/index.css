@@ -8,39 +8,39 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Tesla-style futuristic design system */
-    --background: 0 0% 100%;
-    --foreground: 265 4% 12.9%;
+    /* Deep Ocean Blue Design System */
+    --background: 210 100% 98%;
+    --foreground: 210 50% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 265 4% 12.9%;
+    --card-foreground: 210 50% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 265 4% 12.9%;
+    --popover-foreground: 210 50% 10%;
 
-    /* Dark blue - Professional and trustworthy */
-    --primary: 266 4% 20.8%;
-    --primary-foreground: 248 0.3% 98.4%;
-    --primary-glow: 220 85% 45%;
+    /* Deep ocean blue - Professional and trustworthy */
+    --primary: 210 85% 35%;
+    --primary-foreground: 210 100% 98%;
+    --primary-glow: 210 85% 45%;
     
-    /* Cyber green accent */
-    --secondary: 248 0.7% 96.8%;
-    --secondary-foreground: 266 4% 20.8%;
-    --secondary-glow: 160 80% 60%;
+    /* Ocean accent */
+    --secondary: 210 40% 92%;
+    --secondary-foreground: 210 50% 10%;
+    --secondary-glow: 200 75% 55%;
 
-    /* Ultra minimal backgrounds */
-    --muted: 248 0.7% 96.8%;
-    --muted-foreground: 257 4.6% 55.4%;
+    /* Ocean backgrounds */
+    --muted: 210 40% 94%;
+    --muted-foreground: 210 15% 50%;
 
-    --accent: 248 0.7% 96.8%;
-    --accent-foreground: 266 4% 20.8%;
+    --accent: 205 85% 50%;
+    --accent-foreground: 210 100% 98%;
 
-    --destructive: 27 24.5% 57.7%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 100% 98%;
 
-    --border: 256 1.3% 92.9%;
-    --input: 256 1.3% 92.9%;
-    --ring: 257 4% 70.4%;
+    --border: 210 30% 88%;
+    --input: 210 30% 88%;
+    --ring: 210 85% 35%;
 
     --radius: 0.375rem;
 
@@ -59,24 +59,30 @@ All colors MUST be HSL.
     
     --destructive-dark: 0 84% 50%;
 
-    /* Futuristic gradients */
-    --gradient-start: 220 85% 30%;
-    --gradient-mid: 200 75% 35%;
-    --gradient-end: 180 70% 40%;
+    /* Ocean gradients */
+    --gradient-start: 210 85% 35%;
+    --gradient-mid: 205 80% 45%;
+    --gradient-end: 200 75% 55%;
     
-    /* Tesla-inspired gradients */
-    --gradient-tesla-start: 0 0% 5%;
-    --gradient-tesla-mid: 0 0% 10%;
-    --gradient-tesla-end: 240 5% 15%;
+    /* Deep ocean gradients */
+    --gradient-tesla-start: 210 95% 15%;
+    --gradient-tesla-mid: 210 85% 25%;
+    --gradient-tesla-end: 210 75% 35%;
     
     /* Glassmorphism effects */
-    --glass-bg: 0 0% 100%;
-    --glass-border: 220 14% 85%;
+    --glass-bg: 210 100% 98%;
+    --glass-border: 210 30% 88%;
     
-    /* Premium shadows */
-    --shadow-glow: 220 85% 30%;
-    --shadow-soft: 220 14% 70%;
-    --shadow-elegant: 220 14% 50%;
+    /* Ocean shadows */
+    --shadow-glow: 210 85% 35%;
+    --shadow-soft: 210 20% 70%;
+    --shadow-elegant: 210 30% 50%;
+    
+    /* Ocean tokens */
+    --ocean-dark: 210 95% 15%;
+    --ocean-medium: 210 85% 35%;
+    --ocean-light: 205 85% 50%;
+    --ocean-glow: 200 75% 55%;
     
     /* Sidebar */
     --sidebar-background: 0 0% 98%;
@@ -109,36 +115,36 @@ All colors MUST be HSL.
   }
 
   .dark {
-    /* Dark mode - premium luxury */
-    --background: 0 0% 15%;
-    --foreground: 248 0.3% 98.4%;
+    /* Dark mode - deep ocean */
+    --background: 210 50% 8%;
+    --foreground: 210 100% 95%;
 
-    --card: 266 4% 20.8%;
-    --card-foreground: 248 0.3% 98.4%;
+    --card: 210 45% 12%;
+    --card-foreground: 210 100% 95%;
 
-    --popover: 266 4% 20.8%;
-    --popover-foreground: 248 0.3% 98.4%;
+    --popover: 210 45% 12%;
+    --popover-foreground: 210 100% 95%;
 
-    --primary: 256 1.3% 92.9%;
-    --primary-foreground: 266 4% 20.8%;
-    --primary-glow: 220 85% 55%;
+    --primary: 205 85% 50%;
+    --primary-foreground: 210 50% 8%;
+    --primary-glow: 205 85% 60%;
 
-    --secondary: 260 4.1% 27.9%;
-    --secondary-foreground: 248 0.3% 98.4%;
-    --secondary-glow: 160 80% 65%;
+    --secondary: 210 40% 20%;
+    --secondary-foreground: 210 100% 95%;
+    --secondary-glow: 200 75% 60%;
 
-    --muted: 260 4.1% 27.9%;
-    --muted-foreground: 257 4% 70.4%;
+    --muted: 210 35% 18%;
+    --muted-foreground: 210 20% 65%;
 
-    --accent: 260 4.1% 27.9%;
-    --accent-foreground: 248 0.3% 98.4%;
+    --accent: 200 75% 55%;
+    --accent-foreground: 210 100% 95%;
 
-    --destructive: 22 19.1% 70.4%;
-    --destructive-foreground: 248 0.3% 98.4%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 210 100% 95%;
 
-    --border: 0 0% 100% / 10%;
-    --input: 0 0% 100% / 15%;
-    --ring: 264 2.7% 55.1%;
+    --border: 210 35% 22%;
+    --input: 210 35% 22%;
+    --ring: 205 85% 50%;
     
     --success: 142 76% 50%;
     --success-foreground: 0 0% 100%;
@@ -154,21 +160,26 @@ All colors MUST be HSL.
     
     --destructive-dark: 0 84% 55%;
     
-    --gradient-start: 220 85% 40%;
-    --gradient-mid: 200 75% 45%;
-    --gradient-end: 180 70% 50%;
+    --gradient-start: 210 85% 45%;
+    --gradient-mid: 205 80% 50%;
+    --gradient-end: 200 75% 55%;
     
-    /* Tesla-inspired dark gradients */
-    --gradient-tesla-start: 0 0% 5%;
-    --gradient-tesla-mid: 0 0% 8%;
-    --gradient-tesla-end: 240 10% 12%;
+    /* Deep ocean dark gradients */
+    --gradient-tesla-start: 210 95% 10%;
+    --gradient-tesla-mid: 210 85% 15%;
+    --gradient-tesla-end: 210 75% 20%;
     
-    --glass-bg: 220 23% 12%;
-    --glass-border: 220 20% 25%;
+    --glass-bg: 210 45% 12%;
+    --glass-border: 210 35% 22%;
     
-    --shadow-glow: 220 85% 40%;
-    --shadow-soft: 220 20% 10%;
-    --shadow-elegant: 220 20% 5%;
+    --shadow-glow: 205 85% 50%;
+    --shadow-soft: 210 30% 15%;
+    --shadow-elegant: 210 40% 10%;
+    
+    --ocean-dark: 210 95% 15%;
+    --ocean-medium: 210 85% 35%;
+    --ocean-light: 205 85% 50%;
+    --ocean-glow: 200 75% 55%;
     
     --sidebar-background: 220 25% 10%;
     --sidebar-foreground: 248 0.3% 98.4%;

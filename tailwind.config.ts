@@ -62,17 +62,23 @@ export default {
   				foreground: 'hsl(var(--info-foreground))',
   				dark: 'hsl(var(--info-dark))'
   			},
-  			sidebar: {
-  				DEFAULT: 'hsl(var(--sidebar-background))',
-  				foreground: 'hsl(var(--sidebar-foreground))',
-  				primary: 'hsl(var(--sidebar-primary))',
-  				'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-  				accent: 'hsl(var(--sidebar-accent))',
-  				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-  				border: 'hsl(var(--sidebar-border))',
-  				ring: 'hsl(var(--sidebar-ring))'
-  			}
-  		},
+   			sidebar: {
+   				DEFAULT: 'hsl(var(--sidebar-background))',
+   				foreground: 'hsl(var(--sidebar-foreground))',
+   				primary: 'hsl(var(--sidebar-primary))',
+   				'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
+   				accent: 'hsl(var(--sidebar-accent))',
+   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
+   				border: 'hsl(var(--sidebar-border))',
+   				ring: 'hsl(var(--sidebar-ring))'
+   			},
+   			ocean: {
+   				dark: 'hsl(var(--ocean-dark))',
+   				medium: 'hsl(var(--ocean-medium))',
+   				light: 'hsl(var(--ocean-light))',
+   				glow: 'hsl(var(--ocean-glow))'
+   			}
+   		},
   		backgroundImage: {
   			'gradient-primary': 'linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-mid)), hsl(var(--gradient-end)))',
   			'gradient-radial': 'radial-gradient(circle at top, hsl(var(--gradient-start) / 0.8), transparent 70%)',

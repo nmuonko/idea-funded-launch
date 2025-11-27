@@ -80,3 +80,12 @@ verify_jwt = true
 
 [functions.ai-order-assistant]
 verify_jwt = true
+
+[functions.send-order-confirmation]
+verify_jwt = false
+
+[functions.send-shipping-update]
+verify_jwt = false
+
+[functions.send-delivery-notification]
+verify_jwt = false

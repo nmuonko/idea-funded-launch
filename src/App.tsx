@@ -14,6 +14,7 @@ import AdminOrders from "./pages/admin/Orders";
 import AdminOrderDetail from "./pages/admin/OrderDetail";
 import AdminSettings from "./pages/admin/Settings";
 import AdminUsers from "./pages/admin/Users";
+import AdminFeesSettings from "./pages/admin/FeesSettings";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -45,6 +46,7 @@ const App = () => (
               <Route path="orders/:id" element={<AdminOrderDetail />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="settings" element={<AdminSettings />} />
+              <Route path="fees" element={<AdminFeesSettings />} />
             </Route>
             
             <Route path="*" element={<NotFound />} />

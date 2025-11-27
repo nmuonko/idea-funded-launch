@@ -21,6 +21,8 @@ import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportTickets from "./pages/admin/SupportTickets";
 import TicketAnalytics from "./pages/admin/TicketAnalytics";
+import KnowledgeBase from "./pages/KnowledgeBase";
+import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -45,6 +47,7 @@ const App = () => (
                 <Support />
               </ProtectedRoute>
             } />
+            <Route path="/knowledge-base" element={<KnowledgeBase />} />
             
             {/* Admin Routes */}
             <Route path="/admin" element={
@@ -58,6 +61,7 @@ const App = () => (
               <Route path="payments" element={<AdminPayments />} />
               <Route path="support" element={<AdminSupportTickets />} />
               <Route path="ticket-analytics" element={<TicketAnalytics />} />
+              <Route path="knowledge-base" element={<AdminKnowledgeBase />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="fees" element={<AdminFeesSettings />} />
               <Route path="shipping" element={<AdminShipping />} />

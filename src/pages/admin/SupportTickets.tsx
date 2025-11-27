@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { MessageSquare, Clock, CheckCircle, AlertCircle, User, Calendar } from 'lucide-react';
+import { MessageSquare, Clock, CheckCircle, AlertCircle, User, Calendar, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface Ticket {
@@ -23,6 +23,8 @@ interface Ticket {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+  escalated: boolean;
+  escalated_at: string | null;
 }
 
 interface TicketMessage {
@@ -267,6 +269,12 @@ export default function SupportTickets() {
                   <div className="flex flex-col gap-2 items-end">
                     {getStatusBadge(ticket.status)}
                     {getPriorityBadge(ticket.priority)}
+                    {ticket.escalated && (
+                      <Badge className="bg-red-500/10 text-red-500 border-red-500/20">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Escalated
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </CardHeader>

@@ -72,6 +72,8 @@ export function Header() {
 
   const navLinks = [
     { to: '/', label: 'Home' },
+    { to: '/knowledge-base', label: 'Help Center' },
+    { to: '/support', label: 'Support' },
   ];
 
   return (

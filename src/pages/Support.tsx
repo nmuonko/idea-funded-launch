@@ -8,9 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { MessageSquare, Send, AlertCircle } from 'lucide-react';
+import { MessageSquare, Send, AlertCircle, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '@/contexts/AuthContext';
+import { detectTicketPriority } from '@/utils/ticketPriority';
 
 interface Ticket {
   id: string;
@@ -20,6 +21,8 @@ interface Ticket {
   priority: string;
   created_at: string;
   order_id: string | null;
+  rating: number | null;
+  rated_at: string | null;
 }
 
 interface TicketMessage {
@@ -95,17 +98,23 @@ export default function Support() {
 
     setLoading(true);
     try {
+      // Auto-detect priority based on keywords
+      const detectedPriority = detectTicketPriority(formData.subject, formData.description);
+      
       const { error } = await supabase.from('support_tickets').insert([{
         user_id: user.id,
         subject: formData.subject,
         description: formData.description,
-        priority: formData.priority as 'low' | 'medium' | 'high' | 'urgent',
+        priority: detectedPriority,
         order_id: formData.order_id || null,
       }]);
 
       if (error) throw error;
 
       toast.success('Support ticket submitted successfully!');
+      if (detectedPriority === 'high') {
+        toast.info('Your ticket has been marked as high priority based on the content');
+      }
       setFormData({ subject: '', description: '', priority: 'medium', order_id: '' });
       setShowForm(false);
       fetchTickets();
@@ -155,6 +164,26 @@ export default function Support() {
       });
     } catch (error: any) {
       toast.error('Failed to send message');
+      console.error(error);
+    }
+  };
+
+  const handleRateTicket = async (ticketId: string, rating: number) => {
+    try {
+      const { error } = await supabase
+        .from('support_tickets')
+        .update({
+          rating,
+          rated_at: new Date().toISOString(),
+        })
+        .eq('id', ticketId);
+
+      if (error) throw error;
+
+      toast.success('Thank you for your feedback!');
+      fetchTickets();
+    } catch (error: any) {
+      toast.error('Failed to submit rating');
       console.error(error);
     }
   };
@@ -232,20 +261,9 @@ export default function Support() {
                     rows={4}
                     required
                   />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Priority</label>
-                  <Select value={formData.priority} onValueChange={(val) => setFormData({ ...formData, priority: val })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                      <SelectItem value="urgent">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Priority will be automatically assigned based on your issue description
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Order ID (Optional)</label>
@@ -341,6 +359,43 @@ export default function Support() {
                     ))}
                   </div>
                 </div>
+
+                {(selectedTicket.status === 'resolved' || selectedTicket.status === 'closed') && !selectedTicket.rating && (
+                  <div className="glass-strong rounded-lg p-4 space-y-3">
+                    <h3 className="font-semibold">Rate Your Support Experience</h3>
+                    <p className="text-sm text-muted-foreground">How satisfied are you with the support you received?</p>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Button
+                          key={star}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRateTicket(selectedTicket.id, star)}
+                          className="gap-1"
+                        >
+                          <Star className="h-4 w-4" fill={star <= 3 ? 'none' : 'currentColor'} />
+                          {star}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {selectedTicket.rating && (
+                  <div className="glass-strong rounded-lg p-4">
+                    <h3 className="font-semibold mb-2">Your Rating</h3>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className="h-5 w-5"
+                          fill={star <= selectedTicket.rating! ? 'currentColor' : 'none'}
+                          color={star <= selectedTicket.rating! ? '#fbbf24' : 'currentColor'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {selectedTicket.status !== 'closed' && selectedTicket.status !== 'resolved' && (
                   <div className="space-y-2">

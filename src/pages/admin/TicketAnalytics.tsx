@@ -21,6 +21,9 @@ interface AnalyticsData {
     tickets_handled: number;
     avg_response_time: number;
   }>;
+  averageCSAT: number;
+  csatCount: number;
+  escalatedCount: number;
 }
 
 export default function TicketAnalytics() {
@@ -35,6 +38,9 @@ export default function TicketAnalytics() {
     ticketsByStatus: {},
     commonIssues: [],
     staffPerformance: [],
+    averageCSAT: 0,
+    csatCount: 0,
+    escalatedCount: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -146,6 +152,16 @@ export default function TicketAnalytics() {
         avg_response_time: stats.totalResponseTime / stats.count,
       }));
 
+      // Calculate CSAT
+      const ratedTickets = tickets?.filter(t => t.rating !== null) || [];
+      const csatCount = ratedTickets.length;
+      const averageCSAT = csatCount > 0 
+        ? ratedTickets.reduce((sum, t) => sum + (t.rating || 0), 0) / csatCount 
+        : 0;
+
+      // Count escalated tickets
+      const escalatedCount = tickets?.filter(t => t.escalated).length || 0;
+
       setAnalytics({
         totalTickets,
         openTickets,
@@ -157,6 +173,9 @@ export default function TicketAnalytics() {
         ticketsByStatus: statusCounts,
         commonIssues,
         staffPerformance,
+        averageCSAT,
+        csatCount,
+        escalatedCount,
       });
     } catch (error: any) {
       toast.error('Failed to load analytics');
@@ -234,6 +253,28 @@ export default function TicketAnalytics() {
           <CardContent>
             <div className="text-2xl font-bold">{formatTime(analytics.averageResponseTime)}</div>
             <p className="text-xs text-muted-foreground">First response</p>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-strong">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Customer Satisfaction</CardTitle>
+            <TrendingUp className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.averageCSAT.toFixed(1)}/5</div>
+            <p className="text-xs text-muted-foreground">{analytics.csatCount} ratings</p>
+          </CardContent>
+        </Card>
+
+        <Card className="glass-strong">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Escalated Tickets</CardTitle>
+            <AlertCircle className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analytics.escalatedCount}</div>
+            <p className="text-xs text-muted-foreground">Requires urgent attention</p>
           </CardContent>
         </Card>
       </div>

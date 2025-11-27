@@ -6,13 +6,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Eye } from 'lucide-react';
+import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -58,9 +61,20 @@ export default function AdminOrders() {
     return <Badge variant={colors[status] as any}>{status.replace('_', ' ')}</Badge>;
   };
 
+  const openOrderDetails = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setDrawerOpen(true);
+  };
+
+  const closeOrderDetails = () => {
+    setDrawerOpen(false);
+    setTimeout(() => setSelectedOrderId(null), 300);
+  };
+
   return (
-    <Card>
-      <CardHeader>
+    <>
+      <Card>
+        <CardHeader>
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Orders</CardTitle>
@@ -119,9 +133,10 @@ export default function AdminOrders() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => navigate(`/admin/orders/${order.id}`)}
+                      onClick={() => openOrderDetails(order.id)}
                     >
-                      View
+                      <Eye className="h-4 w-4 mr-2" />
+                      View Details
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -131,5 +146,13 @@ export default function AdminOrders() {
         )}
       </CardContent>
     </Card>
+
+    <OrderDetailsDrawer
+      orderId={selectedOrderId}
+      open={drawerOpen}
+      onClose={closeOrderDetails}
+      onUpdate={loadOrders}
+    />
+    </>
   );
 }

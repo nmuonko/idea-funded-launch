@@ -73,19 +73,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initializeAuth = async () => {
       try {
+        console.log('[Auth] Starting initialization...');
         // Get initial session
         const { data: { session } } = await supabase.auth.getSession();
         
         if (!mounted) return;
         
-        console.log('[Auth] Initialize:', session?.user?.email);
+        console.log('[Auth] Session loaded:', session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          setTimeout(() => {
-            checkAdminStatus(session.user.id);
-          }, 0);
+          console.log('[Auth] Checking admin status for:', session.user.id);
+          // Check admin status synchronously - do NOT use setTimeout
+          await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
         }
@@ -94,31 +95,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsAdmin(false);
       } finally {
         if (mounted) {
+          console.log('[Auth] Setting loading to false');
           setLoading(false);
-          console.log('[Auth] Loading complete');
         }
       }
     };
 
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      async (event, session) => {
         if (!mounted) return;
         
-        console.log('[Auth] State change:', event, session?.user?.email);
+        console.log('[Auth] State change event:', event, session?.user?.email);
+        setLoading(true); // Set loading while checking
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          setTimeout(() => {
-            checkAdminStatus(session.user.id);
-          }, 0);
+          console.log('[Auth] Checking admin status after state change');
+          await checkAdminStatus(session.user.id);
         } else {
           setIsAdmin(false);
         }
         
+        console.log('[Auth] Auth state change complete');
         setLoading(false);
-        console.log('[Auth] Loading complete after state change');
       }
     );
 

@@ -10,29 +10,40 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
   const { user, isAdmin, loading } = useAuth();
 
-  console.log('[ProtectedRoute]', { user: user?.email, isAdmin, loading, requireAdmin });
+  console.log('[ProtectedRoute] Render:', { 
+    userEmail: user?.email, 
+    userId: user?.id,
+    isAdmin, 
+    loading, 
+    requireAdmin,
+    timestamp: new Date().toISOString()
+  });
 
-  // Show loading only briefly - if stuck loading for too long, something is wrong
+  // CRITICAL: Wait for auth to fully load before making any decisions
   if (loading) {
+    console.log('[ProtectedRoute] Waiting for auth to load...');
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
       </div>
     );
   }
 
-  // Admin required but user is not logged in or not admin - show access denied
-  if (requireAdmin && (!user || !isAdmin)) {
-    console.log('[ProtectedRoute] Admin access denied:', { hasUser: !!user, isAdmin });
-    return <AccessDenied />;
-  }
-
-  // Regular protected route - user must be logged in
+  // Check 1: User must be logged in
   if (!user) {
-    console.log('[ProtectedRoute] No user, showing access denied');
+    console.log('[ProtectedRoute] ❌ No user - Access Denied');
     return <AccessDenied />;
   }
 
-  console.log('[ProtectedRoute] Access granted');
+  // Check 2: If admin is required, verify admin status
+  if (requireAdmin && !isAdmin) {
+    console.log('[ProtectedRoute] ❌ Admin required but user is not admin - Access Denied');
+    return <AccessDenied />;
+  }
+
+  console.log('[ProtectedRoute] ✅ Access granted');
   return <>{children}</>;
 }

@@ -28,7 +28,8 @@ export default function AdminOrders() {
         .from('orders')
         .select(`
           *,
-          profiles!inner(name, email)
+          profiles!inner(name, email),
+          order_items(id, title, product_url, quantity)
         `)
         .order('created_at', { ascending: false });
 
@@ -50,15 +51,25 @@ export default function AdminOrders() {
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
       DRAFT: 'secondary',
-      PENDING_PAYMENT: 'warning',
-      PAID: 'success',
-      PROCESSING: 'info',
-      SHIPPED: 'info',
-      READY_FOR_PICKUP: 'success',
+      PENDING_PAYMENT: 'default',
+      PAID: 'default',
+      PROCESSING: 'default',
+      SHIPPED: 'default',
+      READY_FOR_PICKUP: 'default',
       COMPLETED: 'default',
       CANCELLED: 'destructive',
     };
-    return <Badge variant={colors[status] as any}>{status.replace('_', ' ')}</Badge>;
+    return <Badge variant={colors[status] as any}>{status.replace(/_/g, ' ')}</Badge>;
+  };
+
+  const getPaymentBadge = (order: any) => {
+    if (order.payment_verified_at) {
+      return <Badge className="bg-emerald-600">Verified</Badge>;
+    }
+    if (order.status === 'DRAFT') {
+      return <Badge variant="secondary">Draft</Badge>;
+    }
+    return <Badge variant="outline">Pending</Badge>;
   };
 
   const openOrderDetails = (orderId: string) => {
@@ -107,7 +118,9 @@ export default function AdminOrders() {
                 <TableHead>Order ID</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>City</TableHead>
+                <TableHead>Items</TableHead>
                 <TableHead>Total (USD)</TableHead>
+                <TableHead>Payment</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Actions</TableHead>
@@ -126,7 +139,13 @@ export default function AdminOrders() {
                     </div>
                   </TableCell>
                   <TableCell>{order.shipping_city || 'N/A'}</TableCell>
-                  <TableCell>${Number(order.total_usd || 0).toFixed(2)}</TableCell>
+                  <TableCell>
+                    <div className="text-xs text-muted-foreground">
+                      {order.order_items?.length || 0} item(s)
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-semibold">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
+                  <TableCell>{getPaymentBadge(order)}</TableCell>
                   <TableCell>{getStatusBadge(order.status)}</TableCell>
                   <TableCell>{new Date(order.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
@@ -136,7 +155,7 @@ export default function AdminOrders() {
                       onClick={() => openOrderDetails(order.id)}
                     >
                       <Eye className="h-4 w-4 mr-2" />
-                      View Details
+                      Details
                     </Button>
                   </TableCell>
                 </TableRow>

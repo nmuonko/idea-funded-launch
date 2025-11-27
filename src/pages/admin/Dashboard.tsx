@@ -10,6 +10,8 @@ export default function AdminDashboard() {
     totalRevenue: 0,
     totalServiceFees: 0,
     paidOrders: 0,
+    pendingPayments: 0,
+    avgOrderValue: 0,
   });
 
   useEffect(() => {
@@ -26,19 +28,26 @@ export default function AdminDashboard() {
       if (error) throw error;
 
       const totalOrders = orders?.length || 0;
-      const paidOrders = orders?.filter(o => o.status === 'PAID' || o.status === 'COMPLETED').length || 0;
+      const paidOrders = orders?.filter(o => o.payment_verified_at).length || 0;
+      const pendingPayments = orders?.filter(o => !o.payment_verified_at && o.status !== 'DRAFT').length || 0;
+      
       const totalRevenue = orders
-        ?.filter(o => o.status === 'PAID' || o.status === 'COMPLETED')
+        ?.filter(o => o.payment_verified_at)
         .reduce((sum, o) => sum + Number(o.total_usd || 0), 0) || 0;
+      
       const totalServiceFees = orders
-        ?.filter(o => o.status === 'PAID' || o.status === 'COMPLETED')
+        ?.filter(o => o.payment_verified_at)
         .reduce((sum, o) => sum + Number(o.service_fee_usd || 0), 0) || 0;
+      
+      const avgOrderValue = paidOrders > 0 ? totalRevenue / paidOrders : 0;
 
       setStats({
         totalOrders,
         totalRevenue,
         totalServiceFees,
         paidOrders,
+        pendingPayments,
+        avgOrderValue,
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -53,7 +62,7 @@ export default function AdminDashboard() {
         <p className="text-muted-foreground">AfriShop Admin Portal</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
@@ -61,12 +70,21 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalOrders}</div>
-            <p className="text-xs text-muted-foreground">
-              {stats.paidOrders} paid
-            </p>
+            <p className="text-xs text-muted-foreground">All orders</p>
           </CardContent>
         </Card>
-
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Paid Orders</CardTitle>
+            <TrendingUp className="h-4 w-4 text-emerald-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">{stats.paidOrders}</div>
+            <p className="text-xs text-muted-foreground">Verified payments</p>
+          </CardContent>
+        </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
@@ -77,7 +95,18 @@ export default function AdminDashboard() {
             <p className="text-xs text-muted-foreground">From paid orders</p>
           </CardContent>
         </Card>
-
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+            <Users className="h-4 w-4 text-yellow-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-yellow-600">{stats.pendingPayments}</div>
+            <p className="text-xs text-muted-foreground">Awaiting payment</p>
+          </CardContent>
+        </Card>
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Service Fees</CardTitle>
@@ -85,19 +114,17 @@ export default function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">${stats.totalServiceFees.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">From completed orders</p>
+            <p className="text-xs text-muted-foreground">Platform earnings</p>
           </CardContent>
         </Card>
-
+        
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg Order Value</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">
-              ${stats.paidOrders > 0 ? (stats.totalRevenue / stats.paidOrders).toFixed(2) : '0.00'}
-            </div>
+            <div className="text-2xl font-bold">${stats.avgOrderValue.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">Per paid order</p>
           </CardContent>
         </Card>

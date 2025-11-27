@@ -118,36 +118,36 @@ All colors MUST be HSL.
   }
 
   .dark {
-    /* Dark mode - deep ocean */
-    --background: 222 47% 11%;
+    /* Dark Ocean Blue Theme */
+    --background: 215 30% 6%;
     --foreground: 210 40% 98%;
 
-    --card: 217 32% 17%;
+    --card: 215 25% 10%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 215 24% 26%;
+    --popover: 215 30% 8%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 198 93% 59%;
-    --primary-foreground: 204 80% 15%;
-    --primary-glow: 205 85% 60%;
+    --primary: 205 100% 50%;
+    --primary-foreground: 210 40% 98%;
+    --primary-glow: 205 100% 60%;
 
-    --secondary: 212 26% 83%;
-    --secondary-foreground: 228 84% 4%;
-    --secondary-glow: 200 75% 60%;
+    --secondary: 215 25% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --secondary-glow: 200 100% 55%;
 
-    --muted: 215 16% 46%;
-    --muted-foreground: 210 40% 98%;
+    --muted: 215 25% 15%;
+    --muted-foreground: 215 20% 65%;
 
-    --accent: 228 84% 4%;
-    --accent-foreground: 215 20% 65%;
+    --accent: 200 100% 45%;
+    --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 85% 97%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
 
-    --border: 215 19% 34%;
-    --input: 215 19% 34%;
-    --ring: 198 93% 59%;
+    --border: 215 25% 15%;
+    --input: 215 25% 15%;
+    --ring: 205 100% 50%;
 
     --success: 142 76% 50%;
     --success-foreground: 0 0% 100%;
@@ -163,35 +163,35 @@ All colors MUST be HSL.
 
     --destructive-dark: 0 84% 55%;
 
-    --gradient-start: 210 85% 45%;
-    --gradient-mid: 205 80% 50%;
-    --gradient-end: 200 75% 55%;
+    --gradient-start: 205 100% 50%;
+    --gradient-mid: 210 100% 60%;
+    --gradient-end: 195 100% 45%;
 
     /* Deep ocean dark gradients */
-    --gradient-tesla-start: 210 95% 10%;
-    --gradient-tesla-mid: 210 85% 15%;
-    --gradient-tesla-end: 210 75% 20%;
+    --gradient-tesla-start: 215 30% 8%;
+    --gradient-tesla-mid: 210 30% 10%;
+    --gradient-tesla-end: 205 30% 15%;
 
-    --glass-bg: 210 45% 12%;
-    --glass-border: 210 35% 22%;
+    --glass-bg: 215 25% 10%;
+    --glass-border: 215 25% 15%;
 
-    --shadow-glow: 205 85% 50%;
-    --shadow-soft: 210 30% 15%;
-    --shadow-elegant: 210 40% 10%;
+    --shadow-glow: 205 100% 50%;
+    --shadow-soft: 215 20% 15%;
+    --shadow-elegant: 210 25% 10%;
 
-    --ocean-dark: 210 95% 15%;
-    --ocean-medium: 210 85% 35%;
-    --ocean-light: 205 85% 50%;
-    --ocean-glow: 200 75% 55%;
+    --ocean-dark: 215 30% 6%;
+    --ocean-medium: 210 50% 25%;
+    --ocean-light: 205 100% 50%;
+    --ocean-glow: 200 100% 45%;
 
-    --sidebar-background: 220 25% 10%;
+    --sidebar-background: 215 30% 8%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 198 93% 59%;
-    --sidebar-primary-foreground: 204 80% 15%;
-    --sidebar-accent: 215 20% 65%;
-    --sidebar-accent-foreground: 228 84% 4%;
-    --sidebar-border: 215 19% 34%;
-    --sidebar-ring: 198 93% 59%;
+    --sidebar-primary: 205 100% 50%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 215 25% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 215 25% 15%;
+    --sidebar-ring: 205 100% 50%;
     --chart-1: 199 95% 73%;
     --chart-2: 211 96% 78%;
     --chart-3: 215 20% 65%;

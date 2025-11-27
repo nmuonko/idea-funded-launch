@@ -76,7 +76,17 @@ export default {
   				dark: 'hsl(var(--ocean-dark))',
   				medium: 'hsl(var(--ocean-medium))',
   				light: 'hsl(var(--ocean-light))',
-  				glow: 'hsl(var(--ocean-glow))'
+  				glow: 'hsl(var(--ocean-glow))',
+  				50: 'hsl(210, 100%, 95%)',
+  				100: 'hsl(210, 100%, 90%)',
+  				200: 'hsl(208, 100%, 80%)',
+  				300: 'hsl(206, 100%, 70%)',
+  				400: 'hsl(205, 100%, 60%)',
+  				500: 'hsl(205, 100%, 50%)',
+  				600: 'hsl(207, 100%, 45%)',
+  				700: 'hsl(210, 100%, 40%)',
+  				800: 'hsl(213, 100%, 35%)',
+  				900: 'hsl(215, 100%, 25%)'
   			}
   		},
   		backgroundImage: {

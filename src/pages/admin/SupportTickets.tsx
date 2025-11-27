@@ -114,6 +114,16 @@ export default function SupportTickets() {
       if (selectedTicket?.id === ticketId) {
         setSelectedTicket({ ...selectedTicket, status: newStatus as Ticket['status'] });
       }
+
+      // Send notification email
+      await supabase.functions.invoke('send-ticket-notification', {
+        body: {
+          ticketId,
+          ticketSubject: selectedTicket?.subject || 'Your ticket',
+          type: 'status_change',
+          newStatus
+        }
+      });
     } catch (error: any) {
       toast.error('Failed to update status');
       console.error(error);
@@ -159,6 +169,15 @@ export default function SupportTickets() {
       toast.success('Message sent');
       setNewMessage('');
       fetchMessages(selectedTicket.id);
+
+      // Send notification email to customer
+      await supabase.functions.invoke('send-ticket-notification', {
+        body: {
+          ticketId: selectedTicket.id,
+          ticketSubject: selectedTicket.subject,
+          type: 'admin_reply'
+        }
+      });
     } catch (error: any) {
       toast.error('Failed to send message');
       console.error(error);

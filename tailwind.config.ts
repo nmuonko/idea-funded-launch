@@ -89,14 +89,15 @@ export default {
   				900: 'hsl(215, 100%, 25%)'
   			}
   		},
-  		backgroundImage: {
-  			'gradient-primary': 'linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-mid)), hsl(var(--gradient-end)))',
-  			'gradient-radial': 'radial-gradient(circle at top, hsl(var(--gradient-start) / 0.8), transparent 70%)',
-  			'gradient-subtle': 'linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)))',
-  			'gradient-glow': 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%)',
-  			'gradient-tesla': 'linear-gradient(135deg, hsl(var(--gradient-tesla-start)), hsl(var(--gradient-tesla-mid)), hsl(var(--gradient-tesla-end)))',
-  			'gradient-glossy': 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)'
-  		},
+		backgroundImage: {
+			'gradient-primary': 'linear-gradient(135deg, hsl(var(--gradient-start)), hsl(var(--gradient-mid)), hsl(var(--gradient-end)))',
+			'gradient-radial': 'radial-gradient(circle at top, hsl(var(--gradient-start) / 0.8), transparent 70%)',
+			'gradient-subtle': 'linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted)))',
+			'gradient-glow': 'linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--secondary)) 100%)',
+			'gradient-ocean': 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)))',
+			'gradient-tesla': 'linear-gradient(135deg, hsl(var(--gradient-tesla-start)), hsl(var(--gradient-tesla-mid)), hsl(var(--gradient-tesla-end)))',
+			'gradient-glossy': 'linear-gradient(to bottom, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)'
+		},
   		boxShadow: {
   			elegant: '0 10px 40px -10px hsl(var(--shadow-elegant) / 0.2)',
   			card: '0 4px 16px -4px hsl(var(--shadow-soft) / 0.1)',

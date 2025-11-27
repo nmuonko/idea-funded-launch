@@ -21,6 +21,7 @@ import {
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
 import { AIAssistantPanel } from './AIAssistantPanel';
+import { ProfitCalculator } from './ProfitCalculator';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;

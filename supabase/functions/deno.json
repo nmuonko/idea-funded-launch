@@ -2,7 +2,7 @@
   "nodeModulesDir": "auto",
   "imports": {
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3",
-    "resend": "npm:resend@4.0.0"
+    "resend": "npm:resend@2.0.0"
   },
   "compilerOptions": {
     "allowJs": true,

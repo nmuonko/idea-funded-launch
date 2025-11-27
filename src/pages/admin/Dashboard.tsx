@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { DollarSign, Package, TrendingUp, Users } from 'lucide-react';
+import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -46,6 +47,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
+      <RealtimeNotifications />
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-muted-foreground">AfriShop Admin Portal</p>

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
 export default function Auth() {
+  const [searchParams] = useSearchParams();
+  const isAdminMode = searchParams.get('mode') === 'admin';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -85,11 +87,13 @@ export default function Auth() {
       <Card className="w-full max-w-md glass-strong animate-scale-in">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl font-bold">
-            {isResetPassword ? 'Reset Password' : 'Welcome'}
+            {isResetPassword ? 'Reset Password' : isAdminMode ? 'Admin Login' : 'Welcome'}
           </CardTitle>
           <CardDescription>
             {isResetPassword 
               ? 'Enter your email to receive a password reset link' 
+              : isAdminMode
+              ? 'Sign in with your admin credentials'
               : 'Sign in or create your account'}
           </CardDescription>
         </CardHeader>
@@ -124,6 +128,49 @@ export default function Auth() {
                 onClick={() => setIsResetPassword(false)}
               >
                 Back to Sign In
+              </Button>
+            </form>
+          ) : isAdminMode ? (
+            <form onSubmit={handleSignIn} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="admin-email">Email</Label>
+                <Input
+                  id="admin-email"
+                  type="email"
+                  placeholder="admin@afrishop.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin-password">Password</Label>
+                <Input
+                  id="admin-password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign In'
+                )}
+              </Button>
+              <Button 
+                type="button" 
+                variant="link" 
+                className="w-full" 
+                onClick={() => setIsResetPassword(true)}
+              >
+                Forgot Password?
               </Button>
             </form>
           ) : (

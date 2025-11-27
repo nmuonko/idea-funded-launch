@@ -17,6 +17,10 @@ export default function FeesSettings() {
   const [categoryMarkups, setCategoryMarkups] = useState<Record<string, number>>({});
   const [extraFees, setExtraFees] = useState<any[]>([]);
   const [discountCodes, setDiscountCodes] = useState<any[]>([]);
+  const [serviceFeePercent, setServiceFeePercent] = useState(12);
+  const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(10);
+  const [shippingPercent, setShippingPercent] = useState(10);
+  const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -29,6 +33,8 @@ export default function FeesSettings() {
       const { data, error } = await supabase
         .from('settings')
         .select('*')
+        .order('created_at', { ascending: true })
+        .limit(1)
         .single();
 
       if (error) throw error;
@@ -38,6 +44,12 @@ export default function FeesSettings() {
       setCategoryMarkups((data.category_markups || {}) as Record<string, number>);
       setExtraFees((data.extra_fees || []) as any[]);
       setDiscountCodes((data.discount_codes || []) as any[]);
+      
+      // Load core settings
+      setServiceFeePercent((data.service_fee_percent || 0.12) * 100);
+      setShippingBaseFeeUsd(data.shipping_base_fee_usd || 10);
+      setShippingPercent((data.shipping_percent || 0.10) * 100);
+      setExchangeRateUsdToCdf(data.exchange_rate_usd_to_cdf || 2800);
     } catch (error: any) {
       toast({
         title: 'Error loading settings',
@@ -60,6 +72,10 @@ export default function FeesSettings() {
           category_markups: categoryMarkups,
           extra_fees: extraFees,
           discount_codes: discountCodes,
+          service_fee_percent: serviceFeePercent / 100,
+          shipping_base_fee_usd: shippingBaseFeeUsd,
+          shipping_percent: shippingPercent / 100,
+          exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
           updated_at: new Date().toISOString(),
         })
         .eq('id', settings.id);
@@ -135,9 +151,9 @@ export default function FeesSettings() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Fees & Markup Settings</h1>
+          <h1 className="text-3xl font-bold">Settings</h1>
           <p className="text-muted-foreground mt-2">
-            Configure pricing, fees, and discount codes
+            Configure pricing, fees, exchange rates, and discount codes
           </p>
         </div>
         <Button onClick={saveSettings} disabled={saving}>
@@ -149,6 +165,78 @@ export default function FeesSettings() {
           Save Changes
         </Button>
       </div>
+
+      {/* Core Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            Core Pricing Settings
+          </CardTitle>
+          <CardDescription>
+            Configure exchange rates and base fees
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="exchangeRate">USD to CDF Exchange Rate</Label>
+              <Input
+                id="exchangeRate"
+                type="number"
+                step="0.01"
+                value={exchangeRateUsdToCdf}
+                onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Current rate: 1 USD = {exchangeRateUsdToCdf.toFixed(2)} FC
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="serviceFee">Service Fee (%)</Label>
+              <Input
+                id="serviceFee"
+                type="number"
+                step="0.01"
+                value={serviceFeePercent}
+                onChange={(e) => setServiceFeePercent(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Current: {serviceFeePercent.toFixed(2)}%
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shippingBase">Shipping Base Fee (USD)</Label>
+              <Input
+                id="shippingBase"
+                type="number"
+                step="0.01"
+                value={shippingBaseFeeUsd}
+                onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Flat fee added to all shipments
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="shippingPercent">Shipping Percentage (%)</Label>
+              <Input
+                id="shippingPercent"
+                type="number"
+                step="0.01"
+                value={shippingPercent}
+                onChange={(e) => setShippingPercent(Number(e.target.value))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Percentage of item total added as shipping
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Global Markup */}
       <Card>

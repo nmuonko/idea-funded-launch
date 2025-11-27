@@ -20,6 +20,9 @@ export default function Index() {
               <Button asChild size="lg" variant="secondary">
                 <Link to="/auth">Get Started</Link>
               </Button>
+              <Button asChild size="lg" variant="outline" className="bg-background/10 border-white/20 text-white hover:bg-background/20">
+                <Link to="/auth?mode=admin">Admin Login</Link>
+              </Button>
             </div>
           </div>
         </div>

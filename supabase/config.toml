@@ -1,1 +1,76 @@
 project_id = "igmkhxffnyzoogcqvdab"
+
+[functions.admin-ai-assistant]
+verify_jwt = true
+
+[functions.ai-command-center]
+verify_jwt = true
+
+[functions.analyze-submission]
+verify_jwt = false
+
+[functions.auth-login]
+verify_jwt = false
+
+[functions.auth-register]
+verify_jwt = false
+
+[functions.auth-me]
+verify_jwt = true
+
+[functions.chat]
+verify_jwt = false
+
+[functions.maishapay-callback]
+verify_jwt = false
+
+[functions.maishapay-create-payment]
+verify_jwt = true
+
+[functions.mobile-add-cart-item]
+verify_jwt = true
+
+[functions.mobile-delete-cart-item]
+verify_jwt = true
+
+[functions.mobile-get-cart]
+verify_jwt = true
+
+[functions.mobile-get-order-by-id]
+verify_jwt = true
+
+[functions.mobile-get-orders]
+verify_jwt = true
+
+[functions.mobile-initiate-maisha-payment]
+verify_jwt = true
+
+[functions.mobile-update-cart-item]
+verify_jwt = true
+
+[functions.notify-new-submission]
+verify_jwt = false
+
+[functions.send-admin-payment-notification]
+verify_jwt = true
+
+[functions.send-application-emails]
+verify_jwt = false
+
+[functions.send-confirmation-email]
+verify_jwt = false
+
+[functions.send-feedback-email]
+verify_jwt = false
+
+[functions.send-fraud-alert-email]
+verify_jwt = false
+
+[functions.send-payment-confirmation-email]
+verify_jwt = false
+
+[functions.transcribe-audio]
+verify_jwt = true
+
+[functions.admin-order-action]
+verify_jwt = true

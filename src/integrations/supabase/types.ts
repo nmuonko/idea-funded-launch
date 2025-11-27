@@ -32,6 +32,44 @@ export type Database = {
         }
         Relationships: []
       }
+      order_actions: {
+        Row: {
+          action_message: string | null
+          action_type: string
+          actor_id: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          order_id: string
+        }
+        Insert: {
+          action_message?: string | null
+          action_type: string
+          actor_id: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          order_id: string
+        }
+        Update: {
+          action_message?: string | null
+          action_type?: string
+          actor_id?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_actions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string
@@ -84,12 +122,19 @@ export type Database = {
       }
       orders: {
         Row: {
+          admin_notes: string | null
+          approved_at: string | null
+          approved_by: string | null
           created_at: string
           exchange_rate_used: number | null
           id: string
+          info_requested: boolean | null
           item_total_usd: number | null
           maisha_payment_status: string | null
           maisha_transaction_id: string | null
+          rejected_at: string | null
+          rejected_by: string | null
+          rejection_reason: string | null
           service_fee_usd: number | null
           shipping_city: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd: number | null
@@ -100,12 +145,19 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          admin_notes?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           exchange_rate_used?: number | null
           id?: string
+          info_requested?: boolean | null
           item_total_usd?: number | null
           maisha_payment_status?: string | null
           maisha_transaction_id?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
           service_fee_usd?: number | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd?: number | null
@@ -116,12 +168,19 @@ export type Database = {
           user_id: string
         }
         Update: {
+          admin_notes?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
           created_at?: string
           exchange_rate_used?: number | null
           id?: string
+          info_requested?: boolean | null
           item_total_usd?: number | null
           maisha_payment_status?: string | null
           maisha_transaction_id?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
           service_fee_usd?: number | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
           shipping_fee_usd?: number | null
@@ -195,18 +254,21 @@ export type Database = {
       }
       user_roles: {
         Row: {
+          admin_role: string | null
           created_at: string
           id: string
           role: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Insert: {
+          admin_role?: string | null
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id: string
         }
         Update: {
+          admin_role?: string | null
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Shield, User } from 'lucide-react';
+import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -30,20 +31,21 @@ export default function AdminUsers() {
 
       if (profilesError) throw profilesError;
 
-      // Get all admin roles
+      // Get all admin roles with admin_role column
       const { data: adminRoles, error: rolesError } = await supabase
         .from('user_roles')
-        .select('user_id')
+        .select('user_id, admin_role')
         .eq('role', 'admin');
 
       if (rolesError) throw rolesError;
 
-      const adminUserIds = new Set(adminRoles?.map(r => r.user_id) || []);
+      const adminRolesMap = new Map(adminRoles?.map(r => [r.user_id, r.admin_role]) || []);
 
       // Combine data
       const usersWithRoles = profiles?.map(profile => ({
         ...profile,
-        isAdmin: adminUserIds.has(profile.user_id),
+        isAdmin: adminRolesMap.has(profile.user_id),
+        adminRole: adminRolesMap.get(profile.user_id) || 'super_admin',
       })) || [];
 
       setUsers(usersWithRoles);
@@ -58,13 +60,13 @@ export default function AdminUsers() {
     }
   };
 
-  const promoteToAdmin = async (userId: string) => {
+  const promoteToAdmin = async (userId: string, adminRole: string = 'super_admin') => {
     try {
       setPromoting(userId);
       
       const { error } = await supabase
         .from('user_roles')
-        .insert({ user_id: userId, role: 'admin' });
+        .insert({ user_id: userId, role: 'admin', admin_role: adminRole });
 
       if (error) throw error;
 
@@ -82,6 +84,31 @@ export default function AdminUsers() {
       });
     } finally {
       setPromoting(null);
+    }
+  };
+
+  const updateAdminRole = async (userId: string, newRole: string) => {
+    try {
+      const { error } = await supabase
+        .from('user_roles')
+        .update({ admin_role: newRole })
+        .eq('user_id', userId)
+        .eq('role', 'admin');
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: 'Admin role updated',
+      });
+
+      await loadUsers();
+    } catch (error: any) {
+      toast({
+        title: 'Error updating role',
+        description: error.message,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -211,6 +238,11 @@ export default function AdminUsers() {
                         <Shield className="h-3 w-3 mr-1" />
                         Admin
                       </Badge>
+                      <StaffRoleSelector
+                        value={user.adminRole}
+                        onChange={(newRole) => updateAdminRole(user.user_id, newRole)}
+                        disabled={promoting === user.user_id}
+                      />
                       <Button
                         variant="outline"
                         size="sm"

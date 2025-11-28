@@ -152,41 +152,59 @@ export type Database = {
       }
       order_items: {
         Row: {
+          base_price_usd: number | null
           created_at: string
           id: string
+          markup_fee_usd: number | null
           notes: string | null
           order_id: string
+          product_image_url: string | null
           product_url: string
           quantity: number
+          shipping_fee_usd: number | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd: number | null
           title: string | null
+          total_price_cdf: number | null
+          total_price_usd: number | null
           unit_price_usd: number | null
           updated_at: string
         }
         Insert: {
+          base_price_usd?: number | null
           created_at?: string
           id?: string
+          markup_fee_usd?: number | null
           notes?: string | null
           order_id: string
+          product_image_url?: string | null
           product_url: string
           quantity?: number
+          shipping_fee_usd?: number | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
+          total_price_cdf?: number | null
+          total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
         }
         Update: {
+          base_price_usd?: number | null
           created_at?: string
           id?: string
+          markup_fee_usd?: number | null
           notes?: string | null
           order_id?: string
+          product_image_url?: string | null
           product_url?: string
           quantity?: number
+          shipping_fee_usd?: number | null
           store?: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
+          total_price_cdf?: number | null
+          total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
         }
@@ -374,6 +392,8 @@ export type Database = {
           extra_fees: Json | null
           global_markup_percent: number | null
           id: string
+          markup_percent: number | null
+          min_service_fee_usd: number | null
           service_fee_percent: number
           shipping_base_fee_usd: number
           shipping_percent: number
@@ -387,6 +407,8 @@ export type Database = {
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          markup_percent?: number | null
+          min_service_fee_usd?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
@@ -400,6 +422,8 @@ export type Database = {
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          markup_percent?: number | null
+          min_service_fee_usd?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number

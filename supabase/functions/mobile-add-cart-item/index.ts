@@ -26,159 +26,185 @@ serve(async (req) => {
       });
     }
 
-    // Parse request body
     const body = await req.json();
     console.log('[mobile-add-cart-item] Request body:', body);
 
-    // Extract and validate fields
-    let { productUrl, productTitle, productImageUrl, productPrice, quantity } = body;
+    const { productUrl, quantity = 1, productTitle, productImageUrl, productPrice } = body;
 
-    // VALIDATION: productUrl is required
-    if (!productUrl || typeof productUrl !== 'string' || productUrl.trim() === '') {
-      console.error('[mobile-add-cart-item] Missing or invalid productUrl');
-      return new Response(JSON.stringify({ error: 'productUrl is required and must be a non-empty string' }), {
+    // Validate productUrl
+    if (!productUrl || typeof productUrl !== 'string' || !productUrl.trim()) {
+      return new Response(JSON.stringify({ error: 'productUrl is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Default quantity to 1 if not provided
-    if (!quantity || typeof quantity !== 'number' || quantity < 1) {
-      quantity = 1;
-      console.log('[mobile-add-cart-item] Defaulting quantity to 1');
-    }
+    // Determine base price
+    let basePrice = productPrice;
+    let detectedTitle = productTitle;
+    let detectedImageUrl = productImageUrl;
 
-    console.log('[mobile-add-cart-item] User:', user.id);
-    console.log('[mobile-add-cart-item] Validated input:', { productUrl, productTitle, productImageUrl, productPrice, quantity });
+    if (!basePrice) {
+      console.log('[mobile-add-cart-item] No price provided, calling get-product-info for:', productUrl);
+      
+      const { data: productInfo, error: infoError } = await supabase.functions.invoke('get-product-info', {
+        body: { productUrl }
+      });
 
-    // Determine store from URL
-    let store = 'UNKNOWN';
-    try {
-      const url = new URL(productUrl);
-      const hostname = url.hostname.toLowerCase();
-      if (hostname.includes('amazon')) store = 'AMAZON';
-      else if (hostname.includes('ebay')) store = 'EBAY';
-      else if (hostname.includes('walmart')) store = 'WALMART';
-      else if (hostname.includes('bestbuy')) store = 'BESTBUY';
-      else if (hostname.includes('carvana')) store = 'CARVANA';
-      else if (hostname.includes('cargurus')) store = 'CARGURUS';
-    } catch (e) {
-      console.warn('[mobile-add-cart-item] Could not parse URL for store detection');
-    }
-
-    // If price not provided, auto-detect from URL
-    if (!productPrice || productPrice === 0) {
-      console.log('[mobile-add-cart-item] Price not provided, calling get-product-info');
-      try {
-        const productInfoResponse = await supabase.functions.invoke('get-product-info', {
-          body: { productUrl },
-        });
-
-        if (productInfoResponse.data && !productInfoResponse.error) {
-          const productInfo = productInfoResponse.data;
-          console.log('[mobile-add-cart-item] Auto-detected product info:', productInfo);
-          
-          // Use detected values if not provided
-          if (!productTitle && productInfo.title) {
-            productTitle = productInfo.title;
-            console.log('[mobile-add-cart-item] Using auto-detected title');
-          }
-          if (!productImageUrl && productInfo.imageUrl) {
-            productImageUrl = productInfo.imageUrl;
-            console.log('[mobile-add-cart-item] Using auto-detected image');
-          }
-          if (!productPrice && productInfo.price) {
-            productPrice = productInfo.price;
-            console.log('[mobile-add-cart-item] Using auto-detected price:', productPrice);
-          }
-        } else {
-          console.warn('[mobile-add-cart-item] Price detection failed:', productInfoResponse.error);
-        }
-      } catch (error: any) {
-        console.error('[mobile-add-cart-item] Error calling get-product-info:', error.message);
+      if (infoError) {
+        console.error('[mobile-add-cart-item] get-product-info error:', infoError);
       }
 
-      // Log final status
-      if (!productPrice) {
-        console.warn('[mobile-add-cart-item] No price available after get-product-info - will insert with NULL price');
+      if (productInfo?.price) {
+        basePrice = productInfo.price;
+        detectedTitle = detectedTitle || productInfo.title;
+        detectedImageUrl = detectedImageUrl || productInfo.imageUrl;
+        console.log('[mobile-add-cart-item] Auto-detected price for', productUrl, '=>', basePrice);
+      } else {
+        console.log('[mobile-add-cart-item] PRICE_DETECTION_FAILED for:', productUrl);
+        return new Response(JSON.stringify({
+          error: 'PRICE_DETECTION_FAILED',
+          message: 'Could not detect price automatically for this URL.',
+          productInfo: {
+            url: productUrl,
+            title: productInfo?.title || null,
+            imageUrl: productInfo?.imageUrl || null
+          }
+        }), {
+          status: 422,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
     } else {
-      console.log('[mobile-add-cart-item] Using client-provided productPrice:', productPrice);
+      console.log('[mobile-add-cart-item] Using client-provided productPrice:', basePrice);
     }
 
-    // Find or create DRAFT order
-    let { data: order } = await supabase
+    // Load pricing settings
+    const { data: settings } = await supabase.from('settings').select('*').single();
+    
+    if (!settings) {
+      return new Response(JSON.stringify({ error: 'Pricing settings not configured' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Calculate fees
+    const markupPercent = settings.markup_percent || 15;
+    const minServiceFee = settings.min_service_fee_usd || 5;
+    const shippingFlatFee = settings.shipping_base_fee_usd || 10;
+    const shippingPercent = settings.shipping_percent || 0.10;
+    const exchangeRate = settings.exchange_rate_usd_to_cdf || 2800;
+
+    const markupFee = Math.max(basePrice * (markupPercent / 100), minServiceFee);
+    const shippingFee = shippingFlatFee + (basePrice * shippingPercent);
+    const itemTotalUsd = basePrice + markupFee + shippingFee;
+    const itemTotalCdf = itemTotalUsd * exchangeRate;
+
+    console.log('[mobile-add-cart-item] Pricing breakdown:', {
+      basePrice,
+      markupFee,
+      shippingFee,
+      itemTotalUsd,
+      itemTotalCdf
+    });
+
+    // Detect store from URL
+    let store = 'other';
+    try {
+      const urlObj = new URL(productUrl);
+      const hostname = urlObj.hostname.toLowerCase();
+      if (hostname.includes('amazon')) store = 'amazon';
+      else if (hostname.includes('ebay')) store = 'ebay';
+      else if (hostname.includes('walmart')) store = 'walmart';
+      else if (hostname.includes('bestbuy')) store = 'bestbuy';
+      else if (hostname.includes('carvana')) store = 'carvana';
+      else if (hostname.includes('cargurus')) store = 'cargurus';
+    } catch (e) {
+      console.error('[mobile-add-cart-item] Invalid URL format:', e);
+    }
+
+    // Get or create DRAFT order
+    const { data: existingOrder } = await supabase
       .from('orders')
-      .select('*')
+      .select('id')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
       .single();
 
-    if (!order) {
+    let orderId = existingOrder?.id;
+
+    if (!orderId) {
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
-        .insert({ user_id: user.id, status: 'DRAFT' })
-        .select()
+        .insert({
+          user_id: user.id,
+          status: 'DRAFT',
+        })
+        .select('id')
         .single();
-      
-      if (orderError) throw orderError;
-      order = newOrder;
+
+      if (orderError) {
+        console.error('[mobile-add-cart-item] Failed to create order:', orderError);
+        return new Response(JSON.stringify({ error: 'Failed to create cart' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      orderId = newOrder.id;
     }
 
-    console.log('[mobile-add-cart-item] Found/created order:', order.id);
-
-    // Calculate subtotal (handle NULL price gracefully)
-    const parsedPrice = productPrice ? Number(productPrice) : null;
-    const parsedQty = Number(quantity);
-    const subtotal = parsedPrice !== null ? parsedPrice * parsedQty : null;
-
-    console.log('[mobile-add-cart-item] Inserting item with:', {
-      order_id: order.id,
-      store,
-      product_url: productUrl,
-      title: productTitle || null,
-      unit_price_usd: parsedPrice,
-      quantity: parsedQty,
-      subtotal_usd: subtotal,
-    });
-
-    // Create order item (allow NULL price for manual review)
+    // Insert cart item
     const { data: item, error: itemError } = await supabase
       .from('order_items')
       .insert({
-        order_id: order.id,
-        store,
+        order_id: orderId,
         product_url: productUrl,
-        title: productTitle || null,
-        unit_price_usd: parsedPrice,
-        quantity: parsedQty,
-        subtotal_usd: subtotal,
+        title: detectedTitle,
+        product_image_url: detectedImageUrl,
+        store,
+        base_price_usd: basePrice,
+        markup_fee_usd: markupFee,
+        shipping_fee_usd: shippingFee,
+        total_price_usd: itemTotalUsd,
+        total_price_cdf: itemTotalCdf,
+        quantity,
+        unit_price_usd: basePrice,
+        subtotal_usd: basePrice * quantity,
       })
       .select()
       .single();
 
     if (itemError) {
-      console.error('[mobile-add-cart-item] Insert error:', itemError);
-      throw itemError;
+      console.error('[mobile-add-cart-item] Failed to insert item:', itemError);
+      return new Response(JSON.stringify({ error: 'Failed to add item to cart' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    console.log('[mobile-add-cart-item] Item created successfully:', item.id);
-
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: true,
       item: {
         id: item.id,
         productUrl: item.product_url,
         productTitle: item.title,
-        productImageUrl: productImageUrl || null,
-        productPrice: item.unit_price_usd,
+        productImageUrl: item.product_image_url,
+        basePriceUsd: item.base_price_usd,
+        markupFeeUsd: item.markup_fee_usd,
+        shippingFeeUsd: item.shipping_fee_usd,
+        totalPriceUsd: item.total_price_usd,
+        totalPriceCdf: item.total_price_cdf,
         quantity: item.quantity,
       }
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
+    console.error('[mobile-add-cart-item] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

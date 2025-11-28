@@ -29,64 +29,106 @@ serve(async (req) => {
     const url = new URL(req.url);
     const itemId = url.pathname.split('/').pop();
 
-    // Verify item belongs to user's draft order
-    const { data: item, error: fetchError } = await supabase
+    if (!itemId) {
+      return new Response(JSON.stringify({ error: 'Item ID is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[mobile-delete-cart-item] Deleting item:', itemId);
+
+    // Verify item belongs to user and is in a DRAFT order
+    const { data: item, error: itemError } = await supabase
       .from('order_items')
-      .select('*, orders!inner(user_id, status)')
+      .select('*, orders!inner(user_id, status, id)')
       .eq('id', itemId)
       .single();
 
-    if (fetchError || !item || item.orders.user_id !== user.id || item.orders.status !== 'DRAFT') {
-      return new Response(JSON.stringify({ error: 'Item not found or not editable' }), {
+    if (itemError || !item) {
+      return new Response(JSON.stringify({ error: 'Item not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const orderId = item.order_id;
+    if (item.orders.user_id !== user.id) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    // Delete item
+    if (item.orders.status !== 'DRAFT') {
+      return new Response(JSON.stringify({ error: 'Cannot delete from submitted order' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const orderId = item.orders.id;
+
+    // Delete the item
     const { error: deleteError } = await supabase
       .from('order_items')
       .delete()
       .eq('id', itemId);
 
-    if (deleteError) throw deleteError;
+    if (deleteError) {
+      console.error('[mobile-delete-cart-item] Delete error:', deleteError);
+      return new Response(JSON.stringify({ error: 'Failed to delete item' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    // Check if order has remaining items
+    // Get updated cart summary
     const { data: remainingItems } = await supabase
       .from('order_items')
       .select('*')
       .eq('order_id', orderId);
 
-    if (remainingItems && remainingItems.length > 0) {
-      // Recalculate totals
-      const { data: settings } = await supabase.from('settings').select('*').single();
+    let itemCount = 0;
+    let baseSubtotalUsd = 0;
+    let markupTotalUsd = 0;
+    let shippingTotalUsd = 0;
+    let grandTotalUsd = 0;
 
-      const itemTotal = remainingItems.reduce((sum, i) => sum + (Number(i.subtotal_usd || 0)), 0);
-      const serviceFee = itemTotal * (settings?.service_fee_percent || 0.12);
-      const shippingFee = Number(settings?.shipping_base_fee_usd || 10) + (itemTotal * (settings?.shipping_percent || 0.10));
-      const totalUsd = itemTotal + serviceFee + shippingFee;
-      const totalCdf = totalUsd * (settings?.exchange_rate_usd_to_cdf || 2800);
+    (remainingItems || []).forEach(i => {
+      const qty = i.quantity || 1;
+      itemCount += qty;
+      baseSubtotalUsd += Number(i.base_price_usd || 0) * qty;
+      markupTotalUsd += Number(i.markup_fee_usd || 0) * qty;
+      shippingTotalUsd += Number(i.shipping_fee_usd || 0) * qty;
+      grandTotalUsd += Number(i.total_price_usd || 0) * qty;
+    });
 
-      await supabase
-        .from('orders')
-        .update({
-          item_total_usd: itemTotal,
-          service_fee_usd: serviceFee,
-          shipping_fee_usd: shippingFee,
-          total_usd: totalUsd,
-          total_cdf: totalCdf,
-          exchange_rate_used: settings?.exchange_rate_usd_to_cdf,
-        })
-        .eq('id', orderId);
-    }
+    const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
+    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
+    const grandTotalCdf = grandTotalUsd * exchangeRate;
 
-    return new Response(JSON.stringify({ success: true }), {
+    console.log('[mobile-delete-cart-item] Updated cart summary:', {
+      itemCount,
+      grandTotalUsd,
+    });
+
+    return new Response(JSON.stringify({
+      success: true,
+      summary: {
+        itemCount,
+        baseSubtotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
+        markupTotalUsd: Math.round(markupTotalUsd * 100) / 100,
+        shippingTotalUsd: Math.round(shippingTotalUsd * 100) / 100,
+        grandTotalUsd: Math.round(grandTotalUsd * 100) / 100,
+        grandTotalCdf: Math.round(grandTotalCdf * 100) / 100,
+      }
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
+    console.error('[mobile-delete-cart-item] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

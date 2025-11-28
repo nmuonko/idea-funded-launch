@@ -299,6 +299,42 @@ export type Database = {
         }
         Relationships: []
       }
+      product_cache: {
+        Row: {
+          created_at: string | null
+          currency: string | null
+          expires_at: string | null
+          id: string
+          image_url: string | null
+          price: number | null
+          product_url: string
+          source: string | null
+          title: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          currency?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          price?: number | null
+          product_url: string
+          source?: string | null
+          title?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          currency?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          price?: number | null
+          product_url?: string
+          source?: string | null
+          title?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -497,6 +533,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      clean_expired_product_cache: { Args: never; Returns: undefined }
       generate_project_code: { Args: never; Returns: string }
       get_active_session: {
         Args: never

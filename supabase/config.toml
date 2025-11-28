@@ -89,3 +89,6 @@ verify_jwt = false
 
 [functions.send-delivery-notification]
 verify_jwt = false
+
+[functions.get-product-info]
+verify_jwt = false

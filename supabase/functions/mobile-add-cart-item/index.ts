@@ -26,10 +26,41 @@ serve(async (req) => {
       });
     }
 
-    const { productUrl, store, title, imageUrl, unitPrice, quantity = 1 } = await req.json();
+    let { productUrl, store, title, imageUrl, unitPrice, quantity = 1 } = await req.json();
 
     console.log('[mobile-add-cart-item] User:', user.id);
     console.log('[mobile-add-cart-item] Adding item:', { productUrl, store, title, unitPrice, quantity });
+
+    // If price not provided, auto-detect from URL
+    if (!unitPrice || unitPrice === 0) {
+      console.log('[mobile-add-cart-item] Price not provided, calling get-product-info');
+      try {
+        const productInfoResponse = await supabase.functions.invoke('get-product-info', {
+          body: { productUrl },
+        });
+
+        if (productInfoResponse.data && !productInfoResponse.error) {
+          const productInfo = productInfoResponse.data;
+          console.log('[mobile-add-cart-item] Auto-detected product info:', productInfo);
+          
+          // Use detected values if not provided
+          if (!title && productInfo.title) {
+            title = productInfo.title;
+          }
+          if (!imageUrl && productInfo.imageUrl) {
+            imageUrl = productInfo.imageUrl;
+          }
+          if (!unitPrice && productInfo.price) {
+            unitPrice = productInfo.price;
+            console.log('[mobile-add-cart-item] Using auto-detected price:', unitPrice);
+          }
+        } else {
+          console.warn('[mobile-add-cart-item] Price detection failed:', productInfoResponse.error);
+        }
+      } catch (error: any) {
+        console.error('[mobile-add-cart-item] Error calling get-product-info:', error.message);
+      }
+    }
 
     // Find or create DRAFT order
     let { data: order } = await supabase

@@ -29,7 +29,12 @@ serve(async (req) => {
     const body = await req.json();
     console.log('[mobile-add-cart-item] Request body:', body);
 
-    const { productUrl, quantity = 1, productTitle, productImageUrl, productPrice } = body;
+    const { productUrl } = body;
+    
+    // Determine quantity (default to 1 if missing or invalid)
+    const quantity = typeof body.quantity === 'number' && body.quantity > 0
+      ? body.quantity
+      : 1;
 
     // Validate productUrl
     if (!productUrl || typeof productUrl !== 'string' || !productUrl.trim()) {
@@ -39,45 +44,38 @@ serve(async (req) => {
       });
     }
 
-    // Determine base price
-    let basePrice = productPrice;
-    let detectedTitle = productTitle;
-    let detectedImageUrl = productImageUrl;
+    // ALWAYS call get-product-info to auto-detect price
+    console.log('[mobile-add-cart-item] Calling get-product-info for:', productUrl);
+    
+    const { data: productInfo, error: infoError } = await supabase.functions.invoke('get-product-info', {
+      body: { productUrl }
+    });
 
-    if (!basePrice) {
-      console.log('[mobile-add-cart-item] No price provided, calling get-product-info for:', productUrl);
-      
-      const { data: productInfo, error: infoError } = await supabase.functions.invoke('get-product-info', {
-        body: { productUrl }
-      });
-
-      if (infoError) {
-        console.error('[mobile-add-cart-item] get-product-info error:', infoError);
-      }
-
-      if (productInfo?.price) {
-        basePrice = productInfo.price;
-        detectedTitle = detectedTitle || productInfo.title;
-        detectedImageUrl = detectedImageUrl || productInfo.imageUrl;
-        console.log('[mobile-add-cart-item] Auto-detected price for', productUrl, '=>', basePrice);
-      } else {
-        console.log('[mobile-add-cart-item] PRICE_DETECTION_FAILED for:', productUrl);
-        return new Response(JSON.stringify({
-          error: 'PRICE_DETECTION_FAILED',
-          message: 'Could not detect price automatically for this URL.',
-          productInfo: {
-            url: productUrl,
-            title: productInfo?.title || null,
-            imageUrl: productInfo?.imageUrl || null
-          }
-        }), {
-          status: 422,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-    } else {
-      console.log('[mobile-add-cart-item] Using client-provided productPrice:', basePrice);
+    if (infoError) {
+      console.error('[mobile-add-cart-item] get-product-info error:', infoError);
     }
+
+    // Check if price was detected
+    if (!productInfo?.price || productInfo.price <= 0) {
+      console.log('[mobile-add-cart-item] PRICE_DETECTION_FAILED for:', productUrl);
+      return new Response(JSON.stringify({
+        error: 'PRICE_DETECTION_FAILED',
+        message: 'Could not detect price automatically for this URL. Please try another link or store.',
+        productInfo: {
+          url: productUrl,
+          title: productInfo?.title || null,
+          imageUrl: productInfo?.imageUrl || null
+        }
+      }), {
+        status: 422,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const basePrice = productInfo.price;
+    const detectedTitle = productInfo.title;
+    const detectedImageUrl = productInfo.imageUrl;
+    console.log('[mobile-add-cart-item] Auto-detected price for', productUrl, '=>', basePrice);
 
     // Load pricing settings
     const { data: settings } = await supabase.from('settings').select('*').single();

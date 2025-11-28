@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThemeCustomizer } from '@/components/ThemeCustomizer';
 
 export function AdminLayout() {
   const location = useLocation();
@@ -31,11 +32,14 @@ export function AdminLayout() {
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="w-64 glass-strong border-r border-border/50 p-6 space-y-8">
-        <div>
-          <h2 className="text-2xl font-bold bg-gradient-glow bg-clip-text text-transparent">
-            Admin Panel
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">AfriShop</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold bg-gradient-glow bg-clip-text text-transparent">
+              Admin Panel
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">AfriShop</p>
+          </div>
+          <ThemeCustomizer />
         </div>
 
         <nav className="space-y-2">

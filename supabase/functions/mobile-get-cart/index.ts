@@ -26,6 +26,8 @@ serve(async (req) => {
       });
     }
 
+    console.log('[mobile-get-cart] User:', user.id);
+
     // Get DRAFT order
     const { data: order } = await supabase
       .from('orders')
@@ -35,17 +37,26 @@ serve(async (req) => {
       .single();
 
     if (!order) {
+      console.log('[mobile-get-cart] No DRAFT order found');
       return new Response(JSON.stringify({ order: null, items: [] }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    console.log('[mobile-get-cart] Found order:', order.id);
+
     // Get items
-    const { data: items } = await supabase
+    const { data: items, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
       .eq('order_id', order.id);
+
+    if (itemsError) {
+      console.error('[mobile-get-cart] Items query error:', itemsError);
+    }
+
+    console.log('[mobile-get-cart] Found items:', items?.length || 0);
 
     // Get settings
     const { data: settings } = await supabase.from('settings').select('*').single();
@@ -86,11 +97,12 @@ serve(async (req) => {
         id: i.id,
         store: i.store,
         productUrl: i.product_url,
-        unitPriceUsd: i.unit_price_usd,
-        quantity: i.quantity,
-        subtotalUsd: i.subtotal_usd,
+        title: i.title,
+        unitPriceUsd: i.unit_price_usd || 0,
+        quantity: i.quantity || 1,
+        subtotalUsd: i.subtotal_usd || 0,
         notes: i.notes,
-      })),
+      })) || [],
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

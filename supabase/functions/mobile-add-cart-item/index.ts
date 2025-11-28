@@ -26,7 +26,10 @@ serve(async (req) => {
       });
     }
 
-    const { productUrl, store } = await req.json();
+    const { productUrl, store, title, imageUrl, unitPrice, quantity = 1 } = await req.json();
+
+    console.log('[mobile-add-cart-item] User:', user.id);
+    console.log('[mobile-add-cart-item] Adding item:', { productUrl, store, title, unitPrice, quantity });
 
     // Find or create DRAFT order
     let { data: order } = await supabase
@@ -47,6 +50,13 @@ serve(async (req) => {
       order = newOrder;
     }
 
+    console.log('[mobile-add-cart-item] Found/created order:', order.id);
+
+    // Calculate subtotal
+    const parsedPrice = Number(unitPrice) || 0;
+    const parsedQty = Number(quantity) || 1;
+    const subtotal = parsedPrice * parsedQty;
+
     // Create order item
     const { data: item, error: itemError } = await supabase
       .from('order_items')
@@ -54,14 +64,34 @@ serve(async (req) => {
         order_id: order.id,
         store,
         product_url: productUrl,
-        quantity: 1,
+        title: title || null,
+        unit_price_usd: parsedPrice,
+        quantity: parsedQty,
+        subtotal_usd: subtotal,
       })
       .select()
       .single();
 
-    if (itemError) throw itemError;
+    if (itemError) {
+      console.error('[mobile-add-cart-item] Insert error:', itemError);
+      throw itemError;
+    }
 
-    return new Response(JSON.stringify({ cartItemId: item.id, orderId: order.id }), {
+    console.log('[mobile-add-cart-item] Item created:', item.id);
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      cartItemId: item.id, 
+      orderId: order.id,
+      item: {
+        id: item.id,
+        productUrl: item.product_url,
+        title: item.title,
+        unitPrice: item.unit_price_usd,
+        quantity: item.quantity,
+        subtotal: item.subtotal_usd,
+      }
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

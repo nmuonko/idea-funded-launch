@@ -26,13 +26,48 @@ serve(async (req) => {
       });
     }
 
-    let { productUrl, store, title, imageUrl, unitPrice, quantity = 1 } = await req.json();
+    // Parse request body
+    const body = await req.json();
+    console.log('[mobile-add-cart-item] Request body:', body);
+
+    // Extract and validate fields
+    let { productUrl, productTitle, productImageUrl, productPrice, quantity } = body;
+
+    // VALIDATION: productUrl is required
+    if (!productUrl || typeof productUrl !== 'string' || productUrl.trim() === '') {
+      console.error('[mobile-add-cart-item] Missing or invalid productUrl');
+      return new Response(JSON.stringify({ error: 'productUrl is required and must be a non-empty string' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Default quantity to 1 if not provided
+    if (!quantity || typeof quantity !== 'number' || quantity < 1) {
+      quantity = 1;
+      console.log('[mobile-add-cart-item] Defaulting quantity to 1');
+    }
 
     console.log('[mobile-add-cart-item] User:', user.id);
-    console.log('[mobile-add-cart-item] Adding item:', { productUrl, store, title, unitPrice, quantity });
+    console.log('[mobile-add-cart-item] Validated input:', { productUrl, productTitle, productImageUrl, productPrice, quantity });
+
+    // Determine store from URL
+    let store = 'UNKNOWN';
+    try {
+      const url = new URL(productUrl);
+      const hostname = url.hostname.toLowerCase();
+      if (hostname.includes('amazon')) store = 'AMAZON';
+      else if (hostname.includes('ebay')) store = 'EBAY';
+      else if (hostname.includes('walmart')) store = 'WALMART';
+      else if (hostname.includes('bestbuy')) store = 'BESTBUY';
+      else if (hostname.includes('carvana')) store = 'CARVANA';
+      else if (hostname.includes('cargurus')) store = 'CARGURUS';
+    } catch (e) {
+      console.warn('[mobile-add-cart-item] Could not parse URL for store detection');
+    }
 
     // If price not provided, auto-detect from URL
-    if (!unitPrice || unitPrice === 0) {
+    if (!productPrice || productPrice === 0) {
       console.log('[mobile-add-cart-item] Price not provided, calling get-product-info');
       try {
         const productInfoResponse = await supabase.functions.invoke('get-product-info', {
@@ -44,15 +79,17 @@ serve(async (req) => {
           console.log('[mobile-add-cart-item] Auto-detected product info:', productInfo);
           
           // Use detected values if not provided
-          if (!title && productInfo.title) {
-            title = productInfo.title;
+          if (!productTitle && productInfo.title) {
+            productTitle = productInfo.title;
+            console.log('[mobile-add-cart-item] Using auto-detected title');
           }
-          if (!imageUrl && productInfo.imageUrl) {
-            imageUrl = productInfo.imageUrl;
+          if (!productImageUrl && productInfo.imageUrl) {
+            productImageUrl = productInfo.imageUrl;
+            console.log('[mobile-add-cart-item] Using auto-detected image');
           }
-          if (!unitPrice && productInfo.price) {
-            unitPrice = productInfo.price;
-            console.log('[mobile-add-cart-item] Using auto-detected price:', unitPrice);
+          if (!productPrice && productInfo.price) {
+            productPrice = productInfo.price;
+            console.log('[mobile-add-cart-item] Using auto-detected price:', productPrice);
           }
         } else {
           console.warn('[mobile-add-cart-item] Price detection failed:', productInfoResponse.error);
@@ -60,6 +97,13 @@ serve(async (req) => {
       } catch (error: any) {
         console.error('[mobile-add-cart-item] Error calling get-product-info:', error.message);
       }
+
+      // Log final status
+      if (!productPrice) {
+        console.warn('[mobile-add-cart-item] No price available after get-product-info - will insert with NULL price');
+      }
+    } else {
+      console.log('[mobile-add-cart-item] Using client-provided productPrice:', productPrice);
     }
 
     // Find or create DRAFT order
@@ -83,19 +127,29 @@ serve(async (req) => {
 
     console.log('[mobile-add-cart-item] Found/created order:', order.id);
 
-    // Calculate subtotal
-    const parsedPrice = Number(unitPrice) || 0;
-    const parsedQty = Number(quantity) || 1;
-    const subtotal = parsedPrice * parsedQty;
+    // Calculate subtotal (handle NULL price gracefully)
+    const parsedPrice = productPrice ? Number(productPrice) : null;
+    const parsedQty = Number(quantity);
+    const subtotal = parsedPrice !== null ? parsedPrice * parsedQty : null;
 
-    // Create order item
+    console.log('[mobile-add-cart-item] Inserting item with:', {
+      order_id: order.id,
+      store,
+      product_url: productUrl,
+      title: productTitle || null,
+      unit_price_usd: parsedPrice,
+      quantity: parsedQty,
+      subtotal_usd: subtotal,
+    });
+
+    // Create order item (allow NULL price for manual review)
     const { data: item, error: itemError } = await supabase
       .from('order_items')
       .insert({
         order_id: order.id,
         store,
         product_url: productUrl,
-        title: title || null,
+        title: productTitle || null,
         unit_price_usd: parsedPrice,
         quantity: parsedQty,
         subtotal_usd: subtotal,
@@ -108,19 +162,17 @@ serve(async (req) => {
       throw itemError;
     }
 
-    console.log('[mobile-add-cart-item] Item created:', item.id);
+    console.log('[mobile-add-cart-item] Item created successfully:', item.id);
 
     return new Response(JSON.stringify({ 
       success: true,
-      cartItemId: item.id, 
-      orderId: order.id,
       item: {
         id: item.id,
         productUrl: item.product_url,
-        title: item.title,
-        unitPrice: item.unit_price_usd,
+        productTitle: item.title,
+        productImageUrl: productImageUrl || null,
+        productPrice: item.unit_price_usd,
         quantity: item.quantity,
-        subtotal: item.subtotal_usd,
       }
     }), {
       status: 200,

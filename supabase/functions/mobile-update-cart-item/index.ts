@@ -28,83 +28,127 @@ serve(async (req) => {
 
     const url = new URL(req.url);
     const itemId = url.pathname.split('/').pop();
-    const { unitPriceUsd, quantity, notes } = await req.json();
 
-    // Verify item belongs to user's draft order
-    const { data: item, error: fetchError } = await supabase
+    if (!itemId) {
+      return new Response(JSON.stringify({ error: 'Item ID is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const body = await req.json();
+    console.log('[mobile-update-cart-item] Request body:', body);
+
+    const { quantity } = body;
+
+    if (!quantity || quantity < 1) {
+      return new Response(JSON.stringify({ error: 'Valid quantity is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Verify item belongs to user and is in a DRAFT order
+    const { data: item, error: itemError } = await supabase
       .from('order_items')
       .select('*, orders!inner(user_id, status)')
       .eq('id', itemId)
       .single();
 
-    if (fetchError || !item || item.orders.user_id !== user.id || item.orders.status !== 'DRAFT') {
-      return new Response(JSON.stringify({ error: 'Item not found or not editable' }), {
+    if (itemError || !item) {
+      return new Response(JSON.stringify({ error: 'Item not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // Update item
-    const updateData: any = {};
-    if (unitPriceUsd !== undefined) updateData.unit_price_usd = unitPriceUsd;
-    if (quantity !== undefined) updateData.quantity = quantity;
-    if (notes !== undefined) updateData.notes = notes;
-
-    // Calculate subtotal
-    const finalUnitPrice = unitPriceUsd !== undefined ? unitPriceUsd : item.unit_price_usd;
-    const finalQuantity = quantity !== undefined ? quantity : item.quantity;
-    if (finalUnitPrice !== null && finalQuantity !== null) {
-      updateData.subtotal_usd = finalUnitPrice * finalQuantity;
+    if (item.orders.user_id !== user.id) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
+    if (item.orders.status !== 'DRAFT') {
+      return new Response(JSON.stringify({ error: 'Cannot update submitted order' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Update quantity and subtotal
     const { data: updatedItem, error: updateError } = await supabase
       .from('order_items')
-      .update(updateData)
+      .update({
+        quantity,
+        subtotal_usd: (item.base_price_usd || 0) * quantity,
+      })
       .eq('id', itemId)
       .select()
       .single();
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      console.error('[mobile-update-cart-item] Update error:', updateError);
+      return new Response(JSON.stringify({ error: 'Failed to update item' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
-    // Recalculate order totals
+    // Get updated cart summary
     const { data: allItems } = await supabase
       .from('order_items')
       .select('*')
       .eq('order_id', item.order_id);
 
-    const { data: settings } = await supabase.from('settings').select('*').single();
+    let itemCount = 0;
+    let baseSubtotalUsd = 0;
+    let markupTotalUsd = 0;
+    let shippingTotalUsd = 0;
+    let grandTotalUsd = 0;
 
-    const itemTotal = allItems?.reduce((sum, i) => sum + (Number(i.subtotal_usd || 0)), 0) || 0;
-    const serviceFee = itemTotal * (settings?.service_fee_percent || 0.12);
-    const shippingFee = Number(settings?.shipping_base_fee_usd || 10) + (itemTotal * (settings?.shipping_percent || 0.10));
-    const totalUsd = itemTotal + serviceFee + shippingFee;
-    const totalCdf = totalUsd * (settings?.exchange_rate_usd_to_cdf || 2800);
+    (allItems || []).forEach(i => {
+      const qty = i.quantity || 1;
+      itemCount += qty;
+      baseSubtotalUsd += Number(i.base_price_usd || 0) * qty;
+      markupTotalUsd += Number(i.markup_fee_usd || 0) * qty;
+      shippingTotalUsd += Number(i.shipping_fee_usd || 0) * qty;
+      grandTotalUsd += Number(i.total_price_usd || 0) * qty;
+    });
 
-    await supabase
-      .from('orders')
-      .update({
-        item_total_usd: itemTotal,
-        service_fee_usd: serviceFee,
-        shipping_fee_usd: shippingFee,
-        total_usd: totalUsd,
-        total_cdf: totalCdf,
-        exchange_rate_used: settings?.exchange_rate_usd_to_cdf,
-      })
-      .eq('id', item.order_id);
+    const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
+    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
+    const grandTotalCdf = grandTotalUsd * exchangeRate;
 
     return new Response(JSON.stringify({
-      id: updatedItem.id,
-      store: updatedItem.store,
-      productUrl: updatedItem.product_url,
-      unitPriceUsd: updatedItem.unit_price_usd,
-      quantity: updatedItem.quantity,
-      subtotalUsd: updatedItem.subtotal_usd,
-      notes: updatedItem.notes,
+      success: true,
+      item: {
+        id: updatedItem.id,
+        productUrl: updatedItem.product_url,
+        productTitle: updatedItem.title,
+        productImageUrl: updatedItem.product_image_url,
+        basePriceUsd: updatedItem.base_price_usd,
+        markupFeeUsd: updatedItem.markup_fee_usd,
+        shippingFeeUsd: updatedItem.shipping_fee_usd,
+        totalPriceUsd: updatedItem.total_price_usd,
+        totalPriceCdf: updatedItem.total_price_cdf,
+        quantity: updatedItem.quantity,
+      },
+      summary: {
+        itemCount,
+        baseSubtotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
+        markupTotalUsd: Math.round(markupTotalUsd * 100) / 100,
+        shippingTotalUsd: Math.round(shippingTotalUsd * 100) / 100,
+        grandTotalUsd: Math.round(grandTotalUsd * 100) / 100,
+        grandTotalCdf: Math.round(grandTotalCdf * 100) / 100,
+      }
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
+    console.error('[mobile-update-cart-item] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

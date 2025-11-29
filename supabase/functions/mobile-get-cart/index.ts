@@ -93,12 +93,14 @@ serve(async (req) => {
         productUrl: item.product_url,
         productTitle: item.title,
         productImageUrl: item.product_image_url,
+        unitPriceUsd: basePrice,           // Mobile app uses this for "Price"
+        quantity: qty,
+        subtotalUsd: totalPrice * qty,     // Mobile app uses this for "Subtotal"
         basePriceUsd: basePrice,
         markupFeeUsd: markupFee,
         shippingFeeUsd: shippingFee,
-        totalPriceUsd: totalPrice,
-        totalPriceCdf: Number(item.total_price_cdf || 0),
-        quantity: qty,
+        lineTotalUsd: totalPrice,
+        lineTotalCdf: Number(item.total_price_cdf || 0),
       };
     });
 
@@ -119,19 +121,16 @@ serve(async (req) => {
     console.log('[mobile-get-cart] Cart summary:', summary);
 
     return new Response(JSON.stringify({
-      items: formattedItems.map(item => ({
-        id: item.id,
-        productUrl: item.productUrl,
-        productTitle: item.productTitle,
-        productImageUrl: item.productImageUrl,
-        basePriceUsd: item.basePriceUsd,
-        markupFeeUsd: item.markupFeeUsd,
-        shippingFeeUsd: item.shippingFeeUsd,
-        lineTotalUsd: item.totalPriceUsd,
-        lineTotalCdf: item.totalPriceCdf,
-        quantity: item.quantity,
-      })),
-      summary,
+      items: formattedItems,
+      summary: {
+        itemCount,
+        itemsTotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
+        serviceFeeUsd: Math.round(markupTotalUsd * 100) / 100,
+        shippingFeeUsd: Math.round(shippingTotalUsd * 100) / 100,
+        totalUsd: Math.round(grandTotalUsd * 100) / 100,
+        totalCdf: Math.round(grandTotalCdf * 100) / 100,
+        exchangeRate,
+      },
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

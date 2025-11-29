@@ -29,7 +29,12 @@ serve(async (req) => {
     const body = await req.json();
     console.log('[mobile-add-cart-item] Request body:', body);
 
-    const { productUrl, productPrice, productTitle, productImageUrl } = body;
+    // Map incoming payload fields
+    const productUrl = body.productUrl;
+    const productPrice = Number(body.productPrice);
+    const quantity = typeof body.quantity === 'number' && body.quantity > 0 ? body.quantity : 1;
+    const productTitle = body.productTitle ?? null;
+    const productImageUrl = body.productImageUrl ?? null;
     
     // Validate productUrl
     if (!productUrl || typeof productUrl !== 'string' || !productUrl.trim()) {
@@ -40,17 +45,12 @@ serve(async (req) => {
     }
 
     // Validate productPrice
-    if (typeof productPrice !== 'number' || productPrice <= 0) {
+    if (!productPrice || productPrice <= 0) {
       return new Response(JSON.stringify({ error: 'productPrice must be a positive number' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
-    // Determine quantity (default to 1 if missing or invalid)
-    const quantity = typeof body.quantity === 'number' && body.quantity > 0
-      ? body.quantity
-      : 1;
 
     const basePrice = productPrice;
     console.log('[mobile-add-cart-item] Using client-provided price:', basePrice);
@@ -65,37 +65,38 @@ serve(async (req) => {
       });
     }
 
-    // Calculate fees
+    // Calculate fees - ensure NO value is undefined
     const markupPercent = settings.markup_percent || 15;
     const minServiceFee = settings.min_service_fee_usd || 5;
     const shippingFlatFee = settings.shipping_base_fee_usd || 10;
     const shippingPercent = settings.shipping_percent || 0.10;
     const exchangeRate = settings.exchange_rate_usd_to_cdf || 2800;
 
-    const markupFee = Math.max(basePrice * (markupPercent / 100), minServiceFee);
-    const shippingFee = shippingFlatFee + (basePrice * shippingPercent);
-    const lineTotalUsd = basePrice + markupFee + shippingFee;
+    const basePriceUsd = basePrice;
+    const markupFeeUsd = Math.max(basePrice * (markupPercent / 100), minServiceFee);
+    const shippingFeeUsd = shippingFlatFee + (basePrice * shippingPercent);
+    const lineTotalUsd = basePriceUsd + markupFeeUsd + shippingFeeUsd;
     const lineTotalCdf = lineTotalUsd * exchangeRate;
 
     console.log('[mobile-add-cart-item] Pricing breakdown:', {
-      basePrice,
-      markupFee,
-      shippingFee,
+      basePriceUsd,
+      markupFeeUsd,
+      shippingFeeUsd,
       lineTotalUsd,
       lineTotalCdf
     });
 
-    // Detect store from URL
-    let store = 'other';
+    // Detect store from URL - use UPPERCASE for enum
+    let store = 'OTHER';
     try {
       const urlObj = new URL(productUrl);
       const hostname = urlObj.hostname.toLowerCase();
-      if (hostname.includes('amazon')) store = 'amazon';
-      else if (hostname.includes('ebay')) store = 'ebay';
-      else if (hostname.includes('walmart')) store = 'walmart';
-      else if (hostname.includes('bestbuy')) store = 'bestbuy';
-      else if (hostname.includes('carvana')) store = 'carvana';
-      else if (hostname.includes('cargurus')) store = 'cargurus';
+      if (hostname.includes('amazon')) store = 'AMAZON';
+      else if (hostname.includes('ebay')) store = 'EBAY';
+      else if (hostname.includes('walmart')) store = 'WALMART';
+      else if (hostname.includes('bestbuy')) store = 'BESTBUY';
+      else if (hostname.includes('carvana')) store = 'CARVANA';
+      else if (hostname.includes('cargurus')) store = 'CARGURUS';
     } catch (e) {
       console.error('[mobile-add-cart-item] Invalid URL format:', e);
     }
@@ -131,32 +132,41 @@ serve(async (req) => {
       orderId = newOrder.id;
     }
 
-    // Insert cart item
-    const { data: item, error: itemError } = await supabase
-      .from('order_items')
-      .insert({
-        order_id: orderId,
-        product_url: productUrl,
-        title: productTitle || null,
-        product_image_url: productImageUrl || null,
-        store,
-        base_price_usd: basePrice,
-        markup_fee_usd: markupFee,
-        shipping_fee_usd: shippingFee,
-        total_price_usd: lineTotalUsd,
-        total_price_cdf: lineTotalCdf,
-        quantity,
-        unit_price_usd: basePrice,
-        subtotal_usd: basePrice * quantity,
-      })
-      .select()
-      .single();
+    // Insert cart item - wrap in try/catch and use exact DB column names
+    let item;
+    try {
+      const { data, error: itemError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: orderId,
+          product_url: productUrl,
+          title: productTitle,
+          product_image_url: productImageUrl,
+          store,
+          base_price_usd: basePriceUsd,
+          markup_fee_usd: markupFeeUsd,
+          shipping_fee_usd: shippingFeeUsd,
+          total_price_usd: lineTotalUsd,
+          total_price_cdf: lineTotalCdf,
+          quantity,
+          unit_price_usd: basePriceUsd,
+          subtotal_usd: basePriceUsd * quantity,
+        })
+        .select()
+        .single();
 
-    if (itemError) {
-      console.error('[mobile-add-cart-item] Failed to insert item:', itemError);
+      if (itemError) {
+        console.error('[mobile-add-cart-item] DB insert error:', JSON.stringify(itemError, null, 2));
+        throw itemError;
+      }
+      
+      item = data;
+    } catch (error: any) {
+      console.error('[mobile-add-cart-item] Failed to insert item:', error);
       return new Response(JSON.stringify({ 
         error: 'DB_INSERT_FAILED',
-        message: 'Failed to add item to cart.'
+        message: 'Failed to add item to cart.',
+        details: error.message
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

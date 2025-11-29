@@ -119,7 +119,18 @@ serve(async (req) => {
     console.log('[mobile-get-cart] Cart summary:', summary);
 
     return new Response(JSON.stringify({
-      items: formattedItems,
+      items: formattedItems.map(item => ({
+        id: item.id,
+        productUrl: item.productUrl,
+        productTitle: item.productTitle,
+        productImageUrl: item.productImageUrl,
+        basePriceUsd: item.basePriceUsd,
+        markupFeeUsd: item.markupFeeUsd,
+        shippingFeeUsd: item.shippingFeeUsd,
+        lineTotalUsd: item.totalPriceUsd,
+        lineTotalCdf: item.totalPriceCdf,
+        quantity: item.quantity,
+      })),
       summary,
     }), {
       status: 200,

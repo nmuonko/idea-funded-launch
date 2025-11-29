@@ -82,6 +82,7 @@ serve(async (req) => {
       shippingFeeUsd,
       lineTotalUsd,
       lineTotalCdf,
+      quantity,
     });
 
     // Detect store from URL

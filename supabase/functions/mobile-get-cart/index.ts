@@ -70,63 +70,52 @@ serve(async (req) => {
 
     // Calculate totals
     let itemCount = 0;
-    let baseSubtotalUsd = 0;
-    let markupTotalUsd = 0;
-    let shippingTotalUsd = 0;
-    let grandTotalUsd = 0;
+    let itemsTotalUsd = 0;
+    let markupFeeUsd = 0;
+    let shippingFeeUsd = 0;
+    let totalUsd = 0;
+    let totalCdf = 0;
 
     const formattedItems = (items || []).map(item => {
       const qty = item.quantity || 1;
       const basePrice = Number(item.base_price_usd || 0);
-      const markupFee = Number(item.markup_fee_usd || 0);
-      const shippingFee = Number(item.shipping_fee_usd || 0);
-      const totalPrice = Number(item.total_price_usd || 0);
+      const markup = Number(item.markup_fee_usd || 0);
+      const shipping = Number(item.shipping_fee_usd || 0);
+      const lineTotal = Number(item.total_price_usd || 0);
+      const lineCdf = Number(item.total_price_cdf || 0);
 
       itemCount += qty;
-      baseSubtotalUsd += basePrice * qty;
-      markupTotalUsd += markupFee * qty;
-      shippingTotalUsd += shippingFee * qty;
-      grandTotalUsd += totalPrice * qty;
+      itemsTotalUsd += basePrice * qty;
+      markupFeeUsd += markup * qty;
+      shippingFeeUsd += shipping * qty;
+      totalUsd += lineTotal * qty;
+      totalCdf += lineCdf * qty;
 
       return {
         id: item.id,
         productUrl: item.product_url,
         productTitle: item.title,
         productImageUrl: item.product_image_url,
-        unitPriceUsd: basePrice,           // Mobile app uses this for "Price"
         quantity: qty,
-        subtotalUsd: totalPrice * qty,     // Mobile app uses this for "Subtotal"
         basePriceUsd: basePrice,
-        markupFeeUsd: markupFee,
-        shippingFeeUsd: shippingFee,
-        lineTotalUsd: totalPrice,
-        lineTotalCdf: Number(item.total_price_cdf || 0),
+        markupFeeUsd: markup,
+        shippingFeeUsd: shipping,
+        lineTotalUsd: lineTotal,
+        lineTotalCdf: lineCdf,
       };
     });
 
     // Get exchange rate for CDF conversion
     const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
     const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const grandTotalCdf = grandTotalUsd * exchangeRate;
-
-    const summary = {
-      itemCount,
-      baseSubtotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
-      markupTotalUsd: Math.round(markupTotalUsd * 100) / 100,
-      shippingTotalUsd: Math.round(shippingTotalUsd * 100) / 100,
-      grandTotalUsd: Math.round(grandTotalUsd * 100) / 100,
-      grandTotalCdf: Math.round(grandTotalCdf * 100) / 100,
-    };
-
-    console.log('[mobile-get-cart] Cart summary:', summary);
 
     const responseSummary = {
       itemCount,
-      itemsTotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
-      markupFeeUsd: Math.round(markupTotalUsd * 100) / 100,
-      shippingFeeUsd: Math.round(shippingTotalUsd * 100) / 100,
-      totalUsd: Math.round(grandTotalUsd * 100) / 100,
-      totalCdf: Math.round(grandTotalCdf * 100) / 100,
+      itemsTotalUsd: Math.round(itemsTotalUsd * 100) / 100,
+      markupFeeUsd: Math.round(markupFeeUsd * 100) / 100,
+      shippingFeeUsd: Math.round(shippingFeeUsd * 100) / 100,
+      totalUsd: Math.round(totalUsd * 100) / 100,
+      totalCdf: Math.round(totalCdf * 100) / 100,
       exchangeRate,
     };
 

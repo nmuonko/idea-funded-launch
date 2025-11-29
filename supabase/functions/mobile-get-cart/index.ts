@@ -120,17 +120,21 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Cart summary:', summary);
 
+    const responseSummary = {
+      itemCount,
+      itemsTotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
+      markupFeeUsd: Math.round(markupTotalUsd * 100) / 100,
+      shippingFeeUsd: Math.round(shippingTotalUsd * 100) / 100,
+      totalUsd: Math.round(grandTotalUsd * 100) / 100,
+      totalCdf: Math.round(grandTotalCdf * 100) / 100,
+      exchangeRate,
+    };
+
+    console.log('[mobile-get-cart] Response summary:', responseSummary);
+
     return new Response(JSON.stringify({
       items: formattedItems,
-      summary: {
-        itemCount,
-        itemsTotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
-        serviceFeeUsd: Math.round(markupTotalUsd * 100) / 100,
-        shippingFeeUsd: Math.round(shippingTotalUsd * 100) / 100,
-        totalUsd: Math.round(grandTotalUsd * 100) / 100,
-        totalCdf: Math.round(grandTotalCdf * 100) / 100,
-        exchangeRate,
-      },
+      summary: responseSummary,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

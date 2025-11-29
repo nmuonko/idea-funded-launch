@@ -208,7 +208,7 @@ export default function FeesSettings() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="shippingBase">Shipping Base Fee (USD)</Label>
+              <Label htmlFor="shippingBase">Base Shipping (phones &lt; 1kg)</Label>
               <Input
                 id="shippingBase"
                 type="number"
@@ -217,7 +217,7 @@ export default function FeesSettings() {
                 onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                Flat fee added to all shipments
+                Used as base shipping for phones and other items under 1kg. You can adjust this later if shipping costs change.
               </p>
             </div>
 

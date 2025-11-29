@@ -39,9 +39,12 @@ serve(async (req) => {
     const body = await req.json();
     console.log('[mobile-update-cart-item] Request body:', body);
 
-    const { quantity } = body;
+    const newQuantity =
+      typeof body.quantity === 'number' && body.quantity > 0
+        ? body.quantity
+        : 1;
 
-    if (!quantity || quantity < 1) {
+    if (!body.quantity || newQuantity < 1) {
       return new Response(JSON.stringify({ error: 'Valid quantity is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -76,13 +79,10 @@ serve(async (req) => {
       });
     }
 
-    // Update quantity and subtotal
+    // Update quantity only (per-unit prices remain unchanged)
     const { data: updatedItem, error: updateError } = await supabase
       .from('order_items')
-      .update({
-        quantity,
-        subtotal_usd: (item.base_price_usd || 0) * quantity,
-      })
+      .update({ quantity: newQuantity })
       .eq('id', itemId)
       .select()
       .single();
@@ -95,6 +95,11 @@ serve(async (req) => {
       });
     }
 
+    console.log('[mobile-update-cart-item] Quantity updated:', {
+      itemId,
+      newQuantity,
+    });
+
     // Get updated cart summary
     const { data: allItems } = await supabase
       .from('order_items')
@@ -102,23 +107,24 @@ serve(async (req) => {
       .eq('order_id', item.order_id);
 
     let itemCount = 0;
-    let baseSubtotalUsd = 0;
-    let markupTotalUsd = 0;
-    let shippingTotalUsd = 0;
-    let grandTotalUsd = 0;
+    let itemsTotalUsd = 0;
+    let markupFeeUsd = 0;
+    let shippingFeeUsd = 0;
+    let totalUsd = 0;
+    let totalCdf = 0;
 
     (allItems || []).forEach(i => {
       const qty = i.quantity || 1;
       itemCount += qty;
-      baseSubtotalUsd += Number(i.base_price_usd || 0) * qty;
-      markupTotalUsd += Number(i.markup_fee_usd || 0) * qty;
-      shippingTotalUsd += Number(i.shipping_fee_usd || 0) * qty;
-      grandTotalUsd += Number(i.total_price_usd || 0) * qty;
+      itemsTotalUsd += Number(i.base_price_usd || 0) * qty;
+      markupFeeUsd += Number(i.markup_fee_usd || 0) * qty;
+      shippingFeeUsd += Number(i.shipping_fee_usd || 0) * qty;
+      totalUsd += Number(i.total_price_usd || 0) * qty;
+      totalCdf += Number(i.total_price_cdf || 0) * qty;
     });
 
     const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
     const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const grandTotalCdf = grandTotalUsd * exchangeRate;
 
     return new Response(JSON.stringify({
       success: true,
@@ -130,17 +136,18 @@ serve(async (req) => {
         basePriceUsd: updatedItem.base_price_usd,
         markupFeeUsd: updatedItem.markup_fee_usd,
         shippingFeeUsd: updatedItem.shipping_fee_usd,
-        totalPriceUsd: updatedItem.total_price_usd,
-        totalPriceCdf: updatedItem.total_price_cdf,
+        lineTotalUsd: updatedItem.total_price_usd,
+        lineTotalCdf: updatedItem.total_price_cdf,
         quantity: updatedItem.quantity,
       },
       summary: {
         itemCount,
-        baseSubtotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
-        markupTotalUsd: Math.round(markupTotalUsd * 100) / 100,
-        shippingTotalUsd: Math.round(shippingTotalUsd * 100) / 100,
-        grandTotalUsd: Math.round(grandTotalUsd * 100) / 100,
-        grandTotalCdf: Math.round(grandTotalCdf * 100) / 100,
+        itemsTotalUsd: Math.round(itemsTotalUsd * 100) / 100,
+        markupFeeUsd: Math.round(markupFeeUsd * 100) / 100,
+        shippingFeeUsd: Math.round(shippingFeeUsd * 100) / 100,
+        totalUsd: Math.round(totalUsd * 100) / 100,
+        totalCdf: Math.round(totalCdf * 100) / 100,
+        exchangeRate,
       }
     }), {
       status: 200,

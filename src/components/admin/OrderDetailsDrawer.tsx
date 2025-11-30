@@ -16,12 +16,14 @@ import {
   DollarSign, 
   Calendar,
   User,
-  ExternalLink
+  ExternalLink,
+  Mail
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
 import { AIAssistantPanel } from './AIAssistantPanel';
 import { ProfitCalculator } from './ProfitCalculator';
+import { SendOrderEmailDialog } from './SendOrderEmailDialog';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;
@@ -35,6 +37,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -345,11 +348,29 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                       >
                         Add Note
                       </Button>
+                      <Button
+                        onClick={() => setEmailDialogOpen(true)}
+                        variant="outline"
+                        className="w-full"
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Send Email
+                      </Button>
                     </div>
                   </div>
                 </div>
               )}
             </div>
+
+            {order && (
+              <SendOrderEmailDialog
+                orderId={order.id}
+                customerEmail={order.user_id}
+                customerName={`User ${order.user_id.slice(0, 8)}`}
+                open={emailDialogOpen}
+                onClose={() => setEmailDialogOpen(false)}
+              />
+            )}
           </>
         ) : null}
       </SheetContent>

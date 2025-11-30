@@ -27,7 +27,8 @@ export default function AdminPayments() {
         .from('orders')
         .select(`
           *,
-          profiles!inner(name, email, phone)
+          profiles!inner(name, email, phone),
+          order_items(id, title, product_url, product_image_url)
         `)
         .order('created_at', { ascending: false });
 
@@ -179,9 +180,10 @@ export default function AdminPayments() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Transaction ID</TableHead>
+                  <TableHead>Transaction ID</TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
+                      <TableHead>Items</TableHead>
                       <TableHead>Amount</TableHead>
                       <TableHead>Method</TableHead>
                       <TableHead>Status</TableHead>
@@ -206,6 +208,40 @@ export default function AdminPayments() {
                             <div className="font-medium">{order.profiles?.name || 'N/A'}</div>
                             <div className="text-xs text-muted-foreground">{order.profiles?.email}</div>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {order.order_items && order.order_items.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {order.order_items.slice(0, 1).map((item: any) => (
+                                item.product_url ? (
+                                  <a
+                                    key={item.id}
+                                    href={item.product_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                  >
+                                    {item.product_image_url && (
+                                      <img 
+                                        src={item.product_image_url} 
+                                        alt="" 
+                                        className="h-4 w-4 object-cover rounded"
+                                        onError={(e) => e.currentTarget.style.display = 'none'}
+                                      />
+                                    )}
+                                    <span className="line-clamp-1">{item.title?.slice(0, 25) || 'Product'}</span>
+                                  </a>
+                                ) : (
+                                  <span key={item.id} className="text-xs text-muted-foreground">{item.title?.slice(0, 25) || 'N/A'}</span>
+                                )
+                              ))}
+                              {order.order_items.length > 1 && (
+                                <span className="text-xs text-muted-foreground">+{order.order_items.length - 1} more</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No items</span>
+                          )}
                         </TableCell>
                         <TableCell className="font-semibold">
                           ${Number(order.total_usd || 0).toFixed(2)}

@@ -160,8 +160,8 @@ export default function AdminOrderDetail() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Product</TableHead>
                 <TableHead>Store</TableHead>
-                <TableHead>Title</TableHead>
                 <TableHead>Product Link</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Unit Price</TableHead>
@@ -172,16 +172,36 @@ export default function AdminOrderDetail() {
               {items.map((item) => (
                 <TableRow key={item.id}>
                   <TableCell>
+                    <div className="flex items-center gap-3">
+                      {item.product_image_url ? (
+                        <img 
+                          src={item.product_image_url} 
+                          alt={item.title || 'Product'} 
+                          className="h-12 w-12 object-cover rounded border"
+                          onError={(e) => {
+                            e.currentTarget.src = 'https://placehold.co/48x48?text=No+Image';
+                          }}
+                        />
+                      ) : (
+                        <div className="h-12 w-12 bg-muted rounded border flex items-center justify-center text-xs text-muted-foreground">
+                          No Image
+                        </div>
+                      )}
+                      <div className="max-w-[200px]">
+                        <div className="font-medium text-sm line-clamp-2">{item.title || 'N/A'}</div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
                     <Badge>{item.store}</Badge>
                   </TableCell>
-                  <TableCell>{item.title || 'N/A'}</TableCell>
                   <TableCell>
                     {item.product_url ? (
                       <a 
                         href={item.product_url} 
                         target="_blank" 
                         rel="noopener noreferrer" 
-                        className="text-primary hover:underline inline-flex items-center gap-1"
+                        className="text-primary hover:underline inline-flex items-center gap-1 text-sm"
                       >
                         View Product
                         <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

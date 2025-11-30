@@ -24,6 +24,13 @@ verify_jwt = false
 [functions.maishapay-callback]
 verify_jwt = false
 
+[functions.maisha-callback]
+verify_jwt = false
+
+[functions.mobile-create-order-from-cart]
+
+[functions.mobile-order-status]
+
 [functions.maishapay-create-payment]
 verify_jwt = true
 

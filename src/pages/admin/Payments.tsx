@@ -24,20 +24,26 @@ export default function AdminPayments() {
     try {
       setLoading(true);
       let query = supabase
-        .from('orders')
+        .from('maisha_payments')
         .select(`
           *,
-          profiles!inner(name, email, phone),
-          order_items(id, title, product_url, product_image_url)
+          orders!inner(
+            id,
+            total_usd,
+            total_cdf,
+            status,
+            created_at,
+            profiles!inner(name, full_name, phone)
+          )
         `)
         .order('created_at', { ascending: false });
 
       if (activeTab === 'verified') {
-        query = query.not('payment_verified_at', 'is', null);
+        query = query.eq('status', 'paid');
       } else if (activeTab === 'pending') {
-        query = query.is('payment_verified_at', null).neq('status', 'DRAFT');
+        query = query.eq('status', 'pending');
       } else if (activeTab === 'failed') {
-        query = query.eq('maisha_payment_status', 'FAILED');
+        query = query.eq('status', 'failed');
       }
 
       const { data, error } = await query;
@@ -56,36 +62,31 @@ export default function AdminPayments() {
     }
   };
 
-  const getPaymentStatusBadge = (order: any) => {
-    if (order.payment_verified_at) {
-      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" /> Verified</Badge>;
+  const getPaymentStatusBadge = (status: string) => {
+    if (status === 'paid') {
+      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" /> Paid</Badge>;
     }
-    if (order.maisha_payment_status === 'FAILED') {
+    if (status === 'failed') {
       return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" /> Failed</Badge>;
     }
     return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" /> Pending</Badge>;
   };
 
-  const getPaymentMethod = (order: any) => {
-    if (order.maisha_transaction_id) return 'MaishaPay';
-    return 'Not Specified';
-  };
-
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = orders.filter((payment) => {
     const search = searchTerm.toLowerCase();
     return (
-      order.id.toLowerCase().includes(search) ||
-      order.profiles?.name?.toLowerCase().includes(search) ||
-      order.profiles?.email?.toLowerCase().includes(search) ||
-      order.maisha_transaction_id?.toLowerCase().includes(search)
+      payment.maisha_reference?.toLowerCase().includes(search) ||
+      payment.orders?.profiles?.name?.toLowerCase().includes(search) ||
+      payment.orders?.profiles?.full_name?.toLowerCase().includes(search) ||
+      payment.order_id?.toLowerCase().includes(search)
     );
   });
 
   const stats = {
     total: orders.length,
-    verified: orders.filter(o => o.payment_verified_at).length,
-    pending: orders.filter(o => !o.payment_verified_at && o.status !== 'DRAFT').length,
-    totalAmount: orders.reduce((sum, o) => sum + Number(o.total_usd || 0), 0),
+    verified: orders.filter(p => p.status === 'paid').length,
+    pending: orders.filter(p => p.status === 'pending').length,
+    totalAmount: orders.reduce((sum, p) => sum + Number(p.amount_usd || 0), 0),
   };
 
   return (
@@ -150,12 +151,12 @@ export default function AdminPayments() {
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <div className="flex items-center justify-between mb-4">
-              <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="verified">Verified</TabsTrigger>
-                <TabsTrigger value="pending">Pending</TabsTrigger>
-                <TabsTrigger value="failed">Failed</TabsTrigger>
-              </TabsList>
+                <TabsList>
+                  <TabsTrigger value="all">All</TabsTrigger>
+                  <TabsTrigger value="verified">Paid</TabsTrigger>
+                  <TabsTrigger value="pending">Pending</TabsTrigger>
+                  <TabsTrigger value="failed">Failed</TabsTrigger>
+                </TabsList>
               <div className="relative w-64">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -180,75 +181,40 @@ export default function AdminPayments() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                  <TableHead>Transaction ID</TableHead>
+                      <TableHead>Maisha Reference</TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Customer</TableHead>
-                      <TableHead>Items</TableHead>
-                      <TableHead>Amount</TableHead>
-                      <TableHead>Method</TableHead>
+                      <TableHead>Amount (USD)</TableHead>
+                      <TableHead>Amount (CDF)</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Date</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredOrders.map((order) => (
-                      <TableRow key={order.id}>
+                    {filteredOrders.map((payment) => (
+                      <TableRow key={payment.id}>
                         <TableCell className="font-mono text-xs">
-                          {order.maisha_transaction_id ? (
-                            order.maisha_transaction_id.slice(0, 16) + '...'
-                          ) : (
-                            <span className="text-muted-foreground">N/A</span>
-                          )}
+                          {payment.maisha_reference}
                         </TableCell>
                         <TableCell className="font-mono text-xs">
-                          {order.id.slice(0, 8)}...
+                          {payment.order_id?.slice(0, 8)}...
                         </TableCell>
                         <TableCell>
                           <div>
-                            <div className="font-medium">{order.profiles?.name || 'N/A'}</div>
-                            <div className="text-xs text-muted-foreground">{order.profiles?.email}</div>
+                            <div className="font-medium">
+                              {payment.orders?.profiles?.full_name || payment.orders?.profiles?.name || 'N/A'}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{payment.orders?.profiles?.phone}</div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {order.order_items && order.order_items.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {order.order_items.slice(0, 1).map((item: any) => (
-                                item.product_url ? (
-                                  <a
-                                    key={item.id}
-                                    href={item.product_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-primary hover:underline flex items-center gap-1"
-                                  >
-                                    {item.product_image_url && (
-                                      <img 
-                                        src={item.product_image_url} 
-                                        alt="" 
-                                        className="h-4 w-4 object-cover rounded"
-                                        onError={(e) => e.currentTarget.style.display = 'none'}
-                                      />
-                                    )}
-                                    <span className="line-clamp-1">{item.title?.slice(0, 25) || 'Product'}</span>
-                                  </a>
-                                ) : (
-                                  <span key={item.id} className="text-xs text-muted-foreground">{item.title?.slice(0, 25) || 'N/A'}</span>
-                                )
-                              ))}
-                              {order.order_items.length > 1 && (
-                                <span className="text-xs text-muted-foreground">+{order.order_items.length - 1} more</span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No items</span>
-                          )}
+                        <TableCell className="font-semibold">
+                          ${Number(payment.amount_usd || 0).toFixed(2)}
                         </TableCell>
                         <TableCell className="font-semibold">
-                          ${Number(order.total_usd || 0).toFixed(2)}
+                          {Number(payment.amount_cdf || 0).toLocaleString()} CDF
                         </TableCell>
-                        <TableCell>{getPaymentMethod(order)}</TableCell>
-                        <TableCell>{getPaymentStatusBadge(order)}</TableCell>
-                        <TableCell>{new Date(order.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell>{getPaymentStatusBadge(payment.status)}</TableCell>
+                        <TableCell>{new Date(payment.created_at).toLocaleDateString()}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

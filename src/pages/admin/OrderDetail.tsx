@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
+import { ImageLightbox } from '@/components/admin/ImageLightbox';
+import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
@@ -16,6 +18,7 @@ export default function AdminOrderDetail() {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -177,7 +180,8 @@ export default function AdminOrderDetail() {
                         <img 
                           src={item.product_image_url} 
                           alt={item.title || 'Product'} 
-                          className="h-12 w-12 object-cover rounded border"
+                          className="h-12 w-12 object-cover rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setLightboxImage({ src: item.product_image_url, alt: item.title || 'Product' })}
                           onError={(e) => {
                             e.currentTarget.src = 'https://placehold.co/48x48?text=No+Image';
                           }}
@@ -249,6 +253,17 @@ export default function AdminOrderDetail() {
           </div>
         </CardContent>
       </Card>
+
+      <OrderTimelineComponent orderId={id!} />
+
+      {lightboxImage && (
+        <ImageLightbox
+          src={lightboxImage.src}
+          alt={lightboxImage.alt}
+          open={!!lightboxImage}
+          onClose={() => setLightboxImage(null)}
+        />
+      )}
     </div>
   );
 }

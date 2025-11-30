@@ -192,6 +192,59 @@ export type Database = {
         }
         Relationships: []
       }
+      maisha_payments: {
+        Row: {
+          amount_cdf: number | null
+          amount_usd: number | null
+          created_at: string
+          currency: string | null
+          id: string
+          maisha_reference: string
+          order_id: string
+          paid_at: string | null
+          raw_request: Json | null
+          raw_response: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount_cdf?: number | null
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          maisha_reference: string
+          order_id: string
+          paid_at?: string | null
+          raw_request?: Json | null
+          raw_response?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_cdf?: number | null
+          amount_usd?: number | null
+          created_at?: string
+          currency?: string | null
+          id?: string
+          maisha_reference?: string
+          order_id?: string
+          paid_at?: string | null
+          raw_request?: Json | null
+          raw_response?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maisha_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_actions: {
         Row: {
           action_message: string | null

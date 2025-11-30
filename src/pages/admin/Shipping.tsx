@@ -41,7 +41,10 @@ export default function AdminShipping() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('*')
+        .select(`
+          *,
+          order_items(id, title, product_url, product_image_url)
+        `)
         .in('status', statusFilter)
         .order('created_at', { ascending: false });
 
@@ -179,6 +182,7 @@ export default function AdminShipping() {
                     <TableRow>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Items</TableHead>
                       <TableHead>City</TableHead>
                       <TableHead>Total</TableHead>
                       <TableHead>Tracking</TableHead>
@@ -193,6 +197,40 @@ export default function AdminShipping() {
                           {order.id.slice(0, 8)}...
                         </TableCell>
                         <TableCell>{getStatusBadge(order.status)}</TableCell>
+                        <TableCell>
+                          {order.order_items && order.order_items.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {order.order_items.slice(0, 1).map((item: any) => (
+                                item.product_url ? (
+                                  <a
+                                    key={item.id}
+                                    href={item.product_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                  >
+                                    {item.product_image_url && (
+                                      <img 
+                                        src={item.product_image_url} 
+                                        alt="" 
+                                        className="h-4 w-4 object-cover rounded"
+                                        onError={(e) => e.currentTarget.style.display = 'none'}
+                                      />
+                                    )}
+                                    <span className="line-clamp-1">{item.title?.slice(0, 25) || 'Product'}</span>
+                                  </a>
+                                ) : (
+                                  <span key={item.id} className="text-xs text-muted-foreground">{item.title?.slice(0, 25) || 'N/A'}</span>
+                                )
+                              ))}
+                              {order.order_items.length > 1 && (
+                                <span className="text-xs text-muted-foreground">+{order.order_items.length - 1} more</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No items</span>
+                          )}
+                        </TableCell>
                         <TableCell>{order.shipping_city || 'N/A'}</TableCell>
                         <TableCell>${Number(order.total_usd || 0).toFixed(2)}</TableCell>
                         <TableCell>

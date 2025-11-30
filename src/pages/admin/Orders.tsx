@@ -29,7 +29,7 @@ export default function AdminOrders() {
         .select(`
           *,
           profiles!inner(name, email),
-          order_items(id, title, product_url, quantity)
+          order_items(id, title, product_url, product_image_url, quantity)
         `)
         .order('created_at', { ascending: false });
 
@@ -140,8 +140,39 @@ export default function AdminOrders() {
                   </TableCell>
                   <TableCell>{order.shipping_city || 'N/A'}</TableCell>
                   <TableCell>
-                    <div className="text-xs text-muted-foreground">
-                      {order.order_items?.length || 0} item(s)
+                    <div className="flex flex-col gap-1">
+                      <div className="text-xs font-medium">
+                        {order.order_items?.length || 0} item(s)
+                      </div>
+                      {order.order_items && order.order_items.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {order.order_items.slice(0, 2).map((item: any) => (
+                            item.product_url ? (
+                              <a
+                                key={item.id}
+                                href={item.product_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary hover:underline flex items-center gap-1"
+                                title={item.title || 'View product'}
+                              >
+                                {item.product_image_url && (
+                                  <img 
+                                    src={item.product_image_url} 
+                                    alt="" 
+                                    className="h-4 w-4 object-cover rounded"
+                                    onError={(e) => e.currentTarget.style.display = 'none'}
+                                  />
+                                )}
+                                <span className="line-clamp-1">{item.title?.slice(0, 20) || 'Product'}</span>
+                              </a>
+                            ) : null
+                          ))}
+                          {order.order_items.length > 2 && (
+                            <span className="text-xs text-muted-foreground">+{order.order_items.length - 2} more</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell className="font-semibold">${Number(order.total_usd || 0).toFixed(2)}</TableCell>

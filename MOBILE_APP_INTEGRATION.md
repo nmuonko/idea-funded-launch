@@ -78,10 +78,10 @@ const { items, summary } = await response.json();
 }
 ```
 
-### 2. Add to Cart
+### 2. Add to Cart (with Intelligent Merge)
 **Endpoint**: `POST /mobile-add-cart-item`
 
-Adds a product to the cart. The mobile app must provide the product URL, price, and quantity.
+Adds a product to the cart. **Important**: If an item with the same `productUrl` already exists in the cart, the quantities will be automatically merged instead of creating a duplicate entry.
 
 ```typescript
 const response = await fetch(
@@ -101,7 +101,40 @@ const response = await fetch(
     })
   }
 );
+
+const result = await response.json();
+
+// Check if item was merged with existing cart item
+if (result.merged) {
+  showToast('Quantity updated in cart!');
+} else {
+  showToast('Added to cart!');
+}
+
+// Response structure:
+{
+  success: true,
+  merged: false,  // true if item was merged with existing item
+  item: {
+    id: "uuid",
+    productUrl: "https://...",
+    productTitle: "Product Name",
+    quantity: 1,  // Updated quantity if merged
+    basePriceUsd: 99.99,
+    markupFeeUsd: 15.00,
+    shippingFeeUsd: 10.99,
+    lineTotalUsd: 125.98,
+    lineTotalCdf: 352744
+  }
+}
 ```
+
+**Smart Cart Merge Behavior**:
+- The backend automatically detects if the same product (by exact `productUrl` match) is already in the cart
+- If found, it merges by adding the new quantity to the existing quantity
+- No duplicate product rows in the cart
+- The `merged` flag in the response tells you whether a merge occurred
+- This provides a cleaner UX and prevents cart clutter
 
 ### 3. Update Cart Item Quantity
 **Endpoint**: `PATCH /mobile-update-cart-item/:itemId`

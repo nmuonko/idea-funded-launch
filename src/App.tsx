@@ -22,6 +22,7 @@ import AdminSupportTickets from "./pages/admin/SupportTickets";
 import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
+import AdminCarts from "./pages/admin/Carts";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -48,7 +49,6 @@ const App = () => (
             } />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             
-            {/* Admin Routes */}
             <Route path="/admin" element={
               <ProtectedRoute requireAdmin>
                 <AdminLayout />
@@ -57,6 +57,7 @@ const App = () => (
               <Route index element={<AdminDashboard />} />
               <Route path="orders" element={<AdminOrders />} />
               <Route path="orders/:id" element={<AdminOrderDetail />} />
+              <Route path="carts" element={<AdminCarts />} />
               <Route path="payments" element={<AdminPayments />} />
               <Route path="support" element={<AdminSupportTickets />} />
               <Route path="ticket-analytics" element={<TicketAnalytics />} />

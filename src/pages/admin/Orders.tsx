@@ -17,6 +17,7 @@ export default function AdminOrders() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'all' | 'finalized' | 'non-finalized'>('all');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -24,7 +25,7 @@ export default function AdminOrders() {
 
   useEffect(() => {
     loadOrders();
-  }, [statusFilter]);
+  }, [statusFilter, orderTypeFilter]);
 
   const loadOrders = async () => {
     try {
@@ -38,6 +39,14 @@ export default function AdminOrders() {
         `)
         .order('created_at', { ascending: false });
 
+      // Apply order type filter
+      if (orderTypeFilter === 'finalized') {
+        query = query.in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED']);
+      } else if (orderTypeFilter === 'non-finalized') {
+        query = query.in('status', ['DRAFT', 'PENDING_PAYMENT']);
+      }
+
+      // Apply specific status filter
       if (statusFilter !== 'ALL') {
         query = query.eq('status', statusFilter as any);
       }
@@ -220,7 +229,39 @@ export default function AdminOrders() {
                 : 'Manage all customer orders'}
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex gap-2">
+              <Button
+                variant={orderTypeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setOrderTypeFilter('all');
+                  setStatusFilter('ALL');
+                }}
+              >
+                All Orders
+              </Button>
+              <Button
+                variant={orderTypeFilter === 'finalized' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setOrderTypeFilter('finalized');
+                  setStatusFilter('ALL');
+                }}
+              >
+                Finalized
+              </Button>
+              <Button
+                variant={orderTypeFilter === 'non-finalized' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setOrderTypeFilter('non-finalized');
+                  setStatusFilter('ALL');
+                }}
+              >
+                Pending/Unpaid
+              </Button>
+            </div>
             {selectedOrders.size > 0 && (
               <>
                 <Select onValueChange={handleBulkStatusUpdate} disabled={bulkActionLoading}>
@@ -259,7 +300,7 @@ export default function AdminOrders() {
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">All Orders</SelectItem>
+                <SelectItem value="ALL">All Statuses</SelectItem>
                 <SelectItem value="PENDING_PAYMENT">Pending Payment</SelectItem>
                 <SelectItem value="PAID">Paid</SelectItem>
                 <SelectItem value="PROCESSING">Processing</SelectItem>

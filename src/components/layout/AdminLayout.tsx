@@ -1,7 +1,7 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, DollarSign, Settings, Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, ShoppingCart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThemeCustomizer } from '@/components/ThemeCustomizer';
 
@@ -13,6 +13,7 @@ export function AdminLayout() {
   const navItems = [
     { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
     { to: '/admin/orders', icon: CreditCard, label: 'Orders' },
+    { to: '/admin/carts', icon: ShoppingCart, label: 'Active Carts' },
     { to: '/admin/payments', icon: Wallet, label: 'Payments' },
     { to: '/admin/shipping', icon: Truck, label: 'Shipping' },
     { to: '/admin/support', icon: MessageSquare, label: 'Support Tickets' },

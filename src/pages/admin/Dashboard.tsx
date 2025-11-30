@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { DollarSign, Package, TrendingUp, Users } from 'lucide-react';
 import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 import { PendingActionsWidget } from '@/components/admin/PendingActionsWidget';
+import { CartConversionWidget } from '@/components/admin/CartConversionWidget';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -134,8 +135,9 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-6">
           <PendingActionsWidget />
+          <CartConversionWidget />
         </div>
       </div>
     </div>

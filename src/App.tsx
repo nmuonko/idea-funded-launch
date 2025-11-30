@@ -23,6 +23,7 @@ import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import AdminCarts from "./pages/admin/Carts";
+import ABTestResults from "./pages/admin/ABTestResults";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -58,6 +59,7 @@ const App = () => (
               <Route path="orders" element={<AdminOrders />} />
               <Route path="orders/:id" element={<AdminOrderDetail />} />
               <Route path="carts" element={<AdminCarts />} />
+              <Route path="ab-tests" element={<ABTestResults />} />
               <Route path="payments" element={<AdminPayments />} />
               <Route path="support" element={<AdminSupportTickets />} />
               <Route path="ticket-analytics" element={<TicketAnalytics />} />

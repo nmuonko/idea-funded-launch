@@ -92,3 +92,33 @@ verify_jwt = false
 
 [functions.get-product-info]
 verify_jwt = false
+
+[functions.admin-get-carts]
+verify_jwt = true
+
+[functions.cleanup-expired-carts]
+verify_jwt = false
+
+[functions.send-abandoned-cart-emails]
+verify_jwt = false
+
+[functions.send-abandoned-cart-recovery]
+verify_jwt = false
+
+[functions.register-device-token]
+verify_jwt = true
+
+[functions.send-push-notification]
+verify_jwt = false
+
+[functions.predict-customer-ltv]
+verify_jwt = true
+
+[functions.send-order-email]
+verify_jwt = true
+
+[functions.send-ticket-notification]
+verify_jwt = false
+
+[functions.escalate-tickets]
+verify_jwt = false

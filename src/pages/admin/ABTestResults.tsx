@@ -4,6 +4,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { TrendingUp, Mail, Target } from 'lucide-react';
+import CartValueHeatmap from '@/components/admin/CartValueHeatmap';
+import CustomerLTVPanel from '@/components/admin/CustomerLTVPanel';
 
 interface ABTestMetrics {
   variant: string;
@@ -92,11 +94,16 @@ export default function ABTestResults() {
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <Target className="h-8 w-8" />
-          A/B Test Results
+          Cart Analytics & Recovery
         </h1>
         <p className="text-muted-foreground">
-          Abandoned cart recovery email timing performance
+          Advanced analytics for abandoned cart optimization
         </p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <CartValueHeatmap />
+        <CustomerLTVPanel />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">

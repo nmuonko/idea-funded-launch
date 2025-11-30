@@ -134,7 +134,59 @@ serve(async (req) => {
       orderId = newOrder.id;
     }
 
-    // Insert into order_items
+    // Check for duplicate items (same product_url in this order)
+    const { data: existingItem } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId)
+      .eq('product_url', productUrl)
+      .single();
+
+    if (existingItem) {
+      // Merge by updating quantity
+      const newQuantity = existingItem.quantity + quantity;
+      const { data: updatedItem, error: updateError } = await supabase
+        .from('order_items')
+        .update({ 
+          quantity: newQuantity,
+          subtotal_usd: existingItem.base_price_usd * newQuantity,
+        })
+        .eq('id', existingItem.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('[mobile-add-cart-item] Failed to merge item:', updateError);
+        return new Response(JSON.stringify({ error: 'Failed to merge cart item' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          merged: true,
+          item: {
+            id: updatedItem.id,
+            productUrl: updatedItem.product_url,
+            productTitle: updatedItem.title,
+            productImageUrl: updatedItem.product_image_url,
+            basePriceUsd: updatedItem.base_price_usd,
+            markupFeeUsd: updatedItem.markup_fee_usd,
+            shippingFeeUsd: updatedItem.shipping_fee_usd,
+            lineTotalUsd: updatedItem.total_price_usd,
+            lineTotalCdf: updatedItem.total_price_cdf,
+            quantity: updatedItem.quantity,
+          },
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Insert new item into order_items
     const { data, error: itemError } = await supabase
       .from('order_items')
       .insert({

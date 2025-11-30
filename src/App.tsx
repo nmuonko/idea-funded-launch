@@ -24,6 +24,7 @@ import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import AdminCarts from "./pages/admin/Carts";
 import ABTestResults from "./pages/admin/ABTestResults";
+import Orders from "./pages/Orders";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -46,6 +47,11 @@ const App = () => (
             <Route path="/support" element={
               <ProtectedRoute>
                 <Support />
+              </ProtectedRoute>
+            } />
+            <Route path="/orders" element={
+              <ProtectedRoute>
+                <Orders />
               </ProtectedRoute>
             } />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />

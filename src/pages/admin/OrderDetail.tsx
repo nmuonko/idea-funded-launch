@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
+import { RefundDialog } from '@/components/admin/RefundDialog';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
@@ -19,6 +20,8 @@ export default function AdminOrderDetail() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+  const [sendingShipping, setSendingShipping] = useState(false);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -68,6 +71,11 @@ export default function AdminOrderDetail() {
 
       if (error) throw error;
 
+      // Send shipping notification if status changed to SHIPPED
+      if (newStatus === 'SHIPPED') {
+        handleSendShippingNotification();
+      }
+
       toast({
         title: 'Success',
         description: 'Order status updated successfully',
@@ -82,6 +90,34 @@ export default function AdminOrderDetail() {
       });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleSendShippingNotification = async () => {
+    try {
+      setSendingShipping(true);
+      const { error } = await supabase.functions.invoke('send-shipping-notification', {
+        body: {
+          orderId: id,
+          trackingNumber: order?.tracking_number,
+          carrier: order?.carrier,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Notification Sent',
+        description: 'Shipping notification sent to customer',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingShipping(false);
     }
   };
 
@@ -124,7 +160,7 @@ export default function AdminOrderDetail() {
           <CardHeader>
             <CardTitle>Order Information</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="space-y-4">
             <div>
               <strong>Status:</strong>{' '}
               <Select value={order.status} onValueChange={handleStatusUpdate} disabled={updating}>
@@ -150,6 +186,33 @@ export default function AdminOrderDetail() {
             </div>
             <div>
               <strong>MaishaPay Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
+            </div>
+            
+            <div className="flex gap-2 pt-4 border-t">
+              {(order.status === 'PAID' || order.status === 'PROCESSING') && (
+                <Button
+                  variant="destructive"
+                  onClick={() => setRefundDialogOpen(true)}
+                  size="sm"
+                >
+                  Process Refund
+                </Button>
+              )}
+              {order.status === 'SHIPPED' && (
+                <Button
+                  variant="outline"
+                  onClick={handleSendShippingNotification}
+                  disabled={sendingShipping}
+                  size="sm"
+                >
+                  {sendingShipping ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" />
+                  )}
+                  Send Tracking Email
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -255,6 +318,13 @@ export default function AdminOrderDetail() {
       </Card>
 
       <OrderTimelineComponent orderId={id!} />
+
+      <RefundDialog
+        orderId={id!}
+        open={refundDialogOpen}
+        onOpenChange={setRefundDialogOpen}
+        onSuccess={loadOrder}
+      />
 
       {lightboxImage && (
         <ImageLightbox

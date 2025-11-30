@@ -31,6 +31,14 @@ verify_jwt = false
 
 [functions.mobile-order-status]
 
+[functions.mobile-retry-payment]
+
+[functions.maisha-process-refund]
+
+[functions.send-payment-confirmation]
+
+[functions.send-shipping-notification]
+
 [functions.maishapay-create-payment]
 verify_jwt = true
 

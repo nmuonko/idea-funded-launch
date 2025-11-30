@@ -6,16 +6,21 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Eye } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, Eye, Download, CheckCircle } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
+import { useToast } from '@/hooks/use-toast';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -82,6 +87,126 @@ export default function AdminOrders() {
     setTimeout(() => setSelectedOrderId(null), 300);
   };
 
+  const toggleSelectAll = () => {
+    if (selectedOrders.size === orders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(orders.map(o => o.id)));
+    }
+  };
+
+  const toggleSelectOrder = (orderId: string) => {
+    const newSelected = new Set(selectedOrders);
+    if (newSelected.has(orderId)) {
+      newSelected.delete(orderId);
+    } else {
+      newSelected.add(orderId);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  const handleBulkStatusUpdate = async (newStatus: string) => {
+    if (selectedOrders.size === 0) return;
+    
+    try {
+      setBulkActionLoading(true);
+      const orderIds = Array.from(selectedOrders);
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: newStatus as any })
+        .in('id', orderIds);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `Updated ${orderIds.length} order(s) to ${newStatus}`,
+      });
+
+      setSelectedOrders(new Set());
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkVerifyPayment = async () => {
+    if (selectedOrders.size === 0) return;
+    
+    try {
+      setBulkActionLoading(true);
+      const orderIds = Array.from(selectedOrders);
+      
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          payment_verified_at: new Date().toISOString(),
+          payment_verification_method: 'BULK_ADMIN_VERIFICATION',
+          status: 'PAID'
+        })
+        .in('id', orderIds);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: `Verified payment for ${orderIds.length} order(s)`,
+      });
+
+      setSelectedOrders(new Set());
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkExport = () => {
+    if (selectedOrders.size === 0) return;
+
+    const selectedOrdersData = orders.filter(o => selectedOrders.has(o.id));
+    const headers = ['Order ID', 'Customer', 'Email', 'City', 'Total USD', 'Status', 'Created'];
+    const rows = selectedOrdersData.map(order => [
+      order.id,
+      order.profiles?.name || 'N/A',
+      order.profiles?.email || 'N/A',
+      order.shipping_city || 'N/A',
+      order.total_usd || 0,
+      order.status,
+      new Date(order.created_at).toLocaleDateString()
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-export-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Export successful',
+      description: `Exported ${selectedOrdersData.length} orders`,
+    });
+  };
+
   return (
     <>
       <Card>
@@ -89,21 +214,60 @@ export default function AdminOrders() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Orders</CardTitle>
-            <CardDescription>Manage all customer orders</CardDescription>
+            <CardDescription>
+              {selectedOrders.size > 0 
+                ? `${selectedOrders.size} order(s) selected` 
+                : 'Manage all customer orders'}
+            </CardDescription>
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All Orders</SelectItem>
-              <SelectItem value="PENDING_PAYMENT">Pending Payment</SelectItem>
-              <SelectItem value="PAID">Paid</SelectItem>
-              <SelectItem value="PROCESSING">Processing</SelectItem>
-              <SelectItem value="SHIPPED">Shipped</SelectItem>
-              <SelectItem value="COMPLETED">Completed</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {selectedOrders.size > 0 && (
+              <>
+                <Select onValueChange={handleBulkStatusUpdate} disabled={bulkActionLoading}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Update Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PAID">Mark as Paid</SelectItem>
+                    <SelectItem value="PROCESSING">Mark as Processing</SelectItem>
+                    <SelectItem value="SHIPPED">Mark as Shipped</SelectItem>
+                    <SelectItem value="COMPLETED">Mark as Completed</SelectItem>
+                    <SelectItem value="CANCELLED">Mark as Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBulkVerifyPayment}
+                  disabled={bulkActionLoading}
+                >
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Verify Payments
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBulkExport}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+              </>
+            )}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All Orders</SelectItem>
+                <SelectItem value="PENDING_PAYMENT">Pending Payment</SelectItem>
+                <SelectItem value="PAID">Paid</SelectItem>
+                <SelectItem value="PROCESSING">Processing</SelectItem>
+                <SelectItem value="SHIPPED">Shipped</SelectItem>
+                <SelectItem value="COMPLETED">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -115,6 +279,12 @@ export default function AdminOrders() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={selectedOrders.size === orders.length && orders.length > 0}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead>Order ID</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>City</TableHead>
@@ -129,6 +299,12 @@ export default function AdminOrders() {
             <TableBody>
               {orders.map((order) => (
                 <TableRow key={order.id}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedOrders.has(order.id)}
+                      onCheckedChange={() => toggleSelectOrder(order.id)}
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs">
                     {order.id.slice(0, 8)}...
                   </TableCell>

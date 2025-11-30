@@ -102,6 +102,39 @@ serve(async (req) => {
         .eq('id', payment.order_id);
 
       console.log('[Maisha Callback] Order marked as PAID:', payment.order_id);
+
+      // Send payment confirmation email (background task)
+      try {
+        await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-payment-confirmation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          },
+          body: JSON.stringify({ orderId: payment.order_id }),
+        });
+        console.log('[Maisha Callback] Payment confirmation email queued');
+      } catch (emailError) {
+        console.error('[Maisha Callback] Error sending confirmation email:', emailError);
+        // Don't fail the webhook if email fails
+      }
+
+      // Automatically progress to PROCESSING after 1 minute (background task)
+      setTimeout(async () => {
+        try {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'PROCESSING',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', payment.order_id)
+            .eq('status', 'PAID');
+          console.log('[Maisha Callback] Order progressed to PROCESSING:', payment.order_id);
+        } catch (progressError) {
+          console.error('[Maisha Callback] Error progressing order:', progressError);
+        }
+      }, 60000); // 1 minute delay
     } else if (normalizedStatus === 'failed') {
       await supabase
         .from('orders')

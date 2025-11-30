@@ -72,6 +72,7 @@ export function Header() {
 
   const navLinks = [
     { to: '/', label: 'Home' },
+    ...(user ? [{ to: '/orders', label: 'My Orders' }] : []),
     { to: '/knowledge-base', label: 'Help Center' },
     { to: '/support', label: 'Support' },
   ];

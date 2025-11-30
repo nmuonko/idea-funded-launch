@@ -73,6 +73,86 @@ export type Database = {
           },
         ]
       }
+      cart_recovery_ab_tests: {
+        Row: {
+          cart_value_usd: number | null
+          converted: boolean | null
+          converted_at: string | null
+          created_at: string | null
+          email_opened: boolean | null
+          email_opened_at: string | null
+          id: string
+          order_id: string
+          segment: string | null
+          sent_at: string
+          variant_name: string
+        }
+        Insert: {
+          cart_value_usd?: number | null
+          converted?: boolean | null
+          converted_at?: string | null
+          created_at?: string | null
+          email_opened?: boolean | null
+          email_opened_at?: string | null
+          id?: string
+          order_id: string
+          segment?: string | null
+          sent_at?: string
+          variant_name: string
+        }
+        Update: {
+          cart_value_usd?: number | null
+          converted?: boolean | null
+          converted_at?: string | null
+          created_at?: string | null
+          email_opened?: boolean | null
+          email_opened_at?: string | null
+          id?: string
+          order_id?: string
+          segment?: string | null
+          sent_at?: string
+          variant_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cart_recovery_ab_tests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      device_tokens: {
+        Row: {
+          created_at: string | null
+          device_token: string
+          id: string
+          last_used_at: string | null
+          platform: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          device_token: string
+          id?: string
+          last_used_at?: string | null
+          platform: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          device_token?: string
+          id?: string
+          last_used_at?: string | null
+          platform?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category: string

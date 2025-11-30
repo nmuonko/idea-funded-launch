@@ -161,8 +161,8 @@ export default function AdminOrderDetail() {
             <TableHeader>
               <TableRow>
                 <TableHead>Store</TableHead>
-                <TableHead>Product URL</TableHead>
                 <TableHead>Title</TableHead>
+                <TableHead>Product Link</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Unit Price</TableHead>
                 <TableHead>Subtotal</TableHead>
@@ -174,12 +174,24 @@ export default function AdminOrderDetail() {
                   <TableCell>
                     <Badge>{item.store}</Badge>
                   </TableCell>
-                  <TableCell>
-                    <a href={item.product_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">
-                      {item.product_url.slice(0, 50)}...
-                    </a>
-                  </TableCell>
                   <TableCell>{item.title || 'N/A'}</TableCell>
+                  <TableCell>
+                    {item.product_url ? (
+                      <a 
+                        href={item.product_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        View Product
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground">N/A</span>
+                    )}
+                  </TableCell>
                   <TableCell>{item.quantity}</TableCell>
                   <TableCell>${Number(item.unit_price_usd || 0).toFixed(2)}</TableCell>
                   <TableCell>${Number(item.subtotal_usd || 0).toFixed(2)}</TableCell>

@@ -25,6 +25,7 @@ import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import AdminCarts from "./pages/admin/Carts";
 import ABTestResults from "./pages/admin/ABTestResults";
 import Orders from "./pages/Orders";
+import MaishaCallback from "./pages/MaishaCallback";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,7 @@ const App = () => (
                 <Orders />
               </ProtectedRoute>
             } />
+            <Route path="/maisha-callback" element={<MaishaCallback />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             
             <Route path="/admin" element={

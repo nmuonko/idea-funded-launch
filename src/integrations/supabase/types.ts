@@ -364,8 +364,11 @@ export type Database = {
           id: string
           info_requested: boolean | null
           item_total_usd: number | null
+          maisha_description: string | null
           maisha_payment_status: string | null
+          maisha_status_code: string | null
           maisha_transaction_id: string | null
+          operator_ref_id: string | null
           payment_notes: string | null
           payment_verification_method: string | null
           payment_verified_at: string | null
@@ -396,8 +399,11 @@ export type Database = {
           id?: string
           info_requested?: boolean | null
           item_total_usd?: number | null
+          maisha_description?: string | null
           maisha_payment_status?: string | null
+          maisha_status_code?: string | null
           maisha_transaction_id?: string | null
+          operator_ref_id?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null
@@ -428,8 +434,11 @@ export type Database = {
           id?: string
           info_requested?: boolean | null
           item_total_usd?: number | null
+          maisha_description?: string | null
           maisha_payment_status?: string | null
+          maisha_status_code?: string | null
           maisha_transaction_id?: string | null
+          operator_ref_id?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null

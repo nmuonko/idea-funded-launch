@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useThemeCustomizer } from "@/hooks/use-theme-customizer";
 
 const hslToHex = (hsl: string): string => {
+  if (!hsl) return "#000000"; // Fallback for undefined values
   const [h, s, l] = hsl.split(" ").map((v) => parseFloat(v));
   const hDecimal = h / 360;
   const sDecimal = s / 100;

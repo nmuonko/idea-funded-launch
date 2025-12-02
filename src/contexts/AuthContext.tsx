@@ -8,7 +8,7 @@ interface AuthContextType {
   session: Session | null;
   isAdmin: boolean;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: any; userId: string | null }>;
+  signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   checkAdminStatus: (userId?: string) => Promise<boolean>;
@@ -74,6 +74,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initializeAuth = async () => {
       try {
         console.log('[Auth] Starting initialization...');
+        
+        // Check if session should be cleared (user didn't select "remember me" and this is a new browser session)
+        const rememberMe = localStorage.getItem('rememberMe');
+        const sessionActive = sessionStorage.getItem('sessionActive');
+        
+        if (!rememberMe && !sessionActive) {
+          // New browser session and user didn't want to be remembered - clear auth
+          console.log('[Auth] Clearing session - remember me was not selected');
+          await supabase.auth.signOut();
+          setSession(null);
+          setUser(null);
+          setIsAdmin(false);
+          setLoading(false);
+          return;
+        }
+        
         // Get initial session
         const { data: { session } } = await supabase.auth.getSession();
         
@@ -133,7 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -147,6 +163,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           variant: 'destructive',
         });
         return { error, userId: null };
+      }
+      
+      // Store remember me preference
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+      } else {
+        localStorage.removeItem('rememberMe');
+        sessionStorage.setItem('sessionActive', 'true');
       }
       
       return { error: null, userId: data.user?.id ?? null };

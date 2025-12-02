@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, ArrowLeft, Shield } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
@@ -17,6 +18,7 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [isResetPassword, setIsResetPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const { signIn, checkAdminStatus } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -24,7 +26,7 @@ export default function Auth() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error, userId } = await signIn(email, password);
+    const { error, userId } = await signIn(email, password, rememberMe);
     
     if (!error && userId) {
       // Check if user is admin using the returned userId
@@ -174,6 +176,19 @@ export default function Auth() {
                       required
                       className="bg-background/50 border-border/50"
                     />
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="remember-me"
+                      checked={rememberMe}
+                      onCheckedChange={(checked) => setRememberMe(checked === true)}
+                    />
+                    <Label 
+                      htmlFor="remember-me" 
+                      className="text-sm font-normal text-muted-foreground cursor-pointer"
+                    >
+                      Remember me
+                    </Label>
                   </div>
                   <Button type="submit" className="w-full h-11" disabled={loading}>
                     {loading ? (

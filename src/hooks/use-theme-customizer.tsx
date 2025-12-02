@@ -26,6 +26,18 @@ export function useThemeCustomizer() {
     root.style.setProperty("--primary", colors.primary);
     root.style.setProperty("--primary-glow", colors.primaryGlow);
     root.style.setProperty("--accent", colors.accent);
+    
+    // Apply primary color to background with adjusted lightness
+    const [h, s, l] = colors.primary.split(" ").map(v => parseFloat(v));
+    const isDark = document.documentElement.classList.contains("dark");
+    
+    if (isDark) {
+      // Dark mode: use darker version of primary
+      root.style.setProperty("--background", `${h} ${Math.min(s, 30)}% ${Math.max(l * 0.2, 6)}%`);
+    } else {
+      // Light mode: use very light version of primary
+      root.style.setProperty("--background", `${h} ${Math.min(s, 40)}% ${Math.max(96 - (l * 0.1), 94)}%`);
+    }
 
     // Save to localStorage
     localStorage.setItem(STORAGE_KEY, JSON.stringify(colors));

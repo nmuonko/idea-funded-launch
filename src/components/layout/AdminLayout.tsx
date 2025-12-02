@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { 
   LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
@@ -12,30 +13,41 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
   const { language } = useLanguage();
+  const { permissions, loading: permissionsLoading } = useAdminPermissions();
   const t = getAdminTranslation(language);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  const navItems = [
-    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true },
-    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders },
-    { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts },
-    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults },
-    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments },
-    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping },
-    { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets },
-    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics },
-    { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase },
-    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics },
-    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement },
-    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings },
-  ];
+  // Define nav items with permission requirements
+  const allNavItems = useMemo(() => [
+    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: null }, // Always visible
+    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'canAccessOrders' as const },
+    { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'canAccessCarts' as const },
+    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'canAccessAnalytics' as const },
+    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'canAccessPayments' as const },
+    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'canAccessShipping' as const },
+    { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'canAccessSupport' as const },
+    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'canAccessSupport' as const },
+    { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'canAccessKnowledgeBase' as const },
+    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'canAccessAnalytics' as const },
+    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'canAccessUsers' as const },
+    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'canAccessSettings' as const },
+  ], [t]);
+
+  // Filter nav items based on permissions
+  const navItems = useMemo(() => {
+    if (!permissions) return allNavItems.filter(item => item.permission === null);
+    return allNavItems.filter(item => 
+      item.permission === null || permissions[item.permission]
+    );
+  }, [allNavItems, permissions]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -70,35 +82,51 @@ export function AdminLayout() {
         </Button>
       </div>
 
+      {/* Role Badge */}
+      {!isCollapsed && permissions && (
+        <div className="px-4 py-2 border-b border-border/50">
+          <span className="text-xs font-medium px-2 py-1 rounded-full bg-primary/10 text-primary capitalize">
+            {permissions.role.replace('_', ' ')}
+          </span>
+        </div>
+      )}
+
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
         <nav className="space-y-1">
-          {navItems.map((item) => {
-            const isActive = item.exact 
-              ? location.pathname === item.to
-              : location.pathname.startsWith(item.to);
-            
-            return (
-              <Link 
-                key={item.to} 
-                to={item.to}
-                onClick={() => setIsMobileOpen(false)}
-              >
-                <Button
-                  variant={isActive ? 'default' : 'ghost'}
-                  className={cn(
-                    'w-full transition-all duration-200',
-                    isCollapsed ? 'justify-center px-2' : 'justify-start gap-3',
-                    isActive && 'shadow-glow'
-                  )}
-                  title={isCollapsed ? item.label : undefined}
+          {permissionsLoading ? (
+            // Loading skeleton
+            Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className={cn("h-10 w-full", isCollapsed ? "w-10" : "")} />
+            ))
+          ) : (
+            navItems.map((item) => {
+              const isActive = item.exact 
+                ? location.pathname === item.to
+                : location.pathname.startsWith(item.to);
+              
+              return (
+                <Link 
+                  key={item.to} 
+                  to={item.to}
+                  onClick={() => setIsMobileOpen(false)}
                 >
-                  <item.icon className="h-5 w-5 flex-shrink-0" />
-                  {!isCollapsed && <span className="truncate">{item.label}</span>}
-                </Button>
-              </Link>
-            );
-          })}
+                  <Button
+                    variant={isActive ? 'default' : 'ghost'}
+                    className={cn(
+                      'w-full transition-all duration-200',
+                      isCollapsed ? 'justify-center px-2' : 'justify-start gap-3',
+                      isActive && 'shadow-glow'
+                    )}
+                    title={isCollapsed ? item.label : undefined}
+                  >
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    {!isCollapsed && <span className="truncate">{item.label}</span>}
+                  </Button>
+                </Link>
+              );
+            })
+          )}
         </nav>
       </ScrollArea>
 

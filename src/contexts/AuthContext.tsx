@@ -8,10 +8,10 @@ interface AuthContextType {
   session: Session | null;
   isAdmin: boolean;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signIn: (email: string, password: string) => Promise<{ error: any; userId: string | null }>;
   signUp: (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
-  checkAdminStatus: () => Promise<boolean>;
+  checkAdminStatus: (userId?: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -135,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -146,16 +146,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: error.message,
           variant: 'destructive',
         });
+        return { error, userId: null };
       }
       
-      return { error };
+      return { error: null, userId: data.user?.id ?? null };
     } catch (error: any) {
       toast({
         title: 'Error',
         description: error.message,
         variant: 'destructive',
       });
-      return { error };
+      return { error, userId: null };
     }
   };
 

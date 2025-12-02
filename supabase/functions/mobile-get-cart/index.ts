@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  corsHeaders, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -15,26 +16,14 @@ function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shipp
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log('[mobile-get-cart] User:', user.id);
+    // Verify JWT using SERVICE_ROLE
+    const { user, supabase } = await verifyAndGetUser(req);
+    console.log('[mobile-get-cart] User authenticated:', user.id);
 
     // Get pricing settings
     const { data: settings } = await supabase.from('settings').select('*').single();
@@ -52,7 +41,7 @@ serve(async (req) => {
 
     if (!order) {
       console.log('[mobile-get-cart] No DRAFT order found');
-      return new Response(JSON.stringify({
+      return jsonResponse({
         items: [],
         summary: {
           itemCount: 0,
@@ -64,9 +53,6 @@ serve(async (req) => {
           grandTotalCdf: 0,
           exchangeRate,
         }
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
@@ -127,7 +113,7 @@ serve(async (req) => {
 
     // Safety check: log warning if items exist but totals are zero
     if (items && items.length > 0 && finalItemsTotal === 0) {
-      console.error('[mobile-get-cart] WARNING: Items exist but totals are zero! Order may need recalculation.', {
+      console.error('[mobile-get-cart] WARNING: Items exist but totals are zero!', {
         orderId: order.id,
         itemCount: items.length,
         orderItemTotal: order.item_total_usd,
@@ -148,19 +134,15 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Response summary:', summary);
 
-    return new Response(JSON.stringify({
-      items: formattedItems,
-      summary,
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ items: formattedItems, summary });
 
   } catch (error: any) {
-    console.error('[mobile-get-cart] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[mobile-get-cart] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return errorResponse(error.message, 500);
   }
 });

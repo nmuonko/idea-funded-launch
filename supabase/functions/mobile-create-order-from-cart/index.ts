@@ -1,10 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -22,9 +22,9 @@ function calculateCartSummary(
   exchangeRate: number
 ) {
   let itemCount = 0;
-  let totalItemsUsd = 0;    // Sum of (base_price * qty) for all items
-  let totalMarginUsd = 0;   // Sum of markup fees
-  let itemsSubtotalUsd = 0; // Sum of (base + margin) for all items
+  let totalItemsUsd = 0;
+  let totalMarginUsd = 0;
+  let itemsSubtotalUsd = 0;
 
   (items || []).forEach(item => {
     const qty = item.quantity || 1;
@@ -34,7 +34,6 @@ function calculateCartSummary(
     itemsSubtotalUsd += Number(item.total_price_usd || 0);
   });
 
-  // Dynamic shipping: base + (percentage × items subtotal)
   const shippingFeeUsd = items && items.length > 0 
     ? calculateShipping(totalItemsUsd, shippingBaseFeeUsd, shippingPercent)
     : 0;
@@ -55,32 +54,15 @@ function calculateCartSummary(
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
     console.log('[mobile-create-order-from-cart] Request received');
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    // Authenticate user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      console.error('[mobile-create-order-from-cart] Authentication failed:', userError);
-      return new Response(JSON.stringify({ 
-        error: 'UNAUTHORIZED', 
-        message: 'Authentication required.' 
-      }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
+    // Verify JWT using SERVICE_ROLE
+    const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-create-order-from-cart] User authenticated:', user.id);
 
     // Get existing DRAFT order with items
@@ -93,36 +75,27 @@ serve(async (req) => {
 
     if (orderFetchError) {
       console.error('[mobile-create-order-from-cart] Error fetching draft order:', orderFetchError);
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'DB_FETCH_ERROR', 
         message: 'Failed to fetch cart data.',
         details: orderFetchError.message 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 500);
     }
 
     if (!existingOrder) {
       console.log('[mobile-create-order-from-cart] No draft order found');
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'EMPTY_CART', 
         message: 'Your cart is empty. Please add items before checkout.' 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 400);
     }
 
     if (!existingOrder.order_items || existingOrder.order_items.length === 0) {
       console.log('[mobile-create-order-from-cart] Draft order has no items');
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'EMPTY_CART', 
         message: 'Your cart is empty. Please add items before checkout.' 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 400);
     }
 
     console.log('[mobile-create-order-from-cart] Found draft order:', {
@@ -138,14 +111,11 @@ serve(async (req) => {
 
     if (settingsError || !settings) {
       console.error('[mobile-create-order-from-cart] Error fetching settings:', settingsError);
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'SETTINGS_ERROR', 
         message: 'Failed to load pricing configuration.',
         details: settingsError?.message 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 500);
     }
 
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
@@ -187,26 +157,20 @@ serve(async (req) => {
         userId: user.id
       });
       
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'DB_ORDER_UPDATE_FAILED', 
         message: 'Failed to finalize order. Please try again.',
         details: updateError.message,
         code: updateError.code
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 500);
     }
 
     if (!updatedOrder) {
       console.error('[mobile-create-order-from-cart] Order update returned no data');
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'DB_ORDER_UPDATE_FAILED', 
         message: 'Failed to finalize order. Please try again.' 
-      }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 500);
     }
 
     console.log('[mobile-create-order-from-cart] Order updated successfully:', {
@@ -217,7 +181,7 @@ serve(async (req) => {
     });
 
     // Return success with order details
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       orderId: updatedOrder.id,
       order: {
@@ -231,20 +195,19 @@ serve(async (req) => {
         grandTotalCdf: summary.grandTotalCdf,
         exchangeRate: exchangeRate,
       }
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {
-    console.error('[mobile-create-order-from-cart] Unexpected error:', error);
-    return new Response(JSON.stringify({ 
+    console.error('[mobile-create-order-from-cart] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return jsonResponse({ 
       error: 'INTERNAL_ERROR', 
       message: 'An unexpected error occurred. Please try again.',
       details: error.message 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    }, 500);
   }
 });

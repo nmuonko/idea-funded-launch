@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  corsHeaders, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -56,9 +57,9 @@ async function updateOrderTotals(
   }
 
   // Calculate order totals from items
-  let itemTotalUsd = 0;    // Sum of base prices (subtotal_usd = base * qty)
-  let serviceFeeUsd = 0;   // Sum of markup fees
-  let itemsWithMarkupUsd = 0; // Sum of (base + markup)
+  let itemTotalUsd = 0;
+  let serviceFeeUsd = 0;
+  let itemsWithMarkupUsd = 0;
 
   (items || []).forEach((item: any) => {
     itemTotalUsd += Number(item.subtotal_usd || 0);
@@ -85,7 +86,7 @@ async function updateOrderTotals(
     itemCount: items?.length || 0,
   });
 
-  // Safety check: if items exist but totals are zero, log an error
+  // Safety check
   if (items && items.length > 0 && itemTotalUsd === 0) {
     console.error('[updateOrderTotals] WARNING: Items exist but itemTotalUsd is 0!', items);
   }
@@ -119,24 +120,14 @@ async function updateOrderTotals(
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Verify JWT using SERVICE_ROLE
+    const { user, supabase } = await verifyAndGetUser(req);
+    console.log('[mobile-add-cart-item] User authenticated:', user.id);
 
     const body = await req.json();
 
@@ -146,17 +137,11 @@ serve(async (req) => {
     const quantity = Number.isFinite(body.quantity) && body.quantity > 0 ? Math.floor(body.quantity) : 1;
 
     if (!productUrl || typeof productUrl !== 'string') {
-      return new Response(JSON.stringify({ error: 'productUrl is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('productUrl is required', 400);
     }
 
     if (!Number.isFinite(productPrice) || productPrice <= 0) {
-      return new Response(
-        JSON.stringify({ error: 'productPrice must be a positive number' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return errorResponse('productPrice must be a positive number', 400);
     }
 
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity });
@@ -165,16 +150,13 @@ serve(async (req) => {
     const { data: settings } = await supabase.from('settings').select('*').single();
     
     if (!settings) {
-      return new Response(JSON.stringify({ error: 'Pricing settings not configured' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Pricing settings not configured', 500);
     }
 
     const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
     const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
-    const shippingPercent = settings.shipping_percent ?? 0.10; // Stored as decimal (0.10 = 10%)
+    const shippingPercent = settings.shipping_percent ?? 0.10;
 
     // Calculate pricing using helper
     const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
@@ -220,19 +202,13 @@ serve(async (req) => {
     if (!orderId) {
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
-        .insert({
-          user_id: user.id,
-          status: 'DRAFT',
-        })
+        .insert({ user_id: user.id, status: 'DRAFT' })
         .select('id')
         .single();
 
       if (orderError) {
         console.error('[mobile-add-cart-item] Failed to create order:', orderError);
-        return new Response(JSON.stringify({ error: 'Failed to create cart' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return errorResponse('Failed to create cart', 500);
       }
 
       orderId = newOrder.id;
@@ -271,10 +247,7 @@ serve(async (req) => {
 
       if (updateError) {
         console.error('[mobile-add-cart-item] Failed to merge item:', updateError);
-        return new Response(JSON.stringify({ error: 'Failed to merge cart item' }), {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return errorResponse('Failed to merge cart item', 500);
       }
 
       console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
@@ -282,26 +255,23 @@ serve(async (req) => {
       // UPDATE ORDER TOTALS after merge
       const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          merged: true,
-          item: {
-            id: updatedItem.id,
-            productUrl: updatedItem.product_url,
-            productTitle: updatedItem.title,
-            productImageUrl: updatedItem.product_image_url,
-            basePriceUsd: updatedItem.base_price_usd,
-            quantity: updatedItem.quantity,
-            itemBaseTotalUsd: updatedItem.subtotal_usd,
-            itemMarginUsd: updatedItem.markup_fee_usd,
-            itemSubtotalUsd: updatedItem.total_price_usd,
-            itemSubtotalCdf: updatedItem.total_price_cdf,
-          },
-          summary,
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return jsonResponse({
+        success: true,
+        merged: true,
+        item: {
+          id: updatedItem.id,
+          productUrl: updatedItem.product_url,
+          productTitle: updatedItem.title,
+          productImageUrl: updatedItem.product_image_url,
+          basePriceUsd: updatedItem.base_price_usd,
+          quantity: updatedItem.quantity,
+          itemBaseTotalUsd: updatedItem.subtotal_usd,
+          itemMarginUsd: updatedItem.markup_fee_usd,
+          itemSubtotalUsd: updatedItem.total_price_usd,
+          itemSubtotalCdf: updatedItem.total_price_cdf,
+        },
+        summary,
+      });
     }
 
     // Insert new item into order_items
@@ -318,7 +288,7 @@ serve(async (req) => {
         quantity: pricing.quantity,
         subtotal_usd: pricing.itemBaseTotalUsd,
         markup_fee_usd: pricing.itemMarginUsd,
-        shipping_fee_usd: 0, // Shipping applied at order level
+        shipping_fee_usd: 0,
         total_price_usd: pricing.itemSubtotalUsd,
         total_price_cdf: pricing.itemSubtotalCdf,
       })
@@ -327,40 +297,36 @@ serve(async (req) => {
 
     if (itemError) {
       console.error('[mobile-add-cart-item] cart_items insert error:', itemError);
-      return new Response(
-        JSON.stringify({ error: 'DB_INSERT_FAILED', message: 'Failed to add item to cart.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return errorResponse('Failed to add item to cart.', 500);
     }
 
     // UPDATE ORDER TOTALS after adding new item
     const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        item: {
-          id: data.id,
-          productUrl: data.product_url,
-          productTitle: data.title,
-          productImageUrl: data.product_image_url,
-          basePriceUsd: data.base_price_usd,
-          quantity: data.quantity,
-          itemBaseTotalUsd: data.subtotal_usd,
-          itemMarginUsd: data.markup_fee_usd,
-          itemSubtotalUsd: data.total_price_usd,
-          itemSubtotalCdf: data.total_price_cdf,
-        },
-        summary,
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      success: true,
+      item: {
+        id: data.id,
+        productUrl: data.product_url,
+        productTitle: data.title,
+        productImageUrl: data.product_image_url,
+        basePriceUsd: data.base_price_usd,
+        quantity: data.quantity,
+        itemBaseTotalUsd: data.subtotal_usd,
+        itemMarginUsd: data.markup_fee_usd,
+        itemSubtotalUsd: data.total_price_usd,
+        itemSubtotalCdf: data.total_price_cdf,
+      },
+      summary,
+    });
 
   } catch (error: any) {
-    console.error('[mobile-add-cart-item] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[mobile-add-cart-item] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return errorResponse(error.message, 500);
   }
 });

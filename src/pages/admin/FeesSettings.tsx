@@ -7,7 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save } from 'lucide-react';
+import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { languages, Language } from '@/lib/i18n/translations';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 export default function FeesSettings() {
   const [settings, setSettings] = useState<any>(null);
@@ -22,6 +25,15 @@ export default function FeesSettings() {
   const [shippingPercent, setShippingPercent] = useState(10);
   const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);
   const { toast } = useToast();
+  const { language, setLanguage } = useLanguage();
+
+  const handleLanguageChange = (newLang: Language) => {
+    setLanguage(newLang);
+    toast({
+      title: 'Language updated',
+      description: `Language changed to ${languages.find(l => l.code === newLang)?.name}`,
+    });
+  };
 
   useEffect(() => {
     loadSettings();
@@ -165,6 +177,47 @@ export default function FeesSettings() {
           Save Changes
         </Button>
       </div>
+
+      {/* Language Preferences */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Language Preferences
+          </CardTitle>
+          <CardDescription>
+            Choose your preferred language for the admin portal
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RadioGroup
+            value={language}
+            onValueChange={(value) => handleLanguageChange(value as Language)}
+            className="grid grid-cols-2 md:grid-cols-4 gap-4"
+          >
+            {languages.map((lang) => (
+              <div
+                key={lang.code}
+                className={`flex items-center space-x-3 rounded-lg border p-4 cursor-pointer transition-colors ${
+                  language === lang.code
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted/50'
+                }`}
+                onClick={() => handleLanguageChange(lang.code)}
+              >
+                <RadioGroupItem value={lang.code} id={`lang-${lang.code}`} />
+                <Label
+                  htmlFor={`lang-${lang.code}`}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  <span className="text-xl">{lang.flag}</span>
+                  <span className="font-medium">{lang.name}</span>
+                </Label>
+              </div>
+            ))}
+          </RadioGroup>
+        </CardContent>
+      </Card>
 
       {/* Core Settings */}
       <Card>

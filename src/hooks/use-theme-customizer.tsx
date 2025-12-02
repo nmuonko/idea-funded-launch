@@ -8,10 +8,10 @@ export interface ThemeColors {
 }
 
 const DEFAULT_COLORS: ThemeColors = {
-  primary: "200 98% 39%", // Deep ocean blue
+  primary: "217 91% 60%", // Bright blue
   primaryGlow: "210 85% 45%",
   accent: "210 40% 98%",
-  sidebarBackground: "0 0% 98%", // Light gray by default
+  sidebarBackground: "222 47% 11%", // Dark blue sidebar
 };
 
 const STORAGE_KEY = "afrishop-theme-colors";

@@ -11,39 +11,39 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* Deep Ocean Blue Design System */
-    --background: 209 40% 96%;
-    --foreground: 222 47% 11%;
+    /* Dark Blue Ocean Design System */
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
 
-    --card: 210 40% 98%;
-    --card-foreground: 222 47% 11%;
+    --card: 215 30% 14%;
+    --card-foreground: 210 40% 98%;
 
-    --popover: 214 31% 91%;
-    --popover-foreground: 222 47% 11%;
+    --popover: 215 30% 12%;
+    --popover-foreground: 210 40% 98%;
 
     /* Deep ocean blue - Professional and trustworthy */
-    --primary: 200 98% 39%;
-    --primary-foreground: 204 100% 97%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 210 40% 98%;
     --primary-glow: 210 85% 45%;
 
     /* Ocean accent */
-    --secondary: 215 24% 26%;
+    --secondary: 215 25% 18%;
     --secondary-foreground: 210 40% 98%;
     --secondary-glow: 200 75% 55%;
 
     /* Ocean backgrounds */
-    --muted: 215 20% 65%;
-    --muted-foreground: 222 47% 11%;
+    --muted: 215 25% 18%;
+    --muted-foreground: 215 20% 65%;
 
-    --accent: 210 40% 98%;
-    --accent-foreground: 215 19% 34%;
+    --accent: 200 100% 45%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 85% 97%;
 
-    --border: 212 26% 83%;
-    --input: 212 26% 83%;
-    --ring: 200 98% 39%;
+    --border: 215 25% 20%;
+    --input: 215 25% 20%;
+    --ring: 217 91% 60%;
 
     --radius: 0.5rem;
 
@@ -73,35 +73,35 @@ All colors MUST be HSL.
     --gradient-tesla-end: 210 75% 35%;
 
     /* Glassmorphism effects */
-    --glass-bg: 210 100% 98%;
-    --glass-border: 210 30% 88%;
+    --glass-bg: 215 25% 15%;
+    --glass-border: 215 25% 20%;
 
     /* Ocean shadows */
-    --shadow-glow: 210 85% 35%;
-    --shadow-soft: 210 20% 70%;
-    --shadow-elegant: 210 30% 50%;
+    --shadow-glow: 217 91% 60%;
+    --shadow-soft: 215 20% 15%;
+    --shadow-elegant: 210 25% 10%;
 
     /* Ocean tokens */
-    --ocean-dark: 210 95% 15%;
-    --ocean-medium: 210 85% 35%;
-    --ocean-light: 205 85% 50%;
-    --ocean-glow: 200 75% 55%;
+    --ocean-dark: 222 47% 11%;
+    --ocean-medium: 210 50% 25%;
+    --ocean-light: 217 91% 60%;
+    --ocean-glow: 200 100% 45%;
 
     /* Sidebar */
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 222 47% 11%;
-    --sidebar-primary: 200 98% 39%;
-    --sidebar-primary-foreground: 204 100% 97%;
-    --sidebar-accent: 215 24% 26%;
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 215 25% 18%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 212 26% 83%;
-    --sidebar-ring: 200 98% 39%;
-    --chart-1: 198 93% 59%;
-    --chart-2: 213 93% 67%;
+    --sidebar-border: 215 25% 20%;
+    --sidebar-ring: 217 91% 60%;
+    --chart-1: 199 95% 73%;
+    --chart-2: 211 96% 78%;
     --chart-3: 215 20% 65%;
     --chart-4: 215 16% 46%;
     --chart-5: 215 19% 34%;
-    --sidebar: 210 40% 98%;
+    --sidebar: 217 32% 17%;
 
     /* Gradients */
     --gradient-ocean: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));

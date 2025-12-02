@@ -75,11 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         console.log('[Auth] Starting initialization...');
         
+        // Check if this is a password recovery flow - don't clear session if so
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const isRecoveryFlow = hashParams.get('type') === 'recovery';
+        
         // Check if session should be cleared (user didn't select "remember me" and this is a new browser session)
         const rememberMe = localStorage.getItem('rememberMe');
         const sessionActive = sessionStorage.getItem('sessionActive');
         
-        if (!rememberMe && !sessionActive) {
+        if (!rememberMe && !sessionActive && !isRecoveryFlow) {
           // New browser session and user didn't want to be remembered - clear auth
           console.log('[Auth] Clearing session - remember me was not selected');
           await supabase.auth.signOut();

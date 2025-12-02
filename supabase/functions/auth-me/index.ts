@@ -44,7 +44,7 @@ serve(async (req) => {
       );
     }
 
-    console.log('[auth-me] Processing request with token (length:', accessToken.length, ')');
+    console.log('[auth-me] Processing request with token length:', accessToken.length);
 
     // 3. Create Supabase client with SERVICE_ROLE key for admin access
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
@@ -69,9 +69,41 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
     
     if (userError) {
+      const errorMsg = userError.message?.toLowerCase() || '';
       console.log('[auth-me] JWT verification failed:', userError.message);
+      
+      // Provide specific error messages to help mobile app handle different cases
+      if (errorMsg.includes('expired') || errorMsg.includes('exp claim')) {
+        return new Response(
+          JSON.stringify({ 
+            code: 401, 
+            message: 'Token expired', 
+            error: 'TOKEN_EXPIRED',
+            hint: 'Refresh the token using supabase.auth.refreshSession()' 
+          }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (errorMsg.includes('invalid') || errorMsg.includes('malformed')) {
+        return new Response(
+          JSON.stringify({ 
+            code: 401, 
+            message: 'Invalid JWT', 
+            error: 'INVALID_TOKEN',
+            hint: 'Re-authenticate with supabase.auth.signInWithPassword()' 
+          }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
-        JSON.stringify({ code: 401, message: 'Invalid JWT' }),
+        JSON.stringify({ 
+          code: 401, 
+          message: 'Invalid JWT', 
+          error: 'AUTH_ERROR',
+          detail: userError.message 
+        }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -79,7 +111,7 @@ serve(async (req) => {
     if (!user) {
       console.log('[auth-me] No user found for token');
       return new Response(
-        JSON.stringify({ code: 401, message: 'Invalid JWT - no user found' }),
+        JSON.stringify({ code: 401, message: 'Invalid JWT - no user found', error: 'USER_NOT_FOUND' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

@@ -151,6 +151,89 @@ SELECT cron.unschedule('send-abandoned-cart-emails-daily');
 - Track conversion rates in Admin Dashboard widget
 - Review `admin_notes` field for reminder email timestamps
 
+## Cart Pricing Calculation Logic
+
+**Single Source of Truth**: All cart pricing calculations are performed in the backend edge functions to ensure consistency between mobile app and admin portal.
+
+### Per-Item Pricing Formula
+
+```typescript
+// Input values
+const basePriceUsd = productPrice;          // Scraped from WebView (e.g., $799.00)
+const quantity = itemQuantity;               // e.g., 3
+const markupPercent = settings.markup_percent; // e.g., 15 (for 15%)
+const exchangeRate = settings.exchange_rate_usd_to_cdf; // e.g., 2800
+
+// Calculations (all rounded to 2 decimals)
+const itemBaseTotalUsd = round2(basePriceUsd * quantity);           // 799 * 3 = 2397.00
+const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100)); // 2397 * 0.15 = 359.55
+const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);   // 2397 + 359.55 = 2756.55
+const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);     // 2756.55 * 2800
+```
+
+### Database Field Mapping
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `order_items.base_price_usd` | Unit price from retailer | $799.00 |
+| `order_items.quantity` | Number of items | 3 |
+| `order_items.subtotal_usd` | base_price × quantity | $2,397.00 |
+| `order_items.markup_fee_usd` | subtotal × markup% | $359.55 |
+| `order_items.total_price_usd` | subtotal + markup | $2,756.55 |
+| `order_items.total_price_cdf` | total_price_usd × exchange_rate | CDF |
+
+### Cart-Level Totals
+
+After every cart mutation (add, update, delete), the `orders` table is updated:
+
+```typescript
+// Sum from all order_items
+orders.item_total_usd = Σ(subtotal_usd)      // Sum of base prices
+orders.service_fee_usd = Σ(markup_fee_usd)   // Sum of markup fees
+orders.shipping_fee_usd = settings.shipping_base_fee_usd  // Flat shipping
+orders.total_usd = Σ(total_price_usd) + shipping_fee_usd  // Grand total
+orders.total_cdf = total_usd × exchange_rate
+```
+
+### Test Scenario
+
+**Input**:
+- Store: Carvana
+- Price: $799.00
+- Quantity: 3
+- Markup: 15%
+- Shipping: $10.00
+
+**Expected Output**:
+| Metric | Value |
+|--------|-------|
+| Items total | $2,397.00 |
+| Markup fee | $359.55 |
+| Shipping | $10.00 |
+| Grand total | $2,766.55 |
+
+### Edge Functions Involved
+
+1. **mobile-add-cart-item**: Adds item and updates order totals
+2. **mobile-update-cart-item**: Updates quantity and recalculates order totals
+3. **mobile-delete-cart-item**: Removes item and recalculates order totals
+4. **mobile-get-cart**: Returns items and persisted order totals
+5. **admin-get-carts**: Returns all carts with their totals for admin portal
+
+### Supported Stores
+
+The following stores are auto-detected from product URLs:
+- Amazon
+- eBay
+- Walmart
+- BestBuy
+- Carvana
+- CarGurus
+- Target (maps to OTHER)
+- Shein (maps to OTHER)
+- Macy's (maps to OTHER)
+- Home Depot (maps to OTHER)
+
 ## Troubleshooting
 
 **Heatmap shows no data**:
@@ -165,3 +248,9 @@ SELECT cron.unschedule('send-abandoned-cart-emails-daily');
 **Cart merge not working**:
 - Verify product URLs match exactly (case-sensitive)
 - Check mobile-add-cart-item edge function logs
+
+**Cart totals showing zero**:
+- Check edge function logs for `[updateOrderTotals]` entries
+- Verify items have valid `base_price_usd` values
+- Ensure pricing settings exist in `settings` table
+- For existing carts with zero totals, trigger a cart update to recalculate

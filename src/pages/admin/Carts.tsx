@@ -214,7 +214,7 @@ export default function AdminCarts() {
                         </TableCell>
                         <TableCell>{item.quantity}</TableCell>
                         <TableCell>${item.basePriceUsd.toFixed(2)}</TableCell>
-                        <TableCell>${(item.totalPriceUsd * item.quantity).toFixed(2)}</TableCell>
+                        <TableCell>${item.totalPriceUsd.toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Round to 2 decimals helper
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -32,12 +35,12 @@ serve(async (req) => {
     // Get pricing settings for calculations
     const { data: settings } = await supabase
       .from('settings')
-      .select('exchange_rate_usd_to_cdf, shipping_base_fee_usd, global_markup_percent')
+      .select('exchange_rate_usd_to_cdf, shipping_base_fee_usd, markup_percent, global_markup_percent')
       .single();
 
     const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
     const shippingFeeUsd = settings?.shipping_base_fee_usd || 10;
-    const markupPercent = settings?.global_markup_percent || 15;
+    const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
 
     // Get all DRAFT and PENDING_PAYMENT orders (active carts/non-finalized orders)
     const { data: carts, error: cartsError } = await supabase
@@ -51,6 +54,7 @@ serve(async (req) => {
         service_fee_usd,
         total_usd,
         total_cdf,
+        exchange_rate_used,
         created_at,
         updated_at,
         profiles!orders_user_id_fkey (
@@ -93,7 +97,7 @@ serve(async (req) => {
           userName = `User (${profile.phone})`;
         }
 
-        // Calculate cart totals from items if order totals are zero
+        // Format items for response
         const formattedItems = (items || []).map(item => ({
           id: item.id,
           productTitle: item.title || 'Untitled Product',
@@ -103,31 +107,63 @@ serve(async (req) => {
           basePriceUsd: Number(item.base_price_usd || item.unit_price_usd || 0),
           markupFeeUsd: Number(item.markup_fee_usd || 0),
           shippingFeeUsd: Number(item.shipping_fee_usd || 0),
-          totalPriceUsd: Number(item.subtotal_usd || item.total_price_usd || 0),
+          subtotalUsd: Number(item.subtotal_usd || 0),
+          totalPriceUsd: Number(item.total_price_usd || 0),
           totalPriceCdf: Number(item.total_price_cdf || 0),
           quantity: item.quantity || 1,
         }));
 
-        // Calculate totals from items
-        let subtotalUsd = 0;
-        let totalMarkupUsd = 0;
-        
+        // Calculate totals from items (for verification or if order totals are zero)
+        let calcItemsTotal = 0;
+        let calcMarkupTotal = 0;
+        let calcSubtotalWithMarkup = 0;
+
         formattedItems.forEach(item => {
-          const itemBase = item.basePriceUsd * item.quantity;
-          const itemMarkup = item.markupFeeUsd > 0 
-            ? item.markupFeeUsd * item.quantity 
-            : itemBase * (markupPercent / 100);
+          // subtotal_usd = base_price * quantity (without markup)
+          const itemBaseTotal = item.subtotalUsd > 0 ? item.subtotalUsd : (item.basePriceUsd * item.quantity);
+          // markup_fee_usd = itemBaseTotal * markupPercent
+          const itemMarkup = item.markupFeeUsd > 0 ? item.markupFeeUsd : round2(itemBaseTotal * (markupPercent / 100));
+          // total_price_usd = itemBaseTotal + markup
+          const itemTotal = item.totalPriceUsd > 0 ? item.totalPriceUsd : round2(itemBaseTotal + itemMarkup);
           
-          subtotalUsd += itemBase;
-          totalMarkupUsd += itemMarkup;
+          calcItemsTotal += itemBaseTotal;
+          calcMarkupTotal += itemMarkup;
+          calcSubtotalWithMarkup += itemTotal;
         });
 
-        // Use calculated values if order has zeros
-        const finalSubtotal = cart.item_total_usd > 0 ? cart.item_total_usd : subtotalUsd;
-        const finalServiceFee = cart.service_fee_usd > 0 ? cart.service_fee_usd : totalMarkupUsd;
-        const finalShippingFee = cart.shipping_fee_usd > 0 ? cart.shipping_fee_usd : (formattedItems.length > 0 ? shippingFeeUsd : 0);
-        const finalTotalUsd = cart.total_usd > 0 ? cart.total_usd : (finalSubtotal + finalServiceFee + finalShippingFee);
-        const finalTotalCdf = cart.total_cdf > 0 ? cart.total_cdf : (finalTotalUsd * exchangeRate);
+        // Use persisted order totals if available (non-zero), otherwise use calculated
+        const hasItems = formattedItems.length > 0;
+        const orderHasTotals = Number(cart.item_total_usd) > 0 || Number(cart.total_usd) > 0;
+
+        const finalSubtotal = orderHasTotals && Number(cart.item_total_usd) > 0 
+          ? Number(cart.item_total_usd) 
+          : round2(calcItemsTotal);
+        
+        const finalServiceFee = orderHasTotals && Number(cart.service_fee_usd) > 0 
+          ? Number(cart.service_fee_usd) 
+          : round2(calcMarkupTotal);
+        
+        const finalShippingFee = orderHasTotals && Number(cart.shipping_fee_usd) > 0 
+          ? Number(cart.shipping_fee_usd) 
+          : (hasItems ? shippingFeeUsd : 0);
+        
+        const finalTotalUsd = orderHasTotals && Number(cart.total_usd) > 0 
+          ? Number(cart.total_usd) 
+          : round2(calcSubtotalWithMarkup + finalShippingFee);
+        
+        const finalTotalCdf = orderHasTotals && Number(cart.total_cdf) > 0 
+          ? Number(cart.total_cdf) 
+          : round2(finalTotalUsd * exchangeRate);
+
+        // Log warning if items exist but totals are zero
+        if (hasItems && finalSubtotal === 0) {
+          console.warn('[admin-get-carts] WARNING: Cart has items but zero totals!', {
+            cartId: cart.id,
+            itemCount: formattedItems.length,
+            orderItemTotal: cart.item_total_usd,
+            calculatedItemsTotal: calcItemsTotal,
+          });
+        }
 
         return {
           cartId: cart.id,
@@ -136,11 +172,11 @@ serve(async (req) => {
           userPhone: profile?.phone || '',
           status: cart.status,
           itemCount: formattedItems.length,
-          subtotalUsd: Number(finalSubtotal.toFixed(2)),
-          shippingFeeUsd: Number(finalShippingFee.toFixed(2)),
-          serviceFeeUsd: Number(finalServiceFee.toFixed(2)),
-          totalUsd: Number(finalTotalUsd.toFixed(2)),
-          totalCdf: Number(finalTotalCdf.toFixed(0)),
+          subtotalUsd: round2(finalSubtotal),
+          shippingFeeUsd: round2(finalShippingFee),
+          serviceFeeUsd: round2(finalServiceFee),
+          totalUsd: round2(finalTotalUsd),
+          totalCdf: round2(finalTotalCdf),
           createdAt: cart.created_at,
           updatedAt: cart.updated_at,
           items: formattedItems,

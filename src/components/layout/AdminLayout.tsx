@@ -33,7 +33,7 @@ export function AdminLayout() {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-64 glass-strong border-r border-border/50 p-6 space-y-8">
+      <aside className="w-64 bg-card border-r border-border/50 p-6 space-y-8">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold bg-gradient-glow bg-clip-text text-transparent">

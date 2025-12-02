@@ -11,8 +11,9 @@ All mobile API endpoints require authentication using Supabase Auth JWT tokens.
 ```typescript
 import { createClient } from '@supabase/supabase-js';
 
+// IMPORTANT: Use these EXACT values - they must match the Lovable Cloud backend
 const SUPABASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co';
-const SUPABASE_ANON_KEY = 'your-anon-key';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnbWtoeGZmbnl6b29nY3F2ZGFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzM2NjYsImV4cCI6MjA3OTcwOTY2Nn0.xMa-K25tL63StMYRZDq7xovDPyrWlB_LA-KkGciqZaA';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {

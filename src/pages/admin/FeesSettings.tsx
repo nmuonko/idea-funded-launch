@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { languages, Language } from '@/lib/i18n/translations';
+import { languages, Language, getAdminTranslation } from '@/lib/i18n/translations';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 export default function FeesSettings() {
@@ -26,12 +26,13 @@ export default function FeesSettings() {
   const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);
   const { toast } = useToast();
   const { language, setLanguage } = useLanguage();
+  const t = getAdminTranslation(language);
 
   const handleLanguageChange = (newLang: Language) => {
     setLanguage(newLang);
     toast({
-      title: 'Language updated',
-      description: `Language changed to ${languages.find(l => l.code === newLang)?.name}`,
+      title: t.settings.languageUpdated,
+      description: `${languages.find(l => l.code === newLang)?.name}`,
     });
   };
 
@@ -95,14 +96,14 @@ export default function FeesSettings() {
       if (error) throw error;
 
       toast({
-        title: 'Settings saved',
-        description: 'Fees and markup settings updated successfully',
+        title: t.settings.settingsSaved,
+        description: t.settings.settingsSavedDesc,
       });
 
       loadSettings();
     } catch (error: any) {
       toast({
-        title: 'Error saving settings',
+        title: t.common.error,
         description: error.message,
         variant: 'destructive',
       });
@@ -163,9 +164,9 @@ export default function FeesSettings() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Settings</h1>
+          <h1 className="text-3xl font-bold">{t.settings.title}</h1>
           <p className="text-muted-foreground mt-2">
-            Configure pricing, fees, exchange rates, and discount codes
+            {t.settings.description}
           </p>
         </div>
         <Button onClick={saveSettings} disabled={saving}>
@@ -174,7 +175,7 @@ export default function FeesSettings() {
           ) : (
             <Save className="h-4 w-4 mr-2" />
           )}
-          Save Changes
+          {t.settings.saveChanges}
         </Button>
       </div>
 
@@ -183,10 +184,10 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Globe className="h-5 w-5" />
-            Language Preferences
+            {t.settings.languagePreferences}
           </CardTitle>
           <CardDescription>
-            Choose your preferred language for the admin portal
+            {t.settings.languageDescription}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -224,16 +225,16 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5" />
-            Core Pricing Settings
+            {t.settings.corePricing}
           </CardTitle>
           <CardDescription>
-            Configure exchange rates and base fees
+            {t.settings.corePricingDesc}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="exchangeRate">USD to CDF Exchange Rate</Label>
+              <Label htmlFor="exchangeRate">{t.settings.exchangeRate}</Label>
               <Input
                 id="exchangeRate"
                 type="number"
@@ -242,12 +243,12 @@ export default function FeesSettings() {
                 onChange={(e) => setExchangeRateUsdToCdf(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                Current rate: 1 USD = {exchangeRateUsdToCdf.toFixed(2)} FC
+                1 USD = {exchangeRateUsdToCdf.toFixed(2)} FC
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="serviceFee">Service Fee (%)</Label>
+              <Label htmlFor="serviceFee">{t.settings.serviceFee}</Label>
               <Input
                 id="serviceFee"
                 type="number"
@@ -256,12 +257,12 @@ export default function FeesSettings() {
                 onChange={(e) => setServiceFeePercent(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                Current: {serviceFeePercent.toFixed(2)}%
+                {serviceFeePercent.toFixed(2)}%
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="shippingBase">Base Shipping (phones &lt; 1kg)</Label>
+              <Label htmlFor="shippingBase">{t.settings.baseShipping}</Label>
               <Input
                 id="shippingBase"
                 type="number"
@@ -269,13 +270,10 @@ export default function FeesSettings() {
                 value={shippingBaseFeeUsd}
                 onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
               />
-              <p className="text-xs text-muted-foreground">
-                Used as base shipping for phones and other items under 1kg. You can adjust this later if shipping costs change.
-              </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="shippingPercent">Shipping Percentage (%)</Label>
+              <Label htmlFor="shippingPercent">{t.settings.shippingPercent}</Label>
               <Input
                 id="shippingPercent"
                 type="number"
@@ -283,9 +281,6 @@ export default function FeesSettings() {
                 value={shippingPercent}
                 onChange={(e) => setShippingPercent(Number(e.target.value))}
               />
-              <p className="text-xs text-muted-foreground">
-                Percentage of item total added as shipping
-              </p>
             </div>
           </div>
         </CardContent>
@@ -296,16 +291,16 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Percent className="h-5 w-5" />
-            Global Markup
+            {t.settings.globalMarkup}
           </CardTitle>
           <CardDescription>
-            Default markup percentage applied to all products
+            {t.settings.globalMarkupDesc}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-4">
             <div className="flex-1">
-              <Label htmlFor="globalMarkup">Markup Percentage</Label>
+              <Label htmlFor="globalMarkup">{t.settings.markupPercent}</Label>
               <Input
                 id="globalMarkup"
                 type="number"
@@ -330,22 +325,22 @@ export default function FeesSettings() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Tag className="h-5 w-5" />
-                Category Markups
+                {t.settings.categoryMarkups}
               </CardTitle>
               <CardDescription>
-                Set specific markup percentages for product categories
+                {t.settings.categoryMarkupsDesc}
               </CardDescription>
             </div>
             <Button onClick={addCategoryMarkup} variant="outline" size="sm">
               <Plus className="h-4 w-4 mr-2" />
-              Add Category
+              {t.settings.addCategory}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           {Object.keys(categoryMarkups).length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No category markups configured
+              {t.settings.noCategories}
             </p>
           ) : (
             <div className="space-y-3">
@@ -387,22 +382,22 @@ export default function FeesSettings() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <DollarSign className="h-5 w-5" />
-                Extra Fees
+                {t.settings.extraFees}
               </CardTitle>
               <CardDescription>
-                Additional fees like insurance, handling, etc.
+                {t.settings.extraFeesDesc}
               </CardDescription>
             </div>
             <Button onClick={addExtraFee} variant="outline" size="sm">
               <Plus className="h-4 w-4 mr-2" />
-              Add Fee
+              {t.settings.addFee}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           {extraFees.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No extra fees configured
+              {t.settings.noFees}
             </p>
           ) : (
             <div className="space-y-4">
@@ -411,7 +406,7 @@ export default function FeesSettings() {
                   <div className="flex items-start gap-3">
                     <div className="flex-1 grid grid-cols-2 gap-3">
                       <div>
-                        <Label>Fee Name</Label>
+                        <Label>{t.settings.feeName}</Label>
                         <Input
                           placeholder="e.g., Insurance"
                           value={fee.name}
@@ -419,7 +414,7 @@ export default function FeesSettings() {
                         />
                       </div>
                       <div>
-                        <Label>Amount (USD)</Label>
+                        <Label>{t.settings.amount}</Label>
                         <Input
                           type="number"
                           min="0"
@@ -446,7 +441,7 @@ export default function FeesSettings() {
                       onChange={(e) => updateExtraFee(index, 'active', e.target.checked)}
                       className="rounded"
                     />
-                    <Label htmlFor={`fee-active-${index}`}>Active</Label>
+                    <Label htmlFor={`fee-active-${index}`}>{t.settings.active}</Label>
                   </div>
                 </div>
               ))}
@@ -462,22 +457,22 @@ export default function FeesSettings() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Tag className="h-5 w-5" />
-                Discount Codes
+                {t.settings.discountCodes}
               </CardTitle>
               <CardDescription>
-                Promotional discount codes for customers
+                {t.settings.discountCodesDesc}
               </CardDescription>
             </div>
             <Button onClick={addDiscountCode} variant="outline" size="sm">
               <Plus className="h-4 w-4 mr-2" />
-              Add Code
+              {t.settings.addCode}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
           {discountCodes.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              No discount codes configured
+              {t.settings.noCodes}
             </p>
           ) : (
             <div className="space-y-4">
@@ -486,7 +481,7 @@ export default function FeesSettings() {
                   <div className="flex items-start gap-3">
                     <div className="flex-1 grid grid-cols-2 gap-3">
                       <div>
-                        <Label>Code</Label>
+                        <Label>{t.settings.code}</Label>
                         <Input
                           placeholder="e.g., SAVE10"
                           value={code.code}
@@ -494,7 +489,7 @@ export default function FeesSettings() {
                         />
                       </div>
                       <div>
-                        <Label>Discount %</Label>
+                        <Label>{t.settings.discountPercent}</Label>
                         <Input
                           type="number"
                           min="0"
@@ -523,7 +518,7 @@ export default function FeesSettings() {
                         onChange={(e) => updateDiscountCode(index, 'active', e.target.checked)}
                         className="rounded"
                       />
-                      <Label htmlFor={`code-active-${index}`}>Active</Label>
+                      <Label htmlFor={`code-active-${index}`}>{t.settings.active}</Label>
                     </div>
                     {code.active && (
                       <Badge variant="outline" className="text-green-600 border-green-600">

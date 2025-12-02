@@ -31,11 +31,17 @@ function calculateItemPricing(
   };
 }
 
+// Dynamic shipping calculation: base + (percentage × items subtotal)
+function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
+  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+}
+
 // Calculate and persist order totals from items - CANONICAL FUNCTION
 async function updateOrderTotals(
   supabase: any,
   orderId: string,
-  shippingFeeUsd: number,
+  shippingBaseFeeUsd: number,
+  shippingPercent: number,
   exchangeRate: number
 ) {
   // Get all items for this order
@@ -60,18 +66,20 @@ async function updateOrderTotals(
     itemsWithMarkupUsd += Number(item.total_price_usd || 0);
   });
 
-  // Apply shipping only if there are items
-  const finalShippingFee = items && items.length > 0 ? shippingFeeUsd : 0;
+  // Dynamic shipping: base + (percentage × items subtotal)
+  const shippingFeeUsd = items && items.length > 0 
+    ? calculateShipping(itemTotalUsd, shippingBaseFeeUsd, shippingPercent)
+    : 0;
   
   // Grand totals
-  const totalUsd = round2(itemsWithMarkupUsd + finalShippingFee);
+  const totalUsd = round2(itemsWithMarkupUsd + shippingFeeUsd);
   const totalCdf = round2(totalUsd * exchangeRate);
 
   console.log('[updateOrderTotals] Calculated totals:', {
     orderId,
     itemTotalUsd: round2(itemTotalUsd),
     serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(finalShippingFee),
+    shippingFeeUsd: round2(shippingFeeUsd),
     totalUsd,
     totalCdf,
     itemCount: items?.length || 0,
@@ -88,7 +96,7 @@ async function updateOrderTotals(
     .update({
       item_total_usd: round2(itemTotalUsd),
       service_fee_usd: round2(serviceFeeUsd),
-      shipping_fee_usd: round2(finalShippingFee),
+      shipping_fee_usd: round2(shippingFeeUsd),
       total_usd: totalUsd,
       total_cdf: totalCdf,
       exchange_rate_used: exchangeRate,
@@ -103,7 +111,7 @@ async function updateOrderTotals(
   return {
     itemTotalUsd: round2(itemTotalUsd),
     serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(finalShippingFee),
+    shippingFeeUsd: round2(shippingFeeUsd),
     totalUsd,
     totalCdf,
     exchangeRate,
@@ -165,7 +173,8 @@ serve(async (req) => {
 
     const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingFeeUsd = settings.shipping_base_fee_usd ?? 0;
+    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
+    const shippingPercent = settings.shipping_percent ?? 0.10; // Stored as decimal (0.10 = 10%)
 
     // Calculate pricing using helper
     const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
@@ -271,7 +280,7 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
 
       // UPDATE ORDER TOTALS after merge
-      const summary = await updateOrderTotals(supabase, orderId, shippingFeeUsd, exchangeRate);
+      const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
       return new Response(
         JSON.stringify({
@@ -325,7 +334,7 @@ serve(async (req) => {
     }
 
     // UPDATE ORDER TOTALS after adding new item
-    const summary = await updateOrderTotals(supabase, orderId, shippingFeeUsd, exchangeRate);
+    const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
     return new Response(
       JSON.stringify({

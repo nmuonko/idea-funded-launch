@@ -6,10 +6,21 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Calculate cart summary from items - single source of truth
-function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
-  const round2 = (n: number) => Math.round(n * 100) / 100;
+// Round to 2 decimals helper
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Dynamic shipping calculation: base + (percentage × items subtotal)
+function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
+  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+}
+
+// Calculate cart summary from items - single source of truth
+function calculateCartSummary(
+  items: any[], 
+  shippingBaseFeeUsd: number, 
+  shippingPercent: number,
+  exchangeRate: number
+) {
   let itemCount = 0;
   let totalItemsUsd = 0;    // Sum of (base_price * qty) for all items
   let totalMarginUsd = 0;   // Sum of markup fees
@@ -22,6 +33,11 @@ function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate
     totalMarginUsd += Number(item.markup_fee_usd || 0);
     itemsSubtotalUsd += Number(item.total_price_usd || 0);
   });
+
+  // Dynamic shipping: base + (percentage × items subtotal)
+  const shippingFeeUsd = items && items.length > 0 
+    ? calculateShipping(totalItemsUsd, shippingBaseFeeUsd, shippingPercent)
+    : 0;
 
   const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
   const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
@@ -133,10 +149,16 @@ serve(async (req) => {
     }
 
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingFeeUsd = settings.shipping_base_fee_usd ?? 0;
+    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
+    const shippingPercent = settings.shipping_percent ?? 0.10;
 
-    // Calculate totals using shared helper
-    const summary = calculateCartSummary(existingOrder.order_items, shippingFeeUsd, exchangeRate);
+    // Calculate totals using shared helper with dynamic shipping
+    const summary = calculateCartSummary(
+      existingOrder.order_items, 
+      shippingBaseFeeUsd, 
+      shippingPercent, 
+      exchangeRate
+    );
 
     console.log('[mobile-create-order-from-cart] Calculated totals:', summary);
 

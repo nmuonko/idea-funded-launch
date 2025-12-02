@@ -9,6 +9,11 @@ const corsHeaders = {
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Dynamic shipping calculation: base + (percentage × items subtotal)
+function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
+  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -34,7 +39,8 @@ serve(async (req) => {
     // Get pricing settings
     const { data: settings } = await supabase.from('settings').select('*').single();
     const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingFeeUsd = settings?.shipping_base_fee_usd ?? 0;
+    const shippingBaseFeeUsd = settings?.shipping_base_fee_usd ?? 20;
+    const shippingPercent = settings?.shipping_percent ?? 0.10;
 
     // Get DRAFT order with its totals
     const { data: order } = await supabase
@@ -106,10 +112,16 @@ serve(async (req) => {
       calcSubtotalWithMarkup += item.itemSubtotalUsd;
     });
 
-    // Use persisted order totals if available, otherwise use calculated
+    // Use persisted order totals if available, otherwise use calculated with dynamic shipping
     const finalItemsTotal = order.item_total_usd > 0 ? Number(order.item_total_usd) : round2(calcItemsTotal);
     const finalMarginTotal = order.service_fee_usd > 0 ? Number(order.service_fee_usd) : round2(calcMarginTotal);
-    const finalShippingFee = order.shipping_fee_usd > 0 ? Number(order.shipping_fee_usd) : (items && items.length > 0 ? shippingFeeUsd : 0);
+    
+    // Dynamic shipping calculation
+    const calculatedShipping = items && items.length > 0 
+      ? calculateShipping(finalItemsTotal, shippingBaseFeeUsd, shippingPercent)
+      : 0;
+    const finalShippingFee = order.shipping_fee_usd > 0 ? Number(order.shipping_fee_usd) : calculatedShipping;
+    
     const finalGrandTotalUsd = order.total_usd > 0 ? Number(order.total_usd) : round2(calcSubtotalWithMarkup + finalShippingFee);
     const finalGrandTotalCdf = order.total_cdf > 0 ? Number(order.total_cdf) : round2(finalGrandTotalUsd * exchangeRate);
 

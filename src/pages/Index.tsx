@@ -7,7 +7,7 @@ export default function Index() {
   return (
     <div className="flex flex-col min-h-screen">
       {/* Hero Section */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-primary to-primary/70">
+      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(215,30%,18%)]">
         <div className="container relative z-10 px-4 py-20">
           <div className="max-w-4xl mx-auto text-center space-y-8">
             <h1 className="text-5xl md:text-7xl font-bold text-white animate-fade-in">
@@ -83,7 +83,7 @@ export default function Index() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-16 md:py-24 bg-gradient-to-br from-primary to-primary/70 text-white">
+      <section className="py-16 md:py-24 bg-gradient-to-br from-[hsl(222,47%,11%)] to-[hsl(215,30%,18%)] text-white">
         <div className="container mx-auto px-4 text-center">
           <div className="max-w-3xl mx-auto space-y-6">
             <h2 className="text-3xl md:text-4xl font-bold">

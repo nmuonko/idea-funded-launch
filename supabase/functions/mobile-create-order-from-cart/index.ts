@@ -6,6 +6,38 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Calculate cart summary from items - single source of truth
+function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  let itemCount = 0;
+  let totalItemsUsd = 0;    // Sum of (base_price * qty) for all items
+  let totalMarginUsd = 0;   // Sum of markup fees
+  let itemsSubtotalUsd = 0; // Sum of (base + margin) for all items
+
+  (items || []).forEach(item => {
+    const qty = item.quantity || 1;
+    itemCount += qty;
+    totalItemsUsd += Number(item.subtotal_usd || 0);
+    totalMarginUsd += Number(item.markup_fee_usd || 0);
+    itemsSubtotalUsd += Number(item.total_price_usd || 0);
+  });
+
+  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
+  const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+
+  return {
+    itemCount,
+    totalItemsUsd: round2(totalItemsUsd),
+    totalMarginUsd: round2(totalMarginUsd),
+    itemsSubtotalUsd: round2(itemsSubtotalUsd),
+    shippingFeeUsd: round2(shippingFeeUsd),
+    grandTotalUsd,
+    grandTotalCdf,
+    exchangeRate,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -100,51 +132,24 @@ serve(async (req) => {
       });
     }
 
-    // Calculate totals by summing all items (respecting quantity)
-    const itemCount = existingOrder.order_items.reduce(
-      (sum: number, item: any) => sum + (item.quantity || 1), 
-      0
-    );
-    
-    const baseSubtotalUsd = existingOrder.order_items.reduce(
-      (sum: number, item: any) => sum + (Number(item.base_price_usd || 0) * (item.quantity || 1)), 
-      0
-    );
-    
-    const markupTotalUsd = existingOrder.order_items.reduce(
-      (sum: number, item: any) => sum + (Number(item.markup_fee_usd || 0) * (item.quantity || 1)), 
-      0
-    );
-    
-    const shippingTotalUsd = existingOrder.order_items.reduce(
-      (sum: number, item: any) => sum + (Number(item.shipping_fee_usd || 0) * (item.quantity || 1)), 
-      0
-    );
-    
-    const grandTotalUsd = baseSubtotalUsd + markupTotalUsd + shippingTotalUsd;
-    const exchangeRate = settings.exchange_rate_usd_to_cdf || 2800;
-    const grandTotalCdf = grandTotalUsd * exchangeRate;
+    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
+    const shippingFeeUsd = settings.shipping_base_fee_usd ?? 0;
 
-    console.log('[mobile-create-order-from-cart] Calculated totals:', {
-      itemCount,
-      baseSubtotalUsd,
-      markupTotalUsd,
-      shippingTotalUsd,
-      grandTotalUsd,
-      grandTotalCdf,
-      exchangeRate
-    });
+    // Calculate totals using shared helper
+    const summary = calculateCartSummary(existingOrder.order_items, shippingFeeUsd, exchangeRate);
+
+    console.log('[mobile-create-order-from-cart] Calculated totals:', summary);
 
     // Update existing DRAFT order to PENDING_PAYMENT status
     const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({
         status: 'PENDING_PAYMENT',
-        item_total_usd: baseSubtotalUsd,
-        service_fee_usd: markupTotalUsd,
-        shipping_fee_usd: shippingTotalUsd,
-        total_usd: grandTotalUsd,
-        total_cdf: grandTotalCdf,
+        item_total_usd: summary.totalItemsUsd,
+        service_fee_usd: summary.totalMarginUsd,
+        shipping_fee_usd: summary.shippingFeeUsd,
+        total_usd: summary.grandTotalUsd,
+        total_cdf: summary.grandTotalCdf,
         exchange_rate_used: exchangeRate,
         updated_at: new Date().toISOString(),
       })
@@ -196,12 +201,12 @@ serve(async (req) => {
       order: {
         id: updatedOrder.id,
         status: updatedOrder.status,
-        itemCount: itemCount,
-        itemsTotalUsd: baseSubtotalUsd,
-        markupTotalUsd: markupTotalUsd,
-        shippingTotalUsd: shippingTotalUsd,
-        grandTotalUsd: grandTotalUsd,
-        grandTotalCdf: grandTotalCdf,
+        itemCount: summary.itemCount,
+        totalItemsUsd: summary.totalItemsUsd,
+        totalMarginUsd: summary.totalMarginUsd,
+        shippingFeeUsd: summary.shippingFeeUsd,
+        grandTotalUsd: summary.grandTotalUsd,
+        grandTotalCdf: summary.grandTotalCdf,
         exchangeRate: exchangeRate,
       }
     }), {

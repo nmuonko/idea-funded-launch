@@ -6,6 +6,38 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Calculate cart summary from items - single source of truth
+function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  let itemCount = 0;
+  let totalItemsUsd = 0;
+  let totalMarginUsd = 0;
+  let itemsSubtotalUsd = 0;
+
+  (items || []).forEach(item => {
+    const qty = item.quantity || 1;
+    itemCount += qty;
+    totalItemsUsd += Number(item.subtotal_usd || 0);
+    totalMarginUsd += Number(item.markup_fee_usd || 0);
+    itemsSubtotalUsd += Number(item.total_price_usd || 0);
+  });
+
+  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
+  const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+
+  return {
+    itemCount,
+    totalItemsUsd: round2(totalItemsUsd),
+    totalMarginUsd: round2(totalMarginUsd),
+    itemsSubtotalUsd: round2(itemsSubtotalUsd),
+    shippingFeeUsd: round2(shippingFeeUsd),
+    grandTotalUsd,
+    grandTotalCdf,
+    exchangeRate,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -82,46 +114,24 @@ serve(async (req) => {
       });
     }
 
+    // Get pricing settings
+    const { data: settings } = await supabase.from('settings').select('*').single();
+    const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
+    const shippingFeeUsd = settings?.shipping_base_fee_usd ?? 0;
+
     // Get updated cart summary
     const { data: remainingItems } = await supabase
       .from('order_items')
       .select('*')
       .eq('order_id', orderId);
 
-    let itemCount = 0;
-    let baseSubtotalUsd = 0;
-    let markupTotalUsd = 0;
-    let shippingTotalUsd = 0;
-    let grandTotalUsd = 0;
+    const summary = calculateCartSummary(remainingItems || [], shippingFeeUsd, exchangeRate);
 
-    (remainingItems || []).forEach(i => {
-      const qty = i.quantity || 1;
-      itemCount += qty;
-      baseSubtotalUsd += Number(i.base_price_usd || 0) * qty;
-      markupTotalUsd += Number(i.markup_fee_usd || 0) * qty;
-      shippingTotalUsd += Number(i.shipping_fee_usd || 0) * qty;
-      grandTotalUsd += Number(i.total_price_usd || 0) * qty;
-    });
-
-    const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
-    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const grandTotalCdf = grandTotalUsd * exchangeRate;
-
-    console.log('[mobile-delete-cart-item] Updated cart summary:', {
-      itemCount,
-      grandTotalUsd,
-    });
+    console.log('[mobile-delete-cart-item] Updated cart summary:', summary);
 
     return new Response(JSON.stringify({
       success: true,
-      summary: {
-        itemCount,
-        baseSubtotalUsd: Math.round(baseSubtotalUsd * 100) / 100,
-        markupTotalUsd: Math.round(markupTotalUsd * 100) / 100,
-        shippingTotalUsd: Math.round(shippingTotalUsd * 100) / 100,
-        grandTotalUsd: Math.round(grandTotalUsd * 100) / 100,
-        grandTotalCdf: Math.round(grandTotalCdf * 100) / 100,
-      }
+      summary,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

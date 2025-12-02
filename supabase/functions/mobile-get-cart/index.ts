@@ -6,6 +6,38 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Calculate cart summary from items - single source of truth
+function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  let itemCount = 0;
+  let totalItemsUsd = 0;    // Sum of (base_price * qty) for all items
+  let totalMarginUsd = 0;   // Sum of markup fees
+  let itemsSubtotalUsd = 0; // Sum of (base + margin) for all items
+
+  (items || []).forEach(item => {
+    const qty = item.quantity || 1;
+    itemCount += qty;
+    totalItemsUsd += Number(item.subtotal_usd || 0);
+    totalMarginUsd += Number(item.markup_fee_usd || 0);
+    itemsSubtotalUsd += Number(item.total_price_usd || 0);
+  });
+
+  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
+  const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+
+  return {
+    itemCount,
+    totalItemsUsd: round2(totalItemsUsd),
+    totalMarginUsd: round2(totalMarginUsd),
+    itemsSubtotalUsd: round2(itemsSubtotalUsd),
+    shippingFeeUsd: round2(shippingFeeUsd),
+    grandTotalUsd,
+    grandTotalCdf,
+    exchangeRate,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -28,6 +60,11 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] User:', user.id);
 
+    // Get pricing settings
+    const { data: settings } = await supabase.from('settings').select('*').single();
+    const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
+    const shippingFeeUsd = settings?.shipping_base_fee_usd ?? 0;
+
     // Get DRAFT order
     const { data: order } = await supabase
       .from('orders')
@@ -42,11 +79,13 @@ serve(async (req) => {
         items: [],
         summary: {
           itemCount: 0,
-          baseSubtotalUsd: 0,
-          markupTotalUsd: 0,
-          shippingTotalUsd: 0,
+          totalItemsUsd: 0,
+          totalMarginUsd: 0,
+          itemsSubtotalUsd: 0,
+          shippingFeeUsd: 0,
           grandTotalUsd: 0,
           grandTotalCdf: 0,
+          exchangeRate,
         }
       }), {
         status: 200,
@@ -68,62 +107,28 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Found items:', items?.length || 0);
 
-    // Calculate totals
-    let itemCount = 0;
-    let itemsTotalUsd = 0;
-    let markupFeeUsd = 0;
-    let shippingFeeUsd = 0;
-    let totalUsd = 0;
-    let totalCdf = 0;
+    // Format items for response
+    const formattedItems = (items || []).map(item => ({
+      id: item.id,
+      productUrl: item.product_url,
+      productTitle: item.title,
+      productImageUrl: item.product_image_url,
+      basePriceUsd: item.base_price_usd,
+      quantity: item.quantity,
+      itemBaseTotalUsd: item.subtotal_usd,
+      itemMarginUsd: item.markup_fee_usd,
+      itemSubtotalUsd: item.total_price_usd,
+      itemSubtotalCdf: item.total_price_cdf,
+    }));
 
-    const formattedItems = (items || []).map(item => {
-      const qty = item.quantity || 1;
-      const basePrice = Number(item.base_price_usd || 0);
-      const markup = Number(item.markup_fee_usd || 0);
-      const shipping = Number(item.shipping_fee_usd || 0);
-      const lineTotal = Number(item.total_price_usd || 0);
-      const lineCdf = Number(item.total_price_cdf || 0);
+    // Calculate summary
+    const summary = calculateCartSummary(items || [], shippingFeeUsd, exchangeRate);
 
-      itemCount += qty;
-      itemsTotalUsd += basePrice * qty;
-      markupFeeUsd += markup * qty;
-      shippingFeeUsd += shipping * qty;
-      totalUsd += lineTotal * qty;
-      totalCdf += lineCdf * qty;
-
-      return {
-        id: item.id,
-        productUrl: item.product_url,
-        productTitle: item.title,
-        productImageUrl: item.product_image_url,
-        quantity: qty,
-        basePriceUsd: basePrice,
-        markupFeeUsd: markup,
-        shippingFeeUsd: shipping,
-        lineTotalUsd: lineTotal,
-        lineTotalCdf: lineCdf,
-      };
-    });
-
-    // Get exchange rate for CDF conversion
-    const { data: settings } = await supabase.from('settings').select('exchange_rate_usd_to_cdf').single();
-    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-
-    const responseSummary = {
-      itemCount,
-      itemsTotalUsd: Math.round(itemsTotalUsd * 100) / 100,
-      markupFeeUsd: Math.round(markupFeeUsd * 100) / 100,
-      shippingFeeUsd: Math.round(shippingFeeUsd * 100) / 100,
-      totalUsd: Math.round(totalUsd * 100) / 100,
-      totalCdf: Math.round(totalCdf * 100) / 100,
-      exchangeRate,
-    };
-
-    console.log('[mobile-get-cart] Response summary:', responseSummary);
+    console.log('[mobile-get-cart] Response summary:', summary);
 
     return new Response(JSON.stringify({
       items: formattedItems,
-      summary: responseSummary,
+      summary,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

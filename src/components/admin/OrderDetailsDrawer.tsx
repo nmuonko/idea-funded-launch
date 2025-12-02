@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { formatUSD, formatCDF } from '@/lib/formatCurrency';
 import { 
   CheckCircle, 
   XCircle, 
@@ -199,9 +200,9 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                           <p className="text-xs text-muted-foreground">Store: {item.store}</p>
                           <p className="text-xs text-muted-foreground">Quantity: {item.quantity}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-semibold">${item.subtotal_usd?.toFixed(2)}</p>
-                          <p className="text-xs text-muted-foreground">${item.unit_price_usd?.toFixed(2)} each</p>
+                      <div className="text-right">
+                          <p className="font-semibold">{formatUSD(item.subtotal_usd)}</p>
+                          <p className="text-xs text-muted-foreground">{formatUSD(item.unit_price_usd)} each</p>
                         </div>
                       </div>
                       {item.product_url && (
@@ -233,28 +234,28 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span>Items Total:</span>
-                    <span>${order.item_total_usd?.toFixed(2)}</span>
+                    <span>{formatUSD(order.item_total_usd)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Service Fee:</span>
-                    <span>${order.service_fee_usd?.toFixed(2)}</span>
+                    <span>{formatUSD(order.service_fee_usd)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Shipping Fee:</span>
-                    <span>${order.shipping_fee_usd?.toFixed(2)}</span>
+                    <span>{formatUSD(order.shipping_fee_usd)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between font-semibold text-base">
                     <span>Total (USD):</span>
-                    <span>${order.total_usd?.toFixed(2)}</span>
+                    <span>{formatUSD(order.total_usd)}</span>
                   </div>
                   <div className="flex justify-between font-semibold text-base">
                     <span>Total (CDF):</span>
-                    <span>{order.total_cdf?.toFixed(0)} FC</span>
+                    <span>{formatCDF(order.total_cdf)}</span>
                   </div>
                   {order.exchange_rate_used && (
                     <p className="text-xs text-muted-foreground">
-                      Exchange Rate: 1 USD = {order.exchange_rate_used} CDF
+                      Exchange Rate: 1 USD = {order.exchange_rate_used?.toLocaleString()} CDF
                     </p>
                   )}
                 </div>

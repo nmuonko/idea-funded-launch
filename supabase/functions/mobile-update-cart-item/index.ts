@@ -1,10 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  corsHeaders, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -44,7 +45,6 @@ async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ) {
-  // Get all items for this order
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
     .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity')
@@ -55,7 +55,6 @@ async function updateOrderTotals(
     return null;
   }
 
-  // Calculate order totals from items
   let itemTotalUsd = 0;
   let serviceFeeUsd = 0;
   let itemsWithMarkupUsd = 0;
@@ -66,12 +65,10 @@ async function updateOrderTotals(
     itemsWithMarkupUsd += Number(item.total_price_usd || 0);
   });
 
-  // Dynamic shipping: base + (percentage × items subtotal)
   const shippingFeeUsd = items && items.length > 0 
     ? calculateShipping(itemTotalUsd, shippingBaseFeeUsd, shippingPercent)
     : 0;
   
-  // Grand totals
   const totalUsd = round2(itemsWithMarkupUsd + shippingFeeUsd);
   const totalCdf = round2(totalUsd * exchangeRate);
 
@@ -85,7 +82,6 @@ async function updateOrderTotals(
     itemCount: items?.length || 0,
   });
 
-  // Persist to orders table
   const { error: updateError } = await supabase
     .from('orders')
     .update({
@@ -114,33 +110,20 @@ async function updateOrderTotals(
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Verify JWT using SERVICE_ROLE
+    const { user, supabase } = await verifyAndGetUser(req);
+    console.log('[mobile-update-cart-item] User authenticated:', user.id);
 
     const url = new URL(req.url);
     const itemId = url.pathname.split('/').pop();
 
     if (!itemId) {
-      return new Response(JSON.stringify({ error: 'Item ID is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Item ID is required', 400);
     }
 
     const body = await req.json();
@@ -152,10 +135,7 @@ serve(async (req) => {
         : 1;
 
     if (!body.quantity || newQuantity < 1) {
-      return new Response(JSON.stringify({ error: 'Valid quantity is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Valid quantity is required', 400);
     }
 
     // Verify item belongs to user and is in a DRAFT order
@@ -166,24 +146,15 @@ serve(async (req) => {
       .single();
 
     if (itemError || !item) {
-      return new Response(JSON.stringify({ error: 'Item not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Item not found', 404);
     }
 
     if (item.orders.user_id !== user.id) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Unauthorized', 403);
     }
 
     if (item.orders.status !== 'DRAFT') {
-      return new Response(JSON.stringify({ error: 'Cannot update submitted order' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Cannot update submitted order', 400);
     }
 
     const orderId = item.orders.id;
@@ -219,10 +190,7 @@ serve(async (req) => {
 
     if (updateError) {
       console.error('[mobile-update-cart-item] Update error:', updateError);
-      return new Response(JSON.stringify({ error: 'Failed to update item' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Failed to update item', 500);
     }
 
     console.log('[mobile-update-cart-item] Quantity updated:', {
@@ -234,7 +202,7 @@ serve(async (req) => {
     // UPDATE ORDER TOTALS after quantity change
     const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       success: true,
       item: {
         id: updatedItem.id,
@@ -249,16 +217,15 @@ serve(async (req) => {
         itemSubtotalCdf: updatedItem.total_price_cdf,
       },
       summary,
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {
-    console.error('[mobile-update-cart-item] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[mobile-update-cart-item] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return errorResponse(error.message, 500);
   }
 });

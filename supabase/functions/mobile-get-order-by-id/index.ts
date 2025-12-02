@@ -1,33 +1,27 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+    // Verify JWT using SERVICE_ROLE
+    const { user, supabase } = await verifyAndGetUser(req);
+    console.log('[mobile-get-order-by-id] User authenticated:', user.id);
 
     const url = new URL(req.url);
     const orderId = url.pathname.split('/').pop();
+
+    if (!orderId) {
+      return errorResponse('Order ID required', 400);
+    }
 
     // Get order
     const { data: order, error: orderError } = await supabase
@@ -38,10 +32,7 @@ serve(async (req) => {
       .single();
 
     if (orderError || !order) {
-      return new Response(JSON.stringify({ error: 'Order not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse('Order not found', 404);
     }
 
     // Get items
@@ -50,7 +41,7 @@ serve(async (req) => {
       .select('*')
       .eq('order_id', orderId);
 
-    return new Response(JSON.stringify({
+    return jsonResponse({
       order: {
         id: order.id,
         status: order.status,
@@ -76,14 +67,15 @@ serve(async (req) => {
         subtotalUsd: i.subtotal_usd,
         notes: i.notes,
       })) || [],
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[mobile-get-order-by-id] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return errorResponse(error.message, 500);
   }
 });

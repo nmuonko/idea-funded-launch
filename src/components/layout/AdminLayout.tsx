@@ -8,7 +8,6 @@ import {
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ThemeCustomizer } from '@/components/ThemeCustomizer';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function AdminLayout() {
@@ -50,23 +49,20 @@ export function AdminLayout() {
       )}>
         {!isCollapsed && (
           <div>
-            <h2 className="text-xl font-bold bg-gradient-glow bg-clip-text text-transparent">
+            <h2 className="text-xl font-bold text-primary">
               Admin Panel
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">AfriShop</p>
           </div>
         )}
-        <div className="flex items-center gap-1">
-          {!isCollapsed && <ThemeCustomizer />}
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={toggleSidebar}
-            className="hidden lg:flex h-8 w-8"
-          >
-            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </Button>
-        </div>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={toggleSidebar}
+          className="hidden lg:flex h-8 w-8"
+        >
+          {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </Button>
       </div>
 
       {/* Navigation */}
@@ -143,10 +139,10 @@ export function AdminLayout() {
         <Button variant="ghost" size="icon" onClick={toggleMobile}>
           {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
-        <h2 className="text-lg font-bold bg-gradient-glow bg-clip-text text-transparent">
+        <h2 className="text-lg font-bold text-primary">
           Admin Panel
         </h2>
-        <ThemeCustomizer />
+        <div className="w-10" /> {/* Spacer for centering */}
       </div>
 
       {/* Mobile Overlay */}
@@ -175,7 +171,7 @@ export function AdminLayout() {
 
       {/* Main content */}
       <main className="flex-1 lg:pt-0 pt-14">
-        <div className="p-4 md:p-8 bg-gradient-subtle min-h-screen">
+        <div className="p-4 md:p-8 bg-background min-h-screen">
           <div className="max-w-7xl mx-auto">
             <Outlet />
           </div>

@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
+import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { 
   LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
@@ -14,22 +17,24 @@ export function AdminLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut } = useAuth();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const navItems = [
-    { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', exact: true },
-    { to: '/admin/orders', icon: CreditCard, label: 'Orders' },
-    { to: '/admin/carts', icon: ShoppingCart, label: 'Active Carts' },
-    { to: '/admin/ab-tests', icon: TestTube, label: 'A/B Test Results' },
-    { to: '/admin/payments', icon: Wallet, label: 'Payments' },
-    { to: '/admin/shipping', icon: Truck, label: 'Shipping' },
-    { to: '/admin/support', icon: MessageSquare, label: 'Support Tickets' },
-    { to: '/admin/ticket-analytics', icon: BarChart3, label: 'Ticket Analytics' },
-    { to: '/admin/knowledge-base', icon: BookOpen, label: 'Knowledge Base' },
-    { to: '/admin/analytics', icon: BarChart, label: 'Analytics' },
-    { to: '/admin/users', icon: Users, label: 'User Management' },
-    { to: '/admin/settings', icon: Settings, label: 'Settings' },
+    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true },
+    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders },
+    { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts },
+    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults },
+    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments },
+    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping },
+    { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets },
+    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics },
+    { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase },
+    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics },
+    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement },
+    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings },
   ];
 
   const handleSignOut = async () => {
@@ -50,7 +55,7 @@ export function AdminLayout() {
         {!isCollapsed && (
           <div>
             <h2 className="text-xl font-bold text-primary">
-              Admin Panel
+              {t.sidebar.adminPanel}
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">AfriShop</p>
           </div>
@@ -109,11 +114,11 @@ export function AdminLayout() {
             isCollapsed ? "justify-center px-2" : "justify-start gap-3"
           )} 
           asChild
-          title={isCollapsed ? "Back to Site" : undefined}
+          title={isCollapsed ? t.sidebar.backToSite : undefined}
         >
           <Link to="/">
             <ArrowLeft className="h-5 w-5 flex-shrink-0" />
-            {!isCollapsed && <span>Back to Site</span>}
+            {!isCollapsed && <span>{t.sidebar.backToSite}</span>}
           </Link>
         </Button>
         <Button 
@@ -123,10 +128,10 @@ export function AdminLayout() {
             isCollapsed ? "justify-center px-2" : "justify-start gap-3"
           )}
           onClick={handleSignOut}
-          title={isCollapsed ? "Sign Out" : undefined}
+          title={isCollapsed ? t.sidebar.signOut : undefined}
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />
-          {!isCollapsed && <span>Sign Out</span>}
+          {!isCollapsed && <span>{t.sidebar.signOut}</span>}
         </Button>
       </div>
     </div>
@@ -140,9 +145,9 @@ export function AdminLayout() {
           {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
         <h2 className="text-lg font-bold text-primary">
-          Admin Panel
+          {t.sidebar.adminPanel}
         </h2>
-        <div className="w-10" /> {/* Spacer for centering */}
+        <LanguageSwitcher />
       </div>
 
       {/* Mobile Overlay */}
@@ -171,7 +176,11 @@ export function AdminLayout() {
 
       {/* Main content */}
       <main className="flex-1 lg:pt-0 pt-14">
-        <div className="p-4 md:p-8 bg-background min-h-screen">
+        {/* Desktop Language Switcher */}
+        <div className="hidden lg:flex justify-end p-4 pb-0">
+          <LanguageSwitcher />
+        </div>
+        <div className="p-4 md:p-8 pt-2 bg-background min-h-screen">
           <div className="max-w-7xl mx-auto">
             <Outlet />
           </div>

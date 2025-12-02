@@ -183,6 +183,30 @@ export function ThemeCustomizer() {
                 />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="sidebar-bg" className="text-xs">
+                Sidebar Background
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="sidebar-bg"
+                  type="color"
+                  value={hslToHex(colors.sidebarBackground)}
+                  onChange={(e) =>
+                    updateColor("sidebarBackground", hexToHsl(e.target.value))
+                  }
+                  className="h-10 w-16 cursor-pointer"
+                />
+                <Input
+                  type="text"
+                  value={colors.sidebarBackground}
+                  onChange={(e) => updateColor("sidebarBackground", e.target.value)}
+                  className="h-10 flex-1 font-mono text-xs"
+                  placeholder="0 0% 98%"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="pt-2 border-t">

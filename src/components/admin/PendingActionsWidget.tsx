@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { AlertCircle, CreditCard, Package, MessageSquare, ArrowRight, Loader2 } from 'lucide-react';
 
 export function PendingActionsWidget() {
@@ -27,26 +26,24 @@ export function PendingActionsWidget() {
     try {
       setLoading(true);
 
-      // Unverified payments (orders with no payment verification)
+      // Unverified payments = orders with status PENDING_PAYMENT or paid but not verified
       const { count: unverifiedCount } = await supabase
         .from('orders')
         .select('*', { count: 'exact', head: true })
-        .is('payment_verified_at', null)
-        .neq('status', 'DRAFT')
-        .neq('status', 'CANCELLED');
+        .eq('status', 'PENDING_PAYMENT');
 
-      // Unfulfilled orders (paid but not shipped or completed)
+      // Unfulfilled orders = PAID or PROCESSING orders (paid but not shipped/completed)
       const { count: unfulfilledCount } = await supabase
         .from('orders')
         .select('*', { count: 'exact', head: true })
         .in('status', ['PAID', 'PROCESSING']);
 
-      // Urgent tickets (open or high priority)
+      // Urgent tickets = HIGH or URGENT priority, not resolved/closed
       const { count: urgentCount } = await supabase
         .from('support_tickets')
         .select('*', { count: 'exact', head: true })
-        .in('status', ['open', 'in_progress'])
-        .in('priority', ['high', 'urgent']);
+        .in('priority', ['high', 'urgent'])
+        .in('status', ['open', 'in_progress']);
 
       setStats({
         unverifiedPayments: unverifiedCount || 0,
@@ -60,29 +57,37 @@ export function PendingActionsWidget() {
     }
   };
 
+  const handleNavigation = (route: string) => {
+    // Use navigate instead of direct navigation to prevent logout issues
+    navigate(route);
+  };
+
   const totalPending = stats.unverifiedPayments + stats.unfulfilledOrders + stats.urgentTickets;
 
   const actions = [
     {
       icon: CreditCard,
       label: 'Unverified Payments',
+      description: 'Orders awaiting payment verification',
       count: stats.unverifiedPayments,
-      color: 'text-red-600 bg-red-50',
-      route: '/admin/payments?tab=pending',
+      color: 'text-red-600 bg-red-50 dark:bg-red-950',
+      route: '/admin/payments',
     },
     {
       icon: Package,
       label: 'Unfulfilled Orders',
+      description: 'Paid orders not yet shipped',
       count: stats.unfulfilledOrders,
-      color: 'text-orange-600 bg-orange-50',
-      route: '/admin/orders?status=PAID',
+      color: 'text-orange-600 bg-orange-50 dark:bg-orange-950',
+      route: '/admin/orders',
     },
     {
       icon: MessageSquare,
       label: 'Urgent Tickets',
+      description: 'High/urgent priority support tickets',
       count: stats.urgentTickets,
-      color: 'text-purple-600 bg-purple-50',
-      route: '/admin/support-tickets?priority=urgent',
+      color: 'text-purple-600 bg-purple-50 dark:bg-purple-950',
+      route: '/admin/support',
     },
   ];
 
@@ -125,10 +130,11 @@ export function PendingActionsWidget() {
       <CardContent>
         <div className="space-y-3">
           {actions.map((action) => (
-            <div
+            <button
               key={action.label}
-              className="flex items-center justify-between p-4 rounded-lg border hover:bg-accent transition-colors cursor-pointer"
-              onClick={() => navigate(action.route)}
+              type="button"
+              className="w-full flex items-center justify-between p-4 rounded-lg border hover:bg-accent transition-colors cursor-pointer text-left"
+              onClick={() => handleNavigation(action.route)}
             >
               <div className="flex items-center gap-3">
                 <div className={`p-2 rounded-lg ${action.color}`}>
@@ -149,7 +155,7 @@ export function PendingActionsWidget() {
                 )}
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </div>
-            </div>
+            </button>
           ))}
         </div>
 

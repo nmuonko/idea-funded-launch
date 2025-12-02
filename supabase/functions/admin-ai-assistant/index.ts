@@ -1,10 +1,16 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
+import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const ROLE_PERMISSIONS: Record<string, string[]> = {
+  super_admin: ['orders', 'payments', 'users', 'analytics', 'support', 'carts', 'settings'],
+  finance: ['payments', 'analytics'],
+  operations: ['orders', 'carts', 'shipping'],
+  support: ['support', 'orders'],
 };
 
 serve(async (req) => {
@@ -13,199 +19,89 @@ serve(async (req) => {
   }
 
   try {
-    // Extract and verify JWT token
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Verify token and get user
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Verify user has admin role
-    const { data: userRole, error: roleError } = await supabase
+    const { data: roleData } = await supabase
       .from('user_roles')
-      .select('role')
+      .select('admin_role')
       .eq('user_id', user.id)
       .eq('role', 'admin')
       .single();
 
-    if (roleError || !userRole) {
-      return new Response(
-        JSON.stringify({ error: 'Forbidden: Admin access required' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (!roleData) {
+      return new Response(JSON.stringify({ error: 'Admin access required' }), {
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    const { message, conversationHistory } = await req.json();
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+    const adminRole = roleData.admin_role || 'support';
+    const permissions = ROLE_PERMISSIONS[adminRole] || [];
+    const { query, conversationHistory } = await req.json();
+
+    let dataContext = '';
+
+    if (permissions.includes('orders')) {
+      const { data: orders } = await supabase.from('orders').select('id, status, total_usd, payment_verified_at').limit(100);
+      const paidOrders = orders?.filter(o => o.payment_verified_at)?.length || 0;
+      const revenue = orders?.filter(o => o.payment_verified_at)?.reduce((sum, o) => sum + (o.total_usd || 0), 0) || 0;
+      dataContext += `\n## Orders: ${orders?.length || 0} total, ${paidOrders} paid, $${revenue.toFixed(2)} revenue`;
     }
 
-    // Fetch relevant data to provide context
-    const { data: submissions, error: subError } = await supabase
-      .from('user_submissions')
-      .select('*')
-      .eq('payment_status', 'paid')
-      .eq('is_draft', false);
+    if (permissions.includes('carts')) {
+      const { data: carts } = await supabase.from('orders').select('id, total_usd').in('status', ['DRAFT', 'PENDING_PAYMENT']);
+      const cartValue = carts?.reduce((sum, c) => sum + (c.total_usd || 0), 0) || 0;
+      dataContext += `\n## Carts: ${carts?.length || 0} active, $${cartValue.toFixed(2)} total value`;
+    }
 
-    if (subError) throw subError;
+    if (permissions.includes('support')) {
+      const { data: tickets } = await supabase.from('support_tickets').select('id, status, priority').limit(50);
+      const urgentTickets = tickets?.filter(t => t.priority === 'urgent' || t.priority === 'high')?.length || 0;
+      dataContext += `\n## Support: ${tickets?.length || 0} tickets, ${urgentTickets} urgent/high priority`;
+    }
 
-    const { data: sessions, error: sessError } = await supabase
-      .from('sessions')
-      .select('*');
+    const restrictedAreas = ['orders', 'payments', 'users', 'analytics', 'support', 'carts'].filter(a => !permissions.includes(a));
+    if (restrictedAreas.length > 0) {
+      dataContext += `\n## Restricted: ${restrictedAreas.join(', ')} - cannot access`;
+    }
 
-    if (sessError) throw sessError;
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY not configured');
 
-    const { data: payments, error: payError } = await supabase
-      .from('payments')
-      .select('*');
-
-    if (payError) throw payError;
-
-    const { data: winners, error: winError } = await supabase
-      .from('winners')
-      .select('*');
-
-    if (winError) throw winError;
-
-    // Calculate statistics
-    const totalSubmissions = submissions?.length || 0;
-    const textSubmissions = submissions?.filter(s => s.submission_type === 'text').length || 0;
-    const voiceSubmissions = submissions?.filter(s => s.submission_type === 'voice').length || 0;
-    const avgScore = submissions?.reduce((acc, s) => acc + (s.ai_overall_score || 0), 0) / totalSubmissions || 0;
-    const fraudCount = submissions?.filter(s => s.is_suspected_fraud).length || 0;
-    
-    const countryCounts: Record<string, number> = {};
-    submissions?.forEach(s => {
-      if (s.country) {
-        countryCounts[s.country] = (countryCounts[s.country] || 0) + 1;
-      }
-    });
-
-    const categoryCounts: Record<string, number> = {};
-    submissions?.forEach(s => {
-      if (s.category) {
-        categoryCounts[s.category] = (categoryCounts[s.category] || 0) + 1;
-      }
-    });
-
-    // Payment statistics
-    const paidPayments = payments?.filter(p => p.status === 'paid').length || 0;
-    const pendingPayments = payments?.filter(p => p.status === 'pending').length || 0;
-    const failedPayments = payments?.filter(p => p.status === 'failed').length || 0;
-
-    // Session info
-    const activeSession = sessions?.find(s => s.is_active);
-    const totalWinners = winners?.length || 0;
-    const publishedWinners = winners?.filter(w => w.is_published).length || 0;
-
-    // Build context for AI
-    const dataContext = `
-Current Competition Statistics:
-- Total Paid Submissions: ${totalSubmissions}
-- Text Submissions: ${textSubmissions}
-- Voice Submissions: ${voiceSubmissions}
-- Average AI Overall Score: ${avgScore.toFixed(2)}/100
-- Suspected Fraud Cases: ${fraudCount}
-- Active Sessions: ${sessions?.length || 0}
-
-Payment Statistics:
-- Paid: ${paidPayments}
-- Pending: ${pendingPayments}
-- Failed: ${failedPayments}
-
-Session Information:
-- Active Session: ${activeSession?.name || 'None'}
-- Active Session Status: ${activeSession?.status || 'N/A'}
-- Active Session Participants: ${activeSession?.current_participant_count || 0}
-
-Winners:
-- Total Winners: ${totalWinners}
-- Published Winners: ${publishedWinners}
-
-Submissions by Country:
-${Object.entries(countryCounts).map(([country, count]) => `- ${country}: ${count}`).join('\n')}
-
-Submissions by Category:
-${Object.entries(categoryCounts).map(([category, count]) => `- ${category}: ${count}`).join('\n')}
-`;
-
-    // Build messages array for OpenAI
-    const messages = [
-      {
-        role: 'system',
-        content: `You are an AI assistant helping an administrator manage the AfriFund competition platform. 
-You have access to real-time data about submissions, payments, sessions, and winners. 
-Be helpful, concise, and provide actionable insights.
-When answering questions, reference the specific data provided.
-You can answer questions like:
-- Which session is currently active?
-- How many people have applied?
-- What is the payment status breakdown?
-- How many winners have been announced?
-- What are the submission statistics by country or category?
-
-${dataContext}`
-      },
-      ...conversationHistory.slice(-5), // Include last 5 messages for context
-      { role: 'user', content: message }
-    ];
-
-    // Call OpenAI API
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${LOVABLE_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: messages,
-        temperature: 0.7,
-        max_tokens: 500,
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: `You are an AfriShop admin assistant. Role: ${adminRole}. ${dataContext}` },
+          ...(conversationHistory || []).slice(-5),
+          { role: 'user', content: query }
+        ],
       }),
     });
 
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error('OpenAI API error:', errorData);
-      throw new Error(`OpenAI API error: ${response.status}`);
+    if (!aiResponse.ok) {
+      if (aiResponse.status === 429) return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      throw new Error(`AI API error: ${aiResponse.status}`);
     }
 
-    const data = await response.json();
-    const aiResponse = data.choices[0].message.content;
-
-    return new Response(
-      JSON.stringify({ response: aiResponse }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('Error in admin-ai-assistant:', error);
-    return new Response(
-      JSON.stringify({ error: (error as Error).message }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+    const aiData = await aiResponse.json();
+    return new Response(JSON.stringify({ response: aiData.choices?.[0]?.message?.content || 'No response', role: adminRole, permissions }), {
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error: any) {
+    console.error('[admin-ai-assistant] Error:', error);
+    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });

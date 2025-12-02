@@ -2,18 +2,21 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, DollarSign, Users, MapPin, ShoppingCart } from 'lucide-react';
+import { Loader2, DollarSign, Users, MapPin, ShoppingCart, TrendingUp, AlertCircle } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { formatUSD } from '@/lib/formatCurrency';
 
 export default function AdminAnalytics() {
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState('30'); // days
+  const [dateRange, setDateRange] = useState('30');
   const [revenueData, setRevenueData] = useState<any[]>([]);
   const [cityData, setCityData] = useState<any[]>([]);
+  const [storeData, setStoreData] = useState<any[]>([]);
   const [stats, setStats] = useState({
     totalRevenue: 0,
-    totalOrders: 0,
+    paidOrders: 0,
     activeUsers: 0,
     averageOrderValue: 0,
   });
@@ -31,16 +34,28 @@ export default function AdminAnalytics() {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - daysAgo);
 
-      // Get orders
+      // Get ONLY paid orders (with payment_verified_at)
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('*')
         .gte('created_at', startDate.toISOString())
-        .not('status', 'eq', 'DRAFT');
+        .not('payment_verified_at', 'is', null);
 
       if (ordersError) throw ordersError;
 
-      // Calculate revenue by day
+      // Get order items for store breakdown
+      const orderIds = orders?.map(o => o.id) || [];
+      let items: any[] = [];
+      
+      if (orderIds.length > 0) {
+        const { data: orderItems } = await supabase
+          .from('order_items')
+          .select('store, base_price_usd, quantity')
+          .in('order_id', orderIds);
+        items = orderItems || [];
+      }
+
+      // Calculate revenue by day (ONLY from paid orders)
       const revenueByDay: Record<string, number> = {};
       const cityCount: Record<string, number> = {};
       let totalRevenue = 0;
@@ -58,28 +73,53 @@ export default function AdminAnalytics() {
         uniqueUsers.add(order.user_id);
       });
 
-      // Format revenue data for chart
-      const revenueChartData = Object.entries(revenueByDay).map(([date, revenue]) => ({
-        date,
-        revenue: Number(revenue.toFixed(2))
-      })).slice(-14); // Last 14 days
+      // Calculate store breakdown
+      const storeCount: Record<string, { count: number; value: number }> = {};
+      items.forEach((item) => {
+        const store = item.store || 'OTHER';
+        if (!storeCount[store]) {
+          storeCount[store] = { count: 0, value: 0 };
+        }
+        storeCount[store].count += item.quantity || 1;
+        storeCount[store].value += (item.base_price_usd || 0) * (item.quantity || 1);
+      });
 
-      // Format city data for chart
+      // Format data for charts
+      const revenueChartData = Object.entries(revenueByDay)
+        .map(([date, revenue]) => ({
+          date,
+          revenue: Number(revenue.toFixed(2))
+        }))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(-14);
+
       const cityChartData = Object.entries(cityCount)
         .map(([city, count]) => ({
           name: city,
           value: count
         }))
         .sort((a, b) => b.value - a.value)
-        .slice(0, 5); // Top 5 cities
+        .slice(0, 5);
+
+      const storeChartData = Object.entries(storeCount)
+        .map(([store, data]) => ({
+          name: store,
+          items: data.count,
+          value: data.value
+        }))
+        .sort((a, b) => b.value - a.value);
+
+      const paidOrders = orders?.length || 0;
+      const averageOrderValue = paidOrders > 0 ? totalRevenue / paidOrders : 0;
 
       setRevenueData(revenueChartData);
       setCityData(cityChartData);
+      setStoreData(storeChartData);
       setStats({
         totalRevenue,
-        totalOrders: orders?.length || 0,
+        paidOrders,
         activeUsers: uniqueUsers.size,
-        averageOrderValue: orders?.length ? totalRevenue / orders.length : 0,
+        averageOrderValue,
       });
     } catch (error: any) {
       toast({
@@ -92,7 +132,7 @@ export default function AdminAnalytics() {
     }
   };
 
-  const COLORS = ['#8b5cf6', '#6366f1', '#3b82f6', '#06b6d4', '#10b981'];
+  const COLORS = ['#8b5cf6', '#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
 
   if (loading) {
     return (
@@ -108,7 +148,7 @@ export default function AdminAnalytics() {
         <div>
           <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
           <p className="text-muted-foreground mt-2">
-            Track revenue, users, and order trends
+            Track revenue, orders, and trends from <Badge variant="outline">Paid Orders Only</Badge>
           </p>
         </div>
         <Select value={dateRange} onValueChange={setDateRange}>
@@ -123,49 +163,69 @@ export default function AdminAnalytics() {
         </Select>
       </div>
 
+      {/* Important Notice */}
+      {stats.paidOrders === 0 && (
+        <Card className="border-yellow-500/50 bg-yellow-500/10">
+          <CardContent className="flex items-center gap-3 py-4">
+            <AlertCircle className="h-5 w-5 text-yellow-600" />
+            <p className="text-sm">
+              No paid orders found in the selected period. All metrics show data from verified payments only.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${stats.totalRevenue.toFixed(2)}</div>
+            <div className="text-2xl font-bold text-emerald-600">
+              {stats.paidOrders > 0 ? formatUSD(stats.totalRevenue) : '$0.00'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Last {dateRange} days • Paid orders only
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Paid Orders</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.paidOrders}</div>
             <p className="text-xs text-muted-foreground">Last {dateRange} days</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Orders</CardTitle>
-            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalOrders}</div>
-            <p className="text-xs text-muted-foreground">Last {dateRange} days</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Users</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
+            <Users className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.activeUsers}</div>
-            <p className="text-xs text-muted-foreground">Unique customers</p>
+            <p className="text-xs text-muted-foreground">Unique paying customers</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg Order Value</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">${stats.averageOrderValue.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">Per order</p>
+            <div className="text-2xl font-bold">
+              {stats.paidOrders > 0 ? formatUSD(stats.averageOrderValue) : 'N/A'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {stats.paidOrders > 0 ? 'Per paid order' : 'No paid orders'}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -174,67 +234,96 @@ export default function AdminAnalytics() {
       <Card>
         <CardHeader>
           <CardTitle>Revenue Trend</CardTitle>
-          <CardDescription>Daily revenue over time</CardDescription>
+          <CardDescription>Daily revenue from paid orders</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={revenueData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
+          {revenueData.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+              No revenue data for the selected period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={revenueData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="date" className="text-xs" />
+                <YAxis className="text-xs" />
+                <Tooltip 
+                  formatter={(value: number) => [`$${value.toFixed(2)}`, 'Revenue']}
+                  contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2} dot={{ fill: '#8b5cf6' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
-      {/* City Distribution */}
+      {/* Store & City Distribution */}
       <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sales by Store</CardTitle>
+            <CardDescription>Revenue breakdown by retailer</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {storeData.length === 0 ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No store data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={storeData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis type="number" />
+                  <YAxis dataKey="name" type="category" width={80} className="text-xs" />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [
+                      name === 'value' ? `$${value.toFixed(2)}` : value,
+                      name === 'value' ? 'Revenue' : 'Items'
+                    ]}
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                  />
+                  <Bar dataKey="value" fill="#8b5cf6" name="Revenue" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Top Cities</CardTitle>
             <CardDescription>Orders by delivery city</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={cityData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {cityData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Order Frequency</CardTitle>
-            <CardDescription>Orders by city (bar chart)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={cityData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="value" fill="#8b5cf6" />
-              </BarChart>
-            </ResponsiveContainer>
+            {cityData.length === 0 ? (
+              <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+                No city data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={cityData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {cityData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -1,61 +1,146 @@
 # Pricing Backend Audit - AfriShop
 
-## Correct Pricing Formula
+## Consolidated Pricing Configuration
 
-All cart-related edge functions now use this formula:
+All pricing is controlled via the `settings` table with these active fields:
 
+| Field | Description | Example |
+|-------|-------------|---------|
+| `markup_percent` | Profit margin on items | 15 (= 15%) |
+| `shipping_base_fee_usd` | Flat shipping fee | $20.00 |
+| `shipping_percent` | % of order value added to shipping | 0.10 (= 10%) |
+| `exchange_rate_usd_to_cdf` | USD to CDF conversion | 2800 |
+
+**Removed/Unused Fields:**
+- `service_fee_percent` - redundant (use markup_percent)
+- `min_service_fee_usd` - no longer applied
+- `global_markup_percent` - use markup_percent instead
+
+---
+
+## Pricing Formulas
+
+### Per Item:
 ```
-baseTotal = basePrice × quantity
-margin = baseTotal × (markupPercent / 100)
-itemSubtotal = baseTotal + margin
+itemSubtotal = basePrice × quantity
+itemMargin = itemSubtotal × (markup_percent / 100)
+itemTotal = itemSubtotal + itemMargin
 ```
 
-**Shipping is applied at order level, NOT per-item.**
+### For Cart/Order:
+```
+itemsTotal = Σ itemSubtotal
+marginTotal = Σ itemMargin
+itemsWithMarkup = Σ itemTotal
+shippingFee = shipping_base_fee + (itemsTotal × shipping_percent)
+grandTotal = itemsWithMarkup + shippingFee
+grandTotalCdf = grandTotal × exchange_rate
+```
+
+---
 
 ## Test Cases
 
-| Base Price | Qty | Markup % | Base Total | Margin | Item Subtotal |
-|------------|-----|----------|------------|--------|---------------|
-| $10.00     | 1   | 15%      | $10.00     | $1.50  | **$11.50**    |
-| $26.99     | 1   | 15%      | $26.99     | $4.05  | **$31.04**    |
-| $10.00     | 2   | 15%      | $20.00     | $3.00  | **$23.00**    |
+### Example: $799 item × 3, markup=15%, shipping=$20+10%
 
-## Updated Edge Functions
+| Step | Calculation | Result |
+|------|-------------|--------|
+| Items Subtotal | $799 × 3 | **$2,397.00** |
+| Margin (15%) | $2,397 × 0.15 | **$359.55** |
+| Items with Markup | $2,397 + $359.55 | **$2,756.55** |
+| Shipping Fee | $20 + ($2,397 × 0.10) | **$259.70** |
+| Grand Total USD | $2,756.55 + $259.70 | **$3,016.25** |
+| Grand Total CDF | $3,016.25 × 2800 | **8,445,500 FC** |
 
-1. **mobile-add-cart-item** - Uses `calculateItemPricing()` helper
-2. **mobile-update-cart-item** - Recalculates on quantity change
-3. **mobile-get-cart** - Uses `calculateCartSummary()` helper
-4. **mobile-delete-cart-item** - Uses `calculateCartSummary()` helper
-5. **mobile-create-order-from-cart** - Uses `calculateCartSummary()` helper
+### Simple Test: $100 × 2 items
 
-## Database Fields (per order_item)
+| Step | Calculation | Result |
+|------|-------------|--------|
+| Items Subtotal | $100 × 2 | **$200.00** |
+| Margin (15%) | $200 × 0.15 | **$30.00** |
+| Items with Markup | $200 + $30 | **$230.00** |
+| Shipping Fee | $20 + ($200 × 0.10) | **$40.00** |
+| Grand Total USD | $230 + $40 | **$270.00** |
 
-- `base_price_usd` - Per-unit base price
-- `quantity` - Number of items
-- `subtotal_usd` - base_price × quantity (itemBaseTotalUsd)
-- `markup_fee_usd` - subtotal × markup% (itemMarginUsd)
-- `total_price_usd` - subtotal + markup (itemSubtotalUsd)
-- `total_price_cdf` - total_price_usd × exchange_rate
-- `shipping_fee_usd` - 0 (shipping at order level)
+---
 
-## Cart Summary Response
+## Database Fields
 
+### order_items table (per item):
+| Field | Description |
+|-------|-------------|
+| `base_price_usd` | Per-unit base price |
+| `quantity` | Number of items |
+| `subtotal_usd` | base_price × quantity |
+| `markup_fee_usd` | subtotal × markup% |
+| `total_price_usd` | subtotal + markup |
+| `total_price_cdf` | total_price × exchange_rate |
+| `shipping_fee_usd` | Always 0 (shipping at order level) |
+
+### orders table (totals):
+| Field | Description |
+|-------|-------------|
+| `item_total_usd` | Sum of all item subtotals |
+| `service_fee_usd` | Sum of all item margins |
+| `shipping_fee_usd` | base + (item_total × shipping%) |
+| `total_usd` | item_total + service_fee + shipping |
+| `total_cdf` | total_usd × exchange_rate |
+| `exchange_rate_used` | Rate at time of calculation |
+
+---
+
+## Edge Functions
+
+All cart functions use the same canonical logic:
+
+1. **mobile-add-cart-item** - Adds/merges items, updates order totals
+2. **mobile-update-cart-item** - Updates quantity, recalculates totals
+3. **mobile-delete-cart-item** - Removes item, recalculates totals
+4. **mobile-get-cart** - Returns items + summary from persisted totals
+5. **mobile-create-order-from-cart** - Converts DRAFT to PENDING_PAYMENT
+6. **admin-get-carts** - Returns carts with correct totals for admin view
+
+---
+
+## API Response Format
+
+### GET /mobile-get-cart
 ```json
 {
-  "itemCount": 2,
-  "totalItemsUsd": 36.99,      // Sum of subtotal_usd
-  "totalMarginUsd": 5.55,      // Sum of markup_fee_usd
-  "itemsSubtotalUsd": 42.54,   // Sum of total_price_usd
-  "shippingFeeUsd": 10.00,     // From settings.shipping_base_fee_usd
-  "grandTotalUsd": 52.54,      // itemsSubtotalUsd + shippingFeeUsd
-  "grandTotalCdf": 147112,     // grandTotalUsd × exchangeRate
-  "exchangeRate": 2800
+  "items": [
+    {
+      "id": "uuid",
+      "store": "CARVANA",
+      "basePriceUsd": 799.00,
+      "quantity": 3,
+      "subtotalUsd": 2397.00,
+      "markupFeeUsd": 359.55,
+      "totalPriceUsd": 2756.55,
+      "totalPriceCdf": 7718340
+    }
+  ],
+  "summary": {
+    "itemCount": 3,
+    "totalItemsUsd": 2397.00,
+    "totalMarginUsd": 359.55,
+    "itemsSubtotalUsd": 2756.55,
+    "shippingFeeUsd": 259.70,
+    "grandTotalUsd": 3016.25,
+    "grandTotalCdf": 8445500,
+    "exchangeRate": 2800
+  }
 }
 ```
 
-## Key Changes Made
+---
 
-1. **Removed min_service_fee_usd** from markup calculation
-2. **Shipping applied at order level only**, not per-item
-3. **Single helper functions** in each edge function for consistency
-4. **All values rounded to 2 decimals** at end of calculation
+## Admin Settings UI
+
+The settings page (`/admin/settings`) is organized into:
+
+1. **Language Preferences** - Portal language selection
+2. **Currency Settings** - Exchange rate only
+3. **Profit Margin** - Markup percentage
+4. **Shipping Settings** - Base fee + percentage
+5. **Example Calculation** - Live preview of pricing
+6. **Advanced** (collapsible) - Category markups, extra fees, discount codes

@@ -24,12 +24,12 @@ export default function Auth() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await signIn(email, password);
+    const { error, userId } = await signIn(email, password);
     
-    if (!error) {
-      // Check if user is admin and redirect accordingly
-      const isAdmin = await checkAdminStatus();
-      if (isAdmin) {
+    if (!error && userId) {
+      // Check if user is admin using the returned userId
+      const isAdminUser = await checkAdminStatus(userId);
+      if (isAdminUser) {
         navigate('/admin');
       } else {
         toast({

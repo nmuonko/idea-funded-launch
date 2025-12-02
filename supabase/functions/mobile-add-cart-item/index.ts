@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Round to 2 decimals helper
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 // Pricing helper - single source of truth for price calculations
 function calculateItemPricing(
   basePriceUsd: number,
@@ -13,9 +16,6 @@ function calculateItemPricing(
   markupPercent: number,
   exchangeRate: number
 ) {
-  // Round to 2 decimals helper
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
   const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
   const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
@@ -28,6 +28,85 @@ function calculateItemPricing(
     itemMarginUsd,
     itemSubtotalUsd,
     itemSubtotalCdf,
+  };
+}
+
+// Calculate and persist order totals from items - CANONICAL FUNCTION
+async function updateOrderTotals(
+  supabase: any,
+  orderId: string,
+  shippingFeeUsd: number,
+  exchangeRate: number
+) {
+  // Get all items for this order
+  const { data: items, error: itemsError } = await supabase
+    .from('order_items')
+    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity')
+    .eq('order_id', orderId);
+
+  if (itemsError) {
+    console.error('[updateOrderTotals] Failed to fetch items:', itemsError);
+    return null;
+  }
+
+  // Calculate order totals from items
+  let itemTotalUsd = 0;    // Sum of base prices (subtotal_usd = base * qty)
+  let serviceFeeUsd = 0;   // Sum of markup fees
+  let itemsWithMarkupUsd = 0; // Sum of (base + markup)
+
+  (items || []).forEach((item: any) => {
+    itemTotalUsd += Number(item.subtotal_usd || 0);
+    serviceFeeUsd += Number(item.markup_fee_usd || 0);
+    itemsWithMarkupUsd += Number(item.total_price_usd || 0);
+  });
+
+  // Apply shipping only if there are items
+  const finalShippingFee = items && items.length > 0 ? shippingFeeUsd : 0;
+  
+  // Grand totals
+  const totalUsd = round2(itemsWithMarkupUsd + finalShippingFee);
+  const totalCdf = round2(totalUsd * exchangeRate);
+
+  console.log('[updateOrderTotals] Calculated totals:', {
+    orderId,
+    itemTotalUsd: round2(itemTotalUsd),
+    serviceFeeUsd: round2(serviceFeeUsd),
+    shippingFeeUsd: round2(finalShippingFee),
+    totalUsd,
+    totalCdf,
+    itemCount: items?.length || 0,
+  });
+
+  // Safety check: if items exist but totals are zero, log an error
+  if (items && items.length > 0 && itemTotalUsd === 0) {
+    console.error('[updateOrderTotals] WARNING: Items exist but itemTotalUsd is 0!', items);
+  }
+
+  // Persist to orders table
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      item_total_usd: round2(itemTotalUsd),
+      service_fee_usd: round2(serviceFeeUsd),
+      shipping_fee_usd: round2(finalShippingFee),
+      total_usd: totalUsd,
+      total_cdf: totalCdf,
+      exchange_rate_used: exchangeRate,
+    })
+    .eq('id', orderId);
+
+  if (updateError) {
+    console.error('[updateOrderTotals] Failed to update order totals:', updateError);
+    return null;
+  }
+
+  return {
+    itemTotalUsd: round2(itemTotalUsd),
+    serviceFeeUsd: round2(serviceFeeUsd),
+    shippingFeeUsd: round2(finalShippingFee),
+    totalUsd,
+    totalCdf,
+    exchangeRate,
   };
 }
 
@@ -86,6 +165,7 @@ serve(async (req) => {
 
     const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
+    const shippingFeeUsd = settings.shipping_base_fee_usd ?? 0;
 
     // Calculate pricing using helper
     const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
@@ -190,6 +270,9 @@ serve(async (req) => {
 
       console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
 
+      // UPDATE ORDER TOTALS after merge
+      const summary = await updateOrderTotals(supabase, orderId, shippingFeeUsd, exchangeRate);
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -206,6 +289,7 @@ serve(async (req) => {
             itemSubtotalUsd: updatedItem.total_price_usd,
             itemSubtotalCdf: updatedItem.total_price_cdf,
           },
+          summary,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -240,6 +324,9 @@ serve(async (req) => {
       );
     }
 
+    // UPDATE ORDER TOTALS after adding new item
+    const summary = await updateOrderTotals(supabase, orderId, shippingFeeUsd, exchangeRate);
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -255,6 +342,7 @@ serve(async (req) => {
           itemSubtotalUsd: data.total_price_usd,
           itemSubtotalCdf: data.total_price_cdf,
         },
+        summary,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

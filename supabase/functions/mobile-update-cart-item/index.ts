@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Round to 2 decimals helper
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 // Pricing helper - single source of truth for price calculations
 function calculateItemPricing(
   basePriceUsd: number,
@@ -13,8 +16,6 @@ function calculateItemPricing(
   markupPercent: number,
   exchangeRate: number
 ) {
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
   const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
   const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
@@ -30,34 +31,76 @@ function calculateItemPricing(
   };
 }
 
-// Calculate cart summary from items
-function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
-  const round2 = (n: number) => Math.round(n * 100) / 100;
+// Calculate and persist order totals from items - CANONICAL FUNCTION
+async function updateOrderTotals(
+  supabase: any,
+  orderId: string,
+  shippingFeeUsd: number,
+  exchangeRate: number
+) {
+  // Get all items for this order
+  const { data: items, error: itemsError } = await supabase
+    .from('order_items')
+    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity')
+    .eq('order_id', orderId);
 
-  let itemCount = 0;
-  let totalItemsUsd = 0;
-  let totalMarginUsd = 0;
-  let itemsSubtotalUsd = 0;
+  if (itemsError) {
+    console.error('[updateOrderTotals] Failed to fetch items:', itemsError);
+    return null;
+  }
 
-  (items || []).forEach(item => {
-    const qty = item.quantity || 1;
-    itemCount += qty;
-    totalItemsUsd += Number(item.subtotal_usd || 0);
-    totalMarginUsd += Number(item.markup_fee_usd || 0);
-    itemsSubtotalUsd += Number(item.total_price_usd || 0);
+  // Calculate order totals from items
+  let itemTotalUsd = 0;
+  let serviceFeeUsd = 0;
+  let itemsWithMarkupUsd = 0;
+
+  (items || []).forEach((item: any) => {
+    itemTotalUsd += Number(item.subtotal_usd || 0);
+    serviceFeeUsd += Number(item.markup_fee_usd || 0);
+    itemsWithMarkupUsd += Number(item.total_price_usd || 0);
   });
 
-  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
-  const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+  // Apply shipping only if there are items
+  const finalShippingFee = items && items.length > 0 ? shippingFeeUsd : 0;
+  
+  // Grand totals
+  const totalUsd = round2(itemsWithMarkupUsd + finalShippingFee);
+  const totalCdf = round2(totalUsd * exchangeRate);
+
+  console.log('[updateOrderTotals] Calculated totals:', {
+    orderId,
+    itemTotalUsd: round2(itemTotalUsd),
+    serviceFeeUsd: round2(serviceFeeUsd),
+    shippingFeeUsd: round2(finalShippingFee),
+    totalUsd,
+    totalCdf,
+    itemCount: items?.length || 0,
+  });
+
+  // Persist to orders table
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({
+      item_total_usd: round2(itemTotalUsd),
+      service_fee_usd: round2(serviceFeeUsd),
+      shipping_fee_usd: round2(finalShippingFee),
+      total_usd: totalUsd,
+      total_cdf: totalCdf,
+      exchange_rate_used: exchangeRate,
+    })
+    .eq('id', orderId);
+
+  if (updateError) {
+    console.error('[updateOrderTotals] Failed to update order totals:', updateError);
+    return null;
+  }
 
   return {
-    itemCount,
-    totalItemsUsd: round2(totalItemsUsd),
-    totalMarginUsd: round2(totalMarginUsd),
-    itemsSubtotalUsd: round2(itemsSubtotalUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    grandTotalUsd,
-    grandTotalCdf,
+    itemTotalUsd: round2(itemTotalUsd),
+    serviceFeeUsd: round2(serviceFeeUsd),
+    shippingFeeUsd: round2(finalShippingFee),
+    totalUsd,
+    totalCdf,
     exchangeRate,
   };
 }
@@ -110,7 +153,7 @@ serve(async (req) => {
     // Verify item belongs to user and is in a DRAFT order
     const { data: item, error: itemError } = await supabase
       .from('order_items')
-      .select('*, orders!inner(user_id, status)')
+      .select('*, orders!inner(user_id, status, id)')
       .eq('id', itemId)
       .single();
 
@@ -134,6 +177,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    const orderId = item.orders.id;
 
     // Get pricing settings
     const { data: settings } = await supabase.from('settings').select('*').single();
@@ -177,13 +222,8 @@ serve(async (req) => {
       itemSubtotalUsd: pricing.itemSubtotalUsd,
     });
 
-    // Get updated cart summary
-    const { data: allItems } = await supabase
-      .from('order_items')
-      .select('*')
-      .eq('order_id', item.order_id);
-
-    const summary = calculateCartSummary(allItems || [], shippingFeeUsd, exchangeRate);
+    // UPDATE ORDER TOTALS after quantity change
+    const summary = await updateOrderTotals(supabase, orderId, shippingFeeUsd, exchangeRate);
 
     return new Response(JSON.stringify({
       success: true,

@@ -6,37 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Calculate cart summary from items - single source of truth
-function calculateCartSummary(items: any[], shippingFeeUsd: number, exchangeRate: number) {
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-
-  let itemCount = 0;
-  let totalItemsUsd = 0;    // Sum of (base_price * qty) for all items
-  let totalMarginUsd = 0;   // Sum of markup fees
-  let itemsSubtotalUsd = 0; // Sum of (base + margin) for all items
-
-  (items || []).forEach(item => {
-    const qty = item.quantity || 1;
-    itemCount += qty;
-    totalItemsUsd += Number(item.subtotal_usd || 0);
-    totalMarginUsd += Number(item.markup_fee_usd || 0);
-    itemsSubtotalUsd += Number(item.total_price_usd || 0);
-  });
-
-  const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
-  const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
-
-  return {
-    itemCount,
-    totalItemsUsd: round2(totalItemsUsd),
-    totalMarginUsd: round2(totalMarginUsd),
-    itemsSubtotalUsd: round2(itemsSubtotalUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    grandTotalUsd,
-    grandTotalCdf,
-    exchangeRate,
-  };
-}
+// Round to 2 decimals helper
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -65,10 +36,10 @@ serve(async (req) => {
     const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
     const shippingFeeUsd = settings?.shipping_base_fee_usd ?? 0;
 
-    // Get DRAFT order
+    // Get DRAFT order with its totals
     const { data: order } = await supabase
       .from('orders')
-      .select('*')
+      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
       .single();
@@ -113,16 +84,55 @@ serve(async (req) => {
       productUrl: item.product_url,
       productTitle: item.title,
       productImageUrl: item.product_image_url,
-      basePriceUsd: item.base_price_usd,
-      quantity: item.quantity,
-      itemBaseTotalUsd: item.subtotal_usd,
-      itemMarginUsd: item.markup_fee_usd,
-      itemSubtotalUsd: item.total_price_usd,
-      itemSubtotalCdf: item.total_price_cdf,
+      store: item.store,
+      basePriceUsd: Number(item.base_price_usd || 0),
+      quantity: item.quantity || 1,
+      itemBaseTotalUsd: Number(item.subtotal_usd || 0),
+      itemMarginUsd: Number(item.markup_fee_usd || 0),
+      itemSubtotalUsd: Number(item.total_price_usd || 0),
+      itemSubtotalCdf: Number(item.total_price_cdf || 0),
     }));
 
-    // Calculate summary
-    const summary = calculateCartSummary(items || [], shippingFeeUsd, exchangeRate);
+    // Calculate totals from items (as backup/verification)
+    let calcItemsTotal = 0;
+    let calcMarginTotal = 0;
+    let calcSubtotalWithMarkup = 0;
+    let itemCount = 0;
+
+    formattedItems.forEach(item => {
+      itemCount += item.quantity;
+      calcItemsTotal += item.itemBaseTotalUsd;
+      calcMarginTotal += item.itemMarginUsd;
+      calcSubtotalWithMarkup += item.itemSubtotalUsd;
+    });
+
+    // Use persisted order totals if available, otherwise use calculated
+    const finalItemsTotal = order.item_total_usd > 0 ? Number(order.item_total_usd) : round2(calcItemsTotal);
+    const finalMarginTotal = order.service_fee_usd > 0 ? Number(order.service_fee_usd) : round2(calcMarginTotal);
+    const finalShippingFee = order.shipping_fee_usd > 0 ? Number(order.shipping_fee_usd) : (items && items.length > 0 ? shippingFeeUsd : 0);
+    const finalGrandTotalUsd = order.total_usd > 0 ? Number(order.total_usd) : round2(calcSubtotalWithMarkup + finalShippingFee);
+    const finalGrandTotalCdf = order.total_cdf > 0 ? Number(order.total_cdf) : round2(finalGrandTotalUsd * exchangeRate);
+
+    // Safety check: log warning if items exist but totals are zero
+    if (items && items.length > 0 && finalItemsTotal === 0) {
+      console.error('[mobile-get-cart] WARNING: Items exist but totals are zero! Order may need recalculation.', {
+        orderId: order.id,
+        itemCount: items.length,
+        orderItemTotal: order.item_total_usd,
+        calculatedItemsTotal: calcItemsTotal,
+      });
+    }
+
+    const summary = {
+      itemCount,
+      totalItemsUsd: round2(finalItemsTotal),
+      totalMarginUsd: round2(finalMarginTotal),
+      itemsSubtotalUsd: round2(finalItemsTotal + finalMarginTotal),
+      shippingFeeUsd: round2(finalShippingFee),
+      grandTotalUsd: round2(finalGrandTotalUsd),
+      grandTotalCdf: round2(finalGrandTotalCdf),
+      exchangeRate: order.exchange_rate_used || exchangeRate,
+    };
 
     console.log('[mobile-get-cart] Response summary:', summary);
 

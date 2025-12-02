@@ -6,6 +6,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Pricing helper - single source of truth for price calculations
+function calculateItemPricing(
+  basePriceUsd: number,
+  quantity: number,
+  markupPercent: number,
+  exchangeRate: number
+) {
+  // Round to 2 decimals helper
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  const itemBaseTotalUsd = round2(basePriceUsd * quantity);
+  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
+  const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
+  const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
+
+  return {
+    basePriceUsd: round2(basePriceUsd),
+    quantity,
+    itemBaseTotalUsd,
+    itemMarginUsd,
+    itemSubtotalUsd,
+    itemSubtotalCdf,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -31,7 +56,7 @@ serve(async (req) => {
     // Read and validate body
     const productUrl = body.productUrl;
     const productPrice = Number(body.productPrice);
-    const quantity = Number.isFinite(body.quantity) && body.quantity > 0 ? body.quantity : 1;
+    const quantity = Number.isFinite(body.quantity) && body.quantity > 0 ? Math.floor(body.quantity) : 1;
 
     if (!productUrl || typeof productUrl !== 'string') {
       return new Response(JSON.stringify({ error: 'productUrl is required' }), {
@@ -59,30 +84,20 @@ serve(async (req) => {
       });
     }
 
-    const markupPercent = settings.markup_percent ?? 0;
-    const shippingFlat = settings.shipping_base_fee_usd ?? 0;
-    const shippingPercent = settings.shipping_percent ?? 0;
-    const minServiceFee = settings.min_service_fee_usd ?? 0;
-    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 0;
+    const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
+    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
 
-    const basePriceUsd = productPrice;
-    const markupFeeUsd = Math.max(
-      basePriceUsd * (markupPercent / 100),
-      minServiceFee
-    );
-    const shippingFeeUsd =
-      shippingFlat + basePriceUsd * (shippingPercent / 100);
-    const lineTotalUsd = basePriceUsd + markupFeeUsd + shippingFeeUsd;
-    const lineTotalCdf =
-      exchangeRate > 0 ? lineTotalUsd * exchangeRate : 0;
+    // Calculate pricing using helper
+    const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
 
     console.log('[mobile-add-cart-item] computed prices:', {
-      basePriceUsd,
-      markupFeeUsd,
-      shippingFeeUsd,
-      lineTotalUsd,
-      lineTotalCdf,
-      quantity,
+      basePriceUsd: pricing.basePriceUsd,
+      quantity: pricing.quantity,
+      itemBaseTotalUsd: pricing.itemBaseTotalUsd,
+      itemMarginUsd: pricing.itemMarginUsd,
+      itemSubtotalUsd: pricing.itemSubtotalUsd,
+      itemSubtotalCdf: pricing.itemSubtotalCdf,
+      markupPercent,
     });
 
     // Detect store from URL
@@ -143,13 +158,23 @@ serve(async (req) => {
       .single();
 
     if (existingItem) {
-      // Merge by updating quantity
+      // Merge by updating quantity and recalculating
       const newQuantity = existingItem.quantity + quantity;
+      const mergedPricing = calculateItemPricing(
+        existingItem.base_price_usd,
+        newQuantity,
+        markupPercent,
+        exchangeRate
+      );
+
       const { data: updatedItem, error: updateError } = await supabase
         .from('order_items')
         .update({ 
           quantity: newQuantity,
-          subtotal_usd: existingItem.base_price_usd * newQuantity,
+          subtotal_usd: mergedPricing.itemBaseTotalUsd,
+          markup_fee_usd: mergedPricing.itemMarginUsd,
+          total_price_usd: mergedPricing.itemSubtotalUsd,
+          total_price_cdf: mergedPricing.itemSubtotalCdf,
         })
         .eq('id', existingItem.id)
         .select()
@@ -175,11 +200,11 @@ serve(async (req) => {
             productTitle: updatedItem.title,
             productImageUrl: updatedItem.product_image_url,
             basePriceUsd: updatedItem.base_price_usd,
-            markupFeeUsd: updatedItem.markup_fee_usd,
-            shippingFeeUsd: updatedItem.shipping_fee_usd,
-            lineTotalUsd: updatedItem.total_price_usd,
-            lineTotalCdf: updatedItem.total_price_cdf,
             quantity: updatedItem.quantity,
+            itemBaseTotalUsd: updatedItem.subtotal_usd,
+            itemMarginUsd: updatedItem.markup_fee_usd,
+            itemSubtotalUsd: updatedItem.total_price_usd,
+            itemSubtotalCdf: updatedItem.total_price_cdf,
           },
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -195,14 +220,14 @@ serve(async (req) => {
         title: productTitle,
         product_image_url: productImageUrl,
         store,
-        base_price_usd: basePriceUsd,
-        markup_fee_usd: markupFeeUsd,
-        shipping_fee_usd: shippingFeeUsd,
-        total_price_usd: lineTotalUsd,
-        total_price_cdf: lineTotalCdf,
-        quantity,
-        unit_price_usd: basePriceUsd,
-        subtotal_usd: basePriceUsd * quantity,
+        base_price_usd: pricing.basePriceUsd,
+        unit_price_usd: pricing.basePriceUsd,
+        quantity: pricing.quantity,
+        subtotal_usd: pricing.itemBaseTotalUsd,
+        markup_fee_usd: pricing.itemMarginUsd,
+        shipping_fee_usd: 0, // Shipping applied at order level
+        total_price_usd: pricing.itemSubtotalUsd,
+        total_price_cdf: pricing.itemSubtotalCdf,
       })
       .select()
       .single();
@@ -224,11 +249,11 @@ serve(async (req) => {
           productTitle: data.title,
           productImageUrl: data.product_image_url,
           basePriceUsd: data.base_price_usd,
-          markupFeeUsd: data.markup_fee_usd,
-          shippingFeeUsd: data.shipping_fee_usd,
-          lineTotalUsd: data.total_price_usd,
-          lineTotalCdf: data.total_price_cdf,
           quantity: data.quantity,
+          itemBaseTotalUsd: data.subtotal_usd,
+          itemMarginUsd: data.markup_fee_usd,
+          itemSubtotalUsd: data.total_price_usd,
+          itemSubtotalCdf: data.total_price_cdf,
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

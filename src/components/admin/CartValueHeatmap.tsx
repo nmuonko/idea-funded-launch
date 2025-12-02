@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { TrendingUp, Package } from 'lucide-react';
+import { formatUSD } from '@/lib/formatCurrency';
 
 interface CategoryMetrics {
   store: string;
@@ -129,7 +130,7 @@ export default function CartValueHeatmap() {
                     <div className="font-bold text-lg">{category.store}</div>
                     <div className="flex items-center gap-1">
                       <TrendingUp className="h-4 w-4" />
-                      <span className="font-bold">${category.totalValue.toFixed(2)}</span>
+                      <span className="font-bold">{formatUSD(category.totalValue)}</span>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-sm opacity-90">
@@ -142,7 +143,7 @@ export default function CartValueHeatmap() {
                       <div className="text-xs">Items</div>
                     </div>
                     <div>
-                      <div className="font-semibold">${category.avgCartValue.toFixed(2)}</div>
+                      <div className="font-semibold">{formatUSD(category.avgCartValue)}</div>
                       <div className="text-xs">Avg Value</div>
                     </div>
                   </div>

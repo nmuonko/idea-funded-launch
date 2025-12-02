@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { DollarSign, TrendingUp } from 'lucide-react';
+import { TrendingUp } from 'lucide-react';
+import { formatUSD, formatCDF } from '@/lib/formatCurrency';
 
 interface ProfitCalculatorProps {
   itemTotal: number;
@@ -42,7 +43,7 @@ export function ProfitCalculator({
           <div className="flex justify-between items-center">
             <span className="text-sm">Total Order Value</span>
             <span className="font-bold text-ocean-medium dark:text-ocean-light">
-              ${total.toFixed(2)}
+              {formatUSD(total)}
             </span>
           </div>
         </div>
@@ -55,19 +56,19 @@ export function ProfitCalculator({
           <div className="space-y-2">
             <div className="flex justify-between items-center text-sm">
               <span>Product Cost</span>
-              <span>${estimatedProductCost.toFixed(2)}</span>
+              <span>{formatUSD(estimatedProductCost)}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span>Shipping Cost</span>
-              <span>${estimatedShippingCost.toFixed(2)}</span>
+              <span>{formatUSD(estimatedShippingCost)}</span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span>Customs Duty (est. 10%)</span>
-              <span>${customsDuty.toFixed(2)}</span>
+              <span>{formatUSD(customsDuty)}</span>
             </div>
             <div className="flex justify-between items-center text-sm font-semibold pt-2 border-t">
               <span>Total Costs</span>
-              <span>${totalCosts.toFixed(2)}</span>
+              <span>{formatUSD(totalCosts)}</span>
             </div>
           </div>
         </div>
@@ -84,7 +85,7 @@ export function ProfitCalculator({
             </div>
             <div className="flex justify-between items-center text-sm">
               <span>Service Fee</span>
-              <span>${serviceFee.toFixed(2)}</span>
+              <span>{formatUSD(serviceFee)}</span>
             </div>
           </div>
         </div>
@@ -96,7 +97,7 @@ export function ProfitCalculator({
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-semibold">Gross Profit</span>
             <span className="text-lg font-bold text-ocean-medium dark:text-ocean-light">
-              ${grossProfit.toFixed(2)}
+              {formatUSD(grossProfit)}
             </span>
           </div>
           <div className="flex justify-between items-center">
@@ -117,7 +118,7 @@ export function ProfitCalculator({
             <div className="flex justify-between items-center text-sm text-muted-foreground">
               <span>Profit in CDF</span>
               <span className="font-medium">
-                {(grossProfit * exchangeRate).toLocaleString()} CDF
+                {formatCDF(grossProfit * exchangeRate)}
               </span>
             </div>
           </div>

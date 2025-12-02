@@ -5,6 +5,7 @@ import { DollarSign, Package, TrendingUp, Users } from 'lucide-react';
 import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 import { PendingActionsWidget } from '@/components/admin/PendingActionsWidget';
 import { CartConversionWidget } from '@/components/admin/CartConversionWidget';
+import { formatUSD } from '@/lib/formatCurrency';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState({
@@ -95,7 +96,7 @@ export default function AdminDashboard() {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${stats.totalRevenue.toFixed(2)}</div>
+                <div className="text-2xl font-bold">{formatUSD(stats.totalRevenue)}</div>
                 <p className="text-xs text-muted-foreground">From paid orders</p>
               </CardContent>
             </Card>
@@ -117,7 +118,7 @@ export default function AdminDashboard() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${stats.totalServiceFees.toFixed(2)}</div>
+                <div className="text-2xl font-bold">{formatUSD(stats.totalServiceFees)}</div>
                 <p className="text-xs text-muted-foreground">Platform earnings</p>
               </CardContent>
             </Card>
@@ -128,7 +129,7 @@ export default function AdminDashboard() {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">${stats.avgOrderValue.toFixed(2)}</div>
+                <div className="text-2xl font-bold">{formatUSD(stats.avgOrderValue)}</div>
                 <p className="text-xs text-muted-foreground">Per paid order</p>
               </CardContent>
             </Card>

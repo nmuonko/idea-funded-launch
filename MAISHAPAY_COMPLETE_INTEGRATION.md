@@ -4,12 +4,13 @@ This document describes the complete MaishaPay payment integration for AfriShop,
 
 ## Overview
 
-The integration consists of 4 main endpoints and a complete admin UI for payment tracking:
+The integration consists of these main endpoints:
 
 1. **POST /mobile-create-order-from-cart** - Converts cart to order
 2. **POST /mobile-initiate-maisha-payment/:orderId** - Initiates payment with MaishaPay
 3. **POST /maisha-callback** - Webhook for payment status updates (public endpoint)
-4. **GET /mobile-order-status/:orderId** - Check order payment status
+4. **POST /web-maisha-callback** - Web redirect callback handler
+5. **GET /mobile-order-status/:orderId** - Check order payment status
 
 ## Environment Variables
 
@@ -17,8 +18,8 @@ Add these secrets to your Lovable Cloud project:
 
 - `MAISHA_PUBLIC_KEY` - Your MaishaPay public API key
 - `MAISHA_SECRET_KEY` - Your MaishaPay secret API key
-- `MAISHA_API_BASE_URL` - Base URL for MaishaPay API (e.g., `https://api.maishapay.com` for production or sandbox URL)
-- `MAISHA_CALLBACK_URL` - Your callback URL (e.g., `https://your-domain.com/maisha-callback` or the full Supabase function URL)
+- `MAISHA_API_BASE_URL` - Base URL for MaishaPay API
+- `MAISHA_CALLBACK_URL` - Your callback URL
 
 ## Database Schema
 
@@ -37,16 +38,16 @@ Tracks all MaishaPay transactions:
 - raw_request (JSONB)
 - raw_response (JSONB)
 - paid_at (TIMESTAMP)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
+- created_at, updated_at (TIMESTAMP)
 ```
 
-### orders table updates
-
-The orders table uses these fields for payment tracking:
+### orders table payment fields
 
 - `maisha_transaction_id` - The reference sent to MaishaPay
-- `maisha_payment_status` - Current payment status from MaishaPay
+- `maisha_payment_status` - Current payment status
+- `maisha_status_code` - MaishaPay status code
+- `maisha_description` - Status description
+- `operator_ref_id` - Mobile operator reference
 - `payment_verified_at` - Timestamp when payment was verified
 
 ## Payment Flow
@@ -57,19 +58,12 @@ The orders table uses these fields for payment tracking:
 
 **Authentication:** Required (JWT token)
 
-**Purpose:** Converts the user's DRAFT order (cart) to PENDING_PAYMENT status with calculated totals.
-
 **Process:**
 1. Authenticates user via JWT
 2. Finds user's existing DRAFT order with items
 3. Retrieves pricing settings from database
-4. Calculates totals:
-   - `baseSubtotalUsd` = sum of (base_price_usd × quantity)
-   - `markupTotalUsd` = sum of (markup_fee_usd × quantity)
-   - `shippingTotalUsd` = sum of (shipping_fee_usd × quantity)
-   - `grandTotalUsd` = baseSubtotalUsd + markupTotalUsd + shippingTotalUsd
-   - `grandTotalCdf` = grandTotalUsd × exchange_rate_usd_to_cdf
-5. Updates order status to PENDING_PAYMENT with all calculated totals
+4. Calculates totals (baseSubtotal + markup + shipping)
+5. Updates order status to PENDING_PAYMENT
 6. Returns order details
 
 **Response:**
@@ -88,20 +82,12 @@ The orders table uses these fields for payment tracking:
 
 **Authentication:** Required (JWT token)
 
-**Purpose:** Creates a MaishaPay payment session and returns checkout URL.
-
 **Process:**
 1. Validates order belongs to user and is PENDING_PAYMENT
-2. Retrieves user profile for customer information
-3. Creates unique reference: `AFRISHOP-{orderId}-{timestamp}`
-4. Calls MaishaPay API with:
-   - Amount in CDF
-   - Customer email and phone
-   - Callback URL
-   - Order reference
-5. Creates record in `maisha_payments` table
-6. Updates order with `maisha_transaction_id`
-7. Returns payment details with checkout URL
+2. Creates unique reference: `AFRISHOP-{orderId}-{timestamp}`
+3. Calls MaishaPay API with amount, customer info, callback URL
+4. Creates record in `maisha_payments` table
+5. Returns payment details with checkout URL
 
 **Response:**
 ```json
@@ -116,51 +102,43 @@ The orders table uses these fields for payment tracking:
 }
 ```
 
-**Mobile App Action:**
-The mobile app should open `checkoutUrl` in a WebView or external browser for the user to complete payment.
-
 ### 3. MaishaPay Callback/Webhook
 
 **Endpoint:** `POST /maisha-callback`
 
 **Authentication:** None (public endpoint)
 
-**Purpose:** Receives payment status updates from MaishaPay.
-
 **Process:**
-1. Receives webhook payload from MaishaPay (supports JSON and form-encoded)
+1. Receives webhook payload from MaishaPay
 2. Extracts reference and payment status
-3. Looks up payment record by `maisha_reference`
-4. Normalizes status:
-   - 'success', 'paid', 'completed' → 'paid'
-   - 'failed', 'cancelled', 'rejected' → 'failed'
-   - Others → 'pending'
-5. Updates `maisha_payments` table with status and timestamp
-6. If paid: Updates order status to PAID and sets `payment_verified_at`
-7. If failed: Updates order `maisha_payment_status` to 'failed'
-8. Returns 200 response quickly
+3. Normalizes status (success/paid/completed → 'paid')
+4. Updates `maisha_payments` table
+5. If paid: Updates order status to PAID
+6. Returns 200 response quickly
 
-**Expected MaishaPay Payload:**
-```json
-{
-  "reference": "AFRISHOP-...",
-  "status": "paid",
-  "amount": 351400,
-  // ... other fields
-}
-```
+### 4. Web Redirect Callback
 
-### 4. Check Order Status
+**Endpoint:** `POST /web-maisha-callback`
+
+**URL:** `https://afrishop-usa.com/maisha-callback`
+
+After payment completion, MaishaPay redirects users with query parameters:
+- `status` - HTTP status code (202 = success, 201 = pending, others = failed)
+- `description` - Human-readable status message
+- `transactionRefId` - MaishaPay transaction reference
+- `operatorRefId` - Mobile operator reference number
+
+**UI States:**
+- **SUCCESS (202)**: Green checkmark, order summary, "View My Orders" button
+- **PENDING (201/2xx)**: Orange clock, processing message
+- **FAILED (other)**: Red X, failed message
+- **ERROR (missing ref)**: Warning, contact support message
+
+### 5. Check Order Status
 
 **Endpoint:** `GET /mobile-order-status/:orderId`
 
 **Authentication:** Required (JWT token)
-
-**Purpose:** Allows mobile app to poll order status after payment.
-
-**Process:**
-1. Validates user owns the order
-2. Returns current order and payment status
 
 **Response:**
 ```json
@@ -169,7 +147,6 @@ The mobile app should open `checkoutUrl` in a WebView or external browser for th
   "status": "paid",
   "grandTotalUsd": 125.50,
   "grandTotalCdf": 351400,
-  "maishaReference": "AFRISHOP-...",
   "paymentStatus": "paid",
   "paidAt": "2025-11-30T10:30:00Z"
 }
@@ -180,141 +157,94 @@ The mobile app should open `checkoutUrl` in a WebView or external browser for th
 ### Checkout Flow
 
 ```javascript
-// 1. User taps "Checkout with Maisha"
-const { orderId, grandTotalCdf } = await fetch('/mobile-create-order-from-cart', {
+// 1. Create order from cart
+const { orderId } = await fetch('/mobile-create-order-from-cart', {
   method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${userToken}`,
-  }
+  headers: { 'Authorization': `Bearer ${userToken}` }
 }).then(r => r.json());
 
 // 2. Initiate payment
 const { payment } = await fetch(`/mobile-initiate-maisha-payment/${orderId}`, {
   method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${userToken}`,
-  }
+  headers: { 'Authorization': `Bearer ${userToken}` }
 }).then(r => r.json());
 
 // 3. Open checkout URL in WebView
 openWebView(payment.checkoutUrl);
 
-// 4. Poll for payment status (while WebView is open)
+// 4. Poll for payment status
 const pollStatus = setInterval(async () => {
   const status = await fetch(`/mobile-order-status/${orderId}`, {
-    headers: {
-      'Authorization': `Bearer ${userToken}`,
-    }
+    headers: { 'Authorization': `Bearer ${userToken}` }
   }).then(r => r.json());
   
   if (status.status === 'paid') {
     clearInterval(pollStatus);
     showSuccessScreen();
-    closeWebView();
-  } else if (status.status === 'failed') {
-    clearInterval(pollStatus);
-    showErrorScreen();
-    closeWebView();
   }
-}, 3000); // Poll every 3 seconds
+}, 3000);
 ```
 
 ## Admin Panel Integration
 
 ### Payments Page
 
-The Admin Panel now shows all MaishaPay transactions with:
-
 **Dashboard Cards:**
 - Total Transactions count
-- Paid transactions count
-- Pending transactions count
+- Paid/Pending/Failed counts
 - Total Amount (USD)
 
 **Payments Table:**
-Shows data from `maisha_payments` table joined with orders and profiles:
-- Maisha Reference (full transaction ID)
-- Order ID (shortened)
-- Customer name and phone
+- Maisha Reference, Order ID, Customer info
 - Amount in USD and CDF
 - Payment status with colored badges
 - Transaction date
 
-**Filtering:**
-- All transactions
-- Paid only
-- Pending only
-- Failed only
-
-**Search:**
-Search by Maisha reference, order ID, or customer name
-
-### Order Details
-
-When viewing an order in the admin panel, payment information shows:
-- Maisha transaction reference
-- Payment status
-- Amount paid (USD and CDF)
-- Payment verification timestamp
+**Features:** Filtering by status, search by reference/customer
 
 ## Testing
 
 ### Sandbox Testing
 
-1. Set `MAISHA_API_BASE_URL` to MaishaPay sandbox URL
-2. Use sandbox API keys in `MAISHA_PUBLIC_KEY` and `MAISHA_SECRET_KEY`
-3. In mobile app:
-   - Add items to cart
-   - Call `/mobile-create-order-from-cart`
-   - Call `/mobile-initiate-maisha-payment/:orderId`
-   - Open returned checkout URL
-   - Complete test payment in MaishaPay sandbox
-4. Verify:
-   - Webhook received at `/maisha-callback`
-   - Order status changes to PAID
-   - Payment appears in Admin → Payments with "Paid" status
+1. Set `MAISHA_API_BASE_URL` to sandbox URL
+2. Use sandbox API keys
+3. Add items to cart → Create order → Initiate payment
+4. Complete test payment in MaishaPay sandbox
+5. Verify webhook received and order status updated
 
-### Production Deployment
+### Test Web Callback URLs
 
-1. Update `MAISHA_API_BASE_URL` to production URL
-2. Update `MAISHA_PUBLIC_KEY` and `MAISHA_SECRET_KEY` with live keys
-3. Update `MAISHA_CALLBACK_URL` to your production callback URL
-4. Test with small real transaction
-5. Monitor logs and admin panel
+```
+# Success
+/maisha-callback?status=202&description=Accepted&transactionRefId=TEST-ID&operatorRefId=OP-123
+
+# Pending
+/maisha-callback?status=201&description=Processing&transactionRefId=TEST-ID
+
+# Failed
+/maisha-callback?status=400&description=Failed&transactionRefId=TEST-ID
+```
 
 ## Security
 
-- All payment endpoints use JWT authentication except the public callback
+- All payment endpoints use JWT authentication except public callback
 - Callback endpoint uses service role key to update database
-- Payment secrets are stored in Lovable Cloud secrets (never in code)
+- Payment secrets stored in Lovable Cloud secrets (never in code)
 - RLS policies ensure users can only see their own payments
-- Admins can view all payments via admin role check
 
 ## Troubleshooting
 
-### Payment Not Updating
+**Payment Not Updating:**
+- Check edge function logs for `/maisha-callback`
+- Verify MaishaPay is sending webhooks to correct URL
+- Check `maisha_payments` table for raw_response field
 
-1. Check edge function logs for `/maisha-callback`
-2. Verify MaishaPay is sending webhooks to correct URL
-3. Check `maisha_payments` table for raw_response field
-4. Verify status normalization logic matches MaishaPay's status values
+**Checkout URL Not Working:**
+- Verify `MAISHA_API_BASE_URL` is correct
+- Check MaishaPay API response in edge function logs
+- Ensure API keys are valid
 
-### Checkout URL Not Working
-
-1. Verify `MAISHA_API_BASE_URL` is correct
-2. Check MaishaPay API response in edge function logs
-3. Ensure API keys are valid and not expired
-4. Check MaishaPay dashboard for transaction
-
-### Order Stuck in PENDING_PAYMENT
-
-1. User may have closed payment without completing
-2. Check if webhook was received (logs and maisha_payments table)
-3. Manually verify payment status in MaishaPay dashboard
-4. Admin can manually mark order as paid if needed
-
-## Support
-
-- MaishaPay API Documentation: [Check with MaishaPay]
-- AfriShop Backend: Check edge function logs in Lovable Cloud
-- Database: Use Lovable Cloud Database viewer to inspect orders and maisha_payments tables
+**Order Stuck in PENDING_PAYMENT:**
+- User may have closed payment without completing
+- Check if webhook was received
+- Admin can manually mark order as paid if needed

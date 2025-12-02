@@ -19,7 +19,15 @@ const STORAGE_KEY = "afrishop-theme-colors";
 export function useThemeCustomizer() {
   const [colors, setColors] = useState<ThemeColors>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : DEFAULT_COLORS;
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Merge with defaults to handle missing fields
+      return {
+        ...DEFAULT_COLORS,
+        ...parsed,
+      };
+    }
+    return DEFAULT_COLORS;
   });
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -12,6 +12,8 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   checkAdminStatus: (userId?: string) => Promise<boolean>;
+  refreshSession: () => Promise<Session | null>;
+  getAccessToken: () => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -232,12 +234,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
+      console.log('[Auth] Signing out...');
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
       setUser(null);
       setSession(null);
       setIsAdmin(false);
+      
+      // Clear stored session data
+      localStorage.removeItem('rememberMe');
+      sessionStorage.removeItem('sessionActive');
       
       toast({
         title: 'Signed out',
@@ -252,6 +259,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * Refresh the current session and get new tokens
+   */
+  const refreshSession = useCallback(async (): Promise<Session | null> => {
+    try {
+      console.log('[Auth] Refreshing session...');
+      const { data: { session: newSession }, error } = await supabase.auth.refreshSession();
+      
+      if (error) {
+        console.error('[Auth] Session refresh failed:', error.message);
+        return null;
+      }
+      
+      if (newSession) {
+        console.log('[Auth] Session refreshed successfully');
+        setSession(newSession);
+        setUser(newSession.user);
+        return newSession;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[Auth] Exception refreshing session:', error);
+      return null;
+    }
+  }, []);
+
+  /**
+   * Get fresh access token - refreshes if needed
+   */
+  const getAccessToken = useCallback(async (): Promise<string | null> => {
+    try {
+      // First try to get current session
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      
+      if (!currentSession) {
+        console.log('[Auth] No session for token');
+        return null;
+      }
+      
+      // Check if token is close to expiry (within 60 seconds)
+      const expiresAt = currentSession.expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      
+      if (expiresAt && expiresAt - now < 60) {
+        console.log('[Auth] Token expiring soon, refreshing...');
+        const refreshed = await refreshSession();
+        return refreshed?.access_token ?? null;
+      }
+      
+      console.log('[Auth] Token valid, expires:', new Date(expiresAt! * 1000).toISOString());
+      return currentSession.access_token;
+    } catch (error) {
+      console.error('[Auth] Exception getting access token:', error);
+      return null;
+    }
+  }, [refreshSession]);
+
   return (
     <AuthContext.Provider 
       value={{ 
@@ -263,6 +328,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp, 
         signOut,
         checkAdminStatus,
+        refreshSession,
+        getAccessToken,
       }}
     >
       {children}

@@ -1,54 +1,56 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  handleCors, 
+  getAuthenticatedUser, 
+  AuthError, 
+  errorResponse, 
+  jsonResponse,
+  corsHeaders 
+} from "../_shared/auth.ts";
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  // Handle CORS preflight
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    console.log('[auth-me] Processing request...');
     
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Get authenticated user using shared utility
+    const { user, supabase } = await getAuthenticatedUser(req);
+    
+    console.log('[auth-me] User authenticated:', user.email);
 
     // Get profile
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('name, phone')
+      .select('name, phone, full_name')
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    return new Response(
-      JSON.stringify({
-        user: {
-          id: user.id,
-          email: user.email,
-          name: profile?.name || null,
-          phone: profile?.phone || null,
-        },
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    if (profileError) {
+      console.warn('[auth-me] Profile fetch error (non-fatal):', profileError.message);
+    }
+
+    const response = {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: profile?.name || profile?.full_name || null,
+        phone: profile?.phone || null,
+      },
+    };
+
+    console.log('[auth-me] Success, returning user data');
+    return jsonResponse(response);
+
   } catch (error: any) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('[auth-me] Error:', error.message);
+    
+    if (error instanceof AuthError) {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return errorResponse(error.message || 'Internal server error', 500);
   }
 });

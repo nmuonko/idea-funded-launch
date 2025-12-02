@@ -6,26 +6,200 @@ Complete API reference for integrating the AfriShop native mobile app with the b
 
 All mobile API endpoints require authentication using Supabase Auth JWT tokens.
 
-### Getting an Auth Token
+### 1. Configure Supabase Client
 
 ```typescript
-const { data, error } = await supabase.auth.signInWithPassword({
-  email: 'user@example.com',
-  password: 'password'
-});
-const authToken = data.session?.access_token;
-```
+import { createClient } from '@supabase/supabase-js';
 
-### Using the Token
+const SUPABASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co';
+const SUPABASE_ANON_KEY = 'your-anon-key';
 
-```typescript
-const response = await fetch(API_ENDPOINT, {
-  headers: {
-    'Authorization': `Bearer ${authToken}`,
-    'Content-Type': 'application/json',
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    autoRefreshToken: true,    // Automatically refresh tokens before expiry
+    persistSession: true,      // Persist session to storage
+    detectSessionInUrl: false, // Don't process OAuth redirects (mobile apps)
   }
 });
 ```
+
+### 2. Load Session on App Startup
+
+**CRITICAL**: Always check for existing session when app starts:
+
+```typescript
+async function initializeAuth() {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  
+  if (error) {
+    console.error('Session load error:', error);
+    navigateToLogin();
+    return;
+  }
+  
+  if (!session) {
+    console.log('No active session');
+    navigateToLogin();
+    return;
+  }
+  
+  console.log('Session loaded, expires:', new Date(session.expires_at * 1000));
+  // User is authenticated, proceed to main app
+}
+```
+
+### 3. Sign In and Get Token
+
+```typescript
+async function signIn(email: string, password: string) {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+  
+  if (error) {
+    console.error('Sign in error:', error.message);
+    return null;
+  }
+  
+  // Session automatically persisted
+  console.log('Signed in:', data.user?.email);
+  return data.session;
+}
+```
+
+### 4. Get Fresh Token for API Calls
+
+**ALWAYS** get a fresh token before making API requests:
+
+```typescript
+async function getAccessToken(): Promise<string | null> {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  
+  if (error || !session) {
+    console.log('No valid session');
+    return null;
+  }
+  
+  // Check if token is expiring soon (within 60 seconds)
+  const expiresAt = session.expires_at;
+  const now = Math.floor(Date.now() / 1000);
+  
+  if (expiresAt && expiresAt - now < 60) {
+    console.log('Token expiring, refreshing...');
+    const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+    return refreshed?.access_token ?? null;
+  }
+  
+  return session.access_token;
+}
+```
+
+### 5. Making Authenticated API Requests
+
+```typescript
+async function apiRequest(endpoint: string, options: RequestInit = {}) {
+  const token = await getAccessToken();
+  
+  if (!token) {
+    console.log('No token, redirecting to login');
+    navigateToLogin();
+    return null;
+  }
+  
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/${endpoint}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      ...options.headers,
+    }
+  });
+  
+  // Handle 401 - try refresh and retry once
+  if (response.status === 401) {
+    console.log('Got 401, attempting token refresh...');
+    
+    const { data: { session } } = await supabase.auth.refreshSession();
+    
+    if (!session) {
+      console.log('Refresh failed, signing out');
+      await supabase.auth.signOut();
+      navigateToLogin();
+      return null;
+    }
+    
+    // Retry with new token
+    const retryResponse = await fetch(`${SUPABASE_URL}/functions/v1/${endpoint}`, {
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        ...options.headers,
+      }
+    });
+    
+    if (retryResponse.status === 401) {
+      // Still failing, force sign out
+      await supabase.auth.signOut();
+      navigateToLogin();
+      return null;
+    }
+    
+    return retryResponse.json();
+  }
+  
+  // Check for JWT errors in response body
+  const data = await response.json();
+  
+  if (data.error && typeof data.error === 'string' && 
+      data.error.toLowerCase().includes('jwt')) {
+    console.log('JWT error in response:', data.error);
+    await supabase.auth.signOut();
+    navigateToLogin();
+    return null;
+  }
+  
+  return data;
+}
+```
+
+### 6. Verify User with /auth-me
+
+```typescript
+async function verifyUser() {
+  const data = await apiRequest('auth-me');
+  
+  if (!data || data.error) {
+    console.error('User verification failed');
+    return null;
+  }
+  
+  return data.user;
+}
+```
+
+### 7. Sign Out
+
+```typescript
+async function signOut() {
+  await supabase.auth.signOut();
+  // Clear any local storage/cache
+  navigateToLogin();
+}
+```
+
+### Error Handling Summary
+
+| Error | Action |
+|-------|--------|
+| No session on startup | Navigate to Login |
+| 401 response | Refresh token, retry once |
+| 401 after refresh | Sign out, navigate to Login |
+| "Invalid JWT" error | Sign out, navigate to Login |
+| Token expiring soon | Auto-refresh before request |
 
 ## Cart Management APIs
 

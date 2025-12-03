@@ -323,6 +323,7 @@ export type Database = {
         Row: {
           base_price_usd: number | null
           created_at: string
+          est_weight_kg: number | null
           id: string
           markup_fee_usd: number | null
           notes: string | null
@@ -330,7 +331,9 @@ export type Database = {
           product_image_url: string | null
           product_url: string
           quantity: number
+          requires_manual_quote: boolean | null
           shipping_fee_usd: number | null
+          shipping_item_type_id: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd: number | null
           title: string | null
@@ -342,6 +345,7 @@ export type Database = {
         Insert: {
           base_price_usd?: number | null
           created_at?: string
+          est_weight_kg?: number | null
           id?: string
           markup_fee_usd?: number | null
           notes?: string | null
@@ -349,7 +353,9 @@ export type Database = {
           product_image_url?: string | null
           product_url: string
           quantity?: number
+          requires_manual_quote?: boolean | null
           shipping_fee_usd?: number | null
+          shipping_item_type_id?: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
@@ -361,6 +367,7 @@ export type Database = {
         Update: {
           base_price_usd?: number | null
           created_at?: string
+          est_weight_kg?: number | null
           id?: string
           markup_fee_usd?: number | null
           notes?: string | null
@@ -368,7 +375,9 @@ export type Database = {
           product_image_url?: string | null
           product_url?: string
           quantity?: number
+          requires_manual_quote?: boolean | null
           shipping_fee_usd?: number | null
+          shipping_item_type_id?: string | null
           store?: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
@@ -383,6 +392,13 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_shipping_item_type_id_fkey"
+            columns: ["shipping_item_type_id"]
+            isOneToOne: false
+            referencedRelation: "shipping_item_types"
             referencedColumns: ["id"]
           },
         ]
@@ -412,6 +428,7 @@ export type Database = {
           rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
+          requires_manual_quote: boolean | null
           service_fee_usd: number | null
           shipped_at: string | null
           shipping_city: Database["public"]["Enums"]["shipping_city"] | null
@@ -447,6 +464,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
+          requires_manual_quote?: boolean | null
           service_fee_usd?: number | null
           shipped_at?: string | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
@@ -482,6 +500,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
+          requires_manual_quote?: boolean | null
           service_fee_usd?: number | null
           shipped_at?: string | null
           shipping_city?: Database["public"]["Enums"]["shipping_city"] | null
@@ -613,6 +632,42 @@ export type Database = {
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      shipping_item_types: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          est_weight_kg: number
+          id: string
+          key: string
+          label: string
+          requires_manual_quote: boolean
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          est_weight_kg: number
+          id?: string
+          key: string
+          label: string
+          requires_manual_quote?: boolean
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          est_weight_kg?: number
+          id?: string
+          key?: string
+          label?: string
+          requires_manual_quote?: boolean
           updated_at?: string
         }
         Relationships: []

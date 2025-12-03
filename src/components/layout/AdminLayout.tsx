@@ -33,6 +33,7 @@ export function AdminLayout() {
     { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'canAccessAnalytics' as const },
     { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'canAccessPayments' as const },
     { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'canAccessShipping' as const },
+    { to: '/admin/shipping-types', icon: Truck, label: 'Shipping Types', permission: 'canAccessShipping' as const },
     { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'canAccessSupport' as const },
     { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'canAccessSupport' as const },
     { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'canAccessKnowledgeBase' as const },

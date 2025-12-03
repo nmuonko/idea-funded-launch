@@ -20,12 +20,19 @@ serve(async (req) => {
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-order-status] User authenticated:', user.id);
 
-    // Get order_id from query params
+    // Get order_id from query params - accept both snake_case and camelCase
     const url = new URL(req.url);
-    const orderId = url.searchParams.get('order_id');
+    const orderId = url.searchParams.get('order_id') ?? url.searchParams.get('orderId');
+    
+    // Log incoming query for debugging
+    console.log('[mobile-order-status] query params:', Object.fromEntries(url.searchParams.entries()));
 
     if (!orderId) {
-      return errorResponse('order_id query parameter is required', 400);
+      console.error('[mobile-order-status] Missing order_id parameter');
+      return jsonResponse({ 
+        success: false, 
+        error: 'order_id query parameter is required' 
+      }, 400);
     }
 
     // Get order with payment details
@@ -60,7 +67,17 @@ serve(async (req) => {
       paymentStatus = 'cancelled';
     }
 
-    return jsonResponse({
+    const responseBody = {
+      success: true,
+      // camelCase for mobile app
+      orderId: order.id,
+      paymentStatus,
+      orderStatus: order.status,
+      maishapayTransactionId: order.maisha_transaction_id,
+      totalUsd: order.total_usd,
+      totalCdf: order.total_cdf,
+      paidAt: order.payment_verified_at,
+      // snake_case for backwards compatibility
       order_id: order.id,
       payment_status: paymentStatus,
       order_status: order.status,
@@ -68,15 +85,18 @@ serve(async (req) => {
       total_usd: order.total_usd,
       total_cdf: order.total_cdf,
       paid_at: order.payment_verified_at,
-    });
+    };
+    
+    console.log('[mobile-order-status] response:', JSON.stringify(responseBody));
+    return jsonResponse(responseBody);
 
   } catch (error: any) {
     console.error('[mobile-order-status] Error:', error.message);
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ success: false, error: error.message }, error.status);
     }
     
-    return jsonResponse({ error: 'INTERNAL_ERROR', message: error.message }, 500);
+    return jsonResponse({ success: false, error: 'INTERNAL_ERROR', message: error.message }, 500);
   }
 });

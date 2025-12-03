@@ -11,40 +11,63 @@ serve(async (req) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
+  if (req.method !== 'GET') {
+    return errorResponse('Method not allowed', 405);
+  }
+
   try {
-    // Verify JWT using SERVICE_ROLE
+    // Verify JWT
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-order-status] User authenticated:', user.id);
 
-    // Extract orderId from URL path
+    // Get order_id from query params
     const url = new URL(req.url);
-    const pathParts = url.pathname.split('/').filter(p => p);
-    const orderId = pathParts[pathParts.length - 1];
+    const orderId = url.searchParams.get('order_id');
 
     if (!orderId) {
-      return errorResponse('Order ID required', 400);
+      return errorResponse('order_id query parameter is required', 400);
     }
 
-    // Get order
+    // Get order with payment details
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, maisha_payments(*)')
+      .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, payment_verified_at')
       .eq('id', orderId)
       .eq('user_id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (orderError || !order) {
-      return errorResponse('Order not found', 404);
+    if (orderError) {
+      console.error('[mobile-order-status] DB error:', orderError);
+      return errorResponse('Failed to fetch order', 500);
+    }
+
+    if (!order) {
+      return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
+    }
+
+    // Map order status to payment status for mobile app
+    let paymentStatus: 'paid' | 'pending' | 'failed' | 'cancelled' = 'pending';
+    
+    if (order.status === 'PAID' || order.status === 'PROCESSING' || 
+        order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || 
+        order.status === 'COMPLETED') {
+      paymentStatus = 'paid';
+    } else if (order.maisha_payment_status === 'SUCCESS') {
+      paymentStatus = 'paid';
+    } else if (order.maisha_payment_status === 'FAILED') {
+      paymentStatus = 'failed';
+    } else if (order.status === 'CANCELLED') {
+      paymentStatus = 'cancelled';
     }
 
     return jsonResponse({
-      orderId: order.id,
-      status: order.status.toLowerCase(),
-      grandTotalUsd: order.total_usd,
-      grandTotalCdf: order.total_cdf,
-      maishaReference: order.maisha_transaction_id,
-      paymentStatus: order.maisha_payment_status,
-      paidAt: order.payment_verified_at,
+      order_id: order.id,
+      payment_status: paymentStatus,
+      order_status: order.status,
+      maishapay_transaction_id: order.maisha_transaction_id,
+      total_usd: order.total_usd,
+      total_cdf: order.total_cdf,
+      paid_at: order.payment_verified_at,
     });
 
   } catch (error: any) {
@@ -54,6 +77,6 @@ serve(async (req) => {
       return errorResponse(error.message, error.status);
     }
     
-    return errorResponse(error.message, 500);
+    return jsonResponse({ error: 'INTERNAL_ERROR', message: error.message }, 500);
   }
 });

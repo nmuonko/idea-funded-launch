@@ -140,3 +140,6 @@ verify_jwt = false
 
 [functions.escalate-tickets]
 verify_jwt = false
+
+[functions.mobile-get-shipping-types]
+verify_jwt = false

@@ -20,6 +20,7 @@ import AdminOrderDetail from "./pages/admin/OrderDetail";
 import AdminFeesSettings from "./pages/admin/FeesSettings";
 import AdminUsers from "./pages/admin/Users";
 import AdminShipping from "./pages/admin/Shipping";
+import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportTickets from "./pages/admin/SupportTickets";
@@ -85,6 +86,7 @@ const App = () => {
               <Route path="knowledge-base" element={<AdminKnowledgeBase />} />
               <Route path="users" element={<AdminUsers />} />
               <Route path="shipping" element={<AdminShipping />} />
+              <Route path="shipping-types" element={<AdminShippingTypes />} />
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="settings" element={<AdminFeesSettings />} />
           </Route>

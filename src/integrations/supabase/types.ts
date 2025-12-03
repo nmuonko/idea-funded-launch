@@ -80,6 +80,72 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_user_permissions: {
+        Row: {
+          can_manage_shipping_types: boolean
+          can_manage_users: boolean
+          can_view_ab_results: boolean
+          can_view_active_carts: boolean
+          can_view_analytics: boolean
+          can_view_dashboard: boolean
+          can_view_knowledge_base: boolean
+          can_view_orders: boolean
+          can_view_payments: boolean
+          can_view_saved_carts: boolean
+          can_view_settings: boolean
+          can_view_shipping: boolean
+          can_view_theme_settings: boolean
+          can_view_ticket_analytics: boolean
+          can_view_tickets: boolean
+          created_at: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          can_manage_shipping_types?: boolean
+          can_manage_users?: boolean
+          can_view_ab_results?: boolean
+          can_view_active_carts?: boolean
+          can_view_analytics?: boolean
+          can_view_dashboard?: boolean
+          can_view_knowledge_base?: boolean
+          can_view_orders?: boolean
+          can_view_payments?: boolean
+          can_view_saved_carts?: boolean
+          can_view_settings?: boolean
+          can_view_shipping?: boolean
+          can_view_theme_settings?: boolean
+          can_view_ticket_analytics?: boolean
+          can_view_tickets?: boolean
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          can_manage_shipping_types?: boolean
+          can_manage_users?: boolean
+          can_view_ab_results?: boolean
+          can_view_active_carts?: boolean
+          can_view_analytics?: boolean
+          can_view_dashboard?: boolean
+          can_view_knowledge_base?: boolean
+          can_view_orders?: boolean
+          can_view_payments?: boolean
+          can_view_saved_carts?: boolean
+          can_view_settings?: boolean
+          can_view_shipping?: boolean
+          can_view_theme_settings?: boolean
+          can_view_ticket_analytics?: boolean
+          can_view_tickets?: boolean
+          created_at?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       admin_users: {
         Row: {
           created_at: string

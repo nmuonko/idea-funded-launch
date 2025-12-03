@@ -8,11 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2 } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
+import { PermissionsEditor, PermissionsSummaryBadges, applyRoleDefaults } from '@/components/admin/PermissionsEditor';
 import { format } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { 
+  SectionPermissions, 
+  AdminRole, 
+  ROLE_DEFAULT_PERMISSIONS,
+  ALL_PERMISSION_KEYS 
+} from '@/hooks/useAdminPermissions';
 
 interface UserWithRole {
   user_id: string;
@@ -23,6 +31,7 @@ interface UserWithRole {
   adminRole: string;
   created_at?: string;
   last_sign_in_at?: string;
+  permissions?: SectionPermissions;
 }
 
 interface Invitation {
@@ -37,6 +46,24 @@ interface Invitation {
   token: string;
 }
 
+const DEFAULT_PERMISSIONS: SectionPermissions = {
+  can_view_dashboard: true,
+  can_view_orders: false,
+  can_view_active_carts: false,
+  can_view_saved_carts: false,
+  can_view_ab_results: false,
+  can_view_analytics: false,
+  can_view_payments: false,
+  can_view_shipping: false,
+  can_manage_shipping_types: false,
+  can_view_tickets: false,
+  can_view_ticket_analytics: false,
+  can_view_knowledge_base: false,
+  can_manage_users: false,
+  can_view_settings: false,
+  can_view_theme_settings: false,
+};
+
 export default function AdminUsers() {
   const [users, setUsers] = useState<UserWithRole[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -44,17 +71,30 @@ export default function AdminUsers() {
   const [promoting, setPromoting] = useState<string | null>(null);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState('operations');
+  const [inviteRole, setInviteRole] = useState<AdminRole>('operations');
+  const [invitePermissions, setInvitePermissions] = useState<SectionPermissions>(ROLE_DEFAULT_PERMISSIONS.operations);
   const [inviteMethod, setInviteMethod] = useState<'email' | 'password'>('email');
   const [invitePassword, setInvitePassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
+  
+  // Edit permissions dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
+  const [editPermissions, setEditPermissions] = useState<SectionPermissions>(DEFAULT_PERMISSIONS);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+  
   const { toast } = useToast();
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // When role changes in invite dialog, apply role defaults
+  useEffect(() => {
+    setInvitePermissions(ROLE_DEFAULT_PERMISSIONS[inviteRole]);
+  }, [inviteRole]);
 
   const loadData = async () => {
     try {
@@ -83,13 +123,41 @@ export default function AdminUsers() {
 
       if (rolesError) throw rolesError;
 
-      const adminRolesMap = new Map(adminRoles?.map(r => [r.user_id, r.admin_role]) || []);
+      // Get all admin permissions
+      const { data: permissionsData } = await supabase
+        .from('admin_user_permissions')
+        .select('*');
 
-      const usersWithRoles = profiles?.map(profile => ({
-        ...profile,
-        isAdmin: adminRolesMap.has(profile.user_id),
-        adminRole: adminRolesMap.get(profile.user_id) || 'super_admin',
-      })) || [];
+      const adminRolesMap = new Map(adminRoles?.map(r => [r.user_id, r.admin_role]) || []);
+      const permissionsMap = new Map(permissionsData?.map(p => [p.user_id, p]) || []);
+
+      const usersWithRoles = profiles?.map(profile => {
+        const adminRole = adminRolesMap.get(profile.user_id) || 'super_admin';
+        const perms = permissionsMap.get(profile.user_id);
+        
+        return {
+          ...profile,
+          isAdmin: adminRolesMap.has(profile.user_id),
+          adminRole,
+          permissions: perms ? {
+            can_view_dashboard: perms.can_view_dashboard,
+            can_view_orders: perms.can_view_orders,
+            can_view_active_carts: perms.can_view_active_carts,
+            can_view_saved_carts: perms.can_view_saved_carts,
+            can_view_ab_results: perms.can_view_ab_results,
+            can_view_analytics: perms.can_view_analytics,
+            can_view_payments: perms.can_view_payments,
+            can_view_shipping: perms.can_view_shipping,
+            can_manage_shipping_types: perms.can_manage_shipping_types,
+            can_view_tickets: perms.can_view_tickets,
+            can_view_ticket_analytics: perms.can_view_ticket_analytics,
+            can_view_knowledge_base: perms.can_view_knowledge_base,
+            can_manage_users: perms.can_manage_users,
+            can_view_settings: perms.can_view_settings,
+            can_view_theme_settings: perms.can_view_theme_settings,
+          } : ROLE_DEFAULT_PERMISSIONS[adminRole as AdminRole] || DEFAULT_PERMISSIONS,
+        };
+      }) || [];
 
       setUsers(usersWithRoles);
     } catch (error: any) {
@@ -133,6 +201,7 @@ export default function AdminUsers() {
         body: {
           email: inviteEmail.trim(),
           role: inviteRole,
+          permissions: invitePermissions,
           setPassword: inviteMethod === 'password' ? invitePassword : undefined,
         },
       });
@@ -148,6 +217,7 @@ export default function AdminUsers() {
       setInviteEmail('');
       setInvitePassword('');
       setInviteRole('operations');
+      setInvitePermissions(ROLE_DEFAULT_PERMISSIONS.operations);
       await loadData();
     } catch (error: any) {
       toast({
@@ -200,6 +270,15 @@ export default function AdminUsers() {
 
       if (error) throw error;
 
+      // Create default permissions for the new admin
+      const defaultPerms = ROLE_DEFAULT_PERMISSIONS[adminRole as AdminRole] || DEFAULT_PERMISSIONS;
+      await supabase
+        .from('admin_user_permissions')
+        .upsert({
+          user_id: userId,
+          ...defaultPerms,
+        });
+
       toast({ title: 'Success', description: 'User promoted to admin' });
       await loadUsers();
     } catch (error: any) {
@@ -223,6 +302,15 @@ export default function AdminUsers() {
 
       if (error) throw error;
 
+      // Update permissions to role defaults
+      const defaultPerms = ROLE_DEFAULT_PERMISSIONS[newRole as AdminRole] || DEFAULT_PERMISSIONS;
+      await supabase
+        .from('admin_user_permissions')
+        .upsert({
+          user_id: userId,
+          ...defaultPerms,
+        });
+
       toast({ title: 'Success', description: 'Admin role updated' });
       await loadUsers();
     } catch (error: any) {
@@ -234,10 +322,52 @@ export default function AdminUsers() {
     }
   };
 
+  const openEditPermissions = (user: UserWithRole) => {
+    setEditingUser(user);
+    setEditPermissions(user.permissions || DEFAULT_PERMISSIONS);
+    setEditDialogOpen(true);
+  };
+
+  const savePermissions = async () => {
+    if (!editingUser) return;
+
+    try {
+      setSavingPermissions(true);
+
+      const { error } = await supabase
+        .from('admin_user_permissions')
+        .upsert({
+          user_id: editingUser.user_id,
+          ...editPermissions,
+        });
+
+      if (error) throw error;
+
+      toast({ title: 'Success', description: 'Permissions updated successfully' });
+      setEditDialogOpen(false);
+      await loadUsers();
+    } catch (error: any) {
+      toast({
+        title: 'Error saving permissions',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
+
   const revokeAdmin = async (userId: string) => {
     try {
       setPromoting(userId);
       
+      // Delete permissions first
+      await supabase
+        .from('admin_user_permissions')
+        .delete()
+        .eq('user_id', userId);
+
+      // Then delete role
       const { error } = await supabase
         .from('user_roles')
         .delete()
@@ -291,7 +421,7 @@ export default function AdminUsers() {
         <div>
           <h1 className="text-3xl font-bold">User Management</h1>
           <p className="text-muted-foreground mt-2">
-            Manage admin roles, invitations, and user permissions
+            Manage admin roles, invitations, and section permissions
           </p>
         </div>
         <Button onClick={() => setInviteDialogOpen(true)}>
@@ -317,7 +447,7 @@ export default function AdminUsers() {
           <Card>
             <CardHeader>
               <CardTitle>Admin Users</CardTitle>
-              <CardDescription>Users with administrative access</CardDescription>
+              <CardDescription>Users with administrative access. Click gear icon to manage section permissions.</CardDescription>
             </CardHeader>
             <CardContent>
               {adminUsers.length === 0 ? (
@@ -325,55 +455,81 @@ export default function AdminUsers() {
               ) : (
                 <TooltipProvider>
                   <div className="space-y-3">
-                    {adminUsers.map((user) => (
-                      <div
-                        key={user.user_id}
-                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                            <Shield className="h-5 w-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>{user.user_id.slice(0, 8)}...</span>
-                              {user.created_at && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="flex items-center gap-1 cursor-help">
-                                      <Calendar className="h-3 w-3" />
-                                      {format(new Date(user.created_at), 'MMM dd, yyyy')}
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Account created</TooltipContent>
-                                </Tooltip>
-                              )}
+                    {adminUsers.map((user) => {
+                      const isSuperAdmin = user.adminRole === 'super_admin';
+                      
+                      return (
+                        <div
+                          key={user.user_id}
+                          className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                              <Shield className="h-5 w-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <span>{user.user_id.slice(0, 8)}...</span>
+                                {user.created_at && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="flex items-center gap-1 cursor-help">
+                                        <Calendar className="h-3 w-3" />
+                                        {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>Account created</TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </div>
+                              {/* Permission summary */}
+                              <div className="mt-1">
+                                {isSuperAdmin ? (
+                                  <span className="text-xs text-primary font-medium">Full Access</span>
+                                ) : user.permissions ? (
+                                  <PermissionsSummaryBadges permissions={user.permissions} />
+                                ) : null}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <RoleBadge role={user.adminRole} />
-                          <StaffRoleSelector
-                            value={user.adminRole}
-                            onChange={(newRole) => updateAdminRole(user.user_id, newRole)}
-                            disabled={promoting === user.user_id}
-                          />
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => revokeAdmin(user.user_id)}
-                            disabled={promoting === user.user_id}
-                          >
-                            {promoting === user.user_id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              'Revoke'
+                          <div className="flex items-center gap-2">
+                            <RoleBadge role={user.adminRole} />
+                            <StaffRoleSelector
+                              value={user.adminRole}
+                              onChange={(newRole) => updateAdminRole(user.user_id, newRole)}
+                              disabled={promoting === user.user_id}
+                            />
+                            {!isSuperAdmin && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => openEditPermissions(user)}
+                                  >
+                                    <Settings2 className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Edit Section Permissions</TooltipContent>
+                              </Tooltip>
                             )}
-                          </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => revokeAdmin(user.user_id)}
+                              disabled={promoting === user.user_id}
+                            >
+                              {promoting === user.user_id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                'Revoke'
+                              )}
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </TooltipProvider>
               )}
@@ -523,79 +679,96 @@ export default function AdminUsers() {
 
       {/* Invite Dialog */}
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Invite Admin User</DialogTitle>
             <DialogDescription>
-              Send an invitation to add a new administrator
+              Send an invitation to add a new administrator with custom permissions
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Email Address</Label>
-              <Input
-                type="email"
-                placeholder="admin@example.com"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Role</Label>
-              <Select value={inviteRole} onValueChange={setInviteRole}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="super_admin">Super Admin - Full access</SelectItem>
-                  <SelectItem value="operations">Operations - Orders & Carts</SelectItem>
-                  <SelectItem value="finance">Finance - Payments & Analytics</SelectItem>
-                  <SelectItem value="support">Support - Tickets & Help</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Invitation Method</Label>
-              <Select value={inviteMethod} onValueChange={(v: 'email' | 'password') => setInviteMethod(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="email">Send email invitation link</SelectItem>
-                  <SelectItem value="password">Set password manually</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {inviteMethod === 'password' && (
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Initial Password</Label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter password for new user"
-                    value={invitePassword}
-                    onChange={(e) => setInvitePassword(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
+                <Label>Email Address</Label>
+                <Input
+                  type="email"
+                  placeholder="admin@example.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Role Preset</Label>
+                <Select value={inviteRole} onValueChange={(v: AdminRole) => setInviteRole(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="super_admin">Super Admin - Full access</SelectItem>
+                    <SelectItem value="operations">Operations - Orders & Carts</SelectItem>
+                    <SelectItem value="finance">Finance - Payments & Analytics</SelectItem>
+                    <SelectItem value="support">Support - Tickets & Help</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">
-                  Share this password securely with the new admin
+                  Select a preset to auto-fill permissions, then customize below
                 </p>
               </div>
-            )}
-          </div>
+
+              {/* Section Access Permissions */}
+              <div className="space-y-2">
+                <Label>Section Access</Label>
+                <div className="border rounded-lg p-4 bg-muted/30">
+                  <PermissionsEditor
+                    permissions={invitePermissions}
+                    onChange={setInvitePermissions}
+                    isSuperAdmin={inviteRole === 'super_admin'}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Invitation Method</Label>
+                <Select value={inviteMethod} onValueChange={(v: 'email' | 'password') => setInviteMethod(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="email">Send email invitation link</SelectItem>
+                    <SelectItem value="password">Set password manually</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {inviteMethod === 'password' && (
+                <div className="space-y-2">
+                  <Label>Initial Password</Label>
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="Enter password for new user"
+                      value={invitePassword}
+                      onChange={(e) => setInvitePassword(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Share this password securely with the new admin
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
@@ -608,6 +781,39 @@ export default function AdminUsers() {
                 <UserPlus className="h-4 w-4 mr-2" />
               )}
               {inviteMethod === 'email' ? 'Send Invitation' : 'Create Admin'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Permissions Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Section Permissions</DialogTitle>
+            <DialogDescription>
+              Customize which admin sections {editingUser?.full_name || editingUser?.name || 'this user'} can access
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="py-4">
+              <PermissionsEditor
+                permissions={editPermissions}
+                onChange={setEditPermissions}
+              />
+            </div>
+          </ScrollArea>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={savePermissions} disabled={savingPermissions}>
+              {savingPermissions ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Save Permissions
             </Button>
           </DialogFooter>
         </DialogContent>

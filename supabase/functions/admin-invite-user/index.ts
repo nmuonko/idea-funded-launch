@@ -47,7 +47,81 @@ serve(async (req) => {
       });
     }
 
-    const { email, role, setPassword, resend, invitationId } = await req.json();
+    const { email, role, permissions, setPassword, resend, invitationId } = await req.json();
+
+    // Default permissions based on role if not provided
+    const defaultPermissions: Record<string, any> = {
+      super_admin: {
+        can_view_dashboard: true,
+        can_view_orders: true,
+        can_view_active_carts: true,
+        can_view_saved_carts: true,
+        can_view_ab_results: true,
+        can_view_analytics: true,
+        can_view_payments: true,
+        can_view_shipping: true,
+        can_manage_shipping_types: true,
+        can_view_tickets: true,
+        can_view_ticket_analytics: true,
+        can_view_knowledge_base: true,
+        can_manage_users: true,
+        can_view_settings: true,
+        can_view_theme_settings: true,
+      },
+      operations: {
+        can_view_dashboard: true,
+        can_view_orders: true,
+        can_view_active_carts: true,
+        can_view_saved_carts: true,
+        can_view_ab_results: false,
+        can_view_analytics: false,
+        can_view_payments: false,
+        can_view_shipping: true,
+        can_manage_shipping_types: false,
+        can_view_tickets: false,
+        can_view_ticket_analytics: false,
+        can_view_knowledge_base: false,
+        can_manage_users: false,
+        can_view_settings: false,
+        can_view_theme_settings: false,
+      },
+      finance: {
+        can_view_dashboard: true,
+        can_view_orders: false,
+        can_view_active_carts: false,
+        can_view_saved_carts: false,
+        can_view_ab_results: true,
+        can_view_analytics: true,
+        can_view_payments: true,
+        can_view_shipping: false,
+        can_manage_shipping_types: false,
+        can_view_tickets: false,
+        can_view_ticket_analytics: false,
+        can_view_knowledge_base: false,
+        can_manage_users: false,
+        can_view_settings: false,
+        can_view_theme_settings: false,
+      },
+      support: {
+        can_view_dashboard: true,
+        can_view_orders: true,
+        can_view_active_carts: false,
+        can_view_saved_carts: false,
+        can_view_ab_results: false,
+        can_view_analytics: false,
+        can_view_payments: false,
+        can_view_shipping: false,
+        can_manage_shipping_types: false,
+        can_view_tickets: true,
+        can_view_ticket_analytics: true,
+        can_view_knowledge_base: true,
+        can_manage_users: false,
+        can_view_settings: false,
+        can_view_theme_settings: false,
+      },
+    };
+
+    const userPermissions = permissions || defaultPermissions[role] || defaultPermissions.support;
 
     // Handle resend invitation
     if (resend && invitationId) {
@@ -147,6 +221,14 @@ serve(async (req) => {
 
       if (roleError) throw roleError;
 
+      // Add permissions for the user
+      await serviceSupabase
+        .from('admin_user_permissions')
+        .upsert({
+          user_id: existingUser.id,
+          ...userPermissions,
+        });
+
       return new Response(JSON.stringify({ 
         success: true,
         message: 'Existing user promoted to admin',
@@ -193,6 +275,14 @@ serve(async (req) => {
       await serviceSupabase
         .from('user_roles')
         .insert({ user_id: newUser.user.id, role: 'admin', admin_role: role });
+
+      // Add permissions for the user
+      await serviceSupabase
+        .from('admin_user_permissions')
+        .upsert({
+          user_id: newUser.user.id,
+          ...userPermissions,
+        });
 
       // Mark invitation as accepted
       await supabase

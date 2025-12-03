@@ -1,23 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { normalizePaymentStatus, getMaishaPayConfig } from "../_shared/maishapay.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-function normalizePaymentStatus(status: string): 'paid' | 'failed' | 'pending' {
-  const normalized = status.toLowerCase();
-  if (normalized === 'success' || normalized === 'paid' || normalized === '1' || normalized.includes('success')) {
-    return 'paid';
-  } else if (normalized === 'failed' || normalized === 'error') {
-    return 'failed';
-  }
-  return 'pending';
-}
-
-function redirectToFrontend(status: string, description?: string, req?: Request, extras?: any) {
-  const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrifund.lovable.app';
+function redirectToFrontend(status: string, description?: string, extras?: any) {
+  const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
   const params = new URLSearchParams({
     status,
     ...(description && { description }),
@@ -26,7 +17,7 @@ function redirectToFrontend(status: string, description?: string, req?: Request,
     ...(extras?.reference && { reference: extras.reference }),
   });
 
-  const redirectUrl = `${frontendUrl}/payment/result?${params.toString()}`;
+  const redirectUrl = `${frontendUrl}/maisha-callback?${params.toString()}`;
   
   console.log('[MaishaPay Callback] Redirecting to:', redirectUrl);
 
@@ -47,11 +38,12 @@ const handler = async (req: Request): Promise<Response> => {
 
   if (req.method !== 'POST') {
     console.log('[MaishaPay Callback] Non-POST request received:', req.method);
-    return redirectToFrontend('failed', 'Invalid request method', req);
+    return redirectToFrontend('failed', 'Invalid request method');
   }
 
   try {
-    console.log('[MaishaPay Callback] Processing callback...');
+    const config = getMaishaPayConfig();
+    console.log(`[MaishaPay Callback] Processing callback (${config.mode} mode)...`);
 
     // Parse different content types MaishaPay might send
     let paymentData: any = {};
@@ -83,6 +75,7 @@ const handler = async (req: Request): Promise<Response> => {
       transactionRefId: paymentData.transactionRefId,
       operatorRefId: paymentData.operatorRefId,
       reference,
+      mode: config.mode,
     });
 
     // Normalize status
@@ -126,13 +119,20 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Update order based on payment status
     const updateData: any = {
-      maisha_transaction_id: paymentData.transactionRefId || null,
-      maisha_payment_status: normalizedStatus === 'paid' ? 'SUCCESS' : 'FAILED',
+      maisha_transaction_id: paymentData.transactionRefId || reference,
+      operator_ref_id: paymentData.operatorRefId || null,
+      maisha_status_code: paymentData.status || null,
+      maisha_description: paymentData.description || null,
       updated_at: new Date().toISOString(),
     };
 
     if (normalizedStatus === 'paid') {
       updateData.status = 'PAID';
+      updateData.maisha_payment_status = 'SUCCESS';
+    } else if (normalizedStatus === 'failed') {
+      updateData.maisha_payment_status = 'FAILED';
+    } else if (normalizedStatus === 'cancelled') {
+      updateData.maisha_payment_status = 'CANCELLED';
     }
 
     const { error: updateError } = await supabaseClient
@@ -144,14 +144,41 @@ const handler = async (req: Request): Promise<Response> => {
       console.error('[MaishaPay Callback] Error updating order:', updateError);
     }
 
-    // Send admin notification on successful payment
+    // Update maisha_payments record
+    const { error: paymentUpdateError } = await supabaseClient
+      .from('maisha_payments')
+      .update({
+        status: normalizedStatus,
+        paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
+        raw_response: paymentData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('maisha_reference', reference);
+
+    if (paymentUpdateError) {
+      console.error('[MaishaPay Callback] Error updating payment record:', paymentUpdateError);
+    }
+
+    // Send admin notification and confirmation email on successful payment
     if (normalizedStatus === 'paid') {
-      console.log('[MaishaPay Callback] Triggering admin notification');
+      console.log('[MaishaPay Callback] Payment successful, triggering notifications');
       
-      const adminEmail = Deno.env.get('ADMIN_NOTIFICATION_EMAIL');
-      if (adminEmail) {
-        // TODO: Send email via Resend
-        console.log('[MaishaPay Callback] Admin notification sent to:', adminEmail);
+      // Trigger payment confirmation email
+      try {
+        await supabaseClient.functions.invoke('send-payment-confirmation', {
+          body: { orderId, paymentData },
+        });
+      } catch (emailErr) {
+        console.error('[MaishaPay Callback] Error sending confirmation:', emailErr);
+      }
+
+      // Trigger admin notification
+      try {
+        await supabaseClient.functions.invoke('send-admin-payment-notification', {
+          body: { orderId, paymentData, mode: config.mode },
+        });
+      } catch (adminErr) {
+        console.error('[MaishaPay Callback] Error notifying admin:', adminErr);
       }
     }
 
@@ -161,6 +188,7 @@ const handler = async (req: Request): Promise<Response> => {
       success: true,
       orderId,
       status: normalizedStatus,
+      mode: config.mode,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -168,7 +196,7 @@ const handler = async (req: Request): Promise<Response> => {
 
   } catch (error: any) {
     console.error('[MaishaPay Callback] Exception:', error);
-    return redirectToFrontend('failed', error.message, undefined);
+    return redirectToFrontend('failed', error.message);
   }
 };
 

@@ -146,10 +146,34 @@ serve(async (req) => {
 
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity });
 
+    // CRITICAL: Ensure user has a profile (orders.user_id references profiles.user_id)
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!existingProfile) {
+      console.log('[mobile-add-cart-item] Creating profile for user:', user.id);
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({ 
+          user_id: user.id, 
+          full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        });
+
+      if (profileError) {
+        console.error('[mobile-add-cart-item] Failed to create profile:', profileError);
+        return errorResponse(`Failed to create user profile: ${profileError.message}`, 500);
+      }
+      console.log('[mobile-add-cart-item] Profile created successfully');
+    }
+
     // Load pricing settings
-    const { data: settings } = await supabase.from('settings').select('*').single();
+    const { data: settings } = await supabase.from('settings').select('*').maybeSingle();
     
     if (!settings) {
+      console.error('[mobile-add-cart-item] No settings found in database');
       return errorResponse('Pricing settings not configured', 500);
     }
 
@@ -195,11 +219,12 @@ serve(async (req) => {
       .select('id')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
-      .single();
+      .maybeSingle();
 
     let orderId = existingOrder?.id;
 
     if (!orderId) {
+      console.log('[mobile-add-cart-item] Creating new DRAFT order for user:', user.id);
       const { data: newOrder, error: orderError } = await supabase
         .from('orders')
         .insert({ user_id: user.id, status: 'DRAFT' })
@@ -208,10 +233,11 @@ serve(async (req) => {
 
       if (orderError) {
         console.error('[mobile-add-cart-item] Failed to create order:', orderError);
-        return errorResponse('Failed to create cart', 500);
+        return errorResponse(`Failed to create cart: ${orderError.message}`, 500);
       }
 
       orderId = newOrder.id;
+      console.log('[mobile-add-cart-item] Created new order:', orderId);
     }
 
     // Check for duplicate items (same product_url in this order)

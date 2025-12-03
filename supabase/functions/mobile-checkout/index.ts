@@ -5,6 +5,11 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+import {
+  createPaymentSession,
+  getMaishaPayConfig,
+  validateConfig,
+} from "../_shared/maishapay.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -19,6 +24,10 @@ serve(async (req) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
+  if (req.method !== 'POST') {
+    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+  }
+
   try {
     console.log('[mobile-checkout] Request received');
 
@@ -28,13 +37,26 @@ serve(async (req) => {
 
     // Parse request body
     const body = await req.json();
-    const { cart_item_ids } = body;
+    const { cart_item_ids, phone, email } = body;
 
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
-      return errorResponse('cart_item_ids array is required and must not be empty', 400);
+      return jsonResponse({ success: false, error: 'cart_item_ids array is required and must not be empty' }, 400);
     }
 
     console.log('[mobile-checkout] Checkout requested for items:', cart_item_ids);
+
+    // Validate MaishaPay configuration
+    const maishaConfig = getMaishaPayConfig();
+    const configValidation = validateConfig(maishaConfig);
+    if (!configValidation.valid) {
+      console.error('[mobile-checkout] MaishaPay config error:', configValidation.error);
+      return jsonResponse({ 
+        success: false,
+        error: 'Payment gateway is not properly configured' 
+      }, 500);
+    }
+
+    console.log('[mobile-checkout] MaishaPay mode:', maishaConfig.mode);
 
     // Get user's DRAFT order
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -47,15 +69,15 @@ serve(async (req) => {
     if (orderFetchError) {
       console.error('[mobile-checkout] Error fetching draft order:', orderFetchError);
       return jsonResponse({ 
-        error: 'DB_FETCH_ERROR', 
-        message: 'Failed to fetch cart data.' 
+        success: false,
+        error: 'Failed to fetch cart data.' 
       }, 500);
     }
 
     if (!existingOrder) {
       return jsonResponse({ 
-        error: 'EMPTY_CART', 
-        message: 'Your cart is empty. Please add items before checkout.' 
+        success: false,
+        error: 'Your cart is empty. Please add items before checkout.' 
       }, 400);
     }
 
@@ -69,19 +91,16 @@ serve(async (req) => {
     if (itemsError) {
       console.error('[mobile-checkout] Error fetching items:', itemsError);
       return jsonResponse({ 
-        error: 'DB_FETCH_ERROR', 
-        message: 'Failed to fetch cart items.' 
+        success: false,
+        error: 'Failed to fetch cart items.' 
       }, 500);
     }
 
     // Validate all requested items exist and are valid
     if (!requestedItems || requestedItems.length !== cart_item_ids.length) {
-      const foundIds = requestedItems?.map(i => i.id) || [];
-      const missingIds = cart_item_ids.filter(id => !foundIds.includes(id));
       return jsonResponse({ 
-        error: 'INVALID_ITEMS', 
-        message: 'Some requested items were not found in your cart.',
-        missingIds 
+        success: false,
+        error: 'Some requested items were not found in your cart.'
       }, 400);
     }
 
@@ -89,9 +108,8 @@ serve(async (req) => {
     const savedItems = requestedItems.filter(item => item.is_saved_for_later);
     if (savedItems.length > 0) {
       return jsonResponse({ 
-        error: 'SAVED_ITEMS_INCLUDED', 
-        message: 'Cannot checkout items that are saved for later. Please move them to cart first.',
-        savedItemIds: savedItems.map(i => i.id)
+        success: false,
+        error: 'Cannot checkout items that are saved for later. Please move them to cart first.'
       }, 400);
     }
 
@@ -99,9 +117,8 @@ serve(async (req) => {
     const manualQuoteItems = requestedItems.filter(item => item.requires_manual_quote);
     if (manualQuoteItems.length > 0) {
       return jsonResponse({ 
-        error: 'MANUAL_QUOTE_REQUIRED', 
-        message: 'Some items require a custom shipping quote. Please contact us.',
-        manualQuoteItemIds: manualQuoteItems.map(i => i.id)
+        success: false,
+        error: 'Some items require a custom shipping quote. Please contact us.'
       }, 400);
     }
 
@@ -114,8 +131,8 @@ serve(async (req) => {
     if (settingsError || !settings) {
       console.error('[mobile-checkout] Error fetching settings:', settingsError);
       return jsonResponse({ 
-        error: 'SETTINGS_ERROR', 
-        message: 'Failed to load pricing configuration.' 
+        success: false,
+        error: 'Failed to load pricing configuration.' 
       }, 500);
     }
 
@@ -141,12 +158,23 @@ serve(async (req) => {
     const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
     const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
-    console.log('[mobile-checkout] Calculated totals for selected items:', {
+    console.log('[mobile-checkout] Calculated totals:', {
       itemCount,
       totalItemsUsd: round2(totalItemsUsd),
       shippingFeeUsd,
       grandTotalUsd,
     });
+
+    // Get user profile for customer details
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, name, phone')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const customerEmail = email || user.email || '';
+    const customerPhone = phone || profile?.phone || '';
+    const customerName = profile?.full_name || profile?.name || '';
 
     // Create a new order for checkout with only selected items
     const { data: checkoutOrder, error: createOrderError } = await supabase
@@ -160,6 +188,7 @@ serve(async (req) => {
         total_usd: grandTotalUsd,
         total_cdf: grandTotalCdf,
         exchange_rate_used: exchangeRate,
+        maisha_payment_status: 'PENDING',
       })
       .select()
       .single();
@@ -167,8 +196,8 @@ serve(async (req) => {
     if (createOrderError) {
       console.error('[mobile-checkout] Error creating checkout order:', createOrderError);
       return jsonResponse({ 
-        error: 'DB_ORDER_CREATE_FAILED', 
-        message: 'Failed to create order. Please try again.' 
+        success: false,
+        error: 'Failed to create order. Please try again.' 
       }, 500);
     }
 
@@ -183,46 +212,99 @@ serve(async (req) => {
       // Rollback: delete the new order
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
       return jsonResponse({ 
-        error: 'DB_MOVE_ITEMS_FAILED', 
-        message: 'Failed to process checkout. Please try again.' 
+        success: false,
+        error: 'Failed to process checkout. Please try again.' 
       }, 500);
     }
 
-    console.log('[mobile-checkout] Order created successfully:', {
+    // Create MaishaPay payment session
+    const paymentResult = await createPaymentSession({
+      amountUsd: grandTotalUsd,
+      currency: 'USD',
+      customerEmail,
+      customerPhone,
+      customerName,
       orderId: checkoutOrder.id,
-      itemCount,
-      totalUsd: grandTotalUsd,
+      description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
     });
 
-    // Return success with order details
-    return jsonResponse({
+    if (!paymentResult.success) {
+      console.error('[mobile-checkout] MaishaPay error:', paymentResult.error);
+      // Update order status but don't rollback
+      await supabase.from('orders').update({ 
+        maisha_payment_status: 'INIT_FAILED',
+        maisha_description: paymentResult.error,
+      }).eq('id', checkoutOrder.id);
+      
+      return jsonResponse({ 
+        success: false,
+        error: 'Failed to initialize payment. Please try again.',
+        orderId: checkoutOrder.id,
+      }, 500);
+    }
+
+    // Create payment record
+    await supabase
+      .from('maisha_payments')
+      .insert({
+        order_id: checkoutOrder.id,
+        maisha_reference: paymentResult.reference,
+        amount_usd: grandTotalUsd,
+        amount_cdf: grandTotalCdf,
+        currency: 'USD',
+        status: 'pending',
+        raw_request: {
+          amount: grandTotalUsd,
+          email: customerEmail,
+          phone: customerPhone,
+          mode: maishaConfig.mode,
+        },
+      });
+
+    // Update order with MaishaPay reference
+    await supabase.from('orders').update({
+      maisha_transaction_id: paymentResult.reference,
+    }).eq('id', checkoutOrder.id);
+
+    // Build the response body
+    const responseBody = {
+      // Required camelCase keys for mobile app (TOP LEVEL)
       success: true,
       orderId: checkoutOrder.id,
+      paymentUrl: paymentResult.checkoutUrl,
+      maishapayTransactionId: paymentResult.reference,
+      
+      // Snake_case for backwards compatibility
+      order_id: checkoutOrder.id,
+      payment_url: paymentResult.checkoutUrl,
+      maishapay_transaction_id: paymentResult.reference,
+      maishapay_reference: paymentResult.reference,
+      payment_mode: maishaConfig.mode,
+      
+      // Additional order info
       order: {
         id: checkoutOrder.id,
-        status: checkoutOrder.status,
+        status: 'PENDING_PAYMENT',
         itemCount,
-        totalItemsUsd: round2(totalItemsUsd),
-        totalMarginUsd: round2(totalMarginUsd),
-        shippingFeeUsd: round2(shippingFeeUsd),
-        grandTotalUsd,
-        grandTotalCdf,
-        exchangeRate,
+        totalUsd: grandTotalUsd,
+        totalCdf: grandTotalCdf,
       },
-      message: 'Order created. Proceed to payment.',
-    });
+    };
+
+    console.log('[mobile-checkout] Response body:', JSON.stringify(responseBody));
+
+    return jsonResponse(responseBody);
 
   } catch (error: any) {
     console.error('[mobile-checkout] Error:', error.message);
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ success: false, error: error.message }, error.status);
     }
     
     return jsonResponse({ 
-      error: 'INTERNAL_ERROR', 
-      message: 'An unexpected error occurred. Please try again.',
-      details: error.message 
+      success: false,
+      error: 'An unexpected error occurred. Please try again.',
     }, 500);
   }
 });

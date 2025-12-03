@@ -69,20 +69,28 @@ serve(async (req) => {
       // Update expiration
       const newExpires = new Date();
       newExpires.setDate(newExpires.getDate() + 7);
-      
-      await supabase
-        .from('admin_invitations')
-        .update({ expires_at: newExpires.toISOString() })
-        .eq('id', invitationId);
+      const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
+      const inviteUrl = `${frontendUrl}/accept-invite?token=${invitation.token}`;
 
       // Send email
       const emailResult = await sendInvitationEmail(invitation.email, invitation.role, invitation.token);
+      
+      // Update invitation with new expiration and email status
+      await supabase
+        .from('admin_invitations')
+        .update({ 
+          expires_at: newExpires.toISOString(),
+          email_sent: emailResult.sent,
+          invite_url: inviteUrl
+        })
+        .eq('id', invitationId);
       
       return new Response(JSON.stringify({ 
         success: true,
         message: emailResult.sent ? 'Invitation resent successfully' : 'Invitation updated (email service unavailable)',
         emailSent: emailResult.sent,
-        emailError: emailResult.error
+        emailError: emailResult.error,
+        inviteUrl: inviteUrl
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -204,6 +212,17 @@ serve(async (req) => {
 
     // Send invitation email
     const emailResult = await sendInvitationEmail(email, role, invitation.token);
+    const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
+    const inviteUrl = `${frontendUrl}/accept-invite?token=${invitation.token}`;
+
+    // Update invitation with email status and URL
+    await supabase
+      .from('admin_invitations')
+      .update({ 
+        email_sent: emailResult.sent,
+        invite_url: inviteUrl
+      })
+      .eq('id', invitation.id);
 
     return new Response(JSON.stringify({ 
       success: true,
@@ -211,7 +230,7 @@ serve(async (req) => {
       invitationId: invitation.id,
       emailSent: emailResult.sent,
       emailError: emailResult.error,
-      inviteUrl: !emailResult.sent ? `${Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com'}/accept-invite?token=${invitation.token}` : undefined
+      inviteUrl: inviteUrl
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

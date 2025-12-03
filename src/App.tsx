@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
@@ -82,22 +83,86 @@ const App = () => {
                 </AdminThemeProvider>
               </ProtectedRoute>
             }>
-              <Route index element={<AdminDashboard />} />
-              <Route path="orders" element={<AdminOrders />} />
-              <Route path="orders/:id" element={<AdminOrderDetail />} />
-              <Route path="carts" element={<AdminCarts />} />
-              <Route path="saved-carts" element={<AdminSavedCarts />} />
-              <Route path="ab-tests" element={<ABTestResults />} />
-              <Route path="payments" element={<AdminPayments />} />
-              <Route path="support" element={<AdminSupportTickets />} />
-              <Route path="ticket-analytics" element={<TicketAnalytics />} />
-              <Route path="knowledge-base" element={<AdminKnowledgeBase />} />
-              <Route path="users" element={<AdminUsers />} />
-              <Route path="shipping" element={<AdminShipping />} />
-              <Route path="shipping-types" element={<AdminShippingTypes />} />
-              <Route path="analytics" element={<AdminAnalytics />} />
-              <Route path="settings" element={<AdminFeesSettings />} />
-              <Route path="theme-settings" element={<ThemeSettings />} />
+              <Route index element={
+                <AdminRouteGuard requiredPermission="can_view_dashboard">
+                  <AdminDashboard />
+                </AdminRouteGuard>
+              } />
+              <Route path="orders" element={
+                <AdminRouteGuard requiredPermission="can_view_orders">
+                  <AdminOrders />
+                </AdminRouteGuard>
+              } />
+              <Route path="orders/:id" element={
+                <AdminRouteGuard requiredPermission="can_view_orders">
+                  <AdminOrderDetail />
+                </AdminRouteGuard>
+              } />
+              <Route path="carts" element={
+                <AdminRouteGuard requiredPermission="can_view_active_carts">
+                  <AdminCarts />
+                </AdminRouteGuard>
+              } />
+              <Route path="saved-carts" element={
+                <AdminRouteGuard requiredPermission="can_view_saved_carts">
+                  <AdminSavedCarts />
+                </AdminRouteGuard>
+              } />
+              <Route path="ab-tests" element={
+                <AdminRouteGuard requiredPermission="can_view_ab_results">
+                  <ABTestResults />
+                </AdminRouteGuard>
+              } />
+              <Route path="payments" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <AdminPayments />
+                </AdminRouteGuard>
+              } />
+              <Route path="support" element={
+                <AdminRouteGuard requiredPermission="can_view_tickets">
+                  <AdminSupportTickets />
+                </AdminRouteGuard>
+              } />
+              <Route path="ticket-analytics" element={
+                <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
+                  <TicketAnalytics />
+                </AdminRouteGuard>
+              } />
+              <Route path="knowledge-base" element={
+                <AdminRouteGuard requiredPermission="can_view_knowledge_base">
+                  <AdminKnowledgeBase />
+                </AdminRouteGuard>
+              } />
+              <Route path="users" element={
+                <AdminRouteGuard requiredPermission="can_manage_users">
+                  <AdminUsers />
+                </AdminRouteGuard>
+              } />
+              <Route path="shipping" element={
+                <AdminRouteGuard requiredPermission="can_view_shipping">
+                  <AdminShipping />
+                </AdminRouteGuard>
+              } />
+              <Route path="shipping-types" element={
+                <AdminRouteGuard requiredPermission="can_manage_shipping_types">
+                  <AdminShippingTypes />
+                </AdminRouteGuard>
+              } />
+              <Route path="analytics" element={
+                <AdminRouteGuard requiredPermission="can_view_analytics">
+                  <AdminAnalytics />
+                </AdminRouteGuard>
+              } />
+              <Route path="settings" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <AdminFeesSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="theme-settings" element={
+                <AdminRouteGuard requiredPermission="can_view_theme_settings">
+                  <ThemeSettings />
+                </AdminRouteGuard>
+              } />
           </Route>
             
             <Route path="*" element={<NotFound />} />

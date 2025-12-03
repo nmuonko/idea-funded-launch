@@ -207,8 +207,8 @@ serve(async (req) => {
       }).eq('id', checkoutOrder.id);
       
       return jsonResponse({ 
-        error: 'PAYMENT_INIT_FAILED', 
-        message: 'Failed to initialize payment gateway.',
+        success: false,
+        error: 'Failed to initialize payment gateway.',
         orderId: checkoutOrder.id,
       }, 500);
     }
@@ -256,8 +256,15 @@ serve(async (req) => {
       orderId: checkoutOrder.id,
     });
 
+    // Return response with BOTH camelCase (required by mobile) and snake_case (backwards compat)
     return jsonResponse({
+      // Required camelCase keys for mobile app
       success: true,
+      orderId: checkoutOrder.id,
+      maishapayTransactionId: paymentResult.reference,
+      paymentUrl: paymentResult.checkoutUrl,
+      
+      // Snake_case for backwards compatibility
       order_id: checkoutOrder.id,
       maishapay_transaction_id: paymentResult.reference,
       maishapay_reference: paymentResult.reference,
@@ -271,7 +278,7 @@ serve(async (req) => {
         totalUsd: grandTotalUsd,
         totalCdf: grandTotalCdf,
       },
-      message: `Payment session created (${maishaConfig.mode} mode). Open payment_url in WebView.`,
+      message: `Payment session created (${maishaConfig.mode} mode). Open paymentUrl in WebView.`,
     });
 
   } catch (error: any) {
@@ -282,9 +289,8 @@ serve(async (req) => {
     }
     
     return jsonResponse({ 
-      error: 'INTERNAL_ERROR', 
-      message: 'An unexpected error occurred.',
-      details: error.message 
+      success: false,
+      error: 'An unexpected error occurred. Please try again.',
     }, 500);
   }
 });

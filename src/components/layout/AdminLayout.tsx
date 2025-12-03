@@ -6,10 +6,12 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { useAdminTheme } from '@/contexts/AdminThemeContext';
 import { 
   LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
-  ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark 
+  ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
+  Palette
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,6 +23,7 @@ export function AdminLayout() {
   const { signOut } = useAuth();
   const { language } = useLanguage();
   const { permissions, loading: permissionsLoading } = useAdminPermissions();
+  const { backgroundColor } = useAdminTheme();
   const t = getAdminTranslation(language);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -41,6 +44,7 @@ export function AdminLayout() {
     { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'canAccessAnalytics' as const },
     { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'canAccessUsers' as const },
     { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'canAccessSettings' as const },
+    { to: '/admin/theme-settings', icon: Palette, label: 'Theme Settings', permission: 'isSuperAdmin' as const },
   ], [t]);
 
   // Filter nav items based on permissions
@@ -210,7 +214,10 @@ export function AdminLayout() {
         <div className="hidden lg:flex justify-end p-4 pb-0">
           <LanguageSwitcher />
         </div>
-        <div className="p-4 md:p-8 pt-2 bg-background min-h-screen">
+        <div 
+          className="p-4 md:p-8 pt-2 min-h-screen transition-colors duration-300"
+          style={{ backgroundColor }}
+        >
           <div className="max-w-7xl mx-auto">
             <Outlet />
           </div>

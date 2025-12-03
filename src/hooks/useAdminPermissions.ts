@@ -15,6 +15,7 @@ export interface AdminPermissions {
   canAccessSettings: boolean;
   canAccessShipping: boolean;
   canAccessKnowledgeBase: boolean;
+  isSuperAdmin: boolean;
 }
 
 const ROLE_PERMISSIONS: Record<AdminRole, Omit<AdminPermissions, 'role'>> = {
@@ -28,6 +29,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, Omit<AdminPermissions, 'role'>> = {
     canAccessSettings: true,
     canAccessShipping: true,
     canAccessKnowledgeBase: true,
+    isSuperAdmin: true,
   },
   finance: {
     canAccessOrders: false,
@@ -39,6 +41,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, Omit<AdminPermissions, 'role'>> = {
     canAccessSettings: false,
     canAccessShipping: false,
     canAccessKnowledgeBase: false,
+    isSuperAdmin: false,
   },
   operations: {
     canAccessOrders: true,
@@ -50,6 +53,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, Omit<AdminPermissions, 'role'>> = {
     canAccessSettings: false,
     canAccessShipping: true,
     canAccessKnowledgeBase: false,
+    isSuperAdmin: false,
   },
   support: {
     canAccessOrders: true,
@@ -61,6 +65,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, Omit<AdminPermissions, 'role'>> = {
     canAccessSettings: false,
     canAccessShipping: false,
     canAccessKnowledgeBase: true,
+    isSuperAdmin: false,
   },
 };
 

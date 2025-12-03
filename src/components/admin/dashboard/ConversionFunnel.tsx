@@ -16,9 +16,10 @@ interface FunnelData {
 
 interface ConversionFunnelProps {
   dateRange?: DateRange;
+  embedded?: boolean;
 }
 
-export function ConversionFunnel({ dateRange }: ConversionFunnelProps) {
+export function ConversionFunnel({ dateRange, embedded }: ConversionFunnelProps) {
   const [data, setData] = useState<FunnelData>({
     activeCarts: 0,
     completedOrders: 0,
@@ -108,6 +109,9 @@ export function ConversionFunnel({ dateRange }: ConversionFunnelProps) {
   ];
 
   if (loading) {
+    if (embedded) {
+      return <Skeleton className="h-[280px] w-full" />;
+    }
     return (
       <Card className="border-border/50">
         <CardHeader>
@@ -123,6 +127,45 @@ export function ConversionFunnel({ dateRange }: ConversionFunnelProps) {
     );
   }
 
+  const funnelContent = (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Cart to purchase journey</p>
+      <div className="grid grid-cols-3 gap-3">
+        {metrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="flex flex-col items-center p-3 rounded-lg bg-muted/30"
+          >
+            <metric.icon className={cn('h-5 w-5 mb-2', metric.color)} />
+            <p className="text-2xl font-bold">{metric.value}</p>
+            <p className="text-xs text-muted-foreground text-center">{metric.label}</p>
+          </div>
+        ))}
+      </div>
+      
+      <div className="pt-3 border-t border-border/50">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium">Conversion Rate</span>
+          <span className={cn(
+            'text-lg font-bold',
+            data.conversionRate >= 50 ? 'text-emerald-500' : 
+            data.conversionRate >= 25 ? 'text-yellow-500' : 'text-red-500'
+          )}>
+            {data.conversionRate}%
+          </span>
+        </div>
+        <Progress 
+          value={data.conversionRate} 
+          className="h-2"
+        />
+      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return funnelContent;
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
@@ -130,40 +173,9 @@ export function ConversionFunnel({ dateRange }: ConversionFunnelProps) {
           <Filter className="h-5 w-5 text-primary" />
           <CardTitle className="text-lg">Conversion Funnel</CardTitle>
         </div>
-        <CardDescription>Cart to purchase journey</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-          >
-            <div className={cn('p-2 rounded-lg', metric.bgColor)}>
-              <metric.icon className={cn('h-4 w-4', metric.color)} />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">{metric.label}</p>
-              <p className="text-xl font-bold">{metric.value}</p>
-            </div>
-          </div>
-        ))}
-        
-        <div className="pt-4 border-t border-border/50">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Conversion Rate</span>
-            <span className={cn(
-              'text-lg font-bold',
-              data.conversionRate >= 50 ? 'text-emerald-500' : 
-              data.conversionRate >= 25 ? 'text-yellow-500' : 'text-red-500'
-            )}>
-              {data.conversionRate}%
-            </span>
-          </div>
-          <Progress 
-            value={data.conversionRate} 
-            className="h-2"
-          />
-        </div>
+      <CardContent>
+        {funnelContent}
       </CardContent>
     </Card>
   );

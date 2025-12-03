@@ -14,7 +14,11 @@ interface SavedCartsData {
   conversionRate: number;
 }
 
-export function SavedCartsReport() {
+interface SavedCartsReportProps {
+  embedded?: boolean;
+}
+
+export function SavedCartsReport({ embedded }: SavedCartsReportProps = {}) {
   const navigate = useNavigate();
   const [data, setData] = useState<SavedCartsData>({
     usersWithSavedItems: 0,
@@ -99,6 +103,9 @@ export function SavedCartsReport() {
   ];
 
   if (loading) {
+    if (embedded) {
+      return <Skeleton className="h-[120px] w-full" />;
+    }
     return (
       <Card className="border-border/50">
         <CardHeader>
@@ -115,41 +122,51 @@ export function SavedCartsReport() {
     );
   }
 
+  const cartsContent = (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/admin/saved-carts')}
+          className="text-xs h-7"
+        >
+          View All
+          <ArrowRight className="h-3 w-3 ml-1" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {metrics.map((metric) => (
+          <div
+            key={metric.label}
+            className="p-3 rounded-lg bg-muted/30"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <metric.icon className={cn('h-4 w-4', metric.color)} />
+              <span className="text-xs text-muted-foreground truncate">{metric.label}</span>
+            </div>
+            <p className="text-xl font-bold">{metric.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return cartsContent;
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bookmark className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Saved Carts Report</CardTitle>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/admin/saved-carts')}
-            className="text-xs"
-          >
-            View All
-            <ArrowRight className="h-3 w-3 ml-1" />
-          </Button>
+        <div className="flex items-center gap-2">
+          <Bookmark className="h-5 w-5 text-primary" />
+          <CardTitle className="text-lg">Saved Carts Report</CardTitle>
         </div>
         <CardDescription>Save for later analytics</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-3">
-          {metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <metric.icon className={cn('h-4 w-4', metric.color)} />
-                <span className="text-xs text-muted-foreground">{metric.label}</span>
-              </div>
-              <p className="text-xl font-bold">{metric.value}</p>
-            </div>
-          ))}
-        </div>
+        {cartsContent}
       </CardContent>
     </Card>
   );

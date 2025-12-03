@@ -19,9 +19,10 @@ interface PaymentData {
 
 interface PaymentsBreakdownProps {
   dateRange?: DateRange;
+  embedded?: boolean;
 }
 
-export function PaymentsBreakdown({ dateRange }: PaymentsBreakdownProps) {
+export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProps) {
   const [data, setData] = useState<PaymentData>({
     totalPayments: 0,
     successfulPayments: 0,
@@ -82,6 +83,9 @@ export function PaymentsBreakdown({ dateRange }: PaymentsBreakdownProps) {
   };
 
   if (loading) {
+    if (embedded) {
+      return <Skeleton className="h-[180px] w-full" />;
+    }
     return (
       <Card className="border-border/50">
         <CardHeader>
@@ -98,6 +102,64 @@ export function PaymentsBreakdown({ dateRange }: PaymentsBreakdownProps) {
     );
   }
 
+  const paymentsContent = (
+    <div className="space-y-4">
+      {/* Success Rate */}
+      <div className="p-3 rounded-lg bg-muted/30">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium">Success Rate</span>
+          <span className={cn(
+            'text-lg font-bold',
+            data.successRate >= 90 ? 'text-emerald-500' : 
+            data.successRate >= 70 ? 'text-yellow-500' : 'text-red-500'
+          )}>
+            {data.successRate}%
+          </span>
+        </div>
+        <Progress value={data.successRate} className="h-2" />
+      </div>
+
+      {/* Payment Stats */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="p-2 rounded-lg bg-muted/30 text-center">
+          <p className="text-xs text-muted-foreground">Total</p>
+          <p className="text-lg font-bold">{data.totalPayments}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-emerald-500/10 text-center">
+          <p className="text-xs text-emerald-500">Success</p>
+          <p className="text-lg font-bold text-emerald-500">{data.successfulPayments}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-red-500/10 text-center">
+          <p className="text-xs text-red-500">Failed</p>
+          <p className="text-lg font-bold text-red-500">{data.failedPayments}</p>
+        </div>
+      </div>
+
+      {/* Revenue by Method */}
+      <div className="pt-3 border-t border-border/50 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Revenue by Method</p>
+        <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-primary" />
+            <span className="text-sm">MaishaPay</span>
+          </div>
+          <span className="font-semibold">{formatUSD(data.maishaPayRevenue)}</span>
+        </div>
+        <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+            <span className="text-sm">Other</span>
+          </div>
+          <span className="font-semibold">{formatUSD(data.totalRevenue - data.maishaPayRevenue)}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return paymentsContent;
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
@@ -107,56 +169,8 @@ export function PaymentsBreakdown({ dateRange }: PaymentsBreakdownProps) {
         </div>
         <CardDescription>Payment methods & success rates</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Success Rate */}
-        <div className="p-3 rounded-lg bg-muted/30">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Success Rate</span>
-            <span className={cn(
-              'text-lg font-bold',
-              data.successRate >= 90 ? 'text-emerald-500' : 
-              data.successRate >= 70 ? 'text-yellow-500' : 'text-red-500'
-            )}>
-              {data.successRate}%
-            </span>
-          </div>
-          <Progress value={data.successRate} className="h-2" />
-        </div>
-
-        {/* Payment Stats */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="p-2 rounded-lg bg-muted/30 text-center">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-lg font-bold">{data.totalPayments}</p>
-          </div>
-          <div className="p-2 rounded-lg bg-emerald-500/10 text-center">
-            <p className="text-xs text-emerald-500">Success</p>
-            <p className="text-lg font-bold text-emerald-500">{data.successfulPayments}</p>
-          </div>
-          <div className="p-2 rounded-lg bg-red-500/10 text-center">
-            <p className="text-xs text-red-500">Failed</p>
-            <p className="text-lg font-bold text-red-500">{data.failedPayments}</p>
-          </div>
-        </div>
-
-        {/* Revenue by Method */}
-        <div className="pt-3 border-t border-border/50 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Revenue by Method</p>
-          <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-primary" />
-              <span className="text-sm">MaishaPay</span>
-            </div>
-            <span className="font-semibold">{formatUSD(data.maishaPayRevenue)}</span>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded-lg bg-muted/30">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-muted-foreground" />
-              <span className="text-sm">Other</span>
-            </div>
-            <span className="font-semibold">{formatUSD(data.totalRevenue - data.maishaPayRevenue)}</span>
-          </div>
-        </div>
+      <CardContent>
+        {paymentsContent}
       </CardContent>
     </Card>
   );

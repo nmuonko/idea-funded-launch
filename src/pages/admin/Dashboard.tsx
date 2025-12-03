@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Package, TrendingUp, DollarSign, Clock, Percent } from 'lucide-react';
+import { Package, TrendingUp, DollarSign, Clock } from 'lucide-react';
 import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 import { AIAdminAssistant } from '@/components/admin/AIAdminAssistant';
 import { formatUSD } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
-import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 // Dashboard Components
 import { SummaryCard } from '@/components/admin/dashboard/SummaryCard';
-import { OrdersOverviewChart } from '@/components/admin/dashboard/OrdersOverviewChart';
-import { ConversionFunnel } from '@/components/admin/dashboard/ConversionFunnel';
+import { ChartTabs } from '@/components/admin/dashboard/ChartTabs';
 import { PendingActionsSidebar } from '@/components/admin/dashboard/PendingActionsSidebar';
-import { ShippingMetrics } from '@/components/admin/dashboard/ShippingMetrics';
-import { PaymentsBreakdown } from '@/components/admin/dashboard/PaymentsBreakdown';
-import { SavedCartsReport } from '@/components/admin/dashboard/SavedCartsReport';
+import { OperationalInsightsTabs } from '@/components/admin/dashboard/OperationalInsightsTabs';
 import { DateRangeFilter, type DateRange, getDateRangeFromPreset } from '@/components/admin/dashboard/DateRangeFilter';
 
 interface DashboardStats {
@@ -23,7 +19,6 @@ interface DashboardStats {
   paidOrders: number;
   pendingPayments: number;
   totalRevenue: number;
-  serviceFees: number;
   ordersTrend: number;
   revenueTrend: number;
 }
@@ -38,7 +33,6 @@ export default function AdminDashboard() {
     paidOrders: 0,
     pendingPayments: 0,
     totalRevenue: 0,
-    serviceFees: 0,
     ordersTrend: 0,
     revenueTrend: 0,
   });
@@ -80,7 +74,6 @@ export default function AdminDashboard() {
       const paidOrders = paidOrdersList.length;
       const pendingPayments = periodOrders?.filter(o => o.status === 'PENDING_PAYMENT').length || 0;
       const totalRevenue = paidOrdersList.reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
-      const serviceFees = paidOrdersList.reduce((sum, o) => sum + Number(o.service_fee_usd || 0), 0);
 
       // Previous period stats for trends
       const prevOrderCount = previousOrders?.filter(o => o.status !== 'DRAFT').length || 0;
@@ -100,7 +93,6 @@ export default function AdminDashboard() {
         paidOrders,
         pendingPayments,
         totalRevenue,
-        serviceFees,
         ordersTrend,
         revenueTrend,
       });
@@ -112,14 +104,14 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500">
       <RealtimeNotifications />
       
       {/* Header with Date Range Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight">{t.dashboard.title}</h1>
-          <p className="text-muted-foreground text-sm">Real-time business metrics and insights</p>
+          <p className="text-sm text-muted-foreground">Real-time business metrics</p>
         </div>
         <DateRangeFilter 
           dateRange={dateRange} 
@@ -127,18 +119,18 @@ export default function AdminDashboard() {
         />
       </div>
 
-      {/* Main Grid Layout */}
-      <div className="grid gap-6 lg:grid-cols-4">
-        {/* Left Side - Main Content (3 columns on lg) */}
-        <div className="lg:col-span-3 space-y-6">
-          {/* A. Top Summary Bar - 5 KPI Cards */}
-          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Main Grid Layout - Clean 3 + 1 columns */}
+      <div className="grid gap-8 lg:grid-cols-[1fr_200px]">
+        {/* Left Side - Main Content */}
+        <div className="space-y-8 min-w-0">
+          {/* A. Top Summary Bar - 4 KPI Cards (removed Service Fees) */}
+          <div className="grid gap-5 grid-cols-2 lg:grid-cols-4">
             <SummaryCard
               title="Total Orders"
               value={stats.totalOrders}
               icon={Package}
               trend={stats.ordersTrend}
-              trendLabel="vs prev period"
+              trendLabel="vs prev"
               isLoading={loading}
             />
             <SummaryCard
@@ -149,7 +141,7 @@ export default function AdminDashboard() {
               isLoading={loading}
             />
             <SummaryCard
-              title="Pending Payments"
+              title="Pending"
               value={stats.pendingPayments}
               icon={Clock}
               iconColor="text-yellow-500"
@@ -161,34 +153,20 @@ export default function AdminDashboard() {
               icon={DollarSign}
               iconColor="text-primary"
               trend={stats.revenueTrend}
-              trendLabel="vs prev period"
-              isLoading={loading}
-            />
-            <SummaryCard
-              title="Service Fees"
-              value={formatUSD(stats.serviceFees)}
-              icon={Percent}
-              iconColor="text-blue-500"
+              trendLabel="vs prev"
               isLoading={loading}
             />
           </div>
 
-          {/* B. Middle Section - Two Large Panels */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <OrdersOverviewChart dateRange={dateRange} />
-            <ConversionFunnel dateRange={dateRange} />
-          </div>
+          {/* B. Primary Chart with Tabs (Orders Overview + Conversion) */}
+          <ChartTabs dateRange={dateRange} />
 
-          {/* D. Bottom Section - Operational Insights */}
-          <div className="grid gap-6 md:grid-cols-3">
-            <ShippingMetrics dateRange={dateRange} />
-            <PaymentsBreakdown dateRange={dateRange} />
-            <SavedCartsReport />
-          </div>
+          {/* C. Operational Insights - Tabbed (Shipping, Payments, Saved Carts) */}
+          <OperationalInsightsTabs dateRange={dateRange} />
         </div>
 
-        {/* C. Right Side Panel - Sticky */}
-        <div className="lg:col-span-1">
+        {/* D. Right Side Panel - Slim Sticky Sidebar */}
+        <div className="lg:sticky lg:top-4 lg:self-start">
           <PendingActionsSidebar />
         </div>
       </div>

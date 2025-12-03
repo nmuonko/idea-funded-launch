@@ -15,9 +15,10 @@ interface MonthlyData {
 
 interface OrdersOverviewChartProps {
   dateRange?: DateRange;
+  embedded?: boolean;
 }
 
-export function OrdersOverviewChart({ dateRange }: OrdersOverviewChartProps) {
+export function OrdersOverviewChart({ dateRange, embedded }: OrdersOverviewChartProps) {
   const [data, setData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -75,6 +76,9 @@ export function OrdersOverviewChart({ dateRange }: OrdersOverviewChartProps) {
   };
 
   if (loading) {
+    if (embedded) {
+      return <Skeleton className="h-[280px] w-full" />;
+    }
     return (
       <Card className="border-border/50">
         <CardHeader>
@@ -88,6 +92,47 @@ export function OrdersOverviewChart({ dateRange }: OrdersOverviewChartProps) {
     );
   }
 
+  const chartContent = (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Monthly orders breakdown (last 6 months)</p>
+      <div className="h-[250px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
+            <XAxis 
+              dataKey="month" 
+              tick={{ fontSize: 12 }}
+              tickLine={false}
+              axisLine={false}
+              className="text-muted-foreground"
+            />
+            <YAxis 
+              tick={{ fontSize: 12 }}
+              tickLine={false}
+              axisLine={false}
+              className="text-muted-foreground"
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
+                borderRadius: '8px',
+                fontSize: '12px',
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
+            <Bar dataKey="paid" name="Paid" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="unpaid" name="Unpaid" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return chartContent;
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
@@ -95,40 +140,9 @@ export function OrdersOverviewChart({ dateRange }: OrdersOverviewChartProps) {
           <BarChart3 className="h-5 w-5 text-primary" />
           <CardTitle className="text-lg">Orders Overview</CardTitle>
         </div>
-        <CardDescription>Monthly orders breakdown (last 6 months)</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="h-[250px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
-              <XAxis 
-                dataKey="month" 
-                tick={{ fontSize: 12 }}
-                tickLine={false}
-                axisLine={false}
-                className="text-muted-foreground"
-              />
-              <YAxis 
-                tick={{ fontSize: 12 }}
-                tickLine={false}
-                axisLine={false}
-                className="text-muted-foreground"
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                }}
-              />
-              <Legend wrapperStyle={{ fontSize: '12px' }} />
-              <Bar dataKey="paid" name="Paid" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="unpaid" name="Unpaid" fill="hsl(var(--muted-foreground))" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {chartContent}
       </CardContent>
     </Card>
   );

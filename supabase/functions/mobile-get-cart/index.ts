@@ -70,32 +70,50 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Found items:', items?.length || 0);
 
-    // Format items for response
-    const formattedItems = (items || []).map(item => ({
-      id: item.id,
-      productUrl: item.product_url,
-      productTitle: item.title,
-      productImageUrl: item.product_image_url,
-      store: item.store,
-      basePriceUsd: Number(item.base_price_usd || 0),
-      quantity: item.quantity || 1,
-      itemBaseTotalUsd: Number(item.subtotal_usd || 0),
-      itemMarginUsd: Number(item.markup_fee_usd || 0),
-      itemSubtotalUsd: Number(item.total_price_usd || 0),
-      itemSubtotalCdf: Number(item.total_price_cdf || 0),
-    }));
+    // Get markup percent from settings
+    const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
 
-    // Calculate totals from items (as backup/verification)
+    // Format items for response AND recalculate if stored values are 0/null
+    let itemCount = 0;
     let calcItemsTotal = 0;
     let calcMarginTotal = 0;
     let calcSubtotalWithMarkup = 0;
-    let itemCount = 0;
 
-    formattedItems.forEach(item => {
-      itemCount += item.quantity;
-      calcItemsTotal += item.itemBaseTotalUsd;
-      calcMarginTotal += item.itemMarginUsd;
-      calcSubtotalWithMarkup += item.itemSubtotalUsd;
+    const formattedItems = (items || []).map(item => {
+      const basePriceUsd = Number(item.base_price_usd || 0);
+      const quantity = item.quantity || 1;
+      
+      // Calculate expected values from base price
+      const expectedBaseTotal = round2(basePriceUsd * quantity);
+      const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
+      const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
+      const expectedSubtotalCdf = round2(expectedSubtotal * exchangeRate);
+
+      // Use stored values if valid, otherwise use calculated values
+      const itemBaseTotalUsd = Number(item.subtotal_usd) > 0 ? Number(item.subtotal_usd) : expectedBaseTotal;
+      const itemMarginUsd = Number(item.markup_fee_usd) > 0 ? Number(item.markup_fee_usd) : expectedMargin;
+      const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
+      const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
+
+      // Accumulate totals
+      itemCount += quantity;
+      calcItemsTotal += itemBaseTotalUsd;
+      calcMarginTotal += itemMarginUsd;
+      calcSubtotalWithMarkup += itemSubtotalUsd;
+
+      return {
+        id: item.id,
+        productUrl: item.product_url,
+        productTitle: item.title,
+        productImageUrl: item.product_image_url,
+        store: item.store,
+        basePriceUsd,
+        quantity,
+        itemBaseTotalUsd,
+        itemMarginUsd,
+        itemSubtotalUsd,
+        itemSubtotalCdf,
+      };
     });
 
     // Use persisted order totals if available, otherwise use calculated with dynamic shipping

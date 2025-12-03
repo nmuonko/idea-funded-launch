@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Eye, Download, CheckCircle } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { useToast } from '@/hooks/use-toast';
 
@@ -216,6 +216,147 @@ export default function AdminOrders() {
     });
   };
 
+  const handleBulkDownloadReceipts = async () => {
+    if (selectedOrders.size === 0) return;
+
+    const selectedOrdersData = orders.filter(o => selectedOrders.has(o.id));
+    const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
+    const paidOrders = selectedOrdersData.filter(o => 
+      paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS'
+    );
+
+    if (paidOrders.length === 0) {
+      toast({
+        title: 'No paid orders',
+        description: 'Only paid orders have receipts available',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setBulkActionLoading(true);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      // Download receipts one by one and combine into a single window
+      const receiptsHtml: string[] = [];
+      
+      for (const order of paidOrders) {
+        const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${order.id}`;
+        
+        const response = await fetch(receiptUrl, {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        });
+
+        if (response.ok) {
+          const html = await response.text();
+          // Extract body content only
+          const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+          if (bodyMatch) {
+            receiptsHtml.push(`
+              <div class="receipt-page" style="page-break-after: always; margin-bottom: 40px;">
+                ${bodyMatch[1]}
+              </div>
+            `);
+          }
+        }
+      }
+
+      if (receiptsHtml.length === 0) {
+        throw new Error('Failed to generate any receipts');
+      }
+
+      // Create combined document
+      const combinedHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Batch Receipts - AfriShop</title>
+          <style>
+            @media print {
+              body { margin: 0; padding: 0; }
+              .no-print { display: none; }
+              .receipt-page { page-break-after: always; }
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              line-height: 1.6;
+              color: #333;
+              background: #f5f5f5;
+              padding: 20px;
+            }
+            .header-bar {
+              background: #2563eb;
+              color: white;
+              padding: 20px;
+              border-radius: 8px;
+              margin-bottom: 30px;
+              text-align: center;
+            }
+            .header-bar h1 {
+              margin: 0 0 10px 0;
+            }
+            .print-btn {
+              display: inline-block;
+              padding: 12px 24px;
+              background: white;
+              color: #2563eb;
+              border: none;
+              border-radius: 6px;
+              font-size: 14px;
+              cursor: pointer;
+              font-weight: 600;
+            }
+            .print-btn:hover {
+              background: #f0f0f0;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header-bar no-print">
+            <h1>📄 Batch Receipts (${receiptsHtml.length} orders)</h1>
+            <button class="print-btn" onclick="window.print()">🖨️ Print All Receipts</button>
+          </div>
+          ${receiptsHtml.join('\n')}
+        </body>
+        </html>
+      `;
+
+      // Open in new window
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(combinedHtml);
+        newWindow.document.close();
+      }
+
+      toast({
+        title: 'Receipts generated',
+        description: `Generated ${receiptsHtml.length} receipt(s) in new tab`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  // Count paid orders in selection
+  const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
+  const selectedPaidCount = orders.filter(o => 
+    selectedOrders.has(o.id) && (paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS')
+  ).length;
+
   return (
     <>
       <Card>
@@ -291,8 +432,23 @@ export default function AdminOrders() {
                   onClick={handleBulkExport}
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  Export
+                  Export CSV
                 </Button>
+                {selectedPaidCount > 0 && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleBulkDownloadReceipts}
+                    disabled={bulkActionLoading}
+                  >
+                    {bulkActionLoading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <FileText className="h-4 w-4 mr-2" />
+                    )}
+                    Receipts ({selectedPaidCount})
+                  </Button>
+                )}
               </>
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>

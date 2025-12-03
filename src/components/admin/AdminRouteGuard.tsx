@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdminPermissions, SectionPermissions } from '@/hooks/useAdminPermissions';
-import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 
 interface AdminRouteGuardProps {
@@ -12,11 +11,12 @@ interface AdminRouteGuardProps {
 export function AdminRouteGuard({ children, requiredPermission }: AdminRouteGuardProps) {
   const { permissions, loading } = useAdminPermissions();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (loading) return;
     
-    // If no specific permission required, allow access (e.g., dashboard for all admins)
+    // If no specific permission required, allow access
     if (!requiredPermission) return;
     
     // Super admin always has access
@@ -24,12 +24,15 @@ export function AdminRouteGuard({ children, requiredPermission }: AdminRouteGuar
     
     // Check specific permission
     if (permissions && !permissions[requiredPermission]) {
-      toast.error('Access denied', {
-        description: "You don't have permission to access this section.",
+      navigate('/admin/access-denied', { 
+        replace: true,
+        state: { 
+          missingPermission: requiredPermission,
+          attemptedPath: location.pathname 
+        }
       });
-      navigate('/admin', { replace: true });
     }
-  }, [loading, permissions, requiredPermission, navigate]);
+  }, [loading, permissions, requiredPermission, navigate, location.pathname]);
 
   if (loading) {
     return (

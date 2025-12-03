@@ -81,9 +81,6 @@ verify_jwt = false
 [functions.send-fraud-alert-email]
 verify_jwt = false
 
-[functions.send-payment-confirmation-email]
-verify_jwt = false
-
 [functions.transcribe-audio]
 verify_jwt = true
 
@@ -151,4 +148,10 @@ verify_jwt = true
 verify_jwt = false
 
 [functions.admin-invite-user]
+verify_jwt = true
+
+[functions.mobile-create-payment]
+verify_jwt = true
+
+[functions.mobile-verify-payment]
 verify_jwt = true

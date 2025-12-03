@@ -15,9 +15,10 @@ interface ShippingData {
 
 interface ShippingMetricsProps {
   dateRange?: DateRange;
+  embedded?: boolean;
 }
 
-export function ShippingMetrics({ dateRange }: ShippingMetricsProps) {
+export function ShippingMetrics({ dateRange, embedded }: ShippingMetricsProps) {
   const [data, setData] = useState<ShippingData>({
     avgShippingDays: 0,
     shippedThisWeek: 0,
@@ -110,6 +111,9 @@ export function ShippingMetrics({ dateRange }: ShippingMetricsProps) {
   ];
 
   if (loading) {
+    if (embedded) {
+      return <Skeleton className="h-[120px] w-full" />;
+    }
     return (
       <Card className="border-border/50">
         <CardHeader>
@@ -126,6 +130,27 @@ export function ShippingMetrics({ dateRange }: ShippingMetricsProps) {
     );
   }
 
+  const metricsContent = (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {metrics.map((metric) => (
+        <div
+          key={metric.label}
+          className="p-3 rounded-lg bg-muted/30"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <metric.icon className={cn('h-4 w-4', metric.color)} />
+            <span className="text-xs text-muted-foreground truncate">{metric.label}</span>
+          </div>
+          <p className="text-xl font-bold">{metric.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (embedded) {
+    return metricsContent;
+  }
+
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
       <CardHeader className="pb-2">
@@ -136,20 +161,7 @@ export function ShippingMetrics({ dateRange }: ShippingMetricsProps) {
         <CardDescription>Fulfillment performance overview</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 gap-3">
-          {metrics.map((metric) => (
-            <div
-              key={metric.label}
-              className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <metric.icon className={cn('h-4 w-4', metric.color)} />
-                <span className="text-xs text-muted-foreground">{metric.label}</span>
-              </div>
-              <p className="text-xl font-bold">{metric.value}</p>
-            </div>
-          ))}
-        </div>
+        {metricsContent}
       </CardContent>
     </Card>
   );

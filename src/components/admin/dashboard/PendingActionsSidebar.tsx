@@ -137,57 +137,47 @@ export function PendingActionsSidebar() {
   }
 
   return (
-    <Card className="border-border/50 bg-card/50 backdrop-blur-sm sticky top-4">
-      <CardHeader className="pb-3">
+    <Card className="border-border/50 bg-card/30 backdrop-blur-sm sticky top-4">
+      <CardHeader className="py-3 px-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Pending Actions</CardTitle>
+            <AlertCircle className="h-4 w-4 text-primary" />
+            <CardTitle className="text-sm font-medium">Actions</CardTitle>
           </div>
           {totalPending > 0 && (
-            <Badge variant="destructive" className="font-bold">
+            <Badge variant="destructive" className="text-xs h-5 px-1.5">
               {totalPending}
             </Badge>
           )}
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="px-2 pb-3 pt-0 space-y-1">
         {actions.map((action) => (
           <button
             key={action.label}
             type="button"
             onClick={() => navigate(action.route)}
             className={cn(
-              'w-full flex items-center gap-3 p-3 rounded-lg border border-transparent',
-              'hover:border-border/50 hover:bg-muted/50 transition-all duration-200',
+              'w-full flex items-center gap-2 px-2 py-2 rounded-md',
+              'hover:bg-muted/50 transition-colors duration-150',
               'text-left group'
             )}
           >
-            <div className={cn('p-2 rounded-lg', action.bgColor)}>
-              <action.icon className={cn('h-4 w-4', action.color)} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{action.label}</p>
-              <p className="text-xs text-muted-foreground">{action.description}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              {action.count > 0 ? (
-                <Badge variant="secondary" className={cn('font-semibold', action.count > 0 && action.color)}>
-                  {action.count}
-                </Badge>
-              ) : (
-                <span className="text-xs text-muted-foreground">0</span>
-              )}
-              <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-            </div>
+            <action.icon className={cn('h-4 w-4 shrink-0', action.color)} />
+            <span className="text-xs font-medium flex-1 truncate">{action.label}</span>
+            <span className={cn(
+              'text-xs font-semibold min-w-[20px] text-right',
+              action.count > 0 ? action.color : 'text-muted-foreground'
+            )}>
+              {action.count}
+            </span>
           </button>
         ))}
 
         {totalPending === 0 && (
-          <div className="text-center py-6">
-            <div className="text-3xl mb-2">✓</div>
-            <p className="text-sm font-medium text-muted-foreground">All caught up!</p>
-            <p className="text-xs text-muted-foreground">No pending actions</p>
+          <div className="text-center py-4">
+            <span className="text-lg">✓</span>
+            <p className="text-xs text-muted-foreground mt-1">All caught up</p>
           </div>
         )}
       </CardContent>

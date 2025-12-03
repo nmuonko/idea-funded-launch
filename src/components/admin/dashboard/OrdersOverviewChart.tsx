@@ -4,6 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { BarChart3 } from 'lucide-react';
+import type { DateRange } from './DateRangeFilter';
 
 interface MonthlyData {
   month: string;
@@ -12,13 +13,17 @@ interface MonthlyData {
   total: number;
 }
 
-export function OrdersOverviewChart() {
+interface OrdersOverviewChartProps {
+  dateRange?: DateRange;
+}
+
+export function OrdersOverviewChart({ dateRange }: OrdersOverviewChartProps) {
   const [data, setData] = useState<MonthlyData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadChartData();
-  }, []);
+  }, [dateRange]);
 
   const loadChartData = async () => {
     try {

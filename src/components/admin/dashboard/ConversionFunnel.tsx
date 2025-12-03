@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { Filter, ShoppingCart, XCircle, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { DateRange } from './DateRangeFilter';
 
 interface FunnelData {
   activeCarts: number;
@@ -13,7 +14,11 @@ interface FunnelData {
   conversionRate: number;
 }
 
-export function ConversionFunnel() {
+interface ConversionFunnelProps {
+  dateRange?: DateRange;
+}
+
+export function ConversionFunnel({ dateRange }: ConversionFunnelProps) {
   const [data, setData] = useState<FunnelData>({
     activeCarts: 0,
     completedOrders: 0,
@@ -24,13 +29,23 @@ export function ConversionFunnel() {
 
   useEffect(() => {
     loadFunnelData();
-  }, []);
+  }, [dateRange]);
 
   const loadFunnelData = async () => {
     try {
-      const { data: orders, error } = await supabase
+      setLoading(true);
+      
+      let query = supabase
         .from('orders')
         .select('status, payment_verified_at, created_at');
+
+      if (dateRange) {
+        query = query
+          .gte('created_at', dateRange.from.toISOString())
+          .lte('created_at', dateRange.to.toISOString());
+      }
+
+      const { data: orders, error } = await query;
 
       if (error) throw error;
 

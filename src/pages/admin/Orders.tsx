@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, Eye, Download, CheckCircle, FileText } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
+import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { useToast } from '@/hooks/use-toast';
 
 export default function AdminOrders() {
@@ -22,6 +24,24 @@ export default function AdminOrders() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+
+  // Filter orders based on search query
+  const filteredOrders = useMemo(() => {
+    if (!searchQuery.trim()) return orders;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return orders.filter(order => {
+      const customerName = order.profiles?.name?.toLowerCase() || '';
+      const customerEmail = order.profiles?.email?.toLowerCase() || '';
+      const orderId = order.id.toLowerCase();
+      
+      return customerName.includes(query) || 
+             customerEmail.includes(query) || 
+             orderId.includes(query);
+    });
+  }, [orders, searchQuery]);
 
   useEffect(() => {
     loadOrders();
@@ -97,10 +117,10 @@ export default function AdminOrders() {
   };
 
   const toggleSelectAll = () => {
-    if (selectedOrders.size === orders.length) {
+    if (selectedOrders.size === filteredOrders.length) {
       setSelectedOrders(new Set());
     } else {
-      setSelectedOrders(new Set(orders.map(o => o.id)));
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
     }
   };
 
@@ -353,22 +373,33 @@ export default function AdminOrders() {
 
   // Count paid orders in selection
   const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
-  const selectedPaidCount = orders.filter(o => 
+  const selectedPaidCount = filteredOrders.filter(o => 
     selectedOrders.has(o.id) && (paidStatuses.includes(o.status) || o.maisha_payment_status === 'SUCCESS')
   ).length;
 
   return (
     <>
       <Card>
-        <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Orders</CardTitle>
-            <CardDescription>
-              {selectedOrders.size > 0 
-                ? `${selectedOrders.size} order(s) selected` 
-                : 'Manage all customer orders'}
-            </CardDescription>
+      <CardHeader>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Orders</CardTitle>
+              <CardDescription>
+                {selectedOrders.size > 0 
+                  ? `${selectedOrders.size} order(s) selected` 
+                  : `${filteredOrders.length} order(s) ${searchQuery ? 'found' : 'total'}`}
+              </CardDescription>
+            </div>
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, email, ID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-2">
@@ -449,6 +480,14 @@ export default function AdminOrders() {
                     Receipts ({selectedPaidCount})
                   </Button>
                 )}
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setEmailDialogOpen(true)}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Send Email
+                </Button>
               </>
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -466,7 +505,7 @@ export default function AdminOrders() {
             </Select>
           </div>
         </div>
-      </CardHeader>
+        </CardHeader>
       <CardContent>
         {loading ? (
           <div className="flex justify-center p-8">
@@ -476,9 +515,9 @@ export default function AdminOrders() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12">
+              <TableHead className="w-12">
                   <Checkbox
-                    checked={selectedOrders.size === orders.length && orders.length > 0}
+                    checked={selectedOrders.size === filteredOrders.length && filteredOrders.length > 0}
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
@@ -494,7 +533,7 @@ export default function AdminOrders() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.map((order) => (
+              {filteredOrders.map((order) => (
                 <TableRow key={order.id}>
                   <TableCell>
                     <Checkbox
@@ -575,6 +614,13 @@ export default function AdminOrders() {
       open={drawerOpen}
       onClose={closeOrderDetails}
       onUpdate={loadOrders}
+    />
+
+    <SendOrderEmailDialog
+      open={emailDialogOpen}
+      onClose={() => setEmailDialogOpen(false)}
+      orderIds={Array.from(selectedOrders)}
+      onSuccess={() => setSelectedOrders(new Set())}
     />
     </>
   );

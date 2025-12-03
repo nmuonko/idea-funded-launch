@@ -9,48 +9,108 @@ import { Mail, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
-interface SendOrderEmailDialogProps {
+interface SingleOrderProps {
   orderId: string;
   customerEmail: string;
   customerName: string;
-  open: boolean;
-  onClose: () => void;
+  orderIds?: never;
 }
 
-export function SendOrderEmailDialog({
-  orderId,
-  customerEmail,
-  customerName,
-  open,
-  onClose,
-}: SendOrderEmailDialogProps) {
+interface BatchOrderProps {
+  orderIds: string[];
+  orderId?: never;
+  customerEmail?: never;
+  customerName?: never;
+}
+
+type SendOrderEmailDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
+} & (SingleOrderProps | BatchOrderProps);
+
+export function SendOrderEmailDialog(props: SendOrderEmailDialogProps) {
+  const { open, onClose, onSuccess } = props;
+  const isBatchMode = 'orderIds' in props && props.orderIds !== undefined;
+  
   const { toast } = useToast();
   const [sending, setSending] = useState(false);
   const [templateType, setTemplateType] = useState<string>('order_confirmed');
   const [customSubject, setCustomSubject] = useState('');
   const [customMessage, setCustomMessage] = useState('');
+  const [progress, setProgress] = useState({ sent: 0, failed: 0, total: 0 });
 
   const handleSendEmail = async () => {
     try {
       setSending(true);
 
-      const { data, error } = await supabase.functions.invoke('send-order-email', {
-        body: {
-          orderId,
-          templateType,
-          customSubject: templateType === 'custom' ? customSubject : undefined,
-          customMessage: templateType === 'custom' ? customMessage : undefined,
-        },
-      });
+      if (isBatchMode) {
+        const orderIds = props.orderIds;
+        setProgress({ sent: 0, failed: 0, total: orderIds.length });
+        
+        let sent = 0;
+        let failed = 0;
 
-      if (error) throw error;
+        for (const orderId of orderIds) {
+          try {
+            const { error } = await supabase.functions.invoke('send-order-email', {
+              body: {
+                orderId,
+                templateType,
+                customSubject: templateType === 'custom' ? customSubject : undefined,
+                customMessage: templateType === 'custom' ? customMessage : undefined,
+              },
+            });
 
-      toast({
-        title: 'Email sent successfully',
-        description: `Notification sent to ${customerEmail}`,
-      });
+            if (error) {
+              console.error(`Failed to send email for order ${orderId}:`, error);
+              failed++;
+            } else {
+              sent++;
+            }
+          } catch (error) {
+            console.error(`Error sending email for order ${orderId}:`, error);
+            failed++;
+          }
 
-      onClose();
+          setProgress({ sent, failed, total: orderIds.length });
+        }
+
+        if (failed === 0) {
+          toast({
+            title: 'Emails sent',
+            description: `Successfully sent ${sent} email(s)`,
+          });
+          onSuccess?.();
+          onClose();
+        } else {
+          toast({
+            title: 'Partial success',
+            description: `Sent ${sent}, failed ${failed} email(s)`,
+            variant: failed === orderIds.length ? 'destructive' : 'default',
+          });
+        }
+      } else {
+        const { error } = await supabase.functions.invoke('send-order-email', {
+          body: {
+            orderId: props.orderId,
+            templateType,
+            customSubject: templateType === 'custom' ? customSubject : undefined,
+            customMessage: templateType === 'custom' ? customMessage : undefined,
+          },
+        });
+
+        if (error) throw error;
+
+        toast({
+          title: 'Email sent successfully',
+          description: `Notification sent to ${props.customerEmail}`,
+        });
+
+        onSuccess?.();
+        onClose();
+      }
+
       setTemplateType('order_confirmed');
       setCustomSubject('');
       setCustomMessage('');
@@ -63,6 +123,7 @@ export function SendOrderEmailDialog({
       });
     } finally {
       setSending(false);
+      setProgress({ sent: 0, failed: 0, total: 0 });
     }
   };
 
@@ -74,17 +135,20 @@ export function SendOrderEmailDialog({
     { value: 'custom', label: 'Custom Message', description: 'Send custom email' },
   ];
 
+  const orderCount = isBatchMode ? props.orderIds.length : 1;
+  const description = isBatchMode 
+    ? `Send email notifications to ${orderCount} selected order(s)`
+    : `Send automated or custom email notifications to ${props.customerName} (${props.customerEmail})`;
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
-            Send Order Email
+            {isBatchMode ? 'Send Batch Email' : 'Send Order Email'}
           </DialogTitle>
-          <DialogDescription>
-            Send automated or custom email notifications to {customerName} ({customerEmail})
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-4">
@@ -140,13 +204,30 @@ export function SendOrderEmailDialog({
               </p>
             </div>
           )}
+
+          {sending && isBatchMode && (
+            <div className="bg-muted rounded-lg p-3">
+              <div className="text-sm text-muted-foreground mb-2">
+                Sending emails... {progress.sent + progress.failed} / {progress.total}
+              </div>
+              <div className="flex gap-4 text-sm">
+                <span className="text-emerald-600">✓ Sent: {progress.sent}</span>
+                {progress.failed > 0 && (
+                  <span className="text-destructive">✗ Failed: {progress.failed}</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={sending}>
             Cancel
           </Button>
-          <Button onClick={handleSendEmail} disabled={sending || (templateType === 'custom' && (!customSubject || !customMessage))}>
+          <Button 
+            onClick={handleSendEmail} 
+            disabled={sending || (templateType === 'custom' && (!customSubject || !customMessage)) || orderCount === 0}
+          >
             {sending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -155,7 +236,7 @@ export function SendOrderEmailDialog({
             ) : (
               <>
                 <Mail className="h-4 w-4 mr-2" />
-                Send Email
+                {isBatchMode ? `Send to ${orderCount} Order(s)` : 'Send Email'}
               </>
             )}
           </Button>

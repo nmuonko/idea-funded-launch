@@ -58,9 +58,21 @@ serve(async (req) => {
 
     console.log('[admin-invite-user] Inviting:', email, 'as', role);
 
-    // Check if user already exists
-    const { data: existingUsers } = await serviceSupabase.auth.admin.listUsers();
-    const existingUser = existingUsers?.users?.find(u => u.email === email);
+    // Check if user already exists by listing users with pagination
+    let existingUser = null;
+    let page = 1;
+    const perPage = 100;
+    
+    // Search through users (handles pagination)
+    while (true) {
+      const { data: usersData } = await serviceSupabase.auth.admin.listUsers({ page, perPage });
+      if (!usersData?.users || usersData.users.length === 0) break;
+      
+      existingUser = usersData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+      if (existingUser) break;
+      if (usersData.users.length < perPage) break;
+      page++;
+    }
 
     if (existingUser) {
       // User exists - check if already admin

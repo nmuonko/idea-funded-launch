@@ -143,7 +143,48 @@ OR
 
 ---
 
-### 3. MaishaPay Webhook Callback
+### 3. Get Order/Payment Status
+
+Check the current status of an order's payment. Use this after the user returns from MaishaPay.
+
+**Endpoint:** `GET /mobile-order-status?order_id=<uuid>`
+
+**Authentication:** Bearer token required
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `order_id` | string | Yes | The order UUID from create-payment |
+
+**Success Response (200):**
+```json
+{
+  "order_id": "550e8400-e29b-41d4-a716-446655440000",
+  "payment_status": "paid",
+  "order_status": "PAID",
+  "maishapay_transaction_id": "AFRISHOP-550e8400-e29b-41d4-a716-446655440000",
+  "total_usd": 125.50,
+  "total_cdf": 351400,
+  "paid_at": "2025-01-15T10:30:00Z"
+}
+```
+
+**Payment Status Values:**
+- `paid` - Payment confirmed successful
+- `pending` - Payment still processing
+- `failed` - Payment failed
+- `cancelled` - Payment cancelled by user
+
+**Error Responses:**
+| Status | Error Code | Description |
+|--------|------------|-------------|
+| 400 | - | Missing order_id parameter |
+| 401 | `AUTH_ERROR` | Invalid JWT |
+| 404 | `ORDER_NOT_FOUND` | Order doesn't exist or belongs to another user |
+
+---
+
+### 4. MaishaPay Webhook Callback
 
 **Endpoint:** `POST /maishapay-callback`
 

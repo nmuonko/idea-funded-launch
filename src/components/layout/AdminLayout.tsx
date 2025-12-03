@@ -35,31 +35,29 @@ export function AdminLayout() {
 
   const isSuperAdmin = permissions?.isSuperAdmin;
 
-  // Define nav items with permission requirements
+  // Define nav items with permission requirements (using new granular permission keys)
   const allNavItems = useMemo(() => [
-    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: null }, // Always visible
-    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'canAccessOrders' as const },
-    { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'canAccessCarts' as const },
-    { to: '/admin/saved-carts', icon: Bookmark, label: 'Saved Carts', permission: 'canAccessCarts' as const },
-    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'canAccessAnalytics' as const },
-    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'canAccessPayments' as const },
-    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'canAccessShipping' as const },
-    { to: '/admin/shipping-types', icon: Truck, label: 'Shipping Types', permission: 'canAccessShipping' as const },
-    { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'canAccessSupport' as const },
-    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'canAccessSupport' as const },
-    { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'canAccessKnowledgeBase' as const },
-    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'canAccessAnalytics' as const },
-    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'canAccessUsers' as const },
-    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'canAccessSettings' as const },
-    { to: '/admin/theme-settings', icon: Palette, label: 'Theme Settings', permission: 'isSuperAdmin' as const },
+    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: 'can_view_dashboard' as const },
+    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
+    { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'can_view_active_carts' as const },
+    { to: '/admin/saved-carts', icon: Bookmark, label: 'Saved Carts', permission: 'can_view_saved_carts' as const },
+    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
+    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
+    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
+    { to: '/admin/shipping-types', icon: Truck, label: 'Shipping Types', permission: 'can_manage_shipping_types' as const },
+    { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'can_view_tickets' as const },
+    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
+    { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'can_view_knowledge_base' as const },
+    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
+    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'can_manage_users' as const },
+    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'can_view_settings' as const },
+    { to: '/admin/theme-settings', icon: Palette, label: 'Theme Settings', permission: 'can_view_theme_settings' as const },
   ], [t]);
 
   // Filter nav items based on permissions
   const navItems = useMemo(() => {
-    if (!permissions) return allNavItems.filter(item => item.permission === null);
-    return allNavItems.filter(item => 
-      item.permission === null || permissions[item.permission]
-    );
+    if (!permissions) return [];
+    return allNavItems.filter(item => permissions[item.permission]);
   }, [allNavItems, permissions]);
 
   const handleSignOut = async () => {

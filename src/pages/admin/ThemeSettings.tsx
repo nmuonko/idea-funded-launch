@@ -23,9 +23,9 @@ export default function ThemeSettings() {
   const { permissions } = useAdminPermissions();
   const [isSaving, setIsSaving] = useState(false);
 
-  const isSuperAdmin = permissions?.role === 'super_admin';
+  const canViewThemeSettings = permissions?.isSuperAdmin || permissions?.can_view_theme_settings;
 
-  if (!isSuperAdmin) {
+  if (!canViewThemeSettings) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Card className="w-full max-w-md">

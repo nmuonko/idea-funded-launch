@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 import { format } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -32,6 +32,9 @@ interface Invitation {
   status: string;
   created_at: string;
   expires_at: string;
+  email_sent: boolean | null;
+  invite_url: string | null;
+  token: string;
 }
 
 export default function AdminUsers() {
@@ -392,6 +395,16 @@ export default function AdminUsers() {
                   {invitations.map((invite) => {
                     const isExpired = new Date(invite.expires_at) < new Date();
                     const canResend = invite.status === 'pending';
+                    const inviteUrl = invite.invite_url || `${window.location.origin}/accept-invite?token=${invite.token}`;
+                    
+                    const copyInviteLink = async () => {
+                      try {
+                        await navigator.clipboard.writeText(inviteUrl);
+                        toast({ title: 'Link copied', description: 'Invite link copied to clipboard' });
+                      } catch {
+                        toast({ title: 'Copy failed', variant: 'destructive' });
+                      }
+                    };
                     
                     return (
                       <div
@@ -403,7 +416,21 @@ export default function AdminUsers() {
                             <Mail className="h-5 w-5 text-muted-foreground" />
                           </div>
                           <div>
-                            <p className="font-medium">{invite.email}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{invite.email}</p>
+                              {invite.email_sent === true && (
+                                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-600 border-green-500/30">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Email Sent
+                                </Badge>
+                              )}
+                              {invite.email_sent === false && (
+                                <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-600 border-orange-500/30">
+                                  <AlertCircle className="h-3 w-3 mr-1" />
+                                  Email Failed
+                                </Badge>
+                              )}
+                            </div>
                             <p className="text-sm text-muted-foreground">
                               Invited {format(new Date(invite.created_at), 'MMM dd, yyyy')}
                               {!isExpired && invite.status === 'pending' && (
@@ -416,21 +443,31 @@ export default function AdminUsers() {
                           <RoleBadge role={invite.role} />
                           {getStatusBadge(invite.status, invite.expires_at)}
                           {canResend && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => resendInvitation(invite.id)}
-                              disabled={resending === invite.id}
-                            >
-                              {resending === invite.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>
-                                  <RefreshCw className="h-3 w-3 mr-1" />
-                                  Resend
-                                </>
-                              )}
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={copyInviteLink}
+                              >
+                                <Copy className="h-3 w-3 mr-1" />
+                                Copy Link
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => resendInvitation(invite.id)}
+                                disabled={resending === invite.id}
+                              >
+                                {resending === invite.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                    Resend
+                                  </>
+                                )}
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>

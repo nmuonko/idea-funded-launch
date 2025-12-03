@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
-import { Truck, Clock, CheckCircle2, AlertTriangle, Package } from 'lucide-react';
+import { Truck, Clock, CheckCircle2, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { DateRange } from './DateRangeFilter';
 
 interface ShippingData {
   avgShippingDays: number;
@@ -12,7 +13,11 @@ interface ShippingData {
   pendingShipment: number;
 }
 
-export function ShippingMetrics() {
+interface ShippingMetricsProps {
+  dateRange?: DateRange;
+}
+
+export function ShippingMetrics({ dateRange }: ShippingMetricsProps) {
   const [data, setData] = useState<ShippingData>({
     avgShippingDays: 0,
     shippedThisWeek: 0,
@@ -23,7 +28,7 @@ export function ShippingMetrics() {
 
   useEffect(() => {
     loadShippingData();
-  }, []);
+  }, [dateRange]);
 
   const loadShippingData = async () => {
     try {

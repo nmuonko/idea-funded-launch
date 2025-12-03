@@ -6,6 +6,7 @@ import { AIAdminAssistant } from '@/components/admin/AIAdminAssistant';
 import { formatUSD } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
+import { subDays, startOfDay, endOfDay } from 'date-fns';
 
 // Dashboard Components
 import { SummaryCard } from '@/components/admin/dashboard/SummaryCard';
@@ -15,6 +16,7 @@ import { PendingActionsSidebar } from '@/components/admin/dashboard/PendingActio
 import { ShippingMetrics } from '@/components/admin/dashboard/ShippingMetrics';
 import { PaymentsBreakdown } from '@/components/admin/dashboard/PaymentsBreakdown';
 import { SavedCartsReport } from '@/components/admin/dashboard/SavedCartsReport';
+import { DateRangeFilter, type DateRange, getDateRangeFromPreset } from '@/components/admin/dashboard/DateRangeFilter';
 
 interface DashboardStats {
   totalOrders: number;
@@ -22,7 +24,6 @@ interface DashboardStats {
   pendingPayments: number;
   totalRevenue: number;
   serviceFees: number;
-  // Trend data (compared to previous period)
   ordersTrend: number;
   revenueTrend: number;
 }
@@ -30,6 +31,8 @@ interface DashboardStats {
 export default function AdminDashboard() {
   const { language } = useLanguage();
   const t = getAdminTranslation(language);
+  
+  const [dateRange, setDateRange] = useState<DateRange>(() => getDateRangeFromPreset('30days'));
   const [stats, setStats] = useState<DashboardStats>({
     totalOrders: 0,
     paidOrders: 0,
@@ -43,64 +46,53 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadStats();
-  }, []);
+  }, [dateRange]);
 
   const loadStats = async () => {
     try {
       setLoading(true);
 
-      const { data: allOrders, error } = await supabase
+      // Get orders within date range
+      const { data: periodOrders, error: periodError } = await supabase
         .from('orders')
-        .select('id, status, total_usd, service_fee_usd, payment_verified_at, created_at');
+        .select('id, status, total_usd, service_fee_usd, payment_verified_at, created_at')
+        .gte('created_at', dateRange.from.toISOString())
+        .lte('created_at', dateRange.to.toISOString());
 
-      if (error) throw error;
+      if (periodError) throw periodError;
 
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+      // Calculate the previous period for trend comparison
+      const periodLength = dateRange.to.getTime() - dateRange.from.getTime();
+      const previousFrom = new Date(dateRange.from.getTime() - periodLength);
+      const previousTo = new Date(dateRange.from.getTime() - 1);
 
-      // Current period orders (last 30 days)
-      const currentPeriodOrders = allOrders?.filter(o => 
-        new Date(o.created_at) >= thirtyDaysAgo
-      ) || [];
+      const { data: previousOrders, error: prevError } = await supabase
+        .from('orders')
+        .select('id, status, total_usd, service_fee_usd, payment_verified_at, created_at')
+        .gte('created_at', previousFrom.toISOString())
+        .lte('created_at', previousTo.toISOString());
 
-      // Previous period orders (30-60 days ago)
-      const previousPeriodOrders = allOrders?.filter(o => 
-        new Date(o.created_at) >= sixtyDaysAgo && 
-        new Date(o.created_at) < thirtyDaysAgo
-      ) || [];
+      if (prevError) throw prevError;
 
-      // Total orders (excluding DRAFT)
-      const totalOrders = allOrders?.filter(o => o.status !== 'DRAFT').length || 0;
-
-      // Paid orders
-      const paidOrdersList = allOrders?.filter(o => o.payment_verified_at) || [];
+      // Current period stats
+      const totalOrders = periodOrders?.filter(o => o.status !== 'DRAFT').length || 0;
+      const paidOrdersList = periodOrders?.filter(o => o.payment_verified_at) || [];
       const paidOrders = paidOrdersList.length;
-
-      // Pending payments
-      const pendingPayments = allOrders?.filter(o => o.status === 'PENDING_PAYMENT').length || 0;
-
-      // Revenue
+      const pendingPayments = periodOrders?.filter(o => o.status === 'PENDING_PAYMENT').length || 0;
       const totalRevenue = paidOrdersList.reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
-
-      // Service fees
       const serviceFees = paidOrdersList.reduce((sum, o) => sum + Number(o.service_fee_usd || 0), 0);
 
-      // Calculate trends
-      const currentOrderCount = currentPeriodOrders.filter(o => o.status !== 'DRAFT').length;
-      const previousOrderCount = previousPeriodOrders.filter(o => o.status !== 'DRAFT').length;
-      const ordersTrend = previousOrderCount > 0 
-        ? Math.round(((currentOrderCount - previousOrderCount) / previousOrderCount) * 100)
-        : 0;
+      // Previous period stats for trends
+      const prevOrderCount = previousOrders?.filter(o => o.status !== 'DRAFT').length || 0;
+      const prevRevenue = previousOrders
+        ?.filter(o => o.payment_verified_at)
+        .reduce((sum, o) => sum + Number(o.total_usd || 0), 0) || 0;
 
-      const currentRevenue = currentPeriodOrders
-        .filter(o => o.payment_verified_at)
-        .reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
-      const previousRevenue = previousPeriodOrders
-        .filter(o => o.payment_verified_at)
-        .reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
-      const revenueTrend = previousRevenue > 0
-        ? Math.round(((currentRevenue - previousRevenue) / previousRevenue) * 100)
+      const ordersTrend = prevOrderCount > 0 
+        ? Math.round(((totalOrders - prevOrderCount) / prevOrderCount) * 100)
+        : 0;
+      const revenueTrend = prevRevenue > 0
+        ? Math.round(((totalRevenue - prevRevenue) / prevRevenue) * 100)
         : 0;
 
       setStats({
@@ -123,10 +115,16 @@ export default function AdminDashboard() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <RealtimeNotifications />
       
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight">{t.dashboard.title}</h1>
-        <p className="text-muted-foreground text-sm">Real-time business metrics and insights</p>
+      {/* Header with Date Range Filter */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold tracking-tight">{t.dashboard.title}</h1>
+          <p className="text-muted-foreground text-sm">Real-time business metrics and insights</p>
+        </div>
+        <DateRangeFilter 
+          dateRange={dateRange} 
+          onDateRangeChange={setDateRange} 
+        />
       </div>
 
       {/* Main Grid Layout */}
@@ -140,7 +138,7 @@ export default function AdminDashboard() {
               value={stats.totalOrders}
               icon={Package}
               trend={stats.ordersTrend}
-              trendLabel="vs last 30 days"
+              trendLabel="vs prev period"
               isLoading={loading}
             />
             <SummaryCard
@@ -163,7 +161,7 @@ export default function AdminDashboard() {
               icon={DollarSign}
               iconColor="text-primary"
               trend={stats.revenueTrend}
-              trendLabel="vs last 30 days"
+              trendLabel="vs prev period"
               isLoading={loading}
             />
             <SummaryCard
@@ -177,14 +175,14 @@ export default function AdminDashboard() {
 
           {/* B. Middle Section - Two Large Panels */}
           <div className="grid gap-6 md:grid-cols-2">
-            <OrdersOverviewChart />
-            <ConversionFunnel />
+            <OrdersOverviewChart dateRange={dateRange} />
+            <ConversionFunnel dateRange={dateRange} />
           </div>
 
           {/* D. Bottom Section - Operational Insights */}
           <div className="grid gap-6 md:grid-cols-3">
-            <ShippingMetrics />
-            <PaymentsBreakdown />
+            <ShippingMetrics dateRange={dateRange} />
+            <PaymentsBreakdown dateRange={dateRange} />
             <SavedCartsReport />
           </div>
         </div>

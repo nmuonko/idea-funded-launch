@@ -3,9 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
-import { CreditCard, CheckCircle, XCircle, DollarSign } from 'lucide-react';
+import { CreditCard } from 'lucide-react';
 import { formatUSD } from '@/lib/formatCurrency';
 import { cn } from '@/lib/utils';
+import type { DateRange } from './DateRangeFilter';
 
 interface PaymentData {
   totalPayments: number;
@@ -16,7 +17,11 @@ interface PaymentData {
   maishaPayRevenue: number;
 }
 
-export function PaymentsBreakdown() {
+interface PaymentsBreakdownProps {
+  dateRange?: DateRange;
+}
+
+export function PaymentsBreakdown({ dateRange }: PaymentsBreakdownProps) {
   const [data, setData] = useState<PaymentData>({
     totalPayments: 0,
     successfulPayments: 0,
@@ -29,7 +34,7 @@ export function PaymentsBreakdown() {
 
   useEffect(() => {
     loadPaymentData();
-  }, []);
+  }, [dateRange]);
 
   const loadPaymentData = async () => {
     try {

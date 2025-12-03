@@ -28,6 +28,7 @@ import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import AdminCarts from "./pages/admin/Carts";
+import AdminSavedCarts from "./pages/admin/SavedCarts";
 import ABTestResults from "./pages/admin/ABTestResults";
 import Orders from "./pages/Orders";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -81,6 +82,7 @@ const App = () => {
               <Route path="orders" element={<AdminOrders />} />
               <Route path="orders/:id" element={<AdminOrderDetail />} />
               <Route path="carts" element={<AdminCarts />} />
+              <Route path="saved-carts" element={<AdminSavedCarts />} />
               <Route path="ab-tests" element={<ABTestResults />} />
               <Route path="payments" element={<AdminPayments />} />
               <Route path="support" element={<AdminSupportTickets />} />

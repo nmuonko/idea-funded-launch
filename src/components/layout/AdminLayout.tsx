@@ -9,7 +9,7 @@ import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { 
   LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
-  ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight 
+  ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark 
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -30,6 +30,7 @@ export function AdminLayout() {
     { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: null }, // Always visible
     { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'canAccessOrders' as const },
     { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'canAccessCarts' as const },
+    { to: '/admin/saved-carts', icon: Bookmark, label: 'Saved Carts', permission: 'canAccessCarts' as const },
     { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'canAccessAnalytics' as const },
     { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'canAccessPayments' as const },
     { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'canAccessShipping' as const },

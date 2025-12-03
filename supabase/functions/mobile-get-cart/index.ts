@@ -24,6 +24,48 @@ function calculateItemShipping(subtotalUsd: number, estWeightKg: number): number
   return round2(basePart + extraPart);
 }
 
+// Format item for response
+function formatItem(item: any, markupPercent: number, exchangeRate: number) {
+  const basePriceUsd = Number(item.base_price_usd || 0);
+  const quantity = item.quantity || 1;
+  const estWeightKg = Number(item.est_weight_kg || 1);
+  const itemRequiresQuote = item.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
+
+  // Calculate expected values from base price
+  const expectedBaseTotal = round2(basePriceUsd * quantity);
+  const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
+  const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
+  const expectedSubtotalCdf = round2(expectedSubtotal * exchangeRate);
+
+  // Use stored values if valid, otherwise use calculated values
+  const itemBaseTotalUsd = Number(item.subtotal_usd) > 0 ? Number(item.subtotal_usd) : expectedBaseTotal;
+  const itemMarginUsd = Number(item.markup_fee_usd) > 0 ? Number(item.markup_fee_usd) : expectedMargin;
+  const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
+  const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
+
+  return {
+    id: item.id,
+    productUrl: item.product_url,
+    productTitle: item.title,
+    productImageUrl: item.product_image_url,
+    store: item.store,
+    basePriceUsd,
+    quantity,
+    itemBaseTotalUsd,
+    itemMarginUsd,
+    itemSubtotalUsd,
+    itemSubtotalCdf,
+    estWeightKg,
+    requiresManualQuote: itemRequiresQuote,
+    isSavedForLater: item.is_saved_for_later || false,
+    savedAt: item.saved_at || null,
+    shippingItemType: item.shipping_item_types ? {
+      key: item.shipping_item_types.key,
+      label: item.shipping_item_types.label,
+    } : null,
+  };
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   const corsResponse = handleCors(req);
@@ -50,7 +92,8 @@ serve(async (req) => {
     if (!order) {
       console.log('[mobile-get-cart] No DRAFT order found');
       return jsonResponse({
-        items: [],
+        activeItems: [],
+        savedItems: [],
         summary: {
           itemCount: 0,
           itemsTotalUsd: 0,
@@ -78,7 +121,11 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Found items:', items?.length || 0);
 
-    // Format items for response AND recalculate totals
+    // Separate active and saved items
+    const activeItems: any[] = [];
+    const savedItems: any[] = [];
+
+    // Summary calculations only for active items
     let itemCount = 0;
     let calcItemsTotal = 0;
     let calcMarginTotal = 0;
@@ -86,57 +133,26 @@ serve(async (req) => {
     let calcShippingTotal = 0;
     let requiresManualQuote = false;
 
-    const formattedItems = (items || []).map(item => {
-      const basePriceUsd = Number(item.base_price_usd || 0);
-      const quantity = item.quantity || 1;
-      const estWeightKg = Number(item.est_weight_kg || 1);
-      const itemRequiresQuote = item.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
-
-      // Calculate expected values from base price
-      const expectedBaseTotal = round2(basePriceUsd * quantity);
-      const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
-      const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
-      const expectedSubtotalCdf = round2(expectedSubtotal * exchangeRate);
-
-      // Use stored values if valid, otherwise use calculated values
-      const itemBaseTotalUsd = Number(item.subtotal_usd) > 0 ? Number(item.subtotal_usd) : expectedBaseTotal;
-      const itemMarginUsd = Number(item.markup_fee_usd) > 0 ? Number(item.markup_fee_usd) : expectedMargin;
-      const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
-      const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
-
-      // Accumulate totals
-      itemCount += quantity;
-      calcItemsTotal += itemBaseTotalUsd;
-      calcMarginTotal += itemMarginUsd;
-      calcSubtotalWithMarkup += itemSubtotalUsd;
-
-      // Check if this item requires manual quote
-      if (itemRequiresQuote) {
-        requiresManualQuote = true;
+    (items || []).forEach(item => {
+      const formattedItem = formatItem(item, markupPercent, exchangeRate);
+      
+      if (item.is_saved_for_later) {
+        savedItems.push(formattedItem);
       } else {
-        // Only add shipping for items that don't require manual quote
-        calcShippingTotal += calculateItemShipping(itemBaseTotalUsd, estWeightKg);
-      }
+        activeItems.push(formattedItem);
+        
+        // Only count active items in summary
+        itemCount += formattedItem.quantity;
+        calcItemsTotal += formattedItem.itemBaseTotalUsd;
+        calcMarginTotal += formattedItem.itemMarginUsd;
+        calcSubtotalWithMarkup += formattedItem.itemSubtotalUsd;
 
-      return {
-        id: item.id,
-        productUrl: item.product_url,
-        productTitle: item.title,
-        productImageUrl: item.product_image_url,
-        store: item.store,
-        basePriceUsd,
-        quantity,
-        itemBaseTotalUsd,
-        itemMarginUsd,
-        itemSubtotalUsd,
-        itemSubtotalCdf,
-        estWeightKg,
-        requiresManualQuote: itemRequiresQuote,
-        shippingItemType: item.shipping_item_types ? {
-          key: item.shipping_item_types.key,
-          label: item.shipping_item_types.label,
-        } : null,
-      };
+        if (formattedItem.requiresManualQuote) {
+          requiresManualQuote = true;
+        } else {
+          calcShippingTotal += calculateItemShipping(formattedItem.itemBaseTotalUsd, formattedItem.estWeightKg);
+        }
+      }
     });
 
     // If any item requires manual quote, set shipping to 0
@@ -144,24 +160,22 @@ serve(async (req) => {
       calcShippingTotal = 0;
     }
 
-    // Use calculated values (they're more accurate than potentially stale order values)
+    // Use calculated values
     const finalItemsTotal = round2(calcItemsTotal);
     const finalMarginTotal = round2(calcMarginTotal);
     const finalShippingFee = round2(calcShippingTotal);
     const finalGrandTotalUsd = round2(calcSubtotalWithMarkup + finalShippingFee);
     const finalGrandTotalCdf = round2(finalGrandTotalUsd * exchangeRate);
 
-    // Safety check: log warning if items exist but totals are zero
-    if (items && items.length > 0 && finalItemsTotal === 0) {
-      console.error('[mobile-get-cart] WARNING: Items exist but totals are zero!', {
+    // Safety check
+    if (activeItems.length > 0 && finalItemsTotal === 0) {
+      console.error('[mobile-get-cart] WARNING: Active items exist but totals are zero!', {
         orderId: order.id,
-        itemCount: items.length,
-        orderItemTotal: order.item_total_usd,
-        calculatedItemsTotal: calcItemsTotal,
+        activeItemCount: activeItems.length,
       });
     }
 
-    // Use field names that match mobile app expectations
+    // Build summary (only for active items)
     const summary: Record<string, any> = {
       itemCount,
       itemsTotalUsd: finalItemsTotal,
@@ -171,13 +185,20 @@ serve(async (req) => {
       totalCdf: finalGrandTotalCdf,
       exchangeRate: order.exchange_rate_used || exchangeRate,
       requiresManualQuote,
+      savedItemCount: savedItems.length,
     };
     
     if (requiresManualQuote) {
       summary.message = "We'll contact you for a custom shipping quote. You can't pay immediately for this order.";
     }
 
-    const response = { items: formattedItems, summary };
+    // Also include legacy "items" array for backward compatibility
+    const response = { 
+      items: activeItems,
+      activeItems,
+      savedItems,
+      summary 
+    };
     console.log('[mobile-get-cart] Full response:', JSON.stringify(response, null, 2));
 
     return jsonResponse(response);

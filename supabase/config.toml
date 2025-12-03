@@ -143,3 +143,12 @@ verify_jwt = false
 
 [functions.mobile-get-shipping-types]
 verify_jwt = false
+
+[functions.mobile-checkout]
+verify_jwt = true
+
+[functions.saved-cart-reminders]
+verify_jwt = false
+
+[functions.admin-invite-user]
+verify_jwt = true

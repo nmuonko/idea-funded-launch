@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import SplashScreen from "@/components/SplashScreen";
@@ -30,6 +31,7 @@ import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import AdminCarts from "./pages/admin/Carts";
 import AdminSavedCarts from "./pages/admin/SavedCarts";
 import ABTestResults from "./pages/admin/ABTestResults";
+import ThemeSettings from "./pages/admin/ThemeSettings";
 import Orders from "./pages/Orders";
 import MaishaCallback from "./pages/MaishaCallback";
 import AcceptInvite from "./pages/AcceptInvite";
@@ -75,7 +77,9 @@ const App = () => {
             
             <Route path="/admin" element={
               <ProtectedRoute requireAdmin>
-                <AdminLayout />
+                <AdminThemeProvider>
+                  <AdminLayout />
+                </AdminThemeProvider>
               </ProtectedRoute>
             }>
               <Route index element={<AdminDashboard />} />
@@ -93,6 +97,7 @@ const App = () => {
               <Route path="shipping-types" element={<AdminShippingTypes />} />
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="settings" element={<AdminFeesSettings />} />
+              <Route path="theme-settings" element={<ThemeSettings />} />
           </Route>
             
             <Route path="*" element={<NotFound />} />

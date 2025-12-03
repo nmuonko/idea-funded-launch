@@ -284,6 +284,130 @@ const pollPaymentStatus = async (orderId: string, maxAttempts = 10) => {
 
 ---
 
+### 5. Retry Failed Payment
+
+Allows users to retry a failed or cancelled payment on an existing order.
+
+**Endpoint:** `POST /mobile-retry-payment`
+
+**Authentication:** Bearer token required
+
+**Request Body:**
+```json
+{
+  "order_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "order_id": "550e8400-e29b-41d4-a716-446655440000",
+  "maishapay_transaction_id": "AFRISHOP-550e8400...-R1234abc",
+  "maishapay_reference": "AFRISHOP-550e8400...-R1234abc",
+  "payment_url": "https://marchand.maishapay.online/payment/...",
+  "payment_mode": "live",
+  "checkout_fields": { ... },
+  "is_retry": true,
+  "order": {
+    "id": "550e8400-...",
+    "status": "PENDING_PAYMENT",
+    "totalUsd": 125.50,
+    "totalCdf": 351400
+  },
+  "message": "Retry payment created (live mode). Open payment_url in WebView."
+}
+```
+
+**Error Responses:**
+| Status | Error Code | Description |
+|--------|------------|-------------|
+| 400 | `CANNOT_RETRY` | Order not in retryable state |
+| 400 | `ALREADY_PAID` | Order already paid |
+| 404 | `ORDER_NOT_FOUND` | Order not found |
+
+**Retryable States:**
+- `PENDING_PAYMENT` status
+- `maisha_payment_status` = FAILED, CANCELLED, or INIT_FAILED
+
+---
+
+### 6. Generate Payment Receipt
+
+Generates an HTML receipt/invoice for a paid order.
+
+**Endpoint:** `GET /generate-payment-receipt?order_id=<uuid>`
+
+**Authentication:** Bearer token required
+
+**Query Parameters:**
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `order_id` | string | Yes | The paid order UUID |
+| `format` | string | No | Set to `json` for JSON response instead of HTML |
+
+**HTML Response (default):**
+Returns a printable HTML receipt page that can be viewed in a WebView or browser.
+
+**JSON Response (format=json):**
+```json
+{
+  "success": true,
+  "receipt": {
+    "order_id": "550e8400-...",
+    "order_number": "550E8400",
+    "status": "PAID",
+    "payment_status": "SUCCESS",
+    "transaction_id": "AFRISHOP-550e8400-...",
+    "paid_at": "2025-01-15T10:30:00Z",
+    "customer": {
+      "name": "John Doe",
+      "email": "john@example.com",
+      "phone": "+243812345678"
+    },
+    "items": [
+      {
+        "title": "Product Name",
+        "quantity": 2,
+        "unit_price_usd": 50.00,
+        "total_price_usd": 100.00
+      }
+    ],
+    "totals": {
+      "subtotal_usd": 100.00,
+      "service_fee_usd": 12.50,
+      "shipping_fee_usd": 13.00,
+      "total_usd": 125.50,
+      "total_cdf": 351400,
+      "exchange_rate": 2800
+    }
+  }
+}
+```
+
+**Error Responses:**
+| Status | Error Code | Description |
+|--------|------------|-------------|
+| 400 | `NOT_PAID` | Receipt only for paid orders |
+| 404 | `ORDER_NOT_FOUND` | Order not found |
+
+**Mobile App Usage:**
+```typescript
+// Open receipt in WebView
+const receiptUrl = `${BASE_URL}/generate-payment-receipt?order_id=${orderId}`;
+<WebView source={{ uri: receiptUrl, headers: { Authorization: `Bearer ${token}` } }} />
+
+// Or get JSON data
+const response = await fetch(
+  `${BASE_URL}/generate-payment-receipt?order_id=${orderId}&format=json`,
+  { headers: { Authorization: `Bearer ${token}` } }
+);
+const receiptData = await response.json();
+```
+
+---
+
 ## Database Schema
 
 ### `maisha_payments` Table

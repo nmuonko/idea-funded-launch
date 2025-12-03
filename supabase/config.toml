@@ -155,3 +155,6 @@ verify_jwt = true
 
 [functions.mobile-verify-payment]
 verify_jwt = true
+
+[functions.generate-payment-receipt]
+verify_jwt = true

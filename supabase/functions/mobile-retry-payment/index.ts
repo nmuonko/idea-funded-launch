@@ -1,168 +1,197 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  errorResponse, 
+  jsonResponse 
+} from "../_shared/auth.ts";
+import {
+  createPaymentSession,
+  getMaishaPayConfig,
+  validateConfig,
+} from "../_shared/maishapay.ts";
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
+
+  if (req.method !== 'POST') {
+    return errorResponse('Method not allowed', 405);
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
-    );
+    const { user, supabase } = await verifyAndGetUser(req);
+    console.log('[mobile-retry-payment] User authenticated:', user.id);
 
-    // Authenticate user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    const body = await req.json();
+    const { order_id } = body;
+
+    if (!order_id) {
+      return errorResponse('order_id is required', 400);
     }
 
-    // Extract orderId from URL path
-    const url = new URL(req.url);
-    const pathParts = url.pathname.split('/').filter(p => p);
-    const orderId = pathParts[pathParts.length - 1];
-
-    if (!orderId) {
-      return new Response(JSON.stringify({ error: 'Order ID required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Validate MaishaPay configuration
+    const maishaConfig = getMaishaPayConfig();
+    const configValidation = validateConfig(maishaConfig);
+    if (!configValidation.valid) {
+      console.error('[mobile-retry-payment] Config error:', configValidation.error);
+      return jsonResponse({ 
+        error: 'PAYMENT_CONFIG_ERROR', 
+        message: 'Payment gateway not configured' 
+      }, 500);
     }
 
-    console.log('[Retry Payment] Order ID:', orderId, 'User:', user.id);
-
-    // Get order and validate
+    // Get order and validate ownership
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('*, maisha_payments(*)')
-      .eq('id', orderId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (orderError || !order) {
-      return new Response(JSON.stringify({ error: 'Order not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Check if order can be retried (PENDING_PAYMENT or failed payment)
-    if (order.status !== 'PENDING_PAYMENT' && order.maisha_payment_status !== 'failed') {
-      return new Response(JSON.stringify({ error: 'Order cannot be retried' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Get user profile for customer info
-    const { data: profile } = await supabase
-      .from('profiles')
       .select('*')
+      .eq('id', order_id)
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // Get MaishaPay credentials
-    const publicKey = Deno.env.get('MAISHA_PUBLIC_KEY');
-    const secretKey = Deno.env.get('MAISHA_SECRET_KEY');
-    const baseUrl = Deno.env.get('MAISHA_API_BASE_URL');
-    const callbackUrl = Deno.env.get('MAISHA_CALLBACK_URL');
-
-    if (!publicKey || !secretKey || !baseUrl || !callbackUrl) {
-      return new Response(JSON.stringify({ error: 'MaishaPay not configured' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (orderError) {
+      console.error('[mobile-retry-payment] DB error:', orderError);
+      return jsonResponse({ error: 'DB_ERROR', message: 'Failed to fetch order' }, 500);
     }
 
-    // Create new unique reference for retry
-    const reference = `AFRISHOP-${orderId}-RETRY-${Date.now()}`;
+    if (!order) {
+      return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
+    }
+
+    // Check if order can be retried
+    const canRetry = (
+      order.status === 'PENDING_PAYMENT' ||
+      order.maisha_payment_status === 'FAILED' ||
+      order.maisha_payment_status === 'CANCELLED' ||
+      order.maisha_payment_status === 'INIT_FAILED'
+    );
+
+    if (!canRetry) {
+      return jsonResponse({ 
+        error: 'CANNOT_RETRY', 
+        message: `Order cannot be retried. Current status: ${order.status}` 
+      }, 400);
+    }
+
+    // Already paid?
+    if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
+      return jsonResponse({ 
+        error: 'ALREADY_PAID', 
+        message: 'Order is already paid' 
+      }, 400);
+    }
+
+    // Get user profile for customer details
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, name, phone')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const customerEmail = user.email || '';
+    const customerPhone = profile?.phone || '';
+    const customerName = profile?.full_name || profile?.name || '';
+
+    // Create new payment session with retry suffix
+    const retryOrderId = `${order_id}-R${Date.now().toString(36)}`;
     
-    // Prepare MaishaPay request
-    const maishaPayload = {
-      publicKey,
-      amount: Math.round(order.total_cdf || 0),
-      currency: 'CDF',
-      reference,
-      customerEmail: user.email || '',
-      customerPhone: profile?.phone || '',
-      description: `AfriShop order ${orderId} (Retry)`,
-      callbackUrl,
-    };
-
-    console.log('[Retry Payment] Calling MaishaPay:', { reference, amount: maishaPayload.amount });
-
-    // Call MaishaPay API
-    const maishaResponse = await fetch(`${baseUrl}/transaction/create`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${secretKey}`,
-      },
-      body: JSON.stringify(maishaPayload),
+    const paymentResult = await createPaymentSession({
+      amountUsd: order.total_usd,
+      currency: 'USD',
+      customerEmail,
+      customerPhone,
+      customerName,
+      orderId: retryOrderId,
+      description: `AfriShop Order #${order_id.slice(0, 8)} (Retry)`,
     });
 
-    const maishaData = await maishaResponse.json();
-    console.log('[Retry Payment] MaishaPay Response:', maishaData);
-
-    if (!maishaResponse.ok) {
-      throw new Error(maishaData.message || 'MaishaPay request failed');
+    if (!paymentResult.success) {
+      console.error('[mobile-retry-payment] MaishaPay error:', paymentResult.error);
+      return jsonResponse({ 
+        error: 'PAYMENT_INIT_FAILED', 
+        message: 'Failed to initialize payment' 
+      }, 500);
     }
 
-    // Create new maisha_payments record for retry
-    const { error: paymentError } = await supabase
+    // Create new payment record
+    const { error: paymentRecordError } = await supabase
       .from('maisha_payments')
       .insert({
-        order_id: orderId,
-        maisha_reference: reference,
-        status: 'pending',
+        order_id: order_id,
+        maisha_reference: paymentResult.reference,
         amount_usd: order.total_usd,
         amount_cdf: order.total_cdf,
-        currency: 'CDF',
-        raw_request: maishaPayload,
-        raw_response: maishaData,
+        currency: 'USD',
+        status: 'pending',
+        raw_request: {
+          retry: true,
+          amount: order.total_usd,
+          email: customerEmail,
+          phone: customerPhone,
+          mode: maishaConfig.mode,
+          original_reference: order.maisha_transaction_id,
+        },
       });
 
-    if (paymentError) {
-      console.error('[Retry Payment] Error creating payment record:', paymentError);
+    if (paymentRecordError) {
+      console.error('[mobile-retry-payment] Payment record error:', paymentRecordError);
     }
 
-    // Update order with new Maisha reference
-    await supabase
-      .from('orders')
-      .update({
-        maisha_transaction_id: reference,
-        maisha_payment_status: 'pending',
-        status: 'PENDING_PAYMENT',
-      })
-      .eq('id', orderId);
+    // Update order with new reference
+    await supabase.from('orders').update({
+      maisha_transaction_id: paymentResult.reference,
+      maisha_payment_status: 'PENDING',
+      status: 'PENDING_PAYMENT',
+      updated_at: new Date().toISOString(),
+    }).eq('id', order_id);
 
-    return new Response(JSON.stringify({
-      orderId,
-      payment: {
-        checkoutUrl: maishaData.checkoutUrl || maishaData.paymentUrl || maishaData.url,
-        maishaReference: reference,
-        amount: order.total_cdf,
-        currency: 'CDF',
+    console.log('[mobile-retry-payment] Retry payment created:', {
+      orderId: order_id,
+      reference: paymentResult.reference,
+      mode: maishaConfig.mode,
+    });
+
+    // Get checkout form fields
+    const formFields = {
+      publicApiKey: maishaConfig.publicKey,
+      gatewayMode: maishaConfig.mode === 'live' ? '1' : '0',
+      montant: order.total_usd.toString(),
+      devise: 'USD',
+      callbackUrl: maishaConfig.callbackUrl,
+      reference: paymentResult.reference,
+      email_client: customerEmail,
+      nom_client: customerName,
+      telephone_client: customerPhone,
+    };
+
+    return jsonResponse({
+      success: true,
+      order_id: order_id,
+      maishapay_transaction_id: paymentResult.reference,
+      maishapay_reference: paymentResult.reference,
+      payment_url: paymentResult.checkoutUrl,
+      payment_mode: maishaConfig.mode,
+      checkout_fields: formFields,
+      is_retry: true,
+      order: {
+        id: order_id,
+        status: 'PENDING_PAYMENT',
+        totalUsd: order.total_usd,
+        totalCdf: order.total_cdf,
       },
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      message: `Retry payment created (${maishaConfig.mode} mode). Open payment_url in WebView.`,
     });
+
   } catch (error: any) {
-    console.error('[Retry Payment] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[mobile-retry-payment] Error:', error.message);
+    
+    if (error.name === 'AuthError') {
+      return errorResponse(error.message, error.status);
+    }
+    
+    return jsonResponse({ 
+      error: 'INTERNAL_ERROR', 
+      message: error.message 
+    }, 500);
   }
 });

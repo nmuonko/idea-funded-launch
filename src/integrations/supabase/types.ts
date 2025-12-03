@@ -331,6 +331,8 @@ export type Database = {
           created_at: string
           est_weight_kg: number | null
           id: string
+          is_saved_for_later: boolean
+          last_reminder_at: string | null
           markup_fee_usd: number | null
           notes: string | null
           order_id: string
@@ -338,6 +340,7 @@ export type Database = {
           product_url: string
           quantity: number
           requires_manual_quote: boolean | null
+          saved_at: string | null
           shipping_fee_usd: number | null
           shipping_item_type_id: string | null
           store: Database["public"]["Enums"]["store_type"]
@@ -353,6 +356,8 @@ export type Database = {
           created_at?: string
           est_weight_kg?: number | null
           id?: string
+          is_saved_for_later?: boolean
+          last_reminder_at?: string | null
           markup_fee_usd?: number | null
           notes?: string | null
           order_id: string
@@ -360,6 +365,7 @@ export type Database = {
           product_url: string
           quantity?: number
           requires_manual_quote?: boolean | null
+          saved_at?: string | null
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
           store: Database["public"]["Enums"]["store_type"]
@@ -375,6 +381,8 @@ export type Database = {
           created_at?: string
           est_weight_kg?: number | null
           id?: string
+          is_saved_for_later?: boolean
+          last_reminder_at?: string | null
           markup_fee_usd?: number | null
           notes?: string | null
           order_id?: string
@@ -382,6 +390,7 @@ export type Database = {
           product_url?: string
           quantity?: number
           requires_manual_quote?: boolean | null
+          saved_at?: string | null
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
           store?: Database["public"]["Enums"]["store_type"]

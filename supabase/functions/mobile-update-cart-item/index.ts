@@ -37,7 +37,7 @@ function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shipp
   return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
 }
 
-// Calculate and persist order totals from items - CANONICAL FUNCTION
+// Calculate and persist order totals from ACTIVE items only
 async function updateOrderTotals(
   supabase: any,
   orderId: string,
@@ -45,9 +45,10 @@ async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ) {
+  // Only include active items (not saved for later) in totals
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity')
+    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, is_saved_for_later')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -58,14 +59,19 @@ async function updateOrderTotals(
   let itemTotalUsd = 0;
   let serviceFeeUsd = 0;
   let itemsWithMarkupUsd = 0;
+  let activeItemCount = 0;
 
   (items || []).forEach((item: any) => {
-    itemTotalUsd += Number(item.subtotal_usd || 0);
-    serviceFeeUsd += Number(item.markup_fee_usd || 0);
-    itemsWithMarkupUsd += Number(item.total_price_usd || 0);
+    // Only count active items
+    if (!item.is_saved_for_later) {
+      itemTotalUsd += Number(item.subtotal_usd || 0);
+      serviceFeeUsd += Number(item.markup_fee_usd || 0);
+      itemsWithMarkupUsd += Number(item.total_price_usd || 0);
+      activeItemCount++;
+    }
   });
 
-  const shippingFeeUsd = items && items.length > 0 
+  const shippingFeeUsd = activeItemCount > 0 
     ? calculateShipping(itemTotalUsd, shippingBaseFeeUsd, shippingPercent)
     : 0;
   
@@ -74,12 +80,12 @@ async function updateOrderTotals(
 
   console.log('[updateOrderTotals] Calculated totals:', {
     orderId,
+    activeItemCount,
     itemTotalUsd: round2(itemTotalUsd),
     serviceFeeUsd: round2(serviceFeeUsd),
     shippingFeeUsd: round2(shippingFeeUsd),
     totalUsd,
     totalCdf,
-    itemCount: items?.length || 0,
   });
 
   const { error: updateError } = await supabase
@@ -129,15 +135,6 @@ serve(async (req) => {
     const body = await req.json();
     console.log('[mobile-update-cart-item] Request body:', body);
 
-    const newQuantity =
-      typeof body.quantity === 'number' && body.quantity > 0
-        ? Math.floor(body.quantity)
-        : 1;
-
-    if (!body.quantity || newQuantity < 1) {
-      return errorResponse('Valid quantity is required', 400);
-    }
-
     // Verify item belongs to user and is in a DRAFT order
     const { data: item, error: itemError } = await supabase
       .from('order_items')
@@ -166,24 +163,60 @@ serve(async (req) => {
     const shippingBaseFeeUsd = settings?.shipping_base_fee_usd ?? 20;
     const shippingPercent = settings?.shipping_percent ?? 0.10;
 
-    // Recalculate pricing with new quantity
-    const pricing = calculateItemPricing(
-      item.base_price_usd,
-      newQuantity,
-      markupPercent,
-      exchangeRate
-    );
+    // Build update object
+    const updateData: Record<string, any> = {};
 
-    // Update item with recalculated values
+    // Handle is_saved_for_later toggle
+    if (typeof body.isSavedForLater === 'boolean') {
+      updateData.is_saved_for_later = body.isSavedForLater;
+      
+      if (body.isSavedForLater && !item.saved_at) {
+        // Setting to saved for the first time
+        updateData.saved_at = new Date().toISOString();
+      }
+      // Note: We keep saved_at when un-saving for historical tracking
+      
+      console.log('[mobile-update-cart-item] Updating saved status:', {
+        itemId,
+        isSavedForLater: body.isSavedForLater,
+        savedAt: updateData.saved_at || item.saved_at,
+      });
+    }
+
+    // Handle quantity update
+    if (typeof body.quantity === 'number' && body.quantity > 0) {
+      const newQuantity = Math.floor(body.quantity);
+      
+      // Recalculate pricing with new quantity
+      const pricing = calculateItemPricing(
+        item.base_price_usd,
+        newQuantity,
+        markupPercent,
+        exchangeRate
+      );
+
+      updateData.quantity = newQuantity;
+      updateData.subtotal_usd = pricing.itemBaseTotalUsd;
+      updateData.markup_fee_usd = pricing.itemMarginUsd;
+      updateData.total_price_usd = pricing.itemSubtotalUsd;
+      updateData.total_price_cdf = pricing.itemSubtotalCdf;
+
+      console.log('[mobile-update-cart-item] Updating quantity:', {
+        itemId,
+        newQuantity,
+        itemSubtotalUsd: pricing.itemSubtotalUsd,
+      });
+    }
+
+    // If no valid updates, return error
+    if (Object.keys(updateData).length === 0) {
+      return errorResponse('No valid fields to update. Provide quantity or isSavedForLater.', 400);
+    }
+
+    // Update item
     const { data: updatedItem, error: updateError } = await supabase
       .from('order_items')
-      .update({
-        quantity: newQuantity,
-        subtotal_usd: pricing.itemBaseTotalUsd,
-        markup_fee_usd: pricing.itemMarginUsd,
-        total_price_usd: pricing.itemSubtotalUsd,
-        total_price_cdf: pricing.itemSubtotalCdf,
-      })
+      .update(updateData)
       .eq('id', itemId)
       .select()
       .single();
@@ -193,13 +226,7 @@ serve(async (req) => {
       return errorResponse('Failed to update item', 500);
     }
 
-    console.log('[mobile-update-cart-item] Quantity updated:', {
-      itemId,
-      newQuantity,
-      itemSubtotalUsd: pricing.itemSubtotalUsd,
-    });
-
-    // UPDATE ORDER TOTALS after quantity change
+    // UPDATE ORDER TOTALS after any change
     const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
     return jsonResponse({
@@ -215,6 +242,8 @@ serve(async (req) => {
         itemMarginUsd: updatedItem.markup_fee_usd,
         itemSubtotalUsd: updatedItem.total_price_usd,
         itemSubtotalCdf: updatedItem.total_price_cdf,
+        isSavedForLater: updatedItem.is_saved_for_later,
+        savedAt: updatedItem.saved_at,
       },
       summary,
     });

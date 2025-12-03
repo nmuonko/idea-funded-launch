@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 import { format } from 'date-fns';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface UserWithRole {
   user_id: string;
@@ -20,6 +21,8 @@ interface UserWithRole {
   email?: string;
   isAdmin: boolean;
   adminRole: string;
+  created_at?: string;
+  last_sign_in_at?: string;
 }
 
 interface Invitation {
@@ -43,6 +46,7 @@ export default function AdminUsers() {
   const [invitePassword, setInvitePassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [resending, setResending] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -60,10 +64,10 @@ export default function AdminUsers() {
 
   const loadUsers = async () => {
     try {
-      // Get all users from profiles
+      // Get all users from profiles with created_at
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id, full_name, name')
+        .select('user_id, full_name, name, created_at')
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;
@@ -150,6 +154,36 @@ export default function AdminUsers() {
       });
     } finally {
       setInviting(false);
+    }
+  };
+
+  const resendInvitation = async (invitationId: string) => {
+    try {
+      setResending(invitationId);
+
+      const { data, error } = await supabase.functions.invoke('admin-invite-user', {
+        body: { resend: true, invitationId },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: data.emailSent ? 'Invitation Resent' : 'Invitation Updated',
+        description: data.emailSent 
+          ? 'Email has been resent successfully' 
+          : `Email service unavailable. Share this link: ${data.inviteUrl || 'Check invitation details'}`,
+        variant: data.emailSent ? 'default' : 'destructive',
+      });
+
+      await loadInvitations();
+    } catch (error: any) {
+      toast({
+        title: 'Error resending invitation',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setResending(null);
     }
   };
 
@@ -286,44 +320,59 @@ export default function AdminUsers() {
               {adminUsers.length === 0 ? (
                 <p className="text-center py-8 text-muted-foreground">No admin users found</p>
               ) : (
-                <div className="space-y-3">
-                  {adminUsers.map((user) => (
-                    <div
-                      key={user.user_id}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                          <Shield className="h-5 w-5 text-primary" />
+                <TooltipProvider>
+                  <div className="space-y-3">
+                    {adminUsers.map((user) => (
+                      <div
+                        key={user.user_id}
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <Shield className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>{user.user_id.slice(0, 8)}...</span>
+                              {user.created_at && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="flex items-center gap-1 cursor-help">
+                                      <Calendar className="h-3 w-3" />
+                                      {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Account created</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
-                          <p className="text-sm text-muted-foreground">{user.user_id.slice(0, 8)}...</p>
+                        <div className="flex items-center gap-2">
+                          <RoleBadge role={user.adminRole} />
+                          <StaffRoleSelector
+                            value={user.adminRole}
+                            onChange={(newRole) => updateAdminRole(user.user_id, newRole)}
+                            disabled={promoting === user.user_id}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => revokeAdmin(user.user_id)}
+                            disabled={promoting === user.user_id}
+                          >
+                            {promoting === user.user_id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              'Revoke'
+                            )}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <RoleBadge role={user.adminRole} />
-                        <StaffRoleSelector
-                          value={user.adminRole}
-                          onChange={(newRole) => updateAdminRole(user.user_id, newRole)}
-                          disabled={promoting === user.user_id}
-                        />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => revokeAdmin(user.user_id)}
-                          disabled={promoting === user.user_id}
-                        >
-                          {promoting === user.user_id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            'Revoke'
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </TooltipProvider>
               )}
             </CardContent>
           </Card>
@@ -340,28 +389,53 @@ export default function AdminUsers() {
                 <p className="text-center py-8 text-muted-foreground">No invitations sent yet</p>
               ) : (
                 <div className="space-y-3">
-                  {invitations.map((invite) => (
-                    <div
-                      key={invite.id}
-                      className="flex items-center justify-between p-4 border rounded-lg"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                          <Mail className="h-5 w-5 text-muted-foreground" />
+                  {invitations.map((invite) => {
+                    const isExpired = new Date(invite.expires_at) < new Date();
+                    const canResend = invite.status === 'pending';
+                    
+                    return (
+                      <div
+                        key={invite.id}
+                        className="flex items-center justify-between p-4 border rounded-lg"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                            <Mail className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{invite.email}</p>
+                            <p className="text-sm text-muted-foreground">
+                              Invited {format(new Date(invite.created_at), 'MMM dd, yyyy')}
+                              {!isExpired && invite.status === 'pending' && (
+                                <> · Expires {format(new Date(invite.expires_at), 'MMM dd')}</>
+                              )}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{invite.email}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Invited {format(new Date(invite.created_at), 'MMM dd, yyyy')}
-                          </p>
+                        <div className="flex items-center gap-2">
+                          <RoleBadge role={invite.role} />
+                          {getStatusBadge(invite.status, invite.expires_at)}
+                          {canResend && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => resendInvitation(invite.id)}
+                              disabled={resending === invite.id}
+                            >
+                              {resending === invite.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  <RefreshCw className="h-3 w-3 mr-1" />
+                                  Resend
+                                </>
+                              )}
+                            </Button>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <RoleBadge role={invite.role} />
-                        {getStatusBadge(invite.status, invite.expires_at)}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

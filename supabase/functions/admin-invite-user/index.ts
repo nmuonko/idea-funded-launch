@@ -47,7 +47,47 @@ serve(async (req) => {
       });
     }
 
-    const { email, role, setPassword } = await req.json();
+    const { email, role, setPassword, resend, invitationId } = await req.json();
+
+    // Handle resend invitation
+    if (resend && invitationId) {
+      console.log('[admin-invite-user] Resending invitation:', invitationId);
+      
+      const { data: invitation, error: invErr } = await supabase
+        .from('admin_invitations')
+        .select('*')
+        .eq('id', invitationId)
+        .single();
+
+      if (invErr || !invitation) {
+        return new Response(JSON.stringify({ error: 'Invitation not found' }), {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Update expiration
+      const newExpires = new Date();
+      newExpires.setDate(newExpires.getDate() + 7);
+      
+      await supabase
+        .from('admin_invitations')
+        .update({ expires_at: newExpires.toISOString() })
+        .eq('id', invitationId);
+
+      // Send email
+      const emailResult = await sendInvitationEmail(invitation.email, invitation.role, invitation.token);
+      
+      return new Response(JSON.stringify({ 
+        success: true,
+        message: emailResult.sent ? 'Invitation resent successfully' : 'Invitation updated (email service unavailable)',
+        emailSent: emailResult.sent,
+        emailError: emailResult.error
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (!email || !role) {
       return new Response(JSON.stringify({ error: 'Email and role are required' }), {
@@ -63,7 +103,6 @@ serve(async (req) => {
     let page = 1;
     const perPage = 100;
     
-    // Search through users (handles pagination)
     while (true) {
       const { data: usersData } = await serviceSupabase.auth.admin.listUsers({ page, perPage });
       if (!usersData?.users || usersData.users.length === 0) break;
@@ -164,37 +203,15 @@ serve(async (req) => {
     }
 
     // Send invitation email
-    const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
-    const inviteUrl = `${frontendUrl}/accept-invite?token=${invitation.token}`;
-
-    const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
-    if (RESEND_API_KEY) {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <noreply@afrishop.com>',
-          to: [email],
-          subject: 'You have been invited to AfriShop Admin',
-          html: `
-            <h2>Welcome to AfriShop Admin!</h2>
-            <p>You have been invited to join the AfriShop admin team as a <strong>${role}</strong>.</p>
-            <p><a href="${inviteUrl}" style="background: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
-            <p>This invitation expires in 7 days.</p>
-            <p>If you did not expect this invitation, you can safely ignore this email.</p>
-          `,
-        }),
-      });
-    }
+    const emailResult = await sendInvitationEmail(email, role, invitation.token);
 
     return new Response(JSON.stringify({ 
       success: true,
-      message: 'Invitation sent',
+      message: emailResult.sent ? 'Invitation sent' : 'Invitation created (email service unavailable - share link manually)',
       invitationId: invitation.id,
-      inviteUrl: RESEND_API_KEY ? undefined : inviteUrl // Only return URL if email not sent
+      emailSent: emailResult.sent,
+      emailError: emailResult.error,
+      inviteUrl: !emailResult.sent ? `${Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com'}/accept-invite?token=${invitation.token}` : undefined
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -208,3 +225,48 @@ serve(async (req) => {
     });
   }
 });
+
+async function sendInvitationEmail(email: string, role: string, token: string): Promise<{ sent: boolean; error?: string }> {
+  const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY');
+  const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
+  const inviteUrl = `${frontendUrl}/accept-invite?token=${token}`;
+
+  if (!RESEND_API_KEY) {
+    console.log('[admin-invite-user] RESEND_API_KEY not configured, skipping email');
+    return { sent: false, error: 'Email service not configured' };
+  }
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <noreply@afrishop.com>',
+        to: [email],
+        subject: 'You have been invited to AfriShop Admin',
+        html: `
+          <h2>Welcome to AfriShop Admin!</h2>
+          <p>You have been invited to join the AfriShop admin team as a <strong>${role}</strong>.</p>
+          <p><a href="${inviteUrl}" style="background: #6366f1; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Accept Invitation</a></p>
+          <p>This invitation expires in 7 days.</p>
+          <p>If you did not expect this invitation, you can safely ignore this email.</p>
+        `,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[admin-invite-user] Resend API error:', errorText);
+      return { sent: false, error: `Email failed: ${errorText}` };
+    }
+
+    console.log('[admin-invite-user] Email sent successfully to:', email);
+    return { sent: true };
+  } catch (err: any) {
+    console.error('[admin-invite-user] Email send error:', err);
+    return { sent: false, error: err.message };
+  }
+}

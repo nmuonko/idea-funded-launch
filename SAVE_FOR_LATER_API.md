@@ -157,9 +157,9 @@ Selective checkout - only checkout specific items.
 
 ---
 
-## Automatic Email Reminders
+## Automatic Reminders (Email + Push)
 
-The `saved-cart-reminders` edge function runs to send reminder emails:
+The `saved-cart-reminders` edge function sends both email and push notifications:
 
 **Criteria:**
 - Items saved for at least 48 hours
@@ -170,9 +170,15 @@ The `saved-cart-reminders` edge function runs to send reminder emails:
 - Lists saved items with prices
 - Call-to-action to return to app
 
+**Push Notification:**
+- Title: "Articles enregistrés 🛒"
+- Body: Lists item count and total value
+- Includes `type: 'saved_cart_reminder'` in data payload for mobile app routing
+
 **Trigger manually:**
 ```typescript
 await supabase.functions.invoke('saved-cart-reminders');
+// Response: { emailsSent: 5, pushSent: 3, errors: 0, itemsUpdated: 12 }
 ```
 
 ---
@@ -183,4 +189,4 @@ Navigate to `/admin/saved-carts` to:
 - View all users with saved items
 - See total value of saved carts
 - View individual saved items per user
-- Manually trigger reminder emails
+- Manually trigger reminder emails and push notifications

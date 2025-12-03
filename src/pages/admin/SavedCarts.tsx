@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, Bookmark, ExternalLink, Mail, Clock, User, ShoppingBag } from 'lucide-react';
+import { Loader2, Search, Bookmark, ExternalLink, Bell, Clock, User, ShoppingBag } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 
 interface SavedCartUser {
@@ -154,9 +154,13 @@ export default function AdminSavedCarts() {
       
       if (error) throw error;
       
+      const emailCount = data.emailsSent || 0;
+      const pushCount = data.pushSent || 0;
+      const errorCount = data.errors || 0;
+      
       toast({
         title: 'Reminders sent',
-        description: `Sent ${data.sent} emails. ${data.errors > 0 ? `${data.errors} failed.` : ''}`,
+        description: `Sent ${emailCount} email(s) and ${pushCount} push notification(s).${errorCount > 0 ? ` ${errorCount} failed.` : ''}`,
       });
       
       loadSavedCarts(); // Refresh to show updated reminder times
@@ -199,7 +203,7 @@ export default function AdminSavedCarts() {
           </p>
         </div>
         <Button onClick={triggerReminders}>
-          <Mail className="h-4 w-4 mr-2" />
+          <Bell className="h-4 w-4 mr-2" />
           Send Reminders Now
         </Button>
       </div>

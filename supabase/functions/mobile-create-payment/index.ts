@@ -256,19 +256,19 @@ serve(async (req) => {
       orderId: checkoutOrder.id,
     });
 
-    // Return response with BOTH camelCase (required by mobile) and snake_case (backwards compat)
-    return jsonResponse({
-      // Required camelCase keys for mobile app
+    // Build final response body
+    const responseBody = {
+      // Required camelCase keys for mobile app (TOP LEVEL)
       success: true,
       orderId: checkoutOrder.id,
-      maishapayTransactionId: paymentResult.reference,
       paymentUrl: paymentResult.checkoutUrl,
+      maishapayTransactionId: paymentResult.reference,
       
       // Snake_case for backwards compatibility
       order_id: checkoutOrder.id,
+      payment_url: paymentResult.checkoutUrl,
       maishapay_transaction_id: paymentResult.reference,
       maishapay_reference: paymentResult.reference,
-      payment_url: paymentResult.checkoutUrl,
       payment_mode: maishaConfig.mode,
       checkout_fields: formFields,
       order: {
@@ -278,8 +278,11 @@ serve(async (req) => {
         totalUsd: grandTotalUsd,
         totalCdf: grandTotalCdf,
       },
-      message: `Payment session created (${maishaConfig.mode} mode). Open paymentUrl in WebView.`,
-    });
+    };
+
+    console.log('[mobile-create-payment] Response body:', JSON.stringify(responseBody));
+
+    return jsonResponse(responseBody);
 
   } catch (error: any) {
     console.error('[mobile-create-payment] Error:', error.message);

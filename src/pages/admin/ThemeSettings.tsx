@@ -5,13 +5,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useAdminTheme, AdminThemeSettings } from '@/contexts/AdminThemeContext';
+import { useAdminTheme, AdminThemeSettings, THEME_PRESETS, ThemePreset } from '@/contexts/AdminThemeContext';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { toast } from 'sonner';
-import { Palette, Save, RotateCcw, Eye, Sun, Moon, Square, Sidebar } from 'lucide-react';
+import { Palette, Save, RotateCcw, Eye, Sun, Moon, Square, Sidebar, Sparkles } from 'lucide-react';
+
+const PRESET_INFO: Record<ThemePreset, { label: string; description: string }> = {
+  DefaultDark: { label: 'Default Dark', description: 'Classic dark theme with blue accents' },
+  DefaultLight: { label: 'Default Light', description: 'Clean light theme for daytime use' },
+  BlueAccent: { label: 'GitHub Dark', description: 'GitHub-inspired dark with bright blue' },
+  PurpleAccent: { label: 'Purple Night', description: 'Deep purple with violet accents' },
+  Custom: { label: 'Custom', description: 'Your personalized theme settings' },
+};
 
 export default function ThemeSettings() {
-  const { theme, setTheme, saveTheme, resetToDefaults, hasChanges, isLoading } = useAdminTheme();
+  const { theme, setTheme, applyPreset, saveTheme, resetToDefaults, hasChanges } = useAdminTheme();
   const { permissions } = useAdminPermissions();
   const [isSaving, setIsSaving] = useState(false);
 
@@ -123,6 +131,64 @@ export default function ThemeSettings() {
           </span>
         </div>
       )}
+
+      {/* Theme Presets */}
+      <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">Theme Presets</CardTitle>
+          </div>
+          <CardDescription>
+            Quick start with a preset or customize your own
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {(Object.keys(THEME_PRESETS) as ThemePreset[]).map((preset) => {
+              const presetValues = THEME_PRESETS[preset];
+              const info = PRESET_INFO[preset];
+              const isActive = theme.activePreset === preset;
+              
+              return (
+                <button
+                  key={preset}
+                  onClick={() => applyPreset(preset)}
+                  className={`group relative p-3 rounded-lg border-2 transition-all text-left ${
+                    isActive 
+                      ? 'border-primary bg-primary/10' 
+                      : 'border-border/50 hover:border-border bg-muted/20 hover:bg-muted/40'
+                  }`}
+                >
+                  {/* Color preview squares */}
+                  <div className="flex gap-1 mb-2">
+                    <div 
+                      className="w-5 h-5 rounded border border-white/20" 
+                      style={{ backgroundColor: presetValues.backgroundColor }}
+                      title="Background"
+                    />
+                    <div 
+                      className="w-5 h-5 rounded border border-white/20" 
+                      style={{ backgroundColor: presetValues.sidebarColor }}
+                      title="Sidebar"
+                    />
+                    <div 
+                      className="w-5 h-5 rounded border border-white/20" 
+                      style={{ backgroundColor: presetValues.accentColor }}
+                      title="Accent"
+                    />
+                  </div>
+                  <span className="text-sm font-medium block">{info.label}</span>
+                  <span className="text-xs text-muted-foreground line-clamp-1">{info.description}</span>
+                  {isActive && (
+                    <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left Column - Settings */}

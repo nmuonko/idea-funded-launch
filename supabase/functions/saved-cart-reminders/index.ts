@@ -123,11 +123,12 @@ serve(async (req) => {
     const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
     const authUserMap = new Map(authUsers?.users?.map(u => [u.id, u]) || []);
 
-    let sentCount = 0;
+    let emailSentCount = 0;
+    let pushSentCount = 0;
     let errorCount = 0;
     const itemsToUpdate: string[] = [];
 
-    // Send emails to each user
+    // Send emails and push notifications to each user
     for (const [userId, items] of userItemsMap) {
       const profile = profileMap.get(userId);
       const authUser = authUserMap.get(userId);
@@ -227,6 +228,7 @@ serve(async (req) => {
         </html>
       `;
 
+      // Send email
       try {
         const response = await fetch('https://api.resend.com/emails', {
           method: 'POST',
@@ -246,18 +248,50 @@ serve(async (req) => {
           const errorText = await response.text();
           console.error('[saved-cart-reminders] Email failed for:', userEmail, errorText);
           errorCount++;
-          continue;
+        } else {
+          console.log('[saved-cart-reminders] Email sent to:', userEmail);
+          emailSentCount++;
+          items.forEach(item => itemsToUpdate.push(item.id));
         }
-
-        console.log('[saved-cart-reminders] Email sent to:', userEmail);
-        sentCount++;
-
-        // Mark items as reminded
-        items.forEach(item => itemsToUpdate.push(item.id));
-
       } catch (err: any) {
         console.error('[saved-cart-reminders] Email error for:', userEmail, err.message);
         errorCount++;
+      }
+
+      // Send push notification
+      try {
+        const pushResponse = await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/send-push-notification`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: userId,
+              title: 'Articles enregistrés 🛒',
+              body: `Vous avez ${items.length} article(s) enregistré(s) ($${totalValue.toFixed(2)}). Revenez finaliser votre achat!`,
+              data: {
+                type: 'saved_cart_reminder',
+                itemCount: items.length,
+                totalValue: totalValue.toFixed(2),
+              },
+            }),
+          }
+        );
+
+        if (pushResponse.ok) {
+          const pushResult = await pushResponse.json();
+          if (pushResult.sent > 0) {
+            pushSentCount++;
+            console.log('[saved-cart-reminders] Push sent to:', userId, pushResult);
+          }
+        } else {
+          console.log('[saved-cart-reminders] Push failed for:', userId);
+        }
+      } catch (pushErr: any) {
+        console.log('[saved-cart-reminders] Push error for:', userId, pushErr.message);
       }
     }
 
@@ -275,12 +309,13 @@ serve(async (req) => {
       }
     }
 
-    console.log('[saved-cart-reminders] Job completed:', { sentCount, errorCount });
+    console.log('[saved-cart-reminders] Job completed:', { emailSentCount, pushSentCount, errorCount });
 
     return new Response(
       JSON.stringify({ 
         success: true,
-        sent: sentCount,
+        emailsSent: emailSentCount,
+        pushSent: pushSentCount,
         errors: errorCount,
         itemsUpdated: itemsToUpdate.length
       }),

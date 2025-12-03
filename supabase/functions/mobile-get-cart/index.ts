@@ -139,20 +139,21 @@ serve(async (req) => {
       });
     }
 
+    // Use field names that match mobile app expectations
     const summary = {
       itemCount,
-      totalItemsUsd: round2(finalItemsTotal),
-      totalMarginUsd: round2(finalMarginTotal),
-      itemsSubtotalUsd: round2(finalItemsTotal + finalMarginTotal),
+      itemsTotalUsd: round2(finalItemsTotal),
+      markupFeeUsd: round2(finalMarginTotal),
       shippingFeeUsd: round2(finalShippingFee),
-      grandTotalUsd: round2(finalGrandTotalUsd),
-      grandTotalCdf: round2(finalGrandTotalCdf),
+      totalUsd: round2(finalGrandTotalUsd),
+      totalCdf: round2(finalGrandTotalCdf),
       exchangeRate: order.exchange_rate_used || exchangeRate,
     };
 
-    console.log('[mobile-get-cart] Response summary:', summary);
+    const response = { items: formattedItems, summary };
+    console.log('[mobile-get-cart] Full response:', JSON.stringify(response, null, 2));
 
-    return jsonResponse({ items: formattedItems, summary });
+    return jsonResponse(response);
 
   } catch (error: any) {
     console.error('[mobile-get-cart] Error:', error.message);

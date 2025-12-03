@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -8,10 +9,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
@@ -26,22 +30,42 @@ export default function AdminOrders() {
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
+  const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
-  // Filter orders based on search query
+  // Filter orders based on search query and date range
   const filteredOrders = useMemo(() => {
-    if (!searchQuery.trim()) return orders;
+    let result = orders;
     
-    const query = searchQuery.toLowerCase().trim();
-    return orders.filter(order => {
-      const customerName = order.profiles?.name?.toLowerCase() || '';
-      const customerEmail = order.profiles?.email?.toLowerCase() || '';
-      const orderId = order.id.toLowerCase();
-      
-      return customerName.includes(query) || 
-             customerEmail.includes(query) || 
-             orderId.includes(query);
-    });
-  }, [orders, searchQuery]);
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      result = result.filter(order => {
+        const customerName = order.profiles?.name?.toLowerCase() || '';
+        const customerEmail = order.profiles?.email?.toLowerCase() || '';
+        const orderId = order.id.toLowerCase();
+        
+        return customerName.includes(query) || 
+               customerEmail.includes(query) || 
+               orderId.includes(query);
+      });
+    }
+    
+    // Date range filter
+    if (dateFrom) {
+      const fromDate = new Date(dateFrom);
+      fromDate.setHours(0, 0, 0, 0);
+      result = result.filter(order => new Date(order.created_at) >= fromDate);
+    }
+    
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      result = result.filter(order => new Date(order.created_at) <= toDate);
+    }
+    
+    return result;
+  }, [orders, searchQuery, dateFrom, dateTo]);
 
   useEffect(() => {
     loadOrders();
@@ -206,23 +230,73 @@ export default function AdminOrders() {
     if (selectedOrders.size === 0) return;
 
     const selectedOrdersData = orders.filter(o => selectedOrders.has(o.id));
-    const headers = ['Order ID', 'Customer', 'Email', 'City', 'Total USD', 'Status', 'Created'];
+    const headers = [
+      'Order ID',
+      'Customer Name',
+      'Customer Email',
+      'Phone',
+      'Shipping City',
+      'Status',
+      'Payment Status',
+      'Payment Verified',
+      'Item Total USD',
+      'Service Fee USD',
+      'Shipping Fee USD',
+      'Total USD',
+      'Total CDF',
+      'Exchange Rate',
+      'Tracking Number',
+      'Carrier',
+      'Items Count',
+      'Item Titles',
+      'Created At',
+      'Updated At',
+      'Shipped At',
+      'Delivered At',
+      'Admin Notes'
+    ];
+    
+    const escapeCSV = (value: any) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    
     const rows = selectedOrdersData.map(order => [
       order.id,
-      order.profiles?.name || 'N/A',
-      order.profiles?.email || 'N/A',
-      order.shipping_city || 'N/A',
-      order.total_usd || 0,
+      order.profiles?.name || '',
+      order.profiles?.email || '',
+      order.profiles?.phone || '',
+      order.shipping_city || '',
       order.status,
-      new Date(order.created_at).toLocaleDateString()
-    ]);
+      order.maisha_payment_status || '',
+      order.payment_verified_at ? 'Yes' : 'No',
+      Number(order.item_total_usd || 0).toFixed(2),
+      Number(order.service_fee_usd || 0).toFixed(2),
+      Number(order.shipping_fee_usd || 0).toFixed(2),
+      Number(order.total_usd || 0).toFixed(2),
+      Number(order.total_cdf || 0).toFixed(2),
+      order.exchange_rate_used || '',
+      order.tracking_number || '',
+      order.carrier || '',
+      order.order_items?.length || 0,
+      order.order_items?.map((i: any) => i.title).filter(Boolean).join('; ') || '',
+      order.created_at ? format(new Date(order.created_at), 'yyyy-MM-dd HH:mm:ss') : '',
+      order.updated_at ? format(new Date(order.updated_at), 'yyyy-MM-dd HH:mm:ss') : '',
+      order.shipped_at ? format(new Date(order.shipped_at), 'yyyy-MM-dd HH:mm:ss') : '',
+      order.delivered_at ? format(new Date(order.delivered_at), 'yyyy-MM-dd HH:mm:ss') : '',
+      order.admin_notes || ''
+    ].map(escapeCSV));
 
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(','))
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -232,7 +306,7 @@ export default function AdminOrders() {
 
     toast({
       title: 'Export successful',
-      description: `Exported ${selectedOrdersData.length} orders`,
+      description: `Exported ${selectedOrdersData.length} orders with full details`,
     });
   };
 
@@ -391,14 +465,63 @@ export default function AdminOrders() {
                   : `${filteredOrders.length} order(s) ${searchQuery ? 'found' : 'total'}`}
               </CardDescription>
             </div>
-            <div className="relative w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name, email, ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by name, email, ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              
+              {/* Date Range Filter */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("gap-2", dateFrom && "bg-accent")}>
+                    <CalendarIcon className="h-4 w-4" />
+                    {dateFrom ? format(dateFrom, 'MMM d') : 'From'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateFrom}
+                    onSelect={setDateFrom}
+                    initialFocus
+                    className="p-3 pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
+              
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className={cn("gap-2", dateTo && "bg-accent")}>
+                    <CalendarIcon className="h-4 w-4" />
+                    {dateTo ? format(dateTo, 'MMM d') : 'To'}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={dateTo}
+                    onSelect={setDateTo}
+                    initialFocus
+                    className="p-3 pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
+              
+              {(dateFrom || dateTo) && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => { setDateFrom(undefined); setDateTo(undefined); }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

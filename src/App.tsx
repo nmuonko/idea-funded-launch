@@ -33,6 +33,7 @@ import AdminCarts from "./pages/admin/Carts";
 import AdminSavedCarts from "./pages/admin/SavedCarts";
 import ABTestResults from "./pages/admin/ABTestResults";
 import ThemeSettings from "./pages/admin/ThemeSettings";
+import AdminAccessDenied from "./pages/admin/AccessDenied";
 import Orders from "./pages/Orders";
 import MaishaCallback from "./pages/MaishaCallback";
 import AcceptInvite from "./pages/AcceptInvite";
@@ -163,6 +164,7 @@ const App = () => {
                   <ThemeSettings />
                 </AdminRouteGuard>
               } />
+              <Route path="access-denied" element={<AdminAccessDenied />} />
           </Route>
             
             <Route path="*" element={<NotFound />} />

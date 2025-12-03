@@ -1,37 +1,71 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+export type ThemePreset = 'DefaultDark' | 'DefaultLight' | 'BlueAccent' | 'PurpleAccent' | 'Custom';
+
 export interface AdminThemeSettings {
   backgroundColor: string;
   sidebarColor: string;
   accentColor: string;
   borderRadius: 'none' | 'sm' | 'md' | 'lg' | 'xl';
   mode: 'light' | 'dark';
+  activePreset: ThemePreset;
 }
 
 interface AdminThemeContextType {
   theme: AdminThemeSettings;
   setTheme: (theme: Partial<AdminThemeSettings>) => void;
+  setThemeWithoutPresetChange: (theme: Partial<AdminThemeSettings>) => void;
+  applyPreset: (preset: ThemePreset) => void;
   isLoading: boolean;
   saveTheme: () => Promise<boolean>;
   resetToDefaults: () => void;
   hasChanges: boolean;
 }
 
+export const THEME_PRESETS: Record<ThemePreset, Omit<AdminThemeSettings, 'activePreset'>> = {
+  DefaultDark: {
+    backgroundColor: '#0a0a0a',
+    sidebarColor: '#0f0f0f',
+    accentColor: '#3b82f6',
+    borderRadius: 'md',
+    mode: 'dark',
+  },
+  DefaultLight: {
+    backgroundColor: '#f8fafc',
+    sidebarColor: '#ffffff',
+    accentColor: '#3b82f6',
+    borderRadius: 'md',
+    mode: 'light',
+  },
+  BlueAccent: {
+    backgroundColor: '#0D1117',
+    sidebarColor: '#161b22',
+    accentColor: '#58a6ff',
+    borderRadius: 'md',
+    mode: 'dark',
+  },
+  PurpleAccent: {
+    backgroundColor: '#1a1a2e',
+    sidebarColor: '#16213e',
+    accentColor: '#a855f7',
+    borderRadius: 'lg',
+    mode: 'dark',
+  },
+  Custom: {
+    backgroundColor: '#0a0a0a',
+    sidebarColor: '#0f0f0f',
+    accentColor: '#3b82f6',
+    borderRadius: 'md',
+    mode: 'dark',
+  },
+};
+
 const AdminThemeContext = createContext<AdminThemeContextType | undefined>(undefined);
 
 const DEFAULT_THEME: AdminThemeSettings = {
-  backgroundColor: '#0a0a0a',
-  sidebarColor: '#0f0f0f',
-  accentColor: '#3b82f6',
-  borderRadius: 'md',
-  mode: 'dark',
-};
-
-const LIGHT_DEFAULTS: Partial<AdminThemeSettings> = {
-  backgroundColor: '#f8fafc',
-  sidebarColor: '#ffffff',
-  mode: 'light',
+  ...THEME_PRESETS.DefaultDark,
+  activePreset: 'DefaultDark',
 };
 
 export function AdminThemeProvider({ children }: { children: ReactNode }) {
@@ -86,20 +120,29 @@ export function AdminThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // setTheme auto-switches to Custom preset when manually changing values
   const setTheme = (updates: Partial<AdminThemeSettings>) => {
     setThemeState(prev => {
       const newTheme = { ...prev, ...updates };
-      
-      // If switching modes, apply default colors for that mode
-      if (updates.mode && updates.mode !== prev.mode) {
-        if (updates.mode === 'light') {
-          return { ...newTheme, ...LIGHT_DEFAULTS };
-        } else {
-          return { ...newTheme, backgroundColor: DEFAULT_THEME.backgroundColor, sidebarColor: DEFAULT_THEME.sidebarColor };
-        }
+      // Auto-switch to Custom if user manually changes colors/mode (not activePreset itself)
+      if (!('activePreset' in updates) && prev.activePreset !== 'Custom') {
+        newTheme.activePreset = 'Custom';
       }
-      
       return newTheme;
+    });
+  };
+
+  // setThemeWithoutPresetChange - used internally when applying presets
+  const setThemeWithoutPresetChange = (updates: Partial<AdminThemeSettings>) => {
+    setThemeState(prev => ({ ...prev, ...updates }));
+  };
+
+  // Apply a preset - sets all theme values from the preset
+  const applyPreset = (preset: ThemePreset) => {
+    const presetValues = THEME_PRESETS[preset];
+    setThemeState({
+      ...presetValues,
+      activePreset: preset,
     });
   };
 
@@ -137,6 +180,8 @@ export function AdminThemeProvider({ children }: { children: ReactNode }) {
     <AdminThemeContext.Provider value={{ 
       theme,
       setTheme,
+      setThemeWithoutPresetChange,
+      applyPreset,
       isLoading,
       saveTheme,
       resetToDefaults,

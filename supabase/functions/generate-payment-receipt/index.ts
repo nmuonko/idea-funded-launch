@@ -1,10 +1,22 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { 
   verifyAndGetUser, 
   handleCors, 
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+
+// Check if user is admin
+async function isAdmin(supabase: any, userId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId)
+    .eq('role', 'admin')
+    .maybeSingle();
+  return !!data;
+}
 
 // Generate receipt HTML
 function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: string): string {
@@ -274,6 +286,10 @@ serve(async (req) => {
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[generate-payment-receipt] User:', user.id);
 
+    // Check if user is admin
+    const userIsAdmin = await isAdmin(supabase, user.id);
+    console.log('[generate-payment-receipt] Is admin:', userIsAdmin);
+
     // Get order_id from query params or body
     let orderId: string | null = null;
     
@@ -289,13 +305,17 @@ serve(async (req) => {
       return errorResponse('order_id is required', 400);
     }
 
-    // Get order
-    const { data: order, error: orderError } = await supabase
+    // Get order - admins can access any order, users only their own
+    let orderQuery = supabase
       .from('orders')
       .select('*')
-      .eq('id', orderId)
-      .eq('user_id', user.id)
-      .maybeSingle();
+      .eq('id', orderId);
+    
+    if (!userIsAdmin) {
+      orderQuery = orderQuery.eq('user_id', user.id);
+    }
+
+    const { data: order, error: orderError } = await orderQuery.maybeSingle();
 
     if (orderError) {
       console.error('[generate-payment-receipt] DB error:', orderError);
@@ -331,11 +351,11 @@ serve(async (req) => {
       console.error('[generate-payment-receipt] Items error:', itemsError);
     }
 
-    // Get user profile
+    // Get customer profile (for the order owner, not the requesting user)
     const { data: profile } = await supabase
       .from('profiles')
       .select('full_name, name, phone')
-      .eq('user_id', user.id)
+      .eq('user_id', order.user_id)
       .maybeSingle();
 
     // Check if JSON response requested

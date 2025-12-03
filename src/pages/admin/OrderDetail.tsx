@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, FileText, Download } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 import { RefundDialog } from '@/components/admin/RefundDialog';
@@ -22,6 +22,7 @@ export default function AdminOrderDetail() {
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [sendingShipping, setSendingShipping] = useState(false);
+  const [downloadingReceipt, setDownloadingReceipt] = useState(false);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -121,6 +122,62 @@ export default function AdminOrderDetail() {
     }
   };
 
+  const handleDownloadReceipt = async () => {
+    try {
+      setDownloadingReceipt(true);
+      
+      // Get the session token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      // Open receipt in new tab
+      const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${id}`;
+      
+      // Fetch with auth header
+      const response = await fetch(receiptUrl, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to generate receipt');
+      }
+
+      const html = await response.text();
+      
+      // Open in new window
+      const newWindow = window.open('', '_blank');
+      if (newWindow) {
+        newWindow.document.write(html);
+        newWindow.document.close();
+      }
+
+      toast({
+        title: 'Receipt Generated',
+        description: 'Receipt opened in new tab',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setDownloadingReceipt(false);
+    }
+  };
+
+  const isPaidOrder = order?.status === 'PAID' || 
+                      order?.status === 'PROCESSING' || 
+                      order?.status === 'SHIPPED' || 
+                      order?.status === 'READY_FOR_PICKUP' || 
+                      order?.status === 'COMPLETED' ||
+                      order?.maisha_payment_status === 'SUCCESS';
+
   if (loading) {
     return (
       <div className="flex justify-center p-8">
@@ -188,7 +245,22 @@ export default function AdminOrderDetail() {
               <strong>MaishaPay Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
             </div>
             
-            <div className="flex gap-2 pt-4 border-t">
+            <div className="flex flex-wrap gap-2 pt-4 border-t">
+              {isPaidOrder && (
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadReceipt}
+                  disabled={downloadingReceipt}
+                  size="sm"
+                >
+                  {downloadingReceipt ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <FileText className="h-4 w-4 mr-2" />
+                  )}
+                  View Receipt
+                </Button>
+              )}
               {(order.status === 'PAID' || order.status === 'PROCESSING') && (
                 <Button
                   variant="destructive"

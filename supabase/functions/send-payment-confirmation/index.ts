@@ -152,6 +152,13 @@ serve(async (req) => {
             </p>
           </div>
           
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/orders/${orderId}/receipt" 
+               style="display: inline-block; background: #0ea5e9; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600;">
+              📄 View Receipt
+            </a>
+          </div>
+          
           <p style="margin-top: 24px; color: #6b7280; font-size: 14px;">
             If you have any questions about your order, please don't hesitate to contact our support team.
           </p>

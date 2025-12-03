@@ -16,6 +16,11 @@ import {
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 export function AdminLayout() {
   const location = useLocation();
@@ -23,10 +28,12 @@ export function AdminLayout() {
   const { signOut } = useAuth();
   const { language } = useLanguage();
   const { permissions, loading: permissionsLoading } = useAdminPermissions();
-  const { backgroundColor } = useAdminTheme();
+  const { theme } = useAdminTheme();
   const t = getAdminTranslation(language);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  const isSuperAdmin = permissions?.isSuperAdmin;
 
   // Define nav items with permission requirements
   const allNavItems = useMemo(() => [
@@ -172,16 +179,36 @@ export function AdminLayout() {
   );
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen" style={{ backgroundColor: theme.backgroundColor }}>
       {/* Mobile Header */}
-      <div className="fixed top-0 left-0 right-0 z-50 lg:hidden bg-card border-b border-border/50 px-4 py-3 flex items-center justify-between">
+      <div 
+        className="fixed top-0 left-0 right-0 z-50 lg:hidden border-b border-border/50 px-4 py-3 flex items-center justify-between"
+        style={{ backgroundColor: theme.sidebarColor }}
+      >
         <Button variant="ghost" size="icon" onClick={toggleMobile}>
           {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
         <h2 className="text-lg font-bold text-primary">
           {t.sidebar.adminPanel}
         </h2>
-        <LanguageSwitcher />
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => navigate('/admin/theme-settings')}
+                  className="h-9 w-9"
+                >
+                  <Palette className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Customize Theme</TooltipContent>
+            </Tooltip>
+          )}
+          <LanguageSwitcher />
+        </div>
       </div>
 
       {/* Mobile Overlay */}
@@ -193,30 +220,55 @@ export function AdminLayout() {
       )}
 
       {/* Sidebar - Desktop */}
-      <aside className={cn(
-        "hidden lg:flex flex-col bg-card border-r border-border/50 transition-all duration-300",
-        isCollapsed ? "w-16" : "w-64"
-      )}>
+      <aside 
+        className={cn(
+          "hidden lg:flex flex-col border-r border-border/50 transition-all duration-300",
+          isCollapsed ? "w-16" : "w-64"
+        )}
+        style={{ backgroundColor: theme.sidebarColor }}
+      >
         <SidebarContent />
       </aside>
 
       {/* Sidebar - Mobile */}
-      <aside className={cn(
-        "fixed top-14 left-0 bottom-0 z-50 w-64 bg-card border-r border-border/50 transition-transform duration-300 lg:hidden",
-        isMobileOpen ? "translate-x-0" : "-translate-x-full"
-      )}>
+      <aside 
+        className={cn(
+          "fixed top-14 left-0 bottom-0 z-50 w-64 border-r border-border/50 transition-transform duration-300 lg:hidden",
+          isMobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+        style={{ backgroundColor: theme.sidebarColor }}
+      >
         <SidebarContent />
       </aside>
 
       {/* Main content */}
       <main className="flex-1 lg:pt-0 pt-14">
-        {/* Desktop Language Switcher */}
-        <div className="hidden lg:flex justify-end p-4 pb-0">
+        {/* Desktop Top Bar */}
+        <div 
+          className="hidden lg:flex justify-end items-center gap-3 p-4 pb-0"
+          style={{ backgroundColor: theme.backgroundColor }}
+        >
+          {isSuperAdmin && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => navigate('/admin/theme-settings')}
+                  className="gap-2 h-9"
+                >
+                  <Palette className="h-4 w-4" />
+                  <span className="hidden xl:inline">Theme</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Customize Theme</TooltipContent>
+            </Tooltip>
+          )}
           <LanguageSwitcher />
         </div>
         <div 
           className="p-4 md:p-8 pt-2 min-h-screen transition-colors duration-300"
-          style={{ backgroundColor }}
+          style={{ backgroundColor: theme.backgroundColor }}
         >
           <div className="max-w-7xl mx-auto">
             <Outlet />

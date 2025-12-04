@@ -186,15 +186,15 @@ serve(async (req) => {
 
     console.log('[Reset Section] Success:', { section, deletedCount, by: user.email });
 
-    // Log this action
+    // Log this action to admin_audit_logs
     await supabaseAdmin
-      .from('ai_assistant_logs')
+      .from('admin_audit_logs')
       .insert({
-        user_id: user.id,
-        action_type: 'SECTION_RESET',
-        prompt: `Reset ${section} section`,
-        response: `Deleted ${deletedCount} records`,
-        metadata: { section, deletedCount }
+        admin_id: user.id,
+        admin_email: user.email,
+        action_type: 'reset_section',
+        target_section: section,
+        details: { deleted_count: deletedCount }
       });
 
     return new Response(

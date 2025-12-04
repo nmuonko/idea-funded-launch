@@ -645,7 +645,8 @@ export default function AdminOrders() {
                   />
                 </TableHead>
                 <TableHead>Order ID</TableHead>
-                <TableHead>Customer</TableHead>
+                <TableHead>Customer Name</TableHead>
+                <TableHead>Customer Email</TableHead>
                 <TableHead>City</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Total (USD)</TableHead>
@@ -668,10 +669,10 @@ export default function AdminOrders() {
                     {order.id.slice(0, 8)}...
                   </TableCell>
                   <TableCell>
-                    <div>
-                      <div className="font-medium">{order.profiles?.name || 'N/A'}</div>
-                      <div className="text-xs text-muted-foreground">{order.profiles?.email}</div>
-                    </div>
+                    <div className="font-medium">{order.profiles?.name || order.profiles?.full_name || 'N/A'}</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm text-muted-foreground">{order.profiles?.email || 'N/A'}</div>
                   </TableCell>
                   <TableCell>{order.shipping_city || 'N/A'}</TableCell>
                   <TableCell>

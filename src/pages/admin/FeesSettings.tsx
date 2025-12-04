@@ -275,17 +275,17 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Percent className="h-5 w-5" />
-            Profit Margin
+            {t.settings.profitMargin}
           </CardTitle>
           <CardDescription>
-            Your markup percentage applied to all items
+            {t.settings.profitMarginDesc}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div className="flex items-center gap-4 max-w-md">
               <div className="flex-1 space-y-2">
-                <Label htmlFor="markupPercent">Markup Percentage</Label>
+                <Label htmlFor="markupPercent">{t.settings.markupPercentage}</Label>
                 <Input
                   id="markupPercent"
                   type="number"
@@ -301,7 +301,7 @@ export default function FeesSettings() {
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Formula: Item Margin = Item Subtotal × {markupPercent}%
+              {t.settings.marginFormula}: {t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%
             </p>
           </div>
         </CardContent>
@@ -312,16 +312,16 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Truck className="h-5 w-5" />
-            Shipping Settings
+            {t.settings.shippingSettings}
           </CardTitle>
           <CardDescription>
-            Shipping fee = Base Fee + (Order Value × Percentage)
+            {t.settings.shippingFormula}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
-              <Label htmlFor="shippingBase">Base Shipping Fee (USD)</Label>
+              <Label htmlFor="shippingBase">{t.settings.baseShippingFee}</Label>
               <Input
                 id="shippingBase"
                 type="number"
@@ -330,12 +330,12 @@ export default function FeesSettings() {
                 onChange={(e) => setShippingBaseFeeUsd(Number(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">
-                Flat fee applied to every order
+                {t.settings.flatFeeDesc}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="shippingPercent">Shipping Percentage</Label>
+              <Label htmlFor="shippingPercent">{t.settings.shippingPercentage}</Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="shippingPercent"
@@ -347,15 +347,15 @@ export default function FeesSettings() {
                 <Badge variant="outline">{shippingPercent}%</Badge>
               </div>
               <p className="text-xs text-muted-foreground">
-                Percentage of order subtotal added to shipping
+                {t.settings.shippingPercentDesc}
               </p>
             </div>
           </div>
 
           <div className="bg-muted/50 rounded-lg p-4">
-            <p className="text-sm font-medium mb-2">Shipping Formula:</p>
+            <p className="text-sm font-medium mb-2">{t.settings.shippingFormula}:</p>
             <code className="text-xs bg-background px-2 py-1 rounded">
-              ${shippingBaseFeeUsd.toFixed(2)} + (Order Subtotal × {shippingPercent}%)
+              ${shippingBaseFeeUsd.toFixed(2)} + ({t.common.orderSubtotal} × {shippingPercent}%)
             </code>
           </div>
         </CardContent>
@@ -366,28 +366,28 @@ export default function FeesSettings() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5" />
-            Example Calculation
+            {t.settings.exampleCalculation}
           </CardTitle>
           <CardDescription>
-            Sample order: ${examplePrice} × {exampleQty} items
+            {t.settings.sampleOrder}: ${examplePrice} × {exampleQty} {t.common.items}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Items Subtotal</p>
+              <p className="text-xs text-muted-foreground">{t.common.itemsSubtotal}</p>
               <p className="text-lg font-semibold">${exampleSubtotal.toFixed(2)}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Margin ({markupPercent}%)</p>
+              <p className="text-xs text-muted-foreground">{t.common.margin} ({markupPercent}%)</p>
               <p className="text-lg font-semibold">${exampleMargin.toFixed(2)}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Shipping Fee</p>
+              <p className="text-xs text-muted-foreground">{t.common.shippingFee}</p>
               <p className="text-lg font-semibold">${exampleShipping.toFixed(2)}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Grand Total</p>
+              <p className="text-xs text-muted-foreground">{t.common.grandTotal}</p>
               <p className="text-lg font-bold text-primary">${exampleGrandTotal.toFixed(2)}</p>
             </div>
           </div>
@@ -406,14 +406,14 @@ export default function FeesSettings() {
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <Tag className="h-5 w-5" />
-                    Advanced Settings
+                    {t.settings.advancedSettings}
                   </CardTitle>
                   <CardDescription>
-                    Category markups, extra fees, and discount codes
+                    {t.settings.advancedSettingsDesc}
                   </CardDescription>
                 </div>
                 <Badge variant="outline">
-                  {advancedOpen ? 'Click to collapse' : 'Click to expand'}
+                  {advancedOpen ? t.common.clickToCollapse : t.common.clickToExpand}
                 </Badge>
               </div>
             </CardHeader>

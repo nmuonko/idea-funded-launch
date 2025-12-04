@@ -55,6 +55,13 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
         .from('orders')
         .select(`
           *,
+          profiles:user_id (
+            user_id,
+            name,
+            full_name,
+            email,
+            phone
+          ),
           order_items (
             id,
             title,
@@ -166,7 +173,14 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                   <User className="h-4 w-4" />
                   Customer Information
                 </h3>
-                <p className="text-sm text-muted-foreground">User ID: {order.user_id}</p>
+                <div className="space-y-1 text-sm">
+                  <p><span className="font-medium">Name:</span> {order.profiles?.name || order.profiles?.full_name || 'N/A'}</p>
+                  <p><span className="font-medium">Email:</span> {order.profiles?.email || 'N/A'}</p>
+                  {order.profiles?.phone && (
+                    <p><span className="font-medium">Phone:</span> {order.profiles.phone}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">User ID: {order.user_id}</p>
+                </div>
               </div>
 
               <Separator />
@@ -366,8 +380,8 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
             {order && (
               <SendOrderEmailDialog
                 orderId={order.id}
-                customerEmail={order.user_id}
-                customerName={`User ${order.user_id.slice(0, 8)}`}
+                customerEmail={order.profiles?.email || ''}
+                customerName={order.profiles?.name || order.profiles?.full_name || `User ${order.user_id.slice(0, 8)}`}
                 open={emailDialogOpen}
                 onClose={() => setEmailDialogOpen(false)}
               />

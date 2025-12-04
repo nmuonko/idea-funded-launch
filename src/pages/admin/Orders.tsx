@@ -41,12 +41,12 @@ export default function AdminOrders() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter(order => {
-        const customerName = order.profiles?.name?.toLowerCase() || '';
-        const customerEmail = order.profiles?.email?.toLowerCase() || '';
+      const customerName = (order.profiles?.name || order.profiles?.full_name || '').toLowerCase();
+        const customerPhone = order.profiles?.phone?.toLowerCase() || '';
         const orderId = order.id.toLowerCase();
         
         return customerName.includes(query) || 
-               customerEmail.includes(query) || 
+               customerPhone.includes(query) || 
                orderId.includes(query);
       });
     }
@@ -78,7 +78,7 @@ export default function AdminOrders() {
         .from('orders')
         .select(`
           *,
-          profiles!inner(name, email),
+          profiles(user_id, name, full_name, phone),
           order_items(id, title, product_url, product_image_url, quantity)
         `)
         .order('created_at', { ascending: false });
@@ -267,8 +267,8 @@ export default function AdminOrders() {
     
     const rows = selectedOrdersData.map(order => [
       order.id,
-      order.profiles?.name || '',
-      order.profiles?.email || '',
+      order.profiles?.name || order.profiles?.full_name || '',
+      '',
       order.profiles?.phone || '',
       order.shipping_city || '',
       order.status,

@@ -173,3 +173,6 @@ verify_jwt = false
 
 [functions.maishapay-process-result]
 verify_jwt = false
+
+[functions.maishapay-get-checkout-data]
+verify_jwt = false

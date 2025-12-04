@@ -62,86 +62,45 @@ export default function MaishapayCheckout() {
       }
 
       try {
-        // Fetch order data from Supabase
-        console.log('[MaishapayCheckout] Fetching order:', orderId);
-        const { data: order, error: orderError } = await supabase
-          .from('orders')
-          .select('id, total_usd, maisha_transaction_id, status')
-          .eq('id', orderId)
-          .maybeSingle();
+        // Fetch order data AND config from edge function (bypasses RLS)
+        console.log('[MaishapayCheckout] Fetching checkout data for order:', orderId);
+        const { data, error: fetchError } = await supabase.functions.invoke('maishapay-get-checkout-data', {
+          body: { orderId }
+        });
 
-        if (orderError) {
-          console.error('[MaishapayCheckout] Order fetch error:', orderError);
+        if (fetchError) {
+          console.error('[MaishapayCheckout] Fetch error:', fetchError);
           setError("Erreur lors de la récupération de la commande. Veuillez réessayer.");
           setLoading(false);
           return;
         }
 
-        if (!order) {
-          console.error('[MaishapayCheckout] Order not found:', orderId);
-          setError("Commande introuvable. Veuillez contacter le support.");
+        if (!data?.success) {
+          console.error('[MaishapayCheckout] Request failed:', data?.error);
+          setError(data?.error || "Commande introuvable. Veuillez contacter le support.");
           setLoading(false);
           return;
         }
 
-        console.log('[MaishapayCheckout] Order found:', { id: order.id, status: order.status, total_usd: order.total_usd });
-
-        // Allow PENDING_PAYMENT or DRAFT orders to proceed
-        if (order.status !== 'PENDING_PAYMENT' && order.status !== 'DRAFT') {
-          console.warn('[MaishapayCheckout] Invalid order status:', order.status);
-          setError(`Cette commande ne peut pas être payée. Statut: ${order.status}`);
-          setLoading(false);
-          return;
-        }
-
-        // Fetch MaishaPay configuration from edge function
-        console.log('[MaishapayCheckout] Fetching MaishaPay config...');
-        const { data: configData, error: configError } = await supabase.functions.invoke('maishapay-get-config');
-
-        if (configError) {
-          console.error('[MaishapayCheckout] Config fetch error:', configError);
-          setError("Erreur de configuration du paiement. Veuillez contacter le support.");
-          setLoading(false);
-          return;
-        }
-
-        if (!configData?.success) {
-          console.error('[MaishapayCheckout] Config not successful:', configData?.error);
-          setError("Configuration du paiement invalide. Veuillez contacter le support.");
-          setLoading(false);
-          return;
-        }
-
-        console.log('[MaishapayCheckout] Config received:', { 
-          mode: configData.mode, 
-          hasPublicKey: !!configData.publicApiKey,
-          callbackUrl: configData.callbackUrl 
+        console.log('[MaishapayCheckout] Checkout data received:', {
+          orderId: data.order?.id,
+          amount: data.order?.amount,
+          status: data.order?.status,
+          mode: data.config?.mode,
         });
 
-        // Generate reference if not exists
-        const reference = order.maisha_transaction_id || `AFRISHOP-${orderId.slice(0, 8)}-${Date.now().toString(36)}`;
-
-        // Update order with reference if it was generated
-        if (!order.maisha_transaction_id) {
-          console.log('[MaishapayCheckout] Updating order with transaction reference:', reference);
-          await supabase
-            .from('orders')
-            .update({ maisha_transaction_id: reference })
-            .eq('id', orderId);
-        }
-
         setOrderData({
-          orderId: order.id,
-          amount: order.total_usd || 0,
-          currency: 'USD',
-          reference,
+          orderId: data.order.id,
+          amount: data.order.amount || 0,
+          currency: data.order.currency || 'USD',
+          reference: data.order.reference,
         });
 
         setConfig({
-          gatewayMode: configData.gatewayMode,
-          publicApiKey: configData.publicApiKey,
-          secretApiKey: configData.secretApiKey,
-          callbackUrl: configData.callbackUrl,
+          gatewayMode: data.config.gatewayMode,
+          publicApiKey: data.config.publicApiKey,
+          secretApiKey: data.config.secretApiKey,
+          callbackUrl: data.config.callbackUrl,
         });
 
         console.log('[MaishapayCheckout] Ready to submit form');

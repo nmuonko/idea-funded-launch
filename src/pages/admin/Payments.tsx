@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +41,7 @@ interface Payment {
     maisha_payment_status?: string;
     maisha_transaction_id?: string;
     operator_ref_id?: string;
+    user_id?: string;
     profiles?: {
       name?: string;
       full_name?: string;
@@ -50,10 +52,15 @@ interface Payment {
 
 export default function AdminPayments() {
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  // Check URL params for initial tab (e.g., ?tab=pending from dashboard)
+  const [activeTab, setActiveTab] = useState(() => {
+    const tabParam = searchParams.get('tab');
+    return tabParam && ['all', 'verified', 'pending', 'failed'].includes(tabParam) ? tabParam : 'all';
+  });
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -65,11 +72,13 @@ export default function AdminPayments() {
   const loadPayments = async () => {
     try {
       setLoading(true);
+      
+      // Use LEFT JOIN (no !inner) to avoid filtering out payments without matching profiles
       let query = supabase
         .from('maisha_payments')
         .select(`
           *,
-          orders!inner(
+          orders(
             id,
             total_usd,
             total_cdf,
@@ -78,7 +87,7 @@ export default function AdminPayments() {
             maisha_payment_status,
             maisha_transaction_id,
             operator_ref_id,
-            profiles!inner(name, full_name, phone)
+            user_id
           )
         `)
         .order('created_at', { ascending: false });
@@ -88,13 +97,39 @@ export default function AdminPayments() {
       } else if (activeTab === 'pending') {
         query = query.eq('status', 'pending');
       } else if (activeTab === 'failed') {
-        query = query.eq('status', 'failed');
+        query = query.in('status', ['failed', 'cancelled']);
       }
 
       const { data, error } = await query;
 
       if (error) throw error;
-      setPayments(data || []);
+      
+      // Fetch user profiles separately for the user_ids we found
+      const userIds = [...new Set(data?.map(p => p.orders?.user_id).filter(Boolean) || [])];
+      let profilesMap: Record<string, any> = {};
+      
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, name, full_name, phone')
+          .in('user_id', userIds);
+        
+        profilesMap = (profiles || []).reduce((acc, p) => {
+          acc[p.user_id] = p;
+          return acc;
+        }, {} as Record<string, any>);
+      }
+      
+      // Attach profiles to payments
+      const paymentsWithProfiles = (data || []).map(payment => ({
+        ...payment,
+        orders: payment.orders ? {
+          ...payment.orders,
+          profiles: profilesMap[payment.orders.user_id] || null
+        } : null
+      }));
+      
+      setPayments(paymentsWithProfiles);
     } catch (error) {
       console.error('Error loading payments:', error);
       toast({
@@ -353,7 +388,7 @@ export default function AdminPayments() {
                             <div className="font-medium">
                               {payment.orders?.profiles?.full_name || payment.orders?.profiles?.name || 'N/A'}
                             </div>
-                            <div className="text-xs text-muted-foreground">{payment.orders?.profiles?.phone}</div>
+                            <div className="text-xs text-muted-foreground">{payment.raw_request?.email || payment.orders?.profiles?.phone || '—'}</div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -451,10 +486,13 @@ export default function AdminPayments() {
                 {/* Customer Info */}
                 <div>
                   <p className="text-sm text-muted-foreground mb-2">Customer</p>
-                  <div className="bg-muted p-3 rounded-lg">
+                  <div className="bg-muted p-3 rounded-lg space-y-1">
                     <p className="font-medium">
                       {selectedPayment.orders?.profiles?.full_name || selectedPayment.orders?.profiles?.name || 'N/A'}
                     </p>
+                    {selectedPayment.raw_request?.email && (
+                      <p className="text-sm text-muted-foreground">{selectedPayment.raw_request.email}</p>
+                    )}
                     {selectedPayment.orders?.profiles?.phone && (
                       <p className="text-sm text-muted-foreground">{selectedPayment.orders.profiles.phone}</p>
                     )}

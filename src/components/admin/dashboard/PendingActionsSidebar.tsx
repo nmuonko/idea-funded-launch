@@ -45,11 +45,11 @@ export function PendingActionsSidebar() {
     try {
       setLoading(true);
 
-      // Unverified payments
+      // Unverified payments - count from maisha_payments table for consistency
       const { count: unverifiedCount } = await supabase
-        .from('orders')
+        .from('maisha_payments')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'PENDING_PAYMENT');
+        .eq('status', 'pending');
 
       // Unfulfilled orders
       const { count: unfulfilledCount } = await supabase
@@ -85,7 +85,7 @@ export function PendingActionsSidebar() {
       count: stats.unverifiedPayments,
       color: 'text-red-500',
       bgColor: 'bg-red-500/10',
-      route: '/admin/payments',
+      route: '/admin/payments?tab=pending',
     },
     {
       icon: Package,

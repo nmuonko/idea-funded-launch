@@ -84,6 +84,7 @@ serve(async (req) => {
     };
 
     if (verificationResult.verified) {
+      updateData.status = 'PAID'; // Update order status to PAID
       updateData.payment_verified_at = new Date().toISOString();
       updateData.payment_verified_by = user.id;
       updateData.payment_verification_method = manualOverride ? 'MANUAL_OVERRIDE' : 'AUTOMATIC';

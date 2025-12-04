@@ -9,8 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Search, RefreshCw, CreditCard, CheckCircle, XCircle, Clock, ExternalLink, TestTube, Eye, Copy } from 'lucide-react';
+import { Loader2, Search, RefreshCw, CreditCard, CheckCircle, XCircle, Clock, ExternalLink, TestTube, Eye, Copy, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 
 interface Payment {
   id: string;
@@ -57,6 +59,8 @@ export default function AdminPayments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const { permissions } = useAdminPermissions();
   // Check URL params for initial tab (e.g., ?tab=pending from dashboard)
   const [activeTab, setActiveTab] = useState(() => {
     const tabParam = searchParams.get('tab');
@@ -242,10 +246,30 @@ export default function AdminPayments() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Payments</h1>
-        <p className="text-muted-foreground">Track and manage MaishaPay transactions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Payments</h1>
+          <p className="text-muted-foreground">Track and manage MaishaPay transactions</p>
+        </div>
+        {permissions?.isSuperAdmin && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => setResetDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Reset Payments
+          </Button>
+        )}
       </div>
+
+      <ResetSectionDialog
+        section="payments"
+        sectionLabel="Payments"
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        onSuccess={loadPayments}
+      />
 
       <div className="grid gap-4 md:grid-cols-5">
         <Card>

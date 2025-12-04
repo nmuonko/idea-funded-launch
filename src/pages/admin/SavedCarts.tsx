@@ -7,8 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Search, Bookmark, ExternalLink, Bell, Clock, User, ShoppingBag } from 'lucide-react';
+import { Loader2, Search, Bookmark, ExternalLink, Bell, Clock, User, ShoppingBag, Trash2 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 
 interface SavedCartUser {
   userId: string;
@@ -38,7 +40,9 @@ export default function AdminSavedCarts() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<SavedCartUser | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
+  const { permissions } = useAdminPermissions();
 
   useEffect(() => {
     loadSavedCarts();
@@ -202,11 +206,31 @@ export default function AdminSavedCarts() {
             View and manage items saved for later by customers
           </p>
         </div>
-        <Button onClick={triggerReminders}>
-          <Bell className="h-4 w-4 mr-2" />
-          Send Reminders Now
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={triggerReminders}>
+            <Bell className="h-4 w-4 mr-2" />
+            Send Reminders Now
+          </Button>
+          {permissions?.isSuperAdmin && (
+            <Button 
+              variant="destructive" 
+              size="sm"
+              onClick={() => setResetDialogOpen(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Reset
+            </Button>
+          )}
+        </div>
       </div>
+
+      <ResetSectionDialog
+        section="carts"
+        sectionLabel="Saved Carts"
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        onSuccess={loadSavedCarts}
+      />
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-4">

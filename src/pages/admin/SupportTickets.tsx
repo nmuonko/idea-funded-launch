@@ -8,8 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { MessageSquare, Clock, CheckCircle, AlertCircle, User, Calendar, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Clock, CheckCircle, AlertCircle, User, Calendar, AlertTriangle, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 
 interface Ticket {
   id: string;
@@ -45,6 +47,8 @@ export default function SupportTickets() {
   const [priorityFilter, setPriorityFilter] = useState<'all' | Ticket['priority']>('all');
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const { permissions } = useAdminPermissions();
 
   useEffect(() => {
     fetchTickets();
@@ -209,14 +213,34 @@ export default function SupportTickets() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold bg-gradient-glow bg-clip-text text-transparent">
-          Support Tickets
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Manage customer inquiries and issues
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-glow bg-clip-text text-transparent">
+            Support Tickets
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Manage customer inquiries and issues
+          </p>
+        </div>
+        {permissions?.isSuperAdmin && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => setResetDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Reset Tickets
+          </Button>
+        )}
       </div>
+
+      <ResetSectionDialog
+        section="tickets"
+        sectionLabel="Support Tickets"
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        onSuccess={fetchTickets}
+      />
 
       <div className="flex gap-4">
         <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val as typeof statusFilter)}>

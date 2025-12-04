@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, ShoppingCart } from 'lucide-react';
+import { ExternalLink, ShoppingCart, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -12,6 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 
 interface CartItem {
   id: string;
@@ -48,6 +50,8 @@ export default function AdminCarts() {
   const [carts, setCarts] = useState<Cart[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCart, setSelectedCart] = useState<Cart | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const { permissions } = useAdminPermissions();
 
   useEffect(() => {
     loadCarts();
@@ -78,13 +82,33 @@ export default function AdminCarts() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <ShoppingCart className="h-8 w-8" />
-          Active Carts & Non-finalized Orders
-        </h1>
-        <p className="text-muted-foreground">View customer carts that haven't been finalized yet</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <ShoppingCart className="h-8 w-8" />
+            Active Carts & Non-finalized Orders
+          </h1>
+          <p className="text-muted-foreground">View customer carts that haven't been finalized yet</p>
+        </div>
+        {permissions?.isSuperAdmin && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => setResetDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Reset Carts
+          </Button>
+        )}
       </div>
+
+      <ResetSectionDialog
+        section="carts"
+        sectionLabel="Active Carts"
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        onSuccess={loadCarts}
+      />
 
       <Card>
         <CardHeader>

@@ -328,44 +328,65 @@ export type Database = {
         Row: {
           amount_cdf: number | null
           amount_usd: number | null
+          confirmation_code: string | null
           created_at: string
           currency: string | null
           id: string
           maisha_reference: string
+          maishapay_description: string | null
+          maishapay_operator_ref_id: string | null
+          maishapay_status: string | null
+          maishapay_transaction_ref_id: string | null
           order_id: string
           paid_at: string | null
+          raw_query: Json | null
           raw_request: Json | null
           raw_response: Json | null
           status: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           amount_cdf?: number | null
           amount_usd?: number | null
+          confirmation_code?: string | null
           created_at?: string
           currency?: string | null
           id?: string
           maisha_reference: string
+          maishapay_description?: string | null
+          maishapay_operator_ref_id?: string | null
+          maishapay_status?: string | null
+          maishapay_transaction_ref_id?: string | null
           order_id: string
           paid_at?: string | null
+          raw_query?: Json | null
           raw_request?: Json | null
           raw_response?: Json | null
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           amount_cdf?: number | null
           amount_usd?: number | null
+          confirmation_code?: string | null
           created_at?: string
           currency?: string | null
           id?: string
           maisha_reference?: string
+          maishapay_description?: string | null
+          maishapay_operator_ref_id?: string | null
+          maishapay_status?: string | null
+          maishapay_transaction_ref_id?: string | null
           order_id?: string
           paid_at?: string | null
+          raw_query?: Json | null
           raw_request?: Json | null
           raw_response?: Json | null
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
           {

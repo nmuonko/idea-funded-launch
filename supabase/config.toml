@@ -170,3 +170,6 @@ verify_jwt = true
 
 [functions.payment-status]
 verify_jwt = false
+
+[functions.maishapay-process-result]
+verify_jwt = false

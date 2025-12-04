@@ -32,8 +32,8 @@ serve(async (req) => {
     const config = getMaishaPayConfig();
     console.log('[mobile-verify-payment] Mode:', config.mode);
 
-    // Find the order
-    let query = supabase.from('orders').select('*');
+    // Find the order with item count
+    let query = supabase.from('orders').select('*, order_items(id)');
     
     if (order_id) {
       query = query.eq('id', order_id);
@@ -47,16 +47,37 @@ serve(async (req) => {
       return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
     }
 
+    // Get confirmation code from maisha_payments
+    const { data: payment } = await supabase
+      .from('maisha_payments')
+      .select('confirmation_code')
+      .eq('order_id', order.id)
+      .maybeSingle();
+
+    // Generate short order reference (first 8 chars of UUID)
+    const orderRef = order.id.substring(0, 8).toUpperCase();
+    const itemCount = order.order_items?.length || 0;
+    const confirmationCode = payment?.confirmation_code || null;
+
+    // Build base response data
+    const buildResponse = (status: string, paymentStatus: string, orderStatus: string, message: string) => ({
+      success: true,
+      orderId: order.id,
+      orderRef,
+      status,
+      paymentStatus,
+      orderStatus,
+      totalUsd: order.total_usd || 0,
+      totalCdf: order.total_cdf || 0,
+      itemCount,
+      confirmationCode,
+      mode: config.mode,
+      message,
+    });
+
     // If already paid, return current status
     if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
-      return jsonResponse({
-        success: true,
-        order_id: order.id,
-        status: 'paid',
-        payment_status: order.maisha_payment_status,
-        order_status: order.status,
-        message: 'Payment already confirmed',
-      });
+      return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
     }
 
     // Verify with MaishaPay API
@@ -79,17 +100,16 @@ serve(async (req) => {
         status: 'paid',
         paid_at: new Date().toISOString(),
       }).eq('order_id', order.id);
+
+      return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
     }
 
-    return jsonResponse({
-      success: true,
-      order_id: order.id,
-      status: verifyResult.status,
-      payment_status: verifyResult.status === 'paid' ? 'SUCCESS' : 'PENDING',
-      order_status: verifyResult.status === 'paid' ? 'PAID' : order.status,
-      mode: config.mode,
-      message: verifyResult.status === 'paid' ? 'Payment verified' : 'Payment pending',
-    });
+    return jsonResponse(buildResponse(
+      verifyResult.status || 'pending',
+      'PENDING',
+      order.status,
+      'Paiement en attente de confirmation'
+    ));
 
   } catch (error: any) {
     console.error('[mobile-verify-payment] Error:', error.message);

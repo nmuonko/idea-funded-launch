@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -445,6 +445,34 @@ export default function AdminOrders() {
     }
   };
 
+  // Single order manual payment verification
+  const handleMarkAsPaid = async (orderId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('verify-maisha-payment', {
+        body: {
+          orderId,
+          manualOverride: true,
+          notes: 'Manual verification by admin - callback issue workaround'
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Payment Verified',
+        description: 'Order marked as paid successfully',
+      });
+
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    }
+  };
+
   // Count paid orders in selection
   const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
   const selectedPaidCount = filteredOrders.filter(o => 
@@ -716,14 +744,27 @@ export default function AdminOrders() {
                   <TableCell>{getStatusBadge(order.status)}</TableCell>
                   <TableCell>{new Date(order.created_at).toLocaleDateString()}</TableCell>
                   <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openOrderDetails(order.id)}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Details
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openOrderDetails(order.id)}
+                      >
+                        <Eye className="h-4 w-4 mr-2" />
+                        Details
+                      </Button>
+                      {(order.status === 'PENDING_PAYMENT' || order.status === 'DRAFT') && !order.payment_verified_at && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleMarkAsPaid(order.id)}
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                        >
+                          <CreditCard className="h-4 w-4 mr-2" />
+                          Mark Paid
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

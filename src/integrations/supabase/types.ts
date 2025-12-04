@@ -454,6 +454,7 @@ export type Database = {
           saved_at: string | null
           shipping_fee_usd: number | null
           shipping_item_type_id: string | null
+          shipping_status: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd: number | null
           title: string | null
@@ -479,6 +480,7 @@ export type Database = {
           saved_at?: string | null
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
+          shipping_status?: string | null
           store: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null
@@ -504,6 +506,7 @@ export type Database = {
           saved_at?: string | null
           shipping_fee_usd?: number | null
           shipping_item_type_id?: string | null
+          shipping_status?: string | null
           store?: Database["public"]["Enums"]["store_type"]
           subtotal_usd?: number | null
           title?: string | null

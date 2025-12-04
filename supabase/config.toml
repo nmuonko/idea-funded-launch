@@ -176,3 +176,12 @@ verify_jwt = false
 
 [functions.maishapay-get-checkout-data]
 verify_jwt = false
+
+[functions.admin-update-item-status]
+verify_jwt = true
+
+[functions.send-order-shipped-email]
+verify_jwt = false
+
+[functions.send-order-delivered-email]
+verify_jwt = false

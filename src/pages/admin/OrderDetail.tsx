@@ -6,8 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, FileText, Download } from 'lucide-react';
+import { Loader2, Send, FileText, Package, Truck, CheckCircle2 } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 import { RefundDialog } from '@/components/admin/RefundDialog';
@@ -23,6 +24,8 @@ export default function AdminOrderDetail() {
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [sendingShipping, setSendingShipping] = useState(false);
   const [downloadingReceipt, setDownloadingReceipt] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [updatingItems, setUpdatingItems] = useState(false);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -94,6 +97,92 @@ export default function AdminOrderDetail() {
     }
   };
 
+  const handleItemStatusUpdate = async (itemId: string, newStatus: string, sendEmail: boolean = false) => {
+    try {
+      setUpdatingItems(true);
+      
+      const { data, error } = await supabase.functions.invoke('admin-update-item-status', {
+        body: {
+          item_id: itemId,
+          shipping_status: newStatus,
+          send_email: sendEmail,
+        },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Success',
+        description: data.message,
+      });
+
+      loadOrder();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingItems(false);
+    }
+  };
+
+  const handleBulkItemStatusUpdate = async (newStatus: string, sendEmail: boolean = false) => {
+    if (selectedItems.size === 0) return;
+
+    try {
+      setUpdatingItems(true);
+      
+      // Update items one by one (could be optimized to batch)
+      for (const itemId of selectedItems) {
+        await supabase.functions.invoke('admin-update-item-status', {
+          body: {
+            item_id: itemId,
+            shipping_status: newStatus,
+            send_email: false, // Only send one email at the end
+          },
+        });
+      }
+
+      // Send single email if requested
+      if (sendEmail && order?.profiles?.email) {
+        const updatedItems = items.filter(i => selectedItems.has(i.id));
+        const emailFunction = newStatus === 'shipped' ? 'send-order-shipped-email' : 'send-order-delivered-email';
+        
+        await supabase.functions.invoke(emailFunction, {
+          body: {
+            orderId: id,
+            customerEmail: order.profiles.email,
+            customerName: order.profiles.name || 'Customer',
+            items: updatedItems.map(i => ({
+              title: i.title,
+              quantity: i.quantity,
+            })),
+            trackingNumber: order.tracking_number,
+            carrier: order.carrier,
+          },
+        });
+      }
+
+      toast({
+        title: 'Success',
+        description: `Updated ${selectedItems.size} item(s) to ${newStatus}`,
+      });
+
+      setSelectedItems(new Set());
+      loadOrder();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingItems(false);
+    }
+  };
+
   const handleSendShippingNotification = async () => {
     try {
       setSendingShipping(true);
@@ -126,16 +215,13 @@ export default function AdminOrderDetail() {
     try {
       setDownloadingReceipt(true);
       
-      // Get the session token
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         throw new Error('Not authenticated');
       }
 
-      // Open receipt in new tab
       const receiptUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-payment-receipt?order_id=${id}`;
       
-      // Fetch with auth header
       const response = await fetch(receiptUrl, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -149,7 +235,6 @@ export default function AdminOrderDetail() {
 
       const html = await response.text();
       
-      // Open in new window
       const newWindow = window.open('', '_blank');
       if (newWindow) {
         newWindow.document.write(html);
@@ -168,6 +253,37 @@ export default function AdminOrderDetail() {
       });
     } finally {
       setDownloadingReceipt(false);
+    }
+  };
+
+  const toggleSelectItem = (itemId: string) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(itemId)) {
+      newSelected.delete(itemId);
+    } else {
+      newSelected.add(itemId);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedItems.size === items.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(items.map(i => i.id)));
+    }
+  };
+
+  const getShippingStatusBadge = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return <Badge variant="outline" className="gap-1"><Package className="h-3 w-3" /> Pending</Badge>;
+      case 'shipped':
+        return <Badge className="bg-blue-600 gap-1"><Truck className="h-3 w-3" /> Shipped</Badge>;
+      case 'delivered':
+        return <Badge className="bg-green-600 gap-1"><CheckCircle2 className="h-3 w-3" /> Delivered</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
     }
   };
 
@@ -292,23 +408,65 @@ export default function AdminOrderDetail() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Order Items</CardTitle>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Order Items</CardTitle>
+              <CardDescription>
+                {selectedItems.size > 0 ? `${selectedItems.size} item(s) selected` : `${items.length} item(s)`}
+              </CardDescription>
+            </div>
+            {selectedItems.size > 0 && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkItemStatusUpdate('shipped', true)}
+                  disabled={updatingItems}
+                >
+                  <Truck className="h-4 w-4 mr-1" />
+                  Mark Shipped + Email
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleBulkItemStatusUpdate('delivered', true)}
+                  disabled={updatingItems}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                  Mark Delivered + Email
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <Checkbox 
+                    checked={selectedItems.size === items.length && items.length > 0}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead>Product</TableHead>
                 <TableHead>Store</TableHead>
                 <TableHead>Product Link</TableHead>
                 <TableHead>Qty</TableHead>
                 <TableHead>Unit Price</TableHead>
                 <TableHead>Subtotal</TableHead>
+                <TableHead>Shipping Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((item) => (
                 <TableRow key={item.id}>
+                  <TableCell>
+                    <Checkbox 
+                      checked={selectedItems.has(item.id)}
+                      onCheckedChange={() => toggleSelectItem(item.id)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       {item.product_image_url ? (
@@ -354,6 +512,28 @@ export default function AdminOrderDetail() {
                   <TableCell>{item.quantity}</TableCell>
                   <TableCell>${Number(item.unit_price_usd || 0).toFixed(2)}</TableCell>
                   <TableCell>${Number(item.subtotal_usd || 0).toFixed(2)}</TableCell>
+                  <TableCell>
+                    <Select 
+                      value={item.shipping_status || 'pending'} 
+                      onValueChange={(value) => handleItemStatusUpdate(item.id, value, false)}
+                      disabled={updatingItems}
+                    >
+                      <SelectTrigger className="w-[140px]">
+                        {getShippingStatusBadge(item.shipping_status || 'pending')}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">
+                          <span className="flex items-center gap-2"><Package className="h-3 w-3" /> Pending</span>
+                        </SelectItem>
+                        <SelectItem value="shipped">
+                          <span className="flex items-center gap-2"><Truck className="h-3 w-3" /> Shipped</span>
+                        </SelectItem>
+                        <SelectItem value="delivered">
+                          <span className="flex items-center gap-2"><CheckCircle2 className="h-3 w-3" /> Delivered</span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -371,7 +551,7 @@ export default function AdminOrderDetail() {
             <span>${Number(order.item_total_usd || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Service Fee ({((Number(order.service_fee_usd) / Number(order.item_total_usd)) * 100).toFixed(0)}%):</span>
+            <span>Service Fee ({((Number(order.service_fee_usd) / Number(order.item_total_usd)) * 100).toFixed(0) || 0}%):</span>
             <span>${Number(order.service_fee_usd || 0).toFixed(2)}</span>
           </div>
           <div className="flex justify-between">

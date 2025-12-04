@@ -5,11 +5,24 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
-import {
-  createPaymentSession,
-  getMaishaPayConfig,
-  validateConfig,
-} from "../_shared/maishapay.ts";
+
+/**
+ * Mobile Checkout Edge Function
+ * 
+ * Creates an order from cart items and returns a redirect URL for payment.
+ * 
+ * IMPORTANT: This function does NOT call MaishaPay directly.
+ * Instead, it creates the order and returns a redirectUrl to our
+ * /maishapay/checkout frontend page, which handles the MaishaPay form POST.
+ * 
+ * Flow:
+ * 1. Mobile app calls this endpoint with cart_item_ids
+ * 2. This function creates an order with PENDING_PAYMENT status
+ * 3. Returns { success: true, orderId, redirectUrl }
+ * 4. Mobile app opens redirectUrl in WebView
+ * 5. /maishapay/checkout page renders auto-submit form to MaishaPay
+ * 6. MaishaPay redirects user to /maishapay/result
+ */
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -44,19 +57,6 @@ serve(async (req) => {
     }
 
     console.log('[mobile-checkout] Checkout requested for items:', cart_item_ids);
-
-    // Validate MaishaPay configuration
-    const maishaConfig = getMaishaPayConfig();
-    const configValidation = validateConfig(maishaConfig);
-    if (!configValidation.valid) {
-      console.error('[mobile-checkout] MaishaPay config error:', configValidation.error);
-      return jsonResponse({ 
-        success: false,
-        error: 'Payment gateway is not properly configured' 
-      }, 500);
-    }
-
-    console.log('[mobile-checkout] MaishaPay mode:', maishaConfig.mode);
 
     // Get user's DRAFT order
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -165,17 +165,9 @@ serve(async (req) => {
       grandTotalUsd,
     });
 
-    // Get user profile for customer details
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name, name, phone')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    const customerEmail = email || user.email || '';
-    const customerPhone = phone || profile?.phone || '';
-    const customerName = profile?.full_name || profile?.name || '';
-
+    // Generate payment reference
+    const timestamp = Date.now().toString(36);
+    
     // Create a new order for checkout with only selected items
     const { data: checkoutOrder, error: createOrderError } = await supabase
       .from('orders')
@@ -201,6 +193,14 @@ serve(async (req) => {
       }, 500);
     }
 
+    // Generate reference with order ID
+    const reference = `AFRISHOP-${checkoutOrder.id.slice(0, 8)}-${timestamp}`;
+
+    // Update order with reference
+    await supabase.from('orders').update({
+      maisha_transaction_id: reference,
+    }).eq('id', checkoutOrder.id);
+
     // Move selected items to the new order
     const { error: moveItemsError } = await supabase
       .from('order_items')
@@ -217,83 +217,48 @@ serve(async (req) => {
       }, 500);
     }
 
-    // Create MaishaPay payment session
-    const paymentResult = await createPaymentSession({
-      amountUsd: grandTotalUsd,
-      currency: 'USD',
-      customerEmail,
-      customerPhone,
-      customerName,
-      orderId: checkoutOrder.id,
-      description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
-    });
-
-    if (!paymentResult.success) {
-      const errorDetail = paymentResult.error || 'Unknown payment gateway error';
-      console.error('[mobile-checkout] MaishaPay initialization failed:', {
-        error: errorDetail,
-        orderId: checkoutOrder.id,
-        reference: paymentResult.reference,
-      });
-      
-      // Update order status with error details
-      await supabase.from('orders').update({ 
-        maisha_payment_status: 'INIT_FAILED',
-        maisha_description: errorDetail,
-      }).eq('id', checkoutOrder.id);
-      
-      return jsonResponse({ 
-        success: false,
-        error: `Payment initialization failed: ${errorDetail}`,
-        details: errorDetail,
-        orderId: checkoutOrder.id,
-      }, 500);
-    }
-    
-    console.log('[mobile-checkout] MaishaPay payment session created:', {
-      reference: paymentResult.reference,
-      checkoutUrlLength: paymentResult.checkoutUrl?.length,
-    });
-
     // Create payment record
     await supabase
       .from('maisha_payments')
       .insert({
         order_id: checkoutOrder.id,
-        maisha_reference: paymentResult.reference,
+        maisha_reference: reference,
         amount_usd: grandTotalUsd,
         amount_cdf: grandTotalCdf,
         currency: 'USD',
         status: 'pending',
         raw_request: {
           amount: grandTotalUsd,
-          email: customerEmail,
-          phone: customerPhone,
-          mode: maishaConfig.mode,
+          email: email || user.email,
+          phone: phone,
         },
       });
 
-    // Update order with MaishaPay reference
-    await supabase.from('orders').update({
-      maisha_transaction_id: paymentResult.reference,
-    }).eq('id', checkoutOrder.id);
+    // Build redirect URL to our checkout page (NOT MaishaPay directly)
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const redirectUrl = `${frontendBaseUrl}/maishapay/checkout?orderId=${checkoutOrder.id}`;
+
+    console.log('[mobile-checkout] Order created successfully:', {
+      orderId: checkoutOrder.id,
+      reference,
+      redirectUrl,
+      grandTotalUsd,
+    });
 
     // Build the response body
     const responseBody = {
-      // Required camelCase keys for mobile app (TOP LEVEL)
+      // Required fields for mobile app
       success: true,
       orderId: checkoutOrder.id,
-      paymentUrl: paymentResult.checkoutUrl,
-      maishapayTransactionId: paymentResult.reference,
+      redirectUrl,
       
-      // Snake_case for backwards compatibility
+      // Additional fields for backwards compatibility
       order_id: checkoutOrder.id,
-      payment_url: paymentResult.checkoutUrl,
-      maishapay_transaction_id: paymentResult.reference,
-      maishapay_reference: paymentResult.reference,
-      payment_mode: maishaConfig.mode,
+      redirect_url: redirectUrl,
+      reference,
+      maishapay_reference: reference,
       
-      // Additional order info
+      // Order summary
       order: {
         id: checkoutOrder.id,
         status: 'PENDING_PAYMENT',
@@ -303,7 +268,7 @@ serve(async (req) => {
       },
     };
 
-    console.log('[mobile-checkout] Response body:', JSON.stringify(responseBody));
+    console.log('[mobile-checkout] Response:', JSON.stringify(responseBody));
 
     return jsonResponse(responseBody);
 

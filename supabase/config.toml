@@ -27,6 +27,15 @@ verify_jwt = false
 [functions.maisha-callback]
 verify_jwt = false
 
+[functions.maishapay-get-config]
+verify_jwt = false
+
+[functions.maishapay-update-order]
+verify_jwt = false
+
+[functions.maishapay-checkout-page]
+verify_jwt = false
+
 [functions.mobile-create-order-from-cart]
 
 [functions.mobile-order-status]
@@ -160,7 +169,4 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.payment-status]
-verify_jwt = false
-
-[functions.maishapay-checkout-page]
 verify_jwt = false

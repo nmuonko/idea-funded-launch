@@ -98,35 +98,73 @@ const handler = async (req: Request): Promise<Response> => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Extract order ID from reference (format: AFRISHOP-{orderId})
-    const orderId = reference.replace('AFRISHOP-', '');
-    console.log('[MaishaPay Callback] Looking up order:', orderId);
+    // Try to find order by maisha_transaction_id (the reference we sent)
+    console.log('[MaishaPay Callback] Looking up order by reference:', reference);
+    
+    let order: any = null;
+    let orderId = '';
 
-    // Fetch order
-    const { data: order, error: orderError } = await supabaseClient
+    // First try exact match on maisha_transaction_id
+    const { data: orderByRef, error: refError } = await supabaseClient
       .from('orders')
       .select('id, status, total_usd, total_cdf, user_id')
-      .eq('id', orderId)
+      .eq('maisha_transaction_id', reference)
       .maybeSingle();
 
-    if (orderError) {
-      console.error('[MaishaPay Callback] Database error:', orderError);
-      return new Response(JSON.stringify({ 
-        status: 'error', 
-        message: 'Database error',
-        error: orderError.message 
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (orderByRef) {
+      order = orderByRef;
+      orderId = order.id;
+      console.log('[MaishaPay Callback] Found order by transaction ID:', orderId);
+    } else {
+      // Try to extract order ID from reference (AFRISHOP-{orderId8chars}-{timestamp})
+      const parts = reference.split('-');
+      if (parts.length >= 2) {
+        const partialOrderId = parts[1]; // First 8 chars of order ID
+        console.log('[MaishaPay Callback] Trying partial order ID match:', partialOrderId);
+        
+        const { data: orderByPartial, error: partialError } = await supabaseClient
+          .from('orders')
+          .select('id, status, total_usd, total_cdf, user_id')
+          .ilike('id', `${partialOrderId}%`)
+          .maybeSingle();
+        
+        if (orderByPartial) {
+          order = orderByPartial;
+          orderId = order.id;
+          console.log('[MaishaPay Callback] Found order by partial ID:', orderId);
+        }
+      }
+    }
+
+    // Also try maisha_payments table
+    if (!order) {
+      const { data: payment, error: paymentError } = await supabaseClient
+        .from('maisha_payments')
+        .select('order_id')
+        .eq('maisha_reference', reference)
+        .maybeSingle();
+      
+      if (payment?.order_id) {
+        const { data: orderFromPayment } = await supabaseClient
+          .from('orders')
+          .select('id, status, total_usd, total_cdf, user_id')
+          .eq('id', payment.order_id)
+          .maybeSingle();
+        
+        if (orderFromPayment) {
+          order = orderFromPayment;
+          orderId = order.id;
+          console.log('[MaishaPay Callback] Found order via payment record:', orderId);
+        }
+      }
     }
 
     if (!order) {
-      console.error('[MaishaPay Callback] Order not found:', orderId);
+      console.error('[MaishaPay Callback] Order not found for reference:', reference);
       return new Response(JSON.stringify({ 
         status: 'warning', 
         message: 'Order not found',
-        orderId 
+        reference 
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -204,7 +242,36 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log('[MaishaPay Callback] Processing complete');
 
-    // Return success response to MaishaPay
+    // Check if this is a browser redirect (GET) or server-to-server notification (POST)
+    const isUserRedirect = req.method === 'GET' || url.searchParams.has('status');
+    
+    if (isUserRedirect) {
+      // Redirect user to appropriate frontend page
+      const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
+      const successUrl = Deno.env.get('MAISHAPAY_FRONTEND_SUCCESS_URL') || `${frontendBaseUrl}/payment/success`;
+      const failUrl = Deno.env.get('MAISHAPAY_FRONTEND_FAIL_URL') || `${frontendBaseUrl}/payment/fail`;
+      
+      let redirectUrl: string;
+      if (normalizedStatus === 'paid') {
+        redirectUrl = `${successUrl}?order_id=${orderId}&status=success&reference=${reference}`;
+      } else if (normalizedStatus === 'failed' || normalizedStatus === 'cancelled') {
+        redirectUrl = `${failUrl}?order_id=${orderId}&status=${normalizedStatus}&reference=${reference}`;
+      } else {
+        redirectUrl = `${successUrl}?order_id=${orderId}&status=pending&reference=${reference}`;
+      }
+      
+      console.log('[MaishaPay Callback] Redirecting user to:', redirectUrl);
+      
+      return new Response(null, {
+        status: 302,
+        headers: {
+          ...corsHeaders,
+          'Location': redirectUrl,
+        },
+      });
+    }
+
+    // Server-to-server response (JSON)
     return new Response(JSON.stringify({ 
       status: 'ok',
       success: true,

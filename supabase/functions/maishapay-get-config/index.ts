@@ -20,25 +20,43 @@ serve(async (req) => {
 
   try {
     // Get MaishaPay configuration from environment variables
-    const mode = Deno.env.get('MAISHAPAY_MODE');
-    const isSandbox = mode !== '1' && mode?.toLowerCase() !== 'live';
+    // Check both MAISHAPAY_GATEWAY_MODE and MAISHAPAY_MODE for flexibility
+    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
+    const legacyMode = Deno.env.get('MAISHAPAY_MODE');
+    
+    // Determine if we're in live mode:
+    // MAISHAPAY_GATEWAY_MODE: "1" = live, "0" = sandbox
+    // MAISHAPAY_MODE: "1" or "live" = live, anything else = sandbox
+    const isLiveMode = gatewayMode === '1' || 
+                       legacyMode === '1' || 
+                       legacyMode?.toLowerCase() === 'live';
+    
+    console.log('[maishapay-get-config] Mode detection:', {
+      gatewayMode,
+      legacyMode,
+      isLiveMode,
+    });
     
     // Get keys based on mode
     let publicKey: string;
     let secretKey: string;
     
-    if (isSandbox) {
+    if (isLiveMode) {
+      // Live mode - use LIVE keys first, fall back to generic keys
+      publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
+                  Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
+                  Deno.env.get('MAISHA_PUBLIC_KEY') || '';
+      secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+                  Deno.env.get('MAISHAPAY_SECRET_KEY') || 
+                  Deno.env.get('MAISHA_SECRET_KEY') || '';
+    } else {
+      // Sandbox mode - use SANDBOX keys first, fall back to generic keys
       publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
                   Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
                   Deno.env.get('MAISHA_PUBLIC_KEY') || '';
       secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
                   Deno.env.get('MAISHAPAY_SECRET_KEY') || 
                   Deno.env.get('MAISHA_SECRET_KEY') || '';
-    } else {
-      publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
-                  Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
-      secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
-                  Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
     }
     
     // Get callback URL - this is where MaishaPay redirects after payment
@@ -75,21 +93,22 @@ serve(async (req) => {
     }
 
     console.log('[maishapay-get-config] Returning config:', {
-      mode: isSandbox ? 'sandbox' : 'live',
-      gatewayMode: isSandbox ? '0' : '1',
+      mode: isLiveMode ? 'live' : 'sandbox',
+      gatewayMode: isLiveMode ? '1' : '0',
       hasPublicKey: !!publicKey,
       hasSecretKey: !!secretKey,
+      publicKeyPrefix: publicKey?.slice(0, 10) + '...',
       callbackUrl,
     });
 
     return new Response(
       JSON.stringify({
         success: true,
-        gatewayMode: isSandbox ? '0' : '1',
+        gatewayMode: isLiveMode ? '1' : '0',
         publicApiKey: publicKey,
         secretApiKey: secretKey,
         callbackUrl,
-        mode: isSandbox ? 'sandbox' : 'live',
+        mode: isLiveMode ? 'live' : 'sandbox',
       }),
       { 
         status: 200, 

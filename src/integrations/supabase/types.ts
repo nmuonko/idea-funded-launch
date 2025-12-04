@@ -900,7 +900,29 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      safe_user_payments: {
+        Row: {
+          amount_cdf: number | null
+          amount_usd: number | null
+          created_at: string | null
+          currency: string | null
+          id: string | null
+          maisha_reference: string | null
+          order_id: string | null
+          paid_at: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maisha_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       clean_expired_product_cache: { Args: never; Returns: undefined }

@@ -18,11 +18,15 @@ import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { permissions } = useAdminPermissions();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -121,17 +125,17 @@ export default function AdminOrders() {
       COMPLETED: 'default',
       CANCELLED: 'destructive',
     };
-    return <Badge variant={colors[status] as any}>{status.replace(/_/g, ' ')}</Badge>;
+    return <Badge variant={colors[status] as any}>{getStatusTranslation(status, language)}</Badge>;
   };
 
   const getPaymentBadge = (order: any) => {
     if (order.payment_verified_at) {
-      return <Badge className="bg-emerald-600">Verified</Badge>;
+      return <Badge className="bg-emerald-600">{t.orders.verified}</Badge>;
     }
     if (order.status === 'DRAFT') {
-      return <Badge variant="secondary">Draft</Badge>;
+      return <Badge variant="secondary">{getStatusTranslation('DRAFT', language)}</Badge>;
     }
-    return <Badge variant="outline">Pending</Badge>;
+    return <Badge variant="outline">{t.payments.pending}</Badge>;
   };
 
   const openOrderDetails = (orderId: string) => {

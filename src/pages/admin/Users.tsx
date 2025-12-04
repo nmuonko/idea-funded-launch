@@ -15,6 +15,8 @@ import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelect
 import { PermissionsEditor, PermissionsSummaryBadges, applyRoleDefaults } from '@/components/admin/PermissionsEditor';
 import { format } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 import { 
   SectionPermissions, 
   AdminRole, 
@@ -69,6 +71,8 @@ export default function AdminUsers() {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState<string | null>(null);
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<AdminRole>('operations');
@@ -419,14 +423,14 @@ export default function AdminUsers() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">User Management</h1>
+          <h1 className="text-3xl font-bold">{t.sidebar.userManagement}</h1>
           <p className="text-muted-foreground mt-2">
-            Manage admin roles, invitations, and section permissions
+            {t.users.subtitle}
           </p>
         </div>
         <Button onClick={() => setInviteDialogOpen(true)}>
           <UserPlus className="h-4 w-4 mr-2" />
-          Invite Admin
+          {t.users.inviteUser}
         </Button>
       </div>
 

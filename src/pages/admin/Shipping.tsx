@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Package, Truck, CheckCircle, Download, Search } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
 
 export default function AdminShipping() {
   const [orders, setOrders] = useState<any[]>([]);
@@ -15,6 +17,8 @@ export default function AdminShipping() {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('ready');
   const { toast } = useToast();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   useEffect(() => {
     loadOrders();
@@ -121,14 +125,14 @@ export default function AdminShipping() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Shipping Dashboard</h1>
+          <h1 className="text-3xl font-bold">{t.sidebar.shipping}</h1>
           <p className="text-muted-foreground mt-2">
-            Track and manage order shipments
+            {t.shipping.subtitle}
           </p>
         </div>
         <Button onClick={exportToCSV} disabled={filteredOrders.length === 0}>
           <Download className="h-4 w-4 mr-2" />
-          Export to CSV
+          {t.common.export}
         </Button>
       </div>
 
@@ -155,15 +159,15 @@ export default function AdminShipping() {
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="ready" className="flex items-center gap-2">
                 <Package className="h-4 w-4" />
-                Ready to Ship
+                {t.shipping.readyToShip}
               </TabsTrigger>
               <TabsTrigger value="transit" className="flex items-center gap-2">
                 <Truck className="h-4 w-4" />
-                In Transit
+                {t.shipping.inTransit}
               </TabsTrigger>
               <TabsTrigger value="delivered" className="flex items-center gap-2">
                 <CheckCircle className="h-4 w-4" />
-                Delivered
+                {t.shipping.delivered}
               </TabsTrigger>
             </TabsList>
 

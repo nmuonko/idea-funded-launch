@@ -10,6 +10,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, Search, RefreshCw, Shield, Trash2, AlertTriangle, User, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { format, formatDistanceToNow } from 'date-fns';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 interface AuditLog {
   id: string;
@@ -29,6 +31,8 @@ export default function AuditLog() {
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('all');
   const { toast } = useToast();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   useEffect(() => {
     loadLogs();
@@ -114,15 +118,15 @@ export default function AuditLog() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Shield className="h-8 w-8" />
-            Audit Log
+            {t.audit.title}
           </h1>
           <p className="text-muted-foreground mt-2">
-            Track all sensitive admin actions and data modifications
+            {t.audit.subtitle}
           </p>
         </div>
         <Button onClick={loadLogs} variant="outline" size="sm">
           <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+          {t.common.refresh}
         </Button>
       </div>
 

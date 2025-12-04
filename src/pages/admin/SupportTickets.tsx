@@ -12,6 +12,8 @@ import { MessageSquare, Clock, CheckCircle, AlertCircle, User, Calendar, AlertTr
 import { formatDistanceToNow } from 'date-fns';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
 
 interface Ticket {
   id: string;
@@ -49,6 +51,8 @@ export default function SupportTickets() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { permissions } = useAdminPermissions();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   useEffect(() => {
     fetchTickets();
@@ -216,10 +220,10 @@ export default function SupportTickets() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-glow bg-clip-text text-transparent">
-            Support Tickets
+            {t.sidebar.supportTickets}
           </h1>
           <p className="text-muted-foreground mt-2">
-            Manage customer inquiries and issues
+            {t.tickets.subtitle}
           </p>
         </div>
         {permissions?.isSuperAdmin && (

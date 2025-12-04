@@ -842,6 +842,7 @@ export const adminTranslations = {
       pending: 'Pending',
       failed: 'Failed',
       cancelled: 'Cancelled',
+      verified: 'Verified',
       revenue: 'Revenue',
       all: 'All',
       transactions: 'Payment Transactions',
@@ -928,17 +929,23 @@ export const adminTranslations = {
       subtitle: 'Business performance insights',
       totalRevenue: 'Total Revenue',
       paidOrders: 'Paid Orders',
+      paidOrdersOnly: 'Paid Orders Only',
       activeCustomers: 'Active Customers',
       avgOrderValue: 'Avg Order Value',
       revenueOverTime: 'Revenue Over Time',
       ordersByStatus: 'Orders by Status',
       topCustomers: 'Top Customers',
       conversionRate: 'Conversion Rate',
+      lastDays: 'Last {days} days',
+      uniquePayingCustomers: 'Unique paying customers',
+      perPaidOrder: 'Per paid order',
+      noPaidOrders: 'No paid orders',
     },
     users: {
       title: 'User Management',
       subtitle: 'Manage admin users and permissions',
       inviteUser: 'Invite User',
+      inviteAdmin: 'Invite Admin',
       email: 'Email',
       role: 'Role',
       permissions: 'Permissions',
@@ -1074,6 +1081,8 @@ export const adminTranslations = {
       refresh: 'Refresh',
       export: 'Export',
       import: 'Import',
+      pending: 'Pending',
+      verified: 'Verified',
       reset: 'Reset',
       confirm: 'Confirm',
       noData: 'No data available',
@@ -1089,6 +1098,17 @@ export const adminTranslations = {
       of: 'of',
       results: 'results',
       customizeTheme: 'Customize Theme',
+    },
+    pendingActions: {
+      unverifiedPayments: 'Unverified Payments',
+      awaitingVerification: 'Awaiting verification',
+      unfulfilledOrders: 'Unfulfilled Orders',
+      paidNotShipped: 'Paid but not shipped',
+      urgentTickets: 'Urgent Tickets',
+      highPrioritySupport: 'High priority support',
+      refundRequests: 'Refund Requests',
+      pendingReview: 'Pending review',
+      allCaughtUp: 'All caught up',
     },
     status: {
       draft: 'Draft',
@@ -2183,7 +2203,8 @@ export const adminTranslations = {
 };
 
 // Helper function to get translated status
-export function getStatusTranslation(status: string, t: ReturnType<typeof getAdminTranslation>): string {
+export function getStatusTranslation(status: string, lang: Language): string {
+  const t = getAdminTranslation(lang);
   const statusMap: Record<string, keyof typeof adminTranslations.en.status> = {
     'DRAFT': 'draft',
     'PENDING_PAYMENT': 'pendingPayment',

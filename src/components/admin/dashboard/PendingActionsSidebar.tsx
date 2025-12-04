@@ -14,6 +14,8 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 interface ActionItem {
   icon: React.ElementType;
@@ -28,6 +30,8 @@ interface ActionItem {
 export function PendingActionsSidebar() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
   const [stats, setStats] = useState({
     unverifiedPayments: 0,
     unfulfilledOrders: 0,
@@ -80,8 +84,8 @@ export function PendingActionsSidebar() {
   const actions: ActionItem[] = [
     {
       icon: CreditCard,
-      label: 'Unverified Payments',
-      description: 'Awaiting verification',
+      label: t.dashboard.unverifiedPayments,
+      description: t.dashboard.awaitingVerification,
       count: stats.unverifiedPayments,
       color: 'text-red-500',
       bgColor: 'bg-red-500/10',
@@ -89,8 +93,8 @@ export function PendingActionsSidebar() {
     },
     {
       icon: Package,
-      label: 'Unfulfilled Orders',
-      description: 'Paid but not shipped',
+      label: t.dashboard.unfulfilledOrders,
+      description: t.dashboard.paidNotShipped,
       count: stats.unfulfilledOrders,
       color: 'text-orange-500',
       bgColor: 'bg-orange-500/10',
@@ -98,8 +102,8 @@ export function PendingActionsSidebar() {
     },
     {
       icon: MessageSquare,
-      label: 'Urgent Tickets',
-      description: 'High priority support',
+      label: t.dashboard.urgentTickets,
+      description: t.dashboard.highPrioritySupport,
       count: stats.urgentTickets,
       color: 'text-purple-500',
       bgColor: 'bg-purple-500/10',
@@ -107,8 +111,8 @@ export function PendingActionsSidebar() {
     },
     {
       icon: RefreshCcw,
-      label: 'Refund Requests',
-      description: 'Pending review',
+      label: t.dashboard.refundRequests,
+      description: t.dashboard.pendingReview,
       count: stats.refundRequests,
       color: 'text-yellow-500',
       bgColor: 'bg-yellow-500/10',
@@ -177,7 +181,7 @@ export function PendingActionsSidebar() {
         {totalPending === 0 && (
           <div className="text-center py-4">
             <span className="text-lg">✓</span>
-            <p className="text-xs text-muted-foreground mt-1">All caught up</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.dashboard.allCaughtUp}</p>
           </div>
         )}
       </CardContent>

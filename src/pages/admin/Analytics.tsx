@@ -7,6 +7,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, DollarSign, Users, MapPin, ShoppingCart, TrendingUp, AlertCircle } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatUSD } from '@/lib/formatCurrency';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 export default function AdminAnalytics() {
   const [loading, setLoading] = useState(true);
@@ -21,6 +23,8 @@ export default function AdminAnalytics() {
     averageOrderValue: 0,
   });
   const { toast } = useToast();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   useEffect(() => {
     loadAnalytics();
@@ -146,9 +150,9 @@ export default function AdminAnalytics() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Analytics Dashboard</h1>
+          <h1 className="text-3xl font-bold">{t.analytics.title}</h1>
           <p className="text-muted-foreground mt-2">
-            Track revenue, orders, and trends from <Badge variant="outline">Paid Orders Only</Badge>
+            {t.analytics.subtitle}
           </p>
         </div>
         <Select value={dateRange} onValueChange={setDateRange}>
@@ -179,7 +183,7 @@ export default function AdminAnalytics() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.analytics.totalRevenue}</CardTitle>
             <DollarSign className="h-4 w-4 text-emerald-600" />
           </CardHeader>
           <CardContent>
@@ -187,45 +191,40 @@ export default function AdminAnalytics() {
               {stats.paidOrders > 0 ? formatUSD(stats.totalRevenue) : '$0.00'}
             </div>
             <p className="text-xs text-muted-foreground">
-              Last {dateRange} days • Paid orders only
+              {t.analytics.paidOrders}
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Paid Orders</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.analytics.paidOrders}</CardTitle>
             <ShoppingCart className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.paidOrders}</div>
-            <p className="text-xs text-muted-foreground">Last {dateRange} days</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Customers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.analytics.activeCustomers}</CardTitle>
             <Users className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.activeUsers}</div>
-            <p className="text-xs text-muted-foreground">Unique paying customers</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Avg Order Value</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.analytics.avgOrderValue}</CardTitle>
             <TrendingUp className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
               {stats.paidOrders > 0 ? formatUSD(stats.averageOrderValue) : 'N/A'}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {stats.paidOrders > 0 ? 'Per paid order' : 'No paid orders'}
-            </p>
           </CardContent>
         </Card>
       </div>

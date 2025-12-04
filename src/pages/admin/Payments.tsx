@@ -13,6 +13,8 @@ import { Loader2, Search, RefreshCw, CreditCard, CheckCircle, XCircle, Clock, Ex
 import { useToast } from '@/hooks/use-toast';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
 
 interface Payment {
   id: string;
@@ -61,6 +63,8 @@ export default function AdminPayments() {
   const [searchTerm, setSearchTerm] = useState('');
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { permissions } = useAdminPermissions();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
   // Check URL params for initial tab (e.g., ?tab=pending from dashboard)
   const [activeTab, setActiveTab] = useState(() => {
     const tabParam = searchParams.get('tab');
@@ -188,15 +192,15 @@ export default function AdminPayments() {
 
   const getPaymentStatusBadge = (status: string) => {
     if (status === 'paid') {
-      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" /> Paid</Badge>;
+      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" /> {t.payments.paid}</Badge>;
     }
     if (status === 'failed') {
-      return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" /> Failed</Badge>;
+      return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" /> {t.payments.failed}</Badge>;
     }
     if (status === 'cancelled') {
-      return <Badge variant="secondary"><XCircle className="h-3 w-3 mr-1" /> Cancelled</Badge>;
+      return <Badge variant="secondary"><XCircle className="h-3 w-3 mr-1" /> {t.payments.cancelled}</Badge>;
     }
-    return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" /> Pending</Badge>;
+    return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" /> {t.payments.pending}</Badge>;
   };
 
   const getModeBadge = (payment: Payment) => {
@@ -248,8 +252,8 @@ export default function AdminPayments() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Payments</h1>
-          <p className="text-muted-foreground">Track and manage MaishaPay transactions</p>
+          <h1 className="text-3xl font-bold">{t.sidebar.payments}</h1>
+          <p className="text-muted-foreground">{t.payments.subtitle}</p>
         </div>
         {permissions?.isSuperAdmin && (
           <Button 

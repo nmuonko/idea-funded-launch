@@ -9,6 +9,8 @@ export interface MaishaPayConfig {
   mode: 'sandbox' | 'live';
   callbackUrl: string;
   apiBaseUrl: string;
+  frontendSuccessUrl: string;
+  frontendFailUrl: string;
 }
 
 export interface CreatePaymentParams {
@@ -61,7 +63,15 @@ export function getMaishaPayConfig(): MaishaPayConfig {
     apiBaseUrl = 'https://marchand.maishapay.online';
   }
   
-  const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || '';
+  // Build the callback URL using the Supabase project URL
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+  const defaultCallbackUrl = supabaseUrl ? `${supabaseUrl}/functions/v1/maishapay-callback` : '';
+  const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || defaultCallbackUrl;
+  
+  // Frontend redirect URLs
+  const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
+  const frontendSuccessUrl = Deno.env.get('MAISHAPAY_FRONTEND_SUCCESS_URL') || `${frontendBaseUrl}/payment/success`;
+  const frontendFailUrl = Deno.env.get('MAISHAPAY_FRONTEND_FAIL_URL') || `${frontendBaseUrl}/payment/fail`;
   
   return {
     publicKey,
@@ -69,6 +79,8 @@ export function getMaishaPayConfig(): MaishaPayConfig {
     mode: isSandbox ? 'sandbox' : 'live',
     callbackUrl,
     apiBaseUrl,
+    frontendSuccessUrl,
+    frontendFailUrl,
   };
 }
 
@@ -116,6 +128,7 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
     amountUsd: params.amountUsd,
     mode: config.mode,
     apiBaseUrl: config.apiBaseUrl,
+    callbackUrl: config.callbackUrl,
   });
   
   try {
@@ -162,7 +175,7 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
     
     const responseText = await response.text();
     console.log('[MaishaPay] Raw response status:', response.status);
-    console.log('[MaishaPay] Raw response body:', responseText);
+    console.log('[MaishaPay] Raw response body:', responseText.substring(0, 500));
     
     // Try to parse as JSON
     let data: any;
@@ -179,8 +192,40 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
           transactionId: reference,
         };
       }
-      console.error('[MaishaPay] Non-JSON response:', responseText.substring(0, 500));
-      return { success: false, checkoutUrl: '', reference, error: 'Invalid response from MaishaPay' };
+      
+      // If we get HTML or other response, build the checkout URL manually
+      // MaishaPay might expect the checkout to be done via form submission
+      console.log('[MaishaPay] Non-JSON response, building checkout URL manually');
+      
+      // Build a GET URL with all params for WebView
+      const queryParams = new URLSearchParams();
+      queryParams.set('publicApiKey', config.publicKey);
+      queryParams.set('secretApiKey', config.secretKey);
+      queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
+      queryParams.set('montant', params.amountUsd.toString());
+      queryParams.set('devise', params.currency || 'USD');
+      queryParams.set('callbackUrl', config.callbackUrl);
+      queryParams.set('reference', reference);
+      queryParams.set('email_client', params.customerEmail);
+      
+      if (params.customerName) {
+        queryParams.set('nom_client', params.customerName);
+      }
+      if (params.customerPhone) {
+        queryParams.set('telephone_client', params.customerPhone);
+      }
+      if (params.description) {
+        queryParams.set('description', params.description);
+      }
+      
+      const checkoutUrl = `${apiUrl}?${queryParams.toString()}`;
+      
+      return {
+        success: true,
+        checkoutUrl,
+        reference,
+        transactionId: reference,
+      };
     }
     
     console.log('[MaishaPay] Parsed response:', JSON.stringify(data));
@@ -200,12 +245,32 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
       };
     }
     
-    // If no URL in response but request was successful, MaishaPay might use a different flow
-    // Some versions return the transaction ID and expect form submission
+    // If no URL in response but request was successful, build checkout URL manually
     if (data.success || data.status === 'success' || response.ok) {
-      // Fallback: Build a form-submission URL (for mobile WebView to POST)
-      const fallbackUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/pay?reference=${reference}`;
-      console.log('[MaishaPay] Using fallback checkout approach with reference:', reference);
+      console.log('[MaishaPay] Success response but no URL, building checkout URL manually');
+      
+      const queryParams = new URLSearchParams();
+      queryParams.set('publicApiKey', config.publicKey);
+      queryParams.set('secretApiKey', config.secretKey);
+      queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
+      queryParams.set('montant', params.amountUsd.toString());
+      queryParams.set('devise', params.currency || 'USD');
+      queryParams.set('callbackUrl', config.callbackUrl);
+      queryParams.set('reference', reference);
+      queryParams.set('email_client', params.customerEmail);
+      
+      if (params.customerName) {
+        queryParams.set('nom_client', params.customerName);
+      }
+      if (params.customerPhone) {
+        queryParams.set('telephone_client', params.customerPhone);
+      }
+      if (params.description) {
+        queryParams.set('description', params.description);
+      }
+      
+      const fallbackUrl = `${apiUrl}?${queryParams.toString()}`;
+      
       return {
         success: true,
         checkoutUrl: fallbackUrl,
@@ -281,18 +346,19 @@ export async function verifyPaymentStatus(transactionId: string): Promise<Verify
 /**
  * Normalize payment status from MaishaPay response
  */
-export function normalizePaymentStatus(status: string): 'paid' | 'pending' | 'failed' | 'cancelled' {
-  if (!status) return 'pending';
+export function normalizePaymentStatus(status: string | number): 'paid' | 'pending' | 'failed' | 'cancelled' {
+  if (!status && status !== 0) return 'pending';
   
-  const normalized = status.toLowerCase();
+  const normalized = String(status).toLowerCase();
   
-  if (normalized === 'success' || normalized === 'paid' || normalized === '1' || normalized.includes('success')) {
+  // MaishaPay uses numeric status codes: 202 = success
+  if (normalized === '202' || normalized === 'success' || normalized === 'paid' || normalized === '1' || normalized.includes('success')) {
     return 'paid';
   }
-  if (normalized === 'cancelled' || normalized === 'canceled') {
+  if (normalized === 'cancelled' || normalized === 'canceled' || normalized === '203') {
     return 'cancelled';
   }
-  if (normalized === 'failed' || normalized === 'error' || normalized === 'rejected') {
+  if (normalized === 'failed' || normalized === 'error' || normalized === 'rejected' || normalized === '204' || normalized === '400' || normalized === '500') {
     return 'failed';
   }
   

@@ -37,6 +37,8 @@ import AdminAccessDenied from "./pages/admin/AccessDenied";
 import Orders from "./pages/Orders";
 import MaishaCallback from "./pages/MaishaCallback";
 import AcceptInvite from "./pages/AcceptInvite";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentFail from "./pages/PaymentFail";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -74,6 +76,8 @@ const App = () => {
               </ProtectedRoute>
             } />
             <Route path="/maisha-callback" element={<MaishaCallback />} />
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/fail" element={<PaymentFail />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             

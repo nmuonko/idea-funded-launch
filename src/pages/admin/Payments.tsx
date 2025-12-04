@@ -45,6 +45,7 @@ interface Payment {
     profiles?: {
       name?: string;
       full_name?: string;
+      email?: string;
       phone?: string;
     };
   };
@@ -111,7 +112,7 @@ export default function AdminPayments() {
       if (userIds.length > 0) {
         const { data: profiles } = await supabase
           .from('profiles')
-          .select('user_id, name, full_name, phone')
+          .select('user_id, name, full_name, email, phone')
           .in('user_id', userIds);
         
         profilesMap = (profiles || []).reduce((acc, p) => {
@@ -388,7 +389,7 @@ export default function AdminPayments() {
                             <div className="font-medium">
                               {payment.orders?.profiles?.full_name || payment.orders?.profiles?.name || 'N/A'}
                             </div>
-                            <div className="text-xs text-muted-foreground">{payment.raw_request?.email || payment.orders?.profiles?.phone || '—'}</div>
+                            <div className="text-xs text-muted-foreground">{payment.orders?.profiles?.email || payment.raw_request?.email || payment.orders?.profiles?.phone || '—'}</div>
                           </div>
                         </TableCell>
                         <TableCell>

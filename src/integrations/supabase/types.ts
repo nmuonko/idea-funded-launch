@@ -690,6 +690,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          email: string | null
           full_name: string | null
           id: string
           name: string | null
@@ -699,6 +700,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          email?: string | null
           full_name?: string | null
           id?: string
           name?: string | null
@@ -708,6 +710,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          email?: string | null
           full_name?: string | null
           id?: string
           name?: string | null
@@ -1014,6 +1017,7 @@ export type Database = {
           submission_status: string
         }[]
       }
+      sync_profile_emails: { Args: never; Returns: undefined }
     }
     Enums: {
       app_role: "admin" | "user"

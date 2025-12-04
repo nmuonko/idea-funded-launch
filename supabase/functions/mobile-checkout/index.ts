@@ -229,19 +229,31 @@ serve(async (req) => {
     });
 
     if (!paymentResult.success) {
-      console.error('[mobile-checkout] MaishaPay error:', paymentResult.error);
-      // Update order status but don't rollback
+      const errorDetail = paymentResult.error || 'Unknown payment gateway error';
+      console.error('[mobile-checkout] MaishaPay initialization failed:', {
+        error: errorDetail,
+        orderId: checkoutOrder.id,
+        reference: paymentResult.reference,
+      });
+      
+      // Update order status with error details
       await supabase.from('orders').update({ 
         maisha_payment_status: 'INIT_FAILED',
-        maisha_description: paymentResult.error,
+        maisha_description: errorDetail,
       }).eq('id', checkoutOrder.id);
       
       return jsonResponse({ 
         success: false,
-        error: 'Failed to initialize payment. Please try again.',
+        error: `Payment initialization failed: ${errorDetail}`,
+        details: errorDetail,
         orderId: checkoutOrder.id,
       }, 500);
     }
+    
+    console.log('[mobile-checkout] MaishaPay payment session created:', {
+      reference: paymentResult.reference,
+      checkoutUrlLength: paymentResult.checkoutUrl?.length,
+    });
 
     // Create payment record
     await supabase

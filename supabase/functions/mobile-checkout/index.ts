@@ -12,14 +12,14 @@ import {
  * Creates an order from cart items and returns a redirect URL for payment.
  * 
  * IMPORTANT: This function does NOT call MaishaPay directly.
- * Instead, it creates the order and returns a redirectUrl to our
+ * Instead, it creates the order and returns a checkoutUrl to our
  * /maishapay/checkout frontend page, which handles the MaishaPay form POST.
  * 
  * Flow:
  * 1. Mobile app calls this endpoint with cart_item_ids
  * 2. This function creates an order with PENDING_PAYMENT status
- * 3. Returns { success: true, orderId, redirectUrl }
- * 4. Mobile app opens redirectUrl in WebView
+ * 3. Returns { success: true, orderId, checkoutUrl }
+ * 4. Mobile app opens checkoutUrl in WebView
  * 5. /maishapay/checkout page renders auto-submit form to MaishaPay
  * 6. MaishaPay redirects user to /maishapay/result
  */
@@ -30,6 +30,37 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // Dynamic shipping calculation
 function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
   return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+}
+
+// Validate checkout URL
+function getValidatedCheckoutUrl(): { url: string | null; error: string | null } {
+  const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL');
+  
+  console.log('[mobile-checkout] FRONTEND_BASE_URL env value:', frontendBaseUrl);
+  
+  // Check if empty or missing
+  if (!frontendBaseUrl || frontendBaseUrl.trim() === '') {
+    console.error('[mobile-checkout] [CONFIG ERROR] FRONTEND_BASE_URL is empty or not set');
+    return { url: null, error: 'Configuration du paiement invalide. FRONTEND_BASE_URL manquant.' };
+  }
+  
+  // Check if it looks like a placeholder
+  if (frontendBaseUrl.includes('dummy') || frontendBaseUrl.includes('placeholder') || frontendBaseUrl.includes('test_key')) {
+    console.error('[mobile-checkout] [CONFIG ERROR] FRONTEND_BASE_URL appears to be a placeholder:', frontendBaseUrl);
+    return { url: null, error: 'Configuration du paiement invalide. FRONTEND_BASE_URL non configuré.' };
+  }
+  
+  // Check if it starts with https://
+  if (!frontendBaseUrl.startsWith('https://')) {
+    console.error('[mobile-checkout] [CONFIG ERROR] FRONTEND_BASE_URL must start with https://:', frontendBaseUrl);
+    return { url: null, error: 'Configuration du paiement invalide. URL non sécurisée.' };
+  }
+  
+  // Remove trailing slash if present
+  const cleanUrl = frontendBaseUrl.replace(/\/$/, '');
+  
+  console.log('[mobile-checkout] Validated FRONTEND_BASE_URL:', cleanUrl);
+  return { url: cleanUrl, error: null };
 }
 
 serve(async (req) => {
@@ -43,6 +74,16 @@ serve(async (req) => {
 
   try {
     console.log('[mobile-checkout] Request received');
+
+    // FIRST: Validate frontend URL before doing anything else
+    const { url: frontendBaseUrl, error: urlError } = getValidatedCheckoutUrl();
+    if (!frontendBaseUrl) {
+      console.error('[mobile-checkout] Cannot proceed - invalid frontend URL');
+      return jsonResponse({ 
+        success: false, 
+        error: urlError || 'Configuration du paiement invalide. Veuillez contacter l\'administrateur.'
+      }, 500);
+    }
 
     // Verify JWT
     const { user, supabase } = await verifyAndGetUser(req);
@@ -227,6 +268,7 @@ serve(async (req) => {
         amount_cdf: grandTotalCdf,
         currency: 'USD',
         status: 'pending',
+        user_id: user.id,
         raw_request: {
           amount: grandTotalUsd,
           email: email || user.email,
@@ -234,27 +276,28 @@ serve(async (req) => {
         },
       });
 
-    // Build redirect URL to our checkout page (NOT MaishaPay directly)
-    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
-    const redirectUrl = `${frontendBaseUrl}/maishapay/checkout?orderId=${checkoutOrder.id}`;
+    // Build checkout URL - this is where the WebView will navigate
+    const checkoutUrl = `${frontendBaseUrl}/maishapay/checkout?orderId=${checkoutOrder.id}`;
 
-    console.log('[mobile-checkout] Order created successfully:', {
+    console.log('[mobile-checkout] Order created successfully');
+    console.log('[mobile-checkout] Generated checkoutUrl:', checkoutUrl);
+    console.log('[mobile-checkout] Order details:', {
       orderId: checkoutOrder.id,
       reference,
-      redirectUrl,
       grandTotalUsd,
     });
 
-    // Build the response body
+    // Build the response body with consistent field names
     const responseBody = {
-      // Required fields for mobile app
+      // Primary fields for mobile app
       success: true,
       orderId: checkoutOrder.id,
-      redirectUrl,
+      checkoutUrl: checkoutUrl,  // Primary URL field
       
-      // Additional fields for backwards compatibility
+      // Legacy/backwards compatibility fields
+      redirectUrl: checkoutUrl,
+      redirect_url: checkoutUrl,
       order_id: checkoutOrder.id,
-      redirect_url: redirectUrl,
       reference,
       maishapay_reference: reference,
       
@@ -268,7 +311,7 @@ serve(async (req) => {
       },
     };
 
-    console.log('[mobile-checkout] Response:', JSON.stringify(responseBody));
+    console.log('[mobile-checkout] Full response:', JSON.stringify(responseBody));
 
     return jsonResponse(responseBody);
 

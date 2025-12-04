@@ -285,7 +285,7 @@ export default function FeesSettings() {
           <div className="space-y-4">
             <div className="flex items-center gap-4 max-w-md">
               <div className="flex-1 space-y-2">
-                <Label htmlFor="markupPercent">{t.settings.markupPercentage}</Label>
+                <Label htmlFor="markupPercent">{t.settings.markupPercent}</Label>
                 <Input
                   id="markupPercent"
                   type="number"

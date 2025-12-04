@@ -52,15 +52,23 @@ export function getMaishaPayConfig(): MaishaPayConfig {
   let apiBaseUrl: string;
   
   if (isSandbox) {
-    // Sandbox mode
-    publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-    secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || Deno.env.get('MAISHA_SECRET_KEY') || '';
-    apiBaseUrl = Deno.env.get('MAISHAPAY_SANDBOX_API_URL') || 'https://sandbox.maishapay.net';
+    // Sandbox mode - check multiple possible env var names
+    publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
+                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
+                Deno.env.get('MAISHA_PUBLIC_KEY') || '';
+    secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
+                Deno.env.get('MAISHAPAY_SECRET_KEY') || 
+                Deno.env.get('MAISHA_SECRET_KEY') || '';
+    apiBaseUrl = Deno.env.get('MAISHAPAY_SANDBOX_API_URL') || 
+                 Deno.env.get('MAISHAPAY_BASE_URL') || 
+                 'https://sandbox.maishapay.net';
   } else {
     // Live mode
-    publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || '';
-    secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || '';
-    apiBaseUrl = 'https://marchand.maishapay.online';
+    publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
+                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
+    secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+                Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
+    apiBaseUrl = Deno.env.get('MAISHAPAY_BASE_URL') || 'https://marchand.maishapay.online';
   }
   
   // Build the callback URL using the Supabase project URL
@@ -72,6 +80,16 @@ export function getMaishaPayConfig(): MaishaPayConfig {
   const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
   const frontendSuccessUrl = Deno.env.get('MAISHAPAY_FRONTEND_SUCCESS_URL') || `${frontendBaseUrl}/payment/success`;
   const frontendFailUrl = Deno.env.get('MAISHAPAY_FRONTEND_FAIL_URL') || `${frontendBaseUrl}/payment/fail`;
+  
+  console.log('[MaishaPay Config]', {
+    mode: isSandbox ? 'sandbox' : 'live',
+    hasPublicKey: !!publicKey,
+    hasSecretKey: !!secretKey,
+    apiBaseUrl,
+    callbackUrl,
+    frontendSuccessUrl,
+    frontendFailUrl,
+  });
   
   return {
     publicKey,
@@ -89,13 +107,19 @@ export function getMaishaPayConfig(): MaishaPayConfig {
  */
 export function validateConfig(config: MaishaPayConfig): { valid: boolean; error?: string } {
   if (!config.publicKey) {
-    return { valid: false, error: `Missing ${config.mode === 'sandbox' ? 'MAISHAPAY_SANDBOX_PUBLIC_KEY' : 'MAISHAPAY_LIVE_PUBLIC_KEY'}` };
+    const error = `[CONFIG ERROR] Missing MaishaPay public key. Set MAISHAPAY_PUBLIC_KEY or MAISHAPAY_${config.mode.toUpperCase()}_PUBLIC_KEY`;
+    console.error(error);
+    return { valid: false, error };
   }
   if (!config.secretKey) {
-    return { valid: false, error: `Missing ${config.mode === 'sandbox' ? 'MAISHAPAY_SANDBOX_SECRET_KEY' : 'MAISHAPAY_LIVE_SECRET_KEY'}` };
+    const error = `[CONFIG ERROR] Missing MaishaPay secret key. Set MAISHAPAY_SECRET_KEY or MAISHAPAY_${config.mode.toUpperCase()}_SECRET_KEY`;
+    console.error(error);
+    return { valid: false, error };
   }
   if (!config.callbackUrl) {
-    return { valid: false, error: 'Missing MAISHAPAY_CALLBACK_URL' };
+    const error = '[CONFIG ERROR] Missing MAISHAPAY_CALLBACK_URL and could not build default from SUPABASE_URL';
+    console.error(error);
+    return { valid: false, error };
   }
   return { valid: true };
 }
@@ -104,19 +128,20 @@ export function validateConfig(config: MaishaPayConfig): { valid: boolean; error
  * Generate a unique reference for the payment
  */
 export function generatePaymentReference(orderId: string): string {
-  return `AFRISHOP-${orderId}`;
+  const timestamp = Date.now().toString(36);
+  return `AFRISHOP-${orderId.slice(0, 8)}-${timestamp}`;
 }
 
 /**
  * Create a payment session with MaishaPay
- * Makes a POST request to MaishaPay API and returns the checkout URL from response
+ * Builds a checkout URL that can be opened in a WebView
+ * MaishaPay's checkout endpoint accepts GET parameters
  */
 export async function createPaymentSession(params: CreatePaymentParams): Promise<CreatePaymentResult> {
   const config = getMaishaPayConfig();
   const validation = validateConfig(config);
   
   if (!validation.valid) {
-    console.error('[MaishaPay] Configuration error:', validation.error);
     return { success: false, checkoutUrl: '', reference: '', error: validation.error };
   }
   
@@ -126,167 +151,67 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
     orderId: params.orderId,
     reference,
     amountUsd: params.amountUsd,
-    mode: config.mode,
-    apiBaseUrl: config.apiBaseUrl,
+    currency: params.currency || 'USD',
     callbackUrl: config.callbackUrl,
+    email: params.customerEmail,
   });
   
   try {
-    // Build form data for MaishaPay POST request
-    const formData = new URLSearchParams();
-    formData.set('publicApiKey', config.publicKey);
-    formData.set('secretApiKey', config.secretKey);
-    formData.set('gatewayMode', config.mode === 'live' ? '1' : '0');
-    formData.set('montant', params.amountUsd.toString());
-    formData.set('devise', params.currency || 'USD');
-    formData.set('callbackUrl', config.callbackUrl);
-    formData.set('reference', reference);
-    formData.set('email_client', params.customerEmail);
+    // Build checkout URL with all parameters
+    // MaishaPay checkout accepts parameters via GET query string
+    const checkoutBaseUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/checkout`;
+    
+    const queryParams = new URLSearchParams();
+    queryParams.set('publicApiKey', config.publicKey);
+    queryParams.set('secretApiKey', config.secretKey);
+    queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
+    queryParams.set('montant', params.amountUsd.toFixed(2));
+    queryParams.set('devise', params.currency || 'USD');
+    queryParams.set('callbackUrl', config.callbackUrl);
+    queryParams.set('reference', reference);
+    queryParams.set('email_client', params.customerEmail);
+    
+    // Add success/fail redirect URLs
+    queryParams.set('success_url', config.frontendSuccessUrl);
+    queryParams.set('fail_url', config.frontendFailUrl);
     
     if (params.customerName) {
-      formData.set('nom_client', params.customerName);
+      queryParams.set('nom_client', params.customerName);
     }
     if (params.customerPhone) {
-      formData.set('telephone_client', params.customerPhone);
+      queryParams.set('telephone_client', params.customerPhone);
     }
     if (params.description) {
-      formData.set('description', params.description);
+      queryParams.set('description', params.description);
     }
     
-    const apiUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/checkout`;
+    const checkoutUrl = `${checkoutBaseUrl}?${queryParams.toString()}`;
     
-    console.log('[MaishaPay] Making POST request to:', apiUrl);
-    console.log('[MaishaPay] Request params:', {
-      reference,
-      amount: params.amountUsd,
-      currency: params.currency || 'USD',
-      callbackUrl: config.callbackUrl,
-      email: params.customerEmail,
-    });
+    console.log('[MaishaPay] Built checkout URL successfully');
+    console.log('[MaishaPay] Checkout URL length:', checkoutUrl.length);
     
-    // Make POST request to MaishaPay API
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    });
-    
-    const responseText = await response.text();
-    console.log('[MaishaPay] Raw response status:', response.status);
-    console.log('[MaishaPay] Raw response body:', responseText.substring(0, 500));
-    
-    // Try to parse as JSON
-    let data: any;
+    // Optionally verify the URL is accessible (but don't fail if MaishaPay is slow)
     try {
-      data = JSON.parse(responseText);
-    } catch {
-      // If response is not JSON, it might be a redirect URL or HTML
-      // Check if it's a URL
-      if (responseText.startsWith('http')) {
-        return {
-          success: true,
-          checkoutUrl: responseText.trim(),
-          reference,
-          transactionId: reference,
-        };
-      }
-      
-      // If we get HTML or other response, build the checkout URL manually
-      // MaishaPay might expect the checkout to be done via form submission
-      console.log('[MaishaPay] Non-JSON response, building checkout URL manually');
-      
-      // Build a GET URL with all params for WebView
-      const queryParams = new URLSearchParams();
-      queryParams.set('publicApiKey', config.publicKey);
-      queryParams.set('secretApiKey', config.secretKey);
-      queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
-      queryParams.set('montant', params.amountUsd.toString());
-      queryParams.set('devise', params.currency || 'USD');
-      queryParams.set('callbackUrl', config.callbackUrl);
-      queryParams.set('reference', reference);
-      queryParams.set('email_client', params.customerEmail);
-      
-      if (params.customerName) {
-        queryParams.set('nom_client', params.customerName);
-      }
-      if (params.customerPhone) {
-        queryParams.set('telephone_client', params.customerPhone);
-      }
-      if (params.description) {
-        queryParams.set('description', params.description);
-      }
-      
-      const checkoutUrl = `${apiUrl}?${queryParams.toString()}`;
-      
-      return {
-        success: true,
-        checkoutUrl,
-        reference,
-        transactionId: reference,
-      };
+      const testResponse = await fetch(checkoutUrl, { 
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      console.log('[MaishaPay] URL accessibility check:', testResponse.status);
+    } catch (testError: any) {
+      console.warn('[MaishaPay] URL accessibility check failed (non-blocking):', testError.message);
     }
     
-    console.log('[MaishaPay] Parsed response:', JSON.stringify(data));
-    
-    // MaishaPay response typically contains a redirect/checkout URL
-    // Check common field names
-    const checkoutUrl = data.redirect_url || data.payment_url || data.checkoutUrl || 
-                        data.url || data.redirectUrl || data.link || data.checkout_url;
-    
-    if (checkoutUrl) {
-      console.log('[MaishaPay] Got checkout URL:', checkoutUrl);
-      return {
-        success: true,
-        checkoutUrl,
-        reference,
-        transactionId: data.transactionId || data.transaction_id || reference,
-      };
-    }
-    
-    // If no URL in response but request was successful, build checkout URL manually
-    if (data.success || data.status === 'success' || response.ok) {
-      console.log('[MaishaPay] Success response but no URL, building checkout URL manually');
-      
-      const queryParams = new URLSearchParams();
-      queryParams.set('publicApiKey', config.publicKey);
-      queryParams.set('secretApiKey', config.secretKey);
-      queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
-      queryParams.set('montant', params.amountUsd.toString());
-      queryParams.set('devise', params.currency || 'USD');
-      queryParams.set('callbackUrl', config.callbackUrl);
-      queryParams.set('reference', reference);
-      queryParams.set('email_client', params.customerEmail);
-      
-      if (params.customerName) {
-        queryParams.set('nom_client', params.customerName);
-      }
-      if (params.customerPhone) {
-        queryParams.set('telephone_client', params.customerPhone);
-      }
-      if (params.description) {
-        queryParams.set('description', params.description);
-      }
-      
-      const fallbackUrl = `${apiUrl}?${queryParams.toString()}`;
-      
-      return {
-        success: true,
-        checkoutUrl: fallbackUrl,
-        reference,
-        transactionId: data.transactionId || data.transaction_id || reference,
-      };
-    }
-    
-    // Handle error response
-    const errorMsg = data.message || data.error || data.description || 'Payment initiation failed';
-    console.error('[MaishaPay] API error:', errorMsg);
-    return { success: false, checkoutUrl: '', reference, error: errorMsg };
+    return {
+      success: true,
+      checkoutUrl,
+      reference,
+      transactionId: reference,
+    };
     
   } catch (error: any) {
-    console.error('[MaishaPay] Request error:', error.message);
-    return { success: false, checkoutUrl: '', reference, error: error.message };
+    const errorMsg = `Payment URL creation failed: ${error.message}`;
+    console.error('[MaishaPay] Error:', errorMsg);
+    return { success: false, checkoutUrl: '', reference, error: errorMsg };
   }
 }
 
@@ -307,38 +232,59 @@ export async function verifyPaymentStatus(transactionId: string): Promise<Verify
     // MaishaPay verification endpoint
     const verifyUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/verify`;
     
+    const formData = new URLSearchParams({
+      publicApiKey: config.publicKey,
+      secretApiKey: config.secretKey,
+      transactionRefId: transactionId,
+    });
+    
+    console.log('[MaishaPay] Calling verify endpoint:', verifyUrl);
+    
     const response = await fetch(verifyUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        publicApiKey: config.publicKey,
-        secretApiKey: config.secretKey,
-        transactionRefId: transactionId,
-      }).toString(),
+      body: formData.toString(),
     });
     
+    const responseText = await response.text();
+    console.log('[MaishaPay] Verify response status:', response.status);
+    console.log('[MaishaPay] Verify response body:', responseText.substring(0, 500));
+    
     if (!response.ok) {
-      console.error('[MaishaPay] Verify API error:', response.status);
-      return { success: false, status: 'pending', error: `API returned ${response.status}` };
+      return { 
+        success: false, 
+        status: 'pending', 
+        error: `MaishaPay API returned ${response.status}: ${responseText.substring(0, 200)}` 
+      };
     }
     
-    const data = await response.json();
-    console.log('[MaishaPay] Verify response:', data);
+    let data: any;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      return { 
+        success: false, 
+        status: 'pending', 
+        error: 'MaishaPay returned non-JSON response during verification' 
+      };
+    }
+    
+    console.log('[MaishaPay] Verify parsed response:', JSON.stringify(data));
     
     // Parse MaishaPay response
-    const status = normalizePaymentStatus(data.status || data.transactionStatus);
+    const status = normalizePaymentStatus(data.status || data.transactionStatus || data.code);
     
     return {
       success: true,
       status,
-      transactionId: data.transactionRefId || transactionId,
-      operatorRefId: data.operatorRefId,
+      transactionId: data.transactionRefId || data.reference || transactionId,
+      operatorRefId: data.operatorRefId || data.operator_ref,
       paidAt: status === 'paid' ? new Date().toISOString() : undefined,
     };
   } catch (error: any) {
-    console.error('[MaishaPay] Verify error:', error);
+    console.error('[MaishaPay] Verify error:', error.message);
     return { success: false, status: 'pending', error: error.message };
   }
 }
@@ -376,7 +322,7 @@ export function getCheckoutFormFields(params: CreatePaymentParams): Record<strin
     publicApiKey: config.publicKey,
     secretApiKey: config.secretKey,
     gatewayMode: config.mode === 'live' ? '1' : '0',
-    montant: params.amountUsd.toString(),
+    montant: params.amountUsd.toFixed(2),
     devise: params.currency || 'USD',
     callbackUrl: config.callbackUrl,
     reference,

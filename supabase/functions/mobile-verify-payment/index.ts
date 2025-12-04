@@ -59,18 +59,28 @@ serve(async (req) => {
     const itemCount = order.order_items?.length || 0;
     const confirmationCode = payment?.confirmation_code || null;
 
-    // Build base response data
+    // Build base response data - ensuring id is ALWAYS defined
     const buildResponse = (status: string, paymentStatus: string, orderStatus: string, message: string) => ({
       success: true,
+      // Core identifiers - ALWAYS defined
+      id: order.id,
       orderId: order.id,
+      order_number: orderRef,
       orderRef,
+      displayRef: orderRef,
+      // Status
       status,
       paymentStatus,
       orderStatus,
+      // Amounts
       totalUsd: order.total_usd || 0,
       totalCdf: order.total_cdf || 0,
+      total_amount_usd: order.total_usd || 0,
+      total_amount_cdf: order.total_cdf || 0,
       itemCount,
+      // Payment details
       confirmationCode,
+      payment_provider: 'maishapay',
       mode: config.mode,
       message,
     });

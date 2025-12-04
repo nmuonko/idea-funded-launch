@@ -11,15 +11,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard, Trash2 } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
+import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
 import { useToast } from '@/hooks/use-toast';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { cn } from '@/lib/utils';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { permissions } = useAdminPermissions();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -30,6 +33,7 @@ export default function AdminOrders() {
   const [bulkActionLoading, setBulkActionLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(undefined);
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
 
@@ -494,6 +498,18 @@ export default function AdminOrders() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              {/* Super Admin Reset Button */}
+              {permissions?.isSuperAdmin && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setResetDialogOpen(true)}
+                  className="gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Reset Orders
+                </Button>
+              )}
               <div className="relative w-64">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -786,6 +802,14 @@ export default function AdminOrders() {
       onClose={() => setEmailDialogOpen(false)}
       orderIds={Array.from(selectedOrders)}
       onSuccess={() => setSelectedOrders(new Set())}
+    />
+
+    <ResetSectionDialog
+      section="orders"
+      sectionLabel="Orders"
+      open={resetDialogOpen}
+      onClose={() => setResetDialogOpen(false)}
+      onSuccess={loadOrders}
     />
     </>
   );

@@ -41,6 +41,7 @@ import MaishapayResult from "./pages/MaishapayResult";
 import AcceptInvite from "./pages/AcceptInvite";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFail from "./pages/PaymentFail";
+import TrackOrder from "./pages/TrackOrder";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -80,6 +81,7 @@ const App = () => {
             <Route path="/maisha-callback" element={<MaishaCallback />} />
             <Route path="/maishapay/checkout" element={<MaishapayCheckout />} />
             <Route path="/maishapay/result" element={<MaishapayResult />} />
+            <Route path="/track-order" element={<TrackOrder />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/fail" element={<PaymentFail />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />

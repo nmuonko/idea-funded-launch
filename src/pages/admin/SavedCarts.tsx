@@ -11,6 +11,8 @@ import { Loader2, Search, Bookmark, ExternalLink, Bell, Clock, User, ShoppingBag
 import { format, formatDistanceToNow } from 'date-fns';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 interface SavedCartUser {
   userId: string;
@@ -43,6 +45,8 @@ export default function AdminSavedCarts() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const { toast } = useToast();
   const { permissions } = useAdminPermissions();
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   useEffect(() => {
     loadSavedCarts();
@@ -152,7 +156,7 @@ export default function AdminSavedCarts() {
 
   const triggerReminders = async () => {
     try {
-      toast({ title: 'Sending reminders...', description: 'This may take a moment.' });
+      toast({ title: t.savedCarts.sendingReminders, description: t.savedCarts.mayTakeMoment });
       
       const { data, error } = await supabase.functions.invoke('saved-cart-reminders');
       
@@ -163,14 +167,14 @@ export default function AdminSavedCarts() {
       const errorCount = data.errors || 0;
       
       toast({
-        title: 'Reminders sent',
-        description: `Sent ${emailCount} email(s) and ${pushCount} push notification(s).${errorCount > 0 ? ` ${errorCount} failed.` : ''}`,
+        title: t.savedCarts.remindersSent,
+        description: `${t.savedCarts.sentEmails.replace('{count}', emailCount.toString())} ${t.savedCarts.sentPush.replace('{count}', pushCount.toString())}${errorCount > 0 ? ` ${errorCount} ${t.common.failed}.` : ''}`,
       });
       
-      loadSavedCarts(); // Refresh to show updated reminder times
+      loadSavedCarts();
     } catch (error: any) {
       toast({
-        title: 'Error sending reminders',
+        title: t.savedCarts.errorSendingReminders,
         description: error.message,
         variant: 'destructive',
       });
@@ -200,16 +204,16 @@ export default function AdminSavedCarts() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
             <Bookmark className="h-8 w-8" />
-            Saved Carts
+            {t.savedCarts.title}
           </h1>
           <p className="text-muted-foreground mt-2">
-            View and manage items saved for later by customers
+            {t.savedCarts.subtitle}
           </p>
         </div>
         <div className="flex gap-2">
           <Button onClick={triggerReminders}>
             <Bell className="h-4 w-4 mr-2" />
-            Send Reminders Now
+            {t.savedCarts.sendReminders}
           </Button>
           {permissions?.isSuperAdmin && (
             <Button 
@@ -218,7 +222,7 @@ export default function AdminSavedCarts() {
               onClick={() => setResetDialogOpen(true)}
             >
               <Trash2 className="h-4 w-4 mr-2" />
-              Reset
+              {t.common.reset}
             </Button>
           )}
         </div>
@@ -226,7 +230,7 @@ export default function AdminSavedCarts() {
 
       <ResetSectionDialog
         section="carts"
-        sectionLabel="Saved Carts"
+        sectionLabel={t.savedCarts.title}
         open={resetDialogOpen}
         onClose={() => setResetDialogOpen(false)}
         onSuccess={loadSavedCarts}
@@ -236,7 +240,7 @@ export default function AdminSavedCarts() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Users with Saved Items</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t.savedCarts.usersWithSavedItems}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{savedCarts.length}</div>
@@ -244,7 +248,7 @@ export default function AdminSavedCarts() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Saved Items</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t.savedCarts.totalSavedItems}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -254,7 +258,7 @@ export default function AdminSavedCarts() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t.savedCarts.totalValue}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
@@ -264,7 +268,7 @@ export default function AdminSavedCarts() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Items/User</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t.savedCarts.avgItemsPerUser}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -283,7 +287,7 @@ export default function AdminSavedCarts() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by user name or ID..."
+                placeholder={t.savedCarts.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -294,17 +298,17 @@ export default function AdminSavedCarts() {
         <CardContent>
           {filteredCarts.length === 0 ? (
             <p className="text-center py-8 text-muted-foreground">
-              No saved carts found
+              {t.savedCarts.noSavedCarts}
             </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead className="text-center">Items</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead>Saved Since</TableHead>
-                  <TableHead>Last Reminder</TableHead>
+                  <TableHead>{t.common.user}</TableHead>
+                  <TableHead className="text-center">{t.common.items}</TableHead>
+                  <TableHead className="text-right">{t.common.value}</TableHead>
+                  <TableHead>{t.savedCarts.savedSince}</TableHead>
+                  <TableHead>{t.savedCarts.lastReminder}</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -344,7 +348,7 @@ export default function AdminSavedCarts() {
                           {format(new Date(cart.lastReminderAt), 'MMM dd')}
                         </Badge>
                       ) : (
-                        <Badge variant="secondary" className="text-xs">Never</Badge>
+                        <Badge variant="secondary" className="text-xs">{t.common.never}</Badge>
                       )}
                     </TableCell>
                     <TableCell>
@@ -354,7 +358,7 @@ export default function AdminSavedCarts() {
                         onClick={() => setSelectedUser(cart)}
                       >
                         <ShoppingBag className="h-4 w-4 mr-1" />
-                        View Items
+                        {t.savedCarts.viewItems}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -371,7 +375,7 @@ export default function AdminSavedCarts() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bookmark className="h-5 w-5" />
-              Saved Items - {selectedUser?.userName || 'Unknown User'}
+              {t.savedCarts.savedItems} - {selectedUser?.userName || t.common.unknownUser}
             </DialogTitle>
           </DialogHeader>
           
@@ -384,14 +388,14 @@ export default function AdminSavedCarts() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{item.store}</Badge>
-                    <p className="font-medium">{item.title || 'Product'}</p>
+                    <p className="font-medium">{item.title || t.common.product}</p>
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                     <span>${item.basePriceUsd.toFixed(2)} × {item.quantity}</span>
                     {item.savedAt && (
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        Saved {formatDistanceToNow(new Date(item.savedAt), { addSuffix: true })}
+                        {t.savedCarts.saved} {formatDistanceToNow(new Date(item.savedAt), { addSuffix: true })}
                       </span>
                     )}
                   </div>
@@ -416,10 +420,10 @@ export default function AdminSavedCarts() {
           
           <div className="flex justify-between items-center pt-4 border-t">
             <span className="text-muted-foreground">
-              {selectedUser?.savedItemCount} items saved
+              {selectedUser?.savedItemCount} {t.savedCarts.itemsSaved}
             </span>
             <span className="text-lg font-bold">
-              Total: ${selectedUser?.totalValue.toFixed(2)}
+              {t.common.total}: ${selectedUser?.totalValue.toFixed(2)}
             </span>
           </div>
         </DialogContent>

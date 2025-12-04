@@ -9,6 +9,8 @@ import { useAdminTheme, AdminThemeSettings, THEME_PRESETS, ThemePreset } from '@
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { toast } from 'sonner';
 import { Palette, Save, RotateCcw, Eye, Sun, Moon, Square, Sidebar, Sparkles } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 const PRESET_INFO: Record<ThemePreset, { label: string; description: string }> = {
   DefaultDark: { label: 'Default Dark', description: 'Classic dark theme with blue accents' },
@@ -22,6 +24,8 @@ export default function ThemeSettings() {
   const { theme, setTheme, applyPreset, saveTheme, resetToDefaults, hasChanges } = useAdminTheme();
   const { permissions } = useAdminPermissions();
   const [isSaving, setIsSaving] = useState(false);
+  const { language } = useLanguage();
+  const t = getAdminTranslation(language);
 
   const canViewThemeSettings = permissions?.isSuperAdmin || permissions?.can_view_theme_settings;
 
@@ -31,9 +35,9 @@ export default function ThemeSettings() {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center">
             <Palette className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Access Denied</h2>
+            <h2 className="text-xl font-semibold mb-2">{t.common.accessDenied}</h2>
             <p className="text-muted-foreground">
-              Only Super Admins can access Theme Settings.
+              {t.theme.accessDeniedMessage}
             </p>
           </CardContent>
         </Card>
@@ -47,9 +51,9 @@ export default function ThemeSettings() {
     setIsSaving(false);
 
     if (success) {
-      toast.success('Theme settings saved successfully!');
+      toast.success(t.theme.saveSuccess);
     } else {
-      toast.error('Failed to save theme settings. Please try again.');
+      toast.error(t.theme.saveError);
     }
   };
 
@@ -97,9 +101,9 @@ export default function ThemeSettings() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Theme Settings</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t.theme.title}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Customize the admin portal appearance
+            {t.theme.subtitle}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -110,7 +114,7 @@ export default function ThemeSettings() {
             className="gap-2"
           >
             <RotateCcw className="h-4 w-4" />
-            Reset
+            {t.common.reset}
           </Button>
           <Button
             onClick={handleSave}
@@ -118,7 +122,7 @@ export default function ThemeSettings() {
             className="gap-2"
           >
             <Save className="h-4 w-4" />
-            {isSaving ? 'Saving...' : 'Save Changes'}
+            {isSaving ? t.common.saving : t.common.saveChanges}
           </Button>
         </div>
       </div>
@@ -127,7 +131,7 @@ export default function ThemeSettings() {
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
           <span className="text-sm text-yellow-600 dark:text-yellow-400">
-            You have unsaved changes
+            {t.theme.unsavedChanges}
           </span>
         </div>
       )}
@@ -137,10 +141,10 @@ export default function ThemeSettings() {
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Theme Presets</CardTitle>
+            <CardTitle className="text-lg">{t.theme.presets}</CardTitle>
           </div>
           <CardDescription>
-            Quick start with a preset or customize your own
+            {t.theme.presetsDescription}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -202,24 +206,24 @@ export default function ThemeSettings() {
                 ) : (
                   <Sun className="h-5 w-5 text-primary" />
                 )}
-                <CardTitle className="text-lg">Appearance Mode</CardTitle>
+                <CardTitle className="text-lg">{t.theme.appearanceMode}</CardTitle>
               </div>
               <CardDescription>
-                Switch between light and dark color schemes
+                {t.theme.appearanceModeDescription}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30">
                 <div className="flex items-center gap-3">
                   <Sun className="h-5 w-5 text-yellow-500" />
-                  <span className="font-medium">Light Mode</span>
+                  <span className="font-medium">{t.theme.lightMode}</span>
                 </div>
                 <Switch
                   checked={theme.mode === 'dark'}
                   onCheckedChange={(checked) => setTheme({ mode: checked ? 'dark' : 'light' })}
                 />
                 <div className="flex items-center gap-3">
-                  <span className="font-medium">Dark Mode</span>
+                  <span className="font-medium">{t.theme.darkMode}</span>
                   <Moon className="h-5 w-5 text-blue-500" />
                 </div>
               </div>
@@ -231,9 +235,9 @@ export default function ThemeSettings() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <Palette className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Background Color</CardTitle>
+                <CardTitle className="text-lg">{t.theme.backgroundColor}</CardTitle>
               </div>
-              <CardDescription>Main dashboard background</CardDescription>
+              <CardDescription>{t.theme.backgroundDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
@@ -275,9 +279,9 @@ export default function ThemeSettings() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <Sidebar className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Sidebar Color</CardTitle>
+                <CardTitle className="text-lg">{t.theme.sidebarColor}</CardTitle>
               </div>
-              <CardDescription>Navigation sidebar background</CardDescription>
+              <CardDescription>{t.theme.sidebarDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
@@ -304,9 +308,9 @@ export default function ThemeSettings() {
             <CardHeader className="pb-4">
               <div className="flex items-center gap-2">
                 <Square className="h-5 w-5 text-primary" fill="currentColor" />
-                <CardTitle className="text-lg">Accent Color</CardTitle>
+                <CardTitle className="text-lg">{t.theme.accentColor}</CardTitle>
               </div>
-              <CardDescription>Primary accent for buttons and highlights</CardDescription>
+              <CardDescription>{t.theme.accentDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
@@ -346,8 +350,8 @@ export default function ThemeSettings() {
           {/* Border Radius */}
           <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
             <CardHeader className="pb-4">
-              <CardTitle className="text-lg">Border Radius</CardTitle>
-              <CardDescription>Roundness of cards and buttons</CardDescription>
+              <CardTitle className="text-lg">{t.theme.borderRadius}</CardTitle>
+              <CardDescription>{t.theme.borderRadiusDescription}</CardDescription>
             </CardHeader>
             <CardContent>
               <RadioGroup
@@ -384,10 +388,10 @@ export default function ThemeSettings() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Eye className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">Live Preview</CardTitle>
+                <CardTitle className="text-lg">{t.theme.livePreview}</CardTitle>
               </div>
               <CardDescription>
-                See how your theme looks in real-time
+                {t.theme.livePreviewDescription}
               </CardDescription>
             </CardHeader>
             <CardContent>

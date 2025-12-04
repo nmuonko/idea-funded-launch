@@ -40,19 +40,19 @@ export function AdminLayout() {
     { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: 'can_view_dashboard' as const },
     { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
     { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'can_view_active_carts' as const },
-    { to: '/admin/saved-carts', icon: Bookmark, label: 'Saved Carts', permission: 'can_view_saved_carts' as const },
+    { to: '/admin/saved-carts', icon: Bookmark, label: t.sidebar.savedCarts, permission: 'can_view_saved_carts' as const },
     { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
     { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
     { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
-    { to: '/admin/shipping-types', icon: Truck, label: 'Shipping Types', permission: 'can_manage_shipping_types' as const },
+    { to: '/admin/shipping-types', icon: Truck, label: t.sidebar.shippingTypes, permission: 'can_manage_shipping_types' as const },
     { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'can_view_tickets' as const },
     { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
     { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'can_view_knowledge_base' as const },
     { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
     { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'can_manage_users' as const },
     { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'can_view_settings' as const },
-    { to: '/admin/theme-settings', icon: Palette, label: 'Theme Settings', permission: 'can_view_theme_settings' as const },
-    ...(isSuperAdmin ? [{ to: '/admin/audit-log', icon: Shield, label: 'Audit Log', exact: false, permission: 'can_view_dashboard' as const }] : []),
+    { to: '/admin/theme-settings', icon: Palette, label: t.sidebar.themeSettings, permission: 'can_view_theme_settings' as const },
+    ...(isSuperAdmin ? [{ to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const }] : []),
   ], [t, isSuperAdmin]);
 
   // Filter nav items based on permissions
@@ -203,7 +203,7 @@ export function AdminLayout() {
                   <Palette className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Customize Theme</TooltipContent>
+              <TooltipContent>{t.common.customizeTheme}</TooltipContent>
             </Tooltip>
           )}
           <LanguageSwitcher />
@@ -260,7 +260,7 @@ export function AdminLayout() {
                   <span className="hidden xl:inline">Theme</span>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Customize Theme</TooltipContent>
+              <TooltipContent>{t.common.customizeTheme}</TooltipContent>
             </Tooltip>
           )}
           <LanguageSwitcher />

@@ -111,7 +111,7 @@ export default function AdminDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight">{t.dashboard.title}</h1>
-          <p className="text-sm text-muted-foreground">Real-time business metrics</p>
+          <p className="text-sm text-muted-foreground">{t.dashboard.subtitle}</p>
         </div>
         <DateRangeFilter 
           dateRange={dateRange} 
@@ -126,34 +126,34 @@ export default function AdminDashboard() {
           {/* A. Top Summary Bar - 4 KPI Cards (removed Service Fees) */}
           <div className="grid gap-5 grid-cols-2 lg:grid-cols-4">
             <SummaryCard
-              title="Total Orders"
+              title={t.dashboard.totalOrders}
               value={stats.totalOrders}
               icon={Package}
               trend={stats.ordersTrend}
-              trendLabel="vs prev"
+              trendLabel={t.dashboard.vsPrev}
               isLoading={loading}
             />
             <SummaryCard
-              title="Paid Orders"
+              title={t.dashboard.paidOrders}
               value={stats.paidOrders}
               icon={TrendingUp}
               iconColor="text-emerald-500"
               isLoading={loading}
             />
             <SummaryCard
-              title="Pending"
+              title={t.dashboard.pending}
               value={stats.pendingPayments}
               icon={Clock}
               iconColor="text-yellow-500"
               isLoading={loading}
             />
             <SummaryCard
-              title="Revenue"
+              title={t.dashboard.revenue}
               value={formatUSD(stats.totalRevenue)}
               icon={DollarSign}
               iconColor="text-primary"
               trend={stats.revenueTrend}
-              trendLabel="vs prev"
+              trendLabel={t.dashboard.vsPrev}
               isLoading={loading}
             />
           </div>

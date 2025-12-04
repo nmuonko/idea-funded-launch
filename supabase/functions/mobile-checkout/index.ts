@@ -287,12 +287,18 @@ serve(async (req) => {
       grandTotalUsd,
     });
 
+    // Generate display reference (first 8 chars of UUID, uppercase)
+    const orderRef = checkoutOrder.id.substring(0, 8).toUpperCase();
+
     // Build the response body with consistent field names
     const responseBody = {
       // Primary fields for mobile app
       success: true,
       orderId: checkoutOrder.id,
-      checkoutUrl: checkoutUrl,  // Primary URL field
+      orderRef: orderRef,
+      displayRef: orderRef,
+      order_number: orderRef,
+      checkoutUrl: checkoutUrl,
       
       // Legacy/backwards compatibility fields
       redirectUrl: checkoutUrl,
@@ -304,10 +310,14 @@ serve(async (req) => {
       // Order summary
       order: {
         id: checkoutOrder.id,
+        order_number: orderRef,
+        displayRef: orderRef,
         status: 'PENDING_PAYMENT',
         itemCount,
         totalUsd: grandTotalUsd,
         totalCdf: grandTotalCdf,
+        total_amount_usd: grandTotalUsd,
+        total_amount_cdf: grandTotalCdf,
       },
     };
 

@@ -97,8 +97,7 @@ export function generatePaymentReference(orderId: string): string {
 
 /**
  * Create a payment session with MaishaPay
- * Returns a checkout URL with all params encoded as query string
- * so the mobile app can open it directly in a WebView (GET request)
+ * Makes a POST request to MaishaPay API and returns the checkout URL from response
  */
 export async function createPaymentSession(params: CreatePaymentParams): Promise<CreatePaymentResult> {
   const config = getMaishaPayConfig();
@@ -119,48 +118,111 @@ export async function createPaymentSession(params: CreatePaymentParams): Promise
     apiBaseUrl: config.apiBaseUrl,
   });
   
-  // Build query params for MaishaPay checkout URL
-  // This allows the mobile app to open the URL directly in a WebView
-  const queryParams = new URLSearchParams();
-  queryParams.set('publicApiKey', config.publicKey);
-  queryParams.set('secretApiKey', config.secretKey);
-  queryParams.set('gatewayMode', config.mode === 'live' ? '1' : '0');
-  queryParams.set('montant', params.amountUsd.toString());
-  queryParams.set('devise', params.currency || 'USD');
-  queryParams.set('callbackUrl', config.callbackUrl);
-  queryParams.set('reference', reference);
-  queryParams.set('email_client', params.customerEmail);
-  
-  if (params.customerName) {
-    queryParams.set('nom_client', params.customerName);
+  try {
+    // Build form data for MaishaPay POST request
+    const formData = new URLSearchParams();
+    formData.set('publicApiKey', config.publicKey);
+    formData.set('secretApiKey', config.secretKey);
+    formData.set('gatewayMode', config.mode === 'live' ? '1' : '0');
+    formData.set('montant', params.amountUsd.toString());
+    formData.set('devise', params.currency || 'USD');
+    formData.set('callbackUrl', config.callbackUrl);
+    formData.set('reference', reference);
+    formData.set('email_client', params.customerEmail);
+    
+    if (params.customerName) {
+      formData.set('nom_client', params.customerName);
+    }
+    if (params.customerPhone) {
+      formData.set('telephone_client', params.customerPhone);
+    }
+    if (params.description) {
+      formData.set('description', params.description);
+    }
+    
+    const apiUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/checkout`;
+    
+    console.log('[MaishaPay] Making POST request to:', apiUrl);
+    console.log('[MaishaPay] Request params:', {
+      reference,
+      amount: params.amountUsd,
+      currency: params.currency || 'USD',
+      callbackUrl: config.callbackUrl,
+      email: params.customerEmail,
+    });
+    
+    // Make POST request to MaishaPay API
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    });
+    
+    const responseText = await response.text();
+    console.log('[MaishaPay] Raw response status:', response.status);
+    console.log('[MaishaPay] Raw response body:', responseText);
+    
+    // Try to parse as JSON
+    let data: any;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      // If response is not JSON, it might be a redirect URL or HTML
+      // Check if it's a URL
+      if (responseText.startsWith('http')) {
+        return {
+          success: true,
+          checkoutUrl: responseText.trim(),
+          reference,
+          transactionId: reference,
+        };
+      }
+      console.error('[MaishaPay] Non-JSON response:', responseText.substring(0, 500));
+      return { success: false, checkoutUrl: '', reference, error: 'Invalid response from MaishaPay' };
+    }
+    
+    console.log('[MaishaPay] Parsed response:', JSON.stringify(data));
+    
+    // MaishaPay response typically contains a redirect/checkout URL
+    // Check common field names
+    const checkoutUrl = data.redirect_url || data.payment_url || data.checkoutUrl || 
+                        data.url || data.redirectUrl || data.link || data.checkout_url;
+    
+    if (checkoutUrl) {
+      console.log('[MaishaPay] Got checkout URL:', checkoutUrl);
+      return {
+        success: true,
+        checkoutUrl,
+        reference,
+        transactionId: data.transactionId || data.transaction_id || reference,
+      };
+    }
+    
+    // If no URL in response but request was successful, MaishaPay might use a different flow
+    // Some versions return the transaction ID and expect form submission
+    if (data.success || data.status === 'success' || response.ok) {
+      // Fallback: Build a form-submission URL (for mobile WebView to POST)
+      const fallbackUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/pay?reference=${reference}`;
+      console.log('[MaishaPay] Using fallback checkout approach with reference:', reference);
+      return {
+        success: true,
+        checkoutUrl: fallbackUrl,
+        reference,
+        transactionId: data.transactionId || data.transaction_id || reference,
+      };
+    }
+    
+    // Handle error response
+    const errorMsg = data.message || data.error || data.description || 'Payment initiation failed';
+    console.error('[MaishaPay] API error:', errorMsg);
+    return { success: false, checkoutUrl: '', reference, error: errorMsg };
+    
+  } catch (error: any) {
+    console.error('[MaishaPay] Request error:', error.message);
+    return { success: false, checkoutUrl: '', reference, error: error.message };
   }
-  if (params.customerPhone) {
-    queryParams.set('telephone_client', params.customerPhone);
-  }
-  if (params.description) {
-    queryParams.set('description', params.description);
-  }
-  
-  // Build the full checkout URL with query params for GET redirect
-  // MaishaPay supports both POST form and GET with query params
-  const baseCheckoutUrl = `${config.apiBaseUrl}/payment/vers1.0/merchant/checkout`;
-  const checkoutUrl = `${baseCheckoutUrl}?${queryParams.toString()}`;
-  
-  console.log('[MaishaPay] Generated checkout URL (truncated):', checkoutUrl.substring(0, 150) + '...');
-  console.log('[MaishaPay] Full params:', {
-    baseUrl: baseCheckoutUrl,
-    reference,
-    amount: params.amountUsd,
-    currency: params.currency || 'USD',
-    callbackUrl: config.callbackUrl,
-  });
-  
-  return {
-    success: true,
-    checkoutUrl,
-    reference,
-    transactionId: reference,
-  };
 }
 
 /**

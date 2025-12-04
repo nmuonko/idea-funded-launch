@@ -40,21 +40,32 @@ serve(async (req) => {
       .from('orders')
       .select(`
         *,
-        profiles!inner(name, email),
+        profiles(user_id, name, full_name, email, phone),
         order_items(title, quantity, total_price_usd)
       `)
       .eq('id', orderId)
       .single();
 
+    console.log('[send-order-email] Order lookup:', { orderId, found: !!order, error: orderError?.message });
+
     if (orderError || !order) {
-      return new Response(JSON.stringify({ error: 'Order not found' }), {
+      console.error('[send-order-email] Order not found:', { orderId, error: orderError });
+      return new Response(JSON.stringify({ error: 'Order not found', orderId }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const customerEmail = order.profiles.email;
-    const customerName = order.profiles.name || 'Customer';
+    const customerEmail = order.profiles?.email;
+    const customerName = order.profiles?.name || order.profiles?.full_name || 'Customer';
+
+    if (!customerEmail) {
+      console.error('[send-order-email] No customer email found for order:', orderId);
+      return new Response(JSON.stringify({ error: 'Customer email not found' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     let subject = '';
     let html = '';

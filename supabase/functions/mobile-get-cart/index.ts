@@ -77,17 +77,21 @@ serve(async (req) => {
     console.log('[mobile-get-cart] User authenticated:', user.id);
 
     // Get pricing settings
-    const { data: settings } = await supabase.from('settings').select('*').single();
+    const { data: settings } = await supabase.from('settings').select('*').maybeSingle();
     const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
     const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
 
-    // Get DRAFT order with its totals
-    const { data: order } = await supabase
+    // Get user's active DRAFT order (cart) - use maybeSingle to handle no cart case gracefully
+    const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
-      .single();
+      .maybeSingle();
+
+    if (orderError) {
+      console.error('[mobile-get-cart] Error fetching order:', orderError);
+    }
 
     if (!order) {
       console.log('[mobile-get-cart] No DRAFT order found');

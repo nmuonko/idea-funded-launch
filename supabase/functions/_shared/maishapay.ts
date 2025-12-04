@@ -49,14 +49,34 @@ export interface VerifyPaymentResult {
  * Get MaishaPay configuration from environment variables
  */
 export function getMaishaPayConfig(): MaishaPayConfig {
-  const mode = Deno.env.get('MAISHAPAY_MODE');
-  const isSandbox = mode !== '1' && mode?.toLowerCase() !== 'live';
+  // Check both MAISHAPAY_GATEWAY_MODE and MAISHAPAY_MODE for flexibility
+  const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
+  const legacyMode = Deno.env.get('MAISHAPAY_MODE');
+  
+  // Determine if we're in live mode:
+  // MAISHAPAY_GATEWAY_MODE: "1" = live, "0" = sandbox
+  // MAISHAPAY_MODE: "1" or "live" = live, anything else = sandbox
+  const isLiveMode = gatewayMode === '1' || 
+                     legacyMode === '1' || 
+                     legacyMode?.toLowerCase() === 'live';
+  
+  console.log('[MaishaPay] Mode detection:', { gatewayMode, legacyMode, isLiveMode });
   
   let publicKey: string;
   let secretKey: string;
   let apiBaseUrl: string;
   
-  if (isSandbox) {
+  if (isLiveMode) {
+    // Live mode - use LIVE keys first, fall back to generic keys
+    publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
+                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
+                Deno.env.get('MAISHA_PUBLIC_KEY') || '';
+    secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+                Deno.env.get('MAISHAPAY_SECRET_KEY') || 
+                Deno.env.get('MAISHA_SECRET_KEY') || '';
+    apiBaseUrl = Deno.env.get('MAISHAPAY_BASE_URL') || 'https://marchand.maishapay.online';
+  } else {
+    // Sandbox mode - use SANDBOX keys first, fall back to generic keys
     publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
                 Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
                 Deno.env.get('MAISHA_PUBLIC_KEY') || '';
@@ -66,12 +86,6 @@ export function getMaishaPayConfig(): MaishaPayConfig {
     apiBaseUrl = Deno.env.get('MAISHAPAY_SANDBOX_API_URL') || 
                  Deno.env.get('MAISHAPAY_BASE_URL') || 
                  'https://sandbox.maishapay.net';
-  } else {
-    publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
-                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
-    secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
-                Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
-    apiBaseUrl = Deno.env.get('MAISHAPAY_BASE_URL') || 'https://marchand.maishapay.online';
   }
   
   // Build the callback URL using the Supabase project URL
@@ -88,9 +102,10 @@ export function getMaishaPayConfig(): MaishaPayConfig {
   const checkoutPageUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page`;
   
   console.log('[MaishaPay Config]', {
-    mode: isSandbox ? 'sandbox' : 'live',
+    mode: isLiveMode ? 'live' : 'sandbox',
     hasPublicKey: !!publicKey,
     hasSecretKey: !!secretKey,
+    publicKeyPrefix: publicKey?.slice(0, 10) + '...',
     apiBaseUrl,
     callbackUrl,
     checkoutPageUrl,
@@ -99,7 +114,7 @@ export function getMaishaPayConfig(): MaishaPayConfig {
   return {
     publicKey,
     secretKey,
-    mode: isSandbox ? 'sandbox' : 'live',
+    mode: isLiveMode ? 'live' : 'sandbox',
     callbackUrl,
     apiBaseUrl,
     frontendSuccessUrl,

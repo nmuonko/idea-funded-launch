@@ -55,9 +55,12 @@ serve(async (req) => {
     );
 
     // Find order by maisha_transaction_id (reference)
+    // Use multiple lookup strategies for robustness
     let order = null;
     
-    // Try finding by exact reference match
+    console.log('[maishapay-update-order] Searching for order with reference:', transactionRefId);
+    
+    // Strategy 1: Exact match on maisha_transaction_id
     const { data: orderByRef, error: refError } = await supabase
       .from('orders')
       .select('*')
@@ -66,22 +69,67 @@ serve(async (req) => {
 
     if (orderByRef) {
       order = orderByRef;
-    } else {
-      // Try extracting order ID from reference (format: AFRISHOP-{orderId}-{timestamp})
+      console.log('[maishapay-update-order] Found by exact transaction ID match');
+    }
+    
+    // Strategy 2: Try maisha_payments table
+    if (!order) {
+      const { data: payment } = await supabase
+        .from('maisha_payments')
+        .select('order_id')
+        .eq('maisha_reference', transactionRefId)
+        .maybeSingle();
+      
+      if (payment?.order_id) {
+        const { data: orderFromPayment } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', payment.order_id)
+          .maybeSingle();
+        
+        if (orderFromPayment) {
+          order = orderFromPayment;
+          console.log('[maishapay-update-order] Found via maisha_payments table');
+        }
+      }
+    }
+    
+    // Strategy 3: Extract order ID from reference (format: AFRISHOP-{orderId8chars}-{timestamp})
+    if (!order) {
       const parts = transactionRefId.split('-');
       if (parts.length >= 2 && parts[0] === 'AFRISHOP') {
-        const partialOrderId = parts[1];
+        const partialOrderId = parts[1]; // First 8 chars of order UUID
         
+        console.log('[maishapay-update-order] Trying partial ID match:', partialOrderId);
+        
+        // Find any PENDING_PAYMENT order starting with this ID
         const { data: orderByPartial } = await supabase
           .from('orders')
           .select('*')
           .ilike('id', `${partialOrderId}%`)
           .eq('status', 'PENDING_PAYMENT')
+          .order('created_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
         
         if (orderByPartial) {
           order = orderByPartial;
+          console.log('[maishapay-update-order] Found by partial ID match');
         }
+      }
+    }
+    
+    // Strategy 4: Try operatorRefId if provided
+    if (!order && operatorRefId) {
+      const { data: orderByOperator } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('operator_ref_id', operatorRefId)
+        .maybeSingle();
+      
+      if (orderByOperator) {
+        order = orderByOperator;
+        console.log('[maishapay-update-order] Found by operator ref ID');
       }
     }
 

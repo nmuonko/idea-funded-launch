@@ -158,3 +158,6 @@ verify_jwt = true
 
 [functions.generate-payment-receipt]
 verify_jwt = true
+
+[functions.payment-status]
+verify_jwt = false

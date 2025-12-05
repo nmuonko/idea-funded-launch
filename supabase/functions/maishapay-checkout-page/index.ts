@@ -181,6 +181,8 @@ serve(async (req) => {
         ...corsHeaders, 
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store, no-cache, must-revalidate',
+        // Allow inline scripts for auto-submit functionality
+        'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action https://marchand.maishapay.online",
       },
     });
 
@@ -207,29 +209,45 @@ interface CheckoutParams {
 function renderCheckoutPage(params: CheckoutParams): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
-  // CRITICAL: Keep HTML extremely simple for mobile WebView compatibility
-  // No JavaScript, minimal CSS, immediate button visibility
+  // HTML with auto-submit after showing content briefly
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paiement</title>
+<title>Paiement AfriShop</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.container{text-align:center;width:100%;max-width:350px}
+.icon{font-size:48px;margin-bottom:16px}
+h1{font-size:20px;margin-bottom:8px}
+.subtitle{opacity:0.7;font-size:14px;margin-bottom:24px}
+.amount-box{background:rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:24px}
+.amount-label{font-size:12px;opacity:0.6;margin-bottom:8px}
+.amount{font-size:32px;font-weight:bold;color:#00d4ff}
+.ref{font-size:11px;opacity:0.5;margin-top:8px}
+.btn{width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer}
+.btn:hover{background:#00b8e6}
+.secure{margin-top:20px;font-size:11px;opacity:0.4}
+.status{margin-top:16px;font-size:13px;opacity:0.8}
+.spinner{display:inline-block;width:20px;height:20px;border:2px solid rgba(255,255,255,0.3);border-top-color:#00d4ff;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
 </head>
-<body style="margin:0;padding:20px;font-family:Arial,sans-serif;background:#1a1a2e;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-
-<div style="text-align:center;width:100%;max-width:350px;">
-  <div style="font-size:48px;margin-bottom:16px;">💳</div>
-  <h1 style="font-size:20px;margin:0 0 8px 0;">Paiement Sécurisé</h1>
-  <p style="margin:0 0 24px 0;opacity:0.7;font-size:14px;">AfriShop - MaishaPay</p>
+<body>
+<div class="container">
+  <div class="icon">💳</div>
+  <h1>Paiement Sécurisé</h1>
+  <p class="subtitle">AfriShop via MaishaPay</p>
   
-  <div style="background:#16213e;border-radius:12px;padding:20px;margin-bottom:24px;">
-    <p style="margin:0 0 8px 0;font-size:12px;opacity:0.6;">Montant à payer</p>
-    <p style="margin:0;font-size:32px;font-weight:bold;color:#00d4ff;">$${params.amount}</p>
-    <p style="margin:8px 0 0 0;font-size:11px;opacity:0.5;">Réf: ${params.reference.slice(0, 20)}...</p>
+  <div class="amount-box">
+    <p class="amount-label">Montant à payer</p>
+    <p class="amount">$${params.amount} ${params.currency}</p>
+    <p class="ref">Réf: ${params.reference}</p>
   </div>
   
-  <form action="${checkoutUrl}" method="POST">
+  <form id="payForm" action="${checkoutUrl}" method="POST">
     <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
     <input type="hidden" name="publicApiKey" value="${params.publicKey}">
     <input type="hidden" name="secretApiKey" value="${params.secretKey}">
@@ -238,14 +256,43 @@ function renderCheckoutPage(params: CheckoutParams): string {
     <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
     <input type="hidden" name="reference" value="${params.reference}">
     
-    <button type="submit" style="width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;">
-      Payer maintenant
-    </button>
+    <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
   </form>
   
-  <p style="margin-top:20px;font-size:11px;opacity:0.4;">🔒 Paiement sécurisé via MaishaPay</p>
+  <p class="status" id="status"></p>
+  <p class="secure">🔒 Paiement sécurisé via MaishaPay</p>
 </div>
 
+<script>
+(function(){
+  var status = document.getElementById('status');
+  var btn = document.getElementById('payBtn');
+  var form = document.getElementById('payForm');
+  var submitted = false;
+  
+  function submit() {
+    if (submitted) return;
+    submitted = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Redirection...';
+    status.innerHTML = 'Connexion à MaishaPay...';
+    setTimeout(function() { form.submit(); }, 500);
+  }
+  
+  // Auto-submit after 2 seconds
+  setTimeout(submit, 2000);
+  
+  // Or on button click
+  btn.onclick = function(e) {
+    e.preventDefault();
+    submit();
+  };
+})();
+</script>
+
+<noscript>
+<style>#status{display:none}</style>
+</noscript>
 </body>
 </html>`;
 }

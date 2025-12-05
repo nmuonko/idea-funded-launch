@@ -8,47 +8,117 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 
 /**
- * Mobile Checkout Edge Function - SIMPLIFIED
+ * Mobile Checkout Edge Function
  * 
- * Creates an order from cart items and returns a SINGLE HTTPS checkout URL.
- * The mobile app opens this URL directly in a WebView - NO HTML is returned.
+ * Creates order from cart items and returns checkout data.
+ * Returns BOTH checkoutUrl AND html field for maximum compatibility.
  * 
- * Response format on success:
- * {
- *   "success": true,
- *   "orderId": "<uuid>",
- *   "confirmationId": "<8-char-ref>",
- *   "checkoutUrl": "https://.../functions/v1/maishapay-checkout-page?order_id=..."
- * }
- * 
- * Response format on error:
- * {
- *   "success": false,
- *   "code": "ERROR_CODE",
- *   "message": "Human readable error message"
- * }
- * 
- * Flow:
- * 1. Mobile app calls POST /mobile-checkout with { cart_item_ids: [...] }
- * 2. This function validates cart, creates order with PENDING_PAYMENT status
- * 3. Returns checkoutUrl pointing to maishapay-checkout-page edge function
- * 4. Mobile opens checkoutUrl in WebView
- * 5. maishapay-checkout-page renders form that auto-submits to MaishaPay
- * 6. User completes payment on MaishaPay
- * 7. MaishaPay calls our callback URL to update order status
- * 8. User is redirected to /maishapay/result
+ * The mobile app can either:
+ * 1. Open checkoutUrl in WebView (simpler but depends on edge function HTML rendering)
+ * 2. Render the html field directly in WebView (more reliable)
  */
 
-// Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Dynamic shipping calculation
 function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
   return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
 }
 
+// Generate checkout HTML that auto-submits to MaishaPay
+function generateCheckoutHtml(params: {
+  publicKey: string;
+  secretKey: string;
+  gatewayMode: string;
+  amount: string;
+  currency: string;
+  reference: string;
+  callbackUrl: string;
+  orderId: string;
+}): string {
+  const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
+  
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement AfriShop</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.container{text-align:center;width:100%;max-width:350px}
+.icon{font-size:48px;margin-bottom:16px}
+h1{font-size:20px;margin-bottom:8px}
+.subtitle{opacity:0.7;font-size:14px;margin-bottom:24px}
+.amount-box{background:rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:24px}
+.amount-label{font-size:12px;opacity:0.6;margin-bottom:8px}
+.amount{font-size:32px;font-weight:bold;color:#00d4ff}
+.ref{font-size:11px;opacity:0.5;margin-top:8px}
+.btn{width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer}
+.secure{margin-top:20px;font-size:11px;opacity:0.4}
+.status{margin-top:16px;font-size:13px;opacity:0.8}
+.spinner{display:inline-block;width:20px;height:20px;border:2px solid rgba(255,255,255,0.3);border-top-color:#00d4ff;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="icon">💳</div>
+  <h1>Paiement Sécurisé</h1>
+  <p class="subtitle">AfriShop via MaishaPay</p>
+  
+  <div class="amount-box">
+    <p class="amount-label">Montant à payer</p>
+    <p class="amount">$${params.amount} ${params.currency}</p>
+    <p class="ref">Réf: ${params.reference}</p>
+  </div>
+  
+  <form id="payForm" action="${checkoutUrl}" method="POST">
+    <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
+    <input type="hidden" name="publicApiKey" value="${params.publicKey}">
+    <input type="hidden" name="secretApiKey" value="${params.secretKey}">
+    <input type="hidden" name="montant" value="${params.amount}">
+    <input type="hidden" name="devise" value="${params.currency}">
+    <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
+    <input type="hidden" name="reference" value="${params.reference}">
+    
+    <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
+  </form>
+  
+  <p class="status" id="status"></p>
+  <p class="secure">🔒 Paiement sécurisé via MaishaPay</p>
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('payBtn');
+  var form = document.getElementById('payForm');
+  var status = document.getElementById('status');
+  var submitted = false;
+  
+  function submit() {
+    if (submitted) return;
+    submitted = true;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Redirection...';
+    status.innerHTML = 'Connexion à MaishaPay...';
+    setTimeout(function() { form.submit(); }, 500);
+  }
+  
+  // Auto-submit after 2 seconds
+  setTimeout(submit, 2000);
+  
+  btn.onclick = function(e) {
+    e.preventDefault();
+    submit();
+  };
+})();
+</script>
+</body>
+</html>`;
+}
+
 serve(async (req) => {
-  // Handle CORS preflight
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
@@ -59,11 +129,9 @@ serve(async (req) => {
   try {
     console.log('[mobile-checkout] Request received');
 
-    // Verify JWT
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-checkout] User authenticated:', user.id);
 
-    // Parse request body - only needs cart_item_ids and optional notes
     const body = await req.json();
     const { cart_item_ids, notes } = body;
 
@@ -73,7 +141,7 @@ serve(async (req) => {
 
     console.log('[mobile-checkout] Checkout requested for items:', cart_item_ids);
 
-    // AUTO-FILL: Fetch user profile to get shipping details
+    // Fetch user profile for shipping details
     const { data: userProfile, error: profileError } = await supabase
       .from('profiles')
       .select('user_id, email, full_name, name, phone, address_line1, address_line2, city, state_province, postal_code, country')
@@ -84,7 +152,6 @@ serve(async (req) => {
       console.error('[mobile-checkout] Error fetching profile:', profileError);
     }
 
-    // Log profile data for debugging
     console.log('[mobile-checkout] User profile data:', userProfile ? {
       hasFullName: !!userProfile.full_name,
       hasPhone: !!userProfile.phone,
@@ -98,7 +165,6 @@ serve(async (req) => {
       address_line1: userProfile.address_line1,
     } : 'NO PROFILE FOUND');
 
-    // Check if profile is complete for checkout using shared helper
     if (!isProfileComplete(userProfile)) {
       const missingFields = getMissingProfileFields(userProfile);
       console.log('[mobile-checkout] User profile incomplete. Missing fields:', missingFields);
@@ -111,8 +177,6 @@ serve(async (req) => {
     }
 
     console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
-
-    // TypeScript: userProfile is guaranteed non-null after isProfileComplete check
     const profile = userProfile!;
 
     // Get user's DRAFT order
@@ -125,20 +189,14 @@ serve(async (req) => {
 
     if (orderFetchError) {
       console.error('[mobile-checkout] Error fetching draft order:', orderFetchError);
-      return jsonResponse({ 
-        success: false,
-        error: 'Failed to fetch cart data.' 
-      }, 500);
+      return jsonResponse({ success: false, error: 'Failed to fetch cart data.' }, 500);
     }
 
     if (!existingOrder) {
-      return jsonResponse({ 
-        success: false,
-        error: 'Your cart is empty. Please add items before checkout.' 
-      }, 400);
+      return jsonResponse({ success: false, error: 'Your cart is empty. Please add items before checkout.' }, 400);
     }
 
-    // Get the requested items - validate they belong to user, are in DRAFT order, and NOT saved for later
+    // Get requested items
     const { data: requestedItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
@@ -147,55 +205,37 @@ serve(async (req) => {
 
     if (itemsError) {
       console.error('[mobile-checkout] Error fetching items:', itemsError);
-      return jsonResponse({ 
-        success: false,
-        error: 'Failed to fetch cart items.' 
-      }, 500);
+      return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
     }
 
-    // Validate all requested items exist and are valid
     if (!requestedItems || requestedItems.length !== cart_item_ids.length) {
-      return jsonResponse({ 
-        success: false,
-        error: 'Some requested items were not found in your cart.'
-      }, 400);
+      return jsonResponse({ success: false, error: 'Some requested items were not found in your cart.' }, 400);
     }
 
     // Check for saved items
     const savedItems = requestedItems.filter(item => item.is_saved_for_later);
     if (savedItems.length > 0) {
-      return jsonResponse({ 
-        success: false,
-        error: 'Cannot checkout items that are saved for later. Please move them to cart first.'
-      }, 400);
+      return jsonResponse({ success: false, error: 'Cannot checkout items that are saved for later.' }, 400);
     }
 
-    // Check for items requiring manual quote - return structured response
+    // Check for items requiring manual quote
     const manualQuoteItems = requestedItems.filter(item => item.requires_manual_quote);
     if (manualQuoteItems.length > 0) {
-      // Check if quote requests already exist for these items
       const quoteItemIds = manualQuoteItems.map(item => item.id);
       const { data: existingQuotes } = await supabase
         .from('quote_requests')
         .select('id, order_item_id, status')
         .in('order_item_id', quoteItemIds);
       
-      const quoteRequestIds = existingQuotes?.map(q => q.id) || [];
-      const pendingQuotes = existingQuotes?.filter(q => q.status === 'PENDING' || q.status === 'SENT') || [];
-      
       return jsonResponse({ 
         success: false,
         code: 'QUOTE_REQUIRED',
         message: 'Some items require a custom shipping quote.',
-        cartId: existingOrder.id,
         quoteRequiredItems: manualQuoteItems.map(item => ({
           id: item.id,
           title: item.title,
           productUrl: item.product_url,
-          store: item.store,
         })),
-        existingQuoteRequests: quoteRequestIds.length > 0 ? quoteRequestIds : null,
-        hasPendingQuote: pendingQuotes.length > 0,
       }, 400);
     }
 
@@ -207,17 +247,14 @@ serve(async (req) => {
 
     if (settingsError || !settings) {
       console.error('[mobile-checkout] Error fetching settings:', settingsError);
-      return jsonResponse({ 
-        success: false,
-        error: 'Failed to load pricing configuration.' 
-      }, 500);
+      return jsonResponse({ success: false, error: 'Failed to load pricing configuration.' }, 500);
     }
 
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
     const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
     const shippingPercent = settings.shipping_percent ?? 0.10;
 
-    // Calculate totals for selected items only
+    // Calculate totals
     let itemCount = 0;
     let totalItemsUsd = 0;
     let totalMarginUsd = 0;
@@ -242,11 +279,9 @@ serve(async (req) => {
       grandTotalUsd,
     });
 
-    // Generate payment reference
+    // Create checkout order
     const timestamp = Date.now().toString(36);
     
-    // Create a new order for checkout with only selected items
-    // AUTO-FILL shipping address from user profile
     const { data: checkoutOrder, error: createOrderError } = await supabase
       .from('orders')
       .insert({
@@ -260,7 +295,6 @@ serve(async (req) => {
         exchange_rate_used: exchangeRate,
         maisha_payment_status: 'PENDING',
         admin_notes: notes || null,
-        // Note: shipping_city is an enum, so we map if possible
         shipping_city: mapToShippingCity(profile.city),
       })
       .select()
@@ -268,21 +302,16 @@ serve(async (req) => {
 
     if (createOrderError) {
       console.error('[mobile-checkout] Error creating checkout order:', createOrderError);
-      return jsonResponse({ 
-        success: false,
-        error: 'Failed to create order. Please try again.' 
-      }, 500);
+      return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 500);
     }
 
-    // Generate reference with order ID
     const reference = `AFRISHOP-${checkoutOrder.id.slice(0, 8)}-${timestamp}`;
 
-    // Update order with reference
     await supabase.from('orders').update({
       maisha_transaction_id: reference,
     }).eq('id', checkoutOrder.id);
 
-    // Move selected items to the new order
+    // Move items to new order
     const { error: moveItemsError } = await supabase
       .from('order_items')
       .update({ order_id: checkoutOrder.id })
@@ -290,15 +319,11 @@ serve(async (req) => {
 
     if (moveItemsError) {
       console.error('[mobile-checkout] Error moving items to checkout order:', moveItemsError);
-      // Rollback: delete the new order
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
-      return jsonResponse({ 
-        success: false,
-        error: 'Failed to process checkout. Please try again.' 
-      }, 500);
+      return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
     }
 
-    // Create payment record with user info
+    // Create payment record
     await supabase
       .from('maisha_payments')
       .insert({
@@ -314,43 +339,52 @@ serve(async (req) => {
           email: profile.email || user.email,
           phone: profile.phone,
           customerName: profile.full_name,
-          shippingAddress: {
-            addressLine1: profile.address_line1,
-            addressLine2: profile.address_line2,
-            city: profile.city,
-            stateProvince: profile.state_province,
-            postalCode: profile.postal_code,
-            country: profile.country,
-          },
         },
       });
 
-    // Get Supabase URL for building checkout URL
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    // Get MaishaPay configuration
+    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
+    const legacyMode = Deno.env.get('MAISHAPAY_MODE');
+    const isLiveMode = gatewayMode === '1' || legacyMode === '1' || legacyMode?.toLowerCase() === 'live';
     
-    if (!supabaseUrl) {
-      console.error('[mobile-checkout] [CONFIG ERROR] Missing SUPABASE_URL');
-      return jsonResponse({
-        success: false,
-        code: 'CHECKOUT_URL_ERROR',
-        error: 'Unable to create MaishaPay checkout URL. Please try again later.',
-      }, 500);
+    const primarySecretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY');
+    
+    let publicKey: string;
+    let secretKey: string;
+    
+    if (isLiveMode) {
+      publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
+      secretKey = primarySecretKey || Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
+    } else {
+      publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
+      secretKey = primarySecretKey || Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
     }
     
-    // Build the checkout URL - points to our edge function that renders the MaishaPay form
-    const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
-    
-    // Validate the URL is valid HTTPS
-    if (!checkoutUrl.startsWith('https://')) {
-      console.error('[mobile-checkout] [CONFIG ERROR] Checkout URL is not HTTPS:', checkoutUrl);
+    if (!publicKey || !secretKey) {
+      console.error('[mobile-checkout] Missing MaishaPay keys');
       return jsonResponse({
         success: false,
         code: 'CHECKOUT_URL_ERROR',
-        error: 'Unable to create MaishaPay checkout URL. Please try again later.',
+        error: 'Payment gateway not configured. Please contact support.',
       }, 500);
     }
 
-    // Generate display reference (first 8 chars of UUID, uppercase)
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const callbackUrl = `${supabaseUrl}/functions/v1/maishapay-callback`;
+    
+    // Generate HTML for mobile WebView
+    const html = generateCheckoutHtml({
+      publicKey,
+      secretKey,
+      gatewayMode: isLiveMode ? '1' : '0',
+      amount: grandTotalUsd.toFixed(2),
+      currency: 'USD',
+      reference,
+      callbackUrl,
+      orderId: checkoutOrder.id,
+    });
+
+    const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     console.log('[mobile-checkout] Order created successfully');
@@ -362,13 +396,13 @@ serve(async (req) => {
       checkoutUrl,
     });
 
-    // SIMPLIFIED RESPONSE - Only checkoutUrl, no HTML
+    // Return BOTH checkoutUrl AND html for compatibility
     return jsonResponse({
       success: true,
       orderId: checkoutOrder.id,
       confirmationId,
       checkoutUrl,
-      // Additional fields for backward compatibility
+      html, // Mobile app can render this directly in WebView
       order: {
         id: checkoutOrder.id,
         confirmationId,
@@ -386,17 +420,10 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: error.message }, error.status);
     }
     
-    return jsonResponse({ 
-      success: false,
-      error: 'An unexpected error occurred. Please try again.',
-    }, 500);
+    return jsonResponse({ success: false, error: 'An unexpected error occurred. Please try again.' }, 500);
   }
 });
 
-/**
- * Helper to map city string to shipping_city enum
- * Returns null if city doesn't match known values
- */
 function mapToShippingCity(city: string | null): 'KINSHASA' | 'LUBUMBASHI' | 'OTHER' | null {
   if (!city) return null;
   const normalized = city.toUpperCase().trim();

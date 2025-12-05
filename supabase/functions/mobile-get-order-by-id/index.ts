@@ -102,21 +102,28 @@ serve(async (req) => {
           const subtotal = Number(item.subtotal_usd) || (basePrice * qty);
           const totalWithMarkup = Number(item.total_price_usd) || subtotal;
           
+          // Image URL - provide multiple aliases for mobile compatibility
+          const imgUrl = item.product_image_url || null;
+          
           return {
             id: item.id,
             title: item.title || 'Product',
             store: item.store,
             productUrl: item.product_url,
-            imageUrl: item.product_image_url,
-            // Multiple field aliases for mobile app compatibility
+            // Image URL aliases - mobile app may use any of these
+            imageUrl: imgUrl,
+            image_url: imgUrl,
+            product_image_url: imgUrl,
+            productImageUrl: imgUrl,
+            // Price field aliases for mobile app compatibility
             priceUsd: basePrice,
             unitPriceUsd: basePrice,
-            unit_price_usd: basePrice, // Snake case alias
+            unit_price_usd: basePrice,
             quantity: qty,
             subtotalUsd: subtotal,
-            subtotal_usd: subtotal, // Snake case alias
+            subtotal_usd: subtotal,
             totalUsd: totalWithMarkup,
-            total_price_usd: totalWithMarkup, // Snake case alias
+            total_price_usd: totalWithMarkup,
             markupFeeUsd: Number(item.markup_fee_usd) || 0,
             shippingStatus: normalizeShippingStatus(item.shipping_status),
           };

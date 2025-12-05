@@ -104,12 +104,20 @@ serve(async (req) => {
           const qty = Number(item.quantity) || 1;
           const subtotal = Number(item.subtotal_usd) || (basePrice * qty);
           
+          // Image URL - provide multiple aliases for mobile compatibility
+          const imgUrl = item.product_image_url || null;
+          
           return {
             id: item.id,
             title: item.title || 'Product',
             store: item.store,
             productUrl: item.product_url,
-            imageUrl: item.product_image_url,
+            // Image URL aliases - mobile app may use any of these
+            imageUrl: imgUrl,
+            image_url: imgUrl,
+            product_image_url: imgUrl,
+            productImageUrl: imgUrl,
+            // Price field aliases
             priceUsd: basePrice,
             unitPriceUsd: basePrice,
             unit_price_usd: basePrice,

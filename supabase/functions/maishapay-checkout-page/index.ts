@@ -34,21 +34,61 @@ serve(async (req) => {
 
     console.log('[maishapay-checkout-page] Processing order:', orderId);
 
-    // Get MaishaPay configuration
-    const mode = Deno.env.get('MAISHAPAY_MODE');
-    const isSandbox = mode !== '1' && mode?.toLowerCase() !== 'live';
+    // Get MaishaPay configuration - check both env var names for mode
+    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
+    const legacyMode = Deno.env.get('MAISHAPAY_MODE');
     
-    const publicKey = isSandbox 
-      ? (Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || Deno.env.get('MAISHA_PUBLIC_KEY') || '')
-      : (Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '');
+    // Determine if we're in live mode:
+    // MAISHAPAY_GATEWAY_MODE: "1" = live, "0" = sandbox
+    // MAISHAPAY_MODE: "1" or "live" = live
+    const isLiveMode = gatewayMode === '1' || 
+                       legacyMode === '1' || 
+                       legacyMode?.toLowerCase() === 'live';
     
-    const secretKey = isSandbox
-      ? (Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || Deno.env.get('MAISHA_SECRET_KEY') || '')
-      : (Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '');
+    console.log('[maishapay-checkout-page] Mode detection:', { gatewayMode, legacyMode, isLiveMode });
+    
+    let publicKey: string;
+    let secretKey: string;
+    
+    if (isLiveMode) {
+      // Live mode - check LIVE keys first, then generic
+      publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
+                  Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
+      secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+                  Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
+    } else {
+      // Sandbox mode
+      publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
+                  Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
+                  Deno.env.get('MAISHA_PUBLIC_KEY') || '';
+      secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
+                  Deno.env.get('MAISHAPAY_SECRET_KEY') || 
+                  Deno.env.get('MAISHA_SECRET_KEY') || '';
+    }
 
-    if (!publicKey || !secretKey) {
-      console.error('[maishapay-checkout-page] Missing API keys');
-      return new Response(renderErrorPage('Payment gateway not configured'), {
+    // Log key detection (without revealing full keys)
+    console.log('[maishapay-checkout-page] Key detection:', {
+      mode: isLiveMode ? 'live' : 'sandbox',
+      hasPublicKey: !!publicKey,
+      hasSecretKey: !!secretKey,
+      publicKeyPrefix: publicKey ? publicKey.slice(0, 15) + '...' : 'MISSING',
+      secretKeyPrefix: secretKey ? secretKey.slice(0, 15) + '...' : 'MISSING',
+    });
+
+    // Validate keys with clear error messages
+    if (!publicKey) {
+      const error = `[CONFIG ERROR] Missing MaishaPay public key. Set MAISHAPAY_${isLiveMode ? 'LIVE_' : ''}PUBLIC_KEY`;
+      console.error('[maishapay-checkout-page]', error);
+      return new Response(renderErrorPage('Payment gateway not configured: missing public key'), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
+    
+    if (!secretKey) {
+      const error = `[CONFIG ERROR] Missing MaishaPay secret key. Set MAISHAPAY_${isLiveMode ? 'LIVE_' : ''}SECRET_KEY`;
+      console.error('[maishapay-checkout-page]', error);
+      return new Response(renderErrorPage('Payment gateway not configured: missing secret key'), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' },
       });
@@ -107,7 +147,7 @@ serve(async (req) => {
       amount,
       currency,
       reference,
-      mode: isSandbox ? 'sandbox' : 'live',
+      mode: isLiveMode ? 'live' : 'sandbox',
       callbackUrl,
     });
 
@@ -115,7 +155,7 @@ serve(async (req) => {
     const html = renderCheckoutPage({
       publicKey,
       secretKey,
-      gatewayMode: isSandbox ? '0' : '1',
+      gatewayMode: isLiveMode ? '1' : '0',
       amount: amount.toFixed(2),
       currency,
       reference,

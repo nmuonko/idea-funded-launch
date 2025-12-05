@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
   verifyAndGetUser, 
   handleCors, 
-  errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
 
@@ -11,6 +10,7 @@ import {
  * 
  * Updates the authenticated user's profile information.
  * Only provided fields will be updated.
+ * NOTE: postalCode field removed - not used in African countries.
  * 
  * PATCH /mobile-profile-update
  * 
@@ -22,8 +22,8 @@ import {
  *   "addressLine2": "...",
  *   "city": "...",
  *   "stateOrProvince": "...",
- *   "postalCode": "...",
- *   "country": "..."
+ *   "country": "...",
+ *   "language": "fr" | "en" | "sw" | "ln"
  * }
  */
 
@@ -34,8 +34,8 @@ interface UpdateProfileRequest {
   addressLine2?: string;
   city?: string;
   stateOrProvince?: string;
-  postalCode?: string;
   country?: string;
+  language?: string;
 }
 
 function validatePhone(phone: string): boolean {
@@ -43,6 +43,8 @@ function validatePhone(phone: string): boolean {
   const digitsOnly = phone.replace(/\D/g, '');
   return digitsOnly.length >= 8 && digitsOnly.length <= 15;
 }
+
+const VALID_LANGUAGES = ['fr', 'en', 'sw', 'ln'];
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -68,8 +70,8 @@ serve(async (req) => {
       addressLine2,
       city,
       stateOrProvince,
-      postalCode,
       country,
+      language,
     } = body;
 
     // Validate phone if provided
@@ -77,6 +79,14 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false, 
         error: 'Invalid phone number format. Must be between 8 and 15 digits.' 
+      }, 400);
+    }
+
+    // Validate language if provided
+    if (language && !VALID_LANGUAGES.includes(language)) {
+      return jsonResponse({ 
+        success: false, 
+        error: 'Invalid language. Must be one of: fr, en, sw, ln' 
       }, 400);
     }
 
@@ -96,9 +106,6 @@ serve(async (req) => {
     if (stateOrProvince && stateOrProvince.trim().length > 100) {
       return jsonResponse({ success: false, error: 'State/Province must be less than 100 characters' }, 400);
     }
-    if (postalCode && postalCode.trim().length > 20) {
-      return jsonResponse({ success: false, error: 'Postal code must be less than 20 characters' }, 400);
-    }
     if (country && country.trim().length > 100) {
       return jsonResponse({ success: false, error: 'Country must be less than 100 characters' }, 400);
     }
@@ -117,8 +124,8 @@ serve(async (req) => {
     if (addressLine2 !== undefined) updateData.address_line2 = addressLine2?.trim() || null;
     if (city !== undefined) updateData.city = city.trim();
     if (stateOrProvince !== undefined) updateData.state_province = stateOrProvince.trim();
-    if (postalCode !== undefined) updateData.postal_code = postalCode.trim();
     if (country !== undefined) updateData.country = country.trim();
+    if (language !== undefined) updateData.language = language;
 
     // Check if there's anything to update
     if (Object.keys(updateData).length === 1) { // Only updated_at
@@ -178,14 +185,12 @@ serve(async (req) => {
       profile = newProfile;
     }
 
-    // Check if profile is now complete
+    // Check if profile is now complete (postal_code removed from requirements)
     const hasCompleteProfile = !!(
       profile.full_name &&
       profile.phone &&
       profile.address_line1 &&
       profile.city &&
-      profile.state_province &&
-      profile.postal_code &&
       profile.country
     );
 
@@ -202,8 +207,8 @@ serve(async (req) => {
         addressLine2: profile.address_line2 || '',
         city: profile.city || '',
         stateOrProvince: profile.state_province || '',
-        postalCode: profile.postal_code || '',
         country: profile.country || '',
+        language: profile.language || 'fr',
       },
       hasCompleteProfile,
     });

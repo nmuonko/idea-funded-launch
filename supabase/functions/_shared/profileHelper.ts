@@ -15,21 +15,19 @@ export interface UserProfile {
   address_line2?: string | null;
   city?: string | null;
   state_province?: string | null;
-  postal_code?: string | null;
   country?: string | null;
+  language?: string | null;
 }
 
 /**
  * Required fields for a complete profile that can proceed to checkout.
- * These are the exact fields collected during signup.
+ * NOTE: postal_code removed - not used in African countries.
  */
 const REQUIRED_PROFILE_FIELDS = [
   'full_name',
   'phone',
   'address_line1',
   'city',
-  'state_province',
-  'postal_code',
   'country',
 ] as const;
 
@@ -52,7 +50,7 @@ export function isProfileComplete(profile: UserProfile | null | undefined): bool
  */
 export function getMissingProfileFields(profile: UserProfile | null | undefined): string[] {
   if (!profile) {
-    return ['fullName', 'phoneNumber', 'addressLine1', 'city', 'stateOrProvince', 'postalCode', 'country'];
+    return ['fullName', 'phoneNumber', 'addressLine1', 'city', 'country'];
   }
   
   const fieldMap: Record<string, string> = {
@@ -60,8 +58,6 @@ export function getMissingProfileFields(profile: UserProfile | null | undefined)
     phone: 'phoneNumber',
     address_line1: 'addressLine1',
     city: 'city',
-    state_province: 'stateOrProvince',
-    postal_code: 'postalCode',
     country: 'country',
   };
   
@@ -79,6 +75,7 @@ export function getMissingProfileFields(profile: UserProfile | null | undefined)
 
 /**
  * Format profile data for API response (camelCase).
+ * NOTE: postalCode removed from response.
  */
 export function formatProfileForResponse(profile: UserProfile | null | undefined): {
   fullName: string | null;
@@ -88,8 +85,8 @@ export function formatProfileForResponse(profile: UserProfile | null | undefined
   addressLine2: string | null;
   city: string | null;
   stateOrProvince: string | null;
-  postalCode: string | null;
   country: string | null;
+  language: string | null;
 } | null {
   if (!profile) return null;
   
@@ -101,7 +98,7 @@ export function formatProfileForResponse(profile: UserProfile | null | undefined
     addressLine2: profile.address_line2 || null,
     city: profile.city || null,
     stateOrProvince: profile.state_province || null,
-    postalCode: profile.postal_code || null,
     country: profile.country || null,
+    language: profile.language || 'fr',
   };
 }

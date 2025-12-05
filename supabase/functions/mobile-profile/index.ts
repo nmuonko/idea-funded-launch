@@ -4,13 +4,14 @@ import {
   handleCors, 
   jsonResponse 
 } from "../_shared/auth.ts";
-import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
+import { isProfileComplete, getMissingProfileFields } from "../_shared/profileHelper.ts";
 
 /**
  * Mobile Profile GET Endpoint
  * 
  * Returns the authenticated user's profile information.
  * Used by mobile app to display profile and pre-fill checkout.
+ * NOTE: postalCode removed - not used in African countries.
  * 
  * GET /mobile-profile
  * 
@@ -25,8 +26,8 @@ import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } 
  *     "addressLine2": "...",
  *     "city": "...",
  *     "stateOrProvince": "...",
- *     "postalCode": "...",
- *     "country": "..."
+ *     "country": "...",
+ *     "language": "fr" | "en" | "sw" | "ln"
  *   },
  *   "hasCompleteProfile": true/false,
  *   "missingFields": [] // only present if profile incomplete
@@ -77,8 +78,8 @@ serve(async (req) => {
           addressLine2: '',
           city: '',
           stateOrProvince: '',
-          postalCode: '',
           country: '',
+          language: 'fr',
         },
         hasCompleteProfile: false,
         missingFields: getMissingProfileFields(null),
@@ -101,8 +102,8 @@ serve(async (req) => {
         addressLine2: profile.address_line2 || '',
         city: profile.city || '',
         stateOrProvince: profile.state_province || '',
-        postalCode: profile.postal_code || '',
         country: profile.country || '',
+        language: profile.language || 'fr',
       },
       hasCompleteProfile,
       missingFields,

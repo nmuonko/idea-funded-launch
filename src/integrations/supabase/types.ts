@@ -294,6 +294,98 @@ export type Database = {
           },
         ]
       }
+      customer_email_logs: {
+        Row: {
+          body: string
+          customer_email: string
+          customer_id: string
+          id: string
+          sent_at: string
+          sent_by: string
+          status: string
+          subject: string
+        }
+        Insert: {
+          body: string
+          customer_email: string
+          customer_id: string
+          id?: string
+          sent_at?: string
+          sent_by: string
+          status?: string
+          subject: string
+        }
+        Update: {
+          body?: string
+          customer_email?: string
+          customer_id?: string
+          id?: string
+          sent_at?: string
+          sent_by?: string
+          status?: string
+          subject?: string
+        }
+        Relationships: []
+      }
+      customer_tag_assignments: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          customer_id: string
+          id: string
+          tag_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          customer_id: string
+          id?: string
+          tag_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          customer_id?: string
+          id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_tag_assignments_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "customer_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_tags: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          name: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       device_tokens: {
         Row: {
           created_at: string | null

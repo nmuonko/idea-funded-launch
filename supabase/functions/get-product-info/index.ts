@@ -1,10 +1,68 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Allowed domains for SSRF prevention
+const ALLOWED_DOMAINS = [
+  'amazon.com', 'www.amazon.com',
+  'ebay.com', 'www.ebay.com',
+  'walmart.com', 'www.walmart.com',
+  'bestbuy.com', 'www.bestbuy.com',
+  'carvana.com', 'www.carvana.com',
+  'cargurus.com', 'www.cargurus.com',
+  'target.com', 'www.target.com',
+  'homedepot.com', 'www.homedepot.com',
+  'lowes.com', 'www.lowes.com',
+];
+
+// Block private/internal IP ranges
+function isPrivateUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    
+    // Block localhost and common internal hostnames
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') return true;
+    if (hostname.endsWith('.local') || hostname.endsWith('.internal')) return true;
+    
+    // Block private IP ranges
+    const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+    const match = hostname.match(ipv4Pattern);
+    if (match) {
+      const [, a, b] = match.map(Number);
+      if (a === 10) return true; // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a === 192 && b === 168) return true; // 192.168.0.0/16
+      if (a === 169 && b === 254) return true; // Link-local
+    }
+    
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// Input validation schema
+const productInfoSchema = z.object({
+  productUrl: z.string()
+    .min(1, "Product URL is required")
+    .max(2048, "URL too long")
+    .url("Invalid URL format")
+    .refine((url) => !isPrivateUrl(url), "Internal URLs are not allowed")
+    .refine((url) => {
+      try {
+        const parsed = new URL(url);
+        return ALLOWED_DOMAINS.some(d => parsed.hostname.endsWith(d));
+      } catch {
+        return false;
+      }
+    }, "URL must be from a supported retailer"),
+});
 
 interface ProductInfo {
   title: string | null;
@@ -396,15 +454,20 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    const { productUrl } = await req.json();
+    const body = await req.json();
 
-    if (!productUrl) {
-      return new Response(JSON.stringify({ error: 'productUrl is required' }), {
+    // Validate input with zod schema (SSRF prevention)
+    const parseResult = productInfoSchema.safeParse({ productUrl: body.productUrl || body.url });
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.log('[get-product-info] Validation error:', errorMessage);
+      return new Response(JSON.stringify({ error: errorMessage }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    const { productUrl } = parseResult.data;
     console.log('[get-product-info] Request for:', productUrl);
 
     // Check cache first

@@ -35,6 +35,7 @@ import ABTestResults from "./pages/admin/ABTestResults";
 import ThemeSettings from "./pages/admin/ThemeSettings";
 import AdminAccessDenied from "./pages/admin/AccessDenied";
 import AuditLog from "./pages/admin/AuditLog";
+import QuoteRequests from "./pages/admin/QuoteRequests";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -184,6 +185,11 @@ const App = () => {
               <Route path="audit-log" element={
                 <AdminRouteGuard requiredPermission="can_view_dashboard">
                   <AuditLog />
+                </AdminRouteGuard>
+              } />
+              <Route path="quote-requests" element={
+                <AdminRouteGuard requiredPermission="can_view_orders">
+                  <QuoteRequests />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

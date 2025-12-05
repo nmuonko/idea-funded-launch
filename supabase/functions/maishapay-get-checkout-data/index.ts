@@ -4,8 +4,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 /**
  * MaishaPay Get Checkout Data
  * 
- * Returns order data AND MaishaPay configuration for the checkout page.
- * Uses service role to bypass RLS since the WebView isn't authenticated.
+ * Returns order data for the checkout page.
+ * SECURITY: This endpoint NEVER returns secret keys - the actual payment form
+ * is rendered server-side by maishapay-checkout-page edge function.
+ * 
+ * NOTE: This endpoint is DEPRECATED. Use maishapay-checkout-page directly instead.
+ * The server-rendered page handles everything securely without exposing secrets.
  */
 
 const corsHeaders = {
@@ -78,7 +82,7 @@ serve(async (req) => {
       );
     }
 
-    // Get MaishaPay configuration
+    // Get MaishaPay configuration - PUBLIC info only
     const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
     const legacyMode = Deno.env.get('MAISHAPAY_MODE');
     
@@ -86,29 +90,26 @@ serve(async (req) => {
                        legacyMode === '1' || 
                        legacyMode?.toLowerCase() === 'live';
     
+    // Only get public key - NEVER expose secret key
     let publicKey: string;
-    let secretKey: string;
     
     if (isLiveMode) {
       publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
                   Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
                   Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-      secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
-                  Deno.env.get('MAISHAPAY_SECRET_KEY') || 
-                  Deno.env.get('MAISHA_SECRET_KEY') || '';
     } else {
       publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
                   Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
                   Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-      secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
-                  Deno.env.get('MAISHAPAY_SECRET_KEY') || 
-                  Deno.env.get('MAISHA_SECRET_KEY') || '';
     }
     
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
     const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || `${frontendBaseUrl}/maishapay/result`;
     
-    if (!publicKey || !secretKey) {
+    // Get the secure server-side checkout page URL
+    const checkoutPageUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${orderId}`;
+    
+    if (!publicKey) {
       console.error('[maishapay-get-checkout-data] Missing payment gateway keys');
       return new Response(
         JSON.stringify({ success: false, error: 'Payment gateway not configured' }),
@@ -130,13 +131,15 @@ serve(async (req) => {
       console.log('[maishapay-get-checkout-data] Generated new reference:', reference);
     }
 
-    console.log('[maishapay-get-checkout-data] Returning checkout data:', {
+    console.log('[maishapay-get-checkout-data] Returning checkout data (no secret key):', {
       orderId: order.id,
       amount: order.total_usd,
       mode: isLiveMode ? 'live' : 'sandbox',
       callbackUrl,
     });
 
+    // SECURITY: Return order data and PUBLIC config only - no secret keys
+    // The actual checkout should use checkoutPageUrl which renders the form server-side
     return new Response(
       JSON.stringify({
         success: true,
@@ -151,10 +154,12 @@ serve(async (req) => {
         config: {
           gatewayMode: isLiveMode ? '1' : '0',
           publicApiKey: publicKey,
-          secretApiKey: secretKey,
+          // REMOVED: secretApiKey - never expose via API
           callbackUrl,
           mode: isLiveMode ? 'live' : 'sandbox',
         },
+        // RECOMMENDED: Use this URL for secure checkout (server-rendered form)
+        checkoutPageUrl,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

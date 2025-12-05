@@ -187,4 +187,4 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.backfill-product-images]
-verify_jwt = false
+verify_jwt = true

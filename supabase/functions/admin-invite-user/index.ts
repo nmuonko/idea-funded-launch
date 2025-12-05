@@ -1,10 +1,28 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Input validation schemas
+const adminRoles = ['super_admin', 'operations', 'finance', 'support'] as const;
+
+const inviteUserSchema = z.object({
+  email: z.string().email("Invalid email format").max(255, "Email too long"),
+  role: z.enum(adminRoles, { errorMap: () => ({ message: "Invalid role" }) }),
+  permissions: z.record(z.boolean()).optional(),
+  setPassword: z.string().min(8, "Password must be at least 8 characters").max(128).optional(),
+  resend: z.boolean().optional(),
+  invitationId: z.string().uuid().optional(),
+});
+
+const resendInviteSchema = z.object({
+  resend: z.literal(true),
+  invitationId: z.string().uuid("Invalid invitation ID"),
+});
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -47,7 +65,21 @@ serve(async (req) => {
       });
     }
 
-    const { email, role, permissions, setPassword, resend, invitationId } = await req.json();
+    const body = await req.json();
+
+    // Validate input based on operation type
+    if (body.resend && body.invitationId) {
+      const resendResult = resendInviteSchema.safeParse(body);
+      if (!resendResult.success) {
+        const errorMessage = resendResult.error.errors.map(e => e.message).join(', ');
+        return new Response(JSON.stringify({ error: errorMessage }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    const { email, role, permissions, setPassword, resend, invitationId } = body;
 
     // Default permissions based on role if not provided
     const defaultPermissions: Record<string, any> = {
@@ -171,8 +203,11 @@ serve(async (req) => {
       });
     }
 
-    if (!email || !role) {
-      return new Response(JSON.stringify({ error: 'Email and role are required' }), {
+    // Validate new invitation input
+    const inviteResult = inviteUserSchema.safeParse(body);
+    if (!inviteResult.success) {
+      const errorMessage = inviteResult.error.errors.map(e => e.message).join(', ');
+      return new Response(JSON.stringify({ error: errorMessage }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

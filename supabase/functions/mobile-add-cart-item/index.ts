@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { 
   verifyAndGetUser, 
   handleCors, 
@@ -6,6 +7,40 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+
+// Input validation schema
+const addCartItemSchema = z.object({
+  productUrl: z.string()
+    .min(1, "Product URL is required")
+    .max(2048, "URL too long")
+    .url("Invalid URL format")
+    .refine((url) => {
+      try {
+        const parsed = new URL(url);
+        const allowedDomains = [
+          'amazon.com', 'www.amazon.com',
+          'ebay.com', 'www.ebay.com',
+          'walmart.com', 'www.walmart.com',
+          'bestbuy.com', 'www.bestbuy.com',
+          'carvana.com', 'www.carvana.com',
+          'cargurus.com', 'www.cargurus.com',
+          'target.com', 'www.target.com',
+          'homedepot.com', 'www.homedepot.com',
+          'lowes.com', 'www.lowes.com',
+        ];
+        return allowedDomains.some(d => parsed.hostname.endsWith(d));
+      } catch {
+        return false;
+      }
+    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, Lowes)"),
+  productPrice: z.number()
+    .positive("Price must be positive")
+    .max(1000000, "Price exceeds maximum"),
+  quantity: z.number().int().positive().max(100).optional().default(1),
+  shippingItemTypeId: z.string().uuid().optional(),
+  productTitle: z.string().max(500).optional(),
+  productImageUrl: z.string().url().max(2048).optional(),
+});
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -151,19 +186,15 @@ serve(async (req) => {
 
     const body = await req.json();
 
-    // Read and validate body
-    const productUrl = body.productUrl;
-    const productPrice = Number(body.productPrice);
-    const quantity = Number.isFinite(body.quantity) && body.quantity > 0 ? Math.floor(body.quantity) : 1;
-    const shippingItemTypeId = body.shippingItemTypeId; // NEW: shipping type ID
-
-    if (!productUrl || typeof productUrl !== 'string') {
-      return errorResponse('productUrl is required', 400);
+    // Validate input with zod schema
+    const parseResult = addCartItemSchema.safeParse(body);
+    if (!parseResult.success) {
+      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      console.log('[mobile-add-cart-item] Validation error:', errorMessage);
+      return errorResponse(errorMessage, 400);
     }
 
-    if (!Number.isFinite(productPrice) || productPrice <= 0) {
-      return errorResponse('productPrice must be a positive number', 400);
-    }
+    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
 
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId });
 
@@ -251,8 +282,8 @@ serve(async (req) => {
       console.error('[mobile-add-cart-item] Invalid URL format:', e);
     }
 
-    let productTitle = body.productTitle ?? null;
-    let productImageUrl = body.productImageUrl ?? null;
+    let productTitle = inputTitle ?? null;
+    let productImageUrl = inputImageUrl ?? null;
 
     // If image or title not provided, try to scrape from product URL
     if (!productImageUrl || !productTitle) {

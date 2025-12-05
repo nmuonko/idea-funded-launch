@@ -169,6 +169,83 @@ function extractFromEmbeddedJson(html: string): Partial<ProductInfo> {
   return result;
 }
 
+// Extract image URL with priority: og:image > twitter:image > JSON-LD > product image selectors
+function extractImageUrl(html: string, domain: string): string | null {
+  // 1. Priority: Open Graph image (most reliable for product pages)
+  const ogImagePatterns = [
+    /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i,
+    /<meta\s+name=["']og:image["']\s+content=["']([^"']+)["']/i,
+  ];
+  
+  for (const pattern of ogImagePatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log('[get-product-info] Found og:image');
+      return match[1];
+    }
+  }
+
+  // 2. Twitter card image
+  const twitterImagePatterns = [
+    /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+name=["']twitter:image["']/i,
+  ];
+  
+  for (const pattern of twitterImagePatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log('[get-product-info] Found twitter:image');
+      return match[1];
+    }
+  }
+
+  // 3. Domain-specific image selectors
+  const domainImageSelectors: Record<string, RegExp[]> = {
+    'amazon.com': [
+      /<img[^>]*id=["']landingImage["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*a-dynamic-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*data-old-hires=["']([^"']+)["']/i,
+    ],
+    'walmart.com': [
+      /<img[^>]*class=["'][^"']*product-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*data-testid=["']hero-image["'][^>]*src=["']([^"']+)["']/i,
+    ],
+    'ebay.com': [
+      /<img[^>]*id=["']icImg["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*ux-image-magnify[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    ],
+    'bestbuy.com': [
+      /<img[^>]*class=["'][^"']*primary-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    ],
+  };
+
+  const selectors = domainImageSelectors[domain] || [];
+  for (const regex of selectors) {
+    const match = html.match(regex);
+    if (match && match[1]) {
+      console.log('[get-product-info] Found domain-specific image');
+      return match[1];
+    }
+  }
+
+  // 4. Generic product image patterns
+  const genericPatterns = [
+    /<img[^>]*(?:id|class)=["'][^"']*(?:main|product|hero|primary)[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    /<img[^>]*src=["']([^"']+)["'][^>]*(?:id|class)=["'][^"']*(?:main|product|hero|primary)[^"']*["']/i,
+  ];
+  
+  for (const pattern of genericPatterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) {
+      console.log('[get-product-info] Found generic product image');
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
 function extractFromSelectors(html: string, domain: string): Partial<ProductInfo> {
   const result: Partial<ProductInfo> = {};
   const selectors = PRICE_SELECTORS[domain] || [];
@@ -194,10 +271,10 @@ function extractFromSelectors(html: string, domain: string): Partial<ProductInfo
     result.title = titleMatch[1].trim();
   }
 
-  // Try to extract main image
-  const imgMatch = html.match(/<img[^>]*(?:id|class)="[^"]*(?:main|product|hero)[^"]*"[^>]*src="([^"]+)"/i);
-  if (imgMatch) {
-    result.imageUrl = imgMatch[1];
+  // Use enhanced image extraction
+  const imageUrl = extractImageUrl(html, domain);
+  if (imageUrl) {
+    result.imageUrl = imageUrl;
   }
 
   return result;
@@ -212,7 +289,9 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     // Fetch the page
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
       },
     });
 
@@ -225,9 +304,20 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     // Multi-layer extraction
     let result: Partial<ProductInfo> = {};
 
-    // 1. JSON-LD (most reliable)
+    // ALWAYS try to extract image first using og:image (highest priority)
+    const ogImage = extractImageUrl(html, domain);
+    if (ogImage) {
+      result.imageUrl = ogImage;
+      console.log('[get-product-info] Found image URL:', ogImage.substring(0, 100));
+    }
+
+    // 1. JSON-LD (most reliable for structured data)
     const jsonLdData = extractFromJsonLd(html);
-    result = { ...result, ...jsonLdData };
+    result = { ...jsonLdData, ...result }; // Keep og:image if we found it
+    if (!result.imageUrl && jsonLdData.imageUrl) {
+      result.imageUrl = jsonLdData.imageUrl;
+    }
+    
     if (jsonLdData.price) {
       console.log('[get-product-info] Extracted from JSON-LD');
       return {
@@ -241,7 +331,11 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
 
     // 2. Embedded JSON
     const embeddedData = extractFromEmbeddedJson(html);
-    result = { ...result, ...embeddedData };
+    if (embeddedData.title && !result.title) result.title = embeddedData.title;
+    if (embeddedData.imageUrl && !result.imageUrl) result.imageUrl = embeddedData.imageUrl;
+    if (embeddedData.price) result.price = embeddedData.price;
+    if (embeddedData.currency) result.currency = embeddedData.currency;
+    
     if (embeddedData.price) {
       console.log('[get-product-info] Extracted from embedded JSON');
       return {
@@ -255,7 +349,10 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
 
     // 3. CSS Selectors
     const selectorData = extractFromSelectors(html, domain);
-    result = { ...result, ...selectorData };
+    if (selectorData.title && !result.title) result.title = selectorData.title;
+    if (selectorData.imageUrl && !result.imageUrl) result.imageUrl = selectorData.imageUrl;
+    if (selectorData.price) result.price = selectorData.price;
+    
     if (selectorData.price) {
       console.log('[get-product-info] Extracted from CSS selectors');
       return {
@@ -267,7 +364,7 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
       };
     }
 
-    console.log('[get-product-info] Could not extract price');
+    console.log('[get-product-info] Could not extract price, returning partial data');
     return {
       title: result.title || null,
       imageUrl: result.imageUrl || null,
@@ -322,8 +419,8 @@ serve(async (req) => {
     // Scrape product info
     const info = await scrapeProduct(productUrl);
 
-    // Save to cache
-    if (info.price !== null) {
+    // Save to cache if we got any useful data (price OR image)
+    if (info.price !== null || info.imageUrl !== null || info.title !== null) {
       await saveToCache(supabaseClient, productUrl, info);
     }
 

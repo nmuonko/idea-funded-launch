@@ -201,166 +201,45 @@ interface CheckoutParams {
 function renderCheckoutPage(params: CheckoutParams): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
-  // For mobile WebViews, we need to be more aggressive with the form submission
-  // and show a visible button immediately since JavaScript auto-submit may not work
+  // CRITICAL: Keep HTML extremely simple for mobile WebView compatibility
+  // No JavaScript, minimal CSS, immediate button visibility
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Paiement MaishaPay</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      padding: 1rem;
-    }
-    .container {
-      text-align: center;
-      padding: 2rem;
-      max-width: 400px;
-      width: 100%;
-    }
-    .logo {
-      font-size: 3rem;
-      margin-bottom: 1rem;
-    }
-    h1 {
-      font-size: 1.5rem;
-      margin-bottom: 0.5rem;
-    }
-    p {
-      opacity: 0.8;
-      font-size: 0.9rem;
-      margin-bottom: 0.5rem;
-    }
-    .amount {
-      font-size: 2.5rem;
-      font-weight: bold;
-      color: #00d4ff;
-      margin: 1.5rem 0;
-    }
-    .order-ref {
-      font-size: 0.8rem;
-      opacity: 0.6;
-      margin-bottom: 2rem;
-    }
-    .pay-btn {
-      width: 100%;
-      padding: 1.25rem 2rem;
-      background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
-      color: #1a1a2e;
-      border: none;
-      border-radius: 12px;
-      font-size: 1.1rem;
-      font-weight: bold;
-      cursor: pointer;
-      box-shadow: 0 4px 15px rgba(0, 212, 255, 0.4);
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .pay-btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
-    }
-    .pay-btn:active {
-      transform: translateY(0);
-    }
-    .spinner {
-      display: none;
-      width: 24px;
-      height: 24px;
-      border: 3px solid rgba(26, 26, 46, 0.3);
-      border-top-color: #1a1a2e;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-    .loading .spinner {
-      display: inline-block;
-    }
-    .loading .btn-text {
-      display: none;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-    .secure-badge {
-      margin-top: 1.5rem;
-      font-size: 0.75rem;
-      opacity: 0.5;
-    }
-    .secure-badge::before {
-      content: "🔒 ";
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement</title>
 </head>
-<body>
-  <div class="container">
-    <div class="logo">💳</div>
-    <h1>Paiement Sécurisé</h1>
-    <p>Montant à payer</p>
-    <div class="amount">$${params.amount} ${params.currency}</div>
-    <p class="order-ref">Référence: ${params.reference}</p>
-    
-    <form id="paymentForm" action="${checkoutUrl}" method="POST">
-      <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
-      <input type="hidden" name="publicApiKey" value="${params.publicKey}">
-      <input type="hidden" name="secretApiKey" value="${params.secretKey}">
-      <input type="hidden" name="montant" value="${params.amount}">
-      <input type="hidden" name="devise" value="${params.currency}">
-      <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
-      <input type="hidden" name="reference" value="${params.reference}">
-      
-      <button type="submit" class="pay-btn" id="payBtn" onclick="this.parentElement.classList.add('loading');">
-        <span class="btn-text">Procéder au paiement</span>
-        <span class="spinner"></span>
-      </button>
-    </form>
-    
-    <p class="secure-badge">Paiement sécurisé via MaishaPay</p>
-  </div>
+<body style="margin:0;padding:20px;font-family:Arial,sans-serif;background:#1a1a2e;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;">
 
-  <script>
-    // Try auto-submit after page loads, but only if not already interacted
-    var submitted = false;
-    
-    function autoSubmit() {
-      if (!submitted) {
-        submitted = true;
-        var form = document.getElementById('paymentForm');
-        var btn = document.getElementById('payBtn');
-        if (form && btn) {
-          btn.parentElement.classList.add('loading');
-          form.submit();
-        }
-      }
-    }
-    
-    // Wait for page to fully load, then auto-submit
-    if (document.readyState === 'complete') {
-      setTimeout(autoSubmit, 500);
-    } else {
-      window.addEventListener('load', function() {
-        setTimeout(autoSubmit, 500);
-      });
-    }
-  </script>
+<div style="text-align:center;width:100%;max-width:350px;">
+  <div style="font-size:48px;margin-bottom:16px;">💳</div>
+  <h1 style="font-size:20px;margin:0 0 8px 0;">Paiement Sécurisé</h1>
+  <p style="margin:0 0 24px 0;opacity:0.7;font-size:14px;">AfriShop - MaishaPay</p>
   
-  <noscript>
-    <style>
-      .pay-btn { display: block !important; }
-    </style>
-  </noscript>
+  <div style="background:#16213e;border-radius:12px;padding:20px;margin-bottom:24px;">
+    <p style="margin:0 0 8px 0;font-size:12px;opacity:0.6;">Montant à payer</p>
+    <p style="margin:0;font-size:32px;font-weight:bold;color:#00d4ff;">$${params.amount}</p>
+    <p style="margin:8px 0 0 0;font-size:11px;opacity:0.5;">Réf: ${params.reference.slice(0, 20)}...</p>
+  </div>
+  
+  <form action="${checkoutUrl}" method="POST">
+    <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
+    <input type="hidden" name="publicApiKey" value="${params.publicKey}">
+    <input type="hidden" name="secretApiKey" value="${params.secretKey}">
+    <input type="hidden" name="montant" value="${params.amount}">
+    <input type="hidden" name="devise" value="${params.currency}">
+    <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
+    <input type="hidden" name="reference" value="${params.reference}">
+    
+    <button type="submit" style="width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;">
+      Payer maintenant
+    </button>
+  </form>
+  
+  <p style="margin-top:20px;font-size:11px;opacity:0.4;">🔒 Paiement sécurisé via MaishaPay</p>
+</div>
+
 </body>
 </html>`;
 }

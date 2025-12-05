@@ -3,6 +3,9 @@
  * 
  * Used by auth-register, mobile-checkout, mobile-profile, etc.
  * to ensure consistent profile completeness checks.
+ * 
+ * Note: For African addresses, we only require full_name, phone, and country
+ * since address formats vary widely and province/street may not always apply.
  */
 
 export interface UserProfile {
@@ -47,27 +50,38 @@ export function getLanguageForCountry(country: string): string {
 }
 
 /**
- * Required fields for a complete profile that can proceed to checkout.
+ * Minimum required fields for checkout.
+ * Relaxed for African addresses - only name, phone, and country are required.
+ * Address/province are optional since formats vary widely.
  */
 const REQUIRED_PROFILE_FIELDS = [
   'full_name',
   'phone',
-  'address',
   'country',
-  'province',
 ] as const;
 
 /**
  * Check if a profile has all required fields filled out.
  * Returns true if the profile is complete for checkout.
+ * 
+ * Note: We check both new field names and legacy field names for compatibility.
  */
 export function isProfileComplete(profile: UserProfile | null | undefined): boolean {
   if (!profile) return false;
   
-  return REQUIRED_PROFILE_FIELDS.every(field => {
-    const value = profile[field as keyof UserProfile];
-    return value !== null && value !== undefined && String(value).trim() !== '';
-  });
+  // Check full_name (or fallback to name)
+  const hasName = Boolean(
+    (profile.full_name && String(profile.full_name).trim()) ||
+    (profile.name && String(profile.name).trim())
+  );
+  
+  // Check phone
+  const hasPhone = Boolean(profile.phone && String(profile.phone).trim());
+  
+  // Check country
+  const hasCountry = Boolean(profile.country && String(profile.country).trim());
+  
+  return hasName && hasPhone && hasCountry;
 }
 
 /**
@@ -76,24 +90,26 @@ export function isProfileComplete(profile: UserProfile | null | undefined): bool
  */
 export function getMissingProfileFields(profile: UserProfile | null | undefined): string[] {
   if (!profile) {
-    return ['fullName', 'phone', 'address', 'country', 'province'];
+    return ['fullName', 'phone', 'country'];
   }
-  
-  const fieldMap: Record<string, string> = {
-    full_name: 'fullName',
-    phone: 'phone',
-    address: 'address',
-    country: 'country',
-    province: 'province',
-  };
   
   const missing: string[] = [];
   
-  for (const field of REQUIRED_PROFILE_FIELDS) {
-    const value = profile[field as keyof UserProfile];
-    if (value === null || value === undefined || String(value).trim() === '') {
-      missing.push(fieldMap[field] || field);
-    }
+  // Check full_name (or fallback to name)
+  const hasName = Boolean(
+    (profile.full_name && String(profile.full_name).trim()) ||
+    (profile.name && String(profile.name).trim())
+  );
+  if (!hasName) missing.push('fullName');
+  
+  // Check phone
+  if (!profile.phone || !String(profile.phone).trim()) {
+    missing.push('phone');
+  }
+  
+  // Check country
+  if (!profile.country || !String(profile.country).trim()) {
+    missing.push('country');
   }
   
   return missing;
@@ -121,7 +137,7 @@ export function formatProfileForResponse(profile: UserProfile | null | undefined
     phone: profile.phone || '',
     address: profile.address || profile.address_line1 || '',
     country: profile.country || 'DR Congo',
-    province: profile.province || profile.state_province || 'Kinshasa',
+    province: profile.province || profile.state_province || profile.city || '',
     language: profile.language || 'fr',
   };
 }
@@ -140,7 +156,7 @@ export function createDefaultProfile(userId: string, email: string, overrides?: 
     phone: overrides?.phone || '',
     address: overrides?.address || '',
     country: country,
-    province: overrides?.province || 'Kinshasa',
+    province: overrides?.province || '',
     language: language,
   };
 }

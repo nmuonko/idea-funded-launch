@@ -8,7 +8,7 @@ import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { useAdminTheme } from '@/contexts/AdminThemeContext';
 import { 
-  LayoutDashboard, Users, LogOut, ArrowLeft, CreditCard, Settings, 
+  LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car
@@ -38,6 +38,7 @@ export function AdminLayout() {
   // Define nav items with permission requirements (using new granular permission keys)
   const allNavItems = useMemo(() => [
     { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: 'can_view_dashboard' as const },
+    { to: '/admin/customers', icon: UserCircle, label: t.sidebar.customers || 'Customers', permission: 'can_view_customers' as const },
     { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
     { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
     { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'can_view_active_carts' as const },
@@ -50,7 +51,7 @@ export function AdminLayout() {
     { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
     { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'can_view_knowledge_base' as const },
     { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
-    { to: '/admin/users', icon: Users, label: t.sidebar.userManagement, permission: 'can_manage_users' as const },
+    { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || t.sidebar.userManagement, permission: 'can_manage_users' as const },
     { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'can_view_settings' as const },
     { to: '/admin/theme-settings', icon: Palette, label: t.sidebar.themeSettings, permission: 'can_view_theme_settings' as const },
     ...(isSuperAdmin ? [{ to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const }] : []),

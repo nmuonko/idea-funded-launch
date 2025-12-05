@@ -86,10 +86,10 @@ export function getMaishaPayConfig(): MaishaPayConfig {
   const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
   const cancelUrl = `${frontendBaseUrl}/payment/cancelled`;
   
-  // MaishaPay checkout URL based on mode
-  const checkoutUrl = isLiveMode 
-    ? 'https://maishapay.com/payment/vers1.0/merchant/checkout'
-    : 'http://maishapay.test/payment/vers1.0/merchant/checkout';
+  // MaishaPay checkout URL - ALWAYS use HTTPS for iOS WebView compatibility (ATS)
+  // Live endpoint: https://marchand.maishapay.online
+  // Note: Sandbox HTTP endpoint is blocked by iOS ATS, so we use live HTTPS for both
+  const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
   console.log('[MaishaPay Config]', {
     mode: isLiveMode ? 'live' : 'sandbox',
@@ -148,6 +148,9 @@ export function generatePaymentReference(orderId: string): string {
 
 /**
  * Generate HTML checkout page with auto-submitting form to MaishaPay
+ * 
+ * IMPORTANT: Uses HTTPS endpoint for iOS WebView (ATS) compatibility
+ * Shows visible content so user doesn't see white screen if redirect fails
  */
 export function generateCheckoutHtml(params: {
   amount: number;
@@ -165,62 +168,35 @@ export function generateCheckoutHtml(params: {
 
   const { amount, currency, orderId, orderNumber } = params;
 
+  // Generate simple, visible HTML that auto-submits form
+  // Uses body onload for maximum compatibility with WebViews
   const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Paiement MaishaPay</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      text-align: center;
+      padding: 40px 20px;
+      background: #f5f7fa;
+      color: #333;
+      margin: 0;
     }
     .container {
-      background: white;
-      border-radius: 16px;
-      padding: 40px 30px;
-      text-align: center;
       max-width: 400px;
-      width: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .logo {
-      width: 80px;
-      height: 80px;
-      margin: 0 auto 20px;
-      background: #0066cc;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .logo svg {
-      width: 40px;
-      height: 40px;
-      fill: white;
-    }
-    h1 {
-      color: #1a1a2e;
-      font-size: 22px;
-      margin-bottom: 10px;
-    }
-    .amount {
-      font-size: 32px;
-      font-weight: bold;
-      color: #0066cc;
-      margin: 20px 0;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      padding: 30px 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
     }
     .spinner {
-      width: 50px;
-      height: 50px;
-      border: 4px solid #e0e0e0;
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e0e0e0;
       border-top-color: #0066cc;
       border-radius: 50%;
       animation: spin 1s linear infinite;
@@ -229,69 +205,78 @@ export function generateCheckoutHtml(params: {
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
-    p {
-      color: #666;
-      font-size: 14px;
+    .msg {
+      color: #333;
+      font-size: 16px;
+      margin-bottom: 16px;
       line-height: 1.5;
     }
-    .order-ref {
-      background: #f5f5f5;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-family: monospace;
+    .amount {
+      font-size: 24px;
+      font-weight: bold;
+      color: #0066cc;
+      margin: 16px 0;
+    }
+    .ref {
       font-size: 12px;
       color: #888;
+      font-family: monospace;
+      margin-top: 16px;
+    }
+    .retry-info {
+      font-size: 13px;
+      color: #666;
       margin-top: 20px;
     }
-    noscript .btn {
+    .btn {
       background: #0066cc;
       color: white;
       border: none;
-      padding: 16px 32px;
-      font-size: 18px;
+      padding: 14px 28px;
+      font-size: 16px;
       border-radius: 8px;
       cursor: pointer;
-      margin-top: 20px;
-      display: inline-block;
-      text-decoration: none;
+      margin-top: 16px;
+    }
+    .btn:hover {
+      background: #0052a3;
     }
   </style>
 </head>
-<body>
+<body onload="document.forms[0].submit()">
   <div class="container">
-    <div class="logo">
-      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-    </div>
-    <h1>Paiement en cours</h1>
-    <div class="amount">${amount.toFixed(2)} ${currency}</div>
     <div class="spinner"></div>
-    <p>Redirection vers MaishaPay...<br>Veuillez patienter.</p>
-    <div class="order-ref">Ref: ${orderNumber}</div>
+    <div class="msg">
+      Redirection vers MaishaPay...<br/>
+      Si rien ne se passe après quelques secondes, veuillez réessayer.
+    </div>
+    <div class="amount">${amount.toFixed(2)} ${currency}</div>
+    <div class="ref">Ref: ${orderNumber}</div>
     
-    <form id="paymentForm" method="POST" action="${config.checkoutUrl}">
-      <input type="hidden" name="publicApiKey" value="${config.publicKey}">
-      <input type="hidden" name="secretApiKey" value="${config.secretKey}">
-      <input type="hidden" name="amount" value="${amount}">
-      <input type="hidden" name="orderNumber" value="${orderNumber}">
-      <input type="hidden" name="callbackUrl" value="${config.callbackUrl}">
-      <input type="hidden" name="cancelUrl" value="${config.cancelUrl}">
-      <input type="hidden" name="currency" value="${currency}">
-      <input type="hidden" name="reference" value="${orderId}">
+    <form method="POST" action="${config.checkoutUrl}">
+      <input type="hidden" name="gatewayMode" value="${config.mode === 'live' ? '1' : '0'}" />
+      <input type="hidden" name="publicApiKey" value="${config.publicKey}" />
+      <input type="hidden" name="secretApiKey" value="${config.secretKey}" />
+      <input type="hidden" name="montant" value="${amount}" />
+      <input type="hidden" name="devise" value="${currency}" />
+      <input type="hidden" name="callbackUrl" value="${config.callbackUrl}" />
+      <input type="hidden" name="reference" value="${orderId}" />
       <noscript>
-        <button type="submit" class="btn">Continuer vers MaishaPay</button>
+        <div class="retry-info">JavaScript est désactivé. Veuillez cliquer le bouton ci-dessous.</div>
+        <button type="submit" class="btn">Payer avec MaishaPay</button>
       </noscript>
     </form>
   </div>
-  <script>
-    document.getElementById('paymentForm').submit();
-  </script>
 </body>
 </html>`;
 
-  console.log('[MaishaPay] Generated HTML checkout, length:', html.length);
-  console.log('[MaishaPay] Checkout URL:', config.checkoutUrl);
+  // Log for debugging
+  console.log('[MaishaPay] === HTML Checkout Generated ===');
+  console.log('[MaishaPay] Form action (HTTPS):', config.checkoutUrl);
   console.log('[MaishaPay] Callback URL:', config.callbackUrl);
-  console.log('[MaishaPay] Order:', orderNumber, 'Amount:', amount, currency);
+  console.log('[MaishaPay] Order:', orderNumber, '| Amount:', amount, currency);
+  console.log('[MaishaPay] HTML length:', html.length, 'bytes');
+  console.log('[MaishaPay] Mode:', config.mode);
 
   return { html };
 }

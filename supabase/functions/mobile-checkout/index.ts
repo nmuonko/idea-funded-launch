@@ -168,10 +168,19 @@ serve(async (req) => {
     if (!isProfileComplete(userProfile)) {
       const missingFields = getMissingProfileFields(userProfile);
       console.log('[mobile-checkout] User profile incomplete. Missing fields:', missingFields);
+      
+      // Create a user-friendly message based on missing fields
+      const fieldNames: Record<string, string> = {
+        fullName: 'full name',
+        phone: 'phone number',
+        country: 'country',
+      };
+      const missingFieldNames = missingFields.map(f => fieldNames[f] || f).join(', ');
+      
       return jsonResponse({
         success: false,
         code: 'PROFILE_INCOMPLETE',
-        error: 'Please complete your profile with shipping address before checkout.',
+        error: `Please add your ${missingFieldNames} to your profile before checkout.`,
         missingFields,
       }, 400);
     }

@@ -82,7 +82,7 @@ serve(async (req) => {
     if (!addressLine1 || addressLine1.trim() === '') missingFields.push('addressLine1');
     if (!city || city.trim() === '') missingFields.push('city');
     if (!stateOrProvince || stateOrProvince.trim() === '') missingFields.push('stateOrProvince');
-    if (!postalCode || postalCode.trim() === '') missingFields.push('postalCode');
+    // postalCode is NOT required - most African countries don't use them
     if (!country || country.trim() === '') missingFields.push('country');
 
     if (missingFields.length > 0) {
@@ -195,8 +195,9 @@ serve(async (req) => {
 
     console.log('[auth-register] User created:', authData.user.id);
 
-    // Profile data to store - all required fields from signup
+    // Profile data to store - all required fields from signup (postalCode is optional for Africa)
     const profileData = {
+      user_id: authData.user.id,
       email: email.trim().toLowerCase(),
       full_name: fullName.trim(),
       name: fullName.trim(),
@@ -205,62 +206,28 @@ serve(async (req) => {
       address_line2: addressLine2?.trim() || null,
       city: city.trim(),
       state_province: stateOrProvince.trim(),
-      postal_code: postalCode.trim(),
+      postal_code: postalCode?.trim() || null,
       country: country.trim(),
     };
 
-    // NOTE: A database trigger (handle_new_user_profile) creates a minimal profile on auth.users INSERT.
-    // We MUST use UPDATE to ensure all address fields are properly stored, not overwritten by trigger.
-    
-    // First, try to update the profile created by the trigger
-    const { error: updateError, data: updateData } = await supabaseAdmin
+    // Use UPSERT to handle both new profiles and updates (prevents duplicates)
+    const { error: upsertError } = await supabaseAdmin
       .from('profiles')
-      .update(profileData)
-      .eq('user_id', authData.user.id)
-      .select();
+      .upsert(profileData, { onConflict: 'user_id' });
 
-    if (updateError) {
-      console.error('[auth-register] Profile update error:', updateError);
-      
-      // If update failed (maybe profile doesn't exist yet), try insert
-      const { error: insertError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          user_id: authData.user.id,
-          ...profileData,
-        });
-      
-      if (insertError) {
-        console.error('[auth-register] Profile insert fallback error:', insertError);
-        // Don't fail registration - user can update profile later
-      } else {
-        console.log('[auth-register] Profile created via insert fallback');
-      }
-    } else if (!updateData || updateData.length === 0) {
-      // No rows updated - profile doesn't exist yet, insert it
-      console.log('[auth-register] No profile to update, inserting new profile');
-      const { error: insertError } = await supabaseAdmin
-        .from('profiles')
-        .insert({
-          user_id: authData.user.id,
-          ...profileData,
-        });
-      
-      if (insertError) {
-        console.error('[auth-register] Profile insert error:', insertError);
-      } else {
-        console.log('[auth-register] Profile created successfully');
-      }
+    if (upsertError) {
+      console.error('[auth-register] Profile upsert error:', upsertError);
+      // Don't fail registration - user can update profile later
     } else {
-      console.log('[auth-register] Profile updated successfully with all address fields');
+      console.log('[auth-register] Profile upserted successfully');
     }
 
-    // Verify the profile was saved correctly
+    // Verify the profile was saved correctly - use maybeSingle to avoid errors
     const { data: verifyProfile } = await supabaseAdmin
       .from('profiles')
-      .select('full_name, phone, address_line1, city, state_province, postal_code, country')
+      .select('full_name, phone, address_line1, city, state_province, country')
       .eq('user_id', authData.user.id)
-      .single();
+      .maybeSingle();
     
     console.log('[auth-register] Profile verification:', verifyProfile ? {
       hasFullName: !!verifyProfile.full_name,
@@ -268,7 +235,6 @@ serve(async (req) => {
       hasAddress: !!verifyProfile.address_line1,
       hasCity: !!verifyProfile.city,
       hasState: !!verifyProfile.state_province,
-      hasPostal: !!verifyProfile.postal_code,
       hasCountry: !!verifyProfile.country,
     } : 'PROFILE NOT FOUND');
 

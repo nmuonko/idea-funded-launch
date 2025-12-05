@@ -1,16 +1,65 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { 
-  verifyAndGetUser, 
-  handleCors, 
-  jsonResponse 
-} from "../_shared/auth.ts";
-import { 
-  isProfileComplete, 
-  getMissingProfileFields,
-  getLanguageForCountry,
-  createDefaultProfile 
-} from "../_shared/profileHelper.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+// French-speaking African countries
+const FRENCH_COUNTRIES = [
+  'DR Congo', 'Congo-Brazzaville', 'Central African Republic', 'Cameroon',
+  'Burundi', 'Rwanda', 'Benin', 'Ivory Coast', 'Senegal', 'Mali',
+  'Chad', 'Niger', 'Gabon', 'Togo', 'Burkina Faso', 'Madagascar',
+  'Guinea', 'Mauritius', 'Comoros', 'Djibouti', 'Seychelles'
+];
+
+// English-speaking African countries
+const ENGLISH_COUNTRIES = [
+  'Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana', 'South Africa',
+  'Zambia', 'Zimbabwe', 'Botswana', 'Namibia', 'Malawi', 'Liberia',
+  'Sierra Leone', 'Gambia', 'Lesotho', 'Eswatini'
+];
+
+function getLanguageForCountry(country: string): string {
+  if (FRENCH_COUNTRIES.includes(country)) return 'fr';
+  if (ENGLISH_COUNTRIES.includes(country)) return 'en';
+  return 'fr';
+}
+
+// Required fields for a complete profile
+const REQUIRED_PROFILE_FIELDS = ['full_name', 'phone', 'address', 'country', 'province'];
+
+function isProfileComplete(profile: any): boolean {
+  if (!profile) return false;
+  return REQUIRED_PROFILE_FIELDS.every(field => {
+    const value = profile[field];
+    return value !== null && value !== undefined && String(value).trim() !== '';
+  });
+}
+
+function getMissingProfileFields(profile: any): string[] {
+  if (!profile) {
+    return ['fullName', 'phone', 'address', 'country', 'province'];
+  }
+  
+  const fieldMap: Record<string, string> = {
+    full_name: 'fullName',
+    phone: 'phone',
+    address: 'address',
+    country: 'country',
+    province: 'province',
+  };
+  
+  const missing: string[] = [];
+  for (const field of REQUIRED_PROFILE_FIELDS) {
+    const value = profile[field];
+    if (value === null || value === undefined || String(value).trim() === '') {
+      missing.push(fieldMap[field] || field);
+    }
+  }
+  return missing;
+}
 
 /**
  * Mobile Profile GET Endpoint
@@ -37,41 +86,111 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 serve(async (req) => {
   // Handle CORS preflight
-  const corsResponse = handleCors(req);
-  if (corsResponse) return corsResponse;
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
 
   if (req.method !== 'GET') {
-    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+    return new Response(
+      JSON.stringify({ success: false, error: 'Method not allowed' }),
+      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 
   try {
     console.log('[mobile-profile] Fetching user profile');
 
-    // Verify JWT and get user
-    const { user, supabase } = await verifyAndGetUser(req);
+    // 1. Read Authorization header
+    const authHeader = req.headers.get('Authorization');
+    
+    if (!authHeader) {
+      console.log('[mobile-profile] Missing Authorization header');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Missing Authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 2. Extract Bearer token
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+      console.log('[mobile-profile] Invalid Authorization header format');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid Authorization header format' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const accessToken = parts[1];
+    
+    if (!accessToken || accessToken.length < 10) {
+      console.log('[mobile-profile] Token is empty or too short');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 3. Create Supabase client with SERVICE_ROLE key
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[mobile-profile] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      }
+    });
+
+    // 4. Verify JWT and get user
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(accessToken);
+    
+    if (userError) {
+      console.error('[mobile-profile] Auth error:', userError.message);
+      const errorMsg = userError.message?.toLowerCase() || '';
+      if (errorMsg.includes('expired') || errorMsg.includes('exp claim')) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid token', code: 'INVALID_TOKEN' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!user) {
+      console.log('[mobile-profile] No user found for token');
+      return new Response(
+        JSON.stringify({ success: false, error: 'User not found', code: 'USER_NOT_FOUND' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     console.log('[mobile-profile] User authenticated:', user.id);
 
-    // Use service role for profile creation if needed
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Fetch user profile
+    // 5. Fetch user profile - only select columns that exist in the table
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('*')
+      .select('user_id, email, full_name, name, phone, address, address_line1, country, province, state_province, language')
       .eq('user_id', user.id)
       .maybeSingle();
 
     if (profileError) {
       console.error('[mobile-profile] Error fetching profile:', profileError);
-      return jsonResponse({ 
-        success: false, 
-        error: 'Failed to fetch profile' 
-      }, 500);
+      // Don't fail, just proceed with creating a new profile
     }
 
-    // If no profile exists, create one with defaults
+    // 6. If no profile exists, create one with defaults
     if (!profile) {
       console.log('[mobile-profile] No profile found, creating default profile');
       
@@ -83,7 +202,7 @@ serve(async (req) => {
         user_id: user.id,
         email: user.email || '',
         full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-        phone: '',
+        phone: user.user_metadata?.phone || '',
         address: '',
         country: defaultCountry,
         province: defaultProvince,
@@ -93,12 +212,12 @@ serve(async (req) => {
       const { data: createdProfile, error: createError } = await supabaseAdmin
         .from('profiles')
         .upsert(newProfile, { onConflict: 'user_id' })
-        .select()
+        .select('user_id, email, full_name, name, phone, address, address_line1, country, province, state_province, language')
         .single();
 
       if (createError) {
         console.error('[mobile-profile] Failed to create profile:', createError);
-        // Return default profile anyway
+        // Return a default profile anyway so the app doesn't break
         profile = newProfile as any;
       } else {
         profile = createdProfile;
@@ -106,36 +225,51 @@ serve(async (req) => {
       }
     }
 
-    // Check if profile is complete
+    // 7. Check if profile is complete
     const hasCompleteProfile = isProfileComplete(profile);
     const missingFields = hasCompleteProfile ? [] : getMissingProfileFields(profile);
 
     console.log('[mobile-profile] Profile retrieved, complete:', hasCompleteProfile);
 
-    // Return profile in the new simplified format
-    return jsonResponse({
-      id: profile.user_id || user.id,
-      email: profile.email || user.email || '',
-      full_name: profile.full_name || profile.name || '',
-      phone: profile.phone || '',
-      address: profile.address || profile.address_line1 || '',
-      country: profile.country || 'DR Congo',
-      province: profile.province || profile.state_province || 'Kinshasa',
-      language: profile.language || 'fr',
+    // 8. Return profile in the simplified format - never null values
+    const response = {
+      id: profile?.user_id || user.id,
+      email: profile?.email || user.email || '',
+      full_name: profile?.full_name || profile?.name || '',
+      phone: profile?.phone || '',
+      address: profile?.address || profile?.address_line1 || '',
+      country: profile?.country || 'DR Congo',
+      province: profile?.province || profile?.state_province || 'Kinshasa',
+      language: profile?.language || 'fr',
       hasCompleteProfile,
       missingFields,
-    });
+    };
+
+    return new Response(
+      JSON.stringify(response),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
 
   } catch (error: any) {
-    console.error('[mobile-profile] Error:', error.message);
-    
-    if (error.name === 'AuthError') {
-      return jsonResponse({ success: false, error: error.message }, error.status);
-    }
-    
-    return jsonResponse({ 
-      success: false,
-      error: 'Failed to fetch profile',
-    }, 500);
+    // Never let the function crash - always return structured JSON
+    console.error('[mobile-profile] Unexpected error:', error?.message || error);
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: 'Internal server error',
+        // Return a minimal profile so the app doesn't break completely
+        id: '',
+        email: '',
+        full_name: '',
+        phone: '',
+        address: '',
+        country: 'DR Congo',
+        province: 'Kinshasa',
+        language: 'fr',
+        hasCompleteProfile: false,
+        missingFields: ['fullName', 'phone', 'address', 'country', 'province']
+      }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });

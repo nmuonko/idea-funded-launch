@@ -187,10 +187,12 @@ serve(async (req) => {
       summary.message = "We'll contact you for a custom shipping quote.";
     }
 
+    console.log('[mobile-get-cart] Returning', activeItems.length, 'active items and', savedItems.length, 'saved items');
+    
     return jsonResponse({ 
-      items: activeItems,
-      activeItems,
-      savedItems,
+      items: activeItems,       // Backwards compatible - active items only
+      activeItems,              // Active cart items (isSavedForLater = false)
+      savedItems,               // Saved for later items (isSavedForLater = true)
       summary 
     });
 

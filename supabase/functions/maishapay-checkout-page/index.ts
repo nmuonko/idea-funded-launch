@@ -50,18 +50,24 @@ serve(async (req) => {
     let publicKey: string;
     let secretKey: string;
     
+    // CRITICAL: Use MAISHAPAY_SECRET_API_KEY as the primary secret key source
+    // This is the actual API key needed for checkout (NOT the webhook secret)
+    const primarySecretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY');
+    
     if (isLiveMode) {
-      // Live mode - check LIVE keys first, then generic
+      // Live mode - check LIVE keys first, then generic, then primary
       publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
                   Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
-      secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+      secretKey = primarySecretKey || 
+                  Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
                   Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
     } else {
       // Sandbox mode
       publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
                   Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
                   Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-      secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
+      secretKey = primarySecretKey || 
+                  Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
                   Deno.env.get('MAISHAPAY_SECRET_KEY') || 
                   Deno.env.get('MAISHA_SECRET_KEY') || '';
     }

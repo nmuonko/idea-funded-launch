@@ -3,11 +3,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, Package, Clock, CheckCircle, XCircle, RefreshCw, ExternalLink, Eye } from 'lucide-react';
+import { Loader2, Package, Clock, CheckCircle, XCircle, RefreshCw, ExternalLink, Eye, Car, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getStatusTranslation, getTranslation } from '@/lib/i18n/translations';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Orders() {
   const { toast } = useToast();
@@ -15,8 +25,13 @@ export default function Orders() {
   const { language } = useLanguage();
   const t = getTranslation(language);
   const [orders, setOrders] = useState<any[]>([]);
+  const [quoteRequests, setQuoteRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [respondingQuote, setRespondingQuote] = useState<string | null>(null);
+  const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
+  const [selectedQuote, setSelectedQuote] = useState<any>(null);
+  const [quoteAction, setQuoteAction] = useState<'accept' | 'reject'>('accept');
 
   useEffect(() => {
     loadOrders();
@@ -41,6 +56,18 @@ export default function Orders() {
 
       if (error) throw error;
       setOrders(data || []);
+
+      // Load pending quote requests for this user
+      const { data: quotes, error: quotesError } = await supabase
+        .from('quote_requests')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'SENT')
+        .order('updated_at', { ascending: false });
+
+      if (!quotesError) {
+        setQuoteRequests(quotes || []);
+      }
     } catch (error) {
       console.error('Error loading orders:', error);
       toast({
@@ -112,6 +139,74 @@ export default function Orders() {
     }
   };
 
+  const openQuoteDialog = (quote: any, action: 'accept' | 'reject') => {
+    setSelectedQuote(quote);
+    setQuoteAction(action);
+    setQuoteDialogOpen(true);
+  };
+
+  const respondToQuote = async () => {
+    if (!selectedQuote) return;
+    
+    setRespondingQuote(selectedQuote.id);
+    try {
+      const newStatus = quoteAction === 'accept' ? 'ACCEPTED' : 'REJECTED';
+      
+      // Update quote request status
+      const { error: updateError } = await supabase
+        .from('quote_requests')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', selectedQuote.id);
+
+      if (updateError) throw updateError;
+
+      // Get user profile for notification
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('email, full_name, name')
+        .eq('user_id', user?.id)
+        .single();
+
+      // Send admin notification
+      try {
+        await supabase.functions.invoke('send-quote-response-notification', {
+          body: {
+            quoteRequestId: selectedQuote.id,
+            response: newStatus,
+            customerEmail: profile?.email || user?.email || '',
+            customerName: profile?.full_name || profile?.name || 'Customer',
+            vehicleTitle: selectedQuote.title || 'Vehicle',
+            quotedTotalUsd: selectedQuote.quoted_total_usd || 0,
+          },
+        });
+      } catch (notifError) {
+        console.error('Failed to send admin notification:', notifError);
+      }
+
+      toast({
+        title: quoteAction === 'accept' 
+          ? (language === 'fr' ? 'Devis accepté' : 'Quote Accepted')
+          : (language === 'fr' ? 'Devis refusé' : 'Quote Rejected'),
+        description: quoteAction === 'accept'
+          ? (language === 'fr' ? 'Vous pouvez maintenant procéder au paiement' : 'You can now proceed with payment')
+          : (language === 'fr' ? 'Nous vous contacterons avec une offre révisée' : 'We will contact you with a revised offer'),
+      });
+
+      setQuoteDialogOpen(false);
+      loadOrders();
+    } catch (error: any) {
+      console.error('Error responding to quote:', error);
+      toast({
+        title: t.common.error,
+        description: error.message || (language === 'fr' ? 'Échec de la réponse' : 'Failed to respond'),
+        variant: 'destructive',
+      });
+    } finally {
+      setRespondingQuote(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     const statusIcons: Record<string, any> = {
       'PENDING_PAYMENT': Clock,
@@ -169,6 +264,69 @@ export default function Orders() {
           {language === 'fr' ? 'Actualiser' : 'Refresh'}
         </Button>
       </div>
+
+      {/* Pending Vehicle Quotes Section */}
+      {quoteRequests.length > 0 && (
+        <Card className="mb-6 border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+              <Car className="h-5 w-5" />
+              {language === 'fr' ? 'Devis véhicules en attente' : 'Pending Vehicle Quotes'}
+            </CardTitle>
+            <CardDescription>
+              {language === 'fr' 
+                ? 'Vous avez des devis véhicules à examiner'
+                : 'You have vehicle quotes to review'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {quoteRequests.map((quote) => (
+              <div key={quote.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-background rounded-lg border gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium truncate">{quote.title || 'Vehicle'}</p>
+                  <p className="text-sm text-muted-foreground">{quote.store_name}</p>
+                  <div className="mt-1 flex items-center gap-4 text-sm">
+                    <span>
+                      {language === 'fr' ? 'Livraison:' : 'Shipping:'}{' '}
+                      <strong>${Number(quote.quoted_shipping_usd || 0).toFixed(2)}</strong>
+                    </span>
+                    <span className="text-lg font-bold text-primary">
+                      Total: ${Number(quote.quoted_total_usd || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 border-red-300 hover:bg-red-50"
+                    onClick={() => openQuoteDialog(quote, 'reject')}
+                    disabled={respondingQuote === quote.id}
+                  >
+                    <ThumbsDown className="h-4 w-4 mr-1" />
+                    {language === 'fr' ? 'Refuser' : 'Reject'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => openQuoteDialog(quote, 'accept')}
+                    disabled={respondingQuote === quote.id}
+                  >
+                    {respondingQuote === quote.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <ThumbsUp className="h-4 w-4 mr-1" />
+                        {language === 'fr' ? 'Accepter' : 'Accept'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {orders.length === 0 ? (
         <Card>
@@ -296,6 +454,55 @@ export default function Orders() {
           ))}
         </div>
       )}
+
+      {/* Quote Response Dialog */}
+      <AlertDialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {quoteAction === 'accept' 
+                ? (language === 'fr' ? 'Accepter ce devis?' : 'Accept this quote?')
+                : (language === 'fr' ? 'Refuser ce devis?' : 'Reject this quote?')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedQuote && (
+                <div className="mt-2 space-y-2">
+                  <p><strong>{selectedQuote.title || 'Vehicle'}</strong></p>
+                  <p className="text-lg font-semibold text-foreground">
+                    Total: ${Number(selectedQuote.quoted_total_usd || 0).toFixed(2)} USD
+                  </p>
+                  {quoteAction === 'accept' ? (
+                    <p className="text-green-600">
+                      {language === 'fr' 
+                        ? 'En acceptant, vous pourrez procéder au paiement de ce véhicule.'
+                        : 'By accepting, you can proceed with payment for this vehicle.'}
+                    </p>
+                  ) : (
+                    <p className="text-amber-600">
+                      {language === 'fr' 
+                        ? 'Notre équipe vous contactera avec une offre révisée.'
+                        : 'Our team will contact you with a revised offer.'}
+                    </p>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {language === 'fr' ? 'Annuler' : 'Cancel'}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={respondToQuote}
+              className={quoteAction === 'accept' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
+            >
+              {quoteAction === 'accept' 
+                ? (language === 'fr' ? 'Accepter le devis' : 'Accept Quote')
+                : (language === 'fr' ? 'Refuser le devis' : 'Reject Quote')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

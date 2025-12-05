@@ -3,6 +3,8 @@
  * 
  * Pure logic utility for determining shipping category from product data.
  * No I/O operations - only string-based keyword matching.
+ * 
+ * ALWAYS returns a non-null category - uses safe defaults for low-confidence matches.
  */
 
 // Category keys matching shipping_item_types table
@@ -22,11 +24,17 @@ export interface CategoryDetectionInput {
 }
 
 export interface CategoryDetectionResult {
-  category: ShippingCategoryKey | null;
+  category: ShippingCategoryKey; // ALWAYS non-null
   confidence: number;
   matchedKeywords: string[];
   requiresQuote: boolean; // True for vehicles - no automatic shipping price
+  isEstimated: boolean; // True when we used safe default due to low confidence
 }
+
+// Safe default category for low-confidence items
+// Using console_medium (6 kg) as it won't under-charge shipping
+export const SAFE_DEFAULT_CATEGORY: ShippingCategoryKey = 'console_medium';
+export const LOW_CONFIDENCE_THRESHOLD = 0.6;
 
 // Keyword mappings for each shipping category
 // Ordered by specificity - more specific patterns have higher weight
@@ -43,6 +51,8 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
     { keywords: ['bag', 'sac', 'backpack', 'purse', 'wallet', 'handbag'], weight: 0.9 },
     { keywords: ['belt', 'ceinture', 'scarf', 'écharpe', 'tie', 'cravate'], weight: 0.9 },
     { keywords: ['clothing', 'vêtement', 'apparel', 'wear', 'fashion'], weight: 0.8 },
+    { keywords: ['blouse', 'cardigan', 'blazer', 'vest', 'romper', 'jumpsuit'], weight: 1.0 },
+    { keywords: ['lingerie', 'bra', 'panties', 'sleepwear', 'pajama'], weight: 1.0 },
   ],
 
   // Small Electronics (0.7 kg) - phones, watches, cameras, earbuds
@@ -57,6 +67,7 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
     { keywords: ['bluetooth speaker', 'portable speaker', 'jbl', 'bose', 'sonos mini'], weight: 1.0 },
     { keywords: ['drone', 'dji mini', 'mavic mini'], weight: 0.9 },
     { keywords: ['power bank', 'charger', 'chargeur', 'cable', 'câble'], weight: 0.8 },
+    { keywords: ['mouse', 'keyboard', 'clavier', 'souris'], weight: 0.8 },
   ],
 
   // Laptop / Tablet (2.5 kg)
@@ -85,6 +96,7 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
     { keywords: ['projector', 'projecteur', 'vidéoprojecteur'], weight: 0.9 },
     { keywords: ['vacuum cleaner', 'aspirateur', 'roomba', 'dyson'], weight: 0.8 },
     { keywords: ['air purifier', 'purificateur', 'humidifier'], weight: 0.8 },
+    { keywords: ['blender', 'mixer', 'coffee maker', 'toaster', 'air fryer', 'instant pot'], weight: 0.8 },
   ],
 
   // TV / Large Appliance / Furniture (12 kg) - requires manual quote
@@ -145,10 +157,21 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
   ],
 };
 
-// Store-specific category hints
-const STORE_CATEGORY_HINTS: Record<string, ShippingCategoryKey[]> = {
-  'CARVANA': ['vehicle'],  // Car marketplace - always vehicles
-  'CARGURUS': ['vehicle'], // Car marketplace - always vehicles
+// Store-specific category hints - strong signals based on store type
+const STORE_CATEGORY_HINTS: Record<string, ShippingCategoryKey> = {
+  'CARVANA': 'vehicle',  // Car marketplace - always vehicles
+  'CARGURUS': 'vehicle', // Car marketplace - always vehicles
+};
+
+// Store-specific default categories (when no other match found)
+const STORE_DEFAULT_CATEGORIES: Record<string, ShippingCategoryKey> = {
+  'SHEIN': 'clothes_shoes',     // SHEIN is fashion-focused
+  'TARGET': 'console_medium',   // General retailer
+  'WALMART': 'console_medium',  // General retailer
+  'AMAZON': 'console_medium',   // General retailer
+  'EBAY': 'console_medium',     // General marketplace
+  'BESTBUY': 'small_electronics', // Electronics retailer
+  'HOMEDEPOT': 'console_medium',  // Home improvement
 };
 
 // URL path patterns that strongly indicate vehicles
@@ -162,6 +185,74 @@ const VEHICLE_URL_PATTERNS = [
   '/used-cars',
   '/new-cars',
   '/certified-used',
+];
+
+// URL path patterns for store category detection
+const URL_CATEGORY_PATTERNS: { pattern: string; category: ShippingCategoryKey; weight: number }[] = [
+  // Amazon categories
+  { pattern: '/electronics/', category: 'small_electronics', weight: 1.5 },
+  { pattern: '/computers-tablets/', category: 'laptop_tablet', weight: 1.5 },
+  { pattern: '/computers/', category: 'laptop_tablet', weight: 1.4 },
+  { pattern: '/clothing/', category: 'clothes_shoes', weight: 1.5 },
+  { pattern: '/fashion/', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/shoes/', category: 'clothes_shoes', weight: 1.5 },
+  { pattern: '/home/', category: 'console_medium', weight: 1.0 },
+  { pattern: '/appliances/', category: 'tv_large_appliance', weight: 1.3 },
+  { pattern: '/tv-video/', category: 'tv_large_appliance', weight: 1.4 },
+  { pattern: '/video-games/', category: 'console_medium', weight: 1.3 },
+  { pattern: '/cell-phones/', category: 'small_electronics', weight: 1.4 },
+  { pattern: '/sports/', category: 'console_medium', weight: 1.0 },
+  { pattern: '/toys/', category: 'small_electronics', weight: 0.9 },
+  { pattern: '/beauty/', category: 'small_electronics', weight: 0.8 },
+  { pattern: '/jewelry/', category: 'small_electronics', weight: 1.0 },
+  { pattern: '/watches/', category: 'small_electronics', weight: 1.2 },
+  { pattern: '/bags/', category: 'clothes_shoes', weight: 1.2 },
+  { pattern: '/luggage/', category: 'console_medium', weight: 1.1 },
+  
+  // eBay categories
+  { pattern: '/b/cell-phones', category: 'small_electronics', weight: 1.4 },
+  { pattern: '/b/computers', category: 'laptop_tablet', weight: 1.4 },
+  { pattern: '/b/clothing', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/b/shoes', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/b/consumer-electronics', category: 'small_electronics', weight: 1.3 },
+  { pattern: '/b/video-games', category: 'console_medium', weight: 1.3 },
+  
+  // BestBuy categories
+  { pattern: '/site/computers', category: 'laptop_tablet', weight: 1.5 },
+  { pattern: '/site/cell-phones', category: 'small_electronics', weight: 1.5 },
+  { pattern: '/site/tv-home-theater', category: 'tv_large_appliance', weight: 1.5 },
+  { pattern: '/site/appliances', category: 'tv_large_appliance', weight: 1.5 },
+  { pattern: '/site/video-games', category: 'console_medium', weight: 1.4 },
+  { pattern: '/site/headphones', category: 'small_electronics', weight: 1.3 },
+  { pattern: '/site/cameras', category: 'small_electronics', weight: 1.3 },
+  
+  // Walmart categories  
+  { pattern: '/cp/electronics', category: 'small_electronics', weight: 1.4 },
+  { pattern: '/cp/clothing', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/cp/home', category: 'console_medium', weight: 1.0 },
+  { pattern: '/cp/appliances', category: 'tv_large_appliance', weight: 1.3 },
+  { pattern: '/ip/', category: 'console_medium', weight: 0.5 }, // Product page, low weight
+  
+  // Target categories
+  { pattern: '/c/electronics', category: 'small_electronics', weight: 1.4 },
+  { pattern: '/c/clothing', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/c/home', category: 'console_medium', weight: 1.0 },
+  
+  // SHEIN categories (always clothing-related)
+  { pattern: '/category/', category: 'clothes_shoes', weight: 1.3 },
+  { pattern: '/women/', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/men/', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/kids/', category: 'clothes_shoes', weight: 1.4 },
+  { pattern: '/shoes/', category: 'clothes_shoes', weight: 1.5 },
+  { pattern: '/bags/', category: 'clothes_shoes', weight: 1.3 },
+  { pattern: '/jewelry/', category: 'small_electronics', weight: 1.0 },
+  
+  // Home Depot categories
+  { pattern: '/p/', category: 'console_medium', weight: 0.5 }, // Product page
+  { pattern: '/b/appliances', category: 'tv_large_appliance', weight: 1.4 },
+  { pattern: '/b/furniture', category: 'tv_large_appliance', weight: 1.3 },
+  { pattern: '/b/tools', category: 'console_medium', weight: 1.2 },
+  { pattern: '/b/lighting', category: 'small_electronics', weight: 1.0 },
 ];
 
 /**
@@ -196,7 +287,24 @@ function hasVehicleUrlPattern(url: string): boolean {
 }
 
 /**
+ * Extract category hints from URL path
+ */
+function getCategoryFromUrl(url: string): { category: ShippingCategoryKey; weight: number } | null {
+  const lowerUrl = url.toLowerCase();
+  
+  for (const { pattern, category, weight } of URL_CATEGORY_PATTERNS) {
+    if (lowerUrl.includes(pattern)) {
+      return { category, weight };
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Determine the shipping category from product data
+ * 
+ * ALWAYS returns a non-null category. Uses safe defaults for low-confidence matches.
  * 
  * @param input - Product data including title, url, store
  * @returns Category detection result with confidence score and requiresQuote flag
@@ -210,16 +318,25 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
       confidence: 1.0,
       matchedKeywords: ['existing_category'],
       requiresQuote: isVehicle,
+      isEstimated: false,
     };
   }
 
   const title = input.title || '';
   const url = input.url || '';
-  const store = input.store || '';
+  const store = (input.store || '').toUpperCase();
 
-  // Nothing to analyze
-  if (!title && !url) {
-    return { category: null, confidence: 0, matchedKeywords: [], requiresQuote: false };
+  // Check for store-specific strong hints first (car marketplaces)
+  if (store && STORE_CATEGORY_HINTS[store]) {
+    const category = STORE_CATEGORY_HINTS[store];
+    const isVehicle = category === 'vehicle';
+    return {
+      category,
+      confidence: 1.0,
+      matchedKeywords: ['store_hint_' + store.toLowerCase()],
+      requiresQuote: isVehicle,
+      isEstimated: false,
+    };
   }
 
   // Combine title and URL path for analysis
@@ -257,17 +374,19 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
     }
   }
 
-  // Apply store-specific hints (strong boost for car marketplaces)
-  if (store && STORE_CATEGORY_HINTS[store]) {
-    for (const hintCategory of STORE_CATEGORY_HINTS[store]) {
-      categoryScores[hintCategory].score += 3.0; // Strong boost for car sites
+  // Apply URL pattern hints
+  if (url) {
+    const urlHint = getCategoryFromUrl(url);
+    if (urlHint) {
+      categoryScores[urlHint.category].score += urlHint.weight;
+      categoryScores[urlHint.category].keywords.push('url_category_hint');
     }
-  }
-
-  // Apply URL pattern boost for vehicles
-  if (url && hasVehicleUrlPattern(url)) {
-    categoryScores['vehicle'].score += 1.5;
-    categoryScores['vehicle'].keywords.push('url_pattern');
+    
+    // Apply URL pattern boost for vehicles
+    if (hasVehicleUrlPattern(url)) {
+      categoryScores['vehicle'].score += 1.5;
+      categoryScores['vehicle'].keywords.push('url_vehicle_pattern');
+    }
   }
 
   // Find the best category
@@ -288,31 +407,66 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   // Calculate confidence based on:
   // 1. Absolute score (more matches = higher confidence)
   // 2. Score margin (bigger gap from second best = higher confidence)
-  if (!bestCategory || bestScore === 0) {
-    return { category: null, confidence: 0, matchedKeywords: [], requiresQuote: false };
-  }
-
+  
   // Base confidence from score magnitude (max out at score of 3)
-  const magnitudeConfidence = Math.min(bestScore / 3, 1);
+  const magnitudeConfidence = bestScore > 0 ? Math.min(bestScore / 3, 1) : 0;
   
   // Margin confidence (how much better is best vs second best)
-  const marginConfidence = secondBestScore > 0 
+  const marginConfidence = (bestScore > 0 && secondBestScore > 0)
     ? Math.min((bestScore - secondBestScore) / bestScore, 1)
-    : 1;
+    : (bestScore > 0 ? 1 : 0);
 
   // Combined confidence: weighted average
   const confidence = Math.round((magnitudeConfidence * 0.6 + marginConfidence * 0.4) * 100) / 100;
 
+  // ALWAYS return a category - use fallbacks if no strong match
+  let finalCategory: ShippingCategoryKey;
+  let isEstimated = false;
+  let matchedKeywords: string[] = [];
+
+  if (bestCategory && bestScore > 0) {
+    finalCategory = bestCategory;
+    matchedKeywords = categoryScores[bestCategory].keywords;
+    
+    // Mark as estimated if confidence is low
+    if (confidence < LOW_CONFIDENCE_THRESHOLD && bestCategory !== 'vehicle') {
+      isEstimated = true;
+    }
+  } else {
+    // No keyword matches - use store default or safe default
+    if (store && STORE_DEFAULT_CATEGORIES[store]) {
+      finalCategory = STORE_DEFAULT_CATEGORIES[store];
+      matchedKeywords = ['store_default_' + store.toLowerCase()];
+      isEstimated = true;
+    } else {
+      finalCategory = SAFE_DEFAULT_CATEGORY;
+      matchedKeywords = ['safe_default'];
+      isEstimated = true;
+    }
+  }
+
+  // Log ambiguous/estimated cases for improvement
+  if (isEstimated) {
+    console.log('[shippingCategory] Estimated category (low confidence):', {
+      titlePrefix: title.substring(0, 60),
+      store,
+      chosenCategory: finalCategory,
+      confidence,
+      matchedKeywords: matchedKeywords.slice(0, 5),
+    });
+  }
+
   // Determine if this requires a manual quote
   // Vehicles always require quote if detected with sufficient confidence
-  const isVehicle = bestCategory === 'vehicle';
+  const isVehicle = finalCategory === 'vehicle';
   const requiresQuote = isVehicle && confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD;
 
   return {
-    category: bestCategory,
+    category: finalCategory,
     confidence: Math.min(confidence, 1),
-    matchedKeywords: categoryScores[bestCategory].keywords,
+    matchedKeywords,
     requiresQuote,
+    isEstimated,
   };
 }
 

@@ -9,8 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, Users, ShoppingBag, DollarSign, Globe, RefreshCw } from 'lucide-react';
+import { Search, Users, ShoppingBag, DollarSign, Globe, RefreshCw, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import { CustomerDetailDrawer } from '@/components/admin/CustomerDetailDrawer';
 
 interface CustomerProfile {
   id: string;
@@ -59,6 +60,8 @@ export default function Customers() {
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [provinceFilter, setProvinceFilter] = useState<string>('all');
   const [languageFilter, setLanguageFilter] = useState<string>('all');
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -155,6 +158,44 @@ export default function Customers() {
 
   const getLanguageLabel = (code: string | null) => {
     return LANGUAGES.find(l => l.code === code)?.label || code || '-';
+  };
+
+  const handleRowClick = (customer: CustomerProfile) => {
+    setSelectedCustomer(customer);
+    setDrawerOpen(true);
+  };
+
+  const exportToCSV = () => {
+    const headers = [
+      'Full Name', 'Email', 'Phone', 'Address', 'Country', 'Province', 
+      'Language', 'Orders', 'Total Spent (USD)', 'Last Order Date', 'Joined Date'
+    ];
+    
+    const rows = filteredCustomers.map(c => [
+      c.full_name || '',
+      c.email || '',
+      c.phone || '',
+      c.address || '',
+      c.country || '',
+      c.province || '',
+      getLanguageLabel(c.language),
+      c.order_count.toString(),
+      c.total_spent.toFixed(2),
+      c.last_order_date ? format(new Date(c.last_order_date), 'yyyy-MM-dd') : '',
+      format(new Date(c.created_at), 'yyyy-MM-dd'),
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `customers_export_${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
   };
 
   return (
@@ -263,6 +304,10 @@ export default function Customers() {
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               {t.common?.refresh || 'Refresh'}
             </Button>
+            <Button variant="outline" onClick={exportToCSV} disabled={loading || filteredCustomers.length === 0}>
+              <Download className="h-4 w-4 mr-2" />
+              {t.common?.export || 'Export CSV'}
+            </Button>
           </div>
 
           {/* Table */}
@@ -302,7 +347,11 @@ export default function Customers() {
                   </TableRow>
                 ) : (
                   filteredCustomers.map((customer) => (
-                    <TableRow key={customer.id}>
+                    <TableRow 
+                      key={customer.id} 
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => handleRowClick(customer)}
+                    >
                       <TableCell className="font-medium">
                         {customer.full_name || '-'}
                       </TableCell>
@@ -345,6 +394,13 @@ export default function Customers() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Customer Detail Drawer */}
+      <CustomerDetailDrawer
+        customer={selectedCustomer}
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+      />
     </div>
   );
 }

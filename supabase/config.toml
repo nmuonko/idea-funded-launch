@@ -185,3 +185,6 @@ verify_jwt = false
 
 [functions.send-order-delivered-email]
 verify_jwt = false
+
+[functions.backfill-product-images]
+verify_jwt = false

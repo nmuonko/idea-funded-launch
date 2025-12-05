@@ -27,6 +27,7 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
   const quantity = item.quantity || 1;
   const estWeightKg = Number(item.est_weight_kg || 1);
   const itemRequiresQuote = item.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
+  const isVehicle = item.is_vehicle || false;
 
   // Calculate expected values from base price
   const expectedBaseTotal = round2(basePriceUsd * quantity);
@@ -41,6 +42,9 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
   const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
 
   const imageUrl = item.product_image_url || null;
+
+  // Get quote request info if available
+  const quoteRequest = item.quote_requests?.[0];
   
   return {
     id: item.id,
@@ -64,6 +68,12 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
       key: item.shipping_item_types.key,
       label: item.shipping_item_types.label,
     } : null,
+    // Vehicle-specific fields
+    isVehicle,
+    isQuoteRequired: isVehicle,
+    quoteStatus: quoteRequest?.status || null,
+    quotedShippingUsd: quoteRequest?.quoted_shipping_usd || null,
+    quotedTotalUsd: quoteRequest?.quoted_total_usd || null,
   };
 }
 
@@ -115,8 +125,9 @@ serve(async (req) => {
       .select(`
         id, product_url, title, product_image_url, store, base_price_usd, quantity,
         subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, est_weight_kg,
-        requires_manual_quote, is_saved_for_later, saved_at,
-        shipping_item_types(key, label)
+        requires_manual_quote, is_saved_for_later, saved_at, is_vehicle,
+        shipping_item_types(key, label),
+        quote_requests(status, quoted_shipping_usd, quoted_total_usd)
       `)
       .eq('order_id', order.id);
 
@@ -127,14 +138,16 @@ serve(async (req) => {
     // Separate active and saved items
     const activeItems: any[] = [];
     const savedItems: any[] = [];
+    const quoteRequiredItems: any[] = [];
 
-    // Summary calculations only for active items
+    // Summary calculations only for active items (excluding vehicles requiring quotes)
     let itemCount = 0;
     let calcItemsTotal = 0;
     let calcMarginTotal = 0;
     let calcSubtotalWithMarkup = 0;
     let calcShippingTotal = 0;
     let requiresManualQuote = false;
+    let vehicleCount = 0;
 
     (items || []).forEach(item => {
       const formattedItem = formatItem(item, markupPercent, exchangeRate);
@@ -144,16 +157,23 @@ serve(async (req) => {
       } else {
         activeItems.push(formattedItem);
         
-        // Only count active items in summary
-        itemCount += formattedItem.quantity;
-        calcItemsTotal += formattedItem.itemBaseTotalUsd;
-        calcMarginTotal += formattedItem.itemMarginUsd;
-        calcSubtotalWithMarkup += formattedItem.itemSubtotalUsd;
-
-        if (formattedItem.requiresManualQuote) {
-          requiresManualQuote = true;
+        // Track vehicles separately - they don't contribute to automatic totals
+        if (formattedItem.isVehicle) {
+          vehicleCount++;
+          quoteRequiredItems.push(formattedItem);
+          // Don't include in automatic totals
         } else {
-          calcShippingTotal += calculateItemShipping(formattedItem.itemBaseTotalUsd, formattedItem.estWeightKg);
+          // Only count non-vehicle active items in summary
+          itemCount += formattedItem.quantity;
+          calcItemsTotal += formattedItem.itemBaseTotalUsd;
+          calcMarginTotal += formattedItem.itemMarginUsd;
+          calcSubtotalWithMarkup += formattedItem.itemSubtotalUsd;
+
+          if (formattedItem.requiresManualQuote) {
+            requiresManualQuote = true;
+          } else {
+            calcShippingTotal += calculateItemShipping(formattedItem.itemBaseTotalUsd, formattedItem.estWeightKg);
+          }
         }
       }
     });
@@ -170,7 +190,7 @@ serve(async (req) => {
     const finalGrandTotalUsd = round2(calcSubtotalWithMarkup + finalShippingFee);
     const finalGrandTotalCdf = round2(finalGrandTotalUsd * exchangeRate);
 
-    // Build summary (only for active items)
+    // Build summary (only for active non-vehicle items)
     const summary: Record<string, any> = {
       itemCount,
       itemsTotalUsd: finalItemsTotal,
@@ -181,10 +201,17 @@ serve(async (req) => {
       exchangeRate: order.exchange_rate_used || exchangeRate,
       requiresManualQuote,
       savedItemCount: savedItems.length,
+      // Vehicle-specific summary fields
+      vehicleCount,
+      quoteRequiredItemCount: quoteRequiredItems.length,
     };
     
     if (requiresManualQuote) {
       summary.message = "We'll contact you for a custom shipping quote.";
+    }
+    
+    if (vehicleCount > 0) {
+      summary.vehicleMessage = "Un devis vous sera envoyé pour ce véhicule.";
     }
 
     console.log('[mobile-get-cart] Returning', activeItems.length, 'active items and', savedItems.length, 'saved items');

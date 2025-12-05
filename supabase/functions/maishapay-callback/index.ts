@@ -1,11 +1,65 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizePaymentStatus, getMaishaPayConfig } from "../_shared/maishapay.ts";
+import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-maishapay-signature',
 };
+
+// HMAC signature verification
+async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<boolean> {
+  const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
+  
+  // If no secret is configured, log warning but allow (for backwards compatibility during transition)
+  if (!webhookSecret) {
+    console.warn('[MaishaPay Callback] WARNING: MAISHAPAY_WEBHOOK_SECRET not configured - signature validation skipped');
+    return true;
+  }
+  
+  // If secret is configured but no signature provided, reject
+  if (!signature) {
+    console.error('[MaishaPay Callback] No signature provided in request');
+    return false;
+  }
+  
+  try {
+    // Compute expected HMAC-SHA256 signature
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(webhookSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signatureBuffer = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(rawBody)
+    );
+    
+    // Convert to hex string
+    const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    // Constant-time comparison to prevent timing attacks
+    const providedSig = signature.toLowerCase().replace(/^sha256=/, '');
+    const isValid = expectedSignature === providedSig;
+    
+    if (!isValid) {
+      console.error('[MaishaPay Callback] Signature mismatch - expected:', expectedSignature.substring(0, 16) + '...', 'got:', providedSig.substring(0, 16) + '...');
+    }
+    
+    return isValid;
+  } catch (error) {
+    console.error('[MaishaPay Callback] Signature verification error:', error);
+    return false;
+  }
+}
 
 const handler = async (req: Request): Promise<Response> => {
   // Handle CORS preflight requests
@@ -20,6 +74,31 @@ const handler = async (req: Request): Promise<Response> => {
     const config = getMaishaPayConfig();
     console.log(`[MaishaPay Callback] Processing callback (${config.mode} mode)...`);
 
+    // Clone request to read body twice (once for signature, once for parsing)
+    const rawBody = await req.text();
+    
+    // Verify webhook signature for POST requests
+    if (req.method === 'POST') {
+      const signature = req.headers.get('x-maishapay-signature') || 
+                        req.headers.get('x-webhook-signature') ||
+                        req.headers.get('x-signature');
+      
+      const isValid = await verifyWebhookSignature(rawBody, signature);
+      
+      if (!isValid) {
+        console.error('[MaishaPay Callback] Invalid webhook signature - rejecting request');
+        return new Response(JSON.stringify({ 
+          status: 'error', 
+          message: 'Invalid signature' 
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      console.log('[MaishaPay Callback] Webhook signature verified successfully');
+    }
+
     // Parse different content types and methods MaishaPay might send
     let paymentData: any = {};
     
@@ -32,25 +111,28 @@ const handler = async (req: Request): Promise<Response> => {
       console.log('[MaishaPay Callback] Query params:', paymentData);
     }
 
-    // Also parse body for POST requests
-    if (req.method === 'POST') {
+    // Parse body for POST requests
+    if (req.method === 'POST' && rawBody) {
       const contentType = req.headers.get('content-type') || '';
 
       if (contentType.includes('application/x-www-form-urlencoded')) {
-        const formData = await req.formData();
-        for (const [key, value] of formData.entries()) {
+        const params = new URLSearchParams(rawBody);
+        for (const [key, value] of params.entries()) {
           paymentData[key] = value;
         }
       } else if (contentType.includes('application/json')) {
-        const jsonData = await req.json();
-        paymentData = { ...paymentData, ...jsonData };
-      } else {
-        const text = await req.text();
         try {
-          const jsonData = JSON.parse(text);
+          const jsonData = JSON.parse(rawBody);
           paymentData = { ...paymentData, ...jsonData };
         } catch {
-          const params = new URLSearchParams(text);
+          console.warn('[MaishaPay Callback] Failed to parse JSON body');
+        }
+      } else {
+        try {
+          const jsonData = JSON.parse(rawBody);
+          paymentData = { ...paymentData, ...jsonData };
+        } catch {
+          const params = new URLSearchParams(rawBody);
           for (const [key, value] of params.entries()) {
             paymentData[key] = value;
           }

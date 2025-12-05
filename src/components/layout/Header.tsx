@@ -32,16 +32,25 @@ export function Header() {
   }, [user]);
 
   const loadProfile = async () => {
+    if (!user) return;
+    
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('name')
-        .eq('user_id', user?.id)
-        .single();
+        .select('name, full_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
       
-      if (data) {
-        setProfileData(data);
+      if (error) {
+        console.error('[Header] Error loading profile:', error);
+        return;
       }
+      
+      // Priority: profile data > user_metadata
+      const userMetadata = user.user_metadata || {};
+      const displayName = data?.name || data?.full_name || userMetadata.full_name || null;
+      
+      setProfileData({ name: displayName });
     } catch (error) {
       console.error('[Header] Error loading profile:', error);
     }

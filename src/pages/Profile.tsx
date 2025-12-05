@@ -33,20 +33,30 @@ export default function Profile() {
   }, [user, navigate]);
 
   const loadProfile = async () => {
+    if (!user) return;
+    
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('name, phone')
-        .eq('user_id', user?.id)
-        .single();
+        .select('name, phone, full_name')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error;
+      if (error) throw error;
 
+      // Priority: profile data > user_metadata > empty
+      const userMetadata = user.user_metadata || {};
+      
       if (data) {
-        setName(data.name || '');
-        setPhone(data.phone || '');
+        setName(data.name || data.full_name || userMetadata.full_name || '');
+        setPhone(data.phone || userMetadata.phone || '');
+      } else {
+        // No profile yet, use user_metadata if available
+        setName(userMetadata.full_name || '');
+        setPhone(userMetadata.phone || '');
       }
     } catch (error: any) {
+      console.error('[Profile] Error loading profile:', error);
       toast({
         title: 'Error',
         description: error.message,

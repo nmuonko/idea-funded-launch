@@ -249,6 +249,25 @@ export default function QuoteRequests() {
 
       if (itemError) throw itemError;
 
+      // Send email notification to customer
+      try {
+        const { error: emailError } = await supabase.functions.invoke("send-quote-email", {
+          body: {
+            quoteRequestId: selectedRequest.id,
+            quotedShippingUsd: shippingValue,
+            quotedTotalUsd: totalValue,
+            adminNotes: adminNotes || undefined,
+          },
+        });
+        
+        if (emailError) {
+          console.error("Failed to send quote email:", emailError);
+          // Don't fail the whole operation if email fails
+        }
+      } catch (emailErr) {
+        console.error("Email notification error:", emailErr);
+      }
+
       toast.success(t.quoteSuccess);
       setQuoteDialogOpen(false);
       fetchQuoteRequests();

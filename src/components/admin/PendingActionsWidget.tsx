@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, CreditCard, Package, MessageSquare, ArrowRight, Loader2 } from 'lucide-react';
+import { AlertCircle, CreditCard, Package, MessageSquare, ArrowRight, Loader2, Car } from 'lucide-react';
 
 export function PendingActionsWidget() {
   const navigate = useNavigate();
@@ -12,6 +12,7 @@ export function PendingActionsWidget() {
     unverifiedPayments: 0,
     unfulfilledOrders: 0,
     urgentTickets: 0,
+    pendingQuotes: 0,
   });
 
   useEffect(() => {
@@ -45,10 +46,17 @@ export function PendingActionsWidget() {
         .in('priority', ['high', 'urgent'])
         .in('status', ['open', 'in_progress']);
 
+      // Pending vehicle quotes
+      const { count: pendingQuotesCount } = await supabase
+        .from('quote_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'PENDING');
+
       setStats({
         unverifiedPayments: unverifiedCount || 0,
         unfulfilledOrders: unfulfilledCount || 0,
         urgentTickets: urgentCount || 0,
+        pendingQuotes: pendingQuotesCount || 0,
       });
     } catch (error) {
       console.error('Error loading pending actions:', error);
@@ -62,7 +70,7 @@ export function PendingActionsWidget() {
     navigate(route);
   };
 
-  const totalPending = stats.unverifiedPayments + stats.unfulfilledOrders + stats.urgentTickets;
+  const totalPending = stats.unverifiedPayments + stats.unfulfilledOrders + stats.urgentTickets + stats.pendingQuotes;
 
   const actions = [
     {
@@ -80,6 +88,14 @@ export function PendingActionsWidget() {
       count: stats.unfulfilledOrders,
       color: 'text-orange-600 bg-orange-50 dark:bg-orange-950',
       route: '/admin/orders',
+    },
+    {
+      icon: Car,
+      label: 'Pending Quotes',
+      description: 'Vehicle quotes awaiting pricing',
+      count: stats.pendingQuotes,
+      color: 'text-blue-600 bg-blue-50 dark:bg-blue-950',
+      route: '/admin/quote-requests',
     },
     {
       icon: MessageSquare,

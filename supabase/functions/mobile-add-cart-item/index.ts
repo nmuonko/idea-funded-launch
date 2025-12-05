@@ -7,6 +7,11 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+import {
+  determineShippingCategory,
+  getShippingTypeIdForCategory,
+  AUTO_APPLY_CONFIDENCE_THRESHOLD,
+} from "../_shared/shippingCategory.ts";
 
 // Input validation schema
 const addCartItemSchema = z.object({
@@ -322,6 +327,52 @@ serve(async (req) => {
       }
     }
 
+    // AUTO-DETECT SHIPPING CATEGORY if not provided by frontend
+    let finalShippingTypeId = shippingItemTypeId || null;
+    let autoDetectedCategory: string | null = null;
+    
+    if (!shippingItemTypeId && productTitle) {
+      const detection = determineShippingCategory({
+        title: productTitle,
+        url: productUrl,
+        store: store,
+        existingCategory: null,
+      });
+
+      console.log('[mobile-add-cart-item] Category detection result:', {
+        inferredCategory: detection.category,
+        confidence: detection.confidence,
+        matchedKeywords: detection.matchedKeywords.slice(0, 5), // Log first 5 keywords
+      });
+
+      // Auto-apply if confidence meets threshold
+      if (detection.category && detection.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+        const shippingType = await getShippingTypeIdForCategory(supabase, detection.category);
+        
+        if (shippingType) {
+          finalShippingTypeId = shippingType.id;
+          estWeightKg = shippingType.estWeightKg;
+          itemRequiresManualQuote = shippingType.requiresManualQuote || estWeightKg > HEAVY_THRESHOLD_KG;
+          autoDetectedCategory = detection.category;
+          
+          console.log('[mobile-add-cart-item] Auto-applied category:', {
+            category: detection.category,
+            shippingTypeId: finalShippingTypeId,
+            estWeightKg,
+            requiresManualQuote: itemRequiresManualQuote,
+          });
+        }
+      } else if (detection.category && detection.confidence < AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+        // Log low-confidence cases for debugging/tuning (no PII)
+        console.log('[mobile-add-cart-item] Low confidence detection (user popup needed):', {
+          titlePrefix: productTitle.substring(0, 50),
+          store,
+          inferredCategory: detection.category,
+          confidence: detection.confidence,
+        });
+      }
+    }
+
     // Get or create DRAFT order
     const { data: existingOrder } = await supabase
       .from('orders')
@@ -375,9 +426,9 @@ serve(async (req) => {
           markup_fee_usd: mergedPricing.itemMarginUsd,
           total_price_usd: mergedPricing.itemSubtotalUsd,
           total_price_cdf: mergedPricing.itemSubtotalCdf,
-          // Update shipping fields if provided
-          ...(shippingItemTypeId && {
-            shipping_item_type_id: shippingItemTypeId,
+          // Update shipping fields if provided or auto-detected
+          ...(finalShippingTypeId && {
+            shipping_item_type_id: finalShippingTypeId,
             est_weight_kg: estWeightKg,
             requires_manual_quote: itemRequiresManualQuote,
           }),
@@ -417,6 +468,8 @@ serve(async (req) => {
           itemSubtotalCdf: updatedItem.total_price_cdf,
           estWeightKg: updatedItem.est_weight_kg,
           requiresManualQuote: updatedItem.requires_manual_quote || false,
+          shippingItemTypeId: updatedItem.shipping_item_type_id || null,
+          categoryAutoDetected: autoDetectedCategory !== null,
         },
         summary,
       });
@@ -439,8 +492,8 @@ serve(async (req) => {
         shipping_fee_usd: 0,
         total_price_usd: pricing.itemSubtotalUsd,
         total_price_cdf: pricing.itemSubtotalCdf,
-        // Shipping type fields
-        shipping_item_type_id: shippingItemTypeId || null,
+        // Shipping type fields - use auto-detected or provided
+        shipping_item_type_id: finalShippingTypeId,
         est_weight_kg: estWeightKg,
         requires_manual_quote: itemRequiresManualQuote,
       })
@@ -475,6 +528,8 @@ serve(async (req) => {
         itemSubtotalCdf: data.total_price_cdf,
         estWeightKg: data.est_weight_kg,
         requiresManualQuote: data.requires_manual_quote || false,
+        shippingItemTypeId: data.shipping_item_type_id || null,
+        categoryAutoDetected: autoDetectedCategory !== null,
       },
       summary,
     });

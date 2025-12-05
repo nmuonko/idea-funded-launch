@@ -1,242 +1,282 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-maishapay-signature',
 };
 
-// HMAC signature verification
-async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<boolean> {
-  const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
-  
-  // If no secret is configured, log warning but allow (for backwards compatibility during transition)
-  if (!webhookSecret) {
-    console.warn('[Maisha Callback] WARNING: MAISHAPAY_WEBHOOK_SECRET not configured - signature validation skipped');
-    return true;
-  }
-  
-  // If secret is configured but no signature provided, reject
-  if (!signature) {
-    console.error('[Maisha Callback] No signature provided in request');
-    return false;
-  }
-  
-  try {
-    // Compute expected HMAC-SHA256 signature
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode(webhookSecret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-    
-    const signatureBuffer = await crypto.subtle.sign(
-      'HMAC',
-      key,
-      encoder.encode(rawBody)
-    );
-    
-    // Convert to hex string
-    const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-    
-    // Constant-time comparison to prevent timing attacks
-    const providedSig = signature.toLowerCase().replace(/^sha256=/, '');
-    const isValid = expectedSignature === providedSig;
-    
-    if (!isValid) {
-      console.error('[Maisha Callback] Signature mismatch - expected:', expectedSignature.substring(0, 16) + '...', 'got:', providedSig.substring(0, 16) + '...');
-    }
-    
-    return isValid;
-  } catch (error) {
-    console.error('[Maisha Callback] Signature verification error:', error);
-    return false;
-  }
-}
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  console.log('[Maisha Callback] Received webhook:', req.method);
+
   try {
-    console.log('[Maisha Callback] Received webhook');
-
-    // Clone request to read body for signature verification
-    const rawBody = await req.text();
-    
-    // Verify webhook signature
-    const signature = req.headers.get('x-maishapay-signature') || 
-                      req.headers.get('x-webhook-signature') ||
-                      req.headers.get('x-signature');
-    
-    const isValid = await verifyWebhookSignature(rawBody, signature);
-    
-    if (!isValid) {
-      console.error('[Maisha Callback] Invalid webhook signature - rejecting request');
-      return new Response(JSON.stringify({ error: 'Invalid signature' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    
-    console.log('[Maisha Callback] Webhook signature verified successfully');
-
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Parse webhook payload from raw body
-    let payload;
-    const contentType = req.headers.get('content-type') || '';
+    // Parse webhook payload
+    let payload: any = {};
     
-    if (contentType.includes('application/json')) {
-      try {
-        payload = JSON.parse(rawBody);
-      } catch {
-        payload = {};
-      }
-    } else if (contentType.includes('application/x-www-form-urlencoded')) {
-      const params = new URLSearchParams(rawBody);
-      payload = Object.fromEntries(params.entries());
-    } else {
-      try {
-        payload = JSON.parse(rawBody);
-      } catch {
+    // Check query params first
+    const url = new URL(req.url);
+    for (const [key, value] of url.searchParams.entries()) {
+      payload[key] = value;
+    }
+
+    // Parse body
+    const rawBody = await req.text();
+    if (rawBody) {
+      const contentType = req.headers.get('content-type') || '';
+      
+      if (contentType.includes('application/json')) {
+        try {
+          payload = { ...payload, ...JSON.parse(rawBody) };
+        } catch {
+          console.warn('[Maisha Callback] Failed to parse JSON body');
+        }
+      } else if (contentType.includes('application/x-www-form-urlencoded')) {
         const params = new URLSearchParams(rawBody);
-        payload = Object.fromEntries(params.entries());
+        for (const [key, value] of params.entries()) {
+          payload[key] = value;
+        }
+      } else {
+        // Try JSON first, then form-urlencoded
+        try {
+          payload = { ...payload, ...JSON.parse(rawBody) };
+        } catch {
+          const params = new URLSearchParams(rawBody);
+          for (const [key, value] of params.entries()) {
+            payload[key] = value;
+          }
+        }
       }
     }
 
-    console.log('[Maisha Callback] Payload:', payload);
+    console.log('[Maisha Callback] Payload:', JSON.stringify(payload, null, 2));
 
-    // Extract data (adjust field names based on actual MaishaPay webhook structure)
-    const reference = payload.reference || payload.transactionRef || payload.maishaReference;
-    const status = payload.status || payload.paymentStatus;
-    const paidAmount = payload.amount || payload.paidAmount;
+    // Extract data - try multiple field names MaishaPay might use
+    const reference = payload.reference || 
+                      payload.transactionRefId || 
+                      payload.transaction_ref_id ||
+                      payload.maishaReference ||
+                      payload.orderNumber ||
+                      payload.ref;
+    
+    const status = payload.status || 
+                   payload.paymentStatus || 
+                   payload.transactionStatus ||
+                   payload.transaction_status;
+    
+    const amount = payload.amount || payload.paidAmount;
+    const operatorRefId = payload.operatorRefId || payload.operator_ref_id;
+    const description = payload.description || payload.message;
 
+    console.log('[Maisha Callback] Extracted:', { reference, status, amount, operatorRefId });
+
+    // Validate required fields - be permissive
     if (!reference) {
-      return new Response(JSON.stringify({ error: 'Missing reference' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log('[Maisha Callback] Processing:', { reference, status, paidAmount });
-
-    // Find payment record
-    const { data: payment, error: paymentError } = await supabase
-      .from('maisha_payments')
-      .select('*, orders(*)')
-      .eq('maisha_reference', reference)
-      .maybeSingle();
-
-    if (paymentError || !payment) {
-      console.error('[Maisha Callback] Payment not found:', reference);
-      return new Response(JSON.stringify({ error: 'Payment not found' }), {
-        status: 404,
+      console.warn('[Maisha Callback] No reference in payload - acknowledging anyway');
+      return new Response(JSON.stringify({ success: true, message: 'Acknowledged (no reference)' }), {
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     // Normalize status
-    const normalizedStatus = ['success', 'paid', 'completed'].includes(status?.toLowerCase()) 
-      ? 'paid' 
-      : ['failed', 'cancelled', 'rejected'].includes(status?.toLowerCase())
-      ? 'failed'
-      : 'pending';
+    const statusLower = String(status).toLowerCase();
+    let normalizedStatus = 'pending';
+    
+    if (['success', 'paid', 'completed', 'approved', '202', '200'].includes(statusLower)) {
+      normalizedStatus = 'paid';
+    } else if (['failed', 'failure', 'rejected', 'error', '500', '400'].includes(statusLower)) {
+      normalizedStatus = 'failed';
+    } else if (['cancelled', 'canceled', 'cancel'].includes(statusLower)) {
+      normalizedStatus = 'cancelled';
+    }
 
     console.log('[Maisha Callback] Normalized status:', normalizedStatus);
 
-    // Update payment record
-    const paymentUpdate: any = {
-      status: normalizedStatus,
-      raw_response: payload,
+    // Find order - try multiple lookup strategies
+    let order: any = null;
+
+    // Strategy 1: Direct match on maisha_transaction_id
+    const { data: orderByTxId } = await supabase
+      .from('orders')
+      .select('id, status, total_usd, total_cdf, user_id')
+      .eq('maisha_transaction_id', reference)
+      .maybeSingle();
+
+    if (orderByTxId) {
+      order = orderByTxId;
+      console.log('[Maisha Callback] Found order by transaction ID');
+    }
+
+    // Strategy 2: Look up via maisha_payments table
+    if (!order) {
+      const { data: payment } = await supabase
+        .from('maisha_payments')
+        .select('order_id')
+        .eq('maisha_reference', reference)
+        .maybeSingle();
+
+      if (payment?.order_id) {
+        const { data: orderFromPayment } = await supabase
+          .from('orders')
+          .select('id, status, total_usd, total_cdf, user_id')
+          .eq('id', payment.order_id)
+          .maybeSingle();
+
+        if (orderFromPayment) {
+          order = orderFromPayment;
+          console.log('[Maisha Callback] Found order via payment record');
+        }
+      }
+    }
+
+    // Strategy 3: Extract order ID from reference pattern (AFRISHOP-{id8}-{timestamp})
+    if (!order && reference.includes('-')) {
+      const parts = reference.split('-');
+      if (parts.length >= 2) {
+        const partialId = parts[1];
+        const { data: orderByPartial } = await supabase
+          .from('orders')
+          .select('id, status, total_usd, total_cdf, user_id')
+          .ilike('id', `${partialId}%`)
+          .maybeSingle();
+
+        if (orderByPartial) {
+          order = orderByPartial;
+          console.log('[Maisha Callback] Found order by partial ID match');
+        }
+      }
+    }
+
+    if (!order) {
+      console.warn('[Maisha Callback] Order not found for reference:', reference);
+      return new Response(JSON.stringify({ success: true, message: 'Order not found' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[Maisha Callback] Processing order:', order.id, 'current status:', order.status);
+
+    // Build update data
+    const orderUpdate: any = {
+      maisha_transaction_id: reference,
+      operator_ref_id: operatorRefId || null,
+      maisha_status_code: String(status) || null,
+      maisha_description: description || null,
       updated_at: new Date().toISOString(),
     };
 
+    // Update status based on payment result
     if (normalizedStatus === 'paid') {
-      paymentUpdate.paid_at = new Date().toISOString();
+      orderUpdate.status = 'PAID';
+      orderUpdate.maisha_payment_status = 'paid';
+      orderUpdate.payment_verified_at = new Date().toISOString();
+    } else if (normalizedStatus === 'failed') {
+      orderUpdate.maisha_payment_status = 'failed';
+    } else if (normalizedStatus === 'cancelled') {
+      orderUpdate.maisha_payment_status = 'cancelled';
+    } else {
+      orderUpdate.maisha_payment_status = 'pending';
     }
 
+    // Update order
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update(orderUpdate)
+      .eq('id', order.id);
+
+    if (updateError) {
+      console.error('[Maisha Callback] Order update error:', updateError);
+    } else {
+      console.log('[Maisha Callback] Order updated to:', orderUpdate.status || order.status);
+    }
+
+    // Update maisha_payments record
     await supabase
       .from('maisha_payments')
-      .update(paymentUpdate)
-      .eq('id', payment.id);
+      .update({
+        status: normalizedStatus,
+        paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
+        raw_response: payload,
+        maishapay_transaction_ref_id: reference,
+        maishapay_operator_ref_id: operatorRefId || null,
+        maishapay_status: String(status),
+        maishapay_description: description || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('maisha_reference', reference);
 
-    // Update order status
+    // Send notifications on successful payment
     if (normalizedStatus === 'paid') {
-      await supabase
-        .from('orders')
-        .update({
-          status: 'PAID',
-          maisha_payment_status: 'paid',
-          payment_verified_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', payment.order_id);
+      console.log('[Maisha Callback] Payment successful - sending notifications');
 
-      console.log('[Maisha Callback] Order marked as PAID:', payment.order_id);
-
-      // Send payment confirmation email (background task)
+      // Send payment confirmation email to customer
       try {
-        await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/send-payment-confirmation`, {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        
+        await fetch(`${supabaseUrl}/functions/v1/send-payment-confirmation`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'Authorization': `Bearer ${serviceKey}`,
           },
-          body: JSON.stringify({ orderId: payment.order_id }),
+          body: JSON.stringify({ orderId: order.id }),
         });
-        console.log('[Maisha Callback] Payment confirmation email queued');
+        console.log('[Maisha Callback] Payment confirmation email sent');
       } catch (emailError) {
-        console.error('[Maisha Callback] Error sending confirmation email:', emailError);
-        // Don't fail the webhook if email fails
+        console.error('[Maisha Callback] Email error (non-blocking):', emailError);
       }
 
-      // Automatically progress to PROCESSING after 1 minute (background task)
-      setTimeout(async () => {
-        try {
-          await supabase
-            .from('orders')
-            .update({
-              status: 'PROCESSING',
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', payment.order_id)
-            .eq('status', 'PAID');
-          console.log('[Maisha Callback] Order progressed to PROCESSING:', payment.order_id);
-        } catch (progressError) {
-          console.error('[Maisha Callback] Error progressing order:', progressError);
-        }
-      }, 60000); // 1 minute delay
-    } else if (normalizedStatus === 'failed') {
-      await supabase
-        .from('orders')
-        .update({
-          maisha_payment_status: 'failed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', payment.order_id);
-
-      console.log('[Maisha Callback] Order marked as FAILED:', payment.order_id);
+      // Notify admin
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        
+        await fetch(`${supabaseUrl}/functions/v1/send-admin-payment-notification`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ orderId: order.id, amount: order.total_usd }),
+        });
+        console.log('[Maisha Callback] Admin notification sent');
+      } catch (adminError) {
+        console.error('[Maisha Callback] Admin notification error (non-blocking):', adminError);
+      }
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    console.log('[Maisha Callback] Processing complete');
+
+    // Always return 200 OK
+    return new Response(JSON.stringify({ 
+      success: true, 
+      orderId: order.id,
+      status: normalizedStatus,
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error: any) {
     console.error('[Maisha Callback] Error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
+    
+    // Always return 200 to prevent MaishaPay retries
+    return new Response(JSON.stringify({ 
+      success: true, 
+      error: error.message,
+    }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

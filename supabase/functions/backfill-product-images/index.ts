@@ -17,6 +17,43 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    // Verify admin authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error('[backfill] Missing authorization header');
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error('[backfill] Auth error:', authError?.message);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Check admin role
+    const { data: isAdmin } = await supabase.rpc('has_role', { 
+      _user_id: user.id, 
+      _role: 'admin' 
+    });
+
+    if (!isAdmin) {
+      console.error('[backfill] User is not admin:', user.id);
+      return new Response(JSON.stringify({ error: 'Forbidden - Admin access required' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('[backfill] Admin verified:', user.email);
+
     // Get all order items with null product_image_url
     const { data: items, error: fetchError } = await supabase
       .from('order_items')

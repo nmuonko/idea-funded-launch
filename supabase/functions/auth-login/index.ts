@@ -38,19 +38,19 @@ serve(async (req) => {
       );
     }
 
-    // Get profile
+    // Get profile - use maybeSingle to avoid errors if no profile or duplicates
     const { data: profile } = await supabase
       .from('profiles')
-      .select('name, phone')
+      .select('name, phone, full_name')
       .eq('user_id', data.user.id)
-      .single();
+      .maybeSingle();
 
     return new Response(
       JSON.stringify({
         user: {
           id: data.user.id,
           email: data.user.email,
-          name: profile?.name || null,
+          name: profile?.name || profile?.full_name || null,
           phone: profile?.phone || null,
         },
         token: data.session.access_token,

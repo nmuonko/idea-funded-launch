@@ -159,12 +159,18 @@ serve(async (req) => {
     // Build update object
     const updateData: Record<string, any> = {};
 
-    // Handle is_saved_for_later toggle
-    if (typeof body.isSavedForLater === 'boolean') {
-      updateData.is_saved_for_later = body.isSavedForLater;
-      if (body.isSavedForLater && !item.saved_at) {
+    // Handle is_saved_for_later toggle - accept both camelCase and snake_case
+    const savedForLaterValue = body.isSavedForLater ?? body.is_saved_for_later;
+    if (typeof savedForLaterValue === 'boolean') {
+      updateData.is_saved_for_later = savedForLaterValue;
+      if (savedForLaterValue) {
+        // Set saved_at timestamp when saving for later
         updateData.saved_at = new Date().toISOString();
+      } else {
+        // Clear saved_at when moving back to active cart
+        updateData.saved_at = null;
       }
+      console.log('[mobile-update-cart-item] Setting is_saved_for_later:', savedForLaterValue);
     }
 
     // Handle quantity update

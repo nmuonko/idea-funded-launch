@@ -5,6 +5,7 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 
 /**
  * Generate MaishaPay checkout HTML form
@@ -175,7 +176,7 @@ serve(async (req) => {
     // AUTO-FILL: Fetch user profile to get shipping details
     const { data: userProfile, error: profileError } = await supabase
       .from('profiles')
-      .select('*')
+      .select('user_id, email, full_name, name, phone, address_line1, address_line2, city, state_province, postal_code, country')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -183,28 +184,36 @@ serve(async (req) => {
       console.error('[mobile-checkout] Error fetching profile:', profileError);
     }
 
-    // Check if profile is complete for checkout
-    const hasCompleteProfile = userProfile && !!(
-      userProfile.full_name &&
-      userProfile.phone &&
-      userProfile.address_line1 &&
-      userProfile.city &&
-      userProfile.state_province &&
-      userProfile.postal_code &&
-      userProfile.country
-    );
+    // Log profile data for debugging
+    console.log('[mobile-checkout] User profile data:', userProfile ? {
+      hasFullName: !!userProfile.full_name,
+      hasPhone: !!userProfile.phone,
+      hasAddress: !!userProfile.address_line1,
+      hasCity: !!userProfile.city,
+      hasState: !!userProfile.state_province,
+      hasPostal: !!userProfile.postal_code,
+      hasCountry: !!userProfile.country,
+      full_name: userProfile.full_name,
+      phone: userProfile.phone,
+      address_line1: userProfile.address_line1,
+    } : 'NO PROFILE FOUND');
 
-    if (!hasCompleteProfile) {
-      console.log('[mobile-checkout] User profile incomplete, returning error');
+    // Check if profile is complete for checkout using shared helper
+    if (!isProfileComplete(userProfile)) {
+      const missingFields = getMissingProfileFields(userProfile);
+      console.log('[mobile-checkout] User profile incomplete. Missing fields:', missingFields);
       return jsonResponse({
         success: false,
-        code: 'INCOMPLETE_PROFILE',
+        code: 'PROFILE_INCOMPLETE',
         error: 'Please complete your profile with shipping address before checkout.',
-        missingFields: getMissingProfileFields(userProfile),
+        missingFields,
       }, 400);
     }
 
     console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
+
+    // TypeScript: userProfile is guaranteed non-null after isProfileComplete check
+    const profile = userProfile!;
 
     // Get user's DRAFT order
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -352,7 +361,7 @@ serve(async (req) => {
         maisha_payment_status: 'PENDING',
         admin_notes: notes || null,
         // Note: shipping_city is an enum, so we map if possible
-        shipping_city: mapToShippingCity(userProfile.city),
+        shipping_city: mapToShippingCity(profile.city),
       })
       .select()
       .single();
@@ -402,16 +411,16 @@ serve(async (req) => {
         user_id: user.id,
         raw_request: {
           amount: grandTotalUsd,
-          email: userProfile.email || user.email,
-          phone: userProfile.phone,
-          customerName: userProfile.full_name,
+          email: profile.email || user.email,
+          phone: profile.phone,
+          customerName: profile.full_name,
           shippingAddress: {
-            addressLine1: userProfile.address_line1,
-            addressLine2: userProfile.address_line2,
-            city: userProfile.city,
-            stateProvince: userProfile.state_province,
-            postalCode: userProfile.postal_code,
-            country: userProfile.country,
+            addressLine1: profile.address_line1,
+            addressLine2: profile.address_line2,
+            city: profile.city,
+            stateProvince: profile.state_province,
+            postalCode: profile.postal_code,
+            country: profile.country,
           },
         },
       });
@@ -463,8 +472,8 @@ serve(async (req) => {
       reference,
       callbackUrl,
       orderId: checkoutOrder.id,
-      customerName: userProfile.full_name,
-      customerPhone: userProfile.phone,
+      customerName: profile.full_name,
+      customerPhone: profile.phone,
     });
     
     // Also provide a URL fallback
@@ -476,7 +485,7 @@ serve(async (req) => {
       reference,
       grandTotalUsd,
       callbackUrl,
-      customerName: userProfile.full_name,
+      customerName: profile.full_name,
     });
 
     // Generate display reference (first 8 chars of UUID, uppercase)
@@ -506,18 +515,17 @@ serve(async (req) => {
       maishapay_reference: reference,
       
       // AUTO-FILLED profile info for display (user never re-enters this)
-      profile: {
-        fullName: userProfile.full_name,
-        phoneNumber: userProfile.phone,
-        email: userProfile.email || user.email,
-        shippingAddress: {
-          addressLine1: userProfile.address_line1,
-          addressLine2: userProfile.address_line2,
-          city: userProfile.city,
-          stateOrProvince: userProfile.state_province,
-          postalCode: userProfile.postal_code,
-          country: userProfile.country,
-        },
+      // Use contact object as requested in requirements
+      contact: {
+        fullName: profile.full_name,
+        email: profile.email || user.email,
+        phoneNumber: profile.phone,
+        addressLine1: profile.address_line1,
+        addressLine2: profile.address_line2,
+        city: profile.city,
+        stateOrProvince: profile.state_province,
+        postalCode: profile.postal_code,
+        country: profile.country,
       },
       
       // Order summary
@@ -552,21 +560,6 @@ serve(async (req) => {
     }, 500);
   }
 });
-
-/**
- * Helper to determine which profile fields are missing
- */
-function getMissingProfileFields(profile: any): string[] {
-  const missing: string[] = [];
-  if (!profile?.full_name) missing.push('fullName');
-  if (!profile?.phone) missing.push('phoneNumber');
-  if (!profile?.address_line1) missing.push('addressLine1');
-  if (!profile?.city) missing.push('city');
-  if (!profile?.state_province) missing.push('stateOrProvince');
-  if (!profile?.postal_code) missing.push('postalCode');
-  if (!profile?.country) missing.push('country');
-  return missing;
-}
 
 /**
  * Helper to map city string to shipping_city enum

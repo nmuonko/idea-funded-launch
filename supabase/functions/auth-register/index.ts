@@ -195,31 +195,82 @@ serve(async (req) => {
 
     console.log('[auth-register] User created:', authData.user.id);
 
-    // Create profile with full address information
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert({
-        user_id: authData.user.id,
-        email: email.trim().toLowerCase(),
-        full_name: fullName.trim(),
-        name: fullName.trim(),
-        phone: phoneNumber.trim(),
-        address_line1: addressLine1.trim(),
-        address_line2: addressLine2?.trim() || null,
-        city: city.trim(),
-        state_province: stateOrProvince.trim(),
-        postal_code: postalCode.trim(),
-        country: country.trim(),
-      }, {
-        onConflict: 'user_id',
-      });
+    // Profile data to store - all required fields from signup
+    const profileData = {
+      email: email.trim().toLowerCase(),
+      full_name: fullName.trim(),
+      name: fullName.trim(),
+      phone: phoneNumber.trim(),
+      address_line1: addressLine1.trim(),
+      address_line2: addressLine2?.trim() || null,
+      city: city.trim(),
+      state_province: stateOrProvince.trim(),
+      postal_code: postalCode.trim(),
+      country: country.trim(),
+    };
 
-    if (profileError) {
-      console.error('[auth-register] Profile creation error:', profileError);
-      // Don't fail registration if profile insert fails - user can update later
+    // NOTE: A database trigger (handle_new_user_profile) creates a minimal profile on auth.users INSERT.
+    // We MUST use UPDATE to ensure all address fields are properly stored, not overwritten by trigger.
+    
+    // First, try to update the profile created by the trigger
+    const { error: updateError, data: updateData } = await supabaseAdmin
+      .from('profiles')
+      .update(profileData)
+      .eq('user_id', authData.user.id)
+      .select();
+
+    if (updateError) {
+      console.error('[auth-register] Profile update error:', updateError);
+      
+      // If update failed (maybe profile doesn't exist yet), try insert
+      const { error: insertError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          user_id: authData.user.id,
+          ...profileData,
+        });
+      
+      if (insertError) {
+        console.error('[auth-register] Profile insert fallback error:', insertError);
+        // Don't fail registration - user can update profile later
+      } else {
+        console.log('[auth-register] Profile created via insert fallback');
+      }
+    } else if (!updateData || updateData.length === 0) {
+      // No rows updated - profile doesn't exist yet, insert it
+      console.log('[auth-register] No profile to update, inserting new profile');
+      const { error: insertError } = await supabaseAdmin
+        .from('profiles')
+        .insert({
+          user_id: authData.user.id,
+          ...profileData,
+        });
+      
+      if (insertError) {
+        console.error('[auth-register] Profile insert error:', insertError);
+      } else {
+        console.log('[auth-register] Profile created successfully');
+      }
     } else {
-      console.log('[auth-register] Profile created successfully');
+      console.log('[auth-register] Profile updated successfully with all address fields');
     }
+
+    // Verify the profile was saved correctly
+    const { data: verifyProfile } = await supabaseAdmin
+      .from('profiles')
+      .select('full_name, phone, address_line1, city, state_province, postal_code, country')
+      .eq('user_id', authData.user.id)
+      .single();
+    
+    console.log('[auth-register] Profile verification:', verifyProfile ? {
+      hasFullName: !!verifyProfile.full_name,
+      hasPhone: !!verifyProfile.phone,
+      hasAddress: !!verifyProfile.address_line1,
+      hasCity: !!verifyProfile.city,
+      hasState: !!verifyProfile.state_province,
+      hasPostal: !!verifyProfile.postal_code,
+      hasCountry: !!verifyProfile.country,
+    } : 'PROFILE NOT FOUND');
 
     // Sign in to get session token
     const supabase = createClient(

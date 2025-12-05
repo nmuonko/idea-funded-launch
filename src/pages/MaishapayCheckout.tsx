@@ -26,8 +26,8 @@ const MAISHAPAY_CHECKOUT_URL = "https://marchand.maishapay.online/payment/vers1.
 interface MaishapayConfig {
   gatewayMode: string;
   publicApiKey: string;
-  secretApiKey: string;
   callbackUrl: string;
+  checkoutPageUrl?: string;
 }
 
 export default function MaishapayCheckout() {
@@ -87,7 +87,16 @@ export default function MaishapayCheckout() {
           amount: data.order?.amount,
           status: data.order?.status,
           mode: data.config?.mode,
+          checkoutPageUrl: data.checkoutPageUrl,
         });
+
+        // SECURITY: If server provides a secure checkout page URL, redirect there instead
+        // This ensures the secret key is never exposed to the frontend
+        if (data.checkoutPageUrl) {
+          console.log('[MaishapayCheckout] Redirecting to secure server-rendered checkout page');
+          window.location.href = data.checkoutPageUrl;
+          return;
+        }
 
         setOrderData({
           orderId: data.order.id,
@@ -99,11 +108,10 @@ export default function MaishapayCheckout() {
         setConfig({
           gatewayMode: data.config.gatewayMode,
           publicApiKey: data.config.publicApiKey,
-          secretApiKey: data.config.secretApiKey,
           callbackUrl: data.config.callbackUrl,
         });
 
-        console.log('[MaishapayCheckout] Ready to submit form');
+        console.log('[MaishapayCheckout] Ready - but NOTE: secure checkout requires server-rendered page');
         setLoading(false);
 
       } catch (err) {
@@ -214,7 +222,12 @@ export default function MaishapayCheckout() {
             Si vous n'êtes pas redirigé automatiquement, cliquez sur le bouton ci-dessous.
           </p>
 
-          {/* MaishaPay Checkout Form - exactly as per documentation */}
+          {/* 
+            SECURITY NOTE: This form should not be used anymore.
+            The page now redirects to the server-rendered checkout page which
+            handles the secret key securely. This form is kept as a fallback
+            but will NOT include the secret key.
+          */}
           <form
             ref={formRef}
             id="maishapayCheckoutForm"
@@ -224,7 +237,7 @@ export default function MaishapayCheckout() {
           >
             <input type="hidden" name="gatewayMode" value={config.gatewayMode} />
             <input type="hidden" name="publicApiKey" value={config.publicApiKey} />
-            <input type="hidden" name="secretApiKey" value={config.secretApiKey} />
+            {/* SECURITY: secretApiKey removed - use server-rendered page */}
             <input type="hidden" name="montant" value={orderData.amount.toFixed(2)} />
             <input type="hidden" name="devise" value={orderData.currency} />
             <input type="hidden" name="callbackUrl" value={config.callbackUrl} />

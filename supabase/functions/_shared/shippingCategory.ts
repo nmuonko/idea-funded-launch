@@ -11,7 +11,8 @@ export type ShippingCategoryKey =
   | 'small_electronics'
   | 'laptop_tablet'
   | 'console_medium'
-  | 'tv_large_appliance';
+  | 'tv_large_appliance'
+  | 'vehicle'; // Special category - requires manual quote, no automatic pricing
 
 export interface CategoryDetectionInput {
   title: string;
@@ -24,6 +25,7 @@ export interface CategoryDetectionResult {
   category: ShippingCategoryKey | null;
   confidence: number;
   matchedKeywords: string[];
+  requiresQuote: boolean; // True for vehicles - no automatic shipping price
 }
 
 // Keyword mappings for each shipping category
@@ -102,13 +104,65 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
     { keywords: ['furniture', 'meuble'], weight: 1.0 },
     { keywords: ['appliance', 'électroménager'], weight: 0.9 },
   ],
+
+  // VEHICLE - Special category requiring manual quote (no automatic shipping price)
+  'vehicle': [
+    // Generic vehicle terms (high weight)
+    { keywords: ['car', 'voiture', 'automobile', 'auto'], weight: 2.0 },
+    { keywords: ['suv', 'crossover', 'pickup', 'truck', 'camion'], weight: 2.0 },
+    { keywords: ['4x4', '4 x 4', 'four wheel drive', 'awd', 'all wheel drive'], weight: 1.8 },
+    { keywords: ['sedan', 'berline', 'hatchback', 'coupe', 'coupé', 'convertible', 'cabriolet'], weight: 1.8 },
+    { keywords: ['minivan', 'van', 'fourgon', 'wagon'], weight: 1.8 },
+    { keywords: ['motorcycle', 'moto', 'motorbike', 'scooter'], weight: 1.8 },
+    
+    // Car brands (medium-high weight)
+    { keywords: ['toyota', 'camry', 'corolla', 'rav4', 'highlander', 'tacoma', 'tundra'], weight: 1.6 },
+    { keywords: ['honda', 'civic', 'accord', 'crv', 'cr-v', 'pilot', 'odyssey'], weight: 1.6 },
+    { keywords: ['ford', 'f-150', 'f150', 'mustang', 'explorer', 'escape', 'bronco'], weight: 1.6 },
+    { keywords: ['chevrolet', 'chevy', 'silverado', 'tahoe', 'equinox', 'malibu', 'camaro'], weight: 1.6 },
+    { keywords: ['nissan', 'altima', 'sentra', 'rogue', 'pathfinder', 'frontier'], weight: 1.6 },
+    { keywords: ['jeep', 'wrangler', 'grand cherokee', 'compass', 'gladiator'], weight: 1.6 },
+    { keywords: ['tesla', 'model 3', 'model y', 'model s', 'model x', 'cybertruck'], weight: 1.6 },
+    { keywords: ['bmw', 'mercedes', 'mercedes-benz', 'benz', 'audi', 'lexus', 'infiniti', 'acura'], weight: 1.5 },
+    { keywords: ['volkswagen', 'vw', 'jetta', 'passat', 'tiguan', 'atlas'], weight: 1.5 },
+    { keywords: ['hyundai', 'sonata', 'elantra', 'tucson', 'santa fe', 'palisade'], weight: 1.5 },
+    { keywords: ['kia', 'sorento', 'sportage', 'telluride', 'forte', 'k5'], weight: 1.5 },
+    { keywords: ['subaru', 'outback', 'forester', 'crosstrek', 'impreza', 'wrx'], weight: 1.5 },
+    { keywords: ['mazda', 'cx-5', 'cx5', 'cx-9', 'mazda3', 'mazda6', 'mx-5', 'miata'], weight: 1.5 },
+    { keywords: ['gmc', 'sierra', 'yukon', 'terrain', 'canyon', 'acadia'], weight: 1.5 },
+    { keywords: ['ram', 'ram 1500', 'ram 2500', 'dodge', 'challenger', 'charger', 'durango'], weight: 1.5 },
+    { keywords: ['range rover', 'rangerover', 'land rover', 'landrover', 'discovery', 'defender'], weight: 1.5 },
+    { keywords: ['land cruiser', 'landcruiser', 'prado', '4runner'], weight: 1.5 },
+    { keywords: ['porsche', 'cayenne', '911', 'macan', 'panamera'], weight: 1.5 },
+    { keywords: ['volvo', 'xc90', 'xc60', 'xc40', 's60', 'v60'], weight: 1.5 },
+    { keywords: ['buick', 'cadillac', 'escalade', 'cts', 'xt5'], weight: 1.4 },
+    { keywords: ['lincoln', 'navigator', 'aviator', 'corsair'], weight: 1.4 },
+    
+    // Vehicle-related terms
+    { keywords: ['used car', 'pre-owned', 'certified pre-owned', 'cpo'], weight: 1.8 },
+    { keywords: ['mileage', 'miles', 'odometer', 'km', 'kilométrage'], weight: 1.2 },
+    { keywords: ['vin', 'vehicle identification'], weight: 1.5 },
+  ],
 };
 
 // Store-specific category hints
 const STORE_CATEGORY_HINTS: Record<string, ShippingCategoryKey[]> = {
-  'CARVANA': ['tv_large_appliance'], // Car marketplace - heavy items
-  'CARGURUS': ['tv_large_appliance'], // Car marketplace - heavy items
+  'CARVANA': ['vehicle'],  // Car marketplace - always vehicles
+  'CARGURUS': ['vehicle'], // Car marketplace - always vehicles
 };
+
+// URL path patterns that strongly indicate vehicles
+const VEHICLE_URL_PATTERNS = [
+  '/cars',
+  '/vehicles',
+  '/autos',
+  '/inventory',
+  '/vdp/', // Vehicle detail page
+  '/buy/',
+  '/used-cars',
+  '/new-cars',
+  '/certified-used',
+];
 
 /**
  * Normalize text for keyword matching
@@ -134,18 +188,28 @@ function containsKeyword(text: string, keyword: string): boolean {
 }
 
 /**
+ * Check if URL contains vehicle-related patterns
+ */
+function hasVehicleUrlPattern(url: string): boolean {
+  const lowerUrl = url.toLowerCase();
+  return VEHICLE_URL_PATTERNS.some(pattern => lowerUrl.includes(pattern));
+}
+
+/**
  * Determine the shipping category from product data
  * 
  * @param input - Product data including title, url, store
- * @returns Category detection result with confidence score
+ * @returns Category detection result with confidence score and requiresQuote flag
  */
 export function determineShippingCategory(input: CategoryDetectionInput): CategoryDetectionResult {
   // If category already exists, respect it
   if (input.existingCategory) {
+    const isVehicle = input.existingCategory === 'vehicle';
     return {
       category: input.existingCategory as ShippingCategoryKey,
       confidence: 1.0,
       matchedKeywords: ['existing_category'],
+      requiresQuote: isVehicle,
     };
   }
 
@@ -155,7 +219,7 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
 
   // Nothing to analyze
   if (!title && !url) {
-    return { category: null, confidence: 0, matchedKeywords: [] };
+    return { category: null, confidence: 0, matchedKeywords: [], requiresQuote: false };
   }
 
   // Combine title and URL path for analysis
@@ -176,6 +240,7 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
     'laptop_tablet': { score: 0, keywords: [] },
     'console_medium': { score: 0, keywords: [] },
     'tv_large_appliance': { score: 0, keywords: [] },
+    'vehicle': { score: 0, keywords: [] },
   };
 
   // Check each category's keywords
@@ -192,11 +257,17 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
     }
   }
 
-  // Apply store-specific hints (boost score if store matches)
+  // Apply store-specific hints (strong boost for car marketplaces)
   if (store && STORE_CATEGORY_HINTS[store]) {
     for (const hintCategory of STORE_CATEGORY_HINTS[store]) {
-      categoryScores[hintCategory].score += 0.5;
+      categoryScores[hintCategory].score += 3.0; // Strong boost for car sites
     }
+  }
+
+  // Apply URL pattern boost for vehicles
+  if (url && hasVehicleUrlPattern(url)) {
+    categoryScores['vehicle'].score += 1.5;
+    categoryScores['vehicle'].keywords.push('url_pattern');
   }
 
   // Find the best category
@@ -218,7 +289,7 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   // 1. Absolute score (more matches = higher confidence)
   // 2. Score margin (bigger gap from second best = higher confidence)
   if (!bestCategory || bestScore === 0) {
-    return { category: null, confidence: 0, matchedKeywords: [] };
+    return { category: null, confidence: 0, matchedKeywords: [], requiresQuote: false };
   }
 
   // Base confidence from score magnitude (max out at score of 3)
@@ -232,20 +303,32 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   // Combined confidence: weighted average
   const confidence = Math.round((magnitudeConfidence * 0.6 + marginConfidence * 0.4) * 100) / 100;
 
+  // Determine if this requires a manual quote
+  // Vehicles always require quote if detected with sufficient confidence
+  const isVehicle = bestCategory === 'vehicle';
+  const requiresQuote = isVehicle && confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD;
+
   return {
     category: bestCategory,
     confidence: Math.min(confidence, 1),
     matchedKeywords: categoryScores[bestCategory].keywords,
+    requiresQuote,
   };
 }
 
 /**
  * Get the shipping type ID for a category key by querying the database
+ * Returns null for vehicles (they don't use standard shipping types)
  */
 export async function getShippingTypeIdForCategory(
   supabase: any,
   categoryKey: ShippingCategoryKey
 ): Promise<{ id: string; estWeightKg: number; requiresManualQuote: boolean } | null> {
+  // Vehicles don't have a standard shipping type
+  if (categoryKey === 'vehicle') {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('shipping_item_types')
     .select('id, est_weight_kg, requires_manual_quote')
@@ -265,5 +348,8 @@ export async function getShippingTypeIdForCategory(
   };
 }
 
-// Confidence threshold for auto-applying category
+// Confidence threshold for auto-applying standard categories
 export const AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.8;
+
+// Lower threshold for vehicle detection (we want to catch vehicles even with less certainty)
+export const VEHICLE_QUOTE_CONFIDENCE_THRESHOLD = 0.7;

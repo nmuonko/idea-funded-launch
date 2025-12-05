@@ -11,6 +11,7 @@ import {
   determineShippingCategory,
   getShippingTypeIdForCategory,
   AUTO_APPLY_CONFIDENCE_THRESHOLD,
+  VEHICLE_QUOTE_CONFIDENCE_THRESHOLD,
 } from "../_shared/shippingCategory.ts";
 
 // Input validation schema
@@ -330,6 +331,8 @@ serve(async (req) => {
     // AUTO-DETECT SHIPPING CATEGORY if not provided by frontend
     let finalShippingTypeId = shippingItemTypeId || null;
     let autoDetectedCategory: string | null = null;
+    let isVehicle = false;
+    let vehicleRequiresQuote = false;
     
     if (!shippingItemTypeId && productTitle) {
       const detection = determineShippingCategory({
@@ -342,11 +345,26 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Category detection result:', {
         inferredCategory: detection.category,
         confidence: detection.confidence,
+        requiresQuote: detection.requiresQuote,
         matchedKeywords: detection.matchedKeywords.slice(0, 5), // Log first 5 keywords
       });
 
-      // Auto-apply if confidence meets threshold
-      if (detection.category && detection.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD) {
+      // Check if this is a vehicle requiring a quote
+      if (detection.category === 'vehicle' && detection.requiresQuote) {
+        isVehicle = true;
+        vehicleRequiresQuote = true;
+        itemRequiresManualQuote = true; // Vehicles always require manual quote
+        autoDetectedCategory = 'vehicle';
+        // Don't set a shipping type for vehicles - they need custom quotes
+        finalShippingTypeId = null;
+        
+        console.log('[mobile-add-cart-item] Vehicle detected - requires manual quote:', {
+          category: detection.category,
+          confidence: detection.confidence,
+        });
+      }
+      // Auto-apply standard categories if confidence meets threshold (and not a vehicle)
+      else if (detection.category && detection.category !== 'vehicle' && detection.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD) {
         const shippingType = await getShippingTypeIdForCategory(supabase, detection.category);
         
         if (shippingType) {
@@ -496,6 +514,7 @@ serve(async (req) => {
         shipping_item_type_id: finalShippingTypeId,
         est_weight_kg: estWeightKg,
         requires_manual_quote: itemRequiresManualQuote,
+        is_vehicle: isVehicle,
       })
       .select()
       .single();
@@ -503,6 +522,29 @@ serve(async (req) => {
     if (itemError) {
       console.error('[mobile-add-cart-item] cart_items insert error:', itemError);
       return errorResponse('Failed to add item to cart.', 500);
+    }
+
+    // If this is a vehicle, create a quote request
+    let quoteStatus: string | null = null;
+    if (isVehicle && vehicleRequiresQuote) {
+      const { error: quoteError } = await supabase
+        .from('quote_requests')
+        .insert({
+          user_id: user.id,
+          order_item_id: data.id,
+          title: productTitle,
+          product_url: productUrl,
+          store_name: store,
+          status: 'PENDING',
+        });
+
+      if (quoteError) {
+        console.error('[mobile-add-cart-item] Failed to create quote request:', quoteError);
+        // Don't fail the whole operation, just log the error
+      } else {
+        quoteStatus = 'PENDING';
+        console.log('[mobile-add-cart-item] Created quote request for vehicle:', data.id);
+      }
     }
 
     // UPDATE ORDER TOTALS after adding new item
@@ -530,6 +572,10 @@ serve(async (req) => {
         requiresManualQuote: data.requires_manual_quote || false,
         shippingItemTypeId: data.shipping_item_type_id || null,
         categoryAutoDetected: autoDetectedCategory !== null,
+        // Vehicle-specific fields
+        isVehicle: data.is_vehicle || false,
+        isQuoteRequired: isVehicle && vehicleRequiresQuote,
+        quoteStatus: quoteStatus,
       },
       summary,
     });

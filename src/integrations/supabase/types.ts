@@ -479,6 +479,7 @@ export type Database = {
           est_weight_kg: number | null
           id: string
           is_saved_for_later: boolean
+          is_vehicle: boolean | null
           last_reminder_at: string | null
           markup_fee_usd: number | null
           notes: string | null
@@ -505,6 +506,7 @@ export type Database = {
           est_weight_kg?: number | null
           id?: string
           is_saved_for_later?: boolean
+          is_vehicle?: boolean | null
           last_reminder_at?: string | null
           markup_fee_usd?: number | null
           notes?: string | null
@@ -531,6 +533,7 @@ export type Database = {
           est_weight_kg?: number | null
           id?: string
           is_saved_for_later?: boolean
+          is_vehicle?: boolean | null
           last_reminder_at?: string | null
           markup_fee_usd?: number | null
           notes?: string | null
@@ -755,6 +758,59 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      quote_requests: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          id: string
+          order_item_id: string
+          product_url: string | null
+          quoted_shipping_usd: number | null
+          quoted_total_usd: number | null
+          status: string
+          store_name: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          id?: string
+          order_item_id: string
+          product_url?: string | null
+          quoted_shipping_usd?: number | null
+          quoted_total_usd?: number | null
+          status?: string
+          store_name?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          id?: string
+          order_item_id?: string
+          product_url?: string | null
+          quoted_shipping_usd?: number | null
+          quoted_total_usd?: number | null
+          status?: string
+          store_name?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_requests_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       settings: {
         Row: {

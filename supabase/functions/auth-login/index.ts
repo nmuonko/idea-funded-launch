@@ -54,6 +54,13 @@ serve(async (req) => {
           phone: profile?.phone || null,
         },
         token: data.session.access_token,
+        // Session object for Quick Login (Face ID / fingerprint + PIN)
+        session: {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_at: data.session.expires_at,
+          expires_in: data.session.expires_in,
+        },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

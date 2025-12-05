@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, UserProfile } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, AlertCircle, Mail, Lock } from 'lucide-react';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, profile, setProfile, loadProfile } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -29,41 +29,26 @@ export default function Profile() {
       navigate('/auth');
       return;
     }
-    loadProfile();
-  }, [user, navigate]);
-
-  const loadProfile = async () => {
-    if (!user) return;
     
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('name, phone, full_name')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      // Priority: profile data > user_metadata > empty
-      const userMetadata = user.user_metadata || {};
-      
-      if (data) {
-        setName(data.name || data.full_name || userMetadata.full_name || '');
-        setPhone(data.phone || userMetadata.phone || '');
-      } else {
-        // No profile yet, use user_metadata if available
-        setName(userMetadata.full_name || '');
-        setPhone(userMetadata.phone || '');
-      }
-    } catch (error: any) {
-      console.error('[Profile] Error loading profile:', error);
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
+    // Initialize form from profile in context or load if not available
+    if (profile) {
+      setName(profile.full_name || profile.name || '');
+      setPhone(profile.phone || '');
+    } else {
+      // Load profile if not in context
+      loadProfile(user.id).then((loadedProfile) => {
+        if (loadedProfile) {
+          setName(loadedProfile.full_name || loadedProfile.name || '');
+          setPhone(loadedProfile.phone || '');
+        } else {
+          // Fallback to user_metadata
+          const userMetadata = user.user_metadata || {};
+          setName(userMetadata.full_name || '');
+          setPhone(userMetadata.phone || '');
+        }
       });
     }
-  };
+  }, [user, profile, navigate, loadProfile]);
 
   const handleResendVerification = async () => {
     if (!user?.email) return;
@@ -142,24 +127,44 @@ export default function Profile() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+    
     setLoading(true);
 
     try {
-      const { error } = await supabase
+      const updatedData = {
+        user_id: user.id,
+        email: user.email?.toLowerCase() || null,
+        name,
+        full_name: name,
+        phone,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data, error } = await supabase
         .from('profiles')
-        .upsert({
-          user_id: user?.id,
-          name,
-          phone,
-          updated_at: new Date().toISOString(),
-        });
+        .upsert(updatedData, {
+          onConflict: 'user_id',
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Update profile in global context
+      if (data) {
+        setProfile(data as UserProfile);
+      }
 
       toast({
         title: 'Success',
         description: 'Profile updated successfully!',
       });
+
+      // Navigate back if came from somewhere else, otherwise stay
+      if (window.history.length > 1) {
+        // Don't navigate back to avoid redirect loops
+      }
     } catch (error: any) {
       toast({
         title: 'Error',

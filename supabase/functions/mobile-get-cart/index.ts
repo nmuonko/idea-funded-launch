@@ -43,14 +43,18 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
   const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
   const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
 
+  const imageUrl = item.product_image_url || null;
+  
   return {
     id: item.id,
     productUrl: item.product_url,
     productTitle: item.title || null,
-    productImageUrl: item.product_image_url || null,
+    productImageUrl: imageUrl,
+    image_url: imageUrl, // Alias for mobile app compatibility
     store: item.store,
     basePriceUsd,
     quantity,
+    unitPriceUsd: basePriceUsd,
     itemBaseTotalUsd,
     itemMarginUsd,
     itemSubtotalUsd,

@@ -201,12 +201,14 @@ interface CheckoutParams {
 function renderCheckoutPage(params: CheckoutParams): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
+  // For mobile WebViews, we need to be more aggressive with the form submission
+  // and show a visible button immediately since JavaScript auto-submit may not work
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Redirecting to Payment...</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Paiement MaishaPay</title>
   <style>
     * {
       margin: 0;
@@ -221,22 +223,17 @@ function renderCheckoutPage(params: CheckoutParams): string {
       align-items: center;
       justify-content: center;
       color: white;
+      padding: 1rem;
     }
     .container {
       text-align: center;
       padding: 2rem;
+      max-width: 400px;
+      width: 100%;
     }
-    .spinner {
-      width: 50px;
-      height: 50px;
-      border: 4px solid rgba(255,255,255,0.2);
-      border-top-color: #00d4ff;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto 1.5rem;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    .logo {
+      font-size: 3rem;
+      margin-bottom: 1rem;
     }
     h1 {
       font-size: 1.5rem;
@@ -245,70 +242,125 @@ function renderCheckoutPage(params: CheckoutParams): string {
     p {
       opacity: 0.8;
       font-size: 0.9rem;
+      margin-bottom: 0.5rem;
     }
     .amount {
-      font-size: 2rem;
+      font-size: 2.5rem;
       font-weight: bold;
       color: #00d4ff;
-      margin: 1rem 0;
+      margin: 1.5rem 0;
     }
-    .manual-btn {
-      display: none;
-      margin-top: 2rem;
-      padding: 1rem 2rem;
-      background: #00d4ff;
+    .order-ref {
+      font-size: 0.8rem;
+      opacity: 0.6;
+      margin-bottom: 2rem;
+    }
+    .pay-btn {
+      width: 100%;
+      padding: 1.25rem 2rem;
+      background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
       color: #1a1a2e;
       border: none;
-      border-radius: 8px;
-      font-size: 1rem;
+      border-radius: 12px;
+      font-size: 1.1rem;
       font-weight: bold;
       cursor: pointer;
+      box-shadow: 0 4px 15px rgba(0, 212, 255, 0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
     }
-    .manual-btn:hover {
-      background: #00b8e6;
+    .pay-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 212, 255, 0.5);
     }
-    .show-manual .manual-btn {
+    .pay-btn:active {
+      transform: translateY(0);
+    }
+    .spinner {
+      display: none;
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(26, 26, 46, 0.3);
+      border-top-color: #1a1a2e;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    .loading .spinner {
       display: inline-block;
     }
-    .show-manual .auto-text {
+    .loading .btn-text {
       display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .secure-badge {
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      opacity: 0.5;
+    }
+    .secure-badge::before {
+      content: "🔒 ";
     }
   </style>
 </head>
 <body>
-  <div class="container" id="container">
-    <div class="spinner"></div>
-    <h1>Redirecting to MaishaPay</h1>
+  <div class="container">
+    <div class="logo">💳</div>
+    <h1>Paiement Sécurisé</h1>
+    <p>Montant à payer</p>
     <div class="amount">$${params.amount} ${params.currency}</div>
-    <p class="auto-text">Please wait while we redirect you to complete your payment...</p>
-    <p style="margin-top: 0.5rem; font-size: 0.8rem; opacity: 0.6;">Order: ${params.orderId.slice(0, 8)}</p>
+    <p class="order-ref">Référence: ${params.reference}</p>
     
-    <button class="manual-btn" onclick="document.getElementById('paymentForm').submit();">
-      Click here if not redirected
-    </button>
+    <form id="paymentForm" action="${checkoutUrl}" method="POST">
+      <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
+      <input type="hidden" name="publicApiKey" value="${params.publicKey}">
+      <input type="hidden" name="secretApiKey" value="${params.secretKey}">
+      <input type="hidden" name="montant" value="${params.amount}">
+      <input type="hidden" name="devise" value="${params.currency}">
+      <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
+      <input type="hidden" name="reference" value="${params.reference}">
+      
+      <button type="submit" class="pay-btn" id="payBtn" onclick="this.parentElement.classList.add('loading');">
+        <span class="btn-text">Procéder au paiement</span>
+        <span class="spinner"></span>
+      </button>
+    </form>
+    
+    <p class="secure-badge">Paiement sécurisé via MaishaPay</p>
   </div>
 
-  <form id="paymentForm" action="${checkoutUrl}" method="POST" style="display: none;">
-    <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
-    <input type="hidden" name="publicApiKey" value="${params.publicKey}">
-    <input type="hidden" name="secretApiKey" value="${params.secretKey}">
-    <input type="hidden" name="montant" value="${params.amount}">
-    <input type="hidden" name="devise" value="${params.currency}">
-    <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
-    <input type="hidden" name="reference" value="${params.reference}">
-  </form>
-
   <script>
-    // Auto-submit form after short delay
-    setTimeout(function() {
-      document.getElementById('paymentForm').submit();
-    }, 1500);
+    // Try auto-submit after page loads, but only if not already interacted
+    var submitted = false;
     
-    // Show manual button if form doesn't submit after 5 seconds
-    setTimeout(function() {
-      document.getElementById('container').classList.add('show-manual');
-    }, 5000);
+    function autoSubmit() {
+      if (!submitted) {
+        submitted = true;
+        var form = document.getElementById('paymentForm');
+        var btn = document.getElementById('payBtn');
+        if (form && btn) {
+          btn.parentElement.classList.add('loading');
+          form.submit();
+        }
+      }
+    }
+    
+    // Wait for page to fully load, then auto-submit
+    if (document.readyState === 'complete') {
+      setTimeout(autoSubmit, 500);
+    } else {
+      window.addEventListener('load', function() {
+        setTimeout(autoSubmit, 500);
+      });
+    }
   </script>
+  
+  <noscript>
+    <style>
+      .pay-btn { display: block !important; }
+    </style>
+  </noscript>
 </body>
 </html>`;
 }

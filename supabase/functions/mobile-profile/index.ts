@@ -2,9 +2,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
   verifyAndGetUser, 
   handleCors, 
-  errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
+import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 
 /**
  * Mobile Profile GET Endpoint
@@ -27,7 +27,9 @@ import {
  *     "stateOrProvince": "...",
  *     "postalCode": "...",
  *     "country": "..."
- *   }
+ *   },
+ *   "hasCompleteProfile": true/false,
+ *   "missingFields": [] // only present if profile incomplete
  * }
  */
 
@@ -79,21 +81,15 @@ serve(async (req) => {
           country: '',
         },
         hasCompleteProfile: false,
+        missingFields: getMissingProfileFields(null),
       });
     }
 
-    // Check if profile is complete (has all required fields)
-    const hasCompleteProfile = !!(
-      profile.full_name &&
-      profile.phone &&
-      profile.address_line1 &&
-      profile.city &&
-      profile.state_province &&
-      profile.postal_code &&
-      profile.country
-    );
+    // Check if profile is complete using shared helper
+    const hasCompleteProfile = isProfileComplete(profile);
+    const missingFields = hasCompleteProfile ? [] : getMissingProfileFields(profile);
 
-    console.log('[mobile-profile] Profile retrieved, complete:', hasCompleteProfile);
+    console.log('[mobile-profile] Profile retrieved, complete:', hasCompleteProfile, 'missing:', missingFields);
 
     return jsonResponse({
       success: true,
@@ -109,6 +105,7 @@ serve(async (req) => {
         country: profile.country || '',
       },
       hasCompleteProfile,
+      missingFields,
     });
 
   } catch (error: any) {

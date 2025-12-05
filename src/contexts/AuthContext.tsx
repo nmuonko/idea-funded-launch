@@ -3,17 +3,35 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
+export interface UserProfile {
+  id: string;
+  user_id: string;
+  email: string | null;
+  full_name: string | null;
+  name: string | null;
+  phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state_province: string | null;
+  postal_code: string | null;
+  country: string | null;
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
+  profile: UserProfile | null;
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
-  signUp: (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   checkAdminStatus: (userId?: string) => Promise<boolean>;
   refreshSession: () => Promise<Session | null>;
   getAccessToken: () => Promise<string | null>;
+  loadProfile: (userId: string) => Promise<UserProfile | null>;
+  setProfile: (profile: UserProfile | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,6 +39,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -70,6 +89,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Load user profile from profiles table
+  const loadProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
+    try {
+      console.log('[Auth] Loading profile for user:', userId);
+      
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[Auth] Error loading profile:', error);
+        return null;
+      }
+
+      if (data) {
+        console.log('[Auth] Profile loaded:', {
+          hasEmail: !!data.email,
+          hasFullName: !!data.full_name,
+          hasPhone: !!data.phone,
+          hasAddress: !!data.address_line1,
+        });
+        setProfile(data as UserProfile);
+        return data as UserProfile;
+      }
+
+      console.log('[Auth] No profile found for user');
+      return null;
+    } catch (error) {
+      console.error('[Auth] Exception loading profile:', error);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -91,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await supabase.auth.signOut();
           setSession(null);
           setUser(null);
+          setProfile(null);
           setIsAdmin(false);
           setLoading(false);
           return;
@@ -108,12 +163,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           console.log('[Auth] Checking admin status for:', session.user.id);
           await checkAdminStatus(session.user.id);
+          // Load profile on init
+          await loadProfile(session.user.id);
         } else {
           setIsAdmin(false);
+          setProfile(null);
         }
       } catch (error) {
         console.error('[Auth] Init error:', error);
         setIsAdmin(false);
+        setProfile(null);
       } finally {
         if (mounted) {
           console.log('[Auth] Setting loading to false');
@@ -131,17 +190,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Defer admin check to avoid deadlock - CRITICAL for Supabase auth
+        // Defer admin check and profile load to avoid deadlock - CRITICAL for Supabase auth
         if (session?.user) {
           const userId = session.user.id;
           setTimeout(() => {
-            console.log('[Auth] Deferred admin check for:', userId);
-            checkAdminStatus(userId).then(() => {
+            console.log('[Auth] Deferred admin check and profile load for:', userId);
+            Promise.all([
+              checkAdminStatus(userId),
+              loadProfile(userId)
+            ]).then(() => {
               setLoading(false);
             });
           }, 0);
         } else {
           setIsAdmin(false);
+          setProfile(null);
           setLoading(false);
         }
       }
@@ -153,7 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [loadProfile]);
 
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
@@ -178,6 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('rememberMe');
         sessionStorage.setItem('sessionActive', 'true');
       }
+
+      // Load profile immediately after sign in
+      if (data.user?.id) {
+        await loadProfile(data.user.id);
+      }
       
       return { error: null, userId: data.user?.id ?? null };
     } catch (error: any) {
@@ -190,11 +258,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string, dateOfBirth: string, city: string) => {
+  const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
       
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -202,8 +270,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data: {
             full_name: fullName,
             display_name: fullName,
-            date_of_birth: dateOfBirth,
-            city: city,
+            phone: phone || '',
           },
         },
       });
@@ -214,14 +281,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           description: error.message,
           variant: 'destructive',
         });
-      } else {
-        toast({
-          title: 'Success',
-          description: 'Account created! Please check your email to verify.',
-        });
+        return { error };
+      }
+
+      // Create profile immediately after signup
+      if (data.user) {
+        console.log('[Auth] Creating profile for new user:', data.user.id);
+        
+        const profileData = {
+          user_id: data.user.id,
+          email: email.toLowerCase(),
+          full_name: fullName,
+          name: fullName,
+          phone: phone || null,
+        };
+
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .upsert(profileData, {
+            onConflict: 'user_id',
+          });
+
+        if (profileError) {
+          console.error('[Auth] Error creating profile:', profileError);
+          // Don't fail signup if profile creation fails - it can be created later
+        } else {
+          console.log('[Auth] Profile created successfully');
+          // Load the profile into state
+          await loadProfile(data.user.id);
+        }
       }
       
-      return { error };
+      toast({
+        title: 'Success',
+        description: 'Account created! Please check your email to verify.',
+      });
+      
+      return { error: null };
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -240,6 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setUser(null);
       setSession(null);
+      setProfile(null);
       setIsAdmin(false);
       
       // Clear stored session data
@@ -321,7 +418,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider 
       value={{ 
         user, 
-        session, 
+        session,
+        profile,
         isAdmin, 
         loading, 
         signIn, 
@@ -330,6 +428,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         checkAdminStatus,
         refreshSession,
         getAccessToken,
+        loadProfile,
+        setProfile,
       }}
     >
       {children}

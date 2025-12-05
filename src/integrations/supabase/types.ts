@@ -736,6 +736,7 @@ export type Database = {
           email: string | null
           full_name: string | null
           id: string
+          language: string | null
           name: string | null
           phone: string | null
           postal_code: string | null
@@ -752,6 +753,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          language?: string | null
           name?: string | null
           phone?: string | null
           postal_code?: string | null
@@ -768,6 +770,7 @@ export type Database = {
           email?: string | null
           full_name?: string | null
           id?: string
+          language?: string | null
           name?: string | null
           phone?: string | null
           postal_code?: string | null

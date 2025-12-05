@@ -16,22 +16,32 @@ import { Globe } from 'lucide-react';
 const LANGUAGE_PREFERENCE_KEY = 'afrishop_language_set';
 
 export function LanguagePreferenceModal() {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, isLanguageLoaded } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<Language>(language);
 
   useEffect(() => {
-    const hasSetLanguage = localStorage.getItem(LANGUAGE_PREFERENCE_KEY);
-    if (!hasSetLanguage) {
-      setIsOpen(true);
+    // Only show modal if language context is loaded and no preference was ever set
+    if (isLanguageLoaded) {
+      const hasSetLanguage = localStorage.getItem(LANGUAGE_PREFERENCE_KEY);
+      if (!hasSetLanguage) {
+        setIsOpen(true);
+      }
     }
-  }, []);
+  }, [isLanguageLoaded]);
+
+  useEffect(() => {
+    setSelectedLanguage(language);
+  }, [language]);
 
   const handleConfirm = () => {
     setLanguage(selectedLanguage);
     localStorage.setItem(LANGUAGE_PREFERENCE_KEY, 'true');
     setIsOpen(false);
   };
+
+  // Don't render anything until language is loaded
+  if (!isLanguageLoaded) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={() => {}}>
@@ -40,9 +50,13 @@ export function LanguagePreferenceModal() {
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <Globe className="h-6 w-6 text-primary" />
           </div>
-          <DialogTitle className="text-xl">Choose Your Language</DialogTitle>
+          <DialogTitle className="text-xl">
+            {language === 'fr' ? 'Choisissez votre langue' : 'Choose Your Language'}
+          </DialogTitle>
           <DialogDescription>
-            Select your preferred language for the AfriShop Admin Portal
+            {language === 'fr' 
+              ? 'Sélectionnez votre langue préférée pour le portail AfriShop' 
+              : 'Select your preferred language for the AfriShop Portal'}
           </DialogDescription>
         </DialogHeader>
 
@@ -74,7 +88,7 @@ export function LanguagePreferenceModal() {
         </RadioGroup>
 
         <Button onClick={handleConfirm} className="mt-6 w-full" size="lg">
-          Continue
+          {language === 'fr' ? 'Continuer' : 'Continue'}
         </Button>
       </DialogContent>
     </Dialog>

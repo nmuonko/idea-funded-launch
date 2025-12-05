@@ -123,6 +123,7 @@ export type Database = {
           can_view_ab_results: boolean
           can_view_active_carts: boolean
           can_view_analytics: boolean
+          can_view_customers: boolean
           can_view_dashboard: boolean
           can_view_knowledge_base: boolean
           can_view_orders: boolean
@@ -144,6 +145,7 @@ export type Database = {
           can_view_ab_results?: boolean
           can_view_active_carts?: boolean
           can_view_analytics?: boolean
+          can_view_customers?: boolean
           can_view_dashboard?: boolean
           can_view_knowledge_base?: boolean
           can_view_orders?: boolean
@@ -165,6 +167,7 @@ export type Database = {
           can_view_ab_results?: boolean
           can_view_active_carts?: boolean
           can_view_analytics?: boolean
+          can_view_customers?: boolean
           can_view_dashboard?: boolean
           can_view_knowledge_base?: boolean
           can_view_orders?: boolean

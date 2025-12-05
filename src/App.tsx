@@ -21,6 +21,7 @@ import AdminOrders from "./pages/admin/Orders";
 import AdminOrderDetail from "./pages/admin/OrderDetail";
 import AdminFeesSettings from "./pages/admin/FeesSettings";
 import AdminUsers from "./pages/admin/Users";
+import AdminCustomers from "./pages/admin/Customers";
 import AdminShipping from "./pages/admin/Shipping";
 import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
@@ -150,6 +151,11 @@ const App = () => {
               <Route path="knowledge-base" element={
                 <AdminRouteGuard requiredPermission="can_view_knowledge_base">
                   <AdminKnowledgeBase />
+                </AdminRouteGuard>
+              } />
+              <Route path="customers" element={
+                <AdminRouteGuard requiredPermission="can_view_customers">
+                  <AdminCustomers />
                 </AdminRouteGuard>
               } />
               <Route path="users" element={

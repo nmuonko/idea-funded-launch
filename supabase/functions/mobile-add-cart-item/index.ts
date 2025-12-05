@@ -272,14 +272,18 @@ serve(async (req) => {
         
         if (scrapeResponse.ok) {
           const scrapeData = await scrapeResponse.json();
-          console.log('[mobile-add-cart-item] Scraped product data:', scrapeData);
+          console.log('[mobile-add-cart-item] Scraped product data:', JSON.stringify(scrapeData));
           
-          if (!productImageUrl && scrapeData.image_url) {
-            productImageUrl = scrapeData.image_url;
+          // get-product-info returns imageUrl (camelCase), not image_url
+          if (!productImageUrl && scrapeData.imageUrl) {
+            productImageUrl = scrapeData.imageUrl;
+            console.log('[mobile-add-cart-item] Got image URL from scrape:', productImageUrl);
           }
           if (!productTitle && scrapeData.title) {
             productTitle = scrapeData.title;
           }
+        } else {
+          console.error('[mobile-add-cart-item] Scrape response not ok:', scrapeResponse.status);
         }
       } catch (scrapeError) {
         console.error('[mobile-add-cart-item] Failed to scrape product info:', scrapeError);

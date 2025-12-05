@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2 } from 'lucide-react';
+import { Loader2, Shield, User, Mail, UserPlus, Clock, CheckCircle, XCircle, Eye, EyeOff, RefreshCw, Calendar, Copy, AlertCircle, Settings2, Phone, MapPin, Globe, Languages } from 'lucide-react';
 import { StaffRoleSelector, RoleBadge } from '@/components/admin/StaffRoleSelector';
 import { PermissionsEditor, PermissionsSummaryBadges, applyRoleDefaults } from '@/components/admin/PermissionsEditor';
 import { format } from 'date-fns';
@@ -29,6 +29,11 @@ interface UserWithRole {
   full_name: string | null;
   name: string | null;
   email?: string;
+  phone?: string | null;
+  address?: string | null;
+  country?: string | null;
+  province?: string | null;
+  language?: string | null;
   isAdmin: boolean;
   adminRole: string;
   created_at?: string;
@@ -83,6 +88,11 @@ export default function AdminUsers() {
   const [inviting, setInviting] = useState(false);
   const [resending, setResending] = useState<string | null>(null);
   
+  // Filters for profiles
+  const [filterCountry, setFilterCountry] = useState<string>('all');
+  const [filterProvince, setFilterProvince] = useState<string>('all');
+  const [filterLanguage, setFilterLanguage] = useState<string>('all');
+  
   // Edit permissions dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserWithRole | null>(null);
@@ -111,10 +121,10 @@ export default function AdminUsers() {
 
   const loadUsers = async () => {
     try {
-      // Get all users from profiles with created_at
+      // Get all users from profiles with all profile fields
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id, full_name, name, created_at')
+        .select('user_id, email, full_name, name, phone, address, country, province, language, created_at')
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;
@@ -417,7 +427,31 @@ export default function AdminUsers() {
   }
 
   const adminUsers = users.filter(u => u.isAdmin);
-  const regularUsers = users.filter(u => !u.isAdmin);
+  
+  // Get unique filter options
+  const countries = [...new Set(users.map(u => u.country).filter(Boolean))];
+  const provinces = [...new Set(users.map(u => u.province).filter(Boolean))];
+  const languages = [...new Set(users.map(u => u.language).filter(Boolean))];
+  
+  // Filter users based on selected filters
+  const filteredUsers = users.filter(u => {
+    if (filterCountry !== 'all' && u.country !== filterCountry) return false;
+    if (filterProvince !== 'all' && u.province !== filterProvince) return false;
+    if (filterLanguage !== 'all' && u.language !== filterLanguage) return false;
+    return true;
+  });
+  
+  const regularUsers = filteredUsers.filter(u => !u.isAdmin);
+  
+  const getLanguageLabel = (lang: string) => {
+    switch (lang) {
+      case 'fr': return 'Français';
+      case 'en': return 'English';
+      case 'sw': return 'Kiswahili';
+      case 'ln': return 'Lingala';
+      default: return lang;
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -642,39 +676,138 @@ export default function AdminUsers() {
         <TabsContent value="all">
           <Card>
             <CardHeader>
-              <CardTitle>All Users</CardTitle>
-              <CardDescription>{users.length} total users</CardDescription>
+              <CardTitle>All Users / Profiles</CardTitle>
+              <CardDescription>{filteredUsers.length} of {users.length} users</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {/* Filters */}
+              <div className="flex flex-wrap gap-3 pb-4 border-b">
+                <div className="flex items-center gap-2">
+                  <Globe className="h-4 w-4 text-muted-foreground" />
+                  <Select value={filterCountry} onValueChange={setFilterCountry}>
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue placeholder="Country" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Countries</SelectItem>
+                      {countries.map(c => (
+                        <SelectItem key={c} value={c!}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <Select value={filterProvince} onValueChange={setFilterProvince}>
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue placeholder="Province" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Provinces</SelectItem>
+                      {provinces.map(p => (
+                        <SelectItem key={p} value={p!}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Languages className="h-4 w-4 text-muted-foreground" />
+                  <Select value={filterLanguage} onValueChange={setFilterLanguage}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Languages</SelectItem>
+                      {languages.map(l => (
+                        <SelectItem key={l} value={l!}>{getLanguageLabel(l!)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
+              {/* Users List */}
               <div className="space-y-3">
-                {regularUsers.map((user) => (
-                  <div
-                    key={user.user_id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                        <User className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
-                        <p className="text-sm text-muted-foreground">{user.user_id.slice(0, 8)}...</p>
+                {filteredUsers.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">No users match the selected filters</p>
+                ) : (
+                  filteredUsers.map((user) => (
+                    <div
+                      key={user.user_id}
+                      className="p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            {user.isAdmin ? (
+                              <Shield className="h-5 w-5 text-primary" />
+                            ) : (
+                              <User className="h-5 w-5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-medium">{user.full_name || user.name || 'Unnamed User'}</p>
+                              {user.isAdmin && <RoleBadge role={user.adminRole} />}
+                              {user.language && (
+                                <Badge variant="outline" className="text-xs">
+                                  {getLanguageLabel(user.language)}
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                              {user.email && (
+                                <span className="flex items-center gap-1">
+                                  <Mail className="h-3 w-3" />
+                                  {user.email}
+                                </span>
+                              )}
+                              {user.phone && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="h-3 w-3" />
+                                  {user.phone}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                              {(user.country || user.province) && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {[user.province, user.country].filter(Boolean).join(', ')}
+                                </span>
+                              )}
+                              {user.address && (
+                                <span className="truncate max-w-[300px]" title={user.address}>
+                                  {user.address}
+                                </span>
+                              )}
+                            </div>
+                            {user.created_at && (
+                              <p className="text-xs text-muted-foreground">
+                                <Calendar className="h-3 w-3 inline mr-1" />
+                                Joined {format(new Date(user.created_at), 'MMM dd, yyyy')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {!user.isAdmin && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => promoteToAdmin(user.user_id)}
+                            disabled={promoting === user.user_id}
+                          >
+                            {promoting === user.user_id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              'Make Admin'
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => promoteToAdmin(user.user_id)}
-                      disabled={promoting === user.user_id}
-                    >
-                      {promoting === user.user_id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        'Make Admin'
-                      )}
-                    </Button>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

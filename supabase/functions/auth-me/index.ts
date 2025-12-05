@@ -6,6 +6,27 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// French-speaking African countries
+const FRENCH_COUNTRIES = [
+  'DR Congo', 'Congo-Brazzaville', 'Central African Republic', 'Cameroon',
+  'Burundi', 'Rwanda', 'Benin', 'Ivory Coast', 'Senegal', 'Mali',
+  'Chad', 'Niger', 'Gabon', 'Togo', 'Burkina Faso', 'Madagascar',
+  'Guinea', 'Mauritius', 'Comoros', 'Djibouti', 'Seychelles'
+];
+
+// English-speaking African countries
+const ENGLISH_COUNTRIES = [
+  'Kenya', 'Uganda', 'Tanzania', 'Nigeria', 'Ghana', 'South Africa',
+  'Zambia', 'Zimbabwe', 'Botswana', 'Namibia', 'Malawi', 'Liberia',
+  'Sierra Leone', 'Gambia', 'Lesotho', 'Eswatini'
+];
+
+function getLanguageForCountry(country: string): string {
+  if (FRENCH_COUNTRIES.includes(country)) return 'fr';
+  if (ENGLISH_COUNTRIES.includes(country)) return 'en';
+  return 'fr'; // Default to French
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -87,25 +108,69 @@ serve(async (req) => {
       );
     }
 
-    // 5. Fetch user profile - select only essential columns
-    const { data: profile } = await supabase
+    // 5. Fetch user profile
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('name, phone, full_name')
+      .select('*')
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // 6. Return slim response
+    if (profileError) {
+      console.error('[auth-me] Profile fetch error:', profileError);
+    }
+
+    // 6. If no profile exists, create one with defaults
+    let finalProfile = profile;
+    if (!profile) {
+      console.log('[auth-me] No profile found, creating default profile for user:', user.id);
+      
+      const defaultCountry = 'DR Congo';
+      const defaultProvince = 'Kinshasa';
+      const defaultLanguage = getLanguageForCountry(defaultCountry);
+      
+      const newProfile = {
+        user_id: user.id,
+        email: user.email || '',
+        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        phone: user.user_metadata?.phone || '',
+        address: '',
+        country: defaultCountry,
+        province: defaultProvince,
+        language: defaultLanguage,
+      };
+
+      const { data: createdProfile, error: createError } = await supabase
+        .from('profiles')
+        .upsert(newProfile, { onConflict: 'user_id' })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('[auth-me] Failed to create profile:', createError);
+        // Return a default response even if creation fails
+        finalProfile = newProfile;
+      } else {
+        finalProfile = createdProfile;
+        console.log('[auth-me] Created default profile successfully');
+      }
+    }
+
+    // 7. Return complete profile object (never null fields in response)
+    const response = {
+      id: finalProfile.user_id || user.id,
+      email: finalProfile.email || user.email || '',
+      full_name: finalProfile.full_name || '',
+      phone: finalProfile.phone || '',
+      address: finalProfile.address || finalProfile.address_line1 || '',
+      country: finalProfile.country || 'DR Congo',
+      province: finalProfile.province || finalProfile.state_province || 'Kinshasa',
+      language: finalProfile.language || 'fr',
+    };
+
+    console.log('[auth-me] Returning profile for user:', user.id);
+
     return new Response(
-      JSON.stringify({
-        user: {
-          id: user.id,
-          email: user.email,
-        },
-        profile: profile ? {
-          name: profile.name || profile.full_name,
-          phone: profile.phone,
-        } : null,
-      }),
+      JSON.stringify(response),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 

@@ -728,6 +728,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          address: string | null
           address_line1: string | null
           address_line2: string | null
           city: string | null
@@ -740,11 +741,13 @@ export type Database = {
           name: string | null
           phone: string | null
           postal_code: string | null
+          province: string | null
           state_province: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          address?: string | null
           address_line1?: string | null
           address_line2?: string | null
           city?: string | null
@@ -757,11 +760,13 @@ export type Database = {
           name?: string | null
           phone?: string | null
           postal_code?: string | null
+          province?: string | null
           state_province?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          address?: string | null
           address_line1?: string | null
           address_line2?: string | null
           city?: string | null
@@ -774,6 +779,7 @@ export type Database = {
           name?: string | null
           phone?: string | null
           postal_code?: string | null
+          province?: string | null
           state_province?: string | null
           updated_at?: string
           user_id?: string
@@ -1082,6 +1088,7 @@ export type Database = {
           target_applicants: number
         }[]
       }
+      get_language_for_country: { Args: { p_country: string }; Returns: string }
       get_public_session_info: {
         Args: never
         Returns: {

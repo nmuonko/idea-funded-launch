@@ -73,30 +73,21 @@ function calculateItemPricing(
   };
 }
 
-// Shipping constants
-const BASE_FEE_USD = 20;
-const PERCENT_FEE = 0.10;
-const EXTRA_PER_KG_USD = 8;
+// Heavy threshold for manual quote requirement
 const HEAVY_THRESHOLD_KG = 9;
 
-// Calculate shipping for a single item based on weight
-function calculateItemShipping(subtotalUsd: number, estWeightKg: number): number {
-  const extraWeight = Math.max(0, estWeightKg - 1);
-  const basePart = BASE_FEE_USD + (subtotalUsd * PERCENT_FEE);
-  const extraPart = extraWeight * EXTRA_PER_KG_USD;
-  return round2(basePart + extraPart);
-}
-
-// Calculate and persist order totals from items with new shipping logic
+// Calculate and persist order totals from items using settings values
 async function updateOrderTotals(
   supabase: any,
   orderId: string,
+  shippingBaseFeeUsd: number,
+  shippingPercent: number,
   exchangeRate: number
 ) {
-  // Get all items for this order with shipping type info
+  // Get all items for this order
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote')
+    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -104,35 +95,37 @@ async function updateOrderTotals(
     return null;
   }
 
-  // Calculate order totals from items
+  // Calculate order totals from ACTIVE items only
   let itemTotalUsd = 0;
   let serviceFeeUsd = 0;
   let itemsWithMarkupUsd = 0;
-  let shippingFeeUsd = 0;
   let requiresManualQuote = false;
+  let activeItemCount = 0;
 
   (items || []).forEach((item: any) => {
-    const subtotal = Number(item.subtotal_usd || 0);
-    const markup = Number(item.markup_fee_usd || 0);
-    const total = Number(item.total_price_usd || 0);
-    const estWeight = Number(item.est_weight_kg || 1);
-    const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
+    // Only count active items (not saved for later)
+    if (!item.is_saved_for_later) {
+      const subtotal = Number(item.subtotal_usd || 0);
+      const markup = Number(item.markup_fee_usd || 0);
+      const total = Number(item.total_price_usd || 0);
+      const estWeight = Number(item.est_weight_kg || 1);
+      const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
 
-    itemTotalUsd += subtotal;
-    serviceFeeUsd += markup;
-    itemsWithMarkupUsd += total;
+      itemTotalUsd += subtotal;
+      serviceFeeUsd += markup;
+      itemsWithMarkupUsd += total;
+      activeItemCount++;
 
-    if (itemRequiresQuote) {
-      requiresManualQuote = true;
-    } else {
-      // Only calculate shipping for items that don't require manual quote
-      shippingFeeUsd += calculateItemShipping(subtotal, estWeight);
+      if (itemRequiresQuote) {
+        requiresManualQuote = true;
+      }
     }
   });
 
-  // If any item requires manual quote, set shipping to 0
-  if (requiresManualQuote) {
-    shippingFeeUsd = 0;
+  // Calculate shipping using settings: base_fee + (items_subtotal × shipping_percent)
+  let shippingFeeUsd = 0;
+  if (!requiresManualQuote && activeItemCount > 0) {
+    shippingFeeUsd = round2(shippingBaseFeeUsd + (itemTotalUsd * shippingPercent));
   }
   
   // Grand totals
@@ -147,7 +140,9 @@ async function updateOrderTotals(
     totalUsd,
     totalCdf,
     requiresManualQuote,
-    itemCount: items?.length || 0,
+    activeItemCount,
+    shippingBaseFeeUsd,
+    shippingPercent,
   });
 
   // Persist to orders table
@@ -259,6 +254,16 @@ serve(async (req) => {
 
     const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
+    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
+    // shipping_percent is stored as decimal (0.10) in DB
+    const shippingPercent = settings.shipping_percent ?? 0.10;
+
+    console.log('[mobile-add-cart-item] Using settings:', {
+      markupPercent,
+      shippingBaseFeeUsd,
+      shippingPercent,
+      exchangeRate,
+    });
 
     // Calculate pricing using helper
     const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
@@ -458,8 +463,8 @@ serve(async (req) => {
 
       console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
 
-      // UPDATE ORDER TOTALS after merge
-      const summary = await updateOrderTotals(supabase, orderId, exchangeRate);
+      // UPDATE ORDER TOTALS after merge - use settings values
+      const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
       const mergedImageUrl = updatedItem.product_image_url || null;
       
@@ -546,8 +551,8 @@ serve(async (req) => {
       }
     }
 
-    // UPDATE ORDER TOTALS after adding new item
-    const summary = await updateOrderTotals(supabase, orderId, exchangeRate);
+    // UPDATE ORDER TOTALS after adding new item - use settings values
+    const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
     const newImageUrl = data.product_image_url || null;
     

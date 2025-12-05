@@ -31,13 +31,23 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
     console.error('[settings-cache] Error fetching settings:', error.message);
   }
 
+  // Parse values with defaults - shipping_percent stored as decimal (0.10 = 10%)
+  const markupVal = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
+  // If markup is stored as decimal (e.g., 0.15), convert to percentage
+  const markupPercent = markupVal < 1 ? markupVal * 100 : markupVal;
+  
+  // shipping_percent is stored as decimal (0.10 = 10%), keep as decimal for calculations
+  const shippingPercent = settings?.shipping_percent ?? 0.10;
+  
   settingsCache = {
     exchangeRate: settings?.exchange_rate_usd_to_cdf ?? 2800,
-    markupPercent: settings?.markup_percent ?? settings?.global_markup_percent ?? 15,
+    markupPercent,
     shippingBaseFeeUsd: settings?.shipping_base_fee_usd ?? 20,
-    shippingPercent: settings?.shipping_percent ?? 0.10,
+    shippingPercent,
     fetchedAt: now,
   };
+  
+  console.log('[settings-cache] Cached settings:', settingsCache);
 
   return settingsCache;
 }

@@ -36,6 +36,7 @@ import ThemeSettings from "./pages/admin/ThemeSettings";
 import AdminAccessDenied from "./pages/admin/AccessDenied";
 import AuditLog from "./pages/admin/AuditLog";
 import Orders from "./pages/Orders";
+import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
 import MaishapayCheckout from "./pages/MaishapayCheckout";
 import MaishapayResult from "./pages/MaishapayResult";
@@ -77,6 +78,11 @@ const App = () => {
             <Route path="/orders" element={
               <ProtectedRoute>
                 <Orders />
+              </ProtectedRoute>
+            } />
+            <Route path="/orders/:id" element={
+              <ProtectedRoute>
+                <OrderDetail />
               </ProtectedRoute>
             } />
             <Route path="/maisha-callback" element={<MaishaCallback />} />

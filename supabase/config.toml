@@ -19,7 +19,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.chat]
-verify_jwt = false
+verify_jwt = true
 
 [functions.maishapay-callback]
 verify_jwt = false

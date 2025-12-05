@@ -100,9 +100,15 @@ serve(async (req) => {
       });
     }
 
-    // Build callback URL
+    // Build callback URL - MUST point to our backend edge function, NOT frontend
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || `${supabaseUrl}/functions/v1/maishapay-callback`;
+    // Always use the edge function URL for callbacks - ignore MAISHAPAY_CALLBACK_URL if it's a frontend URL
+    const configuredCallback = Deno.env.get('MAISHAPAY_CALLBACK_URL') || '';
+    const callbackUrl = configuredCallback.includes('/functions/v1/') 
+      ? configuredCallback 
+      : `${supabaseUrl}/functions/v1/maishapay-callback`;
+    
+    console.log('[maishapay-checkout-page] Callback URL:', callbackUrl);
 
     // Create Supabase client
     const supabase = createClient(

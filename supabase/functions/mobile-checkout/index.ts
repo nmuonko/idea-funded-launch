@@ -7,6 +7,74 @@ import {
 } from "../_shared/auth.ts";
 
 /**
+ * Generate MaishaPay checkout HTML form
+ * This HTML auto-submits to MaishaPay's checkout endpoint
+ */
+function generateMaishapayHtml(params: {
+  publicKey: string;
+  secretKey: string;
+  gatewayMode: string;
+  amount: string;
+  currency: string;
+  reference: string;
+  callbackUrl: string;
+  orderId: string;
+}): string {
+  const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
+  
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paiement MaishaPay</title>
+<script>
+  window.onload = function() {
+    setTimeout(function() {
+      document.getElementById('paymentForm').submit();
+    }, 500);
+  };
+</script>
+</head>
+<body style="margin:0;padding:20px;font-family:Arial,sans-serif;background:#1a1a2e;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+
+<div style="text-align:center;width:100%;max-width:350px;">
+  <div style="font-size:48px;margin-bottom:16px;">💳</div>
+  <h1 style="font-size:20px;margin:0 0 8px 0;">Paiement Sécurisé</h1>
+  <p style="margin:0 0 24px 0;opacity:0.7;font-size:14px;">AfriShop - MaishaPay</p>
+  
+  <div style="background:#16213e;border-radius:12px;padding:20px;margin-bottom:24px;">
+    <p style="margin:0 0 8px 0;font-size:12px;opacity:0.6;">Montant à payer</p>
+    <p style="margin:0;font-size:32px;font-weight:bold;color:#00d4ff;">$${params.amount}</p>
+    <p style="margin:8px 0 0 0;font-size:11px;opacity:0.5;">Réf: ${params.reference.slice(0, 20)}...</p>
+  </div>
+  
+  <p style="margin:0 0 16px 0;font-size:14px;opacity:0.8;">Redirection vers MaishaPay...</p>
+  
+  <form id="paymentForm" action="${checkoutUrl}" method="POST">
+    <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
+    <input type="hidden" name="publicApiKey" value="${params.publicKey}">
+    <input type="hidden" name="secretApiKey" value="${params.secretKey}">
+    <input type="hidden" name="montant" value="${params.amount}">
+    <input type="hidden" name="devise" value="${params.currency}">
+    <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
+    <input type="hidden" name="reference" value="${params.reference}">
+    
+    <noscript>
+      <button type="submit" style="width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer;">
+        Payer maintenant
+      </button>
+    </noscript>
+  </form>
+  
+  <p style="margin-top:20px;font-size:11px;opacity:0.4;">🔒 Paiement sécurisé via MaishaPay</p>
+</div>
+
+</body>
+</html>`;
+}
+
+/**
  * Mobile Checkout Edge Function
  * 
  * Creates an order from cart items and returns a redirect URL for payment.
@@ -296,23 +364,70 @@ serve(async (req) => {
         },
       });
 
-    // Build checkout URL - redirect to server-side edge function that has the secret key
-    // IMPORTANT: Use the edge function directly, NOT the frontend page
+    // Get MaishaPay configuration
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE') || Deno.env.get('MAISHAPAY_MODE') || '1';
+    const isLiveMode = gatewayMode === '1' || gatewayMode?.toLowerCase() === 'live';
+    
+    // Get API keys - check multiple env var names
+    let publicKey = Deno.env.get('MAISHAPAY_PUBLIC_API_KEY') || '';
+    let secretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY') || '';
+    
+    if (isLiveMode) {
+      publicKey = publicKey || Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
+      secretKey = secretKey || Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
+    } else {
+      publicKey = publicKey || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || Deno.env.get('MAISHA_PUBLIC_KEY') || '';
+      secretKey = secretKey || Deno.env.get('MAISHAPAY_SECRET_KEY') || Deno.env.get('MAISHA_SECRET_KEY') || '';
+    }
+    
+    console.log('[mobile-checkout] MaishaPay config:', {
+      mode: isLiveMode ? 'live' : 'sandbox',
+      hasPublicKey: !!publicKey,
+      hasSecretKey: !!secretKey,
+      publicKeyPrefix: publicKey ? publicKey.slice(0, 12) + '...' : 'MISSING',
+    });
+    
+    // Validate keys
+    if (!publicKey || !secretKey) {
+      console.error('[mobile-checkout] [CONFIG ERROR] Missing MaishaPay API keys');
+      return jsonResponse({
+        success: false,
+        code: 'MAISHAPAY_CONFIG_ERROR',
+        error: 'Payment gateway not configured. Please contact support.',
+      }, 500);
+    }
+    
+    // CRITICAL: Callback URL must point to our BACKEND edge function, not frontend
+    const callbackUrl = `${supabaseUrl}/functions/v1/maishapay-callback`;
+    
+    // Generate the checkout HTML that auto-submits to MaishaPay
+    const checkoutHtml = generateMaishapayHtml({
+      publicKey,
+      secretKey,
+      gatewayMode: isLiveMode ? '1' : '0',
+      amount: grandTotalUsd.toFixed(2),
+      currency: 'USD',
+      reference,
+      callbackUrl,
+      orderId: checkoutOrder.id,
+    });
+    
+    // Also provide a URL fallback
     const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
 
     console.log('[mobile-checkout] Order created successfully');
-    console.log('[mobile-checkout] Generated checkoutUrl:', checkoutUrl);
     console.log('[mobile-checkout] Order details:', {
       orderId: checkoutOrder.id,
       reference,
       grandTotalUsd,
+      callbackUrl,
     });
 
     // Generate display reference (first 8 chars of UUID, uppercase)
     const orderRef = checkoutOrder.id.substring(0, 8).toUpperCase();
 
-    // Build the response body with consistent field names
+    // Build the response body - INCLUDE html field for direct WebView loading
     const responseBody = {
       // Primary fields for mobile app
       success: true,
@@ -320,11 +435,16 @@ serve(async (req) => {
       orderRef: orderRef,
       displayRef: orderRef,
       order_number: orderRef,
-      checkoutUrl: checkoutUrl,
       
-      // Legacy/backwards compatibility fields
+      // THE CRITICAL FIELD: HTML for direct WebView loading
+      html: checkoutHtml,
+      
+      // URL fallback (mobile can use either html or checkoutUrl)
+      checkoutUrl: checkoutUrl,
       redirectUrl: checkoutUrl,
       redirect_url: checkoutUrl,
+      
+      // Other fields
       order_id: checkoutOrder.id,
       reference,
       maishapay_reference: reference,
@@ -343,7 +463,8 @@ serve(async (req) => {
       },
     };
 
-    console.log('[mobile-checkout] Full response:', JSON.stringify(responseBody));
+    console.log('[mobile-checkout] Response includes html field:', !!responseBody.html);
+    console.log('[mobile-checkout] HTML length:', responseBody.html?.length);
 
     return jsonResponse(responseBody);
 

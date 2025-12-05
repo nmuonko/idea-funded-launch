@@ -6,16 +6,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Package, Truck, CheckCircle, Download, Search } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
-import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
+import { getAdminTranslation } from '@/lib/i18n/translations';
 
 export default function AdminShipping() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('ready');
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [updating, setUpdating] = useState(false);
+  const [newStatus, setNewStatus] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [carrier, setCarrier] = useState('');
   const { toast } = useToast();
   const { language } = useLanguage();
   const t = getAdminTranslation(language);
@@ -65,6 +73,57 @@ export default function AdminShipping() {
     }
   };
 
+  const openUpdateDialog = (order: any) => {
+    setSelectedOrder(order);
+    setNewStatus(order.status);
+    setTrackingNumber(order.tracking_number || '');
+    setCarrier(order.carrier || '');
+  };
+
+  const handleUpdateStatus = async () => {
+    if (!selectedOrder) return;
+    
+    try {
+      setUpdating(true);
+      
+      const updateData: any = {
+        status: newStatus,
+        tracking_number: trackingNumber || null,
+        carrier: carrier || null,
+      };
+
+      if (newStatus === 'SHIPPED' && selectedOrder.status !== 'SHIPPED') {
+        updateData.shipped_at = new Date().toISOString();
+      }
+      if (newStatus === 'COMPLETED' && selectedOrder.status !== 'COMPLETED') {
+        updateData.delivered_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', selectedOrder.id);
+
+      if (error) throw error;
+
+      toast({
+        title: 'Order updated',
+        description: `Order status changed to ${newStatus}`,
+      });
+
+      setSelectedOrder(null);
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error updating order',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const exportToCSV = () => {
     const headers = ['Order ID', 'Status', 'Total USD', 'City', 'Tracking', 'Carrier', 'Created'];
     const rows = filteredOrders.map(order => [
@@ -101,15 +160,6 @@ export default function AdminShipping() {
     order.tracking_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     order.shipping_city?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const getTabIcon = (tab: string) => {
-    switch (tab) {
-      case 'ready': return <Package className="h-4 w-4" />;
-      case 'transit': return <Truck className="h-4 w-4" />;
-      case 'delivered': return <CheckCircle className="h-4 w-4" />;
-      default: return null;
-    }
-  };
 
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -196,7 +246,11 @@ export default function AdminShipping() {
                   </TableHeader>
                   <TableBody>
                     {filteredOrders.map((order) => (
-                      <TableRow key={order.id}>
+                      <TableRow 
+                        key={order.id} 
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => openUpdateDialog(order)}
+                      >
                         <TableCell className="font-mono text-xs">
                           {order.id.slice(0, 8)}...
                         </TableCell>
@@ -205,27 +259,17 @@ export default function AdminShipping() {
                           {order.order_items && order.order_items.length > 0 ? (
                             <div className="flex flex-col gap-1">
                               {order.order_items.slice(0, 1).map((item: any) => (
-                                item.product_url ? (
-                                  <a
-                                    key={item.id}
-                                    href={item.product_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-primary hover:underline flex items-center gap-1"
-                                  >
-                                    {item.product_image_url && (
-                                      <img 
-                                        src={item.product_image_url} 
-                                        alt="" 
-                                        className="h-4 w-4 object-cover rounded"
-                                        onError={(e) => e.currentTarget.style.display = 'none'}
-                                      />
-                                    )}
-                                    <span className="line-clamp-1">{item.title?.slice(0, 25) || 'Product'}</span>
-                                  </a>
-                                ) : (
-                                  <span key={item.id} className="text-xs text-muted-foreground">{item.title?.slice(0, 25) || 'N/A'}</span>
-                                )
+                                <span key={item.id} className="text-xs flex items-center gap-1">
+                                  {item.product_image_url && (
+                                    <img 
+                                      src={item.product_image_url} 
+                                      alt="" 
+                                      className="h-4 w-4 object-cover rounded"
+                                      onError={(e) => e.currentTarget.style.display = 'none'}
+                                    />
+                                  )}
+                                  <span className="line-clamp-1">{item.title?.slice(0, 25) || 'Product'}</span>
+                                </span>
                               ))}
                               {order.order_items.length > 1 && (
                                 <span className="text-xs text-muted-foreground">+{order.order_items.length - 1} more</span>
@@ -263,6 +307,71 @@ export default function AdminShipping() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* Update Status Dialog */}
+      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Update Shipment</DialogTitle>
+            <DialogDescription>
+              Order: {selectedOrder?.id.slice(0, 8)}...
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={newStatus} onValueChange={setNewStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PAID">Ready to Ship</SelectItem>
+                  <SelectItem value="PROCESSING">Processing</SelectItem>
+                  <SelectItem value="SHIPPED">In Transit</SelectItem>
+                  <SelectItem value="COMPLETED">Delivered</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Tracking Number</Label>
+              <Input
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                placeholder="Enter tracking number"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Carrier</Label>
+              <Select value={carrier} onValueChange={setCarrier}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select carrier" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DHL">DHL</SelectItem>
+                  <SelectItem value="FedEx">FedEx</SelectItem>
+                  <SelectItem value="UPS">UPS</SelectItem>
+                  <SelectItem value="USPS">USPS</SelectItem>
+                  <SelectItem value="Local">Local Courier</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedOrder(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateStatus} disabled={updating}>
+              {updating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

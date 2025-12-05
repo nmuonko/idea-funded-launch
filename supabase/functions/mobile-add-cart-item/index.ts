@@ -251,8 +251,41 @@ serve(async (req) => {
       console.error('[mobile-add-cart-item] Invalid URL format:', e);
     }
 
-    const productTitle = body.productTitle ?? null;
-    const productImageUrl = body.productImageUrl ?? null;
+    let productTitle = body.productTitle ?? null;
+    let productImageUrl = body.productImageUrl ?? null;
+
+    // If image or title not provided, try to scrape from product URL
+    if (!productImageUrl || !productTitle) {
+      console.log('[mobile-add-cart-item] Scraping product info for:', productUrl);
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        
+        const scrapeResponse = await fetch(`${supabaseUrl}/functions/v1/get-product-info`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({ url: productUrl }),
+        });
+        
+        if (scrapeResponse.ok) {
+          const scrapeData = await scrapeResponse.json();
+          console.log('[mobile-add-cart-item] Scraped product data:', scrapeData);
+          
+          if (!productImageUrl && scrapeData.image_url) {
+            productImageUrl = scrapeData.image_url;
+          }
+          if (!productTitle && scrapeData.title) {
+            productTitle = scrapeData.title;
+          }
+        }
+      } catch (scrapeError) {
+        console.error('[mobile-add-cart-item] Failed to scrape product info:', scrapeError);
+        // Continue without image - it's not critical
+      }
+    }
 
     // Get or create DRAFT order
     const { data: existingOrder } = await supabase
@@ -328,6 +361,8 @@ serve(async (req) => {
       // UPDATE ORDER TOTALS after merge
       const summary = await updateOrderTotals(supabase, orderId, exchangeRate);
 
+      const mergedImageUrl = updatedItem.product_image_url || null;
+      
       return jsonResponse({
         success: true,
         merged: true,
@@ -335,7 +370,8 @@ serve(async (req) => {
           id: updatedItem.id,
           productUrl: updatedItem.product_url,
           productTitle: updatedItem.title || null,
-          productImageUrl: updatedItem.product_image_url || null,
+          productImageUrl: mergedImageUrl,
+          image_url: mergedImageUrl, // Alias for mobile app compatibility
           store: updatedItem.store,
           basePriceUsd: updatedItem.base_price_usd,
           quantity: updatedItem.quantity,
@@ -384,13 +420,16 @@ serve(async (req) => {
     // UPDATE ORDER TOTALS after adding new item
     const summary = await updateOrderTotals(supabase, orderId, exchangeRate);
 
+    const newImageUrl = data.product_image_url || null;
+    
     return jsonResponse({
       success: true,
       item: {
         id: data.id,
         productUrl: data.product_url,
         productTitle: data.title || null,
-        productImageUrl: data.product_image_url || null,
+        productImageUrl: newImageUrl,
+        image_url: newImageUrl, // Alias for mobile app compatibility
         store: data.store,
         basePriceUsd: data.base_price_usd,
         quantity: data.quantity,

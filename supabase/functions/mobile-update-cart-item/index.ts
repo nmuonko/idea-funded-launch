@@ -229,13 +229,16 @@ serve(async (req) => {
     // UPDATE ORDER TOTALS after any change
     const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
+    const imageUrl = updatedItem.product_image_url || null;
+    
     return jsonResponse({
       success: true,
       item: {
         id: updatedItem.id,
         productUrl: updatedItem.product_url,
         productTitle: updatedItem.title || null,
-        productImageUrl: updatedItem.product_image_url || null,
+        productImageUrl: imageUrl,
+        image_url: imageUrl, // Alias for mobile app compatibility
         store: updatedItem.store,
         basePriceUsd: updatedItem.base_price_usd,
         quantity: updatedItem.quantity,

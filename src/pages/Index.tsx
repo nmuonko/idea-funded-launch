@@ -76,7 +76,7 @@ export default function Index() {
       {/* Footer */}
       <footer className="relative z-10 py-6 text-center">
         <p className="text-xs text-muted-foreground/60">
-          © {new Date().getFullYear()} AfriShop. Admin Backend v1.0
+          © {new Date().getFullYear()} AfriShop. All rights reserved.
         </p>
       </footer>
     </div>

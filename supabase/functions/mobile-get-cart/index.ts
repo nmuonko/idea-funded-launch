@@ -2,13 +2,10 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { 
   verifyAndGetUser, 
   handleCors, 
-  corsHeaders, 
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
-
-// Round to 2 decimals helper
-const round2 = (n: number) => Math.round(n * 100) / 100;
+import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 
 // Shipping constants
 const BASE_FEE_USD = 20;
@@ -78,12 +75,10 @@ serve(async (req) => {
   try {
     // Verify JWT using SERVICE_ROLE
     const { user, supabase } = await verifyAndGetUser(req);
-    console.log('[mobile-get-cart] User authenticated:', user.id);
 
-    // Get pricing settings
-    const { data: settings } = await supabase.from('settings').select('*').maybeSingle();
-    const exchangeRate = settings?.exchange_rate_usd_to_cdf ?? 2800;
-    const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
+    // Get cached pricing settings (5min TTL)
+    const settings = await getCachedSettings(supabase);
+    const { exchangeRate, markupPercent } = settings;
 
     // Get user's active DRAFT order (cart) - use maybeSingle to handle no cart case gracefully
     const { data: order, error: orderError } = await supabase
@@ -94,11 +89,10 @@ serve(async (req) => {
       .maybeSingle();
 
     if (orderError) {
-      console.error('[mobile-get-cart] Error fetching order:', orderError);
+      console.error('[mobile-get-cart] Order query error:', orderError.message);
     }
 
     if (!order) {
-      console.log('[mobile-get-cart] No DRAFT order found');
       return jsonResponse({
         activeItems: [],
         savedItems: [],
@@ -115,19 +109,20 @@ serve(async (req) => {
       });
     }
 
-    console.log('[mobile-get-cart] Found order:', order.id);
-
-    // Get items with shipping type info
+    // Get items - select only needed columns for mobile
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
-      .select('*, shipping_item_types(key, label)')
+      .select(`
+        id, product_url, title, product_image_url, store, base_price_usd, quantity,
+        subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, est_weight_kg,
+        requires_manual_quote, is_saved_for_later, saved_at,
+        shipping_item_types(key, label)
+      `)
       .eq('order_id', order.id);
 
     if (itemsError) {
-      console.error('[mobile-get-cart] Items query error:', itemsError);
+      console.error('[mobile-get-cart] Items error:', itemsError.message);
     }
-
-    console.log('[mobile-get-cart] Found items:', items?.length || 0);
 
     // Separate active and saved items
     const activeItems: any[] = [];
@@ -175,14 +170,6 @@ serve(async (req) => {
     const finalGrandTotalUsd = round2(calcSubtotalWithMarkup + finalShippingFee);
     const finalGrandTotalCdf = round2(finalGrandTotalUsd * exchangeRate);
 
-    // Safety check
-    if (activeItems.length > 0 && finalItemsTotal === 0) {
-      console.error('[mobile-get-cart] WARNING: Active items exist but totals are zero!', {
-        orderId: order.id,
-        activeItemCount: activeItems.length,
-      });
-    }
-
     // Build summary (only for active items)
     const summary: Record<string, any> = {
       itemCount,
@@ -197,19 +184,15 @@ serve(async (req) => {
     };
     
     if (requiresManualQuote) {
-      summary.message = "We'll contact you for a custom shipping quote. You can't pay immediately for this order.";
+      summary.message = "We'll contact you for a custom shipping quote.";
     }
 
-    // Also include legacy "items" array for backward compatibility
-    const response = { 
+    return jsonResponse({ 
       items: activeItems,
       activeItems,
       savedItems,
       summary 
-    };
-    console.log('[mobile-get-cart] Full response:', JSON.stringify(response, null, 2));
-
-    return jsonResponse(response);
+    });
 
   } catch (error: any) {
     console.error('[mobile-get-cart] Error:', error.message);

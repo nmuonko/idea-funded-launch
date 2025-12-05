@@ -19,6 +19,8 @@ function generateMaishapayHtml(params: {
   reference: string;
   callbackUrl: string;
   orderId: string;
+  customerName?: string;
+  customerPhone?: string;
 }): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
@@ -47,6 +49,7 @@ function generateMaishapayHtml(params: {
     <p style="margin:0 0 8px 0;font-size:12px;opacity:0.6;">Montant à payer</p>
     <p style="margin:0;font-size:32px;font-weight:bold;color:#00d4ff;">$${params.amount}</p>
     <p style="margin:8px 0 0 0;font-size:11px;opacity:0.5;">Réf: ${params.reference.slice(0, 20)}...</p>
+    ${params.customerName ? `<p style="margin:8px 0 0 0;font-size:12px;opacity:0.7;">Client: ${params.customerName}</p>` : ''}
   </div>
   
   <p style="margin:0 0 16px 0;font-size:14px;opacity:0.8;">Redirection vers MaishaPay...</p>
@@ -78,6 +81,7 @@ function generateMaishapayHtml(params: {
  * Mobile Checkout Edge Function
  * 
  * Creates an order from cart items and returns a redirect URL for payment.
+ * AUTO-FILLS user profile data (name, phone, address) - user never re-enters.
  * 
  * IMPORTANT: This function does NOT call MaishaPay directly.
  * Instead, it creates the order and returns a checkoutUrl to our
@@ -85,11 +89,12 @@ function generateMaishapayHtml(params: {
  * 
  * Flow:
  * 1. Mobile app calls this endpoint with cart_item_ids
- * 2. This function creates an order with PENDING_PAYMENT status
- * 3. Returns { success: true, orderId, checkoutUrl }
- * 4. Mobile app opens checkoutUrl in WebView
- * 5. /maishapay/checkout page renders auto-submit form to MaishaPay
- * 6. MaishaPay redirects user to /maishapay/result
+ * 2. This function fetches user profile for auto-fill
+ * 3. Creates an order with PENDING_PAYMENT status + shipping address
+ * 4. Returns { success: true, orderId, checkoutUrl, profile }
+ * 5. Mobile app opens checkoutUrl in WebView
+ * 6. /maishapay/checkout page renders auto-submit form to MaishaPay
+ * 7. MaishaPay redirects user to /maishapay/result
  */
 
 // Round to 2 decimals helper
@@ -157,15 +162,49 @@ serve(async (req) => {
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-checkout] User authenticated:', user.id);
 
-    // Parse request body
+    // Parse request body - only needs cart_item_ids and optional notes
     const body = await req.json();
-    const { cart_item_ids, phone, email } = body;
+    const { cart_item_ids, notes } = body;
 
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
       return jsonResponse({ success: false, error: 'cart_item_ids array is required and must not be empty' }, 400);
     }
 
     console.log('[mobile-checkout] Checkout requested for items:', cart_item_ids);
+
+    // AUTO-FILL: Fetch user profile to get shipping details
+    const { data: userProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error('[mobile-checkout] Error fetching profile:', profileError);
+    }
+
+    // Check if profile is complete for checkout
+    const hasCompleteProfile = userProfile && !!(
+      userProfile.full_name &&
+      userProfile.phone &&
+      userProfile.address_line1 &&
+      userProfile.city &&
+      userProfile.state_province &&
+      userProfile.postal_code &&
+      userProfile.country
+    );
+
+    if (!hasCompleteProfile) {
+      console.log('[mobile-checkout] User profile incomplete, returning error');
+      return jsonResponse({
+        success: false,
+        code: 'INCOMPLETE_PROFILE',
+        error: 'Please complete your profile with shipping address before checkout.',
+        missingFields: getMissingProfileFields(userProfile),
+      }, 400);
+    }
+
+    console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
 
     // Get user's DRAFT order
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -298,6 +337,7 @@ serve(async (req) => {
     const timestamp = Date.now().toString(36);
     
     // Create a new order for checkout with only selected items
+    // AUTO-FILL shipping address from user profile
     const { data: checkoutOrder, error: createOrderError } = await supabase
       .from('orders')
       .insert({
@@ -310,6 +350,9 @@ serve(async (req) => {
         total_cdf: grandTotalCdf,
         exchange_rate_used: exchangeRate,
         maisha_payment_status: 'PENDING',
+        admin_notes: notes || null,
+        // Note: shipping_city is an enum, so we map if possible
+        shipping_city: mapToShippingCity(userProfile.city),
       })
       .select()
       .single();
@@ -346,7 +389,7 @@ serve(async (req) => {
       }, 500);
     }
 
-    // Create payment record
+    // Create payment record with user info
     await supabase
       .from('maisha_payments')
       .insert({
@@ -359,8 +402,17 @@ serve(async (req) => {
         user_id: user.id,
         raw_request: {
           amount: grandTotalUsd,
-          email: email || user.email,
-          phone: phone,
+          email: userProfile.email || user.email,
+          phone: userProfile.phone,
+          customerName: userProfile.full_name,
+          shippingAddress: {
+            addressLine1: userProfile.address_line1,
+            addressLine2: userProfile.address_line2,
+            city: userProfile.city,
+            stateProvince: userProfile.state_province,
+            postalCode: userProfile.postal_code,
+            country: userProfile.country,
+          },
         },
       });
 
@@ -411,6 +463,8 @@ serve(async (req) => {
       reference,
       callbackUrl,
       orderId: checkoutOrder.id,
+      customerName: userProfile.full_name,
+      customerPhone: userProfile.phone,
     });
     
     // Also provide a URL fallback
@@ -422,12 +476,14 @@ serve(async (req) => {
       reference,
       grandTotalUsd,
       callbackUrl,
+      customerName: userProfile.full_name,
     });
 
     // Generate display reference (first 8 chars of UUID, uppercase)
     const orderRef = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     // Build the response body - INCLUDE html field for direct WebView loading
+    // Also include profile info so frontend can display it
     const responseBody = {
       // Primary fields for mobile app
       success: true,
@@ -448,6 +504,21 @@ serve(async (req) => {
       order_id: checkoutOrder.id,
       reference,
       maishapay_reference: reference,
+      
+      // AUTO-FILLED profile info for display (user never re-enters this)
+      profile: {
+        fullName: userProfile.full_name,
+        phoneNumber: userProfile.phone,
+        email: userProfile.email || user.email,
+        shippingAddress: {
+          addressLine1: userProfile.address_line1,
+          addressLine2: userProfile.address_line2,
+          city: userProfile.city,
+          stateOrProvince: userProfile.state_province,
+          postalCode: userProfile.postal_code,
+          country: userProfile.country,
+        },
+      },
       
       // Order summary
       order: {
@@ -481,3 +552,30 @@ serve(async (req) => {
     }, 500);
   }
 });
+
+/**
+ * Helper to determine which profile fields are missing
+ */
+function getMissingProfileFields(profile: any): string[] {
+  const missing: string[] = [];
+  if (!profile?.full_name) missing.push('fullName');
+  if (!profile?.phone) missing.push('phoneNumber');
+  if (!profile?.address_line1) missing.push('addressLine1');
+  if (!profile?.city) missing.push('city');
+  if (!profile?.state_province) missing.push('stateOrProvince');
+  if (!profile?.postal_code) missing.push('postalCode');
+  if (!profile?.country) missing.push('country');
+  return missing;
+}
+
+/**
+ * Helper to map city string to shipping_city enum
+ * Returns null if city doesn't match known values
+ */
+function mapToShippingCity(city: string | null): 'KINSHASA' | 'LUBUMBASHI' | 'OTHER' | null {
+  if (!city) return null;
+  const normalized = city.toUpperCase().trim();
+  if (normalized === 'KINSHASA') return 'KINSHASA';
+  if (normalized === 'LUBUMBASHI') return 'LUBUMBASHI';
+  return 'OTHER';
+}

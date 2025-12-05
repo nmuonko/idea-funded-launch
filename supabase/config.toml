@@ -1,5 +1,11 @@
 project_id = "igmkhxffnyzoogcqvdab"
 
+[functions.mobile-profile]
+verify_jwt = true
+
+[functions.mobile-profile-update]
+verify_jwt = true
+
 [functions.admin-ai-assistant]
 verify_jwt = true
 

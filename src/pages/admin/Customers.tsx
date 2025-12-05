@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Users, ShoppingBag, DollarSign, Globe, RefreshCw, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import { CustomerDetailDrawer } from '@/components/admin/CustomerDetailDrawer';
+import { CustomerTagFilter } from '@/components/admin/CustomerTagManager';
 
 interface CustomerProfile {
   id: string;
@@ -62,6 +63,7 @@ export default function Customers() {
   const [languageFilter, setLanguageFilter] = useState<string>('all');
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -300,6 +302,7 @@ export default function Customers() {
                 ))}
               </SelectContent>
             </Select>
+            <CustomerTagFilter selectedTags={selectedTags} onTagsChange={setSelectedTags} />
             <Button variant="outline" onClick={loadCustomers} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
               {t.common?.refresh || 'Refresh'}

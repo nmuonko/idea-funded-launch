@@ -7,16 +7,21 @@ import {
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 
-// Shipping constants
-const BASE_FEE_USD = 20;
-const PERCENT_FEE = 0.10;
-const EXTRA_PER_KG_USD = 8;
+// Heavy threshold for manual quote requirement
 const HEAVY_THRESHOLD_KG = 9;
+const EXTRA_PER_KG_USD = 8;
 
-// Calculate shipping for a single item based on weight
-function calculateItemShipping(subtotalUsd: number, estWeightKg: number): number {
+// Calculate shipping for a single item using settings
+function calculateItemShipping(
+  subtotalUsd: number, 
+  estWeightKg: number,
+  shippingBaseFeeUsd: number,
+  shippingPercent: number
+): number {
+  // Base shipping: flat fee + percentage of subtotal
+  const basePart = shippingBaseFeeUsd + (subtotalUsd * shippingPercent);
+  // Extra weight surcharge if over 1kg
   const extraWeight = Math.max(0, estWeightKg - 1);
-  const basePart = BASE_FEE_USD + (subtotalUsd * PERCENT_FEE);
   const extraPart = extraWeight * EXTRA_PER_KG_USD;
   return round2(basePart + extraPart);
 }
@@ -86,9 +91,16 @@ serve(async (req) => {
     // Verify JWT using SERVICE_ROLE
     const { user, supabase } = await verifyAndGetUser(req);
 
-    // Get cached pricing settings (5min TTL)
+    // Get cached pricing settings (5min TTL) - SINGLE SOURCE OF TRUTH
     const settings = await getCachedSettings(supabase);
-    const { exchangeRate, markupPercent } = settings;
+    const { exchangeRate, markupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+
+    console.log('[mobile-get-cart] Using settings:', {
+      markupPercent,
+      shippingBaseFeeUsd,
+      shippingPercent,
+      exchangeRate,
+    });
 
     // Get user's active DRAFT order (cart) - use maybeSingle to handle no cart case gracefully
     const { data: order, error: orderError } = await supabase
@@ -145,7 +157,6 @@ serve(async (req) => {
     let calcItemsTotal = 0;
     let calcMarginTotal = 0;
     let calcSubtotalWithMarkup = 0;
-    let calcShippingTotal = 0;
     let requiresManualQuote = false;
     let vehicleCount = 0;
 
@@ -171,16 +182,16 @@ serve(async (req) => {
 
           if (formattedItem.requiresManualQuote) {
             requiresManualQuote = true;
-          } else {
-            calcShippingTotal += calculateItemShipping(formattedItem.itemBaseTotalUsd, formattedItem.estWeightKg);
           }
         }
       }
     });
 
-    // If any item requires manual quote, set shipping to 0
-    if (requiresManualQuote) {
-      calcShippingTotal = 0;
+    // Calculate shipping using settings values
+    let calcShippingTotal = 0;
+    if (!requiresManualQuote && calcItemsTotal > 0) {
+      // Use formula: base_fee + (items_subtotal × shipping_percent)
+      calcShippingTotal = round2(shippingBaseFeeUsd + (calcItemsTotal * shippingPercent));
     }
 
     // Use calculated values
@@ -204,6 +215,10 @@ serve(async (req) => {
       // Vehicle-specific summary fields
       vehicleCount,
       quoteRequiredItemCount: quoteRequiredItems.length,
+      // Include settings for transparency
+      markupPercent,
+      shippingBaseFeeUsd,
+      shippingPercent,
     };
     
     if (requiresManualQuote) {

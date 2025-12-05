@@ -32,13 +32,13 @@ const addCartItemSchema = z.object({
           'cargurus.com', 'www.cargurus.com',
           'target.com', 'www.target.com',
           'homedepot.com', 'www.homedepot.com',
-          'lowes.com', 'www.lowes.com',
+          'shein.com', 'www.shein.com', 'us.shein.com',
         ];
         return allowedDomains.some(d => parsed.hostname.endsWith(d));
       } catch {
         return false;
       }
-    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, Lowes)"),
+    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, SHEIN)"),
   productPrice: z.number()
     .positive("Price must be positive")
     .max(1000000, "Price exceeds maximum"),

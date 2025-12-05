@@ -10,8 +10,8 @@ import {
 import {
   determineShippingCategory,
   getShippingTypeIdForCategory,
-  AUTO_APPLY_CONFIDENCE_THRESHOLD,
   VEHICLE_QUOTE_CONFIDENCE_THRESHOLD,
+  type ShippingCategoryKey,
 } from "../_shared/shippingCategory.ts";
 
 // Input validation schema
@@ -328,65 +328,61 @@ serve(async (req) => {
       }
     }
 
-    // AUTO-DETECT SHIPPING CATEGORY if not provided by frontend
+    // AUTO-DETECT SHIPPING CATEGORY - ALWAYS applied, no manual selection needed
     let finalShippingTypeId = shippingItemTypeId || null;
-    let autoDetectedCategory: string | null = null;
+    let autoDetectedCategory: ShippingCategoryKey | null = null;
     let isVehicle = false;
     let vehicleRequiresQuote = false;
+    let isShippingCategoryEstimated = false;
     
-    if (!shippingItemTypeId && productTitle) {
-      const detection = determineShippingCategory({
-        title: productTitle,
-        url: productUrl,
-        store: store,
-        existingCategory: null,
-      });
+    // Always detect category from title/url/store
+    const detection = determineShippingCategory({
+      title: productTitle || '',
+      url: productUrl,
+      store: store,
+      existingCategory: null,
+    });
 
-      console.log('[mobile-add-cart-item] Category detection result:', {
-        inferredCategory: detection.category,
+    console.log('[mobile-add-cart-item] Category detection result:', {
+      category: detection.category,
+      confidence: detection.confidence,
+      requiresQuote: detection.requiresQuote,
+      isEstimated: detection.isEstimated,
+      matchedKeywords: detection.matchedKeywords.slice(0, 5),
+    });
+
+    autoDetectedCategory = detection.category;
+    isShippingCategoryEstimated = detection.isEstimated;
+
+    // Check if this is a vehicle requiring a quote
+    if (detection.category === 'vehicle' && detection.requiresQuote) {
+      isVehicle = true;
+      vehicleRequiresQuote = true;
+      itemRequiresManualQuote = true; // Vehicles always require manual quote
+      // Don't set a shipping type for vehicles - they need custom quotes
+      finalShippingTypeId = null;
+      isShippingCategoryEstimated = false; // Vehicles don't use estimated flag
+      
+      console.log('[mobile-add-cart-item] Vehicle detected - requires manual quote:', {
+        category: detection.category,
         confidence: detection.confidence,
-        requiresQuote: detection.requiresQuote,
-        matchedKeywords: detection.matchedKeywords.slice(0, 5), // Log first 5 keywords
       });
-
-      // Check if this is a vehicle requiring a quote
-      if (detection.category === 'vehicle' && detection.requiresQuote) {
-        isVehicle = true;
-        vehicleRequiresQuote = true;
-        itemRequiresManualQuote = true; // Vehicles always require manual quote
-        autoDetectedCategory = 'vehicle';
-        // Don't set a shipping type for vehicles - they need custom quotes
-        finalShippingTypeId = null;
+    }
+    // For non-vehicle categories, always apply the detected category
+    else if (detection.category && detection.category !== 'vehicle') {
+      const shippingType = await getShippingTypeIdForCategory(supabase, detection.category);
+      
+      if (shippingType) {
+        finalShippingTypeId = shippingType.id;
+        estWeightKg = shippingType.estWeightKg;
+        itemRequiresManualQuote = shippingType.requiresManualQuote || estWeightKg > HEAVY_THRESHOLD_KG;
         
-        console.log('[mobile-add-cart-item] Vehicle detected - requires manual quote:', {
+        console.log('[mobile-add-cart-item] Applied category:', {
           category: detection.category,
-          confidence: detection.confidence,
-        });
-      }
-      // Auto-apply standard categories if confidence meets threshold (and not a vehicle)
-      else if (detection.category && detection.category !== 'vehicle' && detection.confidence >= AUTO_APPLY_CONFIDENCE_THRESHOLD) {
-        const shippingType = await getShippingTypeIdForCategory(supabase, detection.category);
-        
-        if (shippingType) {
-          finalShippingTypeId = shippingType.id;
-          estWeightKg = shippingType.estWeightKg;
-          itemRequiresManualQuote = shippingType.requiresManualQuote || estWeightKg > HEAVY_THRESHOLD_KG;
-          autoDetectedCategory = detection.category;
-          
-          console.log('[mobile-add-cart-item] Auto-applied category:', {
-            category: detection.category,
-            shippingTypeId: finalShippingTypeId,
-            estWeightKg,
-            requiresManualQuote: itemRequiresManualQuote,
-          });
-        }
-      } else if (detection.category && detection.confidence < AUTO_APPLY_CONFIDENCE_THRESHOLD) {
-        // Log low-confidence cases for debugging/tuning (no PII)
-        console.log('[mobile-add-cart-item] Low confidence detection (user popup needed):', {
-          titlePrefix: productTitle.substring(0, 50),
-          store,
-          inferredCategory: detection.category,
-          confidence: detection.confidence,
+          shippingTypeId: finalShippingTypeId,
+          estWeightKg,
+          requiresManualQuote: itemRequiresManualQuote,
+          isEstimated: detection.isEstimated,
         });
       }
     }
@@ -487,7 +483,10 @@ serve(async (req) => {
           estWeightKg: updatedItem.est_weight_kg,
           requiresManualQuote: updatedItem.requires_manual_quote || false,
           shippingItemTypeId: updatedItem.shipping_item_type_id || null,
-          categoryAutoDetected: autoDetectedCategory !== null,
+          // New shipping category fields
+          shippingCategory: autoDetectedCategory,
+          isShippingCategoryEstimated: isShippingCategoryEstimated,
+          isQuoteRequired: isVehicle && vehicleRequiresQuote,
         },
         summary,
       });
@@ -571,7 +570,9 @@ serve(async (req) => {
         estWeightKg: data.est_weight_kg,
         requiresManualQuote: data.requires_manual_quote || false,
         shippingItemTypeId: data.shipping_item_type_id || null,
-        categoryAutoDetected: autoDetectedCategory !== null,
+        // New shipping category fields
+        shippingCategory: autoDetectedCategory,
+        isShippingCategoryEstimated: isShippingCategoryEstimated,
         // Vehicle-specific fields
         isVehicle: data.is_vehicle || false,
         isQuoteRequired: isVehicle && vehicleRequiresQuote,

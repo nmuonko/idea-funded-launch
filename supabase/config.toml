@@ -188,3 +188,12 @@ verify_jwt = false
 
 [functions.backfill-product-images]
 verify_jwt = true
+
+[functions.mobile-request-quote]
+verify_jwt = true
+
+[functions.send-quote-email]
+verify_jwt = false
+
+[functions.send-quote-response-notification]
+verify_jwt = false

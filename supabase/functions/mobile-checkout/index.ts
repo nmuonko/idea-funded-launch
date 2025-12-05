@@ -154,12 +154,32 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Check for items requiring manual quote
+    // Check for items requiring manual quote - return structured response
     const manualQuoteItems = requestedItems.filter(item => item.requires_manual_quote);
     if (manualQuoteItems.length > 0) {
+      // Check if quote requests already exist for these items
+      const quoteItemIds = manualQuoteItems.map(item => item.id);
+      const { data: existingQuotes } = await supabase
+        .from('quote_requests')
+        .select('id, order_item_id, status')
+        .in('order_item_id', quoteItemIds);
+      
+      const quoteRequestIds = existingQuotes?.map(q => q.id) || [];
+      const pendingQuotes = existingQuotes?.filter(q => q.status === 'PENDING' || q.status === 'SENT') || [];
+      
       return jsonResponse({ 
         success: false,
-        error: 'Some items require a custom shipping quote. Please contact us.'
+        code: 'QUOTE_REQUIRED',
+        message: 'Some items require a custom shipping quote.',
+        cartId: existingOrder.id,
+        quoteRequiredItems: manualQuoteItems.map(item => ({
+          id: item.id,
+          title: item.title,
+          productUrl: item.product_url,
+          store: item.store,
+        })),
+        existingQuoteRequests: quoteRequestIds.length > 0 ? quoteRequestIds : null,
+        hasPendingQuote: pendingQuotes.length > 0,
       }, 400);
     }
 

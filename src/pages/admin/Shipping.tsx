@@ -9,8 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Package, Truck, CheckCircle, Download, Search } from 'lucide-react';
+import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 
@@ -24,12 +25,26 @@ export default function AdminShipping() {
   const [newStatus, setNewStatus] = useState('');
   const [trackingNumber, setTrackingNumber] = useState('');
   const [carrier, setCarrier] = useState('');
+  const [sendEmail, setSendEmail] = useState(true);
+  
+  // Bulk selection state
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkSendEmail, setBulkSendEmail] = useState(true);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  
   const { toast } = useToast();
   const { language } = useLanguage();
   const t = getAdminTranslation(language);
 
   useEffect(() => {
     loadOrders();
+  }, [activeTab]);
+
+  useEffect(() => {
+    // Clear selection when tab changes
+    setSelectedOrders(new Set());
   }, [activeTab]);
 
   const loadOrders = async () => {
@@ -55,7 +70,8 @@ export default function AdminShipping() {
         .from('orders')
         .select(`
           *,
-          order_items(id, title, product_url, product_image_url)
+          order_items(id, title, product_url, product_image_url),
+          profiles:user_id(email, full_name)
         `)
         .in('status', statusFilter)
         .order('created_at', { ascending: false });
@@ -73,11 +89,58 @@ export default function AdminShipping() {
     }
   };
 
-  const openUpdateDialog = (order: any) => {
+  const openUpdateDialog = (order: any, e: React.MouseEvent) => {
+    // Don't open dialog if clicking on checkbox
+    if ((e.target as HTMLElement).closest('[data-checkbox]')) return;
+    
     setSelectedOrder(order);
     setNewStatus(order.status);
     setTrackingNumber(order.tracking_number || '');
     setCarrier(order.carrier || '');
+    setSendEmail(true);
+  };
+
+  const sendShippingEmail = async (order: any, status: string, tracking?: string, carrierName?: string) => {
+    try {
+      const customerEmail = order.profiles?.email;
+      const customerName = order.profiles?.full_name || 'Customer';
+      
+      if (!customerEmail) {
+        console.warn('No customer email found for order:', order.id);
+        return;
+      }
+
+      const items = order.order_items?.map((item: any) => ({
+        title: item.title || 'Product',
+        quantity: 1,
+      })) || [];
+
+      if (status === 'SHIPPED') {
+        await supabase.functions.invoke('send-order-shipped-email', {
+          body: {
+            customerEmail,
+            customerName,
+            orderId: order.id,
+            orderRef: order.id.slice(0, 8).toUpperCase(),
+            trackingNumber: tracking || null,
+            carrier: carrierName || null,
+            items,
+          },
+        });
+      } else if (status === 'COMPLETED') {
+        await supabase.functions.invoke('send-order-delivered-email', {
+          body: {
+            customerEmail,
+            customerName,
+            orderId: order.id,
+            orderRef: order.id.slice(0, 8).toUpperCase(),
+            items,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to send shipping email:', error);
+    }
   };
 
   const handleUpdateStatus = async () => {
@@ -106,9 +169,16 @@ export default function AdminShipping() {
 
       if (error) throw error;
 
+      // Send email notification if enabled
+      if (sendEmail && (newStatus === 'SHIPPED' || newStatus === 'COMPLETED')) {
+        await sendShippingEmail(selectedOrder, newStatus, trackingNumber, carrier);
+      }
+
       toast({
         title: 'Order updated',
-        description: `Order status changed to ${newStatus}`,
+        description: sendEmail 
+          ? `Order status changed to ${newStatus} and customer notified` 
+          : `Order status changed to ${newStatus}`,
       });
 
       setSelectedOrder(null);
@@ -121,6 +191,82 @@ export default function AdminShipping() {
       });
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const toggleOrderSelection = (orderId: string) => {
+    const newSelection = new Set(selectedOrders);
+    if (newSelection.has(orderId)) {
+      newSelection.delete(orderId);
+    } else {
+      newSelection.add(orderId);
+    }
+    setSelectedOrders(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedOrders.size === filteredOrders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
+    }
+  };
+
+  const handleBulkUpdate = async () => {
+    if (selectedOrders.size === 0 || !bulkStatus) return;
+    
+    try {
+      setBulkUpdating(true);
+      
+      const ordersToUpdate = orders.filter(o => selectedOrders.has(o.id));
+      let successCount = 0;
+      let emailCount = 0;
+
+      for (const order of ordersToUpdate) {
+        const updateData: any = {
+          status: bulkStatus,
+        };
+
+        if (bulkStatus === 'SHIPPED' && order.status !== 'SHIPPED') {
+          updateData.shipped_at = new Date().toISOString();
+        }
+        if (bulkStatus === 'COMPLETED' && order.status !== 'COMPLETED') {
+          updateData.delivered_at = new Date().toISOString();
+        }
+
+        const { error } = await supabase
+          .from('orders')
+          .update(updateData)
+          .eq('id', order.id);
+
+        if (!error) {
+          successCount++;
+          
+          // Send email notification if enabled
+          if (bulkSendEmail && (bulkStatus === 'SHIPPED' || bulkStatus === 'COMPLETED')) {
+            await sendShippingEmail(order, bulkStatus);
+            emailCount++;
+          }
+        }
+      }
+
+      toast({
+        title: 'Bulk update complete',
+        description: `Updated ${successCount} orders${emailCount > 0 ? `, ${emailCount} emails sent` : ''}`,
+      });
+
+      setBulkDialogOpen(false);
+      setSelectedOrders(new Set());
+      setBulkStatus('');
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error updating orders',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkUpdating(false);
     }
   };
 
@@ -180,10 +326,17 @@ export default function AdminShipping() {
             {t.shipping.subtitle}
           </p>
         </div>
-        <Button onClick={exportToCSV} disabled={filteredOrders.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          {t.common.export}
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedOrders.size > 0 && (
+            <Button onClick={() => setBulkDialogOpen(true)}>
+              Update {selectedOrders.size} Selected
+            </Button>
+          )}
+          <Button onClick={exportToCSV} disabled={filteredOrders.length === 0} variant="outline">
+            <Download className="h-4 w-4 mr-2" />
+            {t.common.export}
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -234,6 +387,12 @@ export default function AdminShipping() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedOrders.size === filteredOrders.length && filteredOrders.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Order ID</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Items</TableHead>
@@ -249,8 +408,15 @@ export default function AdminShipping() {
                       <TableRow 
                         key={order.id} 
                         className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => openUpdateDialog(order)}
+                        onClick={(e) => openUpdateDialog(order, e)}
                       >
+                        <TableCell data-checkbox>
+                          <Checkbox
+                            checked={selectedOrders.has(order.id)}
+                            onCheckedChange={() => toggleOrderSelection(order.id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </TableCell>
                         <TableCell className="font-mono text-xs">
                           {order.id.slice(0, 8)}...
                         </TableCell>
@@ -359,6 +525,20 @@ export default function AdminShipping() {
                 </SelectContent>
               </Select>
             </div>
+
+            {(newStatus === 'SHIPPED' || newStatus === 'COMPLETED') && (
+              <div className="flex items-center space-x-2 pt-2 border-t">
+                <Checkbox
+                  id="sendEmail"
+                  checked={sendEmail}
+                  onCheckedChange={(checked) => setSendEmail(checked as boolean)}
+                />
+                <label htmlFor="sendEmail" className="text-sm flex items-center gap-2 cursor-pointer">
+                  <Mail className="h-4 w-4" />
+                  Notify customer via email
+                </label>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -368,6 +548,58 @@ export default function AdminShipping() {
             <Button onClick={handleUpdateStatus} disabled={updating}>
               {updating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Update Dialog */}
+      <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Update Shipments</DialogTitle>
+            <DialogDescription>
+              Update {selectedOrders.size} selected orders
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>New Status</Label>
+              <Select value={bulkStatus} onValueChange={setBulkStatus}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PROCESSING">Processing</SelectItem>
+                  <SelectItem value="SHIPPED">In Transit (Shipped)</SelectItem>
+                  <SelectItem value="COMPLETED">Delivered</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {(bulkStatus === 'SHIPPED' || bulkStatus === 'COMPLETED') && (
+              <div className="flex items-center space-x-2 pt-2 border-t">
+                <Checkbox
+                  id="bulkSendEmail"
+                  checked={bulkSendEmail}
+                  onCheckedChange={(checked) => setBulkSendEmail(checked as boolean)}
+                />
+                <label htmlFor="bulkSendEmail" className="text-sm flex items-center gap-2 cursor-pointer">
+                  <Mail className="h-4 w-4" />
+                  Send email notifications to all customers
+                </label>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkUpdate} disabled={bulkUpdating || !bulkStatus}>
+              {bulkUpdating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Update {selectedOrders.size} Orders
             </Button>
           </DialogFooter>
         </DialogContent>

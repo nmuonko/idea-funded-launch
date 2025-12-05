@@ -27,8 +27,9 @@ function getLanguageForCountry(country: string): string {
   return 'fr';
 }
 
-// Required fields for a complete profile
-const REQUIRED_PROFILE_FIELDS = ['full_name', 'phone', 'address', 'country', 'province'];
+// Required fields for a complete profile - relaxed for African addresses
+// Only full_name, phone, and country are required; address/province optional
+const REQUIRED_PROFILE_FIELDS = ['full_name', 'phone', 'country'];
 
 function isProfileComplete(profile: any): boolean {
   if (!profile) return false;
@@ -40,15 +41,13 @@ function isProfileComplete(profile: any): boolean {
 
 function getMissingProfileFields(profile: any): string[] {
   if (!profile) {
-    return ['fullName', 'phone', 'address', 'country', 'province'];
+    return ['fullName', 'phone', 'country'];
   }
   
   const fieldMap: Record<string, string> = {
     full_name: 'fullName',
     phone: 'phone',
-    address: 'address',
     country: 'country',
-    province: 'province',
   };
   
   const missing: string[] = [];
@@ -267,7 +266,7 @@ serve(async (req) => {
         province: 'Kinshasa',
         language: 'fr',
         hasCompleteProfile: false,
-        missingFields: ['fullName', 'phone', 'address', 'country', 'province']
+        missingFields: ['fullName', 'phone', 'country']
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

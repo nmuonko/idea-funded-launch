@@ -41,14 +41,14 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Order ID required' }, 400);
     }
 
-    // Optimized query - select only needed columns
+    // Optimized query - select all price fields to ensure mobile app gets correct values
     const { data: order, error } = await supabase
       .from('orders')
       .select(`
         id, created_at, total_usd, total_cdf, item_total_usd, service_fee_usd, shipping_fee_usd,
         exchange_rate_used, status, maisha_payment_status, tracking_number, carrier,
         shipped_at, delivered_at, estimated_delivery,
-        order_items(id, title, store, product_image_url, base_price_usd, quantity, total_price_usd, shipping_status)
+        order_items(id, title, store, product_url, product_image_url, base_price_usd, unit_price_usd, subtotal_usd, markup_fee_usd, quantity, total_price_usd, total_price_cdf, shipping_status)
       `)
       .eq('id', orderId)
       .eq('user_id', user.id)
@@ -72,18 +72,19 @@ serve(async (req) => {
 
     const displayRef = getDisplayRef(order.id);
 
-    // Slim, mobile-optimized response
+    // Complete mobile-optimized response with all price fields
+    // CRITICAL: Ensure unit_price_usd and subtotal_usd are returned for Prix and Sous-total display
     return jsonResponse({
       success: true,
       order: {
         id: order.id,
         displayRef,
-        totalUsd: order.total_usd || 0,
-        totalCdf: order.total_cdf || 0,
-        itemTotalUsd: order.item_total_usd || 0,
-        serviceFeeUsd: order.service_fee_usd || 0,
-        shippingFeeUsd: order.shipping_fee_usd || 0,
-        exchangeRate: order.exchange_rate_used || 2800,
+        totalUsd: Number(order.total_usd) || 0,
+        totalCdf: Number(order.total_cdf) || 0,
+        itemTotalUsd: Number(order.item_total_usd) || 0,
+        serviceFeeUsd: Number(order.service_fee_usd) || 0,
+        shippingFeeUsd: Number(order.shipping_fee_usd) || 0,
+        exchangeRate: Number(order.exchange_rate_used) || 2800,
         status: normalizeStatus(order.status),
         paymentStatus: payment?.status || order.maisha_payment_status || 'PENDING',
         createdAt: order.created_at,
@@ -94,16 +95,32 @@ serve(async (req) => {
         trackingNumber: order.tracking_number,
         carrier: order.carrier,
         confirmationCode: payment?.confirmation_code,
-        items: (order.order_items || []).map((item: any) => ({
-          id: item.id,
-          title: item.title || 'Product',
-          store: item.store,
-          imageUrl: item.product_image_url,
-          priceUsd: item.base_price_usd || 0,
-          quantity: item.quantity || 1,
-          totalUsd: item.total_price_usd || 0,
-          shippingStatus: normalizeShippingStatus(item.shipping_status),
-        })),
+        items: (order.order_items || []).map((item: any) => {
+          // Calculate values - prefer stored values, fallback to base_price_usd
+          const basePrice = Number(item.base_price_usd) || Number(item.unit_price_usd) || 0;
+          const qty = Number(item.quantity) || 1;
+          const subtotal = Number(item.subtotal_usd) || (basePrice * qty);
+          const totalWithMarkup = Number(item.total_price_usd) || subtotal;
+          
+          return {
+            id: item.id,
+            title: item.title || 'Product',
+            store: item.store,
+            productUrl: item.product_url,
+            imageUrl: item.product_image_url,
+            // Multiple field aliases for mobile app compatibility
+            priceUsd: basePrice,
+            unitPriceUsd: basePrice,
+            unit_price_usd: basePrice, // Snake case alias
+            quantity: qty,
+            subtotalUsd: subtotal,
+            subtotal_usd: subtotal, // Snake case alias
+            totalUsd: totalWithMarkup,
+            total_price_usd: totalWithMarkup, // Snake case alias
+            markupFeeUsd: Number(item.markup_fee_usd) || 0,
+            shippingStatus: normalizeShippingStatus(item.shipping_status),
+          };
+        }),
       },
     });
 

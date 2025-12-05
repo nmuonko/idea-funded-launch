@@ -45,13 +45,13 @@ serve(async (req) => {
     const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get('pageSize') || '20'))); // Cap at 50
     const offset = (page - 1) * pageSize;
 
-    // Optimized query - select only needed columns, no redundant fields
+    // Optimized query - include price fields for order items
     const { data: orders, error } = await supabase
       .from('orders')
       .select(`
-        id, created_at, total_usd, total_cdf, status, maisha_payment_status,
-        tracking_number, carrier, shipped_at,
-        order_items(id, title, store, product_image_url, quantity, total_price_usd, shipping_status)
+        id, created_at, total_usd, total_cdf, item_total_usd, service_fee_usd, shipping_fee_usd,
+        status, maisha_payment_status, tracking_number, carrier, shipped_at, estimated_delivery,
+        order_items(id, title, store, product_url, product_image_url, base_price_usd, unit_price_usd, subtotal_usd, quantity, total_price_usd, shipping_status)
       `)
       .eq('user_id', user.id)
       .neq('status', 'DRAFT')
@@ -78,32 +78,48 @@ serve(async (req) => {
       }
     }
 
-    // Slim, mobile-optimized response
+    // Mobile-optimized response with complete price data
     const formattedOrders = (orders || []).map(o => {
       const displayRef = getDisplayRef(o.id);
       return {
         id: o.id,
         displayRef,
-        totalUsd: o.total_usd || 0,
-        totalCdf: o.total_cdf || 0,
+        totalUsd: Number(o.total_usd) || 0,
+        totalCdf: Number(o.total_cdf) || 0,
+        itemTotalUsd: Number(o.item_total_usd) || 0,
+        serviceFeeUsd: Number(o.service_fee_usd) || 0,
+        shippingFeeUsd: Number(o.shipping_fee_usd) || 0,
         status: normalizeStatus(o.status),
         paymentStatus: o.maisha_payment_status || 'PENDING',
         createdAt: o.created_at,
         trackingNumber: o.tracking_number,
         carrier: o.carrier,
         shippedAt: o.shipped_at,
+        estimatedDelivery: o.estimated_delivery,
         confirmationCode: paymentData[o.id] || null,
         itemCount: o.order_items?.length || 0,
-        // Slim items - only essential fields for list view
-        items: (o.order_items || []).map((item: any) => ({
-          id: item.id,
-          title: item.title || 'Product',
-          store: item.store,
-          imageUrl: item.product_image_url,
-          quantity: item.quantity || 1,
-          totalUsd: item.total_price_usd || 0,
-          shippingStatus: normalizeShippingStatus(item.shipping_status),
-        })),
+        // Items with complete price information
+        items: (o.order_items || []).map((item: any) => {
+          const basePrice = Number(item.base_price_usd) || Number(item.unit_price_usd) || 0;
+          const qty = Number(item.quantity) || 1;
+          const subtotal = Number(item.subtotal_usd) || (basePrice * qty);
+          
+          return {
+            id: item.id,
+            title: item.title || 'Product',
+            store: item.store,
+            productUrl: item.product_url,
+            imageUrl: item.product_image_url,
+            priceUsd: basePrice,
+            unitPriceUsd: basePrice,
+            unit_price_usd: basePrice,
+            quantity: qty,
+            subtotalUsd: subtotal,
+            subtotal_usd: subtotal,
+            totalUsd: Number(item.total_price_usd) || subtotal,
+            shippingStatus: normalizeShippingStatus(item.shipping_status),
+          };
+        }),
       };
     });
 

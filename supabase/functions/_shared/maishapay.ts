@@ -1,6 +1,6 @@
 /**
  * MaishaPay Client Helper
- * Supports both sandbox and live modes based on MAISHAPAY_MODE env var
+ * Supports both sandbox and live modes based on MAISHAPAY_GATEWAY_MODE env var
  * 
  * IMPORTANT: MaishaPay Checkout works via HTML form POST submission.
  * There is no REST API to "create a checkout session" - users must be redirected
@@ -12,10 +12,8 @@ export interface MaishaPayConfig {
   secretKey: string;
   mode: 'sandbox' | 'live';
   callbackUrl: string;
-  apiBaseUrl: string;
-  frontendSuccessUrl: string;
-  frontendFailUrl: string;
-  checkoutPageUrl: string;
+  cancelUrl: string;
+  checkoutUrl: string;
 }
 
 export interface CreatePaymentParams {
@@ -47,68 +45,59 @@ export interface VerifyPaymentResult {
 
 /**
  * Get MaishaPay configuration from environment variables
+ * 
+ * Primary env vars:
+ * - MAISHAPAY_PUBLIC_API_KEY: MaishaPay public key
+ * - MAISHAPAY_SECRET_API_KEY: MaishaPay secret key
+ * - MAISHAPAY_GATEWAY_MODE: "1" for live, "0" for sandbox
+ * - MAISHAPAY_CALLBACK_URL: Backend callback URL for payment notifications
  */
 export function getMaishaPayConfig(): MaishaPayConfig {
-  // Check both MAISHAPAY_GATEWAY_MODE and MAISHAPAY_MODE for flexibility
+  // Check mode
   const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
   const legacyMode = Deno.env.get('MAISHAPAY_MODE');
   
-  // Determine if we're in live mode:
   // MAISHAPAY_GATEWAY_MODE: "1" = live, "0" = sandbox
-  // MAISHAPAY_MODE: "1" or "live" = live, anything else = sandbox
   const isLiveMode = gatewayMode === '1' || 
                      legacyMode === '1' || 
                      legacyMode?.toLowerCase() === 'live';
   
   console.log('[MaishaPay] Mode detection:', { gatewayMode, legacyMode, isLiveMode });
   
-  let publicKey: string;
-  let secretKey: string;
-  let apiBaseUrl: string;
+  // Get API keys - check multiple possible env var names
+  const publicKey = Deno.env.get('MAISHAPAY_PUBLIC_API_KEY') || 
+                    Deno.env.get('MAISHAPAY_PUBLIC_KEY') ||
+                    Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
+                    Deno.env.get('MAISHA_PUBLIC_KEY') || '';
   
-  if (isLiveMode) {
-    // Live mode - use LIVE keys first, fall back to generic keys
-    publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || 
-                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
-                Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-    secretKey = Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
-                Deno.env.get('MAISHAPAY_SECRET_KEY') || 
-                Deno.env.get('MAISHA_SECRET_KEY') || '';
-    apiBaseUrl = Deno.env.get('MAISHAPAY_BASE_URL') || 'https://marchand.maishapay.online';
-  } else {
-    // Sandbox mode - use SANDBOX keys first, fall back to generic keys
-    publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || 
-                Deno.env.get('MAISHAPAY_PUBLIC_KEY') || 
-                Deno.env.get('MAISHA_PUBLIC_KEY') || '';
-    secretKey = Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || 
-                Deno.env.get('MAISHAPAY_SECRET_KEY') || 
-                Deno.env.get('MAISHA_SECRET_KEY') || '';
-    apiBaseUrl = Deno.env.get('MAISHAPAY_SANDBOX_API_URL') || 
-                 Deno.env.get('MAISHAPAY_BASE_URL') || 
-                 'https://sandbox.maishapay.net';
-  }
+  const secretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY') || 
+                    Deno.env.get('MAISHAPAY_SECRET_KEY') ||
+                    Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || 
+                    Deno.env.get('MAISHA_SECRET_KEY') || '';
   
   // Build the callback URL using the Supabase project URL
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-  const defaultCallbackUrl = supabaseUrl ? `${supabaseUrl}/functions/v1/maishapay-callback` : '';
-  const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || defaultCallbackUrl;
+  const defaultCallbackUrl = supabaseUrl ? `${supabaseUrl}/functions/v1/maisha-callback` : '';
+  const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || 
+                      Deno.env.get('MAISHA_CALLBACK_URL') || 
+                      defaultCallbackUrl;
   
-  // Frontend redirect URLs
+  // Cancel URL
   const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.lovable.app';
-  const frontendSuccessUrl = Deno.env.get('MAISHAPAY_FRONTEND_SUCCESS_URL') || `${frontendBaseUrl}/payment/success`;
-  const frontendFailUrl = Deno.env.get('MAISHAPAY_FRONTEND_FAIL_URL') || `${frontendBaseUrl}/payment/fail`;
+  const cancelUrl = `${frontendBaseUrl}/payment/cancelled`;
   
-  // Checkout page URL (edge function that renders HTML form)
-  const checkoutPageUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page`;
+  // MaishaPay checkout URL based on mode
+  const checkoutUrl = isLiveMode 
+    ? 'https://maishapay.com/payment/vers1.0/merchant/checkout'
+    : 'http://maishapay.test/payment/vers1.0/merchant/checkout';
   
   console.log('[MaishaPay Config]', {
     mode: isLiveMode ? 'live' : 'sandbox',
     hasPublicKey: !!publicKey,
     hasSecretKey: !!secretKey,
-    publicKeyPrefix: publicKey?.slice(0, 10) + '...',
-    apiBaseUrl,
+    publicKeyPrefix: publicKey ? publicKey.slice(0, 10) + '...' : 'MISSING',
     callbackUrl,
-    checkoutPageUrl,
+    checkoutUrl,
   });
   
   return {
@@ -116,31 +105,35 @@ export function getMaishaPayConfig(): MaishaPayConfig {
     secretKey,
     mode: isLiveMode ? 'live' : 'sandbox',
     callbackUrl,
-    apiBaseUrl,
-    frontendSuccessUrl,
-    frontendFailUrl,
-    checkoutPageUrl,
+    cancelUrl,
+    checkoutUrl,
   };
 }
 
 /**
  * Validate that MaishaPay is properly configured
  */
-export function validateConfig(config: MaishaPayConfig): { valid: boolean; error?: string } {
+export function validateConfig(config: MaishaPayConfig): { valid: boolean; error?: string; code?: string } {
   if (!config.publicKey) {
-    const error = `[CONFIG ERROR] Missing MaishaPay public key. Set MAISHAPAY_PUBLIC_KEY or MAISHAPAY_${config.mode.toUpperCase()}_PUBLIC_KEY`;
-    console.error(error);
-    return { valid: false, error };
+    return { 
+      valid: false, 
+      code: 'MAISHAPAY_CONFIG_ERROR',
+      error: 'Missing MaishaPay API keys. Set MAISHAPAY_PUBLIC_API_KEY.' 
+    };
   }
   if (!config.secretKey) {
-    const error = `[CONFIG ERROR] Missing MaishaPay secret key. Set MAISHAPAY_SECRET_KEY or MAISHAPAY_${config.mode.toUpperCase()}_SECRET_KEY`;
-    console.error(error);
-    return { valid: false, error };
+    return { 
+      valid: false, 
+      code: 'MAISHAPAY_CONFIG_ERROR',
+      error: 'Missing MaishaPay API keys. Set MAISHAPAY_SECRET_API_KEY.' 
+    };
   }
   if (!config.callbackUrl) {
-    const error = '[CONFIG ERROR] Missing MAISHAPAY_CALLBACK_URL and could not build default from SUPABASE_URL';
-    console.error(error);
-    return { valid: false, error };
+    return { 
+      valid: false, 
+      code: 'MAISHAPAY_CONFIG_ERROR',
+      error: 'Missing MAISHAPAY_CALLBACK_URL.' 
+    };
   }
   return { valid: true };
 }
@@ -154,115 +147,153 @@ export function generatePaymentReference(orderId: string): string {
 }
 
 /**
- * Create a payment session with MaishaPay
- * 
- * Returns a URL to the checkout page edge function that will render
- * an HTML form and auto-submit to MaishaPay.
+ * Generate HTML checkout page with auto-submitting form to MaishaPay
  */
-export async function createPaymentSession(params: CreatePaymentParams): Promise<CreatePaymentResult> {
+export function generateCheckoutHtml(params: {
+  amount: number;
+  currency: string;
+  orderId: string;
+  orderNumber: string;
+}): { html: string; error?: string } {
   const config = getMaishaPayConfig();
   const validation = validateConfig(config);
   
   if (!validation.valid) {
-    return { success: false, checkoutUrl: '', reference: '', error: validation.error };
+    console.error('[MaishaPay] Config validation failed:', validation.error);
+    return { html: '', error: validation.error };
   }
-  
-  const reference = generatePaymentReference(params.orderId);
-  
-  console.log(`[MaishaPay] Creating ${config.mode} payment session:`, {
-    orderId: params.orderId,
-    reference,
-    amountUsd: params.amountUsd,
-    currency: params.currency || 'USD',
-    callbackUrl: config.callbackUrl,
-  });
-  
-  // Build URL to our checkout page edge function
-  // This page will render an HTML form that auto-submits to MaishaPay
-  const checkoutUrl = `${config.checkoutPageUrl}?order_id=${encodeURIComponent(params.orderId)}`;
-  
-  console.log('[MaishaPay] Checkout URL:', checkoutUrl);
-  
-  return {
-    success: true,
-    checkoutUrl,
-    reference,
-    transactionId: reference,
-  };
-}
 
-/**
- * Verify payment status with MaishaPay API
- */
-export async function verifyPaymentStatus(transactionId: string): Promise<VerifyPaymentResult> {
-  const config = getMaishaPayConfig();
-  const validation = validateConfig(config);
-  
-  if (!validation.valid) {
-    return { success: false, status: 'failed', error: validation.error };
-  }
-  
-  console.log(`[MaishaPay] Verifying payment status for: ${transactionId}`);
-  
-  try {
-    // MaishaPay verification endpoint
-    const verifyUrl = `${config.apiBaseUrl}/api/payment/rest/vers1.0/merchant/verify`;
-    
-    const formData = new URLSearchParams({
-      publicApiKey: config.publicKey,
-      secretApiKey: config.secretKey,
-      transactionRefId: transactionId,
-    });
-    
-    console.log('[MaishaPay] Calling verify endpoint:', verifyUrl);
-    
-    const response = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    });
-    
-    const responseText = await response.text();
-    console.log('[MaishaPay] Verify response status:', response.status);
-    console.log('[MaishaPay] Verify response body:', responseText.substring(0, 500));
-    
-    if (!response.ok) {
-      return { 
-        success: false, 
-        status: 'pending', 
-        error: `MaishaPay API returned ${response.status}: ${responseText.substring(0, 200)}` 
-      };
+  const { amount, currency, orderId, orderNumber } = params;
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paiement MaishaPay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
     }
-    
-    let data: any;
-    try {
-      data = JSON.parse(responseText);
-    } catch {
-      return { 
-        success: false, 
-        status: 'pending', 
-        error: 'MaishaPay returned non-JSON response during verification' 
-      };
+    .container {
+      background: white;
+      border-radius: 16px;
+      padding: 40px 30px;
+      text-align: center;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
     }
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 20px;
+      background: #0066cc;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo svg {
+      width: 40px;
+      height: 40px;
+      fill: white;
+    }
+    h1 {
+      color: #1a1a2e;
+      font-size: 22px;
+      margin-bottom: 10px;
+    }
+    .amount {
+      font-size: 32px;
+      font-weight: bold;
+      color: #0066cc;
+      margin: 20px 0;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #e0e0e0;
+      border-top-color: #0066cc;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    p {
+      color: #666;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .order-ref {
+      background: #f5f5f5;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #888;
+      margin-top: 20px;
+    }
+    noscript .btn {
+      background: #0066cc;
+      color: white;
+      border: none;
+      padding: 16px 32px;
+      font-size: 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-top: 20px;
+      display: inline-block;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+    </div>
+    <h1>Paiement en cours</h1>
+    <div class="amount">${amount.toFixed(2)} ${currency}</div>
+    <div class="spinner"></div>
+    <p>Redirection vers MaishaPay...<br>Veuillez patienter.</p>
+    <div class="order-ref">Ref: ${orderNumber}</div>
     
-    console.log('[MaishaPay] Verify parsed response:', JSON.stringify(data));
-    
-    // Parse MaishaPay response
-    const status = normalizePaymentStatus(data.status || data.statusCode || data.transactionStatus || data.code);
-    
-    return {
-      success: true,
-      status,
-      transactionId: data.transactionRefId || data.transactionId || data.reference || transactionId,
-      operatorRefId: data.operatorRefId || data.operator_ref,
-      paidAt: status === 'paid' ? new Date().toISOString() : undefined,
-    };
-  } catch (error: any) {
-    console.error('[MaishaPay] Verify error:', error.message);
-    return { success: false, status: 'pending', error: error.message };
-  }
+    <form id="paymentForm" method="POST" action="${config.checkoutUrl}">
+      <input type="hidden" name="publicApiKey" value="${config.publicKey}">
+      <input type="hidden" name="secretApiKey" value="${config.secretKey}">
+      <input type="hidden" name="amount" value="${amount}">
+      <input type="hidden" name="orderNumber" value="${orderNumber}">
+      <input type="hidden" name="callbackUrl" value="${config.callbackUrl}">
+      <input type="hidden" name="cancelUrl" value="${config.cancelUrl}">
+      <input type="hidden" name="currency" value="${currency}">
+      <input type="hidden" name="reference" value="${orderId}">
+      <noscript>
+        <button type="submit" class="btn">Continuer vers MaishaPay</button>
+      </noscript>
+    </form>
+  </div>
+  <script>
+    document.getElementById('paymentForm').submit();
+  </script>
+</body>
+</html>`;
+
+  console.log('[MaishaPay] Generated HTML checkout, length:', html.length);
+  console.log('[MaishaPay] Checkout URL:', config.checkoutUrl);
+  console.log('[MaishaPay] Callback URL:', config.callbackUrl);
+  console.log('[MaishaPay] Order:', orderNumber, 'Amount:', amount, currency);
+
+  return { html };
 }
 
 /**
@@ -288,30 +319,54 @@ export function normalizePaymentStatus(status: string | number): 'paid' | 'pendi
 }
 
 /**
- * Get checkout form fields for client-side form submission
- */
-export function getCheckoutFormFields(params: CreatePaymentParams): Record<string, string> {
-  const config = getMaishaPayConfig();
-  const reference = generatePaymentReference(params.orderId);
-  
-  return {
-    publicApiKey: config.publicKey,
-    secretApiKey: config.secretKey,
-    gatewayMode: config.mode === 'live' ? '1' : '0',
-    montant: params.amountUsd.toFixed(2),
-    devise: params.currency || 'USD',
-    callbackUrl: config.callbackUrl,
-    reference,
-    email_client: params.customerEmail,
-    nom_client: params.customerName || '',
-    telephone_client: params.customerPhone || '',
-  };
-}
-
-/**
  * Get the current MaishaPay mode (sandbox/live)
  */
 export function getPaymentMode(): 'sandbox' | 'live' {
   const config = getMaishaPayConfig();
   return config.mode;
+}
+
+/**
+ * Create a payment session (for compatibility with existing code)
+ */
+export async function createPaymentSession(params: CreatePaymentParams): Promise<CreatePaymentResult> {
+  const config = getMaishaPayConfig();
+  const validation = validateConfig(config);
+  
+  if (!validation.valid) {
+    return { success: false, checkoutUrl: '', reference: '', error: validation.error };
+  }
+  
+  const reference = generatePaymentReference(params.orderId);
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+  const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${encodeURIComponent(params.orderId)}`;
+  
+  return {
+    success: true,
+    checkoutUrl,
+    reference,
+    transactionId: reference,
+  };
+}
+
+/**
+ * Verify payment status with MaishaPay API
+ */
+export async function verifyPaymentStatus(transactionId: string): Promise<VerifyPaymentResult> {
+  const config = getMaishaPayConfig();
+  const validation = validateConfig(config);
+  
+  if (!validation.valid) {
+    return { success: false, status: 'pending', error: validation.error };
+  }
+  
+  console.log(`[MaishaPay] Verifying payment status for: ${transactionId}`);
+  
+  // For now, return pending - actual verification would call MaishaPay API
+  // The callback is the primary mechanism for status updates
+  return {
+    success: true,
+    status: 'pending',
+    transactionId,
+  };
 }

@@ -46,8 +46,8 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
   return {
     id: item.id,
     productUrl: item.product_url,
-    productTitle: item.title,
-    productImageUrl: item.product_image_url,
+    productTitle: item.title || null,
+    productImageUrl: item.product_image_url || null,
     store: item.store,
     basePriceUsd,
     quantity,

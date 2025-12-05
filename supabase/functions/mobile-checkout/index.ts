@@ -276,8 +276,10 @@ serve(async (req) => {
         },
       });
 
-    // Build checkout URL - this is where the WebView will navigate
-    const checkoutUrl = `${frontendBaseUrl}/maishapay/checkout?orderId=${checkoutOrder.id}`;
+    // Build checkout URL - redirect to server-side edge function that has the secret key
+    // IMPORTANT: Use the edge function directly, NOT the frontend page
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
 
     console.log('[mobile-checkout] Order created successfully');
     console.log('[mobile-checkout] Generated checkoutUrl:', checkoutUrl);

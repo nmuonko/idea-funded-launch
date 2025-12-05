@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail } from 'lucide-react';
+import { Loader2, Package, Truck, CheckCircle, Download, Search, Mail, Calendar, DollarSign } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
 
@@ -26,6 +26,8 @@ export default function AdminShipping() {
   const [trackingNumber, setTrackingNumber] = useState('');
   const [carrier, setCarrier] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
+  const [estimatedDelivery, setEstimatedDelivery] = useState('');
+  const [actualShippingCost, setActualShippingCost] = useState('');
   
   // Bulk selection state
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
@@ -98,9 +100,12 @@ export default function AdminShipping() {
     setTrackingNumber(order.tracking_number || '');
     setCarrier(order.carrier || '');
     setSendEmail(true);
+    // Format existing estimated delivery date for the input
+    setEstimatedDelivery(order.estimated_delivery ? order.estimated_delivery.split('T')[0] : '');
+    setActualShippingCost(order.actual_shipping_cost_usd?.toString() || '');
   };
 
-  const sendShippingEmail = async (order: any, status: string, tracking?: string, carrierName?: string) => {
+  const sendShippingEmail = async (order: any, status: string, tracking?: string, carrierName?: string, estDelivery?: string) => {
     try {
       const customerEmail = order.profiles?.email;
       const customerName = order.profiles?.full_name || 'Customer';
@@ -124,6 +129,7 @@ export default function AdminShipping() {
             orderRef: order.id.slice(0, 8).toUpperCase(),
             trackingNumber: tracking || null,
             carrier: carrierName || null,
+            estimatedDelivery: estDelivery || null,
             items,
           },
         });
@@ -153,6 +159,8 @@ export default function AdminShipping() {
         status: newStatus,
         tracking_number: trackingNumber || null,
         carrier: carrier || null,
+        estimated_delivery: estimatedDelivery ? new Date(estimatedDelivery).toISOString() : null,
+        actual_shipping_cost_usd: actualShippingCost ? parseFloat(actualShippingCost) : null,
       };
 
       if (newStatus === 'SHIPPED' && selectedOrder.status !== 'SHIPPED') {
@@ -171,7 +179,7 @@ export default function AdminShipping() {
 
       // Send email notification if enabled
       if (sendEmail && (newStatus === 'SHIPPED' || newStatus === 'COMPLETED')) {
-        await sendShippingEmail(selectedOrder, newStatus, trackingNumber, carrier);
+        await sendShippingEmail(selectedOrder, newStatus, trackingNumber, carrier, estimatedDelivery);
       }
 
       toast({
@@ -271,16 +279,25 @@ export default function AdminShipping() {
   };
 
   const exportToCSV = () => {
-    const headers = ['Order ID', 'Status', 'Total USD', 'City', 'Tracking', 'Carrier', 'Created'];
-    const rows = filteredOrders.map(order => [
-      order.id,
-      order.status,
-      order.total_usd || 0,
-      order.shipping_city || '',
-      order.tracking_number || '',
-      order.carrier || '',
-      new Date(order.created_at).toLocaleDateString()
-    ]);
+    const headers = ['Order ID', 'Status', 'Total USD', 'Shipping Charged', 'Actual Shipping Cost', 'Profit', 'City', 'Tracking', 'Carrier', 'Est. Delivery', 'Created'];
+    const rows = filteredOrders.map(order => {
+      const chargedShipping = order.shipping_fee_usd || 0;
+      const actualCost = order.actual_shipping_cost_usd || 0;
+      const profit = chargedShipping - actualCost;
+      return [
+        order.id,
+        order.status,
+        order.total_usd || 0,
+        chargedShipping,
+        actualCost,
+        profit,
+        order.shipping_city || '',
+        order.tracking_number || '',
+        order.carrier || '',
+        order.estimated_delivery ? new Date(order.estimated_delivery).toLocaleDateString() : '',
+        new Date(order.created_at).toLocaleDateString()
+      ];
+    });
 
     const csvContent = [
       headers.join(','),
@@ -306,6 +323,14 @@ export default function AdminShipping() {
     order.tracking_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     order.shipping_city?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Calculate shipping profit/loss summary
+  const shippingSummary = filteredOrders.reduce((acc, order) => {
+    acc.totalCharged += Number(order.shipping_fee_usd || 0);
+    acc.totalActual += Number(order.actual_shipping_cost_usd || 0);
+    if (order.actual_shipping_cost_usd) acc.trackedCount++;
+    return acc;
+  }, { totalCharged: 0, totalActual: 0, trackedCount: 0 });
 
   const getStatusBadge = (status: string) => {
     const colors: Record<string, string> = {
@@ -338,6 +363,43 @@ export default function AdminShipping() {
           </Button>
         </div>
       </div>
+
+      {/* Shipping Cost Summary */}
+      {shippingSummary.trackedCount > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Shipping Charged</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${shippingSummary.totalCharged.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{filteredOrders.length} orders</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Actual Shipping Cost</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">${shippingSummary.totalActual.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{shippingSummary.trackedCount} tracked</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Shipping Profit</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${shippingSummary.totalCharged - shippingSummary.totalActual >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                ${(shippingSummary.totalCharged - shippingSummary.totalActual).toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {((shippingSummary.totalCharged - shippingSummary.totalActual) / (shippingSummary.totalActual || 1) * 100).toFixed(1)}% margin
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -398,9 +460,9 @@ export default function AdminShipping() {
                       <TableHead>Items</TableHead>
                       <TableHead>City</TableHead>
                       <TableHead>Total</TableHead>
+                      <TableHead>Ship Cost</TableHead>
                       <TableHead>Tracking</TableHead>
-                      <TableHead>Carrier</TableHead>
-                      <TableHead>Date</TableHead>
+                      <TableHead>Est. Delivery</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -448,21 +510,31 @@ export default function AdminShipping() {
                         <TableCell>{order.shipping_city || 'N/A'}</TableCell>
                         <TableCell>${Number(order.total_usd || 0).toFixed(2)}</TableCell>
                         <TableCell>
-                          {order.tracking_number ? (
-                            <span className="font-mono text-xs">{order.tracking_number}</span>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
+                          <div className="text-xs">
+                            <div>${Number(order.shipping_fee_usd || 0).toFixed(2)} charged</div>
+                            {order.actual_shipping_cost_usd && (
+                              <div className={order.shipping_fee_usd - order.actual_shipping_cost_usd >= 0 ? 'text-green-500' : 'text-red-500'}>
+                                ${Number(order.actual_shipping_cost_usd).toFixed(2)} actual
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          {order.carrier ? (
-                            <Badge variant="outline">{order.carrier}</Badge>
+                          {order.tracking_number ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="font-mono text-xs">{order.tracking_number}</span>
+                              {order.carrier && <Badge variant="outline" className="text-[10px] w-fit">{order.carrier}</Badge>}
+                            </div>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {new Date(order.created_at).toLocaleDateString()}
+                          {order.estimated_delivery ? (
+                            new Date(order.estimated_delivery).toLocaleDateString()
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -476,7 +548,7 @@ export default function AdminShipping() {
 
       {/* Update Status Dialog */}
       <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Update Shipment</DialogTitle>
             <DialogDescription>
@@ -500,31 +572,68 @@ export default function AdminShipping() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Tracking Number</Label>
-              <Input
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-                placeholder="Enter tracking number"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Tracking Number</Label>
+                <Input
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  placeholder="Enter tracking #"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Carrier</Label>
+                <Select value={carrier} onValueChange={setCarrier}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select carrier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DHL">DHL</SelectItem>
+                    <SelectItem value="FedEx">FedEx</SelectItem>
+                    <SelectItem value="UPS">UPS</SelectItem>
+                    <SelectItem value="USPS">USPS</SelectItem>
+                    <SelectItem value="Local">Local Courier</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Carrier</Label>
-              <Select value={carrier} onValueChange={setCarrier}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select carrier" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="DHL">DHL</SelectItem>
-                  <SelectItem value="FedEx">FedEx</SelectItem>
-                  <SelectItem value="UPS">UPS</SelectItem>
-                  <SelectItem value="USPS">USPS</SelectItem>
-                  <SelectItem value="Local">Local Courier</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Estimated Delivery
+                </Label>
+                <Input
+                  type="date"
+                  value={estimatedDelivery}
+                  onChange={(e) => setEstimatedDelivery(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  <DollarSign className="h-3 w-3" /> Actual Shipping Cost
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={actualShippingCost}
+                  onChange={(e) => setActualShippingCost(e.target.value)}
+                />
+              </div>
             </div>
+
+            {selectedOrder && (
+              <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
+                <p>Charged to customer: ${Number(selectedOrder.shipping_fee_usd || 0).toFixed(2)}</p>
+                {actualShippingCost && (
+                  <p className={Number(selectedOrder.shipping_fee_usd || 0) - parseFloat(actualShippingCost) >= 0 ? 'text-green-500' : 'text-red-500'}>
+                    Profit: ${(Number(selectedOrder.shipping_fee_usd || 0) - parseFloat(actualShippingCost)).toFixed(2)}
+                  </p>
+                )}
+              </div>
+            )}
 
             {(newStatus === 'SHIPPED' || newStatus === 'COMPLETED') && (
               <div className="flex items-center space-x-2 pt-2 border-t">

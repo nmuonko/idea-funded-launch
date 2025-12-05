@@ -10,11 +10,13 @@ const corsHeaders = {
 
 interface ShippedEmailRequest {
   orderId: string;
+  orderRef?: string;
   customerEmail: string;
   customerName: string;
   items: Array<{ title: string; quantity: number }>;
   trackingNumber?: string;
   carrier?: string;
+  estimatedDelivery?: string;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -23,20 +25,26 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { orderId, customerEmail, customerName, items, trackingNumber, carrier }: ShippedEmailRequest = await req.json();
+    const { orderId, orderRef: providedRef, customerEmail, customerName, items, trackingNumber, carrier, estimatedDelivery }: ShippedEmailRequest = await req.json();
     
     console.log('[send-order-shipped-email] Sending to:', customerEmail);
     
-    const orderRef = orderId.substring(0, 8).toUpperCase();
+    const orderRef = providedRef || orderId.substring(0, 8).toUpperCase();
     const fromAddress = Deno.env.get("EMAIL_FROM_ADDRESS") || "noreply@afrishop.com";
     
     const itemsList = items.map(i => `<li>${i.title} (x${i.quantity})</li>`).join('');
     
-    const trackingSection = trackingNumber ? `
+    // Format estimated delivery date if provided
+    const estimatedDeliveryFormatted = estimatedDelivery 
+      ? new Date(estimatedDelivery).toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      : null;
+    
+    const trackingSection = (trackingNumber || estimatedDeliveryFormatted) ? `
       <div style="background: #f0f9ff; padding: 16px; border-radius: 8px; margin: 20px 0;">
         <p style="margin: 0; font-weight: bold;">📦 Suivi de colis / Tracking:</p>
-        ${carrier ? `<p style="margin: 8px 0 0 0;">Transporteur: ${carrier}</p>` : ''}
-        <p style="margin: 8px 0 0 0;">Numéro: <strong>${trackingNumber}</strong></p>
+        ${carrier ? `<p style="margin: 8px 0 0 0;">Transporteur / Carrier: ${carrier}</p>` : ''}
+        ${trackingNumber ? `<p style="margin: 8px 0 0 0;">Numéro de suivi / Tracking #: <strong>${trackingNumber}</strong></p>` : ''}
+        ${estimatedDeliveryFormatted ? `<p style="margin: 8px 0 0 0;">📅 Livraison estimée / Est. delivery: <strong>${estimatedDeliveryFormatted}</strong></p>` : ''}
       </div>
     ` : '';
 

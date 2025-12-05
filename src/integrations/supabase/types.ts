@@ -668,6 +668,7 @@ export type Database = {
       }
       orders: {
         Row: {
+          actual_shipping_cost_usd: number | null
           admin_notes: string | null
           approved_at: string | null
           approved_by: string | null
@@ -704,6 +705,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          actual_shipping_cost_usd?: number | null
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null
@@ -740,6 +742,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          actual_shipping_cost_usd?: number | null
           admin_notes?: string | null
           approved_at?: string | null
           approved_by?: string | null

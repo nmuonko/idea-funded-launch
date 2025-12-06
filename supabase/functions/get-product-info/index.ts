@@ -17,7 +17,8 @@ const ALLOWED_DOMAINS = [
   'cargurus.com', 'www.cargurus.com',
   'target.com', 'www.target.com',
   'homedepot.com', 'www.homedepot.com',
-  'lowes.com', 'www.lowes.com',
+  'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
+  'macys.com', 'www.macys.com', 'm.macys.com',
 ];
 
 // Block private/internal IP ranges
@@ -84,6 +85,7 @@ const PRICE_SELECTORS: Record<string, string[]> = {
     '[itemprop="price"]',
     '.price-characteristic',
     '[data-testid="price-wrap"]',
+    'span[data-automation="buybox-price"]',
   ],
   'bestbuy.com': [
     '.priceView-customer-price',
@@ -92,6 +94,20 @@ const PRICE_SELECTORS: Record<string, string[]> = {
   'ebay.com': [
     '.x-price-primary',
     '[itemprop="price"]',
+  ],
+  'target.com': [
+    '[data-test="product-price"]',
+    '.styles__CurrentPriceFontSize',
+  ],
+  'shein.com': [
+    '.product-intro__head-price',
+    '.original.from',
+    '[class*="productPrice"]',
+  ],
+  'macys.com': [
+    '.price .regular-price',
+    '.lowest-sale-price',
+    '[data-auto="product-price"]',
   ],
 };
 
@@ -268,6 +284,7 @@ function extractImageUrl(html: string, domain: string): string | null {
     'walmart.com': [
       /<img[^>]*class=["'][^"']*product-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
       /<img[^>]*data-testid=["']hero-image["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*hover-zoom-hero-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
     ],
     'ebay.com': [
       /<img[^>]*id=["']icImg["'][^>]*src=["']([^"']+)["']/i,
@@ -275,6 +292,18 @@ function extractImageUrl(html: string, domain: string): string | null {
     ],
     'bestbuy.com': [
       /<img[^>]*class=["'][^"']*primary-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+    ],
+    'target.com': [
+      /<img[^>]*class=["'][^"']*ProductImagesCarousel[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*data-test=["']product-image["'][^>]*src=["']([^"']+)["']/i,
+    ],
+    'shein.com': [
+      /<img[^>]*class=["'][^"']*crop-image-container[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*class=["'][^"']*lazyload[^"']*["'][^>]*data-src=["']([^"']+)["']/i,
+    ],
+    'macys.com': [
+      /<img[^>]*class=["'][^"']*primary-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
+      /<img[^>]*id=["']mainImage["'][^>]*src=["']([^"']+)["']/i,
     ],
   };
 

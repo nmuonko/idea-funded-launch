@@ -32,13 +32,14 @@ const addCartItemSchema = z.object({
           'cargurus.com', 'www.cargurus.com',
           'target.com', 'www.target.com',
           'homedepot.com', 'www.homedepot.com',
-          'shein.com', 'www.shein.com', 'us.shein.com',
+          'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
+          'macys.com', 'www.macys.com', 'm.macys.com',
         ];
         return allowedDomains.some(d => parsed.hostname.endsWith(d));
       } catch {
         return false;
       }
-    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, SHEIN)"),
+    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, SHEIN, Macy's)"),
   productPrice: z.number()
     .positive("Price must be positive")
     .max(1000000, "Price exceeds maximum"),
@@ -289,6 +290,10 @@ serve(async (req) => {
       else if (hostname.includes('bestbuy')) store = 'BESTBUY';
       else if (hostname.includes('carvana')) store = 'CARVANA';
       else if (hostname.includes('cargurus')) store = 'CARGURUS';
+      else if (hostname.includes('target')) store = 'OTHER'; // Keep as OTHER - no enum value
+      else if (hostname.includes('homedepot')) store = 'OTHER';
+      else if (hostname.includes('shein')) store = 'OTHER';
+      else if (hostname.includes('macys')) store = 'OTHER';
     } catch (e) {
       console.error('[mobile-add-cart-item] Invalid URL format:', e);
     }

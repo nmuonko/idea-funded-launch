@@ -32,8 +32,29 @@ serve(async (req) => {
     });
 
     if (error) {
+      console.error('[auth-login] Auth error:', error.message);
+      
+      // Return clean, user-friendly error messages
+      let errorMessage = 'Invalid email or password.';
+      let errorCode = 'INVALID_CREDENTIALS';
+      
+      if (error.message.includes('Invalid login credentials')) {
+        errorMessage = 'Invalid email or password.';
+        errorCode = 'INVALID_CREDENTIALS';
+      } else if (error.message.includes('Email not confirmed')) {
+        errorMessage = 'Please verify your email address before logging in.';
+        errorCode = 'EMAIL_NOT_VERIFIED';
+      } else if (error.message.includes('Too many requests')) {
+        errorMessage = 'Too many login attempts. Please try again later.';
+        errorCode = 'RATE_LIMITED';
+      }
+      
       return new Response(
-        JSON.stringify({ error: error.message }),
+        JSON.stringify({ 
+          success: false,
+          error: errorMessage,
+          code: errorCode,
+        }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

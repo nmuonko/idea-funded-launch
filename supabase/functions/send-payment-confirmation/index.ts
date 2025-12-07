@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@4.0.0";
+import { sendEmail, DEFAULT_FROM_EMAIL } from "../_shared/email.ts";
+import { buildPaymentSuccessEmail } from "../_shared/emailTemplates.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +14,6 @@ serve(async (req) => {
   }
 
   try {
-    const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -28,7 +28,7 @@ serve(async (req) => {
       });
     }
 
-    console.log('[Payment Confirmation Email] Order:', orderId);
+    console.log('[send-payment-confirmation] Order:', orderId);
 
     // Get order details
     const { data: order, error: orderError } = await supabase
@@ -51,7 +51,7 @@ serve(async (req) => {
       .eq('order_id', orderId)
       .maybeSingle();
 
-    const confirmationCode = payment?.confirmation_code;
+    const confirmationCode = payment?.confirmation_code || `AFS-${orderId.slice(0, 4).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
 
     // Get user email from auth
     const { data: { user } } = await supabase.auth.admin.getUserById(order.user_id);
@@ -64,6 +64,7 @@ serve(async (req) => {
       });
     }
 
+    const customerName = order.profiles?.full_name || order.profiles?.name || 'Customer';
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
 
     // Build order items HTML
@@ -84,22 +85,7 @@ serve(async (req) => {
       </tr>
     `).join('');
 
-    // Confirmation code section (only if available)
-    const confirmationCodeSection = confirmationCode ? `
-      <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; border-radius: 12px; margin: 24px 0; text-align: center;">
-        <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.9); font-size: 14px;">
-          Numéro de confirmation / Confirmation Number
-        </p>
-        <p style="margin: 0; color: white; font-size: 32px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 2px;">
-          ${confirmationCode}
-        </p>
-        <p style="margin: 12px 0 0 0; color: rgba(255,255,255,0.8); font-size: 12px;">
-          Conservez ce numéro pour le suivi de votre commande<br>
-          Keep this number to track your order
-        </p>
-      </div>
-    ` : '';
-
+    // Build complete email HTML
     const emailHtml = `
       <!DOCTYPE html>
       <html>
@@ -108,14 +94,14 @@ serve(async (req) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
       </head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f3f4f6;">
-        <div style="background: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%); padding: 40px 20px; text-align: center; border-radius: 12px 12px 0 0;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); padding: 40px 20px; text-align: center; border-radius: 12px 12px 0 0;">
           <h1 style="color: white; margin: 0; font-size: 28px;">Paiement confirmé! 🎉</h1>
           <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">Payment Confirmed</p>
         </div>
         
         <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
           <p style="font-size: 16px; margin-top: 0;">
-            Bonjour ${order.profiles?.full_name || order.profiles?.name || 'Client'},
+            Bonjour ${customerName},
           </p>
           
           <p style="font-size: 16px;">
@@ -125,15 +111,17 @@ serve(async (req) => {
             Great news! Your payment has been confirmed and your order is being processed.
           </p>
           
-          ${confirmationCodeSection}
+          <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 24px; border-radius: 12px; margin: 24px 0; text-align: center;">
+            <p style="margin: 0 0 8px 0; color: rgba(255,255,255,0.9); font-size: 14px;">
+              Numéro de confirmation / Confirmation Number
+            </p>
+            <p style="margin: 0; color: white; font-size: 32px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 2px;">
+              ${confirmationCode}
+            </p>
+          </div>
           
           <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 24px 0;">
-            <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #0ea5e9;">Récapitulatif / Order Summary</h2>
-            ${confirmationCode ? `
-            <p style="margin: 4px 0; color: #6b7280;">
-              <strong>Confirmation:</strong> <span style="font-family: monospace; font-weight: 600; color: #10b981;">${confirmationCode}</span>
-            </p>
-            ` : ''}
+            <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #1e3a5f;">Récapitulatif / Order Summary</h2>
             <p style="margin: 4px 0; color: #6b7280;">
               <strong>N° Commande / Order ID:</strong> ${orderId.slice(0, 8)}...
             </p>
@@ -179,7 +167,7 @@ serve(async (req) => {
               </tr>
               <tr>
                 <td style="padding: 4px 0; font-size: 18px; font-weight: 700;">Total:</td>
-                <td style="padding: 4px 0; text-align: right; font-size: 18px; font-weight: 700; color: #0ea5e9;">$${Number(order.total_usd || 0).toFixed(2)}</td>
+                <td style="padding: 4px 0; text-align: right; font-size: 18px; font-weight: 700; color: #1e3a5f;">$${Number(order.total_usd || 0).toFixed(2)}</td>
               </tr>
               <tr>
                 <td colspan="2" style="padding: 4px 0; text-align: center; color: #6b7280; font-size: 14px;">
@@ -189,59 +177,41 @@ serve(async (req) => {
             </table>
           </div>
           
-          <div style="background: #eff6ff; border-left: 4px solid #0ea5e9; padding: 16px; border-radius: 4px; margin: 24px 0;">
-            <p style="margin: 0; color: #1e40af; font-weight: 600;">Prochaines étapes / What's Next?</p>
-            <p style="margin: 8px 0 0 0; color: #1e40af; font-size: 14px;">
-              Votre commande est en préparation. Vous recevrez un email avec les informations de suivi dès l'expédition.<br>
-              <span style="color: #6b7280;">Your order is being prepared. You'll receive tracking info once shipped.</span>
-            </p>
-          </div>
-          
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${frontendBaseUrl}/track-order${confirmationCode ? `?code=${confirmationCode}` : ''}" 
-               style="display: inline-block; background: #0ea5e9; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 8px;">
+            <a href="${frontendBaseUrl}/track-order?code=${confirmationCode}" 
+               style="display: inline-block; background: #1e3a5f; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 8px;">
               📦 Suivre ma commande / Track Order
             </a>
-            <a href="${frontendBaseUrl}/orders" 
-               style="display: inline-block; background: #f3f4f6; color: #374151; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 8px; border: 1px solid #e5e7eb;">
-              📄 Mes commandes / My Orders
-            </a>
           </div>
-          
-          <p style="margin-top: 24px; color: #6b7280; font-size: 14px;">
-            Si vous avez des questions, n'hésitez pas à contacter notre équipe support.<br>
-            <span style="color: #9ca3af;">If you have questions, please contact our support team.</span>
-          </p>
           
           <p style="margin-top: 32px; font-size: 16px;">
             Cordialement,<br>
-            <strong>L'équipe AfriShop</strong>
+            <strong>L'équipe AfriShop USA</strong>
           </p>
         </div>
         
         <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 12px;">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop. Tous droits réservés / All rights reserved.</p>
-          ${confirmationCode ? `<p style="margin: 8px 0 0 0;">Confirmation: ${confirmationCode}</p>` : ''}
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. Tous droits réservés / All rights reserved.</p>
         </div>
       </body>
       </html>
     `;
 
-    const emailResponse = await resend.emails.send({
-      from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <onboarding@resend.dev>',
-      to: [customerEmail],
-      subject: `✅ Paiement confirmé${confirmationCode ? ` - ${confirmationCode}` : ''} / Payment Confirmed`,
+    const result = await sendEmail({
+      to: customerEmail,
+      subject: `✅ Paiement confirmé - ${confirmationCode} / Payment Confirmed`,
       html: emailHtml,
+      category: "payment_success",
     });
 
-    console.log('[Payment Confirmation Email] Sent:', emailResponse);
+    console.log('[send-payment-confirmation] Result:', result);
 
-    return new Response(JSON.stringify({ success: true, confirmationCode }), {
-      status: 200,
+    return new Response(JSON.stringify({ success: result.success, confirmationCode, id: result.id }), {
+      status: result.success ? 200 : 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
-    console.error('[Payment Confirmation Email] Error:', error);
+    console.error('[send-payment-confirmation] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -1,8 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@2.0.0";
-
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+import { sendEmail, DEFAULT_FROM_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,28 +74,28 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`[send-customer-email] Sending email to ${customer_email}`);
 
-    const fromAddress = Deno.env.get("EMAIL_FROM_ADDRESS") || "AfriShop <noreply@afrishop.com>";
-
-    const emailResponse = await resend.emails.send({
-      from: fromAddress,
-      to: [customer_email],
-      subject: subject,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1f33 100%); padding: 20px; text-align: center;">
-            <h1 style="color: white; margin: 0;">AfriShop</h1>
-          </div>
-          <div style="padding: 30px; background: #f9fafb;">
-            ${body.replace(/\n/g, '<br>')}
-          </div>
-          <div style="padding: 20px; text-align: center; color: #6b7280; font-size: 12px;">
-            <p>© ${new Date().getFullYear()} AfriShop. All rights reserved.</p>
-          </div>
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h1 style="color: white; margin: 0; font-size: 24px;">AfriShop USA</h1>
         </div>
-      `,
+        <div style="padding: 30px; background: #f9fafb;">
+          ${body.replace(/\n/g, '<br>')}
+        </div>
+        <div style="padding: 20px; text-align: center; color: #6b7280; font-size: 12px; background: #1e3a5f; border-radius: 0 0 8px 8px;">
+          <p style="margin: 0; color: white;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+        </div>
+      </div>
+    `;
+
+    const result = await sendEmail({
+      to: customer_email,
+      subject: subject,
+      html: emailHtml,
+      category: "customer_email",
     });
 
-    console.log("[send-customer-email] Email sent:", emailResponse);
+    console.log("[send-customer-email] Result:", result);
 
     // Log the email
     const { error: logError } = await supabase.from("customer_email_logs").insert({
@@ -106,15 +104,15 @@ serve(async (req: Request): Promise<Response> => {
       subject: subject,
       body: body,
       sent_by: user.id,
-      status: "sent",
+      status: result.success ? "sent" : "failed",
     });
 
     if (logError) {
       console.error("[send-customer-email] Error logging email:", logError);
     }
 
-    return new Response(JSON.stringify({ success: true, data: emailResponse }), {
-      status: 200,
+    return new Response(JSON.stringify({ success: result.success, id: result.id }), {
+      status: result.success ? 200 : 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: any) {

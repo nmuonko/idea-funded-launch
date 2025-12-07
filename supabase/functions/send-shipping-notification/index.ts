@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@4.0.0";
+import { sendEmail, DEFAULT_FROM_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +13,6 @@ serve(async (req) => {
   }
 
   try {
-    const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -28,7 +27,7 @@ serve(async (req) => {
       });
     }
 
-    console.log('[Shipping Notification] Order:', orderId);
+    console.log('[send-shipping-notification] Order:', orderId);
 
     // Get order details
     const { data: order, error: orderError } = await supabase
@@ -55,6 +54,8 @@ serve(async (req) => {
       });
     }
 
+    const customerName = order.profiles?.full_name || order.profiles?.name || 'Customer';
+
     const emailHtml = `
       <!DOCTYPE html>
       <html>
@@ -63,22 +64,25 @@ serve(async (req) => {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
       </head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 40px 20px; text-align: center; border-radius: 12px 12px 0 0;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #10b981 100%); padding: 40px 20px; text-align: center; border-radius: 12px 12px 0 0;">
           <h1 style="color: white; margin: 0; font-size: 28px;">📦 Your Order Has Shipped!</h1>
-          <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Track your package</p>
+          <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Votre commande est en route!</p>
         </div>
         
         <div style="background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
           <p style="font-size: 16px; margin-top: 0;">
-            Hi ${order.profiles?.full_name || order.profiles?.name || 'Customer'},
+            Hi ${customerName} / Bonjour ${customerName},
           </p>
           
           <p style="font-size: 16px;">
             Great news! Your order has been shipped and is on its way to you.
           </p>
+          <p style="font-size: 14px; color: #6b7280;">
+            Bonne nouvelle! Votre commande a été expédiée et est en route vers vous.
+          </p>
           
           <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 24px 0;">
-            <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #10b981;">Shipping Details</h2>
+            <h2 style="margin: 0 0 12px 0; font-size: 18px; color: #10b981;">Shipping Details / Détails d'expédition</h2>
             <p style="margin: 4px 0; color: #6b7280;">
               <strong>Order ID:</strong> ${orderId.slice(0, 8)}...
             </p>
@@ -102,47 +106,39 @@ serve(async (req) => {
             ` : ''}
           </div>
           
-          <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 16px; border-radius: 4px; margin: 24px 0;">
-            <p style="margin: 0; color: #065f46; font-weight: 600;">Track Your Package</p>
-            <p style="margin: 8px 0 0 0; color: #065f46;">
-              ${trackingNumber 
-                ? 'Use the tracking number above to monitor your shipment\'s progress with the carrier.' 
-                : 'You\'ll receive tracking information soon.'}
-            </p>
-          </div>
-          
           <p style="margin-top: 24px; color: #6b7280; font-size: 14px;">
-            If you have any questions about your shipment, please contact our support team.
+            If you have any questions about your shipment, please contact our support team.<br>
+            Si vous avez des questions, contactez notre équipe support.
           </p>
           
           <p style="margin-top: 32px; font-size: 16px;">
-            Best regards,<br>
-            <strong>The AfriShop Team</strong>
+            Best regards / Cordialement,<br>
+            <strong>The AfriShop USA Team</strong>
           </p>
         </div>
         
         <div style="text-align: center; padding: 20px; color: #9ca3af; font-size: 12px;">
-          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop. All rights reserved.</p>
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
         </div>
       </body>
       </html>
     `;
 
-    const emailResponse = await resend.emails.send({
-      from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <onboarding@resend.dev>',
-      to: [customerEmail],
-      subject: '📦 Your Order Has Shipped',
+    const result = await sendEmail({
+      to: customerEmail,
+      subject: '📦 Your Order Has Shipped / Votre commande est expédiée',
       html: emailHtml,
+      category: "shipping_notification",
     });
 
-    console.log('[Shipping Notification] Sent:', emailResponse);
+    console.log('[send-shipping-notification] Result:', result);
 
-    return new Response(JSON.stringify({ success: true }), {
-      status: 200,
+    return new Response(JSON.stringify({ success: result.success, id: result.id }), {
+      status: result.success ? 200 : 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
-    console.error('[Shipping Notification] Error:', error);
+    console.error('[send-shipping-notification] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

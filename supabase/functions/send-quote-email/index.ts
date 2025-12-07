@@ -1,8 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { Resend } from "https://esm.sh/resend@2.0.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+import { sendEmail, DEFAULT_FROM_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,35 +64,32 @@ const handler = async (req: Request): Promise<Response> => {
     const vehicleTitle = quoteRequest.title || "Vehicle";
     const storeName = quoteRequest.store_name || "Online Store";
 
-    // Format currency
     const formatUSD = (amount: number) => `$${amount.toFixed(2)} USD`;
 
-    // Send bilingual email
     const emailHtml = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vehicle Quote / Devis Véhicule - AfriShop</title>
 </head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
   
   <!-- Header -->
-  <div style="text-align: center; padding: 20px 0; border-bottom: 2px solid #1e40af;">
-    <h1 style="color: #1e40af; margin: 0; font-size: 28px;">AfriShop</h1>
+  <div style="text-align: center; padding: 20px 0; border-bottom: 2px solid #1e3a5f;">
+    <h1 style="color: #1e3a5f; margin: 0; font-size: 28px;">AfriShop USA</h1>
     <p style="color: #666; margin: 5px 0 0;">USA → DRC</p>
   </div>
 
   <!-- English Section -->
   <div style="padding: 30px 0; border-bottom: 1px solid #eee;">
-    <h2 style="color: #1e40af; margin-top: 0;">🚗 Your Vehicle Quote is Ready!</h2>
+    <h2 style="color: #1e3a5f; margin-top: 0;">🚗 Your Vehicle Quote is Ready!</h2>
     
     <p>Hello ${customerName},</p>
     
     <p>Great news! We have prepared a custom quote for your vehicle order:</p>
     
-    <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 25px; border-radius: 12px; margin: 20px 0;">
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); color: white; padding: 25px; border-radius: 12px; margin: 20px 0;">
       <h3 style="margin: 0 0 15px; font-size: 18px;">${vehicleTitle}</h3>
       <p style="margin: 5px 0; opacity: 0.9;">From: ${storeName}</p>
       
@@ -112,22 +107,20 @@ const handler = async (req: Request): Promise<Response> => {
       </div>
     </div>
     
-    ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e40af;"><strong>Note from our team:</strong> ${adminNotes}</p>` : ''}
+    ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note from our team:</strong> ${adminNotes}</p>` : ''}
     
     <p>To proceed with your purchase, please log in to your AfriShop account and complete the payment.</p>
-    
-    <p>If you have any questions about this quote, please contact our support team.</p>
   </div>
 
   <!-- French Section -->
   <div style="padding: 30px 0;">
-    <h2 style="color: #1e40af; margin-top: 0;">🚗 Votre devis véhicule est prêt !</h2>
+    <h2 style="color: #1e3a5f; margin-top: 0;">🚗 Votre devis véhicule est prêt !</h2>
     
     <p>Bonjour ${customerName},</p>
     
     <p>Bonne nouvelle ! Nous avons préparé un devis personnalisé pour votre commande de véhicule :</p>
     
-    <div style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 25px; border-radius: 12px; margin: 20px 0;">
+    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); color: white; padding: 25px; border-radius: 12px; margin: 20px 0;">
       <h3 style="margin: 0 0 15px; font-size: 18px;">${vehicleTitle}</h3>
       <p style="margin: 5px 0; opacity: 0.9;">De: ${storeName}</p>
       
@@ -145,35 +138,33 @@ const handler = async (req: Request): Promise<Response> => {
       </div>
     </div>
     
-    ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e40af;"><strong>Note de notre équipe :</strong> ${adminNotes}</p>` : ''}
+    ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note de notre équipe :</strong> ${adminNotes}</p>` : ''}
     
     <p>Pour finaliser votre achat, veuillez vous connecter à votre compte AfriShop et procéder au paiement.</p>
-    
-    <p>Si vous avez des questions concernant ce devis, n'hésitez pas à contacter notre équipe support.</p>
   </div>
 
   <!-- Footer -->
   <div style="text-align: center; padding: 20px; border-top: 1px solid #eee; color: #666; font-size: 14px;">
-    <p style="margin: 0;">AfriShop - Your Gateway to American Products</p>
-    <p style="margin: 5px 0;">© ${new Date().getFullYear()} AfriShop. All rights reserved.</p>
+    <p style="margin: 0;">AfriShop USA - Your Gateway to American Products</p>
+    <p style="margin: 5px 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
   </div>
   
 </body>
 </html>
     `;
 
-    const emailResponse = await resend.emails.send({
-      from: "AfriShop <notifications@resend.dev>",
-      to: [profile.email],
+    const result = await sendEmail({
+      to: profile.email,
       subject: `🚗 Your Vehicle Quote is Ready / Votre devis véhicule est prêt - ${formatUSD(quotedTotalUsd)}`,
       html: emailHtml,
+      category: "quote_request",
     });
 
-    console.log("[send-quote-email] Email sent successfully:", emailResponse);
+    console.log("[send-quote-email] Result:", result);
 
     return new Response(
-      JSON.stringify({ success: true, emailId: (emailResponse as any)?.data?.id || "sent" }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: result.success, emailId: result.id }),
+      { status: result.success ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
     console.error("[send-quote-email] Error:", error);

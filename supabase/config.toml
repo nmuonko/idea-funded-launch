@@ -206,3 +206,9 @@ verify_jwt = false
 
 [functions.send-quote-response-notification]
 verify_jwt = false
+
+[functions.send-test-email]
+verify_jwt = false
+
+[functions.send-customer-email]
+verify_jwt = true

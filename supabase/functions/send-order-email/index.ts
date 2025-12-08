@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendEmail, DEFAULT_FROM_EMAIL } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,34 +20,38 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(
+    // Verify the caller is authenticated
+    const authClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const { data: { user }, error: userError } = await authClient.auth.getUser();
     if (userError || !user) {
+      console.error('[send-order-email] Unauthorized:', userError);
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    // Use service role client for fetching data (bypasses RLS)
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
     const { orderId, templateType, customSubject, customMessage }: OrderEmailRequest = await req.json();
+
+    console.log('[send-order-email] Processing request:', { orderId, templateType });
 
     // Fetch order details
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select(`
-        *,
-        profiles(user_id, name, full_name, email, phone),
-        order_items(title, quantity, total_price_usd)
-      `)
+      .select('*, order_items(title, quantity, total_price_usd, unit_price_usd)')
       .eq('id', orderId)
       .single();
-
-    console.log('[send-order-email] Order lookup:', { orderId, found: !!order, error: orderError?.message });
 
     if (orderError || !order) {
       console.error('[send-order-email] Order not found:', { orderId, error: orderError });
@@ -56,16 +61,51 @@ serve(async (req) => {
       });
     }
 
-    const customerEmail = order.profiles?.email;
-    const customerName = order.profiles?.name || order.profiles?.full_name || 'Customer';
+    console.log('[send-order-email] Order found:', { orderId, user_id: order.user_id });
+
+    // Explicitly fetch profile by user_id
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('user_id, full_name, name, email, phone')
+      .eq('user_id', order.user_id)
+      .maybeSingle();
+
+    console.log('[send-order-email] Profile lookup:', { 
+      user_id: order.user_id, 
+      profile_found: !!profile, 
+      profile_email: profile?.email,
+      error: profileError?.message 
+    });
+
+    // Try to get email from profile, or fallback to auth.users
+    let customerEmail = profile?.email;
+    let customerName = profile?.full_name || profile?.name || 'Customer';
+
+    // If no email in profile, try to get from auth.users
+    if (!customerEmail) {
+      console.log('[send-order-email] No email in profile, checking auth.users...');
+      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(order.user_id);
+      
+      if (!authError && authUser?.user?.email) {
+        customerEmail = authUser.user.email;
+        customerName = authUser.user.user_metadata?.full_name || customerName;
+        console.log('[send-order-email] Found email in auth.users:', customerEmail);
+      }
+    }
 
     if (!customerEmail) {
       console.error('[send-order-email] No customer email found for order:', orderId);
-      return new Response(JSON.stringify({ error: 'Customer email not found' }), {
+      return new Response(JSON.stringify({ 
+        error: 'Customer email not found. Please ensure the customer has an email address on their profile.',
+        orderId,
+        user_id: order.user_id
+      }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('[send-order-email] Sending email to:', customerEmail);
 
     let subject = '';
     let html = '';
@@ -83,22 +123,24 @@ serve(async (req) => {
               <h2 style="color: #374151; margin-top: 0;">Order Details</h2>
               <p><strong>Order ID:</strong> ${orderId.slice(0, 8)}...</p>
               <p><strong>Total:</strong> $${Number(order.total_usd || 0).toFixed(2)}</p>
-              <p><strong>Items:</strong> ${order.order_items.length} item(s)</p>
+              <p><strong>Items:</strong> ${order.order_items?.length || 0} item(s)</p>
             </div>
 
-            <h3 style="color: #374151;">Items Ordered:</h3>
-            <ul>
-              ${order.order_items.map((item: any) => `
-                <li>${item.title || 'Product'} - Qty: ${item.quantity} - $${Number(item.total_price_usd || 0).toFixed(2)}</li>
-              `).join('')}
-            </ul>
+            ${order.order_items?.length > 0 ? `
+              <h3 style="color: #374151;">Items Ordered:</h3>
+              <ul>
+                ${order.order_items.map((item: any) => `
+                  <li>${item.title || 'Product'} - Qty: ${item.quantity} - $${Number(item.total_price_usd || item.unit_price_usd || 0).toFixed(2)}</li>
+                `).join('')}
+              </ul>
+            ` : ''}
 
             <p style="color: #6b7280; margin-top: 30px;">
               We'll notify you when your order ships.
             </p>
             <p style="color: #6b7280;">
               Best regards,<br>
-              AfriShop Team
+              <strong>AfriShop USA Team</strong>
             </p>
           </div>
         `;
@@ -121,7 +163,7 @@ serve(async (req) => {
 
             <p style="color: #6b7280; margin-top: 30px;">
               Best regards,<br>
-              AfriShop Team
+              <strong>AfriShop USA Team</strong>
             </p>
           </div>
         `;
@@ -152,7 +194,7 @@ serve(async (req) => {
             </p>
             <p style="color: #6b7280;">
               Best regards,<br>
-              AfriShop Team
+              <strong>AfriShop USA Team</strong>
             </p>
           </div>
         `;
@@ -175,7 +217,7 @@ serve(async (req) => {
 
             <p style="color: #6b7280; margin-top: 30px;">
               Thank you for shopping with us!<br>
-              AfriShop Team
+              <strong>AfriShop USA Team</strong>
             </p>
           </div>
         `;
@@ -199,7 +241,7 @@ serve(async (req) => {
             </p>
             <p style="color: #6b7280;">
               Best regards,<br>
-              AfriShop Team
+              <strong>AfriShop USA Team</strong>
             </p>
           </div>
         `;
@@ -212,41 +254,34 @@ serve(async (req) => {
         });
     }
 
-    const emailFrom = Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <onboarding@resend.dev>';
-    const resendApiKey = Deno.env.get('RESEND_API_KEY');
-
-    const resendResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${resendApiKey}`,
-      },
-      body: JSON.stringify({
-        from: emailFrom,
-        to: [customerEmail],
-        subject,
-        html,
-      }),
+    // Send email using shared email utility
+    const result = await sendEmail({
+      to: customerEmail,
+      subject,
+      html,
+      category: templateType === 'order_confirmed' ? 'order_confirmation' 
+        : templateType === 'payment_verified' ? 'payment_success'
+        : templateType === 'order_shipped' ? 'order_shipped'
+        : templateType === 'order_delivered' ? 'order_delivered'
+        : 'order_status_update',
     });
 
-    if (!resendResponse.ok) {
-      const errorData = await resendResponse.json();
-      console.error('Resend API error:', errorData);
-      return new Response(JSON.stringify({ error: errorData.message || 'Failed to send email' }), {
+    if (!result.success) {
+      console.error('[send-order-email] Failed to send email:', result.error);
+      return new Response(JSON.stringify({ error: result.error || 'Failed to send email' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const emailData = await resendResponse.json();
-    console.log('Email sent successfully:', emailData);
+    console.log('[send-order-email] Email sent successfully:', result.id);
 
-    return new Response(JSON.stringify({ success: true, data: emailData }), {
+    return new Response(JSON.stringify({ success: true, data: { id: result.id } }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
-    console.error('Error in send-order-email function:', error);
+    console.error('[send-order-email] Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

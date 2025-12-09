@@ -294,21 +294,44 @@ const handler = async (req: Request): Promise<Response> => {
       console.log('[MaishaPay Callback] Order updated successfully');
     }
 
-    // Update maisha_payments record
-    const { error: paymentUpdateError } = await supabaseClient
+    // Update maisha_payments record - try by reference first, then by order_id
+    const paymentUpdateData = {
+      status: normalizedStatus,
+      paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
+      raw_response: paymentData,
+      maishapay_transaction_ref_id: paymentData.transactionRefId || reference,
+      maishapay_operator_ref_id: paymentData.operatorRefId || null,
+      maishapay_status: String(rawStatus),
+      maishapay_description: paymentData.description || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Try updating by maisha_reference first
+    const { data: refUpdateResult, error: paymentUpdateError } = await supabaseClient
       .from('maisha_payments')
-      .update({
-        status: normalizedStatus,
-        paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
-        raw_response: paymentData,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('maisha_reference', reference);
+      .update(paymentUpdateData)
+      .eq('maisha_reference', reference)
+      .select('id');
 
     if (paymentUpdateError) {
-      console.error('[MaishaPay Callback] Error updating payment record:', paymentUpdateError);
+      console.error('[MaishaPay Callback] Error updating payment by reference:', paymentUpdateError);
+    }
+
+    // If no rows updated by reference, try by order_id
+    if (!refUpdateResult || refUpdateResult.length === 0) {
+      console.log('[MaishaPay Callback] No payment found by reference, trying order_id:', orderId);
+      const { error: orderIdUpdateError } = await supabaseClient
+        .from('maisha_payments')
+        .update(paymentUpdateData)
+        .eq('order_id', orderId);
+
+      if (orderIdUpdateError) {
+        console.error('[MaishaPay Callback] Error updating payment by order_id:', orderIdUpdateError);
+      } else {
+        console.log('[MaishaPay Callback] Payment record updated by order_id');
+      }
     } else {
-      console.log('[MaishaPay Callback] Payment record updated');
+      console.log('[MaishaPay Callback] Payment record updated by reference');
     }
 
     // Send notifications on successful payment

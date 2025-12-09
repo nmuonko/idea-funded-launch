@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Search, RefreshCw, CreditCard, CheckCircle, XCircle, Clock, ExternalLink, TestTube, Eye, Copy, Trash2 } from 'lucide-react';
+import { Loader2, Search, RefreshCw, CreditCard, CheckCircle, XCircle, Clock, ExternalLink, TestTube, Eye, Copy, Trash2, Settings2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
@@ -73,6 +73,7 @@ export default function AdminPayments() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   useEffect(() => {
     loadPayments();
@@ -159,6 +160,7 @@ export default function AdminPayments() {
         body: { 
           orderId: payment.order_id,
           reference: payment.maisha_reference,
+          paymentId: payment.id,
         },
       });
 
@@ -179,6 +181,32 @@ export default function AdminPayments() {
       });
     } finally {
       setVerifyingId(null);
+    }
+  };
+
+  const reconcileAllPending = async () => {
+    try {
+      setReconciling(true);
+      
+      const { data, error } = await supabase.functions.invoke('reconcile-payment-status');
+
+      if (error) throw error;
+
+      toast({
+        title: 'Reconciliation Complete',
+        description: `Reconciled ${data.reconciled || 0} of ${data.totalPending || 0} pending payments`,
+      });
+
+      await loadPayments();
+    } catch (error: any) {
+      console.error('Error reconciling payments:', error);
+      toast({
+        title: 'Reconciliation Failed',
+        description: error.message || 'Could not reconcile payments',
+        variant: 'destructive',
+      });
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -330,10 +358,25 @@ export default function AdminPayments() {
               <CardTitle>Payment Transactions</CardTitle>
               <CardDescription>View and manage MaishaPay payment records</CardDescription>
             </div>
-            <Button onClick={loadPayments} variant="outline" size="sm">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                onClick={reconcileAllPending} 
+                variant="outline" 
+                size="sm"
+                disabled={reconciling || stats.pending === 0}
+              >
+                {reconciling ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Settings2 className="h-4 w-4 mr-2" />
+                )}
+                Reconcile All ({stats.pending})
+              </Button>
+              <Button onClick={loadPayments} variant="outline" size="sm">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

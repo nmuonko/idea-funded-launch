@@ -63,8 +63,9 @@ export default function Auth() {
     setLoading(true);
     
     try {
+      // Use production domain for password reset redirect
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth?mode=admin`,
+        redirectTo: 'https://afri-shop.com/auth/reset-password',
       });
       
       if (error) throw error;

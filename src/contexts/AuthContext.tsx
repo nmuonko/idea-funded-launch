@@ -25,7 +25,14 @@ interface AuthContextType {
   isAdmin: boolean;
   loading: boolean;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: any; userId: string | null }>;
-  signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string, phone?: string, profileData?: {
+    country?: string;
+    city?: string;
+    province?: string;
+    address_line1?: string;
+    address_line2?: string;
+    postal_code?: string;
+  }) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   checkAdminStatus: (userId?: string) => Promise<boolean>;
   refreshSession: () => Promise<Session | null>;
@@ -258,9 +265,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
+  const signUp = async (
+    email: string, 
+    password: string, 
+    fullName: string, 
+    phone?: string,
+    profileData?: {
+      country?: string;
+      city?: string;
+      province?: string;
+      address_line1?: string;
+      address_line2?: string;
+      postal_code?: string;
+    }
+  ) => {
     try {
-      const redirectUrl = `${window.location.origin}/`;
+      // Use production domain for email verification redirect
+      const redirectUrl = 'https://afri-shop.com/auth/callback';
       
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -284,21 +305,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error };
       }
 
-      // Create profile immediately after signup
+      // Create profile immediately after signup with all provided data
       if (data.user) {
         console.log('[Auth] Creating profile for new user:', data.user.id);
         
-        const profileData = {
+        const fullProfileData = {
           user_id: data.user.id,
           email: email.toLowerCase(),
           full_name: fullName,
           name: fullName,
           phone: phone || null,
+          country: profileData?.country || null,
+          city: profileData?.city || null,
+          province: profileData?.province || null,
+          address_line1: profileData?.address_line1 || null,
+          address_line2: profileData?.address_line2 || null,
+          postal_code: profileData?.postal_code || null,
         };
 
         const { error: profileError } = await supabase
           .from('profiles')
-          .upsert(profileData, {
+          .upsert(fullProfileData, {
             onConflict: 'user_id',
           });
 

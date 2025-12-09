@@ -219,5 +219,8 @@ verify_jwt = false
 [functions.verify-payment]
 verify_jwt = false
 
+[functions.cart-sync-from-client]
+verify_jwt = true
+
 [functions.admin-reset-section]
 verify_jwt = true

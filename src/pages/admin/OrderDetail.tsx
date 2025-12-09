@@ -38,10 +38,10 @@ export default function AdminOrderDetail() {
         .from('orders')
         .select(`
           *,
-          profiles!inner(name, email, phone)
+          profiles(name, email, phone)
         `)
         .eq('id', id)
-        .single();
+        .maybeSingle();
 
       if (orderError) throw orderError;
 

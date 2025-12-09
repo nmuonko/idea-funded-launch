@@ -74,7 +74,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
           )
         `)
         .eq('id', orderId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       setOrder(data);

@@ -12,8 +12,15 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    
+    // Use service role for updates to bypass RLS
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // Use anon key with user auth for permission check
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
+      supabaseUrl,
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     );
@@ -27,36 +34,46 @@ serve(async (req) => {
       );
     }
 
-    const { orderId, manualOverride, notes } = await req.json();
+    const { orderId, paymentId, reference, manualOverride, notes } = await req.json();
 
-    console.log('[Payment Verify]', { orderId, manualOverride, user: user.email });
+    console.log('[Payment Verify]', { orderId, paymentId, reference, manualOverride, user: user.email });
 
     // Get order
-    const { data: order, error: orderError } = await supabase
+    const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .select('maisha_transaction_id')
+      .select('id, status, maisha_transaction_id, maisha_payment_status, payment_verified_at')
       .eq('id', orderId)
-      .single();
+      .maybeSingle();
 
-    if (orderError || !order) {
+    if (orderError) {
+      console.error('[Payment Verify] Order fetch error:', orderError);
+      throw new Error('Order not found');
+    }
+
+    if (!order) {
       throw new Error('Order not found');
     }
 
     let verificationResult = { verified: false, status: 'unknown' };
 
-    if (manualOverride) {
+    // If order is already PAID, sync the payment record
+    if (order.status === 'PAID') {
+      console.log('[Payment Verify] Order already PAID, syncing payment record');
+      verificationResult = { verified: true, status: 'paid' };
+    } else if (manualOverride) {
       // Manual override - admin manually verifies
       verificationResult = { verified: true, status: 'manual_override' };
     } else if (order.maisha_transaction_id) {
-      // Check with MaishaPay API
-      const mode = Deno.env.get('MAISHAPAY_MODE') || 'test';
-      const apiKey = mode === 'live' 
-        ? Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY')
-        : Deno.env.get('MAISHAPAY_TEST_SECRET_KEY');
+      // Try to check with MaishaPay API
+      const mode = Deno.env.get('MAISHAPAY_GATEWAY_MODE') || Deno.env.get('MAISHAPAY_MODE') || '1';
+      const isLive = mode === '1' || mode === 'live';
+      const apiKey = isLive 
+        ? Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY')
+        : Deno.env.get('MAISHAPAY_SECRET_KEY');
 
       try {
         const maishaResponse = await fetch(
-          `https://api.maishapay.com/transactions/${order.maisha_transaction_id}`,
+          `https://api.maishapay.online/v1/transactions/${order.maisha_transaction_id}`,
           {
             headers: {
               'Authorization': `Bearer ${apiKey}`,
@@ -67,46 +84,112 @@ serve(async (req) => {
 
         if (maishaResponse.ok) {
           const maishaData = await maishaResponse.json();
+          const maishaStatus = (maishaData.status || '').toLowerCase();
           verificationResult = {
-            verified: maishaData.status === 'completed',
-            status: maishaData.status
+            verified: ['completed', 'success', 'paid'].includes(maishaStatus),
+            status: maishaStatus
           };
+        } else {
+          console.log('[Payment Verify] MaishaPay API returned non-OK status:', maishaResponse.status);
         }
       } catch (error) {
-        console.error('[MaishaPay Check Error]', error);
+        console.error('[Payment Verify] MaishaPay API error:', error);
+        // Don't fail - just log and continue
       }
     }
 
-    // Update order
-    const updateData: any = {
-      maisha_payment_status: verificationResult.verified ? 'verified' : 'pending',
-      updated_at: new Date().toISOString(),
-    };
+    const now = new Date().toISOString();
 
+    // Update order if verified
     if (verificationResult.verified) {
-      updateData.status = 'PAID'; // Update order status to PAID
-      updateData.payment_verified_at = new Date().toISOString();
-      updateData.payment_verified_by = user.id;
-      updateData.payment_verification_method = manualOverride ? 'MANUAL_OVERRIDE' : 'AUTOMATIC';
-      updateData.payment_notes = notes;
+      const orderUpdateData: any = {
+        status: 'PAID',
+        maisha_payment_status: 'paid',
+        updated_at: now,
+        payment_verified_at: order.payment_verified_at || now,
+        payment_verified_by: user.id,
+        payment_verification_method: manualOverride ? 'MANUAL_OVERRIDE' : 'AUTOMATIC',
+      };
+      
+      if (notes) {
+        orderUpdateData.payment_notes = notes;
+      }
+
+      const { error: orderUpdateError } = await supabaseAdmin
+        .from('orders')
+        .update(orderUpdateData)
+        .eq('id', orderId);
+
+      if (orderUpdateError) {
+        console.error('[Payment Verify] Order update error:', orderUpdateError);
+      } else {
+        console.log('[Payment Verify] Order updated to PAID');
+      }
     }
 
-    const { error: updateError } = await supabase
-      .from('orders')
-      .update(updateData)
-      .eq('id', orderId);
+    // ALSO update maisha_payments table
+    const paymentUpdateData: any = {
+      status: verificationResult.verified ? 'paid' : 'pending',
+      updated_at: now,
+    };
+    
+    if (verificationResult.verified) {
+      paymentUpdateData.paid_at = now;
+    }
 
-    if (updateError) throw updateError;
+    // Try to update by paymentId first, then by reference, then by order_id
+    let paymentUpdated = false;
+
+    if (paymentId) {
+      const { error: paymentUpdateError } = await supabaseAdmin
+        .from('maisha_payments')
+        .update(paymentUpdateData)
+        .eq('id', paymentId);
+      
+      if (!paymentUpdateError) {
+        paymentUpdated = true;
+        console.log('[Payment Verify] maisha_payments updated by paymentId');
+      }
+    }
+
+    if (!paymentUpdated && reference) {
+      const { error: paymentUpdateError } = await supabaseAdmin
+        .from('maisha_payments')
+        .update(paymentUpdateData)
+        .eq('maisha_reference', reference);
+      
+      if (!paymentUpdateError) {
+        paymentUpdated = true;
+        console.log('[Payment Verify] maisha_payments updated by reference');
+      }
+    }
+
+    if (!paymentUpdated) {
+      const { error: paymentUpdateError } = await supabaseAdmin
+        .from('maisha_payments')
+        .update(paymentUpdateData)
+        .eq('order_id', orderId);
+      
+      if (!paymentUpdateError) {
+        paymentUpdated = true;
+        console.log('[Payment Verify] maisha_payments updated by order_id');
+      }
+    }
 
     // Log action
-    await supabase
+    await supabaseAdmin
       .from('order_actions')
       .insert({
         order_id: orderId,
         actor_id: user.id,
         action_type: 'PAYMENT_VERIFIED',
         action_message: manualOverride ? 'Manual verification' : 'Automatic verification',
-        metadata: { method: manualOverride ? 'manual' : 'automatic', notes }
+        metadata: { 
+          method: manualOverride ? 'manual' : 'automatic', 
+          notes,
+          previousOrderStatus: order.status,
+          paymentUpdated,
+        }
       });
 
     console.log('[Payment Verify] Success:', verificationResult);
@@ -115,7 +198,8 @@ serve(async (req) => {
       JSON.stringify({ 
         success: true, 
         verified: verificationResult.verified,
-        status: verificationResult.status
+        status: verificationResult.status,
+        paymentUpdated,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

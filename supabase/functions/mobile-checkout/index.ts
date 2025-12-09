@@ -378,8 +378,9 @@ serve(async (req) => {
       }, 500);
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const callbackUrl = `${supabaseUrl}/functions/v1/maishapay-callback`;
+    // Use mobile callback URL for WebView interception
+    const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
+    const callbackUrl = mobileCallbackUrl;
     
     // Generate HTML for mobile WebView
     const html = generateCheckoutHtml({
@@ -393,6 +394,7 @@ serve(async (req) => {
       orderId: checkoutOrder.id,
     });
 
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 

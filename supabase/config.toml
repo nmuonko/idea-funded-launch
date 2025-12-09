@@ -216,5 +216,8 @@ verify_jwt = true
 [functions.reconcile-payment-status]
 verify_jwt = false
 
+[functions.verify-payment]
+verify_jwt = false
+
 [functions.admin-reset-section]
 verify_jwt = true

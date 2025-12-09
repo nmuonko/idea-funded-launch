@@ -1144,6 +1144,12 @@ export type Database = {
       }
     }
     Views: {
+      public_settings: {
+        Row: {
+          exchange_rate_usd_to_cdf: number | null
+        }
+        Relationships: []
+      }
       safe_user_payments: {
         Row: {
           amount_cdf: number | null
@@ -1225,6 +1231,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin: { Args: never; Returns: boolean }
+      is_super_admin: { Args: never; Returns: boolean }
       search_submission_by_code: {
         Args: { search_code: string }
         Returns: {

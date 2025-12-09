@@ -77,7 +77,7 @@ export default function Support() {
     try {
       const { data, error } = await supabase
         .from('ticket_messages')
-        .select('*')
+        .select('id, message, is_admin, created_at, ticket_id, user_id')
         .eq('ticket_id', ticketId)
         .order('created_at', { ascending: true });
 

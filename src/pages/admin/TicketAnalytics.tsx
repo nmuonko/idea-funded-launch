@@ -59,7 +59,7 @@ export default function TicketAnalytics() {
 
       const { data: messages, error: messagesError } = await supabase
         .from('ticket_messages')
-        .select('*');
+        .select('id, message, is_admin, created_at, ticket_id, user_id');
 
       if (messagesError) throw messagesError;
 

@@ -120,11 +120,119 @@ function extractDomain(url: string): string {
   }
 }
 
+/**
+ * Normalize and validate a raw price candidate.
+ * Handles scientific notation, currency symbols, localized formats, and validates ranges.
+ * Returns a clean number with max 2 decimals, or null if invalid.
+ */
+function normalizePriceCandidate(raw: any): number | null {
+  if (raw === null || raw === undefined) return null;
+
+  let s = String(raw).trim();
+  if (!s) return null;
+
+  // Handle scientific notation strings like "4.48888493938737466e+2"
+  if (/e[+-]?\d+/i.test(s)) {
+    const n = Number(s);
+    if (!isFinite(n)) {
+      console.warn('[PRICE_DETECT] Rejected scientific notation (non-finite):', { raw: s });
+      return null;
+    }
+    // Continue to validate the parsed number below
+    s = String(n);
+  }
+
+  // Remove currency symbols and non-numeric chars except digits, dots, commas, minus
+  // Handle: "$348.00", "US$ 1.299,99", "€45,99", "£100.00"
+  s = s.replace(/[^\d.,-]/g, '');
+
+  // Handle European format with comma as decimal separator
+  // If both comma and dot exist: assume comma is thousands separator, dot is decimal
+  // e.g., "1,299.99" -> "1299.99"
+  if (s.includes('.') && s.includes(',')) {
+    // Find last occurrence - the later one is likely the decimal separator
+    const lastDot = s.lastIndexOf('.');
+    const lastComma = s.lastIndexOf(',');
+    
+    if (lastComma > lastDot) {
+      // European format: "1.299,99" -> "1299.99"
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // US format: "1,299.99" -> "1299.99"
+      s = s.replace(/,/g, '');
+    }
+  } else if (!s.includes('.') && s.includes(',')) {
+    // "1299,99" -> "1299.99" OR "1,299" (thousands) -> "1299"
+    // If comma position suggests it's thousands separator (3 digits after): remove it
+    const parts = s.split(',');
+    if (parts.length === 2 && parts[1].length === 3) {
+      // Likely thousands: "1,299" -> "1299"
+      s = s.replace(',', '');
+    } else {
+      // Likely decimal: "1299,99" -> "1299.99"
+      s = s.replace(',', '.');
+    }
+  }
+
+  const n = parseFloat(s);
+  if (!isFinite(n)) {
+    console.warn('[PRICE_DETECT] Rejected (non-finite after parse):', { raw, parsed: s });
+    return null;
+  }
+
+  // Sanity filters: reject obviously wrong numbers
+  if (n <= 0) {
+    console.warn('[PRICE_DETECT] Rejected (zero or negative):', { raw, parsed: n });
+    return null;
+  }
+  if (n < 0.01) {
+    console.warn('[PRICE_DETECT] Rejected (too small, < $0.01):', { raw, parsed: n });
+    return null;
+  }
+  if (n > 100000) {
+    console.warn('[PRICE_DETECT] Rejected (too large, > $100,000):', { raw, parsed: n });
+    return null;
+  }
+
+  // Round to 2 decimals
+  const rounded = Math.round(n * 100) / 100;
+
+  if (rounded <= 0) return null;
+
+  return rounded;
+}
+
+/**
+ * Legacy parsePrice for backward compatibility - now uses normalizePriceCandidate
+ */
 function parsePrice(priceStr: string): number | null {
-  if (!priceStr) return null;
-  const cleaned = priceStr.replace(/[^0-9.,]/g, '').replace(',', '');
-  const parsed = parseFloat(cleaned);
-  return isNaN(parsed) ? null : parsed;
+  return normalizePriceCandidate(priceStr);
+}
+
+/**
+ * Select the best price from multiple candidates.
+ * Prefers reasonable prices over edge cases.
+ */
+function selectBestPrice(candidates: (number | null)[]): number | null {
+  const validPrices = candidates
+    .map(c => normalizePriceCandidate(c))
+    .filter((p): p is number => p !== null && p > 0);
+
+  if (validPrices.length === 0) return null;
+  if (validPrices.length === 1) return validPrices[0];
+
+  // If multiple candidates, prefer:
+  // 1. Prices >= $1 (exclude shipping/tax fragments)
+  // 2. The lowest reasonable price (likely the product price, not shipping)
+  const reasonablePrices = validPrices.filter(p => p >= 1);
+  
+  if (reasonablePrices.length > 0) {
+    // Return lowest reasonable price
+    return Math.min(...reasonablePrices);
+  }
+
+  // Fallback to first valid price
+  return validPrices[0];
 }
 
 async function checkCache(supabase: any, url: string): Promise<ProductInfo | null> {
@@ -138,10 +246,14 @@ async function checkCache(supabase: any, url: string): Promise<ProductInfo | nul
   if (error || !data) return null;
 
   console.log('[get-product-info] Cache hit for:', url);
+  
+  // Normalize cached price to ensure it's clean
+  const cachedPrice = data.price ? normalizePriceCandidate(data.price) : null;
+  
   return {
     title: data.title,
     imageUrl: data.image_url,
-    price: data.price ? parseFloat(data.price) : null,
+    price: cachedPrice,
     currency: data.currency || 'USD',
     source: 'cached',
   };
@@ -388,7 +500,8 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
 
     const html = await response.text();
     
-    // Multi-layer extraction
+    // Collect ALL price candidates from different sources
+    const priceCandidates: (number | null)[] = [];
     let result: Partial<ProductInfo> = {};
 
     // ALWAYS try to extract image first using og:image (highest priority)
@@ -400,58 +513,59 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
 
     // 1. JSON-LD (most reliable for structured data)
     const jsonLdData = extractFromJsonLd(html);
-    result = { ...jsonLdData, ...result }; // Keep og:image if we found it
-    if (!result.imageUrl && jsonLdData.imageUrl) {
-      result.imageUrl = jsonLdData.imageUrl;
-    }
-    
+    if (jsonLdData.title && !result.title) result.title = jsonLdData.title;
+    if (jsonLdData.imageUrl && !result.imageUrl) result.imageUrl = jsonLdData.imageUrl;
     if (jsonLdData.price) {
-      console.log('[get-product-info] Extracted from JSON-LD');
-      return {
-        title: result.title || null,
-        imageUrl: result.imageUrl || null,
-        price: result.price || null,
-        currency: result.currency || 'USD',
-        source: 'jsonld',
-      };
+      priceCandidates.push(jsonLdData.price);
+      console.log('[get-product-info] JSON-LD price candidate:', jsonLdData.price);
     }
+    if (jsonLdData.currency) result.currency = jsonLdData.currency;
 
     // 2. Embedded JSON
     const embeddedData = extractFromEmbeddedJson(html);
     if (embeddedData.title && !result.title) result.title = embeddedData.title;
     if (embeddedData.imageUrl && !result.imageUrl) result.imageUrl = embeddedData.imageUrl;
-    if (embeddedData.price) result.price = embeddedData.price;
-    if (embeddedData.currency) result.currency = embeddedData.currency;
-    
     if (embeddedData.price) {
-      console.log('[get-product-info] Extracted from embedded JSON');
-      return {
-        title: result.title || null,
-        imageUrl: result.imageUrl || null,
-        price: result.price || null,
-        currency: result.currency || 'USD',
-        source: 'json',
-      };
+      priceCandidates.push(embeddedData.price);
+      console.log('[get-product-info] Embedded JSON price candidate:', embeddedData.price);
     }
+    if (embeddedData.currency && !result.currency) result.currency = embeddedData.currency;
 
     // 3. CSS Selectors
     const selectorData = extractFromSelectors(html, domain);
     if (selectorData.title && !result.title) result.title = selectorData.title;
     if (selectorData.imageUrl && !result.imageUrl) result.imageUrl = selectorData.imageUrl;
-    if (selectorData.price) result.price = selectorData.price;
-    
     if (selectorData.price) {
-      console.log('[get-product-info] Extracted from CSS selectors');
+      priceCandidates.push(selectorData.price);
+      console.log('[get-product-info] Selector price candidate:', selectorData.price);
+    }
+
+    // Select the best price from all candidates
+    const bestPrice = selectBestPrice(priceCandidates);
+    
+    if (bestPrice !== null) {
+      console.log('[get-product-info] Selected best price:', bestPrice, 'from candidates:', priceCandidates);
+      
+      // Determine source based on which extraction found the winning price
+      let source: ProductInfo['source'] = 'unknown';
+      if (jsonLdData.price && normalizePriceCandidate(jsonLdData.price) === bestPrice) {
+        source = 'jsonld';
+      } else if (embeddedData.price && normalizePriceCandidate(embeddedData.price) === bestPrice) {
+        source = 'json';
+      } else if (selectorData.price && normalizePriceCandidate(selectorData.price) === bestPrice) {
+        source = 'selectors';
+      }
+
       return {
         title: result.title || null,
         imageUrl: result.imageUrl || null,
-        price: result.price || null,
+        price: bestPrice,
         currency: result.currency || 'USD',
-        source: 'selectors',
+        source,
       };
     }
 
-    console.log('[get-product-info] Could not extract price, returning partial data');
+    console.log('[get-product-info] Could not extract valid price, returning partial data');
     return {
       title: result.title || null,
       imageUrl: result.imageUrl || null,

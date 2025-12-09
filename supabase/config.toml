@@ -61,7 +61,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.mobile-add-cart-item]
-verify_jwt = true
+verify_jwt = false
 
 [functions.mobile-delete-cart-item]
 verify_jwt = true

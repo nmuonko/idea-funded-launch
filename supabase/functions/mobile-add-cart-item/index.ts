@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { createClient, SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2";
 import { 
-  verifyAndGetUser, 
   handleCors, 
   corsHeaders, 
   errorResponse, 
-  jsonResponse 
+  jsonResponse,
+  extractBearerToken,
+  createAdminClient,
 } from "../_shared/auth.ts";
 import {
   determineShippingCategory,
@@ -76,6 +78,38 @@ function calculateItemPricing(
 
 // Heavy threshold for manual quote requirement
 const HEAVY_THRESHOLD_KG = 9;
+
+/**
+ * Optionally verify JWT and get user - returns null user if no valid token
+ * This allows guests to use the endpoint for price calculation
+ */
+async function optionallyGetUser(req: Request): Promise<{ user: User | null; supabase: SupabaseClient }> {
+  const authHeader = req.headers.get('Authorization');
+  const token = extractBearerToken(authHeader);
+  
+  // Create admin client for all operations (bypasses RLS)
+  const adminClient = createAdminClient();
+  
+  if (!token) {
+    console.log('[mobile-add-cart-item] No auth token provided - guest mode');
+    return { user: null, supabase: adminClient };
+  }
+
+  try {
+    const { data: { user }, error } = await adminClient.auth.getUser(token);
+    
+    if (error || !user) {
+      console.log('[mobile-add-cart-item] Invalid token - guest mode:', error?.message);
+      return { user: null, supabase: adminClient };
+    }
+    
+    console.log('[mobile-add-cart-item] User authenticated:', user.id);
+    return { user, supabase: adminClient };
+  } catch (e: any) {
+    console.log('[mobile-add-cart-item] Auth error - guest mode:', e.message);
+    return { user: null, supabase: adminClient };
+  }
+}
 
 // Calculate and persist order totals from items using settings values
 async function updateOrderTotals(
@@ -182,9 +216,11 @@ serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   try {
-    // Verify JWT using SERVICE_ROLE
-    const { user, supabase } = await verifyAndGetUser(req);
-    console.log('[mobile-add-cart-item] User authenticated:', user.id);
+    // OPTIONAL AUTH - guests allowed for price calculation
+    const { user, supabase } = await optionallyGetUser(req);
+    
+    const isGuest = user === null;
+    console.log('[mobile-add-cart-item] Mode:', isGuest ? 'GUEST' : 'AUTHENTICATED');
 
     const body = await req.json();
 
@@ -198,7 +234,7 @@ serve(async (req) => {
 
     const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
 
-    console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId });
+    console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest });
 
     // Load shipping type if provided
     let estWeightKg = 1; // default 1kg
@@ -220,29 +256,6 @@ serve(async (req) => {
       estWeightKg = shippingType.est_weight_kg;
       itemRequiresManualQuote = shippingType.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
       console.log('[mobile-add-cart-item] Shipping type loaded:', { estWeightKg, itemRequiresManualQuote });
-    }
-
-    // CRITICAL: Ensure user has a profile (orders.user_id references profiles.user_id)
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('user_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (!existingProfile) {
-      console.log('[mobile-add-cart-item] Creating profile for user:', user.id);
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({ 
-          user_id: user.id, 
-          full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-        });
-
-      if (profileError) {
-        console.error('[mobile-add-cart-item] Failed to create profile:', profileError);
-        return errorResponse(`Failed to create user profile: ${profileError.message}`, 500);
-      }
-      console.log('[mobile-add-cart-item] Profile created successfully');
     }
 
     // Load pricing settings
@@ -395,6 +408,83 @@ serve(async (req) => {
           isEstimated: detection.isEstimated,
         });
       }
+    }
+
+    // ========== GUEST MODE: Return price data only, no DB writes ==========
+    if (isGuest) {
+      console.log('[mobile-add-cart-item] Guest mode - returning price data without DB write');
+      
+      // Calculate estimated shipping for guest display
+      const estimatedShippingFee = itemRequiresManualQuote ? 0 : round2(shippingBaseFeeUsd + (pricing.itemBaseTotalUsd * shippingPercent));
+      const estimatedTotalUsd = round2(pricing.itemSubtotalUsd + estimatedShippingFee);
+      const estimatedTotalCdf = round2(estimatedTotalUsd * exchangeRate);
+      
+      return jsonResponse({
+        success: true,
+        isGuest: true,
+        item: {
+          id: null, // No DB record for guests
+          productUrl,
+          productTitle,
+          productImageUrl,
+          image_url: productImageUrl,
+          store,
+          basePriceUsd: pricing.basePriceUsd,
+          quantity: pricing.quantity,
+          unitPriceUsd: pricing.basePriceUsd,
+          itemBaseTotalUsd: pricing.itemBaseTotalUsd,
+          itemMarginUsd: pricing.itemMarginUsd,
+          itemSubtotalUsd: pricing.itemSubtotalUsd,
+          itemSubtotalCdf: pricing.itemSubtotalCdf,
+          estWeightKg,
+          requiresManualQuote: itemRequiresManualQuote,
+          shippingItemTypeId: finalShippingTypeId,
+          shippingCategory: autoDetectedCategory,
+          isShippingCategoryEstimated,
+          isVehicle,
+          isQuoteRequired: isVehicle && vehicleRequiresQuote,
+          quoteStatus: null,
+          // Estimated shipping for guest display
+          estimatedShippingFee,
+          estimatedTotalUsd,
+          estimatedTotalCdf,
+        },
+        summary: {
+          itemTotalUsd: pricing.itemBaseTotalUsd,
+          serviceFeeUsd: pricing.itemMarginUsd,
+          shippingFeeUsd: estimatedShippingFee,
+          totalUsd: estimatedTotalUsd,
+          totalCdf: estimatedTotalCdf,
+          exchangeRate,
+          requiresManualQuote: itemRequiresManualQuote,
+        },
+        message: 'Price calculated. Login to save to cart.',
+      });
+    }
+
+    // ========== AUTHENTICATED MODE: Full cart functionality ==========
+    
+    // CRITICAL: Ensure user has a profile (orders.user_id references profiles.user_id)
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (!existingProfile) {
+      console.log('[mobile-add-cart-item] Creating profile for user:', user.id);
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({ 
+          user_id: user.id, 
+          full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        });
+
+      if (profileError) {
+        console.error('[mobile-add-cart-item] Failed to create profile:', profileError);
+        return errorResponse(`Failed to create user profile: ${profileError.message}`, 500);
+      }
+      console.log('[mobile-add-cart-item] Profile created successfully');
     }
 
     // Get or create DRAFT order
@@ -594,10 +684,7 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[mobile-add-cart-item] Error:', error.message);
     
-    if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
-    }
-    
-    return errorResponse(error.message, 500);
+    // Never return SESSION_EXPIRED for this endpoint - it's guest-friendly
+    return errorResponse(error.message || 'An error occurred', 500);
   }
 });

@@ -131,16 +131,31 @@ serve(async (req) => {
       console.error('[Web Maisha Callback] Update error:', updateError);
     }
 
-    // Update maisha_payments table
-    await supabase
+    // Update maisha_payments table - try by reference first, then by order_id
+    const paymentUpdateData = {
+      status: paymentStatus,
+      raw_response: payload,
+      updated_at: new Date().toISOString(),
+      paid_at: paymentStatus === 'paid' ? new Date().toISOString() : null,
+      maishapay_status: String(statusCode),
+      maishapay_description: description || null,
+      maishapay_operator_ref_id: operatorRefId || null,
+    };
+
+    const { data: refUpdateResult } = await supabase
       .from('maisha_payments')
-      .update({
-        status: paymentStatus,
-        raw_response: payload,
-        updated_at: new Date().toISOString(),
-        paid_at: paymentStatus === 'paid' ? new Date().toISOString() : null,
-      })
-      .eq('maisha_reference', reference);
+      .update(paymentUpdateData)
+      .eq('maisha_reference', reference)
+      .select('id');
+
+    // If no rows updated by reference, try by order_id
+    if (!refUpdateResult || refUpdateResult.length === 0) {
+      console.log('[Web Maisha Callback] No payment found by reference, trying order_id:', order.id);
+      await supabase
+        .from('maisha_payments')
+        .update(paymentUpdateData)
+        .eq('order_id', order.id);
+    }
 
     // Send notifications on successful payment
     if (paymentStatus === 'paid') {

@@ -1,11 +1,16 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Store types
+type StoreType = 'amazon' | 'walmart' | 'bestbuy' | 'ebay' | 'aliexpress' | 'target' | 'shein' | 'macys' | 'homedepot' | 'generic';
+
 // Allowed domains for SSRF prevention
 const ALLOWED_DOMAINS = [
-  'amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr', 'amazon.ca',
+  'amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr', 'amazon.ca', 'amazon.es', 'amazon.it',
   'ebay.com', 'ebay.co.uk', 'ebay.de', 'ebay.fr',
   'walmart.com',
   'bestbuy.com',
@@ -23,73 +28,138 @@ const ALLOWED_DOMAINS = [
   'cars.com',
 ];
 
-// Universal price selectors covering all major stores
-const PRICE_SELECTORS = [
-  // Amazon-specific
-  '[data-asin-price]',
-  '#priceblock_ourprice',
-  '#priceblock_dealprice',
-  '#priceblock_saleprice',
-  '.a-price .a-offscreen',
-  '#corePrice_feature_div .a-price-whole',
-  '#apex_offerDisplay_desktop .a-price .a-offscreen',
-  '.priceToPay .a-offscreen',
-  '#price_inside_buybox',
-  
-  // eBay-specific
-  '.x-price-primary span',
-  '.x-bin-price__content .ux-textspans',
-  '[itemprop="price"]',
-  '.vi-price',
-  
-  // Walmart-specific
-  '[itemprop="price"]',
-  '[data-automation-id="product-price"] .f2',
-  '.price-characteristic',
-  '.prod-PriceHero',
-  
-  // BestBuy-specific
-  '.priceView-customer-price span',
-  '.priceView-hero-price span',
-  '[data-testid="customer-price"] span',
-  
-  // Target-specific
-  '[data-test="product-price"]',
-  '.styles__CurrentPriceFontSize-sc',
-  
-  // AliExpress-specific
-  '.product-price-value',
-  '.uniform-banner-box-price',
-  '.snow-price_SnowPrice__mainS__18x8np',
-  
-  // Generic patterns (work across many sites)
-  '.price',
-  '.product-price',
-  '.current-price',
-  '.sale-price',
-  '.final-price',
-  '.offer-price',
-  '.price-current',
-  '.price-now',
-  '.actual-price',
-  '[data-price]',
-  '[data-product-price]',
-  '.pdp-price',
-  '.product__price',
-  '.ProductPrice',
-  
-  // SHEIN-specific
-  '.from.original',
-  '.product-intro__head-price',
-  
-  // Macy's-specific
-  '.price .lowest-sale-price',
-  '.price-sales',
-  
-  // Home Depot / Lowes
-  '.price-format__main-price',
-  '.art-pd-price',
-];
+// Store-specific selectors (ordered by priority)
+const STORE_SELECTORS: Record<StoreType, string[]> = {
+  amazon: [
+    '#priceblock_ourprice',
+    '#priceblock_dealprice',
+    '#priceblock_saleprice',
+    '#corePrice_feature_div .a-offscreen',
+    '.a-price .a-offscreen',
+    '#apex_offerDisplay_desktop .a-price .a-offscreen',
+    '.priceToPay .a-offscreen',
+    '#price_inside_buybox',
+    '.a-price-whole',
+    '[data-asin-price]',
+  ],
+  walmart: [
+    '[itemprop="price"]',
+    '.price-characteristic',
+    '.prod-PriceHero .price-group',
+    '[data-automation-id="product-price"]',
+    '.price-main .visuallyhidden',
+    '.price-main-block span',
+  ],
+  bestbuy: [
+    '.priceView-hero-price span[aria-hidden="true"]',
+    '.priceView-customer-price span',
+    '[data-testid="customer-price"] span',
+    '.pricing-price__regular-price',
+  ],
+  ebay: [
+    '#prcIsum',
+    '#mm-saleDscPrc',
+    '.x-price-primary span',
+    '.x-bin-price__content .ux-textspans',
+    '[itemprop="price"]',
+    '.vi-price',
+  ],
+  aliexpress: [
+    '.product-price-value',
+    '.uniform-banner-box-price',
+    '.snow-price_SnowPrice__mainS__18x8np',
+    '.es--wrap--erdmPRe .es--char--dIjqpKQ',
+  ],
+  target: [
+    '[data-test="product-price"]',
+    '.styles__CurrentPriceFontSize-sc',
+    '[data-test="product-price"] span',
+  ],
+  shein: [
+    '.from.original',
+    '.product-intro__head-price',
+    '.goods-price__main-price',
+  ],
+  macys: [
+    '.price .lowest-sale-price',
+    '.price-sales',
+    '.priceWrapper .price',
+  ],
+  homedepot: [
+    '.price-format__main-price',
+    '.price span',
+    '[data-price]',
+  ],
+  generic: [
+    '.price',
+    '.product-price',
+    '.current-price',
+    '.sale-price',
+    '.final-price',
+    '.offer-price',
+    '.price-current',
+    '.price-now',
+    '.actual-price',
+    '[data-price]',
+    '[data-product-price]',
+    '[itemprop="price"]',
+    '.pdp-price',
+    '.product__price',
+    '.ProductPrice',
+  ],
+};
+
+// Currency patterns
+const CURRENCY_PATTERNS: Record<string, RegExp> = {
+  USD: /\$|USD/i,
+  EUR: /€|EUR/i,
+  GBP: /£|GBP/i,
+  CDF: /CDF|FC/i,
+};
+
+// ============== UTILITY FUNCTIONS ==============
+
+function normalizeUrl(url: string): string {
+  try {
+    const urlObj = new URL(url.trim());
+    // Normalize: lowercase host, remove fragments, keep path and essential params
+    let normalized = `${urlObj.protocol}//${urlObj.hostname.toLowerCase()}${urlObj.pathname}`;
+    // Keep important query params for product identification
+    const importantParams = ['id', 'asin', 'product', 'item', 'sku', 'pid'];
+    const params = new URLSearchParams();
+    for (const [key, value] of urlObj.searchParams) {
+      if (importantParams.some(p => key.toLowerCase().includes(p))) {
+        params.set(key, value);
+      }
+    }
+    const paramStr = params.toString();
+    if (paramStr) normalized += `?${paramStr}`;
+    return normalized;
+  } catch {
+    return url.trim().toLowerCase();
+  }
+}
+
+function detectStore(url: string): StoreType {
+  try {
+    const { hostname } = new URL(url);
+    const host = hostname.toLowerCase();
+    
+    if (host.includes('amazon.')) return 'amazon';
+    if (host.includes('walmart.')) return 'walmart';
+    if (host.includes('bestbuy.')) return 'bestbuy';
+    if (host.includes('ebay.')) return 'ebay';
+    if (host.includes('aliexpress.')) return 'aliexpress';
+    if (host.includes('target.')) return 'target';
+    if (host.includes('shein.')) return 'shein';
+    if (host.includes('macys.')) return 'macys';
+    if (host.includes('homedepot.')) return 'homedepot';
+    
+    return 'generic';
+  } catch {
+    return 'generic';
+  }
+}
 
 function isAllowedDomain(url: string): boolean {
   try {
@@ -108,10 +178,8 @@ function isPrivateUrl(url: string): boolean {
     const urlObj = new URL(url);
     const hostname = urlObj.hostname.toLowerCase();
     
-    // Check for localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
     
-    // Check for private IP ranges
     const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
     if (ipMatch) {
       const [, a, b] = ipMatch.map(Number);
@@ -127,38 +195,88 @@ function isPrivateUrl(url: string): boolean {
   }
 }
 
-function cleanPriceString(priceStr: string): number | null {
-  if (!priceStr || typeof priceStr !== 'string') return null;
+function detectCurrency(text: string, url: string): string {
+  // Check URL for domain hints
+  if (url.includes('.co.uk') || url.includes('.uk')) return 'GBP';
+  if (url.includes('.de') || url.includes('.fr') || url.includes('.it') || url.includes('.es')) return 'EUR';
   
-  // Remove currency symbols and clean up
-  let cleaned = priceStr
-    .replace(/[$€£¥₹₦CDF\s]/gi, '')
-    .replace(/USD|EUR|GBP|JPY/gi, '')
+  // Check text for currency symbols
+  if (CURRENCY_PATTERNS.GBP.test(text)) return 'GBP';
+  if (CURRENCY_PATTERNS.EUR.test(text)) return 'EUR';
+  if (CURRENCY_PATTERNS.CDF.test(text)) return 'CDF';
+  
+  return 'USD';
+}
+
+function cleanPriceString(rawText: string): number | null {
+  if (!rawText || typeof rawText !== 'string') return null;
+  
+  // Remove currency symbols, whitespace, non-breaking spaces
+  let cleaned = rawText
+    .replace(/[$€£¥₹₦\u00A0\s]/g, '')
+    .replace(/USD|EUR|GBP|CDF|FC/gi, '')
     .trim();
   
-  // Handle different number formats
-  // Format: 1,299.99 (US) or 1.299,99 (EU)
-  const usFormat = cleaned.match(/^(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)$/);
-  const euFormat = cleaned.match(/^(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)$/);
+  if (!cleaned) return null;
   
-  if (usFormat) {
-    cleaned = cleaned.replace(/,/g, '');
-  } else if (euFormat) {
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-  } else {
-    // Simple cleanup for other formats
-    cleaned = cleaned.replace(/,/g, '');
+  // Handle different number formats
+  // US format: 1,299.99 (comma = thousands, dot = decimal)
+  // EU format: 1.299,99 (dot = thousands, comma = decimal)
+  
+  const hasComma = cleaned.includes(',');
+  const hasDot = cleaned.includes('.');
+  
+  if (hasComma && hasDot) {
+    // Both present - determine which is decimal
+    const lastComma = cleaned.lastIndexOf(',');
+    const lastDot = cleaned.lastIndexOf('.');
+    
+    if (lastComma > lastDot) {
+      // EU format: 1.299,99
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else {
+      // US format: 1,299.99
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  } else if (hasComma && !hasDot) {
+    // Only comma - check if it's decimal or thousands
+    const parts = cleaned.split(',');
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Likely EU decimal: 299,99
+      cleaned = cleaned.replace(',', '.');
+    } else {
+      // Likely thousands: 1,299
+      cleaned = cleaned.replace(/,/g, '');
+    }
   }
+  // If only dot or neither, it's already in correct format
   
   const price = parseFloat(cleaned);
   
-  // Validate: must be positive, finite, and reasonable (under $1M)
+  // Validate: positive, finite, reasonable range
   if (isNaN(price) || !isFinite(price) || price <= 0 || price > 1000000) {
     return null;
   }
   
   return Math.round(price * 100) / 100;
 }
+
+function formatDisplayPrice(price: number, currency: string): string {
+  const symbols: Record<string, string> = {
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'CDF': 'CDF ',
+  };
+  const symbol = symbols[currency] || '$';
+  
+  if (currency === 'CDF') {
+    return `${symbol}${price.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  }
+  return `${symbol}${price.toFixed(2)}`;
+}
+
+// ============== EXTRACTION METHODS ==============
 
 function extractFromJsonLd(html: string): number | null {
   try {
@@ -172,8 +290,7 @@ function extractFromJsonLd(html: string): number | null {
         const items = Array.isArray(data) ? data : [data];
         
         for (const item of items) {
-          // Check for Product schema
-          if (item['@type'] === 'Product' || item['@type']?.includes('Product')) {
+          if (item['@type'] === 'Product' || item['@type']?.includes?.('Product')) {
             const offers = item.offers;
             if (offers) {
               const offerList = Array.isArray(offers) ? offers : [offers];
@@ -200,19 +317,24 @@ function extractFromJsonLd(html: string): number | null {
   return null;
 }
 
-function extractFromSelectors(html: string): number | null {
-  for (const selector of PRICE_SELECTORS) {
-    // Build regex patterns for common selector types
+function extractFromSelectors(html: string, store: StoreType): number | null {
+  // Get store-specific selectors first, then generic
+  const selectors = [
+    ...(STORE_SELECTORS[store] || []),
+    ...STORE_SELECTORS.generic,
+  ];
+  
+  for (const selector of selectors) {
     let pattern: RegExp | null = null;
     
     if (selector.startsWith('#')) {
       // ID selector
-      const id = selector.slice(1).split(' ')[0].split('.')[0];
-      pattern = new RegExp(`id=["']${id}["'][^>]*>([^<]*(?:<[^>]*>[^<]*)*?)`, 'i');
+      const id = selector.slice(1).split(/[\s.[\]]/)[0];
+      pattern = new RegExp(`id=["']${id}["'][^>]*>([^<]*(?:<[^>]*>[^<]*)*)`, 'i');
     } else if (selector.startsWith('.')) {
       // Class selector
-      const className = selector.slice(1).split(' ')[0].split('.')[0];
-      pattern = new RegExp(`class=["'][^"']*${className}[^"']*["'][^>]*>([^<]*(?:<[^>]*>[^<]*)*?)`, 'i');
+      const className = selector.slice(1).split(/[\s.[\]]/)[0];
+      pattern = new RegExp(`class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([^<]*(?:<[^>]*>[^<]*)*)`, 'i');
     } else if (selector.startsWith('[')) {
       // Attribute selector
       const attrMatch = selector.match(/\[([^\]=]+)(?:=["']?([^"'\]]+)["']?)?\]/);
@@ -222,6 +344,7 @@ function extractFromSelectors(html: string): number | null {
         if (value) {
           pattern = new RegExp(`${attr}=["']${value}["'][^>]*>([^<]*)`, 'i');
         } else {
+          // Just check for attribute presence
           pattern = new RegExp(`${attr}=["']([^"']+)["']`, 'i');
         }
       }
@@ -232,7 +355,7 @@ function extractFromSelectors(html: string): number | null {
       if (match && match[1]) {
         const price = cleanPriceString(match[1]);
         if (price) {
-          console.log(`Found price ${price} using selector pattern: ${selector}`);
+          console.log(`Found price ${price} using selector: ${selector}`);
           return price;
         }
       }
@@ -242,78 +365,179 @@ function extractFromSelectors(html: string): number | null {
   return null;
 }
 
-function extractWithRegex(html: string): number | null {
+function extractWithRegex(html: string): { price: number; currencyHint: string } | null {
   // Multiple regex patterns for price extraction
   const patterns = [
     // Pattern: $199.99 or USD 199.99
-    /(?:\$|USD)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    { regex: /(?:\$|USD)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi, currency: 'USD' },
     // Pattern: 199.99 USD
-    /(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:USD|\$)/gi,
+    { regex: /(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:USD|\$)/gi, currency: 'USD' },
     // Pattern: €199.99 or EUR 199.99
-    /(?:€|EUR)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    { regex: /(?:€|EUR)\s*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)/gi, currency: 'EUR' },
     // Pattern: £199.99 or GBP 199.99
-    /(?:£|GBP)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi,
+    { regex: /(?:£|GBP)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)/gi, currency: 'GBP' },
+    // Pattern: CDF 350,000 or FC 350000
+    { regex: /(?:CDF|FC)\s*(\d{1,3}(?:[.,\s]\d{3})*)/gi, currency: 'CDF' },
     // Pattern: price="199.99" or data-price="199.99"
-    /(?:data-)?price=["'](\d+(?:\.\d{1,2})?)["']/gi,
+    { regex: /(?:data-)?price=["'](\d+(?:\.\d{1,2})?)["']/gi, currency: 'USD' },
     // Pattern: "price":199.99 or "price":"199.99"
-    /"price":\s*["']?(\d+(?:\.\d{1,2})?)["']?/gi,
+    { regex: /"price":\s*["']?(\d+(?:\.\d{1,2})?)["']?/gi, currency: 'USD' },
   ];
   
-  const candidates: number[] = [];
+  const candidates: { price: number; currency: string }[] = [];
   
-  for (const pattern of patterns) {
+  for (const { regex, currency } of patterns) {
     let match;
-    while ((match = pattern.exec(html)) !== null) {
+    regex.lastIndex = 0; // Reset regex
+    while ((match = regex.exec(html)) !== null) {
       const price = cleanPriceString(match[1]);
       if (price && price > 0.01 && price < 100000) {
-        candidates.push(price);
+        candidates.push({ price, currency });
       }
     }
   }
   
   if (candidates.length === 0) return null;
   
-  // Return the most common price, or the first reasonable one
-  const priceCounts = new Map<number, number>();
-  for (const price of candidates) {
-    priceCounts.set(price, (priceCounts.get(price) || 0) + 1);
-  }
-  
-  let bestPrice = candidates[0];
-  let bestCount = 0;
-  for (const [price, count] of priceCounts) {
-    if (count > bestCount) {
-      bestCount = count;
-      bestPrice = price;
+  // Return the most common price, preferring USD
+  const priceCounts = new Map<number, { count: number; currency: string }>();
+  for (const { price, currency } of candidates) {
+    const existing = priceCounts.get(price);
+    if (existing) {
+      existing.count++;
+      if (currency === 'USD') existing.currency = currency;
+    } else {
+      priceCounts.set(price, { count: 1, currency });
     }
   }
   
-  console.log(`Found price ${bestPrice} using regex fallback`);
-  return bestPrice;
+  let bestPrice = candidates[0].price;
+  let bestCurrency = candidates[0].currency;
+  let bestCount = 0;
+  
+  for (const [price, { count, currency }] of priceCounts) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestPrice = price;
+      bestCurrency = currency;
+    }
+  }
+  
+  console.log(`Found price ${bestPrice} (${bestCurrency}) using regex fallback`);
+  return { price: bestPrice, currencyHint: bestCurrency };
 }
 
-function detectCurrency(html: string, url: string): string {
-  // Check URL for hints
-  if (url.includes('.co.uk') || url.includes('.uk')) return 'GBP';
-  if (url.includes('.de') || url.includes('.fr') || url.includes('.it') || url.includes('.es')) return 'EUR';
+async function extractWithOcr(url: string): Promise<number | null> {
+  const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
   
-  // Check HTML content
-  if (html.includes('£') || html.includes('GBP')) return 'GBP';
-  if (html.includes('€') || html.includes('EUR')) return 'EUR';
+  if (!firecrawlApiKey) {
+    console.log('FIRECRAWL_API_KEY not configured, skipping OCR fallback');
+    return null;
+  }
   
-  // Default to USD
-  return 'USD';
+  try {
+    console.log('Attempting OCR fallback via Firecrawl...');
+    
+    // Use Firecrawl to scrape with screenshot
+    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${firecrawlApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        url,
+        formats: ['markdown'],
+        onlyMainContent: true,
+      }),
+    });
+    
+    if (!response.ok) {
+      console.error('Firecrawl request failed:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success || !data.markdown) {
+      console.log('Firecrawl returned no content');
+      return null;
+    }
+    
+    // Parse the markdown content for prices
+    const result = extractWithRegex(data.markdown);
+    if (result) {
+      console.log(`OCR fallback found price: ${result.price}`);
+      return result.price;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('OCR fallback error:', error);
+    return null;
+  }
 }
 
-function formatDisplayPrice(price: number, currency: string): string {
-  const symbols: Record<string, string> = {
-    'USD': '$',
-    'EUR': '€',
-    'GBP': '£',
-  };
-  const symbol = symbols[currency] || '$';
-  return `${symbol}${price.toFixed(2)}`;
+// ============== CACHE FUNCTIONS ==============
+
+async function getCachedPrice(supabase: any, normalizedUrl: string): Promise<{
+  basePrice: number;
+  displayPrice: string;
+  currency: string;
+  store: string;
+} | null> {
+  try {
+    const { data, error } = await supabase
+      .from('price_cache')
+      .select('base_price, display_price, currency, store')
+      .eq('url', normalizedUrl)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+    
+    if (error || !data) return null;
+    
+    return {
+      basePrice: Number(data.base_price),
+      displayPrice: data.display_price,
+      currency: data.currency,
+      store: data.store,
+    };
+  } catch {
+    return null;
+  }
 }
+
+async function setCachedPrice(
+  supabase: any,
+  normalizedUrl: string,
+  store: string,
+  basePrice: number,
+  currency: string,
+  displayPrice: string
+): Promise<void> {
+  try {
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 12); // 12 hour TTL
+    
+    await supabase
+      .from('price_cache')
+      .upsert({
+        url: normalizedUrl,
+        store,
+        base_price: basePrice,
+        currency,
+        display_price: displayPrice,
+        fetched_at: new Date().toISOString(),
+        expires_at: expiresAt.toISOString(),
+      }, {
+        onConflict: 'url',
+      });
+  } catch (error) {
+    console.error('Failed to cache price:', error);
+  }
+}
+
+// ============== MAIN HANDLER ==============
 
 Deno.serve(async (req) => {
   // Handle CORS preflight
@@ -361,12 +585,41 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Extracting price from: ${formattedUrl}`);
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Normalize URL for caching
+    const normalizedUrl = normalizeUrl(formattedUrl);
+    const store = detectStore(formattedUrl);
+
+    console.log(`Processing price extraction for: ${formattedUrl}`);
+    console.log(`Normalized URL: ${normalizedUrl}`);
+    console.log(`Detected store: ${store}`);
+
+    // Check cache first
+    const cached = await getCachedPrice(supabase, normalizedUrl);
+    if (cached) {
+      console.log('Returning cached price');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          basePrice: cached.basePrice,
+          displayPrice: cached.displayPrice,
+          currency: cached.currency,
+          store: cached.store,
+          cached: true,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Fetch the page
+    console.log('Fetching page HTML...');
     const response = await fetch(formattedUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (compatible; AfriShopPriceBot/1.0; +https://afrishop-usa.com)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
       },
@@ -375,23 +628,26 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       console.error(`Failed to fetch URL: ${response.status}`);
       return new Response(
-        JSON.stringify({ success: false, message: "We couldn't access this product page. Please check the URL and try again." }),
+        JSON.stringify({ success: false, message: "We couldn't reach this product page. Please try again." }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const html = await response.text();
     let price: number | null = null;
+    let currencyFromExtraction: string | null = null;
 
     // Strategy 1: JSON-LD structured data (most reliable)
+    console.log('Trying JSON-LD extraction...');
     price = extractFromJsonLd(html);
     if (price) {
       console.log(`Price found via JSON-LD: ${price}`);
     }
 
-    // Strategy 2: CSS selectors
+    // Strategy 2: Store-specific + generic CSS selectors
     if (!price) {
-      price = extractFromSelectors(html);
+      console.log('Trying selector extraction...');
+      price = extractFromSelectors(html, store);
       if (price) {
         console.log(`Price found via selectors: ${price}`);
       }
@@ -399,18 +655,33 @@ Deno.serve(async (req) => {
 
     // Strategy 3: Regex fallback
     if (!price) {
-      price = extractWithRegex(html);
-      if (price) {
+      console.log('Trying regex fallback...');
+      const regexResult = extractWithRegex(html);
+      if (regexResult) {
+        price = regexResult.price;
+        currencyFromExtraction = regexResult.currencyHint;
         console.log(`Price found via regex: ${price}`);
+      }
+    }
+
+    // Strategy 4: OCR fallback (last resort)
+    if (!price) {
+      console.log('Trying OCR fallback...');
+      price = await extractWithOcr(formattedUrl);
+      if (price) {
+        console.log(`Price found via OCR: ${price}`);
       }
     }
 
     // Return result
     if (price) {
-      const currency = detectCurrency(html, formattedUrl);
+      const currency = currencyFromExtraction || detectCurrency(html, formattedUrl);
       const displayPrice = formatDisplayPrice(price, currency);
       
-      console.log(`Successfully extracted price: ${displayPrice}`);
+      // Cache the result
+      await setCachedPrice(supabase, normalizedUrl, store, price, currency, displayPrice);
+      
+      console.log(`Successfully extracted price: ${displayPrice} from ${store}`);
       
       return new Response(
         JSON.stringify({
@@ -418,17 +689,19 @@ Deno.serve(async (req) => {
           basePrice: price,
           displayPrice: displayPrice,
           currency: currency,
+          store: store,
+          cached: false,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // No price found
-    console.log('No price found on page');
+    // No price found after all methods
+    console.log('No price found on page after all extraction methods');
     return new Response(
       JSON.stringify({ 
         success: false, 
-        message: "We couldn't extract the price for this product. Please try again or enter the price manually." 
+        message: "We couldn't detect a price on this page. Please try again or choose a different product." 
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

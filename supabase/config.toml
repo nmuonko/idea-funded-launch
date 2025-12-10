@@ -1,5 +1,8 @@
 project_id = "igmkhxffnyzoogcqvdab"
 
+[functions.extract-price]
+verify_jwt = false
+
 [functions.mobile-profile]
 verify_jwt = true
 

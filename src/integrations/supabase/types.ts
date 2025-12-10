@@ -792,31 +792,43 @@ export type Database = {
         Row: {
           base_price: number
           currency: string | null
+          currency_symbol: string | null
           display_price: string | null
           expires_at: string
           fetched_at: string
           id: string
+          image_url: string | null
+          raw_currency_code: string | null
           store: string
+          title: string | null
           url: string
         }
         Insert: {
           base_price: number
           currency?: string | null
+          currency_symbol?: string | null
           display_price?: string | null
           expires_at?: string
           fetched_at?: string
           id?: string
+          image_url?: string | null
+          raw_currency_code?: string | null
           store?: string
+          title?: string | null
           url: string
         }
         Update: {
           base_price?: number
           currency?: string | null
+          currency_symbol?: string | null
           display_price?: string | null
           expires_at?: string
           fetched_at?: string
           id?: string
+          image_url?: string | null
+          raw_currency_code?: string | null
           store?: string
+          title?: string | null
           url?: string
         }
         Relationships: []

@@ -34,20 +34,20 @@ const EmailConfirmed = () => {
 
         {/* Bilingual Title */}
         <h1 className="text-2xl md:text-3xl font-bold text-foreground">
-          Merci d'avoir confirmé votre e-mail !
+          E-mail confirmé ✅
           <br />
           <span className="text-muted-foreground text-xl md:text-2xl">
-            Thank you for confirming your email!
+            Email Confirmed ✅
           </span>
         </h1>
 
         {/* Bilingual Body */}
         <div className="space-y-4 text-muted-foreground">
           <p>
-            Vous pouvez maintenant revenir dans l'application AfriShop et continuer votre paiement ou vos achats.
+            Merci d'avoir vérifié votre adresse e-mail. Vous pouvez maintenant retourner dans l'application AfriShop et continuer votre paiement.
           </p>
           <p className="text-sm opacity-80">
-            You can now return to the AfriShop app and continue your payment or shopping.
+            Thank you for verifying your email. You can now return to the AfriShop app and continue your checkout.
           </p>
         </div>
 

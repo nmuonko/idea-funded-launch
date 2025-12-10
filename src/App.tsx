@@ -54,7 +54,10 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 const queryClient = new QueryClient();
 
 const App = () => {
-  const [showSplash, setShowSplash] = useState(true);
+  // Skip splash for public pages like email confirmation
+  const [showSplash, setShowSplash] = useState(() => {
+    return !window.location.pathname.includes('/email-confirmed');
+  });
 
   return (
     <>

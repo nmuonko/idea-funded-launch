@@ -6,6 +6,47 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Dual auth: supports both cron jobs (service key in header) and admin JWT calls
+async function authenticateRequest(req: Request): Promise<{ authorized: boolean; source: string; error?: string }> {
+  const authHeader = req.headers.get('Authorization');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  
+  // Check if this is a cron job call with service role key
+  if (authHeader === `Bearer ${serviceRoleKey}`) {
+    return { authorized: true, source: 'cron' };
+  }
+  
+  // Otherwise, validate as admin user
+  if (!authHeader) {
+    return { authorized: false, source: 'none', error: 'Authorization required' };
+  }
+
+  const supabaseAuth = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } }
+  );
+
+  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+  if (authError || !user) {
+    return { authorized: false, source: 'user', error: 'Invalid authentication' };
+  }
+
+  // Check admin role
+  const { data: roleData } = await supabaseAuth
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('role', 'admin')
+    .maybeSingle();
+
+  if (!roleData) {
+    return { authorized: false, source: 'user', error: 'Admin access required' };
+  }
+
+  return { authorized: true, source: `admin:${user.email}` };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -14,48 +55,17 @@ serve(async (req) => {
   console.log('[Reconcile Payment Status] Starting reconciliation...');
 
   try {
-    // Create authenticated client to check admin role
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ success: false, error: 'Authorization required' }), {
-        status: 401,
+    // Authenticate request (supports both cron and admin calls)
+    const auth = await authenticateRequest(req);
+    if (!auth.authorized) {
+      console.error(`[Reconcile Payment Status] Auth failed: ${auth.error}`);
+      return new Response(JSON.stringify({ success: false, error: auth.error }), {
+        status: auth.source === 'none' ? 401 : 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const supabaseAuth = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
-    if (authError || !user) {
-      console.error('[Reconcile Payment Status] Auth error:', authError);
-      return new Response(JSON.stringify({ success: false, error: 'Invalid authentication' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Check if user is admin
-    const { data: roleData, error: roleError } = await supabaseAuth
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'admin')
-      .maybeSingle();
-
-    if (roleError || !roleData) {
-      console.error('[Reconcile Payment Status] User is not admin:', user.id);
-      return new Response(JSON.stringify({ success: false, error: 'Admin access required' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log(`[Reconcile Payment Status] Admin ${user.email} authorized`);
+    console.log(`[Reconcile Payment Status] Authorized via: ${auth.source}`);
 
     // Use service role for database operations
     const supabase = createClient(

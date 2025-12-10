@@ -427,7 +427,7 @@ function extractWithRegex(html: string): { price: number; currencyHint: string }
   return { price: bestPrice, currencyHint: bestCurrency };
 }
 
-async function extractWithOcr(url: string): Promise<number | null> {
+async function extractWithOcr(url: string, timeout: number): Promise<number | null> {
   const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
   
   if (!firecrawlApiKey) {
@@ -437,6 +437,9 @@ async function extractWithOcr(url: string): Promise<number | null> {
   
   try {
     console.log('Attempting OCR fallback via Firecrawl...');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     // Use Firecrawl to scrape with screenshot
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
@@ -450,7 +453,10 @@ async function extractWithOcr(url: string): Promise<number | null> {
         formats: ['markdown'],
         onlyMainContent: true,
       }),
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
     
     if (!response.ok) {
       console.error('Firecrawl request failed:', response.status);
@@ -472,11 +478,23 @@ async function extractWithOcr(url: string): Promise<number | null> {
     }
     
     return null;
-  } catch (error) {
-    console.error('OCR fallback error:', error);
+  } catch (error: unknown) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('OCR request timed out');
+    } else {
+      console.error('OCR fallback error:', error);
+    }
     return null;
   }
 }
+
+// ============== TIMEOUT CONFIGURATION ==============
+
+const TIMEOUTS = {
+  fast: 6000,      // 6 seconds for fast mode
+  standard: 15000, // 15 seconds for standard mode
+  ocr: 10000,      // 10 seconds max for OCR
+};
 
 // ============== CACHE FUNCTIONS ==============
 
@@ -554,7 +572,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { url } = await req.json();
+    const body = await req.json();
+    const { url, allowOcr = false, mode = 'standard' } = body;
 
     // Validate URL
     if (!url || typeof url !== 'string') {
@@ -563,6 +582,9 @@ Deno.serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Determine timeout based on mode
+    const fetchTimeout = mode === 'fast' ? TIMEOUTS.fast : TIMEOUTS.standard;
 
     // Format URL
     let formattedUrl = url.trim();
@@ -595,7 +617,7 @@ Deno.serve(async (req) => {
     const store = detectStore(formattedUrl);
 
     console.log(`Processing price extraction for: ${formattedUrl}`);
-    console.log(`Normalized URL: ${normalizedUrl}`);
+    console.log(`Mode: ${mode}, allowOcr: ${allowOcr}, timeout: ${fetchTimeout}ms`);
     console.log(`Detected store: ${store}`);
 
     // Check cache first
@@ -615,15 +637,33 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch the page
+    // Fetch the page with timeout
     console.log('Fetching page HTML...');
-    const response = await fetch(formattedUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; AfriShopPriceBot/1.0; +https://afrishop-usa.com)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+
+    let response: Response;
+    try {
+      response = await fetch(formattedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError: unknown) {
+      clearTimeout(timeoutId);
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        console.log(`Fetch timed out after ${fetchTimeout}ms`);
+        return new Response(
+          JSON.stringify({ success: false, message: "Request timed out. Please try again." }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      throw fetchError;
+    }
 
     if (!response.ok) {
       console.error(`Failed to fetch URL: ${response.status}`);
@@ -636,11 +676,13 @@ Deno.serve(async (req) => {
     const html = await response.text();
     let price: number | null = null;
     let currencyFromExtraction: string | null = null;
+    let extractionMethod: string | null = null;
 
     // Strategy 1: JSON-LD structured data (most reliable)
     console.log('Trying JSON-LD extraction...');
     price = extractFromJsonLd(html);
     if (price) {
+      extractionMethod = 'jsonld';
       console.log(`Price found via JSON-LD: ${price}`);
     }
 
@@ -649,6 +691,7 @@ Deno.serve(async (req) => {
       console.log('Trying selector extraction...');
       price = extractFromSelectors(html, store);
       if (price) {
+        extractionMethod = 'selector';
         console.log(`Price found via selectors: ${price}`);
       }
     }
@@ -660,17 +703,21 @@ Deno.serve(async (req) => {
       if (regexResult) {
         price = regexResult.price;
         currencyFromExtraction = regexResult.currencyHint;
+        extractionMethod = 'regex';
         console.log(`Price found via regex: ${price}`);
       }
     }
 
-    // Strategy 4: OCR fallback (last resort)
-    if (!price) {
-      console.log('Trying OCR fallback...');
-      price = await extractWithOcr(formattedUrl);
+    // Strategy 4: OCR fallback (only if explicitly requested)
+    if (!price && allowOcr) {
+      console.log('Trying OCR fallback (explicitly requested)...');
+      price = await extractWithOcr(formattedUrl, TIMEOUTS.ocr);
       if (price) {
+        extractionMethod = 'ocr';
         console.log(`Price found via OCR: ${price}`);
       }
+    } else if (!price) {
+      console.log('Skipping OCR (allowOcr=false)');
     }
 
     // Return result
@@ -681,7 +728,7 @@ Deno.serve(async (req) => {
       // Cache the result
       await setCachedPrice(supabase, normalizedUrl, store, price, currency, displayPrice);
       
-      console.log(`Successfully extracted price: ${displayPrice} from ${store}`);
+      console.log(`Successfully extracted price: ${displayPrice} from ${store} via ${extractionMethod}`);
       
       return new Response(
         JSON.stringify({

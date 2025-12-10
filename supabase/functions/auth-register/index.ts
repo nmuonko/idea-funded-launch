@@ -19,11 +19,11 @@ const corsHeaders = {
  * - addressLine1
  * - city
  * - stateOrProvince
- * - postalCode
  * - country
  * 
  * Optional fields:
  * - addressLine2
+ * - postalCode (not required for African countries)
  */
 
 interface RegisterRequest {
@@ -35,7 +35,7 @@ interface RegisterRequest {
   addressLine2?: string;
   city: string;
   stateOrProvince: string;
-  postalCode: string;
+  postalCode?: string;
   country: string;
 }
 
@@ -89,8 +89,8 @@ serve(async (req) => {
       console.log('[auth-register] Missing required fields:', missingFields);
       return new Response(
         JSON.stringify({ 
-          success: false,
-          error: `Missing required fields: ${missingFields.join(', ')}`,
+          ok: false,
+          message: `Missing required fields: ${missingFields.join(', ')}`,
           missingFields,
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -101,8 +101,8 @@ serve(async (req) => {
     if (!validateEmail(email.trim())) {
       return new Response(
         JSON.stringify({ 
-          success: false,
-          error: 'Invalid email format',
+          ok: false,
+          message: 'Invalid email format',
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -112,8 +112,8 @@ serve(async (req) => {
     if (!validatePhone(phoneNumber.trim())) {
       return new Response(
         JSON.stringify({ 
-          success: false,
-          error: 'Invalid phone number. Must be between 8 and 15 digits.',
+          ok: false,
+          message: 'Invalid phone number. Must be between 8 and 15 digits.',
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -123,8 +123,8 @@ serve(async (req) => {
     if (password.length < 6) {
       return new Response(
         JSON.stringify({ 
-          success: false,
-          error: 'Password must be at least 6 characters long',
+          ok: false,
+          message: 'Password must be at least 6 characters long',
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -133,25 +133,25 @@ serve(async (req) => {
     // Validate field lengths
     if (fullName.trim().length > 100) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Full name must be less than 100 characters' }),
+        JSON.stringify({ ok: false, message: 'Full name must be less than 100 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     if (addressLine1.trim().length > 200) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Address line 1 must be less than 200 characters' }),
+        JSON.stringify({ ok: false, message: 'Address line 1 must be less than 200 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     if (addressLine2 && addressLine2.trim().length > 200) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Address line 2 must be less than 200 characters' }),
+        JSON.stringify({ ok: false, message: 'Address line 2 must be less than 200 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     if (city.trim().length > 100) {
       return new Response(
-        JSON.stringify({ success: false, error: 'City must be less than 100 characters' }),
+        JSON.stringify({ ok: false, message: 'City must be less than 100 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -179,25 +179,31 @@ serve(async (req) => {
       if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
         return new Response(
           JSON.stringify({ 
-            success: false,
-            error: 'An account with this email already exists. Please login instead.',
+            ok: false,
+            message: 'This email is already registered. Please sign in instead.',
             code: 'USER_EXISTS',
           }),
           { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       
+      // For other auth errors, return a generic message but log the actual error
+      console.error('[auth-register] Unhandled auth error details:', authError);
       return new Response(
-        JSON.stringify({ success: false, error: authError.message }),
+        JSON.stringify({ 
+          ok: false, 
+          message: 'We could not create your account. Please check your information and try again.',
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('[auth-register] User created:', authData.user.id);
+    const userId = authData.user.id;
+    console.log('[auth-register] User created:', userId);
 
     // Profile data to store - all required fields from signup (postalCode is optional for Africa)
     const profileData = {
-      user_id: authData.user.id,
+      user_id: userId,
       email: email.trim().toLowerCase(),
       full_name: fullName.trim(),
       name: fullName.trim(),
@@ -226,7 +232,7 @@ serve(async (req) => {
     const { data: verifyProfile } = await supabaseAdmin
       .from('profiles')
       .select('full_name, phone, address_line1, city, state_province, country')
-      .eq('user_id', authData.user.id)
+      .eq('user_id', userId)
       .maybeSingle();
     
     console.log('[auth-register] Profile verification:', verifyProfile ? {
@@ -249,14 +255,24 @@ serve(async (req) => {
       password,
     });
 
-    if (signInError) {
-      console.error('[auth-register] Sign in error:', signInError.message);
+    // Registration succeeded even if sign-in fails (user can sign in manually)
+    if (signInError || !sessionData?.session) {
+      console.warn('[auth-register] Sign in after registration failed:', signInError?.message || 'No session returned');
+      
+      // Registration successful, but requires manual sign-in
       return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: 'Account created but failed to sign in. Please try logging in.',
+        JSON.stringify({
+          ok: true,
+          userId,
+          requiresEmailConfirmation: false,
+          message: 'Account created successfully. Please sign in.',
+          user: {
+            id: userId,
+            email: email.trim(),
+            fullName: fullName.trim(),
+          },
         }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -264,7 +280,9 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        success: true,
+        ok: true,
+        userId: sessionData.user.id,
+        requiresEmailConfirmation: false,
         user: {
           id: sessionData.user.id,
           email: sessionData.user.email,
@@ -274,7 +292,7 @@ serve(async (req) => {
           addressLine2: addressLine2?.trim() || null,
           city: city.trim(),
           stateOrProvince: stateOrProvince.trim(),
-          postalCode: postalCode.trim(),
+          postalCode: postalCode?.trim() || null,
           country: country.trim(),
         },
         token: sessionData.session.access_token,
@@ -283,9 +301,12 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('[auth-register] Unexpected error:', error.message);
+    console.error('[auth-register] Unexpected error:', error.message, error.stack);
     return new Response(
-      JSON.stringify({ success: false, error: 'Registration failed. Please try again.' }),
+      JSON.stringify({ 
+        ok: false, 
+        message: 'We could not create your account right now. Please try again later.',
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

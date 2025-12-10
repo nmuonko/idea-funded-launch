@@ -211,13 +211,13 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-test-email]
-verify_jwt = false
+verify_jwt = true
 
 [functions.send-customer-email]
 verify_jwt = true
 
 [functions.reconcile-payment-status]
-verify_jwt = false
+verify_jwt = true
 
 [functions.verify-payment]
 verify_jwt = false

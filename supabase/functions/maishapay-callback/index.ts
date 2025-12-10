@@ -8,6 +8,42 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-maishapay-signature',
 };
 
+// Input validation for callback payload
+function validateCallbackPayload(data: any): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  // Status should be string or number, max 50 chars if string
+  if (data.status !== undefined && data.status !== null) {
+    const statusStr = String(data.status);
+    if (statusStr.length > 50) {
+      errors.push('status exceeds max length (50)');
+    }
+  }
+  
+  // Reference IDs should be strings with max 255 chars
+  const refFields = ['reference', 'transactionRefId', 'transaction_ref_id', 'ref', 'operatorRefId'];
+  for (const field of refFields) {
+    if (data[field] && typeof data[field] === 'string' && data[field].length > 255) {
+      errors.push(`${field} exceeds max length (255)`);
+    }
+  }
+  
+  // Description max 500 chars
+  if (data.description && typeof data.description === 'string' && data.description.length > 500) {
+    errors.push('description exceeds max length (500)');
+  }
+  
+  // Amount validation if present
+  if (data.amount !== undefined && data.amount !== null) {
+    const amount = Number(data.amount);
+    if (isNaN(amount) || amount < 0 || amount > 1000000000) {
+      errors.push('amount is invalid or out of range');
+    }
+  }
+  
+  return { valid: errors.length === 0, errors };
+}
+
 // HMAC signature verification - OPTIONAL
 // This function validates webhook signatures when MAISHAPAY_WEBHOOK_SECRET is configured.
 // If not configured, all callbacks are accepted (backwards compatible behavior).
@@ -145,6 +181,13 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     console.log('[MaishaPay Callback] Full payment data:', JSON.stringify(paymentData, null, 2));
+
+    // Validate callback payload
+    const validation = validateCallbackPayload(paymentData);
+    if (!validation.valid) {
+      console.warn('[MaishaPay Callback] Payload validation warnings:', validation.errors);
+      // Log but don't reject - we still want to process the payment
+    }
 
     // Extract reference - MaishaPay might send it under different field names
     const reference = paymentData.reference || 

@@ -157,12 +157,12 @@ export default function AdminAnalytics() {
         </div>
         <Select value={dateRange} onValueChange={setDateRange}>
           <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select range" />
+            <SelectValue placeholder={t.analytics.selectRange} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-            <SelectItem value="90">Last 90 days</SelectItem>
+            <SelectItem value="7">{t.analytics.last7Days}</SelectItem>
+            <SelectItem value="30">{t.analytics.last30Days}</SelectItem>
+            <SelectItem value="90">{t.analytics.last90Days}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -173,7 +173,7 @@ export default function AdminAnalytics() {
           <CardContent className="flex items-center gap-3 py-4">
             <AlertCircle className="h-5 w-5 text-yellow-600" />
             <p className="text-sm">
-              No paid orders found in the selected period. All metrics show data from verified payments only.
+              {t.analytics.noPaidOrdersNotice}
             </p>
           </CardContent>
         </Card>
@@ -232,13 +232,13 @@ export default function AdminAnalytics() {
       {/* Revenue Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Revenue Trend</CardTitle>
-          <CardDescription>Daily revenue from paid orders</CardDescription>
+          <CardTitle>{t.analytics.revenueTrend}</CardTitle>
+          <CardDescription>{t.analytics.dailyRevenueDesc}</CardDescription>
         </CardHeader>
         <CardContent>
           {revenueData.length === 0 ? (
             <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-              No revenue data for the selected period
+              {t.analytics.noRevenueData}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
@@ -247,7 +247,7 @@ export default function AdminAnalytics() {
                 <XAxis dataKey="date" className="text-xs" />
                 <YAxis className="text-xs" />
                 <Tooltip 
-                  formatter={(value: number) => [`$${value.toFixed(2)}`, 'Revenue']}
+                  formatter={(value: number) => [`$${value.toFixed(2)}`, t.analytics.totalRevenue]}
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}
                 />
                 <Legend />
@@ -262,13 +262,13 @@ export default function AdminAnalytics() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Sales by Store</CardTitle>
-            <CardDescription>Revenue breakdown by retailer</CardDescription>
+            <CardTitle>{t.analytics.salesByStore}</CardTitle>
+            <CardDescription>{t.analytics.salesByStoreDesc}</CardDescription>
           </CardHeader>
           <CardContent>
             {storeData.length === 0 ? (
               <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No store data available
+                {t.analytics.noStoreData}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
@@ -292,13 +292,13 @@ export default function AdminAnalytics() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Top Cities</CardTitle>
-            <CardDescription>Orders by delivery city</CardDescription>
+            <CardTitle>{t.analytics.topCities}</CardTitle>
+            <CardDescription>{t.analytics.topCitiesDesc}</CardDescription>
           </CardHeader>
           <CardContent>
             {cityData.length === 0 ? (
               <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                No city data available
+                {t.analytics.noCityData}
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>

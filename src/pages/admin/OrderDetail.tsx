@@ -402,64 +402,68 @@ export default function AdminOrderDetail() {
               <strong>MaishaPay Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
             </div>
 
-            {/* Quick Status Actions with Email Notifications */}
-            {isPaidOrder && (
-              <div className="pt-4 border-t">
-                <p className="text-sm font-medium text-muted-foreground mb-3">Quick Actions (with customer notification)</p>
-                <div className="flex flex-wrap gap-2">
-                  {/* Start Processing */}
-                  {order.status === 'PAID' && (
-                    <Button
-                      onClick={() => handleStatusUpdate('PROCESSING', true)}
-                      disabled={updating || sendingStatusEmail === 'PROCESSING'}
-                      size="sm"
-                      className="bg-amber-600 hover:bg-amber-700"
-                    >
-                      {sendingStatusEmail === 'PROCESSING' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Play className="h-4 w-4 mr-2" />
-                      )}
-                      Start Processing + Notify
-                    </Button>
-                  )}
-                  
-                  {/* Mark as Shipped */}
-                  {(order.status === 'PAID' || order.status === 'PROCESSING') && (
-                    <Button
-                      onClick={() => handleStatusUpdate('SHIPPED', true)}
-                      disabled={updating || sendingStatusEmail === 'SHIPPED'}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      {sendingStatusEmail === 'SHIPPED' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Truck className="h-4 w-4 mr-2" />
-                      )}
-                      Mark Shipped + Notify
-                    </Button>
-                  )}
-                  
-                  {/* Mark as Delivered */}
-                  {(order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP') && (
-                    <Button
-                      onClick={() => handleStatusUpdate('COMPLETED', true)}
-                      disabled={updating || sendingStatusEmail === 'COMPLETED'}
-                      size="sm"
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      {sendingStatusEmail === 'COMPLETED' ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 mr-2" />
-                      )}
-                      Mark Delivered + Notify
-                    </Button>
-                  )}
-                </div>
+            {/* Quick Status Actions with Email Notifications - Always show for any order */}
+            <div className="pt-4 border-t">
+              <p className="text-sm font-medium text-muted-foreground mb-3">Quick Actions (updates status + sends customer email)</p>
+              <div className="flex flex-wrap gap-2">
+                {/* Start Processing - show for PAID orders */}
+                {(order.status === 'PAID' || order.status === 'PENDING_PAYMENT') && (
+                  <Button
+                    onClick={() => handleStatusUpdate('PROCESSING', true)}
+                    disabled={updating || sendingStatusEmail === 'PROCESSING'}
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {sendingStatusEmail === 'PROCESSING' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-2" />
+                    )}
+                    Start Processing + Notify
+                  </Button>
+                )}
+                
+                {/* Mark as Shipped - show for PAID or PROCESSING */}
+                {(order.status === 'PAID' || order.status === 'PROCESSING' || order.status === 'PENDING_PAYMENT') && (
+                  <Button
+                    onClick={() => handleStatusUpdate('SHIPPED', true)}
+                    disabled={updating || sendingStatusEmail === 'SHIPPED'}
+                    size="sm"
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {sendingStatusEmail === 'SHIPPED' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Truck className="h-4 w-4 mr-2" />
+                    )}
+                    Mark Shipped + Notify
+                  </Button>
+                )}
+                
+                {/* Mark as Delivered - show for SHIPPED or READY_FOR_PICKUP */}
+                {(order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP' || order.status === 'PROCESSING' || order.status === 'PAID') && (
+                  <Button
+                    onClick={() => handleStatusUpdate('COMPLETED', true)}
+                    disabled={updating || sendingStatusEmail === 'COMPLETED'}
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    {sendingStatusEmail === 'COMPLETED' ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                    )}
+                    Mark Delivered + Notify
+                  </Button>
+                )}
+
+                {order.status === 'COMPLETED' && (
+                  <Badge variant="outline" className="gap-1 text-green-600 border-green-600">
+                    <CheckCircle2 className="h-3 w-3" /> Order Completed
+                  </Badge>
+                )}
               </div>
-            )}
+            </div>
             
             <div className="flex flex-wrap gap-2 pt-4 border-t">
               {isPaidOrder && (

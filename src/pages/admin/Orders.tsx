@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard, Trash2 } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard, Trash2, Play, Truck, CheckCircle2 } from 'lucide-react';
 import { OrderDetailsDrawer } from '@/components/admin/OrderDetailsDrawer';
 import { SendOrderEmailDialog } from '@/components/admin/SendOrderEmailDialog';
 import { ResetSectionDialog } from '@/components/admin/ResetSectionDialog';
@@ -166,7 +166,7 @@ export default function AdminOrders() {
     setSelectedOrders(newSelected);
   };
 
-  const handleBulkStatusUpdate = async (newStatus: string) => {
+  const handleBulkStatusUpdate = async (newStatus: string, sendEmail: boolean = false) => {
     if (selectedOrders.size === 0) return;
     
     try {
@@ -180,9 +180,48 @@ export default function AdminOrders() {
 
       if (error) throw error;
 
+      // Send email notifications if requested
+      if (sendEmail) {
+        const selectedOrdersData = orders.filter(o => selectedOrders.has(o.id));
+        
+        for (const order of selectedOrdersData) {
+          if (!order.profiles?.email) continue;
+          
+          const emailPayload = {
+            orderId: order.id,
+            customerEmail: order.profiles.email,
+            customerName: order.profiles.name || order.profiles.full_name || 'Customer',
+            items: order.order_items?.map((i: any) => ({ title: i.title || 'Product', quantity: i.quantity })) || [],
+            trackingNumber: order.tracking_number,
+            carrier: order.carrier,
+          };
+
+          let emailFunction = '';
+          switch (newStatus) {
+            case 'PROCESSING':
+              emailFunction = 'send-order-processing-email';
+              break;
+            case 'SHIPPED':
+              emailFunction = 'send-order-shipped-email';
+              break;
+            case 'COMPLETED':
+              emailFunction = 'send-order-delivered-email';
+              break;
+          }
+
+          if (emailFunction) {
+            try {
+              await supabase.functions.invoke(emailFunction, { body: emailPayload });
+            } catch (emailErr) {
+              console.error(`Failed to send email for order ${order.id}:`, emailErr);
+            }
+          }
+        }
+      }
+
       toast({
         title: 'Success',
-        description: `Updated ${orderIds.length} order(s) to ${newStatus}`,
+        description: `Updated ${orderIds.length} order(s) to ${newStatus}${sendEmail ? ' and sent notifications' : ''}`,
       });
 
       setSelectedOrders(new Set());
@@ -606,60 +645,98 @@ export default function AdminOrders() {
               </Button>
             </div>
             {selectedOrders.size > 0 && (
-              <>
-                <Select onValueChange={handleBulkStatusUpdate} disabled={bulkActionLoading}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Update Status" />
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Quick Actions with Email Notifications */}
+                <div className="flex items-center gap-1 border-r pr-2">
+                  <span className="text-xs text-muted-foreground mr-1">Quick:</span>
+                  <Button
+                    size="sm"
+                    onClick={() => handleBulkStatusUpdate('PROCESSING', true)}
+                    disabled={bulkActionLoading}
+                    className="bg-amber-600 hover:bg-amber-700 h-8"
+                  >
+                    {bulkActionLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 mr-1" />}
+                    Processing + Email
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleBulkStatusUpdate('SHIPPED', true)}
+                    disabled={bulkActionLoading}
+                    className="bg-blue-600 hover:bg-blue-700 h-8"
+                  >
+                    {bulkActionLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3 mr-1" />}
+                    Shipped + Email
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleBulkStatusUpdate('COMPLETED', true)}
+                    disabled={bulkActionLoading}
+                    className="bg-green-600 hover:bg-green-700 h-8"
+                  >
+                    {bulkActionLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                    Delivered + Email
+                  </Button>
+                </div>
+                
+                {/* Status dropdown without email */}
+                <Select onValueChange={(v) => handleBulkStatusUpdate(v, false)} disabled={bulkActionLoading}>
+                  <SelectTrigger className="w-[160px] h-8">
+                    <SelectValue placeholder="Status (no email)" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="PAID">Mark as Paid</SelectItem>
-                    <SelectItem value="PROCESSING">Mark as Processing</SelectItem>
-                    <SelectItem value="SHIPPED">Mark as Shipped</SelectItem>
-                    <SelectItem value="COMPLETED">Mark as Completed</SelectItem>
-                    <SelectItem value="CANCELLED">Mark as Cancelled</SelectItem>
+                    <SelectItem value="PROCESSING">Processing</SelectItem>
+                    <SelectItem value="SHIPPED">Shipped</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
                   </SelectContent>
                 </Select>
+                
                 <Button 
                   variant="outline" 
-                  size="sm" 
+                  size="sm"
+                  className="h-8"
                   onClick={handleBulkVerifyPayment}
                   disabled={bulkActionLoading}
                 >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Verify Payments
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Verify
                 </Button>
                 <Button 
                   variant="outline" 
-                  size="sm" 
+                  size="sm"
+                  className="h-8"
                   onClick={handleBulkExport}
                 >
-                  <Download className="h-4 w-4 mr-2" />
-                  Export CSV
+                  <Download className="h-3 w-3 mr-1" />
+                  CSV
                 </Button>
                 {selectedPaidCount > 0 && (
                   <Button 
                     variant="outline" 
-                    size="sm" 
+                    size="sm"
+                    className="h-8"
                     onClick={handleBulkDownloadReceipts}
                     disabled={bulkActionLoading}
                   >
                     {bulkActionLoading ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                     ) : (
-                      <FileText className="h-4 w-4 mr-2" />
+                      <FileText className="h-3 w-3 mr-1" />
                     )}
                     Receipts ({selectedPaidCount})
                   </Button>
                 )}
                 <Button 
                   variant="outline" 
-                  size="sm" 
+                  size="sm"
+                  className="h-8"
                   onClick={() => setEmailDialogOpen(true)}
                 >
-                  <Mail className="h-4 w-4 mr-2" />
-                  Send Email
+                  <Mail className="h-3 w-3 mr-1" />
+                  Email
                 </Button>
-              </>
+              </div>
             )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-[180px]">

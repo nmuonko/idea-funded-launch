@@ -586,6 +586,21 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
   }
 }
 
+/**
+ * Format price as display string with currency symbol
+ */
+function formatDisplayPrice(price: number, currency: string): string {
+  const symbols: Record<string, string> = {
+    'USD': '$',
+    'EUR': '€',
+    'GBP': '£',
+    'CAD': 'CA$',
+    'AUD': 'AU$',
+  };
+  const symbol = symbols[currency] || '$';
+  return `${symbol}${price.toFixed(2)}`;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -599,15 +614,31 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    // Accept both 'url' and 'productUrl' in request body
+    const inputUrl = body.productUrl || body.url;
+    
+    if (!inputUrl) {
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          message: 'Product URL is required' 
+        }), 
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Validate input with zod schema (SSRF prevention)
-    const parseResult = productInfoSchema.safeParse({ productUrl: body.productUrl || body.url });
+    const parseResult = productInfoSchema.safeParse({ productUrl: inputUrl });
     if (!parseResult.success) {
       const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
       console.log('[get-product-info] Validation error:', errorMessage);
-      return new Response(JSON.stringify({ error: errorMessage }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          message: errorMessage 
+        }), 
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const { productUrl } = parseResult.data;
@@ -616,10 +647,19 @@ serve(async (req) => {
     // Check cache first
     const cached = await checkCache(supabaseClient, productUrl);
     if (cached) {
-      return new Response(JSON.stringify(cached), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      // Return in new format
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          basePrice: cached.price,
+          currency: cached.currency,
+          displayPrice: cached.price ? formatDisplayPrice(cached.price, cached.currency) : null,
+          productTitle: cached.title,
+          imageUrl: cached.imageUrl,
+          sourceUrl: productUrl,
+        }), 
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Scrape product info
@@ -630,16 +670,43 @@ serve(async (req) => {
       await saveToCache(supabaseClient, productUrl, info);
     }
 
-    return new Response(JSON.stringify(info), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    // Check if we got a price
+    if (info.price === null) {
+      console.log('[get-product-info] No price detected for:', productUrl);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          message: 'We could not detect a price on this page.',
+          productTitle: info.title,
+          imageUrl: info.imageUrl,
+          sourceUrl: productUrl,
+        }), 
+        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Return successful response in new format
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        basePrice: info.price,
+        currency: info.currency,
+        displayPrice: formatDisplayPrice(info.price, info.currency),
+        productTitle: info.title,
+        imageUrl: info.imageUrl,
+        sourceUrl: productUrl,
+      }), 
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
 
   } catch (error: any) {
-    console.error('[get-product-info] Error:', error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('[get-product-info] Unexpected error:', error.message, error.stack);
+    return new Response(
+      JSON.stringify({ 
+        ok: false, 
+        message: 'Something went wrong while reading this product page.' 
+      }), 
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });

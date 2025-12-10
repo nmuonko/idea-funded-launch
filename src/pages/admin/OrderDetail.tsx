@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, FileText, Package, Truck, CheckCircle2 } from 'lucide-react';
+import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 import { RefundDialog } from '@/components/admin/RefundDialog';
@@ -26,6 +26,7 @@ export default function AdminOrderDetail() {
   const [downloadingReceipt, setDownloadingReceipt] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [updatingItems, setUpdatingItems] = useState(false);
+  const [sendingStatusEmail, setSendingStatusEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -65,9 +66,11 @@ export default function AdminOrderDetail() {
     }
   };
 
-  const handleStatusUpdate = async (newStatus: string) => {
+  const handleStatusUpdate = async (newStatus: string, sendEmail: boolean = false) => {
     try {
       setUpdating(true);
+      if (sendEmail) setSendingStatusEmail(newStatus);
+
       const { error } = await supabase
         .from('orders')
         .update({ status: newStatus as any })
@@ -75,15 +78,52 @@ export default function AdminOrderDetail() {
 
       if (error) throw error;
 
-      // Send shipping notification if status changed to SHIPPED
-      if (newStatus === 'SHIPPED') {
-        handleSendShippingNotification();
-      }
+      // Send email notification based on status
+      if (sendEmail && order?.profiles?.email) {
+        const emailPayload = {
+          orderId: id,
+          customerEmail: order.profiles.email,
+          customerName: order.profiles.name || 'Customer',
+          items: items.map(i => ({ title: i.title || 'Product', quantity: i.quantity })),
+          trackingNumber: order.tracking_number,
+          carrier: order.carrier,
+        };
 
-      toast({
-        title: 'Success',
-        description: 'Order status updated successfully',
-      });
+        let emailFunction = '';
+        switch (newStatus) {
+          case 'PROCESSING':
+            emailFunction = 'send-order-processing-email';
+            break;
+          case 'SHIPPED':
+            emailFunction = 'send-order-shipped-email';
+            break;
+          case 'COMPLETED':
+            emailFunction = 'send-order-delivered-email';
+            await supabase.functions.invoke(emailFunction, {
+              body: {
+                orderId: id,
+                customerEmail: order.profiles.email,
+                customerName: order.profiles.name || 'Customer',
+                items: items.map(i => ({ title: i.title || 'Product', quantity: i.quantity })),
+              },
+            });
+            break;
+        }
+
+        if (emailFunction && newStatus !== 'COMPLETED') {
+          await supabase.functions.invoke(emailFunction, { body: emailPayload });
+        }
+
+        toast({
+          title: 'Success',
+          description: `Order updated to ${newStatus} and notification sent to customer`,
+        });
+      } else {
+        toast({
+          title: 'Success',
+          description: 'Order status updated successfully',
+        });
+      }
 
       loadOrder();
     } catch (error: any) {
@@ -94,6 +134,7 @@ export default function AdminOrderDetail() {
       });
     } finally {
       setUpdating(false);
+      setSendingStatusEmail(null);
     }
   };
 
@@ -336,7 +377,7 @@ export default function AdminOrderDetail() {
           <CardContent className="space-y-4">
             <div>
               <strong>Status:</strong>{' '}
-              <Select value={order.status} onValueChange={handleStatusUpdate} disabled={updating}>
+              <Select value={order.status} onValueChange={(v) => handleStatusUpdate(v, false)} disabled={updating}>
                 <SelectTrigger className="w-[200px] inline-flex">
                   <SelectValue />
                 </SelectTrigger>
@@ -360,6 +401,65 @@ export default function AdminOrderDetail() {
             <div>
               <strong>MaishaPay Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
             </div>
+
+            {/* Quick Status Actions with Email Notifications */}
+            {isPaidOrder && (
+              <div className="pt-4 border-t">
+                <p className="text-sm font-medium text-muted-foreground mb-3">Quick Actions (with customer notification)</p>
+                <div className="flex flex-wrap gap-2">
+                  {/* Start Processing */}
+                  {order.status === 'PAID' && (
+                    <Button
+                      onClick={() => handleStatusUpdate('PROCESSING', true)}
+                      disabled={updating || sendingStatusEmail === 'PROCESSING'}
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700"
+                    >
+                      {sendingStatusEmail === 'PROCESSING' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4 mr-2" />
+                      )}
+                      Start Processing + Notify
+                    </Button>
+                  )}
+                  
+                  {/* Mark as Shipped */}
+                  {(order.status === 'PAID' || order.status === 'PROCESSING') && (
+                    <Button
+                      onClick={() => handleStatusUpdate('SHIPPED', true)}
+                      disabled={updating || sendingStatusEmail === 'SHIPPED'}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      {sendingStatusEmail === 'SHIPPED' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Truck className="h-4 w-4 mr-2" />
+                      )}
+                      Mark Shipped + Notify
+                    </Button>
+                  )}
+                  
+                  {/* Mark as Delivered */}
+                  {(order.status === 'SHIPPED' || order.status === 'READY_FOR_PICKUP') && (
+                    <Button
+                      onClick={() => handleStatusUpdate('COMPLETED', true)}
+                      disabled={updating || sendingStatusEmail === 'COMPLETED'}
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {sendingStatusEmail === 'COMPLETED' ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                      )}
+                      Mark Delivered + Notify
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
             
             <div className="flex flex-wrap gap-2 pt-4 border-t">
               {isPaidOrder && (
@@ -398,7 +498,7 @@ export default function AdminOrderDetail() {
                   ) : (
                     <Send className="h-4 w-4 mr-2" />
                   )}
-                  Send Tracking Email
+                  Resend Tracking Email
                 </Button>
               )}
             </div>

@@ -359,6 +359,54 @@ export function buildOrderDeliveredEmail(params: {
 }
 
 /**
+ * Order processing email - sent when admin starts processing the order
+ */
+export function buildOrderProcessingEmail(params: {
+  customerName: string;
+  orderId: string;
+  items: Array<{ title: string; quantity: number }>;
+}): EmailTemplate {
+  const { customerName, orderId, items } = params;
+
+  const itemsList = items.map(item => `<li>${item.title} (x${item.quantity})</li>`).join('');
+
+  return {
+    subject: `🔄 Votre commande est en cours de traitement / Your order is being processed | AfriShop`,
+    html: `
+      <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
+        <div style="${headerStyle}">
+          <h1 style="color: white; margin: 0;">🔄 Order Being Processed</h1>
+        </div>
+        <div style="padding: 30px; background: #f9fafb;">
+          <p>Bonjour ${customerName},</p>
+          <p>Bonne nouvelle ! Nous avons commencé à traiter votre commande. Notre équipe prépare vos articles pour l'expédition.</p>
+          
+          <p>Hello ${customerName},</p>
+          <p>Good news! We've started processing your order. Our team is preparing your items for shipment.</p>
+          
+          <div style="background: #fef3c7; padding: 20px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #92400e;">Order In Progress / Commande en cours</h2>
+            <p style="margin: 5px 0;"><strong>Order ID / N° de commande:</strong> ${orderId.slice(0, 8).toUpperCase()}</p>
+            <p style="margin: 5px 0;"><strong>Status / Statut:</strong> Processing / En traitement</p>
+          </div>
+
+          <h3>Articles / Items:</h3>
+          <ul>${itemsList}</ul>
+
+          <p>Nous vous informerons dès que votre commande sera expédiée.</p>
+          <p>We'll notify you as soon as your order ships.</p>
+          
+          <p>Merci pour votre confiance ! / Thank you for shopping with AfriShop!</p>
+        </div>
+        <div style="${footerStyle}">
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  };
+}
+
+/**
  * Admin notification for new order/payment
  */
 export function buildAdminNotificationEmail(params: {

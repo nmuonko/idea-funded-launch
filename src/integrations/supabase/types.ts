@@ -788,6 +788,39 @@ export type Database = {
           },
         ]
       }
+      price_cache: {
+        Row: {
+          base_price: number
+          currency: string | null
+          display_price: string | null
+          expires_at: string
+          fetched_at: string
+          id: string
+          store: string
+          url: string
+        }
+        Insert: {
+          base_price: number
+          currency?: string | null
+          display_price?: string | null
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          store?: string
+          url: string
+        }
+        Update: {
+          base_price?: number
+          currency?: string | null
+          display_price?: string | null
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          store?: string
+          url?: string
+        }
+        Relationships: []
+      }
       product_cache: {
         Row: {
           created_at: string | null
@@ -1175,6 +1208,7 @@ export type Database = {
       }
     }
     Functions: {
+      clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
       generate_project_code: { Args: never; Returns: string }
       get_active_session: {

@@ -1227,6 +1227,7 @@ export type Database = {
         }[]
       }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
+      get_public_exchange_rate: { Args: never; Returns: number }
       get_public_session_info: {
         Args: never
         Returns: {

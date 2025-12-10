@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car
+  Palette, Shield, Car, Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -54,7 +54,10 @@ export function AdminLayout() {
     { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || t.sidebar.userManagement, permission: 'can_manage_users' as const },
     { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'can_view_settings' as const },
     { to: '/admin/theme-settings', icon: Palette, label: t.sidebar.themeSettings, permission: 'can_view_theme_settings' as const },
-    ...(isSuperAdmin ? [{ to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const }] : []),
+    ...(isSuperAdmin ? [
+      { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'System Health', exact: false, permission: 'can_view_dashboard' as const },
+      { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
+    ] : []),
   ], [t, isSuperAdmin]);
 
   // Filter nav items based on permissions

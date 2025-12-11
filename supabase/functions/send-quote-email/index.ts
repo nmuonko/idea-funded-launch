@@ -160,7 +160,41 @@ const handler = async (req: Request): Promise<Response> => {
       category: "quote_request",
     });
 
-    console.log("[send-quote-email] Result:", result);
+    console.log("[send-quote-email] Email result:", result);
+
+    // Send push notification to user's devices
+    try {
+      const pushResponse = await fetch(
+        `${supabaseUrl}/functions/v1/send-push-notification`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            userId: quoteRequest.user_id,
+            title: '🚗 Votre devis est prêt!',
+            body: `Devis pour ${vehicleTitle}: ${formatUSD(quotedTotalUsd)}`,
+            data: {
+              type: 'quote_ready',
+              quoteRequestId: quoteRequestId,
+              quotedTotalUsd: quotedTotalUsd,
+            },
+          }),
+        }
+      );
+
+      if (pushResponse.ok) {
+        const pushResult = await pushResponse.json();
+        console.log("[send-quote-email] Push notification result:", pushResult);
+      } else {
+        console.error("[send-quote-email] Push notification failed:", await pushResponse.text());
+      }
+    } catch (pushError) {
+      console.error("[send-quote-email] Push notification error:", pushError);
+      // Don't fail the request if push fails
+    }
 
     return new Response(
       JSON.stringify({ success: result.success, emailId: result.id }),

@@ -230,3 +230,6 @@ verify_jwt = true
 
 [functions.admin-apply-vehicle-quote]
 verify_jwt = true
+
+[functions.request-vehicle-quote]
+verify_jwt = true

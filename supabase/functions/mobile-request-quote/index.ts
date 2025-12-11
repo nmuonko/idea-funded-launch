@@ -4,6 +4,7 @@ import {
   handleCors, 
   jsonResponse 
 } from "../_shared/auth.ts";
+import { notifyAdmin } from "../_shared/email.ts";
 
 /**
  * Mobile Request Quote Edge Function
@@ -172,20 +173,24 @@ serve(async (req) => {
 
       // Send admin notification for new quote requests
       try {
-        const adminEmail = Deno.env.get('ADMIN_NOTIFICATION_EMAIL');
-        if (adminEmail) {
-          await supabase.functions.invoke('send-quote-email', {
-            body: {
-              type: 'new_quote_request',
-              items: newQuoteRequests.map(q => ({
-                title: q.title,
-                productUrl: q.product_url,
-                store: q.store_name,
-              })),
-              userId: user.id,
-            },
-          });
-        }
+        const itemsList = newQuoteRequests.map(q => 
+          `<li><strong>${q.title || 'Item'}</strong> from ${q.store_name || 'Unknown Store'}<br/>
+           <a href="${q.product_url}">${q.product_url}</a></li>`
+        ).join('');
+
+        const emailHtml = `
+          <h2>🚗 New Quote Request</h2>
+          <p>A customer has requested a quote for the following item(s):</p>
+          <ul>${itemsList}</ul>
+          <p><a href="https://afrishop-usa.com/admin/quote-requests">View in Admin Panel</a></p>
+        `;
+
+        await notifyAdmin(
+          `New Quote Request (${newQuoteRequests.length} item${newQuoteRequests.length > 1 ? 's' : ''})`,
+          emailHtml,
+          'quote_request'
+        );
+        console.log('[mobile-request-quote] Admin notification sent');
       } catch (emailErr) {
         console.error('[mobile-request-quote] Failed to send admin notification:', emailErr);
         // Don't fail the request if email fails

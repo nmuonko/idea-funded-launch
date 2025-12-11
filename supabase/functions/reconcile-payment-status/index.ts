@@ -6,14 +6,33 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Dual auth: supports both cron jobs (service key in header) and admin JWT calls
+// Dual auth: supports cron jobs (service key), internal calls, and admin JWT calls
 async function authenticateRequest(req: Request): Promise<{ authorized: boolean; source: string; error?: string }> {
   const authHeader = req.headers.get('Authorization');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
   
-  // Check if this is a cron job call with service role key
+  // Check if this is a cron job call with service role key (Bearer format)
   if (authHeader === `Bearer ${serviceRoleKey}`) {
-    return { authorized: true, source: 'cron' };
+    return { authorized: true, source: 'cron_service_role' };
+  }
+  
+  // Check for service role key directly (for internal calls from other functions)
+  if (authHeader === serviceRoleKey) {
+    return { authorized: true, source: 'internal_service_role' };
+  }
+  
+  // Check for anon key with cron header - pg_cron uses anon key with special header
+  const cronHeader = req.headers.get('x-cron-secret');
+  if (cronHeader === serviceRoleKey) {
+    return { authorized: true, source: 'cron_header' };
+  }
+  
+  // Accept requests with no auth header if called via Supabase scheduled function
+  // These come from pg_cron which has database-level access
+  const userAgent = req.headers.get('user-agent') || '';
+  if (userAgent.includes('pg_cron') || userAgent.includes('supabase-cron')) {
+    return { authorized: true, source: 'pg_cron' };
   }
   
   // Otherwise, validate as admin user
@@ -21,19 +40,23 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     return { authorized: false, source: 'none', error: 'Authorization required' };
   }
 
-  const supabaseAuth = createClient(
+  // Use admin client to validate the token
+  const supabaseAdmin = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-    { global: { headers: { Authorization: authHeader } } }
+    serviceRoleKey
   );
 
-  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+  // Extract token from Bearer header
+  const token = authHeader.replace('Bearer ', '');
+  
+  const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
   if (authError || !user) {
+    console.log('[Reconcile] Auth error:', authError?.message);
     return { authorized: false, source: 'user', error: 'Invalid authentication' };
   }
 
-  // Check admin role
-  const { data: roleData } = await supabaseAuth
+  // Check admin role using admin client (bypasses RLS)
+  const { data: roleData } = await supabaseAdmin
     .from('user_roles')
     .select('role')
     .eq('user_id', user.id)

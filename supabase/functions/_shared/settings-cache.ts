@@ -1,16 +1,19 @@
 // Settings cache for frequently accessed global configuration
-// TTL: 5 minutes to reduce database calls
+// TTL: 15 minutes to reduce database calls - settings rarely change mid-session
+// Optimized for 1000+ concurrent users
 
 interface CachedSettings {
   exchangeRate: number;
   markupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
+  serviceFeePercent: number;
+  minServiceFeeUsd: number;
   fetchedAt: number;
 }
 
 let settingsCache: CachedSettings | null = null;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes - extended for performance
 
 export async function getCachedSettings(supabase: any): Promise<CachedSettings> {
   const now = Date.now();
@@ -23,7 +26,7 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   // Fetch fresh settings - select only needed columns
   const { data: settings, error } = await supabase
     .from('settings')
-    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent')
+    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd')
     .limit(1)
     .maybeSingle();
 
@@ -39,11 +42,16 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   // shipping_percent is stored as decimal (0.10 = 10%), keep as decimal for calculations
   const shippingPercent = settings?.shipping_percent ?? 0.10;
   
+  // service_fee_percent stored as decimal (0.12 = 12%)
+  const serviceFeePercent = settings?.service_fee_percent ?? 0.12;
+  
   settingsCache = {
     exchangeRate: settings?.exchange_rate_usd_to_cdf ?? 2800,
     markupPercent,
     shippingBaseFeeUsd: settings?.shipping_base_fee_usd ?? 20,
     shippingPercent,
+    serviceFeePercent,
+    minServiceFeeUsd: settings?.min_service_fee_usd ?? 5,
     fetchedAt: now,
   };
   

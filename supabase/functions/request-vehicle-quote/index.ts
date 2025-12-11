@@ -80,9 +80,10 @@ serve(async (req) => {
       }
 
       if (!existingOrder) {
+        console.log('[request-vehicle-quote] No DRAFT order found for user:', user.id);
         return jsonResponse({ 
           success: false,
-          error: 'Your cart is empty.',
+          error: 'Your cart is empty or not synced. Please sync your cart first.',
           code: 'EMPTY_CART'
         }, 400);
       }

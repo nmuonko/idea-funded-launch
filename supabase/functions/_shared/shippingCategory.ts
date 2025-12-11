@@ -36,6 +36,30 @@ export interface CategoryDetectionResult {
 export const SAFE_DEFAULT_CATEGORY: ShippingCategoryKey = 'console_medium';
 export const LOW_CONFIDENCE_THRESHOLD = 0.6;
 
+// VEHICLE EXCLUSION KEYWORDS - products containing these are NOT vehicles
+// even if they match vehicle brand names (e.g., "Toyota car charger" is NOT a vehicle)
+const VEHICLE_EXCLUSION_KEYWORDS = [
+  // Car accessories that aren't vehicles
+  'charger', 'mount', 'holder', 'organizer', 'seat cover', 'floor mat',
+  'phone holder', 'dash cam', 'dashcam', 'car wash', 'car wax', 'car vacuum',
+  'air freshener', 'jumper cable', 'car jack', 'tire pump', 'oil change',
+  'car cover', 'sunshade', 'sun shade', 'steering wheel cover', 'key fob',
+  'remote start', 'car alarm', 'gps tracker', 'obd2', 'obd-ii', 'diagnostic',
+  // Heating/cooling products (NOT vehicles)
+  'heater', 'heating', 'heated', 'warmer', 'heating pad', 'electric blanket',
+  'space heater', 'portable heater', 'fan heater', 'infrared heater',
+  // Car parts (not whole vehicles)
+  'brake pad', 'brake rotor', 'spark plug', 'oil filter', 'air filter',
+  'windshield wiper', 'headlight', 'tail light', 'bumper', 'fender',
+  'battery', 'alternator', 'starter motor', 'radiator', 'water pump',
+  // Toys and models
+  'toy car', 'model car', 'die cast', 'diecast', 'hot wheels', 'matchbox',
+  'rc car', 'remote control car', 'toy vehicle', 'lego', 'playset',
+  // Electronics with car branding
+  'bluetooth', 'fm transmitter', 'aux cable', 'usb adapter', 'car stereo',
+  'car speaker', 'subwoofer', 'amplifier', 'backup camera', 'rear camera',
+];
+
 // Keyword mappings for each shipping category
 // Ordered by specificity - more specific patterns have higher weight
 const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weight: number }[]> = {
@@ -325,9 +349,26 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   const title = input.title || '';
   const url = input.url || '';
   const store = (input.store || '').toUpperCase();
+  const normalizedTitle = normalizeText(title);
+
+  // CRITICAL: Check for vehicle exclusion keywords FIRST
+  // If ANY exclusion keyword is found, this item is definitely NOT a vehicle
+  const hasVehicleExclusion = VEHICLE_EXCLUSION_KEYWORDS.some(keyword => 
+    containsKeyword(normalizedTitle, keyword)
+  );
+
+  if (hasVehicleExclusion) {
+    console.log('[shippingCategory] Vehicle exclusion detected:', { 
+      titlePrefix: title.substring(0, 60), 
+      store,
+      reason: 'exclusion_keyword_match'
+    });
+  }
 
   // Check for store-specific strong hints first (car marketplaces)
-  if (store && STORE_CATEGORY_HINTS[store]) {
+  // ONLY apply vehicle category for car marketplace stores (CARVANA, CARGURUS)
+  // AND only if no exclusion keyword was found
+  if (store && STORE_CATEGORY_HINTS[store] && !hasVehicleExclusion) {
     const category = STORE_CATEGORY_HINTS[store];
     const isVehicle = category === 'vehicle';
     return {
@@ -457,9 +498,14 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   }
 
   // Determine if this requires a manual quote
-  // Vehicles always require quote if detected with sufficient confidence
+  // Vehicles ONLY require quote if:
+  // 1. Detected with sufficient confidence AND
+  // 2. No exclusion keywords were found AND  
+  // 3. Store is a car marketplace (CARVANA, CARGURUS) OR very high confidence score
   const isVehicle = finalCategory === 'vehicle';
-  const requiresQuote = isVehicle && confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD;
+  const isCarMarketplace = store === 'CARVANA' || store === 'CARGURUS';
+  const requiresQuote = isVehicle && !hasVehicleExclusion && 
+    (isCarMarketplace || (confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD && bestScore >= 3.0));
 
   return {
     category: finalCategory,

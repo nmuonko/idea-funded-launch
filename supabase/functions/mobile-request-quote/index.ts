@@ -9,15 +9,21 @@ import { notifyAdmin } from "../_shared/email.ts";
 /**
  * Mobile Request Quote Edge Function
  * 
- * Creates quote requests for cart items that require manual shipping quotes.
- * This is triggered when mobile checkout encounters items with requires_manual_quote=true.
+ * Creates quote requests for VEHICLE cart items that require manual shipping quotes.
+ * This is triggered when the mobile app user taps "Demander un devis" in the cart.
+ * 
+ * IMPORTANT: Only processes items where is_vehicle = true.
+ * Non-vehicle items should never require a quote and go through normal checkout.
  * 
  * POST /mobile-request-quote
- * Body: { cartItemIds: string[] }
+ * Body: { 
+ *   cartItemIds?: string[],  // Optional - if not provided, auto-detects vehicle items
+ *   locale?: string          // Optional - user's preferred language (fr/en)
+ * }
  * 
  * Returns:
- * - { success: true, quoteRequests: [...], message: "Quote requested" }
- * - { success: false, error: "..." }
+ * - { success: true, quote_id: "uuid", status: "pending", items_count: N }
+ * - { success: false, error: "NO_VEHICLE_ITEMS", code: "NO_VEHICLE_ITEMS" }
  */
 
 serve(async (req) => {
@@ -26,7 +32,7 @@ serve(async (req) => {
   if (corsResponse) return corsResponse;
 
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+    return jsonResponse({ success: false, error: 'Method not allowed', code: 'METHOD_NOT_ALLOWED' }, 405);
   }
 
   try {
@@ -37,17 +43,20 @@ serve(async (req) => {
     console.log('[mobile-request-quote] User authenticated:', user.id);
 
     // Parse request body
-    const body = await req.json();
-    const { cartItemIds } = body;
+    const body = await req.json().catch(() => ({}));
+    const { cartItemIds, locale = 'fr' } = body;
 
-    if (!cartItemIds || !Array.isArray(cartItemIds) || cartItemIds.length === 0) {
-      return jsonResponse({ 
-        success: false, 
-        error: 'cartItemIds array is required and must not be empty' 
-      }, 400);
-    }
+    console.log('[mobile-request-quote] Request body:', { cartItemIds, locale });
 
-    console.log('[mobile-request-quote] Requesting quotes for items:', cartItemIds);
+    // Get user's profile for email
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('email, language')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const userEmail = profile?.email || user.email;
+    const userLocale = locale || profile?.language || 'fr';
 
     // Get user's DRAFT order to validate ownership
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -61,51 +70,69 @@ serve(async (req) => {
       console.error('[mobile-request-quote] Error fetching draft order:', orderFetchError);
       return jsonResponse({ 
         success: false,
-        error: 'Failed to fetch cart data.' 
+        error: 'Failed to fetch cart data.',
+        code: 'CART_FETCH_ERROR'
       }, 500);
     }
 
     if (!existingOrder) {
       return jsonResponse({ 
         success: false,
-        error: 'Your cart is empty.' 
+        error: 'Your cart is empty.',
+        code: 'EMPTY_CART'
       }, 400);
     }
 
-    // Get the requested items - validate they belong to user's cart and require manual quote
-    const { data: requestedItems, error: itemsError } = await supabase
+    // Get cart items - either specified ones or auto-detect vehicle items
+    let itemsQuery = supabase
       .from('order_items')
-      .select('id, title, product_url, store, requires_manual_quote, base_price_usd')
-      .in('id', cartItemIds)
-      .eq('order_id', existingOrder.id);
+      .select('id, title, product_url, store, requires_manual_quote, base_price_usd, is_vehicle, vehicle_quote_applied')
+      .eq('order_id', existingOrder.id)
+      .eq('is_saved_for_later', false);
+
+    // If specific cart item IDs provided, filter to those
+    if (cartItemIds && Array.isArray(cartItemIds) && cartItemIds.length > 0) {
+      itemsQuery = itemsQuery.in('id', cartItemIds);
+    }
+
+    const { data: requestedItems, error: itemsError } = await itemsQuery;
 
     if (itemsError) {
       console.error('[mobile-request-quote] Error fetching items:', itemsError);
       return jsonResponse({ 
         success: false,
-        error: 'Failed to fetch cart items.' 
+        error: 'Failed to fetch cart items.',
+        code: 'ITEMS_FETCH_ERROR'
       }, 500);
     }
 
     if (!requestedItems || requestedItems.length === 0) {
       return jsonResponse({ 
         success: false,
-        error: 'No valid cart items found.'
+        error: 'No cart items found.',
+        code: 'NO_ITEMS'
       }, 400);
     }
 
-    // Filter to only items that actually require quotes
-    const quoteRequiredItems = requestedItems.filter(item => item.requires_manual_quote);
+    // CRITICAL: Filter to only VEHICLE items (is_vehicle = true)
+    // Non-vehicle items should NEVER require a quote
+    const vehicleItems = requestedItems.filter(item => 
+      item.is_vehicle === true && item.vehicle_quote_applied !== true
+    );
     
-    if (quoteRequiredItems.length === 0) {
+    if (vehicleItems.length === 0) {
+      console.log('[mobile-request-quote] No vehicle items found in cart');
       return jsonResponse({ 
         success: false,
-        error: 'None of the specified items require a quote.'
+        error: 'No vehicle items requiring a quote were found in your cart.',
+        code: 'NO_VEHICLE_ITEMS'
       }, 400);
     }
 
+    console.log('[mobile-request-quote] Found', vehicleItems.length, 'vehicle items requiring quote');
+
     // Check for existing quote requests to avoid duplicates
-    const itemIds = quoteRequiredItems.map(item => item.id);
+    const itemIds = vehicleItems.map(item => item.id);
     const { data: existingQuotes, error: existingError } = await supabase
       .from('quote_requests')
       .select('id, order_item_id, status')
@@ -123,11 +150,21 @@ serve(async (req) => {
     const newQuoteRequests: any[] = [];
     const existingQuoteResponses: any[] = [];
 
-    for (const item of quoteRequiredItems) {
+    for (const item of vehicleItems) {
       const existingQuote = existingQuoteMap.get(item.id);
       
       if (existingQuote) {
-        // Return existing quote info
+        // Update existing quote with latest request info
+        await supabase
+          .from('quote_requests')
+          .update({
+            requested_at: new Date().toISOString(),
+            locale: userLocale,
+            customer_email: userEmail,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingQuote.id);
+
         existingQuoteResponses.push({
           quoteRequestId: existingQuote.id,
           orderItemId: item.id,
@@ -136,7 +173,7 @@ serve(async (req) => {
           isExisting: true,
         });
       } else {
-        // Create new quote request
+        // Create new quote request with email and locale
         newQuoteRequests.push({
           user_id: user.id,
           order_item_id: item.id,
@@ -144,6 +181,8 @@ serve(async (req) => {
           product_url: item.product_url,
           store_name: item.store,
           status: 'PENDING',
+          locale: userLocale,
+          customer_email: userEmail,
         });
       }
     }
@@ -204,8 +243,14 @@ serve(async (req) => {
       existing: existingQuoteResponses.length,
     });
 
+    // Return success response with clear structure
+    const primaryQuoteId = createdQuotes[0]?.quoteRequestId || existingQuoteResponses[0]?.quoteRequestId;
+    
     return jsonResponse({
       success: true,
+      quote_id: primaryQuoteId,
+      status: 'pending',
+      items_count: allQuoteResponses.length,
       message: createdQuotes.length > 0 
         ? 'Quote request submitted. We will contact you with pricing.'
         : 'Quote request already exists.',
@@ -219,12 +264,13 @@ serve(async (req) => {
     console.error('[mobile-request-quote] Error:', error.message);
     
     if (error.name === 'AuthError') {
-      return jsonResponse({ success: false, error: error.message }, error.status);
+      return jsonResponse({ success: false, error: error.message, code: 'AUTH_ERROR' }, error.status);
     }
     
     return jsonResponse({ 
       success: false,
       error: 'An unexpected error occurred. Please try again.',
+      code: 'INTERNAL_ERROR'
     }, 500);
   }
 });

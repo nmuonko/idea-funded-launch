@@ -221,59 +221,41 @@ export default function QuoteRequests() {
       toast.error("Please enter valid numbers for shipping and total");
       return;
     }
+
+    if (shippingValue < 0 || totalValue < 0) {
+      toast.error("Values must be positive");
+      return;
+    }
     
     setSubmitting(true);
     try {
-      // Update quote request
-      const { error: quoteError } = await supabase
-        .from("quote_requests")
-        .update({
-          quoted_shipping_usd: shippingValue,
-          quoted_total_usd: totalValue,
-          admin_notes: adminNotes,
-          status: "SENT",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", selectedRequest.id);
+      // Use the new admin-apply-vehicle-quote edge function
+      // This handles all updates atomically: quote_requests, order_items, orders
+      const { data, error } = await supabase.functions.invoke("admin-apply-vehicle-quote", {
+        body: {
+          quoteRequestId: selectedRequest.id,
+          quotedShippingUsd: shippingValue,
+          quotedTotalUsd: totalValue,
+          adminNotes: adminNotes || undefined,
+        },
+      });
 
-      if (quoteError) throw quoteError;
-
-      // Update the order item with the quoted values
-      const { error: itemError } = await supabase
-        .from("order_items")
-        .update({
-          shipping_fee_usd: shippingValue,
-          total_price_usd: totalValue,
-        })
-        .eq("id", selectedRequest.order_item_id);
-
-      if (itemError) throw itemError;
-
-      // Send email notification to customer
-      try {
-        const { error: emailError } = await supabase.functions.invoke("send-quote-email", {
-          body: {
-            quoteRequestId: selectedRequest.id,
-            quotedShippingUsd: shippingValue,
-            quotedTotalUsd: totalValue,
-            adminNotes: adminNotes || undefined,
-          },
-        });
-        
-        if (emailError) {
-          console.error("Failed to send quote email:", emailError);
-          // Don't fail the whole operation if email fails
-        }
-      } catch (emailErr) {
-        console.error("Email notification error:", emailErr);
+      if (error) {
+        console.error("Error from admin-apply-vehicle-quote:", error);
+        throw new Error(error.message || "Failed to apply quote");
       }
 
+      if (!data?.success) {
+        throw new Error(data?.error || "Failed to apply quote");
+      }
+
+      console.log("Quote applied successfully:", data);
       toast.success(t.quoteSuccess);
       setQuoteDialogOpen(false);
       fetchQuoteRequests();
     } catch (error: any) {
       console.error("Error submitting quote:", error);
-      toast.error(t.quoteError);
+      toast.error(error.message || t.quoteError);
     } finally {
       setSubmitting(false);
     }

@@ -227,3 +227,6 @@ verify_jwt = true
 
 [functions.admin-reset-section]
 verify_jwt = true
+
+[functions.admin-apply-vehicle-quote]
+verify_jwt = true

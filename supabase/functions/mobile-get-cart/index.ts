@@ -50,6 +50,7 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
 
   // Get quote request info if available
   const quoteRequest = item.quote_requests?.[0];
+  const vehicleQuoteApplied = item.vehicle_quote_applied === true;
   
   return {
     id: item.id,
@@ -75,7 +76,8 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
     } : null,
     // Vehicle-specific fields
     isVehicle,
-    isQuoteRequired: isVehicle,
+    isQuoteRequired: isVehicle && !vehicleQuoteApplied,
+    vehicleQuoteApplied,
     quoteStatus: quoteRequest?.status || null,
     quotedShippingUsd: quoteRequest?.quoted_shipping_usd || null,
     quotedTotalUsd: quoteRequest?.quoted_total_usd || null,
@@ -137,7 +139,7 @@ serve(async (req) => {
       .select(`
         id, product_url, title, product_image_url, store, base_price_usd, quantity,
         subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, est_weight_kg,
-        requires_manual_quote, is_saved_for_later, saved_at, is_vehicle,
+        requires_manual_quote, is_saved_for_later, saved_at, is_vehicle, vehicle_quote_applied,
         shipping_item_types(key, label),
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)
       `)
@@ -150,7 +152,7 @@ serve(async (req) => {
     // Separate active and saved items
     const activeItems: any[] = [];
     const savedItems: any[] = [];
-    const quoteRequiredItems: any[] = [];
+    const vehicleItemsRequiringQuote: any[] = [];
 
     // Summary calculations only for active items (excluding vehicles requiring quotes)
     let itemCount = 0;
@@ -159,6 +161,8 @@ serve(async (req) => {
     let calcSubtotalWithMarkup = 0;
     let requiresManualQuote = false;
     let vehicleCount = 0;
+    let hasVehicleItems = false;
+    let allVehiclesQuoted = true;
 
     (items || []).forEach(item => {
       const formattedItem = formatItem(item, markupPercent, exchangeRate);
@@ -168,13 +172,30 @@ serve(async (req) => {
       } else {
         activeItems.push(formattedItem);
         
-        // Track vehicles separately - they don't contribute to automatic totals
+        // Track vehicles separately - they don't contribute to automatic totals unless quoted
         if (formattedItem.isVehicle) {
           vehicleCount++;
-          quoteRequiredItems.push(formattedItem);
-          // Don't include in automatic totals
+          hasVehicleItems = true;
+          
+          // Check if this vehicle has had its quote applied
+          const quoteApplied = item.vehicle_quote_applied === true;
+          const quoteStatus = formattedItem.quoteStatus;
+          
+          if (!quoteApplied && quoteStatus !== 'SENT' && quoteStatus !== 'ACCEPTED') {
+            // Vehicle needs a quote before payment can proceed
+            allVehiclesQuoted = false;
+            vehicleItemsRequiringQuote.push(formattedItem);
+          } else if (quoteApplied || quoteStatus === 'SENT' || quoteStatus === 'ACCEPTED') {
+            // Vehicle has been quoted - include in totals
+            itemCount += formattedItem.quantity;
+            calcItemsTotal += formattedItem.itemBaseTotalUsd;
+            calcMarginTotal += formattedItem.itemMarginUsd;
+            // Use quoted total if available
+            const quotedTotal = formattedItem.quotedTotalUsd || formattedItem.itemSubtotalUsd;
+            calcSubtotalWithMarkup += quotedTotal;
+          }
         } else {
-          // Only count non-vehicle active items in summary
+          // Non-vehicle: normal processing
           itemCount += formattedItem.quantity;
           calcItemsTotal += formattedItem.itemBaseTotalUsd;
           calcMarginTotal += formattedItem.itemMarginUsd;
@@ -201,6 +222,35 @@ serve(async (req) => {
     const finalGrandTotalUsd = round2(calcSubtotalWithMarkup + finalShippingFee);
     const finalGrandTotalCdf = round2(finalGrandTotalUsd * exchangeRate);
 
+    // Determine vehicle quote status
+    let vehicleQuoteStatus: 'none' | 'pending' | 'quoted' = 'none';
+    let vehicleQuotedShippingUsd: number | null = null;
+    let vehicleQuotedTotalUsd: number | null = null;
+
+    if (hasVehicleItems) {
+      if (allVehiclesQuoted) {
+        vehicleQuoteStatus = 'quoted';
+        // Sum up quoted values from vehicle items
+        vehicleQuotedShippingUsd = 0;
+        vehicleQuotedTotalUsd = 0;
+        activeItems.forEach(item => {
+          if (item.isVehicle && (item.quotedShippingUsd || item.quotedTotalUsd)) {
+            vehicleQuotedShippingUsd! += item.quotedShippingUsd || 0;
+            vehicleQuotedTotalUsd! += item.quotedTotalUsd || 0;
+          }
+        });
+      } else {
+        vehicleQuoteStatus = vehicleItemsRequiringQuote.some(v => v.quoteStatus === 'PENDING') 
+          ? 'pending' 
+          : 'none';
+      }
+    }
+
+    // Can proceed to payment if:
+    // 1. No manual quote required for non-vehicle items AND
+    // 2. Either no vehicle items OR all vehicle items have quotes applied
+    const canProceedToPayment = !requiresManualQuote && (!hasVehicleItems || allVehiclesQuoted);
+
     // Build summary (only for active non-vehicle items)
     const summary: Record<string, any> = {
       itemCount,
@@ -213,8 +263,13 @@ serve(async (req) => {
       requiresManualQuote,
       savedItemCount: savedItems.length,
       // Vehicle-specific summary fields
+      hasVehicleItems,
       vehicleCount,
-      quoteRequiredItemCount: quoteRequiredItems.length,
+      vehicleQuoteStatus,
+      vehicleQuotedShippingUsd,
+      vehicleQuotedTotalUsd,
+      vehicleItemsRequiringQuoteCount: vehicleItemsRequiringQuote.length,
+      canProceedToPayment,
       // Include settings for transparency
       markupPercent,
       shippingBaseFeeUsd,
@@ -225,8 +280,8 @@ serve(async (req) => {
       summary.message = "We'll contact you for a custom shipping quote.";
     }
     
-    if (vehicleCount > 0) {
-      summary.vehicleMessage = "Un devis vous sera envoyé pour ce véhicule.";
+    if (hasVehicleItems && !allVehiclesQuoted) {
+      summary.vehicleMessage = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
 
     console.log('[mobile-get-cart] Returning', activeItems.length, 'active items and', savedItems.length, 'saved items');

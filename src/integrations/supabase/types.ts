@@ -594,6 +594,7 @@ export type Database = {
           total_price_usd: number | null
           unit_price_usd: number | null
           updated_at: string
+          vehicle_quote_applied: boolean | null
         }
         Insert: {
           base_price_usd?: number | null
@@ -621,6 +622,7 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          vehicle_quote_applied?: boolean | null
         }
         Update: {
           base_price_usd?: number | null
@@ -648,6 +650,7 @@ export type Database = {
           total_price_usd?: number | null
           unit_price_usd?: number | null
           updated_at?: string
+          vehicle_quote_applied?: boolean | null
         }
         Relationships: [
           {
@@ -933,7 +936,9 @@ export type Database = {
         Row: {
           admin_notes: string | null
           created_at: string
+          customer_email: string | null
           id: string
+          locale: string | null
           order_item_id: string
           product_url: string | null
           quoted_shipping_usd: number | null
@@ -947,7 +952,9 @@ export type Database = {
         Insert: {
           admin_notes?: string | null
           created_at?: string
+          customer_email?: string | null
           id?: string
+          locale?: string | null
           order_item_id: string
           product_url?: string | null
           quoted_shipping_usd?: number | null
@@ -961,7 +968,9 @@ export type Database = {
         Update: {
           admin_notes?: string | null
           created_at?: string
+          customer_email?: string | null
           id?: string
+          locale?: string | null
           order_item_id?: string
           product_url?: string | null
           quoted_shipping_usd?: number | null

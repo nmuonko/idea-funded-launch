@@ -267,17 +267,106 @@ function selectBestPrice(candidates: (number | null)[]): number | null {
   return validPrices[0];
 }
 
+// HOT CACHE TTL (minutes) - very short for fast repeat access
+const HOT_CACHE_TTL_MINUTES: Record<string, number> = {
+  'shein.com': 5,
+  'us.shein.com': 5,
+  'm.shein.com': 5,
+  'aliexpress.com': 5,
+  'ebay.com': 5,
+  'amazon.com': 15,
+  'walmart.com': 15,
+  'bestbuy.com': 15,
+  'target.com': 15,
+  'macys.com': 15,
+  'homedepot.com': 20,
+  'carvana.com': 30,
+  'cargurus.com': 30,
+  'tesla.com': 30,
+  'edmunds.com': 30,
+  'default': 10,
+};
+
+function getHotCacheTtl(domain: string): number {
+  return HOT_CACHE_TTL_MINUTES[domain] || HOT_CACHE_TTL_MINUTES['default'];
+}
+
+// Check HOT CACHE first (5-15 min TTL)
+async function checkHotCache(supabase: any, url: string): Promise<ProductInfo | null> {
+  try {
+    const { data, error } = await supabase
+      .from('product_hot_cache')
+      .select('response_json, hit_count')
+      .eq('url', url)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    console.log('[get-product-info] HOT cache hit for:', url);
+    
+    // Update hit count (non-blocking)
+    supabase
+      .from('product_hot_cache')
+      .update({ hit_count: (data.hit_count || 1) + 1 })
+      .eq('url', url)
+      .then(() => {})
+      .catch(() => {});
+
+    const response = data.response_json;
+    return {
+      title: response.title,
+      imageUrl: response.imageUrl,
+      price: response.price ? Number(response.price) : null,
+      currency: response.currency || 'USD',
+      source: 'cached',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Save to HOT CACHE (5-15 min TTL)
+async function saveToHotCache(supabase: any, url: string, info: ProductInfo, domain: string) {
+  try {
+    const ttlMinutes = getHotCacheTtl(domain);
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + ttlMinutes);
+
+    await supabase
+      .from('product_hot_cache')
+      .upsert({
+        url,
+        store: domain,
+        response_json: {
+          title: info.title,
+          imageUrl: info.imageUrl,
+          price: info.price,
+          currency: info.currency,
+          source: info.source,
+        },
+        expires_at: expiresAt.toISOString(),
+        hit_count: 1,
+      }, { onConflict: 'url' });
+
+    console.log('[get-product-info] Saved to HOT cache:', url);
+  } catch (err: any) {
+    console.warn('[get-product-info] Hot cache save failed:', err.message);
+  }
+}
+
+// Check STANDARD CACHE (hours TTL)
 async function checkCache(supabase: any, url: string): Promise<ProductInfo | null> {
   const { data, error } = await supabase
     .from('product_cache')
     .select('*')
     .eq('product_url', url)
     .gt('expires_at', new Date().toISOString())
-    .single();
+    .maybeSingle();
 
   if (error || !data) return null;
 
-  console.log('[get-product-info] Cache hit for:', url);
+  console.log('[get-product-info] STANDARD cache hit for:', url);
   
   // Normalize cached price to ensure it's clean
   const cachedPrice = data.price ? normalizePriceCandidate(data.price) : null;
@@ -291,9 +380,23 @@ async function checkCache(supabase: any, url: string): Promise<ProductInfo | nul
   };
 }
 
-async function saveToCache(supabase: any, url: string, info: ProductInfo) {
+async function saveToCache(supabase: any, url: string, info: ProductInfo, domain: string) {
+  // Use domain-specific TTL for standard cache
+  const ttlHours: Record<string, number> = {
+    'shein.com': 4,
+    'us.shein.com': 4,
+    'm.shein.com': 4,
+    'aliexpress.com': 4,
+    'ebay.com': 6,
+    'amazon.com': 12,
+    'walmart.com': 12,
+    'bestbuy.com': 12,
+    'default': 8,
+  };
+  
+  const hours = ttlHours[domain] || ttlHours['default'];
   const expiresAt = new Date();
-  expiresAt.setHours(expiresAt.getHours() + 24);
+  expiresAt.setHours(expiresAt.getHours() + hours);
 
   await supabase
     .from('product_cache')
@@ -304,10 +407,11 @@ async function saveToCache(supabase: any, url: string, info: ProductInfo) {
       price: info.price,
       currency: info.currency,
       source: info.source,
+      store: domain,
       expires_at: expiresAt.toISOString(),
     }, { onConflict: 'product_url' });
 
-  console.log('[get-product-info] Saved to cache:', url);
+  console.log('[get-product-info] Saved to STANDARD cache:', url);
 }
 
 function extractFromJsonLd(html: string): Partial<ProductInfo> {
@@ -732,11 +836,36 @@ serve(async (req) => {
     const domain = extractDomain(productUrl);
     console.log('[get-product-info] Request for:', productUrl);
 
-    // Check cache first
+    // TWO-TIER CACHE CHECK
+    // 1. Check HOT CACHE first (5-15 min TTL) - fastest
+    const hotCached = await checkHotCache(supabaseClient, productUrl);
+    if (hotCached) {
+      const duration = Date.now() - requestStart;
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 200, cached: true, cacheType: 'hot', domain }));
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          basePrice: hotCached.price,
+          currency: hotCached.currency,
+          displayPrice: hotCached.price ? formatDisplayPrice(hotCached.price, hotCached.currency) : null,
+          productTitle: hotCached.title,
+          imageUrl: hotCached.imageUrl,
+          sourceUrl: productUrl,
+          cached: true,
+          cacheType: 'hot',
+        }), 
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 2. Check STANDARD CACHE (4-48 hour TTL)
     const cached = await checkCache(supabaseClient, productUrl);
     if (cached) {
+      // Promote to hot cache for faster subsequent access
+      saveToHotCache(supabaseClient, productUrl, cached, domain).catch(() => {});
+      
       const duration = Date.now() - requestStart;
-      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 200, cached: true, domain }));
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 200, cached: true, cacheType: 'standard', domain }));
       return new Response(
         JSON.stringify({
           ok: true,
@@ -747,6 +876,7 @@ serve(async (req) => {
           imageUrl: cached.imageUrl,
           sourceUrl: productUrl,
           cached: true,
+          cacheType: 'standard',
         }), 
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -755,11 +885,16 @@ serve(async (req) => {
     // Scrape product info with timeout protection
     const info = await scrapeProduct(productUrl);
 
-    // Save to cache if we got any useful data (price OR image)
+    // Save to BOTH caches if we got any useful data
     if (info.price !== null || info.imageUrl !== null || info.title !== null) {
-      // Non-blocking cache save
-      saveToCache(supabaseClient, productUrl, info).catch(err => {
-        console.warn('[get-product-info] Cache save failed:', err.message);
+      // Save to hot cache (5-15 min) for fast repeat access
+      saveToHotCache(supabaseClient, productUrl, info, domain).catch(err => {
+        console.warn('[get-product-info] Hot cache save failed:', err.message);
+      });
+      
+      // Save to standard cache (hours) for longer retention
+      saveToCache(supabaseClient, productUrl, info, domain).catch(err => {
+        console.warn('[get-product-info] Standard cache save failed:', err.message);
       });
     }
 

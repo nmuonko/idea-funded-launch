@@ -68,7 +68,7 @@ const ESSENTIAL_PARAMS = [
   'listing', 'vin', 'vehicle', 'stock', 'model',
 ];
 
-// TTL configuration per store (in hours)
+// TTL configuration per store (in hours) - STANDARD CACHE
 // Shorter TTL for problematic/dynamic stores
 export const STORE_TTL_HOURS: Record<string, number> = {
   amazon: 12,
@@ -87,6 +87,34 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   edmunds: 48,    // NEW: Edmunds car listings
   generic: 8,     // Reduced generic TTL
 };
+
+// HOT CACHE TTL configuration (in minutes) - for frequently accessed products
+// Very short TTL for near real-time responsiveness on repeat requests
+export const HOT_CACHE_TTL_MINUTES: Record<string, number> = {
+  amazon: 15,
+  walmart: 15,
+  bestbuy: 15,
+  target: 15,
+  macys: 15,
+  homedepot: 20,
+  ebay: 5,        // Auctions change frequently
+  shein: 5,       // Very short due to dynamic pricing
+  aliexpress: 5,  // Very short due to dynamic pricing
+  // Car marketplaces - longer hot cache (stable pricing)
+  carvana: 30,
+  cargurus: 30,
+  tesla_used: 30,
+  edmunds: 30,
+  generic: 10,
+};
+
+/**
+ * Get hot cache TTL for a store (in milliseconds)
+ */
+export function getHotCacheTtlForStore(store: string): number {
+  const minutes = HOT_CACHE_TTL_MINUTES[store] ?? HOT_CACHE_TTL_MINUTES.generic;
+  return minutes * 60 * 1000;
+}
 
 // Currency mappings
 const CURRENCY_SYMBOLS: Record<string, string> = {

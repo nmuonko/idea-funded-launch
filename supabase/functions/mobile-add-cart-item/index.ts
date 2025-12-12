@@ -331,39 +331,61 @@ serve(async (req) => {
     let productTitle = inputTitle ?? null;
     let productImageUrl = inputImageUrl ?? null;
 
-    // If image or title not provided, try to scrape from product URL
+    // If image or title not provided, try to scrape from product URL (with timeout)
     if (!productImageUrl || !productTitle) {
       console.log('[mobile-add-cart-item] Scraping product info for:', productUrl);
+      const scrapeStart = Date.now();
+      
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
         
-        const scrapeResponse = await fetch(`${supabaseUrl}/functions/v1/get-product-info`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({ url: productUrl }),
-        });
+        // Create abort controller with 4s timeout for scraping
+        const scrapeController = new AbortController();
+        const scrapeTimeout = setTimeout(() => {
+          console.warn('[mobile-add-cart-item] Scrape timeout reached (4s)');
+          scrapeController.abort();
+        }, 4000);
         
-        if (scrapeResponse.ok) {
-          const scrapeData = await scrapeResponse.json();
-          console.log('[mobile-add-cart-item] Scraped product data:', JSON.stringify(scrapeData));
+        try {
+          const scrapeResponse = await fetch(`${supabaseUrl}/functions/v1/get-product-info`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({ url: productUrl }),
+            signal: scrapeController.signal,
+          });
           
-          // get-product-info returns imageUrl (camelCase), not image_url
-          if (!productImageUrl && scrapeData.imageUrl) {
-            productImageUrl = scrapeData.imageUrl;
-            console.log('[mobile-add-cart-item] Got image URL from scrape:', productImageUrl);
+          clearTimeout(scrapeTimeout);
+          
+          if (scrapeResponse.ok) {
+            const scrapeData = await scrapeResponse.json();
+            const scrapeDuration = Date.now() - scrapeStart;
+            console.log(`[mobile-add-cart-item] Scraped product data (${scrapeDuration}ms):`, JSON.stringify(scrapeData).substring(0, 200));
+            
+            // get-product-info returns imageUrl (camelCase), not image_url
+            if (!productImageUrl && scrapeData.imageUrl) {
+              productImageUrl = scrapeData.imageUrl;
+              console.log('[mobile-add-cart-item] Got image URL from scrape');
+            }
+            if (!productTitle && scrapeData.productTitle) {
+              productTitle = scrapeData.productTitle;
+            }
+          } else {
+            console.warn(`[mobile-add-cart-item] Scrape response not ok: ${scrapeResponse.status} (${Date.now() - scrapeStart}ms)`);
           }
-          if (!productTitle && scrapeData.title) {
-            productTitle = scrapeData.title;
-          }
-        } else {
-          console.error('[mobile-add-cart-item] Scrape response not ok:', scrapeResponse.status);
+        } finally {
+          clearTimeout(scrapeTimeout);
         }
-      } catch (scrapeError) {
-        console.error('[mobile-add-cart-item] Failed to scrape product info:', scrapeError);
+      } catch (scrapeError: any) {
+        const scrapeDuration = Date.now() - scrapeStart;
+        if (scrapeError.name === 'AbortError') {
+          console.warn(`[mobile-add-cart-item] Scrape aborted after ${scrapeDuration}ms - continuing without image`);
+        } else {
+          console.error(`[mobile-add-cart-item] Failed to scrape product info (${scrapeDuration}ms):`, scrapeError.message);
+        }
         // Continue without image - it's not critical
       }
     }

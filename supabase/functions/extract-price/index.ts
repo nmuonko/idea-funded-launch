@@ -18,6 +18,8 @@ import {
   checkRateLimit,
   getClientIp,
   ErrorCodes,
+  storeSuccess,
+  storeError,
 } from "../_shared/http.ts";
 
 // ============== RESPONSE TYPES ==============
@@ -166,33 +168,34 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
 };
 
 // ============== TIMEOUT CONFIGURATION ==============
-// Per-store timeouts (problematic stores get shorter timeouts to fail fast)
+// Per-store timeouts - TIGHTENED for faster fail behavior
+// Frontend timeout is ~5-8s, so backend must fail within 3-4s to give clear error
 
 const STORE_TIMEOUTS: Record<StoreType, { fast: number; standard: number }> = {
-  // Problematic stores - fail fast
-  shein: { fast: 4000, standard: 6000 },
-  aliexpress: { fast: 4000, standard: 6000 },
-  // Standard stores
-  amazon: { fast: 5000, standard: 10000 },
-  walmart: { fast: 5000, standard: 10000 },
-  bestbuy: { fast: 5000, standard: 10000 },
-  ebay: { fast: 5000, standard: 10000 },
-  target: { fast: 5000, standard: 10000 },
-  macys: { fast: 5000, standard: 10000 },
-  homedepot: { fast: 5000, standard: 10000 },
-  // Car sites - slightly longer (complex pages)
-  carvana: { fast: 6000, standard: 12000 },
-  cargurus: { fast: 6000, standard: 12000 },
-  tesla_used: { fast: 6000, standard: 12000 },  // NEW
-  edmunds: { fast: 6000, standard: 12000 },     // NEW
+  // Problematic stores - fail VERY fast (3s)
+  shein: { fast: 2500, standard: 3500 },
+  aliexpress: { fast: 2500, standard: 3500 },
+  // Standard stores - fail fast (4s)
+  amazon: { fast: 3000, standard: 4000 },
+  walmart: { fast: 3000, standard: 4000 },
+  bestbuy: { fast: 3000, standard: 4000 },
+  ebay: { fast: 3000, standard: 4000 },
+  target: { fast: 3000, standard: 4000 },
+  macys: { fast: 3000, standard: 4000 },
+  homedepot: { fast: 3000, standard: 4000 },
+  // Car sites - slightly longer but still bounded (5s)
+  carvana: { fast: 4000, standard: 5000 },
+  cargurus: { fast: 4000, standard: 5000 },
+  tesla_used: { fast: 4000, standard: 5000 },
+  edmunds: { fast: 4000, standard: 5000 },
   // Generic fallback
-  generic: { fast: 5000, standard: 8000 },
+  generic: { fast: 3000, standard: 4000 },
 };
 
 const TIMEOUTS = {
-  fast: 5000,
-  standard: 10000,
-  ocr: 6000, // Reduced OCR timeout
+  fast: 3000,
+  standard: 4000,
+  ocr: 4000, // Reduced OCR timeout
 };
 
 // Max extraction attempts per store before giving up

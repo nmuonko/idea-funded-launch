@@ -364,6 +364,12 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('[cart-sync-from-client] Unexpected error:', error);
-    return errorResponse(error.message || 'Internal server error', 500);
+    // Return structured error - NEVER delete cart on transient errors
+    return jsonResponse({ 
+      ok: false, 
+      success: false,
+      code: 'TEMPORARY_ERROR', 
+      message: 'Temporary problem syncing cart. Please try again.' 
+    }, 500);
   }
 });

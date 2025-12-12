@@ -286,7 +286,19 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Returning', activeItems.length, 'active items and', savedItems.length, 'saved items');
     
+    // REGRESSION GUARD: Log warning if active items exist but summary totals are 0
+    if (activeItems.length > 0 && summary.totalUsd === 0 && !requiresManualQuote && (!hasVehicleItems || allVehiclesQuoted)) {
+      console.warn('[mobile-get-cart] REGRESSION WARNING: Active items exist but totalUsd = 0', {
+        orderId: order.id,
+        activeItemCount: activeItems.length,
+        itemsTotalUsd: summary.itemsTotalUsd,
+        markupFeeUsd: summary.markupFeeUsd,
+        shippingFeeUsd: summary.shippingFeeUsd,
+      });
+    }
+    
     return jsonResponse({ 
+      ok: true,
       items: activeItems,       // Backwards compatible - active items only
       activeItems,              // Active cart items (isSavedForLater = false)
       savedItems,               // Saved for later items (isSavedForLater = true)
@@ -296,10 +308,20 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[mobile-get-cart] Error:', error.message);
     
+    // Return structured error for client handling - NEVER delete cart on transient errors
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ 
+        ok: false, 
+        code: 'AUTH_ERROR', 
+        message: error.message 
+      }, error.status);
     }
     
-    return errorResponse(error.message, 500);
+    // For other errors, return structured error but don't crash
+    return jsonResponse({ 
+      ok: false, 
+      code: 'TEMPORARY_ERROR', 
+      message: 'Temporary problem loading cart. Please try again.' 
+    }, 500);
   }
 });

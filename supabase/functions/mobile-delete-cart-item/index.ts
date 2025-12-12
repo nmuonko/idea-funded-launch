@@ -15,7 +15,7 @@ function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shipp
   return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
 }
 
-// Calculate and persist order totals from items - CANONICAL FUNCTION
+// Calculate and persist order totals from ACTIVE items only (excluding saved-for-later)
 async function updateOrderTotals(
   supabase: any,
   orderId: string,
@@ -23,9 +23,10 @@ async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ) {
+  // CRITICAL FIX: Include is_saved_for_later in query to filter correctly
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity')
+    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, is_saved_for_later')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -36,14 +37,20 @@ async function updateOrderTotals(
   let itemTotalUsd = 0;
   let serviceFeeUsd = 0;
   let itemsWithMarkupUsd = 0;
+  let activeItemCount = 0;
 
+  // CRITICAL FIX: Only count ACTIVE items (not saved for later)
   (items || []).forEach((item: any) => {
-    itemTotalUsd += Number(item.subtotal_usd || 0);
-    serviceFeeUsd += Number(item.markup_fee_usd || 0);
-    itemsWithMarkupUsd += Number(item.total_price_usd || 0);
+    if (!item.is_saved_for_later) {
+      itemTotalUsd += Number(item.subtotal_usd || 0);
+      serviceFeeUsd += Number(item.markup_fee_usd || 0);
+      itemsWithMarkupUsd += Number(item.total_price_usd || 0);
+      activeItemCount++;
+    }
   });
 
-  const shippingFeeUsd = items && items.length > 0 
+  // Only calculate shipping for active items
+  const shippingFeeUsd = activeItemCount > 0 
     ? calculateShipping(itemTotalUsd, shippingBaseFeeUsd, shippingPercent)
     : 0;
   
@@ -52,13 +59,24 @@ async function updateOrderTotals(
 
   console.log('[updateOrderTotals] Calculated totals:', {
     orderId,
+    activeItemCount,
+    totalItemsInOrder: items?.length || 0,
     itemTotalUsd: round2(itemTotalUsd),
     serviceFeeUsd: round2(serviceFeeUsd),
     shippingFeeUsd: round2(shippingFeeUsd),
     totalUsd,
     totalCdf,
-    itemCount: items?.length || 0,
   });
+
+  // REGRESSION GUARD: Log warning if active items exist but total is 0
+  if (activeItemCount > 0 && totalUsd === 0) {
+    console.warn('[updateOrderTotals] REGRESSION WARNING: Active items exist but totalUsd = 0', {
+      orderId,
+      activeItemCount,
+      itemTotalUsd,
+      serviceFeeUsd,
+    });
+  }
 
   const { error: updateError } = await supabase
     .from('orders')
@@ -84,6 +102,7 @@ async function updateOrderTotals(
     totalUsd,
     totalCdf,
     exchangeRate,
+    activeItemCount,
   };
 }
 
@@ -154,10 +173,19 @@ serve(async (req) => {
   } catch (error: any) {
     console.error('[mobile-delete-cart-item] Error:', error.message);
     
+    // Return structured error - NEVER delete other items on transient errors
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ 
+        ok: false, 
+        code: 'AUTH_ERROR', 
+        message: error.message 
+      }, error.status);
     }
     
-    return errorResponse(error.message, 500);
+    return jsonResponse({ 
+      ok: false, 
+      code: 'TEMPORARY_ERROR', 
+      message: 'Temporary problem deleting item. Please try again.' 
+    }, 500);
   }
 });

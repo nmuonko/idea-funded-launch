@@ -38,7 +38,7 @@ serve(async (req) => {
     if (lastPart && lastPart !== 'mobile-get-order-by-id') orderId = lastPart;
 
     if (!orderId) {
-      return jsonResponse({ success: false, error: 'Order ID required' }, 400);
+      return jsonResponse({ ok: false, success: false, code: 'MISSING_ORDER_ID', error: 'Order ID required' }, 400);
     }
 
     // Optimized query - select all price fields to ensure mobile app gets correct values
@@ -60,7 +60,7 @@ serve(async (req) => {
     }
 
     if (!order) {
-      return jsonResponse({ success: false, error: 'Order not found' }, 404);
+      return jsonResponse({ ok: false, success: false, code: 'NOT_FOUND', error: 'Order not found' }, 404);
     }
 
     // Get payment details - only needed columns
@@ -74,7 +74,9 @@ serve(async (req) => {
 
     // Complete mobile-optimized response with all price fields
     // CRITICAL: Ensure unit_price_usd and subtotal_usd are returned for Prix and Sous-total display
+    // STANDARDIZED: Added ok field for consistent response format
     return jsonResponse({
+      ok: true,
       success: true,
       order: {
         id: order.id,

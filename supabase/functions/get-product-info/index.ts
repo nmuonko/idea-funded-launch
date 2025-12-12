@@ -761,11 +761,16 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
         source = 'selectors';
       }
 
+      // CRITICAL: Force USD currency for US retailers (SHEIN, Amazon, Walmart, etc.)
+      // This prevents incorrect currency detection (e.g., CDF instead of USD)
+      const forceUsdDomains = ['shein.com', 'us.shein.com', 'm.shein.com', 'amazon.com', 'walmart.com', 'bestbuy.com', 'target.com', 'homedepot.com', 'macys.com'];
+      const finalCurrency = forceUsdDomains.some(d => domain.includes(d)) ? 'USD' : (result.currency || 'USD');
+
       return {
         title: result.title || null,
         imageUrl: result.imageUrl || null,
         price: bestPrice,
-        currency: result.currency || 'USD',
+        currency: finalCurrency,
         source,
       };
     }

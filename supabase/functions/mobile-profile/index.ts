@@ -91,7 +91,7 @@ serve(async (req) => {
 
   if (req.method !== 'GET') {
     return new Response(
-      JSON.stringify({ success: false, error: 'Method not allowed' }),
+      JSON.stringify({ ok: false, success: false, code: 'METHOD_NOT_ALLOWED', error: 'Method not allowed' }),
       { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -105,7 +105,7 @@ serve(async (req) => {
     if (!authHeader) {
       console.log('[mobile-profile] Missing Authorization header');
       return new Response(
-        JSON.stringify({ success: false, error: 'Missing Authorization header' }),
+        JSON.stringify({ ok: false, success: false, code: 'AUTH_REQUIRED', error: 'Missing Authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -115,7 +115,7 @@ serve(async (req) => {
     if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
       console.log('[mobile-profile] Invalid Authorization header format');
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid Authorization header format' }),
+        JSON.stringify({ ok: false, success: false, code: 'INVALID_AUTH_FORMAT', error: 'Invalid Authorization header format' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -125,7 +125,7 @@ serve(async (req) => {
     if (!accessToken || accessToken.length < 10) {
       console.log('[mobile-profile] Token is empty or too short');
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token' }),
+        JSON.stringify({ ok: false, success: false, code: 'INVALID_TOKEN', error: 'Invalid token' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -137,7 +137,7 @@ serve(async (req) => {
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error('[mobile-profile] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
       return new Response(
-        JSON.stringify({ success: false, error: 'Server configuration error' }),
+        JSON.stringify({ ok: false, success: false, code: 'SERVER_CONFIG_ERROR', error: 'Server configuration error' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -157,12 +157,12 @@ serve(async (req) => {
       const errorMsg = userError.message?.toLowerCase() || '';
       if (errorMsg.includes('expired') || errorMsg.includes('exp claim')) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' }),
+          JSON.stringify({ ok: false, success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token', code: 'INVALID_TOKEN' }),
+        JSON.stringify({ ok: false, success: false, error: 'Invalid token', code: 'INVALID_TOKEN' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -170,7 +170,7 @@ serve(async (req) => {
     if (!user) {
       console.log('[mobile-profile] No user found for token');
       return new Response(
-        JSON.stringify({ success: false, error: 'User not found', code: 'USER_NOT_FOUND' }),
+        JSON.stringify({ ok: false, success: false, error: 'User not found', code: 'USER_NOT_FOUND' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -231,7 +231,10 @@ serve(async (req) => {
     console.log('[mobile-profile] Profile retrieved, complete:', hasCompleteProfile);
 
     // 8. Return profile in the simplified format - never null values
+    // STANDARDIZED: Added ok/success fields for consistent response format
     const response = {
+      ok: true,
+      success: true,
       id: profile?.user_id || user.id,
       email: profile?.email || user.email || '',
       full_name: profile?.full_name || profile?.name || '',
@@ -254,7 +257,9 @@ serve(async (req) => {
     console.error('[mobile-profile] Unexpected error:', error?.message || error);
     return new Response(
       JSON.stringify({ 
-        success: false, 
+        ok: false,
+        success: false,
+        code: 'INTERNAL_ERROR',
         error: 'Internal server error',
         // Return a minimal profile so the app doesn't break completely
         id: '',

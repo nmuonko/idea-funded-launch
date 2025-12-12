@@ -132,6 +132,7 @@ serve(async (req) => {
     });
 
     return jsonResponse({
+      ok: true,
       success: true,
       orders: formattedOrders,
       page,

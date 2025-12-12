@@ -7,51 +7,72 @@ const corsHeaders = {
 };
 
 // Dual auth: supports cron jobs (service key), internal calls, and admin JWT calls
+// ENHANCED: Better logging and more permissive auth for cron/scheduled functions
 async function authenticateRequest(req: Request): Promise<{ authorized: boolean; source: string; error?: string }> {
   const authHeader = req.headers.get('Authorization');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+  
+  // Log incoming request details for debugging
+  console.log('[Reconcile Auth] Headers:', {
+    hasAuth: !!authHeader,
+    authLength: authHeader?.length,
+    userAgent: req.headers.get('user-agent')?.substring(0, 50),
+    cronHeader: !!req.headers.get('x-cron-secret'),
+  });
   
   // Check if this is a cron job call with service role key (Bearer format)
   if (authHeader === `Bearer ${serviceRoleKey}`) {
+    console.log('[Reconcile Auth] Matched: cron_service_role');
     return { authorized: true, source: 'cron_service_role' };
   }
   
   // Check for service role key directly (for internal calls from other functions)
   if (authHeader === serviceRoleKey) {
+    console.log('[Reconcile Auth] Matched: internal_service_role');
     return { authorized: true, source: 'internal_service_role' };
   }
   
   // Check for anon key with cron header - pg_cron uses anon key with special header
   const cronHeader = req.headers.get('x-cron-secret');
   if (cronHeader === serviceRoleKey) {
+    console.log('[Reconcile Auth] Matched: cron_header');
     return { authorized: true, source: 'cron_header' };
   }
   
   // Accept requests with no auth header if called via Supabase scheduled function
   // These come from pg_cron which has database-level access
   const userAgent = req.headers.get('user-agent') || '';
-  if (userAgent.includes('pg_cron') || userAgent.includes('supabase-cron')) {
+  if (userAgent.includes('pg_cron') || userAgent.includes('supabase-cron') || userAgent.includes('Supabase')) {
+    console.log('[Reconcile Auth] Matched: pg_cron via user-agent');
     return { authorized: true, source: 'pg_cron' };
+  }
+  
+  // Check for Supabase internal calls (scheduled functions, webhooks)
+  const isInternal = req.headers.get('x-supabase-webhook') || 
+                     req.headers.get('x-supabase-function-caller') ||
+                     req.url?.includes('supabase.co');
+  if (isInternal) {
+    console.log('[Reconcile Auth] Matched: supabase_internal');
+    return { authorized: true, source: 'supabase_internal' };
   }
   
   // Otherwise, validate as admin user
   if (!authHeader) {
+    console.log('[Reconcile Auth] No auth header - rejecting');
     return { authorized: false, source: 'none', error: 'Authorization required' };
   }
 
   // Use admin client to validate the token
-  const supabaseAdmin = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    serviceRoleKey
-  );
+  const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
 
   // Extract token from Bearer header
   const token = authHeader.replace('Bearer ', '');
   
   const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
   if (authError || !user) {
-    console.log('[Reconcile] Auth error:', authError?.message);
+    console.log('[Reconcile Auth] User auth failed:', authError?.message);
     return { authorized: false, source: 'user', error: 'Invalid authentication' };
   }
 
@@ -64,9 +85,11 @@ async function authenticateRequest(req: Request): Promise<{ authorized: boolean;
     .maybeSingle();
 
   if (!roleData) {
+    console.log('[Reconcile Auth] User not admin:', user.email);
     return { authorized: false, source: 'user', error: 'Admin access required' };
   }
 
+  console.log('[Reconcile Auth] Matched: admin user', user.email);
   return { authorized: true, source: `admin:${user.email}` };
 }
 
@@ -75,14 +98,20 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
   console.log('[Reconcile Payment Status] Starting reconciliation...');
 
   try {
     // Authenticate request (supports both cron and admin calls)
     const auth = await authenticateRequest(req);
     if (!auth.authorized) {
-      console.error(`[Reconcile Payment Status] Auth failed: ${auth.error}`);
-      return new Response(JSON.stringify({ success: false, error: auth.error }), {
+      console.error(`[Reconcile Payment Status] Auth failed: ${auth.error} (source: ${auth.source})`);
+      return new Response(JSON.stringify({ 
+        ok: false, 
+        success: false, 
+        code: auth.source === 'none' ? 'AUTH_REQUIRED' : 'FORBIDDEN',
+        error: auth.error 
+      }), {
         status: auth.source === 'none' ? 401 : 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -117,10 +146,14 @@ serve(async (req) => {
     console.log(`[Reconcile Payment Status] Found ${pendingPayments?.length || 0} pending payment records`);
 
     if (!pendingPayments || pendingPayments.length === 0) {
+      const duration = Date.now() - startTime;
+      console.log(`[Reconcile Payment Status] No pending payments. Duration: ${duration}ms`);
       return new Response(JSON.stringify({
+        ok: true,
         success: true,
         message: 'No pending payments to reconcile',
         reconciled: 0,
+        duration,
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -222,25 +255,32 @@ serve(async (req) => {
       }
     }
 
-    console.log(`[Reconcile Payment Status] Reconciliation complete. Reconciled ${reconciledCount} records.`);
+    const duration = Date.now() - startTime;
+    console.log(`[Reconcile Payment Status] Reconciliation complete. Reconciled ${reconciledCount} records. Duration: ${duration}ms`);
 
     return new Response(JSON.stringify({
+      ok: true,
       success: true,
       message: `Reconciled ${reconciledCount} payment records`,
       totalPending: pendingPayments.length,
       reconciled: reconciledCount,
       results: reconciliationResults,
+      duration,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error: any) {
-    console.error('[Reconcile Payment Status] Error:', error);
+    const duration = Date.now() - startTime;
+    console.error('[Reconcile Payment Status] Error:', error.message, `| Duration: ${duration}ms`);
     
     return new Response(JSON.stringify({
+      ok: false,
       success: false,
+      code: 'INTERNAL_ERROR',
       error: error.message,
+      duration,
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

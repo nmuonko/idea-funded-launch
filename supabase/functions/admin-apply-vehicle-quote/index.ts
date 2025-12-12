@@ -206,8 +206,11 @@ serve(async (req) => {
     console.log("[admin-apply-vehicle-quote] Order totals updated:", { orderId, newTotalUsd, newShippingUsd });
 
     // 5. Trigger email notification to customer (non-blocking)
+    let emailSent = false;
+    let emailId: string | null = null;
+    
     try {
-      const { error: emailError } = await supabase.functions.invoke("send-quote-email", {
+      const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-quote-email", {
         body: {
           quoteRequestId,
           quotedShippingUsd: shippingValue,
@@ -220,16 +223,51 @@ serve(async (req) => {
         console.error("[admin-apply-vehicle-quote] Failed to send quote email:", emailError);
         // Don't fail the whole operation if email fails
       } else {
-        console.log("[admin-apply-vehicle-quote] Quote email sent successfully");
+        emailSent = emailResult?.success || false;
+        emailId = emailResult?.emailId || null;
+        console.log("[admin-apply-vehicle-quote] Quote email sent successfully, ID:", emailId);
       }
     } catch (emailErr) {
       console.error("[admin-apply-vehicle-quote] Email notification error:", emailErr);
     }
 
+    // 6. Log email to customer_email_logs for tracking
+    if (emailSent) {
+      try {
+        // Get customer email from profile
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("user_id", quoteRequest.user_id)
+          .single();
+
+        if (profile?.email) {
+          const vehicleTitle = quoteRequest.order_items?.title || quoteRequest.title || "Vehicle";
+          await supabase
+            .from("customer_email_logs")
+            .insert({
+              customer_id: quoteRequest.user_id,
+              customer_email: profile.email,
+              sent_by: user.id,
+              subject: `Vehicle Quote Ready - $${totalValue.toFixed(2)} USD`,
+              body: `Quote for ${vehicleTitle}: Shipping $${shippingValue.toFixed(2)}, Total $${totalValue.toFixed(2)} USD`,
+              status: "sent",
+            });
+          console.log("[admin-apply-vehicle-quote] Email logged to customer_email_logs");
+        }
+      } catch (logErr) {
+        console.warn("[admin-apply-vehicle-quote] Failed to log email:", logErr);
+        // Non-blocking - don't fail the operation
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Quote applied successfully",
+        message: emailSent 
+          ? "Quote applied successfully and customer notified" 
+          : "Quote applied successfully (email notification failed)",
+        emailSent,
         data: {
           quoteRequestId,
           orderItemId,
@@ -246,7 +284,12 @@ serve(async (req) => {
   } catch (error: any) {
     console.error("[admin-apply-vehicle-quote] Error:", error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message || "Internal server error" }),
+      JSON.stringify({ 
+        ok: false, 
+        success: false, 
+        code: "QUOTE_APPLY_ERROR",
+        error: error.message || "Internal server error" 
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

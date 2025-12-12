@@ -59,7 +59,7 @@ async function updateOrderTotals(
   let activeItemCount = 0;
 
   (items || []).forEach((item: any) => {
-    // Only count active items
+    // Only count active items (not saved for later)
     if (!item.is_saved_for_later) {
       itemTotalUsd += Number(item.subtotal_usd || 0);
       serviceFeeUsd += Number(item.markup_fee_usd || 0);
@@ -78,12 +78,23 @@ async function updateOrderTotals(
   console.log('[updateOrderTotals] Calculated totals:', {
     orderId,
     activeItemCount,
+    totalItemsInOrder: items?.length || 0,
     itemTotalUsd: round2(itemTotalUsd),
     serviceFeeUsd: round2(serviceFeeUsd),
     shippingFeeUsd: round2(shippingFeeUsd),
     totalUsd,
     totalCdf,
   });
+
+  // REGRESSION GUARD: Log warning if active items exist but total is 0
+  if (activeItemCount > 0 && totalUsd === 0) {
+    console.warn('[updateOrderTotals] REGRESSION WARNING: Active items exist but totalUsd = 0', {
+      orderId,
+      activeItemCount,
+      itemTotalUsd,
+      serviceFeeUsd,
+    });
+  }
 
   const { error: updateError } = await supabase
     .from('orders')
@@ -109,6 +120,7 @@ async function updateOrderTotals(
     totalUsd,
     totalCdf,
     exchangeRate,
+    activeItemCount,
   };
 }
 
@@ -225,9 +237,21 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('[mobile-update-cart-item] Error:', error.message);
+    
+    // Return structured error - NEVER delete cart on transient errors
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ 
+        ok: false, 
+        code: 'AUTH_ERROR', 
+        message: error.message 
+      }, error.status);
     }
-    return errorResponse(error.message, 500);
+    
+    // For other errors, return structured error but preserve cart state
+    return jsonResponse({ 
+      ok: false, 
+      code: 'TEMPORARY_ERROR', 
+      message: 'Temporary problem updating cart item. Please try again.' 
+    }, 500);
   }
 });

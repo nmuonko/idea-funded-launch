@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,8 +24,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Car, ExternalLink, Clock, Send, DollarSign, Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Car, ExternalLink, Clock, Send, DollarSign, Loader2, RefreshCw, Store } from "lucide-react";
 import { formatCurrency, type SupportedLocale } from "@/lib/formatCurrency";
+
+// Auto-refresh interval: 5 minutes
+const AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 interface QuoteRequest {
   id: string;
@@ -68,10 +77,15 @@ const translations = {
     adminNotes: "Admin Notes",
     submitQuote: "Send Quote",
     cancel: "Cancel",
-    quoteSuccess: "Quote sent successfully",
+    quoteSuccess: "Quote sent successfully and customer notified",
     quoteError: "Failed to send quote",
     loading: "Loading...",
     quantity: "Qty",
+    refresh: "Refresh",
+    refreshing: "Refreshing...",
+    lastUpdated: "Last updated",
+    autoRefresh: "Auto-refresh every 5 min",
+    vehicle: "Vehicle",
   },
   fr: {
     title: "Demandes de devis véhicules",
@@ -98,10 +112,15 @@ const translations = {
     adminNotes: "Notes admin",
     submitQuote: "Envoyer le devis",
     cancel: "Annuler",
-    quoteSuccess: "Devis envoyé avec succès",
+    quoteSuccess: "Devis envoyé avec succès et client notifié",
     quoteError: "Échec de l'envoi du devis",
     loading: "Chargement...",
     quantity: "Qté",
+    refresh: "Actualiser",
+    refreshing: "Actualisation...",
+    lastUpdated: "Dernière mise à jour",
+    autoRefresh: "Actualisation auto toutes les 5 min",
+    vehicle: "Véhicule",
   },
   sw: {
     title: "Maombi ya Bei za Magari",
@@ -132,6 +151,11 @@ const translations = {
     quoteError: "Imeshindwa kutuma bei",
     loading: "Inapakia...",
     quantity: "Idadi",
+    refresh: "Sasisha",
+    refreshing: "Inasasisha...",
+    lastUpdated: "Ilisasishwa mwisho",
+    autoRefresh: "Sasisha kiotomatiki kila dakika 5",
+    vehicle: "Gari",
   },
   ln: {
     title: "Bandela ya Ntalo ya Motuka",
@@ -162,6 +186,11 @@ const translations = {
     quoteError: "Elongaki te kotinda ntalo",
     loading: "Ezali kokota...",
     quantity: "Motango",
+    refresh: "Bosala lisusu",
+    refreshing: "Ezali kobongisa...",
+    lastUpdated: "Ebongisami ya nsuka",
+    autoRefresh: "Kobongisa yango moko miniti 5",
+    vehicle: "Motuka",
   },
 };
 
@@ -172,6 +201,8 @@ export default function QuoteRequests() {
   
   const [requests, setRequests] = useState<QuoteRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<QuoteRequest | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -181,12 +212,13 @@ export default function QuoteRequests() {
   const [quotedTotal, setQuotedTotal] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
 
-  useEffect(() => {
-    fetchQuoteRequests();
-  }, []);
-
-  const fetchQuoteRequests = async () => {
-    setLoading(true);
+  const fetchQuoteRequests = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    
     try {
       const { data, error } = await supabase
         .from("quote_requests")
@@ -195,11 +227,48 @@ export default function QuoteRequests() {
 
       if (error) throw error;
       setRequests(data || []);
+      setLastUpdated(new Date());
     } catch (error: any) {
       console.error("Error fetching quote requests:", error);
       toast.error("Failed to load quote requests");
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchQuoteRequests();
+  }, [fetchQuoteRequests]);
+
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      console.log("[QuoteRequests] Auto-refreshing...");
+      fetchQuoteRequests(true);
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [fetchQuoteRequests]);
+
+  const handleManualRefresh = () => {
+    fetchQuoteRequests(true);
+  };
+
+  // Helper to extract store name from URL
+  const getStoreFromUrl = (url: string | null): string => {
+    if (!url) return "-";
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (hostname.includes("cargurus")) return "CarGurus";
+      if (hostname.includes("carvana")) return "Carvana";
+      if (hostname.includes("autotrader")) return "AutoTrader";
+      if (hostname.includes("cars.com")) return "Cars.com";
+      if (hostname.includes("carmax")) return "CarMax";
+      return hostname.replace("www.", "").split(".")[0];
+    } catch {
+      return "-";
     }
   };
 
@@ -284,11 +353,40 @@ export default function QuoteRequests() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Car className="h-8 w-8 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">{t.title}</h1>
-          <p className="text-muted-foreground">{t.description}</p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Car className="h-8 w-8 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">{t.title}</h1>
+            <p className="text-muted-foreground">{t.description}</p>
+          </div>
+        </div>
+        
+        {/* Refresh button and status */}
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">
+                    {t.lastUpdated}: {lastUpdated.toLocaleTimeString()}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{t.autoRefresh}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? t.refreshing : t.refresh}
+          </Button>
         </div>
       </div>
 
@@ -297,6 +395,7 @@ export default function QuoteRequests() {
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
             {t.title}
+            <Badge variant="outline" className="ml-2">{requests.length}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -311,86 +410,132 @@ export default function QuoteRequests() {
               <p>{t.noRequests}</p>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t.status}</TableHead>
-                  <TableHead>{t.product}</TableHead>
-                  <TableHead>{t.store}</TableHead>
-                  <TableHead>{t.quotedShipping}</TableHead>
-                  <TableHead>{t.quotedTotal}</TableHead>
-                  <TableHead>{t.requestedAt}</TableHead>
-                  <TableHead>{t.actions}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {requests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>{getStatusBadge(request.status)}</TableCell>
-                    <TableCell>
-                      <div className="max-w-[200px]">
-                        <p className="truncate font-medium">{request.title || "Vehicle"}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>{request.store_name || "-"}</TableCell>
-                    <TableCell>
-                      {request.quoted_shipping_usd
-                        ? formatCurrency(request.quoted_shipping_usd, { currency: 'USD', locale })
-                        : "-"}
-                    </TableCell>
-                    <TableCell>
-                      {request.quoted_total_usd
-                        ? formatCurrency(request.quoted_total_usd, { currency: 'USD', locale })
-                        : "-"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {formatDate(request.created_at)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openQuoteDialog(request)}
-                        >
-                          <DollarSign className="h-4 w-4 mr-1" />
-                          {t.setQuote}
-                        </Button>
-                        {request.product_url && (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[100px]">{t.status}</TableHead>
+                    <TableHead className="min-w-[250px]">{t.product}</TableHead>
+                    <TableHead className="w-[120px]">{t.store}</TableHead>
+                    <TableHead className="w-[120px]">{t.quotedShipping}</TableHead>
+                    <TableHead className="w-[120px]">{t.quotedTotal}</TableHead>
+                    <TableHead className="w-[150px]">{t.requestedAt}</TableHead>
+                    <TableHead className="w-[150px]">{t.actions}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {requests.map((request) => (
+                    <TableRow key={request.id}>
+                      <TableCell>{getStatusBadge(request.status)}</TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium text-sm line-clamp-2">
+                            {request.title || t.vehicle}
+                          </p>
+                          {request.product_url && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a 
+                                    href={request.product_url} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary hover:underline flex items-center gap-1 max-w-[230px]"
+                                  >
+                                    <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                                    <span className="truncate">
+                                      {new URL(request.product_url).hostname.replace('www.', '')}
+                                    </span>
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="max-w-[400px]">
+                                  <p className="break-all text-xs">{request.product_url}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Store className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm">{request.store_name || getStoreFromUrl(request.product_url)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={request.quoted_shipping_usd ? "font-medium text-green-600" : "text-muted-foreground"}>
+                          {request.quoted_shipping_usd
+                            ? formatCurrency(request.quoted_shipping_usd, { currency: 'USD', locale })
+                            : "-"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={request.quoted_total_usd ? "font-medium text-green-600" : "text-muted-foreground"}>
+                          {request.quoted_total_usd
+                            ? formatCurrency(request.quoted_total_usd, { currency: 'USD', locale })
+                            : "-"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDate(request.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
-                            variant="ghost"
-                            asChild
+                            variant={request.status === 'PENDING' ? "default" : "outline"}
+                            onClick={() => openQuoteDialog(request)}
                           >
-                            <a
-                              href={request.product_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <ExternalLink className="h-4 w-4" />
-                            </a>
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            {t.setQuote}
                           </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                          {request.product_url && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              asChild
+                            >
+                              <a
+                                href={request.product_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* Quote Dialog */}
       <Dialog open={quoteDialogOpen} onOpenChange={setQuoteDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Car className="h-5 w-5" />
               {t.quoteDialog}
             </DialogTitle>
-            <DialogDescription>
-              {selectedRequest?.title || "Vehicle"}
+            <DialogDescription className="space-y-2">
+              <p className="font-medium">{selectedRequest?.title || t.vehicle}</p>
+              {selectedRequest?.product_url && (
+                <a 
+                  href={selectedRequest.product_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1 break-all"
+                >
+                  <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                  {selectedRequest.product_url}
+                </a>
+              )}
             </DialogDescription>
           </DialogHeader>
           

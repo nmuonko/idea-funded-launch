@@ -122,31 +122,45 @@ serve(async (req) => {
       );
     }
 
-    // 1. Update quote_requests row
+    // 1. UPSERT quote_requests row - ensures no duplicates, replaces existing
+    // Uses the unique constraint on order_item_id for upsert
     const { error: updateQuoteError } = await supabase
       .from("quote_requests")
-      .update({
+      .upsert({
+        id: quoteRequestId,
+        order_item_id: orderItemId,
+        user_id: quoteRequest.user_id,
+        title: quoteRequest.title,
+        product_url: quoteRequest.product_url,
+        store_name: quoteRequest.store_name,
         quoted_shipping_usd: shippingValue,
         quoted_total_usd: totalValue,
         admin_notes: adminNotes || null,
         status: "SENT",
+        locale: quoteRequest.locale || 'fr',
+        customer_email: quoteRequest.customer_email,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", quoteRequestId);
+      }, { 
+        onConflict: 'order_item_id',
+        ignoreDuplicates: false 
+      });
 
     if (updateQuoteError) {
-      console.error("[admin-apply-vehicle-quote] Failed to update quote:", updateQuoteError);
+      console.error("[admin-apply-vehicle-quote] Failed to upsert quote:", updateQuoteError);
       throw updateQuoteError;
     }
 
-    // 2. Update order_items row - clear the quote requirement and apply quoted values
+    console.log("[admin-apply-vehicle-quote] Quote upserted with shipping:", shippingValue, "total:", totalValue);
+
+    // 2. Update order_items row - CRITICAL: Set shipping/total to EXACTLY admin values
+    // These values MUST match what admin entered - no recalculation
     const { error: updateItemError } = await supabase
       .from("order_items")
       .update({
-        shipping_fee_usd: shippingValue,
-        total_price_usd: totalValue,
-        requires_manual_quote: false,  // CRITICAL: Clear the quote requirement
-        vehicle_quote_applied: true,   // Mark that quote has been applied
+        shipping_fee_usd: shippingValue,          // EXACT admin value
+        total_price_usd: totalValue,              // EXACT admin value
+        requires_manual_quote: false,             // Clear the quote requirement
+        vehicle_quote_applied: true,              // Mark that quote has been applied
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderItemId);
@@ -155,6 +169,8 @@ serve(async (req) => {
       console.error("[admin-apply-vehicle-quote] Failed to update order item:", updateItemError);
       throw updateItemError;
     }
+
+    console.log("[admin-apply-vehicle-quote] Order item updated with EXACT admin values");
 
     // 3. Recalculate order totals by summing all items
     const { data: allItems, error: itemsError } = await supabase

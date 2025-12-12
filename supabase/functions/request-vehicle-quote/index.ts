@@ -164,90 +164,74 @@ serve(async (req) => {
 
     console.log('[request-vehicle-quote] Found', vehicleItems.length, 'vehicle items requiring quote');
 
-    // Check for existing quote requests to avoid duplicates
+    // Check for existing quote requests to build a lookup map
     const itemIds = vehicleItems.map(item => item.id);
-    const { data: existingQuotes, error: existingError } = await supabase
+    const { data: priorQuotes, error: priorError } = await supabase
       .from('quote_requests')
       .select('id, order_item_id, status')
       .in('order_item_id', itemIds);
 
-    if (existingError) {
-      console.error('[request-vehicle-quote] Error checking existing quotes:', existingError);
+    if (priorError) {
+      console.error('[request-vehicle-quote] Error checking existing quotes:', priorError);
     }
 
     const existingQuoteMap = new Map(
-      (existingQuotes || []).map(q => [q.order_item_id, q])
+      (priorQuotes || []).map(q => [q.order_item_id, q])
     );
 
-    // Create quote requests for items that don't have one yet
-    const newQuoteRequests: any[] = [];
-    const existingQuoteResponses: any[] = [];
+    // UPSERT quote requests - prevents duplicates due to unique constraint on order_item_id
+    const quoteResponses: any[] = [];
 
     for (const item of vehicleItems) {
       const existingQuote = existingQuoteMap.get(item.id);
       
-      if (existingQuote) {
-        // Update existing quote with latest request info
-        await supabase
-          .from('quote_requests')
-          .update({
-            locale: userLocale,
-            customer_email: userEmail,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingQuote.id);
+      // Use upsert to handle both new and existing quotes safely
+      const quoteData = {
+        user_id: user.id,
+        order_item_id: item.id,
+        title: item.title,
+        product_url: item.product_url,
+        store_name: item.store,
+        status: existingQuote?.status || 'PENDING', // Preserve existing status
+        locale: userLocale,
+        customer_email: userEmail,
+        updated_at: new Date().toISOString(),
+      };
 
-        existingQuoteResponses.push({
-          quoteRequestId: existingQuote.id,
-          orderItemId: item.id,
-          title: item.title,
-          status: existingQuote.status,
-          isExisting: true,
-        });
-      } else {
-        // Create new quote request with email and locale
-        newQuoteRequests.push({
-          user_id: user.id,
-          order_item_id: item.id,
-          title: item.title,
-          product_url: item.product_url,
-          store_name: item.store,
-          status: 'PENDING',
-          locale: userLocale,
-          customer_email: userEmail,
-        });
+      const { data: upsertedQuote, error: upsertError } = await supabase
+        .from('quote_requests')
+        .upsert(quoteData, { 
+          onConflict: 'order_item_id',
+          ignoreDuplicates: false 
+        })
+        .select('id, order_item_id, status')
+        .single();
+
+      if (upsertError) {
+        console.error('[request-vehicle-quote] Error upserting quote for item:', item.id, upsertError);
+        // Continue with other items, don't fail entire request
+        continue;
       }
+
+      quoteResponses.push({
+        quoteRequestId: upsertedQuote.id,
+        orderItemId: upsertedQuote.order_item_id,
+        title: item.title,
+        status: upsertedQuote.status,
+        isExisting: !!existingQuote,
+      });
     }
 
-    let createdQuotes: any[] = [];
-    
-    if (newQuoteRequests.length > 0) {
-      const { data: insertedQuotes, error: insertError } = await supabase
-        .from('quote_requests')
-        .insert(newQuoteRequests)
-        .select('id, order_item_id, status');
+    // Count new vs existing for admin notification
+    const newQuotes = quoteResponses.filter(q => !q.isExisting);
+    const updatedQuotes = quoteResponses.filter(q => q.isExisting);
 
-      if (insertError) {
-        console.error('[request-vehicle-quote] Error creating quote requests:', insertError);
-        return jsonResponse({ 
-          success: false,
-          error: 'Failed to create quote request.',
-          code: 'INSERT_ERROR'
-        }, 500);
-      }
+    // Send admin notification only for NEW quote requests
+    if (newQuotes.length > 0) {
 
-      createdQuotes = (insertedQuotes || []).map(q => ({
-        quoteRequestId: q.id,
-        orderItemId: q.order_item_id,
-        status: q.status,
-        isExisting: false,
-      }));
-
-      // Send admin notification for new quote requests
       try {
-        const itemsList = newQuoteRequests.map(q => 
-          `<li><strong>${q.title || 'Item'}</strong> from ${q.store_name || 'Unknown Store'}<br/>
-           <a href="${q.product_url}">${q.product_url}</a></li>`
+        const itemsList = newQuotes.map(q => 
+          `<li><strong>${q.title || 'Item'}</strong><br/></li>`
         ).join('');
 
         const emailHtml = `
@@ -259,40 +243,39 @@ serve(async (req) => {
         `;
 
         await notifyAdmin(
-          `New Vehicle Quote Request (${newQuoteRequests.length} item${newQuoteRequests.length > 1 ? 's' : ''})`,
+          `New Vehicle Quote Request (${newQuotes.length} item${newQuotes.length > 1 ? 's' : ''})`,
           emailHtml,
           'quote_request'
         );
-        console.log('[request-vehicle-quote] Admin notification sent');
+        console.log('[request-vehicle-quote] Admin notification sent for', newQuotes.length, 'new quotes');
       } catch (emailErr) {
         console.error('[request-vehicle-quote] Failed to send admin notification:', emailErr);
         // Don't fail the request if email fails
       }
     }
-
-    const allQuoteResponses = [...existingQuoteResponses, ...createdQuotes];
     
     console.log('[request-vehicle-quote] Quote requests processed:', {
-      created: createdQuotes.length,
-      existing: existingQuoteResponses.length,
+      total: quoteResponses.length,
+      new: newQuotes.length,
+      existing: updatedQuotes.length,
     });
 
     // Return success response with clear structure
-    const primaryQuoteId = createdQuotes[0]?.quoteRequestId || existingQuoteResponses[0]?.quoteRequestId;
+    const primaryQuoteId = quoteResponses[0]?.quoteRequestId;
     
     return jsonResponse({
       success: true,
       quoteId: primaryQuoteId,
       quote_id: primaryQuoteId, // Alias for compatibility
-      status: 'pending',
-      items_count: allQuoteResponses.length,
-      message: createdQuotes.length > 0 
+      status: newQuotes.length > 0 ? 'pending' : (quoteResponses[0]?.status || 'pending'),
+      items_count: quoteResponses.length,
+      message: newQuotes.length > 0 
         ? 'Quote request submitted. We will contact you with pricing.'
         : 'Quote request already exists.',
-      quoteRequests: allQuoteResponses,
+      quoteRequests: quoteResponses,
       cartId: orderId,
-      newRequestsCreated: createdQuotes.length,
-      existingRequestsFound: existingQuoteResponses.length,
+      newRequestsCreated: newQuotes.length,
+      existingRequestsFound: updatedQuotes.length,
     });
 
   } catch (error: any) {

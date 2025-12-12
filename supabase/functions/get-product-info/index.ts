@@ -32,25 +32,48 @@ function isPrivateUrl(url: string): boolean {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
     
-    // Block localhost and common internal hostnames
     if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') return true;
     if (hostname.endsWith('.local') || hostname.endsWith('.internal')) return true;
     
-    // Block private IP ranges
     const ipv4Pattern = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
     const match = hostname.match(ipv4Pattern);
     if (match) {
       const [, a, b] = match.map(Number);
-      if (a === 10) return true; // 10.0.0.0/8
-      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-      if (a === 192 && b === 168) return true; // 192.168.0.0/16
-      if (a === 169 && b === 254) return true; // Link-local
+      if (a === 10) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 169 && b === 254) return true;
     }
     
     return false;
   } catch {
     return true;
   }
+}
+
+// ============== BOT DETECTION ==============
+const BOT_DETECTION_PATTERNS = [
+  /robot\s+or\s+human/i,
+  /captcha/i,
+  /verify\s+you\s+are\s+human/i,
+  /access\s+denied/i,
+  /please\s+verify/i,
+  /security\s+check/i,
+  /cloudflare/i,
+  /blocked/i,
+  /not\s+a\s+robot/i,
+];
+
+function detectBotBlock(html: string): boolean {
+  if (html.length < 5000) {
+    for (const pattern of BOT_DETECTION_PATTERNS) {
+      if (pattern.test(html)) {
+        console.log('[get-product-info] Bot detection triggered:', pattern.source);
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Input validation schema
@@ -125,16 +148,29 @@ const PRICE_SELECTORS: Record<string, string[]> = {
     '.styles__CurrentPriceFontSize',
   ],
   'shein.com': [
-    // Updated 2024 SHEIN selectors
-    '.product-intro__head-price',
+    // FIXED: 2024 SHEIN selectors - prices are always USD
+    '.product-intro__head-mainprice span',
+    '.sui-product-price__sale-price',
+    '.sui-product-price__sale',
+    '.product-intro__head-price span',
     '.from.original',
-    '.original.from',
-    '[class*="ProductPrice"]',
-    '[class*="productPrice"]',
-    '.goods-price__current',
-    '.product-price__current',
-    '[data-price]',
-    '.price-wrap .price',
+    '[data-price-type="salePrice"]',
+    '[data-price-type="retailPrice"]',
+    '.goods-price__sale-price',
+    '.S-product-item__price-current',
+    '.original-price',
+    '.price-wrapper span',
+  ],
+  'us.shein.com': [
+    '.product-intro__head-mainprice span',
+    '.sui-product-price__sale-price',
+    '.product-intro__head-price span',
+    '.from.original',
+  ],
+  'm.shein.com': [
+    '.product-intro__head-mainprice span',
+    '.sui-product-price__sale-price',
+    '.from.original',
   ],
   'macys.com': [
     '.price .regular-price',
@@ -649,20 +685,19 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    // Check content-length before reading full body to prevent memory issues
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
-      console.warn('[get-product-info] Response too large:', contentLength, 'bytes. Returning partial data.');
-      return {
-        title: null,
-        imageUrl: null,
-        price: null,
-        currency: 'USD',
-        source: 'unknown',
-      };
+      console.warn('[get-product-info] Response too large:', contentLength, 'bytes');
+      return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
     }
 
     const html = await response.text();
+    
+    // Check for bot detection / captcha pages
+    if (detectBotBlock(html)) {
+      console.log('[get-product-info] Bot detection triggered | Duration:', Date.now() - startTime, 'ms');
+      return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
+    }
     
     // Guard against oversized responses that didn't report content-length
     if (html.length > MAX_BODY_SIZE) {

@@ -290,8 +290,21 @@ export function getCurrencySymbol(code: string): string {
 
 /**
  * Detect currency from text content and URL
+ * IMPORTANT: US stores (SHEIN US, Amazon, Walmart, etc.) always use USD
  */
 export function detectCurrency(text: string, url: string): { code: string; symbol: string } {
+  // SHEIN US/COM is ALWAYS USD - never CDF
+  if (url.includes('shein.com') || url.includes('us.shein.com') || url.includes('m.shein.com')) {
+    return { code: 'USD', symbol: '$' };
+  }
+  
+  // Major US retailers - always USD
+  if (url.includes('amazon.com') || url.includes('walmart.com') || 
+      url.includes('bestbuy.com') || url.includes('target.com') ||
+      url.includes('homedepot.com') || url.includes('macys.com')) {
+    return { code: 'USD', symbol: '$' };
+  }
+  
   // Check URL for domain hints first
   if (url.includes('.co.uk') || url.includes('.uk')) {
     return { code: 'GBP', symbol: '£' };
@@ -306,13 +319,18 @@ export function detectCurrency(text: string, url: string): { code: string; symbo
     return { code: 'MXN', symbol: 'MX$' };
   }
   
-  // Check text for currency symbols/codes
+  // Check text for currency symbols/codes - but be careful with false positives
   if (/£|GBP/i.test(text)) return { code: 'GBP', symbol: '£' };
   if (/€|EUR/i.test(text)) return { code: 'EUR', symbol: '€' };
-  if (/CDF|FC/i.test(text)) return { code: 'CDF', symbol: 'FC' };
   if (/CA\$|CAD/i.test(text)) return { code: 'CAD', symbol: 'CA$' };
   
-  // Default to USD
+  // CDF only if explicitly mentioned with monetary context (not random text)
+  // This prevents false positives from random page content
+  if (/(?:prix|price|total)[:\s]*[\d.,]+\s*(?:CDF|FC)/i.test(text)) {
+    return { code: 'CDF', symbol: 'FC' };
+  }
+  
+  // Default to USD for all US-based stores
   return { code: 'USD', symbol: '$' };
 }
 

@@ -37,6 +37,34 @@ interface PriceResolveResponse {
   lastFetchedAt: string | null;
 }
 
+// ============== BOT DETECTION PATTERNS ==============
+// If these patterns are found, the store is blocking us
+
+const BOT_DETECTION_PATTERNS = [
+  /robot\s+or\s+human/i,
+  /captcha/i,
+  /verify\s+you\s+are\s+human/i,
+  /access\s+denied/i,
+  /please\s+verify/i,
+  /security\s+check/i,
+  /cloudflare/i,
+  /blocked/i,
+  /not\s+a\s+robot/i,
+];
+
+function detectBotBlock(html: string): boolean {
+  // Quick check - if page is very short and matches patterns
+  if (html.length < 5000) {
+    for (const pattern of BOT_DETECTION_PATTERNS) {
+      if (pattern.test(html)) {
+        console.log('[extract-price] Bot detection triggered:', pattern.source);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ============== STORE-SPECIFIC SELECTORS ==============
 
 const STORE_SELECTORS: Record<StoreType, string[]> = {
@@ -51,6 +79,9 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '#price_inside_buybox',
     '.a-price-whole',
     '[data-asin-price]',
+    // Additional Amazon 2024 selectors
+    '.reinventPricePriceToPayMargin .a-offscreen',
+    '#corePriceDisplay_desktop_feature_div .a-offscreen',
   ],
   walmart: [
     '[itemprop="price"]',
@@ -59,6 +90,10 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '[data-automation-id="product-price"]',
     '.price-main .visuallyhidden',
     '.price-main-block span',
+    // Additional Walmart 2024 selectors
+    '[data-testid="price-wrap"] span',
+    '.flex.items-baseline span.f1',
+    '.w_Cs span',
   ],
   bestbuy: [
     '.priceView-hero-price span[aria-hidden="true"]',
@@ -85,27 +120,27 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.styles__CurrentPriceFontSize-sc',
     '[data-test="product-price"] span',
   ],
-  // IMPROVED: Comprehensive SHEIN selectors (2024 site structure)
+  // FIXED: Comprehensive SHEIN selectors (2024 site structure)
+  // CRITICAL: SHEIN prices are in USD, NOT CDF
   shein: [
-    // Primary price selectors (current SHEIN structure)
-    '.from.original',
-    '.product-intro__head-price',
-    '.goods-price__main-price',
-    // New 2024 selectors
-    '.product-intro__head-mainprice',
-    '.product-intro__head-price-main',
+    // Primary price containers (most reliable 2024)
+    '.product-intro__head-mainprice span',
+    '.sui-product-price__sale-price',
     '.sui-product-price__sale',
-    '.sui-product-price__current',
-    '[data-price]',
+    '.product-intro__head-price span',
+    '.from.original',
+    // Price value selectors
+    '[data-price-type="salePrice"]',
+    '[data-price-type="retailPrice"]',
+    '.goods-price__sale-price',
+    '.goods-price__current',
+    // New layout 2024
+    '.S-product-item__price-current',
     '.j-expose__product-item-price',
-    '.S-product-item__price',
-    // Flash sale / promo prices
-    '.flash-sale-price',
-    '.sui-promo-price__sale',
+    // Fallback patterns
     '.original-price',
-    // Cart/checkout prices
-    '.cart-item-price',
-    '.checkout-price',
+    '.flash-sale-price',
+    '.price-wrapper span',
   ],
   macys: [
     '.price .lowest-sale-price',
@@ -129,7 +164,6 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.price',
     '[class*="price"]',
   ],
-  // NEW: Tesla Used inventory selectors
   tesla_used: [
     '[data-testid="price"]',
     '.result-price',
@@ -139,7 +173,6 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '[class*="price"]',
     '.tds-text--medium',
   ],
-  // NEW: Edmunds car listings selectors
   edmunds: [
     '[data-testid="price"]',
     '.price-value',
@@ -717,7 +750,6 @@ Deno.serve(async (req) => {
     if (!response.ok) {
       logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'http_error', httpStatus: response.status, store };
       console.log(JSON.stringify(logData));
-      // Return PRICE_NOT_FOUND instead of SCRAPE_FAILED for consistent mobile handling
       return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Store returned error ${response.status}`);
     }
 
@@ -725,13 +757,20 @@ Deno.serve(async (req) => {
     let html: string;
     try {
       const bodyController = new AbortController();
-      const bodyTimeout = setTimeout(() => bodyController.abort(), 3000); // 3s max for body read
+      const bodyTimeout = setTimeout(() => bodyController.abort(), 3000);
       html = await response.text();
       clearTimeout(bodyTimeout);
     } catch {
       logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'body_timeout', store };
       console.log(JSON.stringify(logData));
       return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, 'Response body read timeout');
+    }
+
+    // Check for bot detection / captcha pages
+    if (detectBotBlock(html)) {
+      logData = { ...logData, status: 403, error: 'BOT_BLOCKED', store, duration: Date.now() - startTime };
+      console.log(JSON.stringify(logData));
+      return jsonError(403, ErrorCodes.SCRAPE_FAILED, `${store} is blocking automated requests. Try again later.`);
     }
 
     let price: number | null = null;

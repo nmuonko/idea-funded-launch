@@ -2,10 +2,32 @@
 // URL normalization, domain whitelist, store detection, TTL config
 
 // Store types supported by AfriShop
+// NOTE: carvana and cargurus are DEPRECATED for new items - use tesla_used or edmunds
 export type StoreType = 
   | 'amazon' | 'walmart' | 'bestbuy' | 'ebay' | 'target' 
-  | 'shein' | 'macys' | 'homedepot' | 'carvana' | 'cargurus' 
+  | 'shein' | 'macys' | 'homedepot' 
+  | 'carvana' | 'cargurus'  // DEPRECATED: Keep for historical data compatibility
+  | 'tesla_used' | 'edmunds'  // NEW: Active car stores
   | 'aliexpress' | 'generic';
+
+// Active car store types (for new items)
+export const ACTIVE_CAR_STORES: StoreType[] = ['tesla_used', 'edmunds'];
+
+// Deprecated car store types (read-only for historical data)
+export const DEPRECATED_CAR_STORES: StoreType[] = ['carvana', 'cargurus'];
+
+// All car store types (active + deprecated)
+export const ALL_CAR_STORES: StoreType[] = [...ACTIVE_CAR_STORES, ...DEPRECATED_CAR_STORES];
+
+// Check if a store is a car marketplace
+export function isCarStore(store: string): boolean {
+  return ALL_CAR_STORES.includes(store.toLowerCase() as StoreType);
+}
+
+// Check if a car store is deprecated (for new items)
+export function isDeprecatedCarStore(store: string): boolean {
+  return DEPRECATED_CAR_STORES.includes(store.toLowerCase() as StoreType);
+}
 
 // Allowed domains for SSRF prevention
 const ALLOWED_DOMAINS = [
@@ -21,10 +43,14 @@ const ALLOWED_DOMAINS = [
   'lowes.com',
   'costco.com',
   'newegg.com',
+  // Car marketplaces (deprecated - kept for historical compatibility)
   'carvana.com',
   'cargurus.com',
   'autotrader.com',
   'cars.com',
+  // NEW: Active car marketplaces
+  'tesla.com',
+  'edmunds.com',
 ];
 
 // Tracking params to strip from URLs
@@ -54,8 +80,11 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   ebay: 6,        // Prices change frequently (auctions)
   shein: 4,       // Flash sales, frequent price changes - shorter cache
   aliexpress: 4,  // Dynamic pricing - shorter cache
-  carvana: 48,    // Car prices more stable
-  cargurus: 48,   // Car listings
+  // Car marketplaces (stable pricing)
+  carvana: 48,    // DEPRECATED - kept for historical data
+  cargurus: 48,   // DEPRECATED - kept for historical data
+  tesla_used: 48, // NEW: Tesla used inventory
+  edmunds: 48,    // NEW: Edmunds car listings
   generic: 8,     // Reduced generic TTL
 };
 
@@ -165,7 +194,7 @@ export function isPrivateUrl(url: string): boolean {
  */
 export function detectStore(url: string): StoreType {
   try {
-    const { hostname } = new URL(url);
+    const { hostname, pathname } = new URL(url);
     const host = hostname.toLowerCase();
     
     if (host.includes('amazon.')) return 'amazon';
@@ -177,6 +206,10 @@ export function detectStore(url: string): StoreType {
     if (host.includes('shein.')) return 'shein';
     if (host.includes('macys.')) return 'macys';
     if (host.includes('homedepot.')) return 'homedepot';
+    // NEW: Active car stores (preferred)
+    if (host.includes('tesla.') && pathname.includes('/inventory')) return 'tesla_used';
+    if (host.includes('edmunds.')) return 'edmunds';
+    // DEPRECATED: Car stores (kept for backward compatibility)
     if (host.includes('carvana.')) return 'carvana';
     if (host.includes('cargurus.')) return 'cargurus';
     
@@ -184,6 +217,32 @@ export function detectStore(url: string): StoreType {
   } catch {
     return 'generic';
   }
+}
+
+/**
+ * Get human-readable label for a store type
+ * Includes (deprecated) suffix for old car stores
+ */
+export function getStoreLabel(store: string): string {
+  const labels: Record<string, string> = {
+    amazon: 'Amazon',
+    walmart: 'Walmart',
+    bestbuy: 'Best Buy',
+    ebay: 'eBay',
+    target: 'Target',
+    aliexpress: 'AliExpress',
+    shein: 'SHEIN',
+    macys: "Macy's",
+    homedepot: 'Home Depot',
+    // Active car stores
+    tesla_used: 'Tesla Used',
+    edmunds: 'Edmunds',
+    // Deprecated car stores
+    carvana: 'Carvana (deprecated)',
+    cargurus: 'CarGurus (deprecated)',
+    generic: 'Other',
+  };
+  return labels[store.toLowerCase()] || store;
 }
 
 /**

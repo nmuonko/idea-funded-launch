@@ -126,6 +126,26 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.price',
     '[class*="price"]',
   ],
+  // NEW: Tesla Used inventory selectors
+  tesla_used: [
+    '[data-testid="price"]',
+    '.result-price',
+    '.inventory-price',
+    '.vehicle-price',
+    '[class*="Price"]',
+    '[class*="price"]',
+    '.tds-text--medium',
+  ],
+  // NEW: Edmunds car listings selectors
+  edmunds: [
+    '[data-testid="price"]',
+    '.price-value',
+    '.vehicle-price',
+    '.listing-price',
+    '[class*="Price"]',
+    '[class*="price"]',
+    '.srp-list-item-price',
+  ],
   generic: [
     '.price',
     '.product-price',
@@ -163,6 +183,8 @@ const STORE_TIMEOUTS: Record<StoreType, { fast: number; standard: number }> = {
   // Car sites - slightly longer (complex pages)
   carvana: { fast: 6000, standard: 12000 },
   cargurus: { fast: 6000, standard: 12000 },
+  tesla_used: { fast: 6000, standard: 12000 },  // NEW
+  edmunds: { fast: 6000, standard: 12000 },     // NEW
   // Generic fallback
   generic: { fast: 5000, standard: 8000 },
 };

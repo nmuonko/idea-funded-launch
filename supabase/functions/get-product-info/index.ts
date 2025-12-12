@@ -73,6 +73,23 @@ interface ProductInfo {
   source: 'api' | 'jsonld' | 'json' | 'selectors' | 'cached' | 'unknown';
 }
 
+// Performance constants
+const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB max response body
+
+// Per-store timeout configuration (ms) - problematic stores get shorter timeouts
+const STORE_TIMEOUTS: Record<string, number> = {
+  'shein.com': 5000,      // SHEIN is slow, fail fast
+  'us.shein.com': 5000,
+  'm.shein.com': 5000,
+  'aliexpress.com': 5000, // AliExpress often hangs
+  'macys.com': 6000,      // Macy's can be slow
+  'default': 8000,        // Default 8s timeout
+};
+
+function getStoreTimeout(domain: string): number {
+  return STORE_TIMEOUTS[domain] || STORE_TIMEOUTS['default'];
+}
+
 // Domain-specific price selectors
 const PRICE_SELECTORS: Record<string, string[]> = {
   'amazon.com': [
@@ -100,9 +117,16 @@ const PRICE_SELECTORS: Record<string, string[]> = {
     '.styles__CurrentPriceFontSize',
   ],
   'shein.com': [
+    // Updated 2024 SHEIN selectors
     '.product-intro__head-price',
+    '.from.original',
     '.original.from',
+    '[class*="ProductPrice"]',
     '[class*="productPrice"]',
+    '.goods-price__current',
+    '.product-price__current',
+    '[data-price]',
+    '.price-wrap .price',
   ],
   'macys.com': [
     '.price .regular-price',
@@ -480,25 +504,58 @@ function extractFromSelectors(html: string, domain: string): Partial<ProductInfo
 }
 
 async function scrapeProduct(url: string): Promise<ProductInfo> {
+  const startTime = Date.now();
   console.log('[get-product-info] Scraping:', url);
   const domain = extractDomain(url);
-  console.log('[get-product-info] Domain:', domain);
+  const timeout = getStoreTimeout(domain);
+  console.log('[get-product-info] Domain:', domain, '| Timeout:', timeout, 'ms');
 
   try {
-    // Fetch the page
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-    });
+    // Create AbortController for timeout enforcement
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      console.log('[get-product-info] TIMEOUT reached for:', url);
+      controller.abort();
+    }, timeout);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
+      console.log('[get-product-info] HTTP error:', response.status, '| Duration:', Date.now() - startTime, 'ms');
       throw new Error(`HTTP ${response.status}`);
     }
 
+    // Check content-length before reading full body to prevent memory issues
+    const contentLength = response.headers.get('content-length');
+    if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+      console.warn('[get-product-info] Response too large:', contentLength, 'bytes. Returning partial data.');
+      return {
+        title: null,
+        imageUrl: null,
+        price: null,
+        currency: 'USD',
+        source: 'unknown',
+      };
+    }
+
     const html = await response.text();
+    
+    // Guard against oversized responses that didn't report content-length
+    if (html.length > MAX_BODY_SIZE) {
+      console.warn('[get-product-info] HTML body too large:', html.length, 'bytes. Truncating.');
+    }
     
     // Collect ALL price candidates from different sources
     const priceCandidates: (number | null)[] = [];
@@ -542,9 +599,10 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
 
     // Select the best price from all candidates
     const bestPrice = selectBestPrice(priceCandidates);
+    const duration = Date.now() - startTime;
     
     if (bestPrice !== null) {
-      console.log('[get-product-info] Selected best price:', bestPrice, 'from candidates:', priceCandidates);
+      console.log('[get-product-info] Selected best price:', bestPrice, '| Duration:', duration, 'ms');
       
       // Determine source based on which extraction found the winning price
       let source: ProductInfo['source'] = 'unknown';
@@ -565,7 +623,7 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
       };
     }
 
-    console.log('[get-product-info] Could not extract valid price, returning partial data');
+    console.log('[get-product-info] No valid price found | Duration:', duration, 'ms');
     return {
       title: result.title || null,
       imageUrl: result.imageUrl || null,
@@ -575,7 +633,21 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     };
 
   } catch (error: any) {
-    console.error('[get-product-info] Scraping error:', error.message);
+    const duration = Date.now() - startTime;
+    
+    // Handle timeout (AbortError) specifically - fail fast
+    if (error.name === 'AbortError') {
+      console.log('[get-product-info] Request aborted (timeout) | Duration:', duration, 'ms');
+      return {
+        title: null,
+        imageUrl: null,
+        price: null,
+        currency: 'USD',
+        source: 'unknown',
+      };
+    }
+    
+    console.error('[get-product-info] Scraping error:', error.message, '| Duration:', duration, 'ms');
     return {
       title: null,
       imageUrl: null,
@@ -602,6 +674,8 @@ function formatDisplayPrice(price: number, currency: string): string {
 }
 
 serve(async (req) => {
+  const requestStart = Date.now();
+  
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -618,9 +692,12 @@ serve(async (req) => {
     const inputUrl = body.productUrl || body.url;
     
     if (!inputUrl) {
+      const duration = Date.now() - requestStart;
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 400, error: 'missing_url' }));
       return new Response(
         JSON.stringify({ 
           ok: false, 
+          code: 'MISSING_URL',
           message: 'Product URL is required' 
         }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -631,10 +708,12 @@ serve(async (req) => {
     const parseResult = productInfoSchema.safeParse({ productUrl: inputUrl });
     if (!parseResult.success) {
       const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
-      console.log('[get-product-info] Validation error:', errorMessage);
+      const duration = Date.now() - requestStart;
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 400, error: 'validation_failed' }));
       return new Response(
         JSON.stringify({ 
-          ok: false, 
+          ok: false,
+          code: 'VALIDATION_ERROR', 
           message: errorMessage 
         }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -642,12 +721,14 @@ serve(async (req) => {
     }
 
     const { productUrl } = parseResult.data;
+    const domain = extractDomain(productUrl);
     console.log('[get-product-info] Request for:', productUrl);
 
     // Check cache first
     const cached = await checkCache(supabaseClient, productUrl);
     if (cached) {
-      // Return in new format
+      const duration = Date.now() - requestStart;
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 200, cached: true, domain }));
       return new Response(
         JSON.stringify({
           ok: true,
@@ -657,35 +738,44 @@ serve(async (req) => {
           productTitle: cached.title,
           imageUrl: cached.imageUrl,
           sourceUrl: productUrl,
+          cached: true,
         }), 
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Scrape product info
+    // Scrape product info with timeout protection
     const info = await scrapeProduct(productUrl);
 
     // Save to cache if we got any useful data (price OR image)
     if (info.price !== null || info.imageUrl !== null || info.title !== null) {
-      await saveToCache(supabaseClient, productUrl, info);
+      // Non-blocking cache save
+      saveToCache(supabaseClient, productUrl, info).catch(err => {
+        console.warn('[get-product-info] Cache save failed:', err.message);
+      });
     }
 
-    // Check if we got a price
+    const duration = Date.now() - requestStart;
+
+    // Check if we got a price - return PRICE_NOT_FOUND fast
     if (info.price === null) {
-      console.log('[get-product-info] No price detected for:', productUrl);
+      console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 404, error: 'price_not_found', domain }));
       return new Response(
         JSON.stringify({
           ok: false,
-          message: 'We could not detect a price on this page.',
+          code: 'PRICE_NOT_FOUND',
+          message: 'Prix indisponible',
           productTitle: info.title,
           imageUrl: info.imageUrl,
           sourceUrl: productUrl,
         }), 
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Return successful response in new format
+    console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 200, domain, price: info.price }));
+    
+    // Return successful response
     return new Response(
       JSON.stringify({
         ok: true,
@@ -700,11 +790,13 @@ serve(async (req) => {
     );
 
   } catch (error: any) {
-    console.error('[get-product-info] Unexpected error:', error.message, error.stack);
+    const duration = Date.now() - requestStart;
+    console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 500, error: error.message }));
     return new Response(
       JSON.stringify({ 
-        ok: false, 
-        message: 'Something went wrong while reading this product page.' 
+        ok: false,
+        code: 'INTERNAL_ERROR',
+        message: 'Something went wrong' 
       }), 
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

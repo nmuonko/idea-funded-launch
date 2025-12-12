@@ -43,6 +43,7 @@ const ESSENTIAL_PARAMS = [
 ];
 
 // TTL configuration per store (in hours)
+// Shorter TTL for problematic/dynamic stores
 export const STORE_TTL_HOURS: Record<string, number> = {
   amazon: 12,
   walmart: 12,
@@ -51,11 +52,11 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   macys: 12,
   homedepot: 24,
   ebay: 6,        // Prices change frequently (auctions)
-  shein: 6,       // Flash sales
-  aliexpress: 6,  // Dynamic pricing
+  shein: 4,       // Flash sales, frequent price changes - shorter cache
+  aliexpress: 4,  // Dynamic pricing - shorter cache
   carvana: 48,    // Car prices more stable
   cargurus: 48,   // Car listings
-  generic: 12,
+  generic: 8,     // Reduced generic TTL
 };
 
 // Currency mappings

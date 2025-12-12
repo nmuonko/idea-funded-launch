@@ -82,10 +82,27 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.styles__CurrentPriceFontSize-sc',
     '[data-test="product-price"] span',
   ],
+  // IMPROVED: Comprehensive SHEIN selectors (2024 site structure)
   shein: [
+    // Primary price selectors (current SHEIN structure)
     '.from.original',
     '.product-intro__head-price',
     '.goods-price__main-price',
+    // New 2024 selectors
+    '.product-intro__head-mainprice',
+    '.product-intro__head-price-main',
+    '.sui-product-price__sale',
+    '.sui-product-price__current',
+    '[data-price]',
+    '.j-expose__product-item-price',
+    '.S-product-item__price',
+    // Flash sale / promo prices
+    '.flash-sale-price',
+    '.sui-promo-price__sale',
+    '.original-price',
+    // Cart/checkout prices
+    '.cart-item-price',
+    '.checkout-price',
   ],
   macys: [
     '.price .lowest-sale-price',
@@ -129,12 +146,35 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
 };
 
 // ============== TIMEOUT CONFIGURATION ==============
+// Per-store timeouts (problematic stores get shorter timeouts to fail fast)
+
+const STORE_TIMEOUTS: Record<StoreType, { fast: number; standard: number }> = {
+  // Problematic stores - fail fast
+  shein: { fast: 4000, standard: 6000 },
+  aliexpress: { fast: 4000, standard: 6000 },
+  // Standard stores
+  amazon: { fast: 5000, standard: 10000 },
+  walmart: { fast: 5000, standard: 10000 },
+  bestbuy: { fast: 5000, standard: 10000 },
+  ebay: { fast: 5000, standard: 10000 },
+  target: { fast: 5000, standard: 10000 },
+  macys: { fast: 5000, standard: 10000 },
+  homedepot: { fast: 5000, standard: 10000 },
+  // Car sites - slightly longer (complex pages)
+  carvana: { fast: 6000, standard: 12000 },
+  cargurus: { fast: 6000, standard: 12000 },
+  // Generic fallback
+  generic: { fast: 5000, standard: 8000 },
+};
 
 const TIMEOUTS = {
-  fast: 6000,
-  standard: 15000,
-  ocr: 10000,
+  fast: 5000,
+  standard: 10000,
+  ocr: 6000, // Reduced OCR timeout
 };
+
+// Max extraction attempts per store before giving up
+const MAX_EXTRACTION_ATTEMPTS = 1; // No retries - fail fast
 
 // ============== EXTRACTION METHODS ==============
 
@@ -512,10 +552,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch page
-    const fetchTimeout = mode === 'fast' ? TIMEOUTS.fast : TIMEOUTS.standard;
+    // Get store-specific timeout (fail fast for problematic stores)
+    const storeTimeouts = STORE_TIMEOUTS[store] || STORE_TIMEOUTS.generic;
+    const fetchTimeout = mode === 'fast' ? storeTimeouts.fast : storeTimeouts.standard;
+    
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+    const timeoutId = setTimeout(() => {
+      console.log(`[extract-price] Timeout reached for ${store} after ${fetchTimeout}ms`);
+      controller.abort();
+    }, fetchTimeout);
 
     let response: Response;
     try {
@@ -524,32 +569,54 @@ Deno.serve(async (req) => {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.5',
+          'Cache-Control': 'no-cache',
         },
         signal: controller.signal,
+        redirect: 'follow',
       });
       clearTimeout(timeoutId);
     } catch (fetchError: unknown) {
       clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      
       if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        logData = { ...logData, status: 408, error: 'TIMEOUT', duration: Date.now() - startTime };
+        // Fail fast with PRICE_NOT_FOUND instead of TIMEOUT for better mobile UX
+        logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'timeout', store, duration };
         console.log(JSON.stringify(logData));
-        return jsonError(408, ErrorCodes.TIMEOUT);
+        return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Price extraction timed out for ${store}`);
       }
-      throw fetchError;
+      
+      // Network error - fail fast
+      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'network_error', store, duration };
+      console.log(JSON.stringify(logData));
+      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Unable to fetch price from ${store}`);
     }
 
     if (!response.ok) {
-      logData = { ...logData, status: 502, error: 'SCRAPE_FAILED', httpStatus: response.status };
+      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'http_error', httpStatus: response.status, store };
       console.log(JSON.stringify(logData));
-      return jsonError(502, ErrorCodes.SCRAPE_FAILED);
+      // Return PRICE_NOT_FOUND instead of SCRAPE_FAILED for consistent mobile handling
+      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Store returned error ${response.status}`);
     }
 
-    const html = await response.text();
+    // Read response body with timeout protection
+    let html: string;
+    try {
+      const bodyController = new AbortController();
+      const bodyTimeout = setTimeout(() => bodyController.abort(), 3000); // 3s max for body read
+      html = await response.text();
+      clearTimeout(bodyTimeout);
+    } catch {
+      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', reason: 'body_timeout', store };
+      console.log(JSON.stringify(logData));
+      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, 'Response body read timeout');
+    }
+
     let price: number | null = null;
     let currencyCode: string | null = null;
     let extractionMethod: string | null = null;
 
-    // Strategy 1: JSON-LD
+    // Strategy 1: JSON-LD (fastest, most reliable)
     const jsonLdResult = extractFromJsonLd(html);
     if (jsonLdResult) {
       price = jsonLdResult.price;
@@ -557,13 +624,13 @@ Deno.serve(async (req) => {
       extractionMethod = 'jsonld';
     }
 
-    // Strategy 2: Selectors
+    // Strategy 2: Store-specific selectors
     if (!price) {
       price = extractFromSelectors(html, store);
       if (price) extractionMethod = 'selector';
     }
 
-    // Strategy 3: Regex
+    // Strategy 3: Regex fallback (only if selectors fail)
     if (!price) {
       const regexResult = extractWithRegex(html);
       if (regexResult) {
@@ -573,16 +640,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Strategy 4: OCR (optional)
-    if (!price && allowOcr) {
+    // Strategy 4: OCR (only for standard mode, skip for problematic stores)
+    const skipOcrStores: StoreType[] = ['shein', 'aliexpress'];
+    if (!price && allowOcr && !skipOcrStores.includes(store)) {
       price = await extractWithOcr(formattedUrl, TIMEOUTS.ocr);
       if (price) extractionMethod = 'ocr';
     }
 
+    // Fail fast if no price found
     if (!price) {
-      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', duration: Date.now() - startTime };
+      const duration = Date.now() - startTime;
+      logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['jsonld', 'selector', 'regex', allowOcr ? 'ocr' : 'none'] };
       console.log(JSON.stringify(logData));
-      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND);
+      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Could not extract price from ${store}`);
     }
 
     // Extract product info

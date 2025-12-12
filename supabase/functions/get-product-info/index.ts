@@ -79,16 +79,19 @@ interface ProductInfo {
 }
 
 // Performance constants
-const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2MB max response body
+const MAX_BODY_SIZE = 500 * 1024; // 500KB max response body (reduced from 2MB)
 
-// Per-store timeout configuration (ms) - problematic stores get shorter timeouts
+// Per-store timeout configuration (ms) - TIGHTENED for faster fail
+// Frontend timeout is ~5-8s, backend must fail within 3-4s
 const STORE_TIMEOUTS: Record<string, number> = {
-  'shein.com': 5000,      // SHEIN is slow, fail fast
-  'us.shein.com': 5000,
-  'm.shein.com': 5000,
-  'aliexpress.com': 5000, // AliExpress often hangs
-  'macys.com': 6000,      // Macy's can be slow
-  'default': 8000,        // Default 8s timeout
+  'shein.com': 3000,      // SHEIN is problematic - fail VERY fast
+  'us.shein.com': 3000,
+  'm.shein.com': 3000,
+  'aliexpress.com': 3000, // AliExpress often hangs
+  'macys.com': 4000,      // Macy's can be slow
+  'target.com': 4000,
+  'homedepot.com': 4000,
+  'default': 4000,        // Default 4s timeout (was 8s)
 };
 
 function getStoreTimeout(domain: string): number {

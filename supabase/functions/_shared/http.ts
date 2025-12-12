@@ -14,12 +14,30 @@ export const ErrorCodes = {
   SCRAPE_FAILED: 'SCRAPE_FAILED',
   PRICE_NOT_FOUND: 'PRICE_NOT_FOUND',
   TIMEOUT: 'TIMEOUT',
+  UPSTREAM_TIMEOUT: 'UPSTREAM_TIMEOUT',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   UNAUTHORIZED: 'UNAUTHORIZED',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
   BAD_REQUEST: 'BAD_REQUEST',
 } as const;
+
+// ============== STORE API RESPONSE TYPES ==============
+// Standardized response format for all store-related endpoints
+
+export interface StoreApiError {
+  ok: false;
+  storeId: string;
+  code: string;
+  message: string;
+}
+
+export interface StoreApiSuccess<T = any> {
+  ok: true;
+  storeId: string;
+  data?: T;
+  [key: string]: any; // Allow additional fields at root level
+}
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
 
@@ -83,6 +101,51 @@ export function handleCors(): Response {
  */
 export function getCorsHeaders(): Record<string, string> {
   return { ...corsHeaders };
+}
+
+/**
+ * Create a standardized store API success response
+ */
+export function storeSuccess<T>(storeId: string, data: T, extraFields?: Record<string, any>): Response {
+  const body: StoreApiSuccess<T> = {
+    ok: true,
+    storeId,
+    ...data as any, // Spread data at root level for backward compatibility
+    ...(extraFields || {}),
+  };
+  return new Response(
+    JSON.stringify(body),
+    {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }
+  );
+}
+
+/**
+ * Create a standardized store API error response
+ */
+export function storeError(
+  storeId: string,
+  code: string,
+  message?: string,
+  status = 400,
+  extraFields?: Record<string, any>
+): Response {
+  const body: StoreApiError = {
+    ok: false,
+    storeId,
+    code,
+    message: message ?? ErrorMessages[code] ?? 'An error occurred.',
+    ...(extraFields || {}),
+  };
+  return new Response(
+    JSON.stringify(body),
+    {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }
+  );
 }
 
 // Simple in-memory rate limiter

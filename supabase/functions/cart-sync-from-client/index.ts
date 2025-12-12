@@ -1,14 +1,18 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { 
   handleCors, 
-  corsHeaders, 
   errorResponse, 
   jsonResponse,
   extractBearerToken,
   createAdminClient,
 } from "../_shared/auth.ts";
+import { getCachedSettings } from "../_shared/settings-cache.ts";
+import { 
+  calculateItemPricing, 
+  detectStore, 
+  updateOrderTotals 
+} from "../_shared/cartHelpers.ts";
 
 // Input validation schema
 const syncCartSchema = z.object({
@@ -23,128 +27,6 @@ const syncCartSchema = z.object({
     currency: z.string().max(10).optional().default('USD'),
   })).max(50), // Max 50 items per sync
 });
-
-// Round to 2 decimals helper
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-// Calculate pricing for an item
-function calculateItemPricing(
-  basePriceUsd: number,
-  quantity: number,
-  markupPercent: number,
-  exchangeRate: number
-) {
-  const itemBaseTotalUsd = round2(basePriceUsd * quantity);
-  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
-  const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
-
-  return {
-    basePriceUsd: round2(basePriceUsd),
-    quantity,
-    itemBaseTotalUsd,
-    itemMarginUsd,
-    itemSubtotalUsd,
-    itemSubtotalCdf,
-  };
-}
-
-// Detect store from URL
-function detectStore(productUrl: string): string {
-  try {
-    const urlObj = new URL(productUrl);
-    const hostname = urlObj.hostname.toLowerCase();
-    if (hostname.includes('amazon')) return 'AMAZON';
-    if (hostname.includes('ebay')) return 'EBAY';
-    if (hostname.includes('walmart')) return 'WALMART';
-    if (hostname.includes('bestbuy')) return 'BESTBUY';
-    if (hostname.includes('carvana')) return 'CARVANA';
-    if (hostname.includes('cargurus')) return 'CARGURUS';
-    return 'OTHER';
-  } catch {
-    return 'OTHER';
-  }
-}
-
-// Calculate and persist order totals from items
-async function updateOrderTotals(
-  supabase: any,
-  orderId: string,
-  shippingBaseFeeUsd: number,
-  shippingPercent: number,
-  exchangeRate: number
-) {
-  const { data: items, error: itemsError } = await supabase
-    .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later')
-    .eq('order_id', orderId);
-
-  if (itemsError) {
-    console.error('[updateOrderTotals] Failed to fetch items:', itemsError);
-    return null;
-  }
-
-  let itemTotalUsd = 0;
-  let serviceFeeUsd = 0;
-  let itemsWithMarkupUsd = 0;
-  let requiresManualQuote = false;
-  let activeItemCount = 0;
-
-  (items || []).forEach((item: any) => {
-    if (!item.is_saved_for_later) {
-      const subtotal = Number(item.subtotal_usd || 0);
-      const markup = Number(item.markup_fee_usd || 0);
-      const total = Number(item.total_price_usd || 0);
-      const estWeight = Number(item.est_weight_kg || 1);
-      const itemRequiresQuote = item.requires_manual_quote || estWeight > 9;
-
-      itemTotalUsd += subtotal;
-      serviceFeeUsd += markup;
-      itemsWithMarkupUsd += total;
-      activeItemCount++;
-
-      if (itemRequiresQuote) {
-        requiresManualQuote = true;
-      }
-    }
-  });
-
-  let shippingFeeUsd = 0;
-  if (!requiresManualQuote && activeItemCount > 0) {
-    shippingFeeUsd = round2(shippingBaseFeeUsd + (itemTotalUsd * shippingPercent));
-  }
-  
-  const totalUsd = round2(itemsWithMarkupUsd + shippingFeeUsd);
-  const totalCdf = round2(totalUsd * exchangeRate);
-
-  const { error: updateError } = await supabase
-    .from('orders')
-    .update({
-      item_total_usd: round2(itemTotalUsd),
-      service_fee_usd: round2(serviceFeeUsd),
-      shipping_fee_usd: round2(shippingFeeUsd),
-      total_usd: totalUsd,
-      total_cdf: totalCdf,
-      exchange_rate_used: exchangeRate,
-      requires_manual_quote: requiresManualQuote,
-    })
-    .eq('id', orderId);
-
-  if (updateError) {
-    console.error('[updateOrderTotals] Failed to update order totals:', updateError);
-    return null;
-  }
-
-  return {
-    itemTotalUsd: round2(itemTotalUsd),
-    serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    totalUsd,
-    totalCdf,
-    exchangeRate,
-    requiresManualQuote,
-  };
-}
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -189,18 +71,9 @@ serve(async (req) => {
 
     console.log('[cart-sync-from-client] Syncing', items.length, 'items for user:', user.id);
 
-    // Load pricing settings
-    const { data: settings } = await supabase.from('settings').select('*').maybeSingle();
-    
-    if (!settings) {
-      console.error('[cart-sync-from-client] No settings found');
-      return errorResponse('Pricing settings not configured', 500);
-    }
-
-    const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
-    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
-    const shippingPercent = settings.shipping_percent ?? 0.10;
+    // Load cached pricing settings
+    const settings = await getCachedSettings(supabase);
+    const { markupPercent, exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
 
     // Find existing DRAFT order for this user
     const { data: existingDraft, error: draftError } = await supabase

@@ -30,8 +30,13 @@ const addCartItemSchema = z.object({
           'ebay.com', 'www.ebay.com',
           'walmart.com', 'www.walmart.com',
           'bestbuy.com', 'www.bestbuy.com',
+          // Car marketplaces (deprecated - kept for historical compatibility)
           'carvana.com', 'www.carvana.com',
           'cargurus.com', 'www.cargurus.com',
+          // NEW: Active car marketplaces
+          'tesla.com', 'www.tesla.com',
+          'edmunds.com', 'www.edmunds.com',
+          // Other retailers
           'target.com', 'www.target.com',
           'homedepot.com', 'www.homedepot.com',
           'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
@@ -41,7 +46,7 @@ const addCartItemSchema = z.object({
       } catch {
         return false;
       }
-    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Carvana, CarGurus, Target, Home Depot, SHEIN, Macy's)"),
+    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Tesla, Edmunds, Target, Home Depot, SHEIN, Macy's)"),
   productPrice: z.number()
     .positive("Price must be positive")
     .max(1000000, "Price exceeds maximum"),
@@ -297,12 +302,24 @@ serve(async (req) => {
     try {
       const urlObj = new URL(productUrl);
       const hostname = urlObj.hostname.toLowerCase();
+      const pathname = urlObj.pathname.toLowerCase();
+      
       if (hostname.includes('amazon')) store = 'AMAZON';
       else if (hostname.includes('ebay')) store = 'EBAY';
       else if (hostname.includes('walmart')) store = 'WALMART';
       else if (hostname.includes('bestbuy')) store = 'BESTBUY';
-      else if (hostname.includes('carvana')) store = 'CARVANA';
-      else if (hostname.includes('cargurus')) store = 'CARGURUS';
+      // NEW: Active car marketplaces (preferred)
+      else if (hostname.includes('tesla') && pathname.includes('/inventory')) store = 'TESLA_USED';
+      else if (hostname.includes('edmunds')) store = 'EDMUNDS';
+      // DEPRECATED: Old car marketplaces (log usage for tracking)
+      else if (hostname.includes('carvana')) {
+        store = 'CARVANA';
+        console.warn('[mobile-add-cart-item] DEPRECATED_CAR_SOURCE: carvana used for new item');
+      }
+      else if (hostname.includes('cargurus')) {
+        store = 'CARGURUS';
+        console.warn('[mobile-add-cart-item] DEPRECATED_CAR_SOURCE: cargurus used for new item');
+      }
       else if (hostname.includes('target')) store = 'OTHER'; // Keep as OTHER - no enum value
       else if (hostname.includes('homedepot')) store = 'OTHER';
       else if (hostname.includes('shein')) store = 'OTHER';

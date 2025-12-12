@@ -13,8 +13,13 @@ const ALLOWED_DOMAINS = [
   'ebay.com', 'www.ebay.com',
   'walmart.com', 'www.walmart.com',
   'bestbuy.com', 'www.bestbuy.com',
+  // Car marketplaces (deprecated - kept for historical compatibility)
   'carvana.com', 'www.carvana.com',
   'cargurus.com', 'www.cargurus.com',
+  // NEW: Active car marketplaces
+  'tesla.com', 'www.tesla.com',
+  'edmunds.com', 'www.edmunds.com',
+  // Other retailers
   'target.com', 'www.target.com',
   'homedepot.com', 'www.homedepot.com',
   'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',

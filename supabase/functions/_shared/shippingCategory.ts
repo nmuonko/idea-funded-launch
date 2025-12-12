@@ -182,9 +182,14 @@ const CATEGORY_KEYWORDS: Record<ShippingCategoryKey, { keywords: string[]; weigh
 };
 
 // Store-specific category hints - strong signals based on store type
+// All car marketplaces (active and deprecated) map to 'vehicle'
 const STORE_CATEGORY_HINTS: Record<string, ShippingCategoryKey> = {
-  'CARVANA': 'vehicle',  // Car marketplace - always vehicles
-  'CARGURUS': 'vehicle', // Car marketplace - always vehicles
+  // NEW: Active car marketplaces
+  'TESLA_USED': 'vehicle', // Tesla used inventory - always vehicles
+  'EDMUNDS': 'vehicle',    // Edmunds car listings - always vehicles
+  // DEPRECATED: Old car marketplaces (kept for historical data)
+  'CARVANA': 'vehicle',    // Car marketplace - always vehicles
+  'CARGURUS': 'vehicle',   // Car marketplace - always vehicles
 };
 
 // Store-specific default categories (when no other match found)
@@ -501,9 +506,11 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   // Vehicles ONLY require quote if:
   // 1. Detected with sufficient confidence AND
   // 2. No exclusion keywords were found AND  
-  // 3. Store is a car marketplace (CARVANA, CARGURUS) OR very high confidence score
+  // 3. Store is a car marketplace (TESLA_USED, EDMUNDS, or deprecated CARVANA, CARGURUS) OR very high confidence score
   const isVehicle = finalCategory === 'vehicle';
-  const isCarMarketplace = store === 'CARVANA' || store === 'CARGURUS';
+  // All car marketplaces (new and deprecated)
+  const CAR_MARKETPLACES = ['TESLA_USED', 'EDMUNDS', 'CARVANA', 'CARGURUS'];
+  const isCarMarketplace = CAR_MARKETPLACES.includes(store);
   const requiresQuote = isVehicle && !hasVehicleExclusion && 
     (isCarMarketplace || (confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD && bestScore >= 3.0));
 

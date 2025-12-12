@@ -46,13 +46,9 @@ export default function Auth() {
       if (isAdminUser) {
         navigate('/admin');
       } else {
-        toast({
-          title: 'Access Denied',
-          description: 'You do not have admin privileges.',
-          variant: 'destructive',
-        });
-        // Sign out if not admin
+        // Sign out and redirect to access denied page
         await supabase.auth.signOut();
+        navigate('/access-denied');
       }
     }
     setLoading(false);

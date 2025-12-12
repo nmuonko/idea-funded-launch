@@ -212,7 +212,7 @@ export default function QuoteRequests() {
   const [quotedTotal, setQuotedTotal] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
 
-  const fetchQuoteRequests = useCallback(async (isRefresh = false) => {
+  const fetchQuoteRequests = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -230,7 +230,10 @@ export default function QuoteRequests() {
       setLastUpdated(new Date());
     } catch (error: any) {
       console.error("Error fetching quote requests:", error);
-      toast.error("Failed to load quote requests");
+      // Only show toast for manual actions, not silent auto-refresh
+      if (!silent) {
+        toast.error("Failed to load quote requests");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -242,11 +245,11 @@ export default function QuoteRequests() {
     fetchQuoteRequests();
   }, [fetchQuoteRequests]);
 
-  // Auto-refresh every 5 minutes
+  // Auto-refresh every 5 minutes (silent mode to avoid error toasts)
   useEffect(() => {
     const intervalId = setInterval(() => {
       console.log("[QuoteRequests] Auto-refreshing...");
-      fetchQuoteRequests(true);
+      fetchQuoteRequests(true, true); // silent = true for auto-refresh
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => clearInterval(intervalId);

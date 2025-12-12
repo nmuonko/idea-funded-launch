@@ -5,6 +5,7 @@ import {
   isPrivateUrl,
   detectStore,
   getTtlForStore,
+  getHotCacheTtlForStore,
   detectCurrency,
   cleanPriceString,
   formatDisplayPrice,
@@ -427,8 +428,79 @@ interface CachedPrice {
   title: string | null;
   imageUrl: string | null;
   lastFetchedAt: string;
+  cacheType?: 'hot' | 'standard';
 }
 
+// Check HOT CACHE first (5-15 min TTL)
+async function getHotCachedPrice(supabase: any, normalizedUrl: string): Promise<CachedPrice | null> {
+  try {
+    const { data, error } = await supabase
+      .from('product_hot_cache')
+      .select('response_json, store, expires_at, hit_count')
+      .eq('url', normalizedUrl)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (error || !data) return null;
+
+    // Update hit count (non-blocking)
+    supabase
+      .from('product_hot_cache')
+      .update({ hit_count: (data.hit_count || 1) + 1 })
+      .eq('url', normalizedUrl)
+      .then(() => {})
+      .catch(() => {});
+
+    const response = data.response_json;
+    return {
+      basePrice: Number(response.basePrice),
+      currencySymbol: response.currencySymbol || '$',
+      rawCurrencyCode: response.rawCurrencyCode || 'USD',
+      store: data.store || response.store,
+      title: response.title,
+      imageUrl: response.imageUrl,
+      lastFetchedAt: response.lastFetchedAt || new Date().toISOString(),
+      cacheType: 'hot',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Save to HOT CACHE (5-15 min TTL)
+async function saveToHotCache(
+  supabase: any,
+  normalizedUrl: string,
+  store: string,
+  data: CachedPrice
+): Promise<void> {
+  try {
+    const ttlMs = getHotCacheTtlForStore(store);
+    const expiresAt = new Date(Date.now() + ttlMs);
+
+    await supabase.from('product_hot_cache').upsert(
+      {
+        url: normalizedUrl,
+        store,
+        response_json: {
+          basePrice: data.basePrice,
+          currencySymbol: data.currencySymbol,
+          rawCurrencyCode: data.rawCurrencyCode,
+          title: data.title,
+          imageUrl: data.imageUrl,
+          lastFetchedAt: data.lastFetchedAt,
+        },
+        expires_at: expiresAt.toISOString(),
+        hit_count: 1,
+      },
+      { onConflict: 'url' }
+    );
+  } catch (error) {
+    console.warn('[extract-price] Hot cache write failed:', error);
+  }
+}
+
+// Check STANDARD CACHE (4-48 hour TTL)
 async function getCachedPrice(supabase: any, normalizedUrl: string, store: string): Promise<CachedPrice | null> {
   try {
     const ttlMs = getTtlForStore(store);
@@ -451,6 +523,7 @@ async function getCachedPrice(supabase: any, normalizedUrl: string, store: strin
       title: data.title,
       imageUrl: data.image_url,
       lastFetchedAt: data.fetched_at,
+      cacheType: 'standard',
     };
   } catch {
     return null;
@@ -555,11 +628,35 @@ Deno.serve(async (req) => {
     const store = detectStore(formattedUrl);
     logData = { ...logData, store, url: normalizedUrl.substring(0, 100) };
 
-    // Check cache (unless forceRefresh)
+    // Check cache (unless forceRefresh) - TWO-TIER CACHING
     if (!forceRefresh) {
+      // 1. Check HOT CACHE first (5-15 min TTL) - fastest
+      const hotCached = await getHotCachedPrice(supabase, normalizedUrl);
+      if (hotCached) {
+        logData = { ...logData, cacheHit: true, cacheType: 'hot', duration: Date.now() - startTime };
+        console.log(JSON.stringify(logData));
+
+        const response: PriceResolveResponse = {
+          url: normalizedUrl,
+          store,
+          basePrice: hotCached.basePrice,
+          currencySymbol: hotCached.currencySymbol,
+          rawCurrencyCode: hotCached.rawCurrencyCode,
+          title: hotCached.title,
+          imageUrl: hotCached.imageUrl,
+          cacheHit: true,
+          lastFetchedAt: hotCached.lastFetchedAt,
+        };
+        return jsonSuccess(response);
+      }
+
+      // 2. Check STANDARD CACHE (4-48 hour TTL)
       const cached = await getCachedPrice(supabase, normalizedUrl, store);
       if (cached) {
-        logData = { ...logData, cacheHit: true, duration: Date.now() - startTime };
+        // Promote to hot cache for faster subsequent access
+        saveToHotCache(supabase, normalizedUrl, store, cached).catch(() => {});
+        
+        logData = { ...logData, cacheHit: true, cacheType: 'standard', duration: Date.now() - startTime };
         console.log(JSON.stringify(logData));
 
         const response: PriceResolveResponse = {
@@ -688,15 +785,24 @@ Deno.serve(async (req) => {
       ? { code: currencyCode, symbol: getCurrencySymbol(currencyCode) }
       : detectCurrency(html, formattedUrl);
 
-    // Cache result
-    await setCachedPrice(supabase, normalizedUrl, {
+    // Cache result to BOTH caches
+    const cacheData = {
       store,
       basePrice: price,
       currencySymbol: detectedCurrency.symbol,
       rawCurrencyCode: detectedCurrency.code,
       title: productInfo.title,
       imageUrl: productInfo.imageUrl,
-    });
+    };
+    
+    // Save to standard cache (4-48 hour TTL)
+    await setCachedPrice(supabase, normalizedUrl, cacheData);
+    
+    // Save to hot cache (5-15 min TTL) for fast subsequent access
+    saveToHotCache(supabase, normalizedUrl, store, {
+      ...cacheData,
+      lastFetchedAt: new Date().toISOString(),
+    }).catch(() => {});
 
     logData = {
       ...logData,

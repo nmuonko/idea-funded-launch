@@ -846,6 +846,7 @@ export type Database = {
           price: number | null
           product_url: string
           source: string | null
+          store: string | null
           title: string | null
         }
         Insert: {
@@ -857,6 +858,7 @@ export type Database = {
           price?: number | null
           product_url: string
           source?: string | null
+          store?: string | null
           title?: string | null
         }
         Update: {
@@ -868,7 +870,38 @@ export type Database = {
           price?: number | null
           product_url?: string
           source?: string | null
+          store?: string | null
           title?: string | null
+        }
+        Relationships: []
+      }
+      product_hot_cache: {
+        Row: {
+          created_at: string | null
+          expires_at: string
+          hit_count: number | null
+          id: string
+          response_json: Json
+          store: string
+          url: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at: string
+          hit_count?: number | null
+          id?: string
+          response_json: Json
+          store?: string
+          url: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string
+          hit_count?: number | null
+          id?: string
+          response_json?: Json
+          store?: string
+          url?: string
         }
         Relationships: []
       }
@@ -1229,6 +1262,7 @@ export type Database = {
       }
     }
     Functions: {
+      clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
       generate_project_code: { Args: never; Returns: string }

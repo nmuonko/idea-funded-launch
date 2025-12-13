@@ -98,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Load user profile from profiles table
+  // Load user profile from profiles table - creates one if missing
   const loadProfile = useCallback(async (userId: string): Promise<UserProfile | null> => {
     try {
       console.log('[Auth] Loading profile for user:', userId);
@@ -125,7 +125,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return data as UserProfile;
       }
 
-      console.log('[Auth] No profile found for user');
+      // Profile doesn't exist - create one from auth user data
+      console.log('[Auth] No profile found, creating one...');
+      
+      // Get current user data for fallback values
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      if (!authUser) {
+        console.log('[Auth] No auth user found to create profile');
+        return null;
+      }
+
+      const userMeta = authUser.user_metadata || {};
+      const fallbackName = userMeta.full_name || userMeta.name || authUser.email?.split('@')[0] || 'User';
+      
+      const newProfile = {
+        user_id: userId,
+        email: authUser.email?.toLowerCase() || null,
+        full_name: fallbackName,
+        name: fallbackName,
+        phone: userMeta.phone || null,
+        country: userMeta.country || 'DR Congo',
+        language: userMeta.language || 'fr',
+      };
+
+      const { data: createdProfile, error: createError } = await supabase
+        .from('profiles')
+        .upsert(newProfile, { onConflict: 'user_id' })
+        .select()
+        .maybeSingle();
+
+      if (createError) {
+        console.error('[Auth] Error creating profile:', createError);
+        // Return a synthetic profile from auth data so UI isn't blank
+        const syntheticProfile: UserProfile = {
+          id: userId,
+          user_id: userId,
+          email: authUser.email || null,
+          full_name: fallbackName,
+          name: fallbackName,
+          phone: userMeta.phone || null,
+          address_line1: null,
+          address_line2: null,
+          city: null,
+          state_province: null,
+          postal_code: null,
+          country: 'DR Congo',
+        };
+        setProfile(syntheticProfile);
+        return syntheticProfile;
+      }
+
+      if (createdProfile) {
+        console.log('[Auth] Profile created successfully');
+        setProfile(createdProfile as UserProfile);
+        return createdProfile as UserProfile;
+      }
+
       return null;
     } catch (error) {
       console.error('[Auth] Exception loading profile:', error);

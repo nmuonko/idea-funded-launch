@@ -5,7 +5,7 @@ import { normalizePaymentStatus } from "../_shared/maishapay.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-webhook-signature',
 };
 
 // Input validation schema
@@ -18,12 +18,58 @@ const verifyPaymentSchema = z.object({
 });
 
 /**
+ * HMAC-SHA256 signature verification for webhook security
+ */
+async function verifyWebhookSignature(
+  payload: string,
+  signature: string | null,
+  secret: string
+): Promise<boolean> {
+  if (!signature || !secret) {
+    console.warn('[verify-payment] Missing signature or secret for webhook verification');
+    return false;
+  }
+
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+    const computedSignature = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Constant-time comparison to prevent timing attacks
+    if (computedSignature.length !== signature.length) {
+      return false;
+    }
+    let result = 0;
+    for (let i = 0; i < computedSignature.length; i++) {
+      result |= computedSignature.charCodeAt(i) ^ signature.charCodeAt(i);
+    }
+    return result === 0;
+  } catch (error) {
+    console.error('[verify-payment] Signature verification error:', error);
+    return false;
+  }
+}
+
+/**
  * verify-payment Edge Function
  * 
  * Called by mobile app after WebView detects MaishaPay redirect to callback URL.
  * Updates order status based on MaishaPay response parameters.
  * 
- * Uses service_role key to bypass RLS for order updates.
+ * SECURITY: Requires one of:
+ * 1. Valid webhook signature (x-webhook-signature header)
+ * 2. Valid JWT token (user must own the order)
+ * 3. Service role key (internal calls)
  */
 serve(async (req) => {
   // Handle CORS preflight
@@ -41,9 +87,19 @@ serve(async (req) => {
   try {
     console.log('[verify-payment] Request received');
 
+    // Read raw body for signature verification
+    const rawBody = await req.text();
+    
     // Parse and validate request body
-    const body = await req.json();
-    console.log('[verify-payment] Request body:', JSON.stringify(body, null, 2));
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid JSON body' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const parseResult = verifyPaymentSchema.safeParse(body);
     if (!parseResult.success) {
@@ -59,11 +115,67 @@ serve(async (req) => {
     }
 
     const { orderId, status, description, transactionRefId, operatorRefId } = parseResult.data;
-    console.log('[verify-payment] Parsed data:', { orderId, status, description, transactionRefId, operatorRefId });
 
-    // Create Supabase client with service_role key to bypass RLS
+    // ========== SECURITY: Authorization Check ==========
+    const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
+    const signature = req.headers.get('x-webhook-signature');
+    const authHeader = req.headers.get('authorization');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    let isAuthorized = false;
+    let authMethod = 'none';
+    let authenticatedUserId: string | null = null;
+
+    // Method 1: Webhook signature verification (for MaishaPay callbacks)
+    if (webhookSecret && signature) {
+      isAuthorized = await verifyWebhookSignature(rawBody, signature, webhookSecret);
+      if (isAuthorized) {
+        authMethod = 'webhook';
+        console.log('[verify-payment] Authorized via webhook signature');
+      }
+    }
+
+    // Method 2: JWT token verification (for authenticated users)
+    if (!isAuthorized && authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+      
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } }
+      });
+
+      const { data: { user }, error: authError } = await userClient.auth.getUser();
+      if (!authError && user) {
+        authenticatedUserId = user.id;
+        isAuthorized = true;
+        authMethod = 'jwt';
+        console.log('[verify-payment] Authorized via JWT for user:', user.id);
+      }
+    }
+
+    // Method 3: Service role key (for internal calls)
+    if (!isAuthorized && authHeader === `Bearer ${supabaseServiceKey}`) {
+      isAuthorized = true;
+      authMethod = 'service_role';
+      console.log('[verify-payment] Authorized via service role key');
+    }
+
+    // Reject if no valid authorization
+    if (!isAuthorized) {
+      console.warn('[verify-payment] Unauthorized request for order:', orderId);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Unauthorized', 
+          message: 'Valid webhook signature or authentication required' 
+        }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    // ========== END SECURITY CHECK ==========
+
+    // Create Supabase client with service_role key to bypass RLS
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Fetch the order to verify it exists
@@ -81,11 +193,20 @@ serve(async (req) => {
       );
     }
 
-    console.log('[verify-payment] Found order:', { id: order.id, currentStatus: order.status });
+    // SECURITY: If authenticated via JWT, verify user owns the order
+    if (authMethod === 'jwt' && authenticatedUserId && order.user_id !== authenticatedUserId) {
+      console.warn('[verify-payment] User', authenticatedUserId, 'attempted to verify order', orderId, 'owned by', order.user_id);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Forbidden', message: 'You do not own this order' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[verify-payment] Found order:', { id: order.id, currentStatus: order.status, authMethod });
 
     // Prevent re-processing of already completed orders
-    if (order.status === 'PAID' || order.status === 'COMPLETED') {
-      console.log('[verify-payment] Order already paid/completed, returning current state');
+    if (order.status === 'PAID' || order.status === 'COMPLETED' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
+      console.log('[verify-payment] Order already processed, returning current state');
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -98,6 +219,19 @@ serve(async (req) => {
           },
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Only allow status updates for PENDING_PAYMENT orders
+    if (order.status !== 'PENDING_PAYMENT') {
+      console.log('[verify-payment] Order not in PENDING_PAYMENT state:', order.status);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Invalid order state',
+          message: `Order status is ${order.status}, expected PENDING_PAYMENT`
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -191,14 +325,16 @@ serve(async (req) => {
           statusCode: updatedOrder.maisha_status_code,
           description: updatedOrder.maisha_description,
         },
+        authMethod,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[verify-payment] Unexpected error:', error);
+    const message = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ success: false, error: error.message || 'Internal server error' }),
+      JSON.stringify({ success: false, error: message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

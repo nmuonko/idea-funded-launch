@@ -960,23 +960,37 @@ serve(async (req) => {
     if (info.price === null) {
       console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 404, error: 'price_not_found', domain }));
       
-      // Check if this is a dynamic content store that needs WebView
+      // Check if bot blocked or dynamic content store
+      const isBotBlocked = info.source === 'bot_blocked';
       const isDynamicStore = DYNAMIC_CONTENT_DOMAINS.some(d => domain.includes(d));
-      const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
-      const errorMessage = isDynamicStore 
-        ? 'Cette page nécessite une consultation manuelle'
-        : 'Prix indisponible';
+      
+      let errorCode = 'PRICE_NOT_FOUND';
+      let message_en = 'Price not available';
+      let message_fr = 'Prix indisponible';
+      
+      if (isBotBlocked) {
+        errorCode = 'SCRAPE_BLOCKED';
+        message_en = `${domain} is blocking automated access. Please open the page manually.`;
+        message_fr = `${domain} bloque l'accès automatisé. Veuillez ouvrir la page manuellement.`;
+      } else if (isDynamicStore) {
+        errorCode = 'DYNAMIC_CONTENT';
+        message_en = 'This page requires manual viewing.';
+        message_fr = 'Cette page nécessite une consultation manuelle.';
+      }
       
       return new Response(
         JSON.stringify({
           ok: false,
           code: errorCode,
-          message: errorMessage,
+          message: message_en,
+          message_en,
+          message_fr,
           productTitle: info.title,
           imageUrl: info.imageUrl,
           sourceUrl: productUrl,
           retryable: false,
-          webviewFallback: true, // Signal mobile to open WebView
+          webviewFallback: true,
+          suggestedFallback: 'WEBVIEW',
         }), 
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -1001,11 +1015,21 @@ serve(async (req) => {
   } catch (error: any) {
     const duration = Date.now() - requestStart;
     console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 500, error: error.message }));
+    
+    // Check if it's a network/connection error
+    const isConnectionError = error.message?.includes('fetch') || 
+                              error.message?.includes('network') ||
+                              error.message?.includes('ECONNREFUSED');
+    
     return new Response(
       JSON.stringify({ 
         ok: false,
-        code: 'INTERNAL_ERROR',
-        message: 'Something went wrong' 
+        code: isConnectionError ? 'CONNECTION_ERROR' : 'INTERNAL_ERROR',
+        message: isConnectionError ? 'Connection error' : 'Something went wrong',
+        message_en: isConnectionError ? 'Connection error. Check your internet.' : 'Something went wrong.',
+        message_fr: isConnectionError ? 'Erreur de connexion. Vérifiez votre connexion.' : 'Une erreur s\'est produite.',
+        retryable: isConnectionError,
+        webviewFallback: false,
       }), 
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

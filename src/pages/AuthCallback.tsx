@@ -14,28 +14,21 @@ export default function AuthCallback() {
     const handleCallback = async () => {
       try {
         console.log('[AuthCallback] Processing callback...');
-        console.log('[AuthCallback] URL:', window.location.href);
         
-        // Check URL hash for tokens (email verification & OAuth)
+        // Check URL hash for tokens (email verification)
         const hashParams = new URLSearchParams(window.location.hash.substring(1));
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
         const type = hashParams.get('type');
         const errorDescription = hashParams.get('error_description');
         
-        // Check for OAuth error in URL
+        // Check for error in URL
         if (errorDescription) {
-          console.error('[AuthCallback] OAuth error:', errorDescription);
+          console.error('[AuthCallback] Auth error:', errorDescription);
           setStatus('error');
           setMessage(decodeURIComponent(errorDescription));
           return;
         }
-
-        // Determine if this is OAuth or email verification
-        const isOAuth = type === 'signup' || type === 'magiclink' || (!type && accessToken);
-        const isEmailVerification = type === 'email' || type === 'signup';
-        
-        console.log('[AuthCallback] Auth type:', { type, isOAuth, isEmailVerification });
 
         // If we have tokens in the hash, set the session
         if (accessToken && refreshToken) {
@@ -55,14 +48,11 @@ export default function AuthCallback() {
           if (data.session?.user) {
             console.log('[AuthCallback] Session established for:', data.session.user.email);
             
-            // Create/update profile for OAuth users
-            await ensureProfileExists(data.session.user);
-            
             // Check if user is admin
             const isAdmin = await checkAdminStatus(data.session.user.id);
             
             setStatus('success');
-            setMessage('Authentication successful! Redirecting...');
+            setMessage('Email verified! Redirecting...');
             
             // Clear the hash from URL
             window.history.replaceState(null, '', window.location.pathname);
@@ -92,7 +82,6 @@ export default function AuthCallback() {
         if (session?.user) {
           console.log('[AuthCallback] Found existing session for:', session.user.email);
           
-          await ensureProfileExists(session.user);
           const isAdmin = await checkAdminStatus(session.user.id);
           
           setStatus('success');
@@ -113,50 +102,6 @@ export default function AuthCallback() {
         console.error('[AuthCallback] Exception:', err);
         setStatus('error');
         setMessage(err.message || 'An unexpected error occurred');
-      }
-    };
-
-    // Helper to ensure profile exists for OAuth users
-    const ensureProfileExists = async (user: any) => {
-      try {
-        console.log('[AuthCallback] Ensuring profile exists for:', user.id);
-        
-        // Check if profile already exists
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (existingProfile) {
-          console.log('[AuthCallback] Profile already exists');
-          return;
-        }
-
-        // Create profile for OAuth user
-        const fullName = user.user_metadata?.full_name || 
-                         user.user_metadata?.name || 
-                         user.email?.split('@')[0] || 
-                         'User';
-        
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({
-            user_id: user.id,
-            email: user.email,
-            full_name: fullName,
-            name: fullName,
-          }, {
-            onConflict: 'user_id',
-          });
-
-        if (profileError) {
-          console.error('[AuthCallback] Error creating profile:', profileError);
-        } else {
-          console.log('[AuthCallback] Profile created successfully');
-        }
-      } catch (err) {
-        console.error('[AuthCallback] Exception creating profile:', err);
       }
     };
 

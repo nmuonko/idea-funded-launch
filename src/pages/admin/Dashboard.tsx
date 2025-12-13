@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Package, TrendingUp, DollarSign, Clock } from 'lucide-react';
 import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 import { AIAdminAssistant } from '@/components/admin/AIAdminAssistant';
+import { AIActionsPanel } from '@/components/admin/AIActionsPanel';
 import { formatUSD } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
@@ -169,6 +170,7 @@ export default function AdminDashboard() {
         {/* D. Right Side Panel - Slim Sticky Sidebar */}
         <div className="lg:sticky lg:top-4 lg:self-start space-y-6">
           <PendingActionsSidebar />
+          <AIActionsPanel />
           <CustomerOverviewWidget />
         </div>
       </div>

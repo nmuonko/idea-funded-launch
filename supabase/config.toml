@@ -242,3 +242,18 @@ verify_jwt = false
 
 [functions.invalidate-settings-cache]
 verify_jwt = true
+
+[functions.smart-ticket-analysis]
+verify_jwt = false
+
+[functions.smart-cart-recovery]
+verify_jwt = false
+
+[functions.smart-recommendations]
+verify_jwt = false
+
+[functions.get-ai-actions-for-review]
+verify_jwt = true
+
+[functions.execute-ai-action]
+verify_jwt = true

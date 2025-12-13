@@ -34,8 +34,6 @@ interface AuthContextType {
     postal_code?: string;
   }) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
-  signInWithGoogle: () => Promise<{ error: any }>;
-  signInWithApple: () => Promise<{ error: any }>;
   checkAdminStatus: (userId?: string) => Promise<boolean>;
   refreshSession: () => Promise<Session | null>;
   getAccessToken: () => Promise<string | null>;
@@ -441,80 +439,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Get OAuth redirect URL based on environment
-  const getOAuthRedirectUrl = () => {
-    const origin = window.location.origin;
-    return `${origin}/auth/callback`;
-  };
-
-  const signInWithGoogle = async () => {
-    try {
-      console.log('[Auth] Starting Google OAuth...');
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: getOAuthRedirectUrl(),
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
-        },
-      });
-      
-      if (error) {
-        console.error('[Auth] Google OAuth error:', error);
-        toast({
-          title: 'Error',
-          description: error.message,
-          variant: 'destructive',
-        });
-        return { error };
-      }
-      
-      return { error: null };
-    } catch (error: any) {
-      console.error('[Auth] Google OAuth exception:', error);
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-      return { error };
-    }
-  };
-
-  const signInWithApple = async () => {
-    try {
-      console.log('[Auth] Starting Apple OAuth...');
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
-        options: {
-          redirectTo: getOAuthRedirectUrl(),
-        },
-      });
-      
-      if (error) {
-        console.error('[Auth] Apple OAuth error:', error);
-        toast({
-          title: 'Error',
-          description: error.message,
-          variant: 'destructive',
-        });
-        return { error };
-      }
-      
-      return { error: null };
-    } catch (error: any) {
-      console.error('[Auth] Apple OAuth exception:', error);
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-      return { error };
-    }
-  };
-
   /**
    * Refresh the current session and get new tokens
    */
@@ -584,8 +508,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn, 
         signUp, 
         signOut,
-        signInWithGoogle,
-        signInWithApple,
         checkAdminStatus,
         refreshSession,
         getAccessToken,

@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Standard error codes
+// Standard error codes - mobile app uses these to decide behavior
 export const ErrorCodes = {
   INVALID_URL: 'INVALID_URL',
   UNSUPPORTED_DOMAIN: 'UNSUPPORTED_DOMAIN',
@@ -20,6 +20,12 @@ export const ErrorCodes = {
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',
   BAD_REQUEST: 'BAD_REQUEST',
+  // NEW: Codes for mobile to decide "fallback to WebView"
+  BOT_BLOCKED: 'BOT_BLOCKED',           // Store blocked automated access
+  DYNAMIC_CONTENT: 'DYNAMIC_CONTENT',   // Content requires JS rendering
+  WEBVIEW_REQUIRED: 'WEBVIEW_REQUIRED', // Generic fallback signal
+  CONNECTION_ERROR: 'CONNECTION_ERROR', // Network/DNS failure
+  TEMPORARY_ERROR: 'TEMPORARY_ERROR',   // Retryable error
 } as const;
 
 // ============== STORE API RESPONSE TYPES ==============
@@ -54,7 +60,30 @@ export const ErrorMessages: Record<string, string> = {
   FORBIDDEN: 'Access denied.',
   NOT_FOUND: 'Resource not found.',
   BAD_REQUEST: 'Invalid request.',
+  // NEW: User-friendly messages for new error codes
+  BOT_BLOCKED: 'This store is temporarily blocking automated access. Try opening the page manually.',
+  DYNAMIC_CONTENT: 'This page requires manual viewing. Please open it in the app.',
+  WEBVIEW_REQUIRED: 'Please open this product page manually to see the price.',
+  CONNECTION_ERROR: 'Connection error. Please check your internet and try again.',
+  TEMPORARY_ERROR: 'Temporary error. Please try again in a moment.',
 };
+
+// Retryable error codes - mobile can retry these
+export const RETRYABLE_ERRORS = new Set([
+  'TIMEOUT',
+  'UPSTREAM_TIMEOUT',
+  'TEMPORARY_ERROR',
+  'CONNECTION_ERROR',
+  'RATE_LIMIT',
+]);
+
+// WebView fallback error codes - mobile should open WebView
+export const WEBVIEW_FALLBACK_ERRORS = new Set([
+  'BOT_BLOCKED',
+  'DYNAMIC_CONTENT',
+  'WEBVIEW_REQUIRED',
+  'PRICE_NOT_FOUND', // If scraping fails, WebView might work
+]);
 
 /**
  * Create a successful JSON response
@@ -71,16 +100,24 @@ export function jsonSuccess<T>(data: T, status = 200): Response {
 
 /**
  * Create an error JSON response with standardized format
+ * Includes retryable and webviewFallback flags for mobile app decision-making
  */
 export function jsonError(
   status: number,
   code: string,
   message?: string
 ): Response {
+  const isRetryable = RETRYABLE_ERRORS.has(code);
+  const useWebviewFallback = WEBVIEW_FALLBACK_ERRORS.has(code);
+  
   return new Response(
     JSON.stringify({
-      error: code,
+      ok: false,
+      code,
+      error: code, // backward compatibility
       message: message ?? ErrorMessages[code] ?? 'An error occurred.',
+      retryable: isRetryable,
+      webviewFallback: useWebviewFallback,
     }),
     {
       status,

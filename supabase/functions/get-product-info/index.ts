@@ -98,7 +98,7 @@ interface ProductInfo {
   imageUrl: string | null;
   price: number | null;
   currency: string;
-  source: 'api' | 'jsonld' | 'json' | 'selectors' | 'cached' | 'unknown';
+  source: 'api' | 'jsonld' | 'json' | 'selectors' | 'cached' | 'unknown' | 'bot_blocked';
 }
 
 // Performance constants
@@ -147,8 +147,8 @@ const PRICE_SELECTORS: Record<string, string[]> = {
     '[data-test="product-price"]',
     '.styles__CurrentPriceFontSize',
   ],
+  // FIXED: SHEIN 2024 - prices are ALWAYS USD
   'shein.com': [
-    // FIXED: 2024 SHEIN selectors - prices are always USD
     '.product-intro__head-mainprice span',
     '.sui-product-price__sale-price',
     '.sui-product-price__sale',
@@ -177,7 +177,22 @@ const PRICE_SELECTORS: Record<string, string[]> = {
     '.lowest-sale-price',
     '[data-auto="product-price"]',
   ],
+  // FIXED: Edmunds 2024 - use JSON-LD primarily, these are fallback
+  'edmunds.com': [
+    '[data-testid="vdp-price"]',
+    '[data-testid="price"]',
+    '.price-value',
+    '.vehicle-price',
+    '.listing-price',
+    '.srp-list-item-price',
+    '.size-20',
+    '.heading-3',
+    '.text-primary-darker',
+  ],
 };
+
+// Stores that commonly require WebView fallback
+const DYNAMIC_CONTENT_DOMAINS = ['shein.com', 'us.shein.com', 'm.shein.com', 'aliexpress.com'];
 
 function extractDomain(url: string): string {
   try {
@@ -696,7 +711,8 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     // Check for bot detection / captcha pages
     if (detectBotBlock(html)) {
       console.log('[get-product-info] Bot detection triggered | Duration:', Date.now() - startTime, 'ms');
-      return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
+      // Return with bot_blocked source so caller knows to suggest WebView
+      return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'bot_blocked' };
     }
     
     // Guard against oversized responses that didn't report content-length
@@ -940,17 +956,27 @@ serve(async (req) => {
 
     const duration = Date.now() - requestStart;
 
-    // Check if we got a price - return PRICE_NOT_FOUND fast
+    // Check if we got a price - return appropriate error with fallback hints
     if (info.price === null) {
       console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 404, error: 'price_not_found', domain }));
+      
+      // Check if this is a dynamic content store that needs WebView
+      const isDynamicStore = DYNAMIC_CONTENT_DOMAINS.some(d => domain.includes(d));
+      const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
+      const errorMessage = isDynamicStore 
+        ? 'Cette page nécessite une consultation manuelle'
+        : 'Prix indisponible';
+      
       return new Response(
         JSON.stringify({
           ok: false,
-          code: 'PRICE_NOT_FOUND',
-          message: 'Prix indisponible',
+          code: errorCode,
+          message: errorMessage,
           productTitle: info.title,
           imageUrl: info.imageUrl,
           sourceUrl: productUrl,
+          retryable: false,
+          webviewFallback: true, // Signal mobile to open WebView
         }), 
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );

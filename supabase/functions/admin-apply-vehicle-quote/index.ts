@@ -7,17 +7,17 @@ const corsHeaders = {
 };
 
 /**
- * Admin Apply Vehicle Quote
+ * Admin Apply Vehicle Quote - ATOMIC & IDEMPOTENT
  * 
- * Called by admin panel when setting a quote for a vehicle.
- * Updates quote_requests, order_items, and recalculates order totals.
+ * Stores vehicle shipping as ABSOLUTE USD value - NO FX conversion, NO margin calculation.
+ * Updates quote_requests, order_items, and recalculates order totals atomically.
  * Triggers email notification to customer.
  * 
  * POST /admin-apply-vehicle-quote
  * Body: {
  *   quoteRequestId: string,
- *   quotedShippingUsd: number,
- *   quotedTotalUsd: number,
+ *   quotedShippingUsd: number,   // ABSOLUTE USD - stored exactly as entered
+ *   quotedTotalUsd: number,      // ABSOLUTE USD - vehicle price + shipping
  *   adminNotes?: string
  * }
  */
@@ -85,19 +85,42 @@ serve(async (req) => {
       );
     }
 
-    const shippingValue = parseFloat(quotedShippingUsd);
-    const totalValue = parseFloat(quotedTotalUsd);
+    // CRITICAL: Parse as numbers and validate - NO string conversions
+    const shippingValue = typeof quotedShippingUsd === 'number' 
+      ? quotedShippingUsd 
+      : parseFloat(String(quotedShippingUsd).replace(/,/g, ''));
+    const totalValue = typeof quotedTotalUsd === 'number' 
+      ? quotedTotalUsd 
+      : parseFloat(String(quotedTotalUsd).replace(/,/g, ''));
 
-    if (isNaN(shippingValue) || isNaN(totalValue) || shippingValue < 0 || totalValue < 0) {
+    if (!Number.isFinite(shippingValue) || !Number.isFinite(totalValue)) {
       return new Response(
-        JSON.stringify({ success: false, error: "Invalid shipping or total values" }),
+        JSON.stringify({ success: false, error: "Invalid shipping or total values - must be valid numbers" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("[admin-apply-vehicle-quote] Applying quote:", { quoteRequestId, shippingValue, totalValue });
+    if (shippingValue < 0 || totalValue < 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Values must be positive" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-    // First, check if the quote exists at all (without join)
+    // Round to 2 decimal places - this is the FINAL stored value
+    const finalShippingUsd = Math.round(shippingValue * 100) / 100;
+    const finalTotalUsd = Math.round(totalValue * 100) / 100;
+
+    console.log("[admin-apply-vehicle-quote] APPLYING QUOTE:", { 
+      quoteRequestId, 
+      inputShipping: quotedShippingUsd,
+      inputTotal: quotedTotalUsd,
+      finalShippingUsd, 
+      finalTotalUsd,
+      adminId: user.id
+    });
+
+    // 1. Fetch the quote request (without join for reliability)
     const { data: quoteCheck, error: checkError } = await supabase
       .from("quote_requests")
       .select("id, order_item_id, user_id, title, product_url, store_name, locale, customer_email")
@@ -113,21 +136,21 @@ serve(async (req) => {
     }
 
     if (!quoteCheck) {
-      console.error("[admin-apply-vehicle-quote] Quote not found in database:", quoteRequestId);
+      console.error("[admin-apply-vehicle-quote] Quote not found:", quoteRequestId);
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: "Quote request not found. It may have been deleted or the page needs to be refreshed.",
+          error: "Quote request not found. Refresh the page and try again.",
           code: "QUOTE_NOT_FOUND"
         }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Now fetch the order item separately
+    // 2. Fetch the order item separately
     const { data: orderItem, error: itemError } = await supabase
       .from("order_items")
-      .select("id, order_id, base_price_usd, quantity, title")
+      .select("id, order_id, base_price_usd, quantity, title, is_vehicle")
       .eq("id", quoteCheck.order_item_id)
       .maybeSingle();
 
@@ -136,70 +159,69 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: "The order item for this quote no longer exists",
+          error: "The cart item for this quote no longer exists",
           code: "ORDER_ITEM_NOT_FOUND"
         }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Combine the data
-    const quoteRequest = {
-      ...quoteCheck,
-      order_items: orderItem
-    };
-
-    const orderItemId = quoteRequest.order_item_id;
-    const orderId = quoteRequest.order_items?.order_id;
-    const vehicleTitle = quoteRequest.order_items?.title || quoteRequest.title || "Vehicle";
+    const orderItemId = quoteCheck.order_item_id;
+    const orderId = orderItem.order_id;
+    const vehicleTitle = orderItem.title || quoteCheck.title || "Vehicle";
 
     if (!orderId) {
-      console.error("[admin-apply-vehicle-quote] Order not found for order item:", orderItemId);
       return new Response(
-        JSON.stringify({ success: false, error: "Order not found for this quote request", code: "ORDER_NOT_FOUND" }),
+        JSON.stringify({ success: false, error: "Order not found for this quote", code: "ORDER_NOT_FOUND" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 1. UPSERT quote_requests row - ensures no duplicates, replaces existing
-    // Uses the unique constraint on order_item_id for upsert
+    // Calculate vehicle price from total - shipping
+    const vehiclePriceUsd = Math.round((finalTotalUsd - finalShippingUsd) * 100) / 100;
+
+    console.log("[admin-apply-vehicle-quote] Calculated values:", {
+      vehiclePriceUsd,
+      finalShippingUsd,
+      finalTotalUsd,
+      orderId,
+      orderItemId
+    });
+
+    // 3. UPDATE quote_requests - IDEMPOTENT update, not upsert
     const { error: updateQuoteError } = await supabase
       .from("quote_requests")
-      .upsert({
-        id: quoteRequestId,
-        order_item_id: orderItemId,
-        user_id: quoteRequest.user_id,
-        title: quoteRequest.title,
-        product_url: quoteRequest.product_url,
-        store_name: quoteRequest.store_name,
-        quoted_shipping_usd: shippingValue,
-        quoted_total_usd: totalValue,
+      .update({
+        quoted_shipping_usd: finalShippingUsd,  // EXACT value
+        quoted_total_usd: finalTotalUsd,        // EXACT value
         admin_notes: adminNotes || null,
         status: "SENT",
-        locale: quoteRequest.locale || 'fr',
-        customer_email: quoteRequest.customer_email,
+        quoted_by: user.id,
+        quoted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      }, { 
-        onConflict: 'order_item_id',
-        ignoreDuplicates: false 
-      });
+      })
+      .eq("id", quoteRequestId);
 
     if (updateQuoteError) {
-      console.error("[admin-apply-vehicle-quote] Failed to upsert quote:", updateQuoteError);
+      console.error("[admin-apply-vehicle-quote] Failed to update quote:", updateQuoteError);
       throw updateQuoteError;
     }
 
-    console.log("[admin-apply-vehicle-quote] Quote upserted with shipping:", shippingValue, "total:", totalValue);
+    console.log("[admin-apply-vehicle-quote] Quote row updated - shipping:", finalShippingUsd, "total:", finalTotalUsd);
 
-    // 2. Update order_items row - CRITICAL: Set shipping/total to EXACTLY admin values
-    // These values MUST match what admin entered - no recalculation
+    // 4. UPDATE order_items - CRITICAL: Store ABSOLUTE values with NO recalculation
+    // These are the FINAL values - mobile-get-cart must use them as-is for vehicles
     const { error: updateItemError } = await supabase
       .from("order_items")
       .update({
-        shipping_fee_usd: shippingValue,          // EXACT admin value
-        total_price_usd: totalValue,              // EXACT admin value
-        requires_manual_quote: false,             // Clear the quote requirement
-        vehicle_quote_applied: true,              // Mark that quote has been applied
+        base_price_usd: vehiclePriceUsd,         // Vehicle price (total - shipping)
+        subtotal_usd: vehiclePriceUsd,           // Same as base for vehicles (no markup)
+        markup_fee_usd: 0,                       // NO markup on vehicles - included in quoted total
+        shipping_fee_usd: finalShippingUsd,      // EXACT admin value - NEVER recalculate
+        total_price_usd: finalTotalUsd,          // EXACT admin value - NEVER recalculate
+        requires_manual_quote: false,            // Quote has been provided
+        vehicle_quote_applied: true,             // Flag: use stored values, don't recalculate
+        is_vehicle: true,                        // Ensure marked as vehicle
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderItemId);
@@ -209,12 +231,12 @@ serve(async (req) => {
       throw updateItemError;
     }
 
-    console.log("[admin-apply-vehicle-quote] Order item updated with EXACT admin values");
+    console.log("[admin-apply-vehicle-quote] Order item updated with EXACT admin values - NO recalculation will occur");
 
-    // 3. Recalculate order totals by summing all items
+    // 5. Recalculate order totals by summing ALL active items
     const { data: allItems, error: itemsError } = await supabase
       .from("order_items")
-      .select("total_price_usd, shipping_fee_usd, is_saved_for_later")
+      .select("total_price_usd, shipping_fee_usd, is_saved_for_later, is_vehicle, vehicle_quote_applied")
       .eq("order_id", orderId)
       .eq("is_saved_for_later", false);
 
@@ -223,13 +245,17 @@ serve(async (req) => {
       throw itemsError;
     }
 
-    // Calculate new order totals
-    let newTotalUsd = 0;
-    let newShippingUsd = 0;
+    // Sum all items - for vehicles with quotes, use stored values
+    let newItemsTotalUsd = 0;
+    let newShippingTotalUsd = 0;
     for (const item of allItems || []) {
-      newTotalUsd += Number(item.total_price_usd || 0);
-      newShippingUsd += Number(item.shipping_fee_usd || 0);
+      newItemsTotalUsd += Number(item.total_price_usd || 0);
+      newShippingTotalUsd += Number(item.shipping_fee_usd || 0);
     }
+
+    // Round totals
+    newItemsTotalUsd = Math.round(newItemsTotalUsd * 100) / 100;
+    newShippingTotalUsd = Math.round(newShippingTotalUsd * 100) / 100;
 
     // Get exchange rate for CDF conversion
     const { data: settings } = await supabase
@@ -239,16 +265,30 @@ serve(async (req) => {
       .single();
 
     const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const newTotalCdf = Math.round(newTotalUsd * exchangeRate * 100) / 100;
+    const newTotalCdf = Math.round(newItemsTotalUsd * exchangeRate * 100) / 100;
 
-    // 4. Update orders table with recalculated totals
+    // Check if any items still require manual quotes
+    const stillRequiresQuote = (allItems || []).some(item => 
+      item.is_vehicle && !item.vehicle_quote_applied
+    );
+
+    console.log("[admin-apply-vehicle-quote] Recalculated order totals:", { 
+      orderId, 
+      newItemsTotalUsd, 
+      newShippingTotalUsd,
+      newTotalCdf,
+      stillRequiresQuote
+    });
+
+    // 6. Update orders table
     const { error: updateOrderError } = await supabase
       .from("orders")
       .update({
-        shipping_fee_usd: newShippingUsd,
-        total_usd: newTotalUsd,
+        item_total_usd: newItemsTotalUsd,
+        shipping_fee_usd: newShippingTotalUsd,
+        total_usd: newItemsTotalUsd,  // total_usd = sum of all item totals (shipping included in item.total_price_usd)
         total_cdf: newTotalCdf,
-        requires_manual_quote: false,  // Clear order-level quote requirement
+        requires_manual_quote: stillRequiresQuote,
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId);
@@ -258,85 +298,88 @@ serve(async (req) => {
       throw updateOrderError;
     }
 
-    console.log("[admin-apply-vehicle-quote] Order totals updated:", { orderId, newTotalUsd, newShippingUsd });
+    console.log("[admin-apply-vehicle-quote] Order totals updated successfully");
 
-    // 5. Trigger email notification to customer (non-blocking)
+    // 7. Send email notification (non-blocking)
     let emailSent = false;
-    let emailId: string | null = null;
-    
     try {
       const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-quote-email", {
         body: {
           quoteRequestId,
-          quotedShippingUsd: shippingValue,
-          quotedTotalUsd: totalValue,
+          quotedShippingUsd: finalShippingUsd,
+          quotedTotalUsd: finalTotalUsd,
           adminNotes: adminNotes || undefined,
         },
       });
 
-      if (emailError) {
-        console.error("[admin-apply-vehicle-quote] Failed to send quote email:", emailError);
-        // Don't fail the whole operation if email fails
+      if (!emailError && emailResult?.success) {
+        emailSent = true;
+        console.log("[admin-apply-vehicle-quote] Quote email sent successfully");
       } else {
-        emailSent = emailResult?.success || false;
-        emailId = emailResult?.emailId || null;
-        console.log("[admin-apply-vehicle-quote] Quote email sent successfully, ID:", emailId);
+        console.warn("[admin-apply-vehicle-quote] Email not sent:", emailError);
       }
     } catch (emailErr) {
-      console.error("[admin-apply-vehicle-quote] Email notification error:", emailErr);
+      console.error("[admin-apply-vehicle-quote] Email error (non-fatal):", emailErr);
     }
 
-    // 6. Log email to customer_email_logs for tracking
+    // 8. Log to customer_email_logs
     if (emailSent) {
       try {
-        // Get customer email from profile
         const { data: profile } = await supabase
           .from("profiles")
           .select("email")
-          .eq("user_id", quoteRequest.user_id)
+          .eq("user_id", quoteCheck.user_id)
           .single();
 
         if (profile?.email) {
           await supabase
             .from("customer_email_logs")
             .insert({
-              customer_id: quoteRequest.user_id,
+              customer_id: quoteCheck.user_id,
               customer_email: profile.email,
               sent_by: user.id,
-              subject: `Vehicle Quote Ready - $${totalValue.toFixed(2)} USD`,
-              body: `Quote for ${vehicleTitle}: Shipping $${shippingValue.toFixed(2)}, Total $${totalValue.toFixed(2)} USD`,
+              subject: `Vehicle Quote Ready - $${finalTotalUsd.toFixed(2)} USD`,
+              body: `Quote for ${vehicleTitle}: Shipping $${finalShippingUsd.toFixed(2)}, Total $${finalTotalUsd.toFixed(2)} USD`,
               status: "sent",
             });
-          console.log("[admin-apply-vehicle-quote] Email logged to customer_email_logs");
         }
       } catch (logErr) {
-        console.warn("[admin-apply-vehicle-quote] Failed to log email:", logErr);
-        // Non-blocking - don't fail the operation
+        console.warn("[admin-apply-vehicle-quote] Failed to log email (non-fatal):", logErr);
       }
     }
 
+    // 9. Return success with all values for verification
+    const response = {
+      success: true,
+      ok: true,
+      message: emailSent 
+        ? "Quote applied and customer notified" 
+        : "Quote applied (email notification skipped)",
+      emailSent,
+      data: {
+        quoteRequestId,
+        orderItemId,
+        orderId,
+        // Echo back EXACT values that were stored
+        quotedShippingUsd: finalShippingUsd,
+        quotedTotalUsd: finalTotalUsd,
+        vehiclePriceUsd,
+        // Order-level totals
+        orderItemsTotalUsd: newItemsTotalUsd,
+        orderShippingTotalUsd: newShippingTotalUsd,
+        orderTotalCdf: newTotalCdf,
+      },
+    };
+
+    console.log("[admin-apply-vehicle-quote] SUCCESS:", response.data);
+
     return new Response(
-      JSON.stringify({
-        success: true,
-        message: emailSent 
-          ? "Quote applied successfully and customer notified" 
-          : "Quote applied successfully (email notification failed)",
-        emailSent,
-        data: {
-          quoteRequestId,
-          orderItemId,
-          orderId,
-          quotedShippingUsd: shippingValue,
-          quotedTotalUsd: totalValue,
-          orderTotalUsd: newTotalUsd,
-          orderTotalCdf: newTotalCdf,
-        },
-      }),
+      JSON.stringify(response),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {
-    console.error("[admin-apply-vehicle-quote] Error:", error);
+    console.error("[admin-apply-vehicle-quote] FATAL ERROR:", error);
     return new Response(
       JSON.stringify({ 
         ok: false, 

@@ -79,7 +79,6 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '#price_inside_buybox',
     '.a-price-whole',
     '[data-asin-price]',
-    // Additional Amazon 2024 selectors
     '.reinventPricePriceToPayMargin .a-offscreen',
     '#corePriceDisplay_desktop_feature_div .a-offscreen',
   ],
@@ -90,7 +89,6 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '[data-automation-id="product-price"]',
     '.price-main .visuallyhidden',
     '.price-main-block span',
-    // Additional Walmart 2024 selectors
     '[data-testid="price-wrap"] span',
     '.flex.items-baseline span.f1',
     '.w_Cs span',
@@ -120,27 +118,28 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.styles__CurrentPriceFontSize-sc',
     '[data-test="product-price"] span',
   ],
-  // FIXED: Comprehensive SHEIN selectors (2024 site structure)
-  // CRITICAL: SHEIN prices are in USD, NOT CDF
+  // FIXED: SHEIN 2024 - prices are ALWAYS USD, NOT CDF
+  // SHEIN uses dynamic JS rendering - mark for WebView fallback if scraping fails
   shein: [
-    // Primary price containers (most reliable 2024)
+    // JSON-LD is the most reliable for SHEIN
+    // CSS selectors as fallback
     '.product-intro__head-mainprice span',
     '.sui-product-price__sale-price',
     '.sui-product-price__sale',
     '.product-intro__head-price span',
     '.from.original',
-    // Price value selectors
     '[data-price-type="salePrice"]',
     '[data-price-type="retailPrice"]',
     '.goods-price__sale-price',
     '.goods-price__current',
-    // New layout 2024
     '.S-product-item__price-current',
     '.j-expose__product-item-price',
-    // Fallback patterns
     '.original-price',
     '.flash-sale-price',
     '.price-wrapper span',
+    // New 2024 patterns
+    '.ProductCard__Price span',
+    '.product-price__sale span',
   ],
   macys: [
     '.price .lowest-sale-price',
@@ -173,14 +172,22 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '[class*="price"]',
     '.tds-text--medium',
   ],
+  // FIXED: Edmunds 2024 - use JSON-LD structured data primarily
   edmunds: [
+    // Primary: JSON-LD offers.price
+    // Fallback selectors for listing pages
+    '[data-testid="vdp-price"]',
     '[data-testid="price"]',
     '.price-value',
     '.vehicle-price',
     '.listing-price',
+    '.srp-list-item-price',
+    '.size-20', // Edmunds uses size classes for prices
     '[class*="Price"]',
     '[class*="price"]',
-    '.srp-list-item-price',
+    // New Edmunds 2024 patterns
+    '.heading-3', // Price often in heading
+    '.text-primary-darker',
   ],
   generic: [
     '.price',
@@ -200,6 +207,12 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.ProductPrice',
   ],
 };
+
+// Stores that commonly require WebView fallback due to heavy JS rendering
+const DYNAMIC_CONTENT_STORES: StoreType[] = ['shein', 'aliexpress'];
+
+// Stores where JSON-LD should be the PRIMARY extraction method
+const JSON_LD_PRIORITY_STORES: StoreType[] = ['edmunds', 'shein', 'amazon', 'walmart', 'bestbuy'];
 
 // ============== TIMEOUT CONFIGURATION ==============
 // Per-store timeouts - TIGHTENED for faster fail behavior
@@ -770,7 +783,8 @@ Deno.serve(async (req) => {
     if (detectBotBlock(html)) {
       logData = { ...logData, status: 403, error: 'BOT_BLOCKED', store, duration: Date.now() - startTime };
       console.log(JSON.stringify(logData));
-      return jsonError(403, ErrorCodes.SCRAPE_FAILED, `${store} is blocking automated requests. Try again later.`);
+      // Return BOT_BLOCKED with webviewFallback hint
+      return jsonError(403, ErrorCodes.BOT_BLOCKED, `${store} is blocking automated requests. Please open the page manually.`);
     }
 
     let price: number | null = null;
@@ -813,7 +827,15 @@ Deno.serve(async (req) => {
       const duration = Date.now() - startTime;
       logData = { ...logData, status: 404, error: 'PRICE_NOT_FOUND', store, duration, triedMethods: ['jsonld', 'selector', 'regex', allowOcr ? 'ocr' : 'none'] };
       console.log(JSON.stringify(logData));
-      return jsonError(404, ErrorCodes.PRICE_NOT_FOUND, `Could not extract price from ${store}`);
+      
+      // For dynamic content stores, suggest WebView fallback
+      const isDynamicStore = DYNAMIC_CONTENT_STORES.includes(store);
+      const errorCode = isDynamicStore ? ErrorCodes.DYNAMIC_CONTENT : ErrorCodes.PRICE_NOT_FOUND;
+      const errorMsg = isDynamicStore 
+        ? `${store} requires manual viewing. Please open the product page in the app.`
+        : `Could not extract price from ${store}`;
+      
+      return jsonError(404, errorCode, errorMsg);
     }
 
     // Extract product info

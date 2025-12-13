@@ -781,28 +781,44 @@ Deno.serve(async (req) => {
 
     // Check for bot detection / captcha pages
     if (detectBotBlock(html)) {
-      logData = { ...logData, status: 403, error: 'BOT_BLOCKED', store, duration: Date.now() - startTime };
+      logData = { ...logData, status: 403, error: 'SCRAPE_BLOCKED', store, duration: Date.now() - startTime };
       console.log(JSON.stringify(logData));
-      // Return BOT_BLOCKED with webviewFallback hint
-      return jsonError(403, ErrorCodes.BOT_BLOCKED, `${store} is blocking automated requests. Please open the page manually.`);
+      // Return SCRAPE_BLOCKED with explicit webviewFallback hint
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'SCRAPE_BLOCKED',
+          message: `${store} is blocking automated access`,
+          message_en: `${store} is blocking automated access. Please open the page manually.`,
+          message_fr: `${store} bloque l'accès automatisé. Veuillez ouvrir la page manuellement.`,
+          retryable: false,
+          webviewFallback: true,
+          suggestedFallback: 'WEBVIEW',
+        }),
+        { status: 403, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
+      );
     }
 
     let price: number | null = null;
     let currencyCode: string | null = null;
     let extractionMethod: string | null = null;
 
-    // Strategy 1: JSON-LD (fastest, most reliable)
+    // Strategy 1: JSON-LD (fastest, most reliable) - PRIORITY for Edmunds
     const jsonLdResult = extractFromJsonLd(html);
     if (jsonLdResult) {
       price = jsonLdResult.price;
       currencyCode = jsonLdResult.currency ?? null;
       extractionMethod = 'jsonld';
+      console.log(`[extract-price] JSON-LD extraction succeeded: ${price} ${currencyCode}`);
     }
 
     // Strategy 2: Store-specific selectors
     if (!price) {
       price = extractFromSelectors(html, store);
-      if (price) extractionMethod = 'selector';
+      if (price) {
+        extractionMethod = 'selector';
+        console.log(`[extract-price] Selector extraction succeeded: ${price}`);
+      }
     }
 
     // Strategy 3: Regex fallback (only if selectors fail)
@@ -812,6 +828,7 @@ Deno.serve(async (req) => {
         price = regexResult.price;
         currencyCode = regexResult.currencyHint;
         extractionMethod = 'regex';
+        console.log(`[extract-price] Regex extraction succeeded: ${price} ${currencyCode}`);
       }
     }
 
@@ -819,7 +836,10 @@ Deno.serve(async (req) => {
     const skipOcrStores: StoreType[] = ['shein', 'aliexpress'];
     if (!price && allowOcr && !skipOcrStores.includes(store)) {
       price = await extractWithOcr(formattedUrl, TIMEOUTS.ocr);
-      if (price) extractionMethod = 'ocr';
+      if (price) {
+        extractionMethod = 'ocr';
+        console.log(`[extract-price] OCR extraction succeeded: ${price}`);
+      }
     }
 
     // Fail fast if no price found
@@ -830,12 +850,27 @@ Deno.serve(async (req) => {
       
       // For dynamic content stores, suggest WebView fallback
       const isDynamicStore = DYNAMIC_CONTENT_STORES.includes(store);
-      const errorCode = isDynamicStore ? ErrorCodes.DYNAMIC_CONTENT : ErrorCodes.PRICE_NOT_FOUND;
-      const errorMsg = isDynamicStore 
-        ? `${store} requires manual viewing. Please open the product page in the app.`
-        : `Could not extract price from ${store}`;
+      const errorCode = isDynamicStore ? 'DYNAMIC_CONTENT' : 'PRICE_NOT_FOUND';
       
-      return jsonError(404, errorCode, errorMsg);
+      return new Response(
+        JSON.stringify({
+          ok: false,
+          code: errorCode,
+          message: isDynamicStore 
+            ? `${store} requires manual viewing`
+            : `Could not extract price from ${store}`,
+          message_en: isDynamicStore 
+            ? `${store} requires manual viewing. Please open the product page.`
+            : `Could not extract price from ${store}. Try opening the page manually.`,
+          message_fr: isDynamicStore 
+            ? `${store} nécessite une consultation manuelle. Veuillez ouvrir la page.`
+            : `Impossible d'extraire le prix de ${store}. Essayez d'ouvrir la page manuellement.`,
+          retryable: false,
+          webviewFallback: true,
+          suggestedFallback: 'WEBVIEW',
+        }),
+        { status: 404, headers: { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' } }
+      );
     }
 
     // Extract product info

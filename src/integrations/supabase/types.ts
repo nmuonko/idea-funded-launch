@@ -974,6 +974,8 @@ export type Database = {
           locale: string | null
           order_item_id: string
           product_url: string | null
+          quoted_at: string | null
+          quoted_by: string | null
           quoted_shipping_usd: number | null
           quoted_total_usd: number | null
           status: string
@@ -990,6 +992,8 @@ export type Database = {
           locale?: string | null
           order_item_id: string
           product_url?: string | null
+          quoted_at?: string | null
+          quoted_by?: string | null
           quoted_shipping_usd?: number | null
           quoted_total_usd?: number | null
           status?: string
@@ -1006,6 +1010,8 @@ export type Database = {
           locale?: string | null
           order_item_id?: string
           product_url?: string | null
+          quoted_at?: string | null
+          quoted_by?: string | null
           quoted_shipping_usd?: number | null
           quoted_total_usd?: number | null
           status?: string

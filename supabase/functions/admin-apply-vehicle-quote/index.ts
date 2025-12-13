@@ -97,27 +97,66 @@ serve(async (req) => {
 
     console.log("[admin-apply-vehicle-quote] Applying quote:", { quoteRequestId, shippingValue, totalValue });
 
-    // Fetch the quote request with order item details
-    const { data: quoteRequest, error: quoteError } = await supabase
+    // First, check if the quote exists at all (without join)
+    const { data: quoteCheck, error: checkError } = await supabase
       .from("quote_requests")
-      .select("*, order_items!inner(id, order_id, base_price_usd, quantity)")
+      .select("id, order_item_id, user_id, title, product_url, store_name, locale, customer_email")
       .eq("id", quoteRequestId)
-      .single();
+      .maybeSingle();
 
-    if (quoteError || !quoteRequest) {
-      console.error("[admin-apply-vehicle-quote] Quote not found:", quoteError);
+    if (checkError) {
+      console.error("[admin-apply-vehicle-quote] Error checking quote:", checkError);
       return new Response(
-        JSON.stringify({ success: false, error: "Quote request not found" }),
+        JSON.stringify({ success: false, error: "Database error while fetching quote", code: "DB_ERROR" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!quoteCheck) {
+      console.error("[admin-apply-vehicle-quote] Quote not found in database:", quoteRequestId);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: "Quote request not found. It may have been deleted or the page needs to be refreshed.",
+          code: "QUOTE_NOT_FOUND"
+        }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    // Now fetch the order item separately
+    const { data: orderItem, error: itemError } = await supabase
+      .from("order_items")
+      .select("id, order_id, base_price_usd, quantity, title")
+      .eq("id", quoteCheck.order_item_id)
+      .maybeSingle();
+
+    if (itemError || !orderItem) {
+      console.error("[admin-apply-vehicle-quote] Order item not found:", quoteCheck.order_item_id, itemError);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: "The order item for this quote no longer exists",
+          code: "ORDER_ITEM_NOT_FOUND"
+        }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Combine the data
+    const quoteRequest = {
+      ...quoteCheck,
+      order_items: orderItem
+    };
+
     const orderItemId = quoteRequest.order_item_id;
     const orderId = quoteRequest.order_items?.order_id;
+    const vehicleTitle = quoteRequest.order_items?.title || quoteRequest.title || "Vehicle";
 
     if (!orderId) {
+      console.error("[admin-apply-vehicle-quote] Order not found for order item:", orderItemId);
       return new Response(
-        JSON.stringify({ success: false, error: "Order not found for quote request" }),
+        JSON.stringify({ success: false, error: "Order not found for this quote request", code: "ORDER_NOT_FOUND" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -258,7 +297,6 @@ serve(async (req) => {
           .single();
 
         if (profile?.email) {
-          const vehicleTitle = quoteRequest.order_items?.title || quoteRequest.title || "Vehicle";
           await supabase
             .from("customer_email_logs")
             .insert({

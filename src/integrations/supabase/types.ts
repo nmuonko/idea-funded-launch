@@ -203,6 +203,48 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_action_queue: {
+        Row: {
+          action_type: string
+          ai_decision: Json
+          confidence_score: number | null
+          created_at: string | null
+          executed_at: string | null
+          id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string | null
+          target_id: string
+          target_type: string
+        }
+        Insert: {
+          action_type: string
+          ai_decision: Json
+          confidence_score?: number | null
+          created_at?: string | null
+          executed_at?: string | null
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          target_id: string
+          target_type: string
+        }
+        Update: {
+          action_type?: string
+          ai_decision?: Json
+          confidence_score?: number | null
+          created_at?: string | null
+          executed_at?: string | null
+          id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string | null
+          target_id?: string
+          target_type?: string
+        }
+        Relationships: []
+      }
       ai_assistant_logs: {
         Row: {
           action_type: string
@@ -287,6 +329,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "cart_recovery_ab_tests_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cart_recovery_predictions: {
+        Row: {
+          ai_reasoning: string | null
+          conversion_probability: number | null
+          converted_at: string | null
+          created_at: string | null
+          id: string
+          optimal_send_time: string | null
+          order_id: string | null
+          personalized_body: string | null
+          personalized_subject: string | null
+          sent_at: string | null
+          suggested_discount_percent: number | null
+          user_id: string
+        }
+        Insert: {
+          ai_reasoning?: string | null
+          conversion_probability?: number | null
+          converted_at?: string | null
+          created_at?: string | null
+          id?: string
+          optimal_send_time?: string | null
+          order_id?: string | null
+          personalized_body?: string | null
+          personalized_subject?: string | null
+          sent_at?: string | null
+          suggested_discount_percent?: number | null
+          user_id: string
+        }
+        Update: {
+          ai_reasoning?: string | null
+          conversion_probability?: number | null
+          converted_at?: string | null
+          created_at?: string | null
+          id?: string
+          optimal_send_time?: string | null
+          order_id?: string | null
+          personalized_body?: string | null
+          personalized_subject?: string | null
+          sent_at?: string | null
+          suggested_discount_percent?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cart_recovery_predictions_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
@@ -905,6 +1000,33 @@ export type Database = {
         }
         Relationships: []
       }
+      product_recommendations: {
+        Row: {
+          context: string
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          recommendations: Json
+          user_id: string
+        }
+        Insert: {
+          context: string
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          recommendations: Json
+          user_id: string
+        }
+        Update: {
+          context?: string
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          recommendations?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           address: string | null
@@ -1030,6 +1152,41 @@ export type Database = {
           },
         ]
       }
+      recommendation_clicks: {
+        Row: {
+          clicked_at: string | null
+          converted: boolean | null
+          id: string
+          product_url: string
+          recommendation_id: string | null
+          user_id: string
+        }
+        Insert: {
+          clicked_at?: string | null
+          converted?: boolean | null
+          id?: string
+          product_url: string
+          recommendation_id?: string | null
+          user_id: string
+        }
+        Update: {
+          clicked_at?: string | null
+          converted?: boolean | null
+          id?: string
+          product_url?: string
+          recommendation_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recommendation_clicks_recommendation_id_fkey"
+            columns: ["recommendation_id"]
+            isOneToOne: false
+            referencedRelation: "product_recommendations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       settings: {
         Row: {
           category_markups: Json | null
@@ -1116,6 +1273,11 @@ export type Database = {
       }
       support_tickets: {
         Row: {
+          ai_analyzed_at: string | null
+          ai_sentiment: string | null
+          ai_suggested_response: string | null
+          ai_topic: string | null
+          ai_urgency_score: number | null
           assigned_to: string | null
           created_at: string
           description: string
@@ -1133,6 +1295,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_analyzed_at?: string | null
+          ai_sentiment?: string | null
+          ai_suggested_response?: string | null
+          ai_topic?: string | null
+          ai_urgency_score?: number | null
           assigned_to?: string | null
           created_at?: string
           description: string
@@ -1150,6 +1317,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_analyzed_at?: string | null
+          ai_sentiment?: string | null
+          ai_suggested_response?: string | null
+          ai_topic?: string | null
+          ai_urgency_score?: number | null
           assigned_to?: string | null
           created_at?: string
           description?: string

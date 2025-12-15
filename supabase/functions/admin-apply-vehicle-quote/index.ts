@@ -9,15 +9,17 @@ const corsHeaders = {
 /**
  * Admin Apply Vehicle Quote - ATOMIC & IDEMPOTENT
  * 
- * Stores vehicle shipping as ABSOLUTE USD value - NO FX conversion, NO margin calculation.
+ * Stores vehicle quote with full price breakdown: base price, shipping, margin, total.
  * Updates quote_requests, order_items, and recalculates order totals atomically.
  * Triggers email notification to customer.
  * 
  * POST /admin-apply-vehicle-quote
  * Body: {
  *   quoteRequestId: string,
- *   quotedShippingUsd: number,   // ABSOLUTE USD - stored exactly as entered
- *   quotedTotalUsd: number,      // ABSOLUTE USD - vehicle price + shipping
+ *   quotedShippingUsd: number,   // Shipping cost entered by admin
+ *   quotedTotalUsd: number,      // Total price (base + shipping + margin)
+ *   quotedMarginUsd?: number,    // Optional - margin breakdown
+ *   basePriceUsd?: number,       // Optional - vehicle base price
  *   adminNotes?: string
  * }
  */
@@ -76,7 +78,7 @@ serve(async (req) => {
 
     // Parse request body
     const body = await req.json();
-    const { quoteRequestId, quotedShippingUsd, quotedTotalUsd, adminNotes } = body;
+    const { quoteRequestId, quotedShippingUsd, quotedTotalUsd, quotedMarginUsd, basePriceUsd, adminNotes } = body;
 
     if (!quoteRequestId || quotedShippingUsd === undefined || quotedTotalUsd === undefined) {
       return new Response(
@@ -85,7 +87,7 @@ serve(async (req) => {
       );
     }
 
-    // CRITICAL: Parse as numbers and validate - NO string conversions
+    // Parse as numbers and validate
     const shippingValue = typeof quotedShippingUsd === 'number' 
       ? quotedShippingUsd 
       : parseFloat(String(quotedShippingUsd).replace(/,/g, ''));
@@ -107,7 +109,7 @@ serve(async (req) => {
       );
     }
 
-    // Round to 2 decimal places - this is the FINAL stored value
+    // Round to 2 decimal places
     const finalShippingUsd = Math.round(shippingValue * 100) / 100;
     const finalTotalUsd = Math.round(totalValue * 100) / 100;
 
@@ -115,12 +117,14 @@ serve(async (req) => {
       quoteRequestId, 
       inputShipping: quotedShippingUsd,
       inputTotal: quotedTotalUsd,
+      inputMargin: quotedMarginUsd,
+      inputBasePrice: basePriceUsd,
       finalShippingUsd, 
       finalTotalUsd,
       adminId: user.id
     });
 
-    // 1. Fetch the quote request (without join for reliability)
+    // 1. Fetch the quote request
     const { data: quoteCheck, error: checkError } = await supabase
       .from("quote_requests")
       .select("id, order_item_id, user_id, title, product_url, store_name, locale, customer_email")
@@ -147,10 +151,10 @@ serve(async (req) => {
       );
     }
 
-    // 2. Fetch the order item separately
+    // 2. Fetch the order item to get base price
     const { data: orderItem, error: itemError } = await supabase
       .from("order_items")
-      .select("id, order_id, base_price_usd, quantity, title, is_vehicle")
+      .select("id, order_id, base_price_usd, unit_price_usd, quantity, title, is_vehicle")
       .eq("id", quoteCheck.order_item_id)
       .maybeSingle();
 
@@ -177,23 +181,36 @@ serve(async (req) => {
       );
     }
 
-    // Calculate vehicle price from total - shipping
-    const vehiclePriceUsd = Math.round((finalTotalUsd - finalShippingUsd) * 100) / 100;
+    // Use provided base price or get from order item
+    const vehicleBasePriceUsd = Math.round((
+      basePriceUsd || orderItem.base_price_usd || orderItem.unit_price_usd || 0
+    ) * 100) / 100;
+
+    // Calculate margin: total - basePrice - shipping
+    // If quotedMarginUsd provided, use it; otherwise calculate
+    const finalMarginUsd = quotedMarginUsd !== undefined 
+      ? Math.round(quotedMarginUsd * 100) / 100
+      : Math.round((finalTotalUsd - vehicleBasePriceUsd - finalShippingUsd) * 100) / 100;
+
+    // Subtotal = base price + margin (before shipping)
+    const finalSubtotalUsd = Math.round((vehicleBasePriceUsd + finalMarginUsd) * 100) / 100;
 
     console.log("[admin-apply-vehicle-quote] Calculated values:", {
-      vehiclePriceUsd,
+      vehicleBasePriceUsd,
+      finalMarginUsd,
+      finalSubtotalUsd,
       finalShippingUsd,
       finalTotalUsd,
       orderId,
       orderItemId
     });
 
-    // 3. UPDATE quote_requests - IDEMPOTENT update, not upsert
+    // 3. UPDATE quote_requests
     const { error: updateQuoteError } = await supabase
       .from("quote_requests")
       .update({
-        quoted_shipping_usd: finalShippingUsd,  // EXACT value
-        quoted_total_usd: finalTotalUsd,        // EXACT value
+        quoted_shipping_usd: finalShippingUsd,
+        quoted_total_usd: finalTotalUsd,
         admin_notes: adminNotes || null,
         status: "SENT",
         quoted_by: user.id,
@@ -207,21 +224,21 @@ serve(async (req) => {
       throw updateQuoteError;
     }
 
-    console.log("[admin-apply-vehicle-quote] Quote row updated - shipping:", finalShippingUsd, "total:", finalTotalUsd);
+    console.log("[admin-apply-vehicle-quote] Quote row updated");
 
-    // 4. UPDATE order_items - CRITICAL: Store ABSOLUTE values with NO recalculation
-    // These are the FINAL values - mobile-get-cart must use them as-is for vehicles
+    // 4. UPDATE order_items with FULL price breakdown
     const { error: updateItemError } = await supabase
       .from("order_items")
       .update({
-        base_price_usd: vehiclePriceUsd,         // Vehicle price (total - shipping)
-        subtotal_usd: vehiclePriceUsd,           // Same as base for vehicles (no markup)
-        markup_fee_usd: 0,                       // NO markup on vehicles - included in quoted total
-        shipping_fee_usd: finalShippingUsd,      // EXACT admin value - NEVER recalculate
-        total_price_usd: finalTotalUsd,          // EXACT admin value - NEVER recalculate
-        requires_manual_quote: false,            // Quote has been provided
-        vehicle_quote_applied: true,             // Flag: use stored values, don't recalculate
-        is_vehicle: true,                        // Ensure marked as vehicle
+        base_price_usd: vehicleBasePriceUsd,      // Vehicle price
+        unit_price_usd: vehicleBasePriceUsd,      // Same for display
+        subtotal_usd: finalSubtotalUsd,           // Base + margin
+        markup_fee_usd: finalMarginUsd,           // Margin amount (NOT 0!)
+        shipping_fee_usd: finalShippingUsd,       // Shipping cost
+        total_price_usd: finalTotalUsd,           // Grand total
+        requires_manual_quote: false,
+        vehicle_quote_applied: true,
+        is_vehicle: true,
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderItemId);
@@ -231,12 +248,17 @@ serve(async (req) => {
       throw updateItemError;
     }
 
-    console.log("[admin-apply-vehicle-quote] Order item updated with EXACT admin values - NO recalculation will occur");
+    console.log("[admin-apply-vehicle-quote] Order item updated with full breakdown:", {
+      base: vehicleBasePriceUsd,
+      margin: finalMarginUsd,
+      shipping: finalShippingUsd,
+      total: finalTotalUsd
+    });
 
     // 5. Recalculate order totals by summing ALL active items
     const { data: allItems, error: itemsError } = await supabase
       .from("order_items")
-      .select("total_price_usd, shipping_fee_usd, is_saved_for_later, is_vehicle, vehicle_quote_applied")
+      .select("base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, is_saved_for_later, is_vehicle, vehicle_quote_applied")
       .eq("order_id", orderId)
       .eq("is_saved_for_later", false);
 
@@ -245,17 +267,38 @@ serve(async (req) => {
       throw itemsError;
     }
 
-    // Sum all items - for vehicles with quotes, use stored values
-    let newItemsTotalUsd = 0;
-    let newShippingTotalUsd = 0;
+    // Sum all items
+    let orderItemsTotalUsd = 0;    // Sum of base prices (for display as "Total des articles")
+    let orderMarkupTotalUsd = 0;   // Sum of margins
+    let orderShippingTotalUsd = 0; // Sum of shipping
+    let orderGrandTotalUsd = 0;    // Sum of total_price_usd
+
     for (const item of allItems || []) {
-      newItemsTotalUsd += Number(item.total_price_usd || 0);
-      newShippingTotalUsd += Number(item.shipping_fee_usd || 0);
+      const itemBase = Number(item.base_price_usd || item.subtotal_usd || 0);
+      const itemMarkup = Number(item.markup_fee_usd || 0);
+      const itemShipping = Number(item.shipping_fee_usd || 0);
+      const itemTotal = Number(item.total_price_usd || 0);
+
+      // For vehicles with quotes, use stored total; otherwise calculate
+      if (item.is_vehicle && item.vehicle_quote_applied && itemTotal > 0) {
+        orderItemsTotalUsd += itemBase;
+        orderMarkupTotalUsd += itemMarkup;
+        orderShippingTotalUsd += itemShipping;
+        orderGrandTotalUsd += itemTotal;
+      } else if (!item.is_vehicle && itemTotal > 0) {
+        // Regular item
+        orderItemsTotalUsd += itemBase;
+        orderMarkupTotalUsd += itemMarkup;
+        orderShippingTotalUsd += itemShipping;
+        orderGrandTotalUsd += itemTotal;
+      }
     }
 
     // Round totals
-    newItemsTotalUsd = Math.round(newItemsTotalUsd * 100) / 100;
-    newShippingTotalUsd = Math.round(newShippingTotalUsd * 100) / 100;
+    orderItemsTotalUsd = Math.round(orderItemsTotalUsd * 100) / 100;
+    orderMarkupTotalUsd = Math.round(orderMarkupTotalUsd * 100) / 100;
+    orderShippingTotalUsd = Math.round(orderShippingTotalUsd * 100) / 100;
+    orderGrandTotalUsd = Math.round(orderGrandTotalUsd * 100) / 100;
 
     // Get exchange rate for CDF conversion
     const { data: settings } = await supabase
@@ -264,8 +307,8 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2800;
-    const newTotalCdf = Math.round(newItemsTotalUsd * exchangeRate * 100) / 100;
+    const exchangeRate = settings?.exchange_rate_usd_to_cdf || 2500;
+    const orderGrandTotalCdf = Math.round(orderGrandTotalUsd * exchangeRate * 100) / 100;
 
     // Check if any items still require manual quotes
     const stillRequiresQuote = (allItems || []).some(item => 
@@ -274,20 +317,24 @@ serve(async (req) => {
 
     console.log("[admin-apply-vehicle-quote] Recalculated order totals:", { 
       orderId, 
-      newItemsTotalUsd, 
-      newShippingTotalUsd,
-      newTotalCdf,
+      orderItemsTotalUsd,
+      orderMarkupTotalUsd,
+      orderShippingTotalUsd,
+      orderGrandTotalUsd,
+      orderGrandTotalCdf,
       stillRequiresQuote
     });
 
-    // 6. Update orders table
+    // 6. Update orders table with recalculated totals
     const { error: updateOrderError } = await supabase
       .from("orders")
       .update({
-        item_total_usd: newItemsTotalUsd,
-        shipping_fee_usd: newShippingTotalUsd,
-        total_usd: newItemsTotalUsd,  // total_usd = sum of all item totals (shipping included in item.total_price_usd)
-        total_cdf: newTotalCdf,
+        item_total_usd: orderItemsTotalUsd,       // Base prices total
+        service_fee_usd: orderMarkupTotalUsd,     // Total margin/service fee
+        shipping_fee_usd: orderShippingTotalUsd,  // Total shipping
+        total_usd: orderGrandTotalUsd,            // Grand total
+        total_cdf: orderGrandTotalCdf,
+        exchange_rate_used: exchangeRate,
         requires_manual_quote: stillRequiresQuote,
         updated_at: new Date().toISOString(),
       })
@@ -339,7 +386,7 @@ serve(async (req) => {
               customer_email: profile.email,
               sent_by: user.id,
               subject: `Vehicle Quote Ready - $${finalTotalUsd.toFixed(2)} USD`,
-              body: `Quote for ${vehicleTitle}: Shipping $${finalShippingUsd.toFixed(2)}, Total $${finalTotalUsd.toFixed(2)} USD`,
+              body: `Quote for ${vehicleTitle}: Base $${vehicleBasePriceUsd.toFixed(2)}, Shipping $${finalShippingUsd.toFixed(2)}, Margin $${finalMarginUsd.toFixed(2)}, Total $${finalTotalUsd.toFixed(2)} USD`,
               status: "sent",
             });
         }
@@ -360,14 +407,18 @@ serve(async (req) => {
         quoteRequestId,
         orderItemId,
         orderId,
-        // Echo back EXACT values that were stored
+        // Item-level values (exactly what admin entered)
+        vehicleBasePriceUsd,
+        quotedMarginUsd: finalMarginUsd,
         quotedShippingUsd: finalShippingUsd,
         quotedTotalUsd: finalTotalUsd,
-        vehiclePriceUsd,
         // Order-level totals
-        orderItemsTotalUsd: newItemsTotalUsd,
-        orderShippingTotalUsd: newShippingTotalUsd,
-        orderTotalCdf: newTotalCdf,
+        orderItemsTotalUsd,
+        orderMarkupTotalUsd,
+        orderShippingTotalUsd,
+        orderGrandTotalUsd,
+        orderGrandTotalCdf,
+        exchangeRate,
       },
     };
 

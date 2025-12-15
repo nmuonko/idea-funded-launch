@@ -44,23 +44,22 @@ function validateCallbackPayload(data: any): { valid: boolean; errors: string[] 
   return { valid: errors.length === 0, errors };
 }
 
-// HMAC signature verification - OPTIONAL
-// This function validates webhook signatures when MAISHAPAY_WEBHOOK_SECRET is configured.
+// HMAC signature verification
+// When MAISHAPAY_WEBHOOK_SECRET is configured, signatures are ENFORCED for security.
 // If not configured, all callbacks are accepted (backwards compatible behavior).
-async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<boolean> {
+async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<{ valid: boolean; reason: string }> {
   const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
   
-  // If no webhook secret is configured, SKIP validation entirely
-  // This is intentional to avoid blocking payments when webhook secret is not set up
+  // If no webhook secret is configured, SKIP validation entirely (backwards compatible)
   if (!webhookSecret) {
-    console.log('[MaishaPay Callback] MAISHAPAY_WEBHOOK_SECRET not configured - skipping signature validation (OK)');
-    return true;
+    console.log('[MaishaPay Callback] MAISHAPAY_WEBHOOK_SECRET not configured - skipping signature validation');
+    return { valid: true, reason: 'no_secret_configured' };
   }
   
-  // If secret is configured but no signature provided, still allow (MaishaPay might not always send signatures)
+  // If secret is configured but no signature provided, REJECT for security
   if (!signature) {
-    console.log('[MaishaPay Callback] No signature in request, but allowing callback (webhook secret configured but signature not required)');
-    return true;
+    console.warn('[MaishaPay Callback] Webhook secret configured but no signature provided - rejecting');
+    return { valid: false, reason: 'missing_signature' };
   }
   
   try {
@@ -90,14 +89,14 @@ async function verifyWebhookSignature(rawBody: string, signature: string | null)
     const isValid = expectedSignature === providedSig;
     
     if (!isValid) {
-      console.warn('[MaishaPay Callback] Signature mismatch but allowing callback anyway');
+      console.warn('[MaishaPay Callback] Signature mismatch - rejecting request');
+      return { valid: false, reason: 'signature_mismatch' };
     }
     
-    // Always return true - we don't want to block payments over signature issues
-    return true;
+    return { valid: true, reason: 'signature_valid' };
   } catch (error) {
-    console.error('[MaishaPay Callback] Signature verification error (allowing callback):', error);
-    return true;
+    console.error('[MaishaPay Callback] Signature verification error:', error);
+    return { valid: false, reason: 'verification_error' };
   }
 }
 
@@ -123,20 +122,21 @@ const handler = async (req: Request): Promise<Response> => {
                         req.headers.get('x-webhook-signature') ||
                         req.headers.get('x-signature');
       
-      const isValid = await verifyWebhookSignature(rawBody, signature);
+      const verification = await verifyWebhookSignature(rawBody, signature);
       
-      if (!isValid) {
-        console.error('[MaishaPay Callback] Invalid webhook signature - rejecting request');
+      if (!verification.valid) {
+        console.error('[MaishaPay Callback] Invalid webhook signature - rejecting request:', verification.reason);
         return new Response(JSON.stringify({ 
           status: 'error', 
-          message: 'Invalid signature' 
+          message: 'Invalid or missing signature',
+          reason: verification.reason
         }), {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
-      console.log('[MaishaPay Callback] Webhook signature verified successfully');
+      console.log('[MaishaPay Callback] Webhook signature check passed:', verification.reason);
     }
 
     // Parse different content types and methods MaishaPay might send

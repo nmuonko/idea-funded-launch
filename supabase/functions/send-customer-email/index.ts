@@ -7,6 +7,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// HTML escape function to prevent XSS in email content
+function escapeHtml(text: string): string {
+  const htmlEntities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return text.replace(/[&<>"']/g, (char) => htmlEntities[char] || char);
+}
+
 interface SendEmailRequest {
   customer_id: string;
   customer_email: string;
@@ -74,13 +86,16 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`[send-customer-email] Sending email to ${customer_email}`);
 
+    // Sanitize body content to prevent XSS - escape HTML entities before converting newlines
+    const sanitizedBody = escapeHtml(body).replace(/\n/g, '<br>');
+
     const emailHtml = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
           <h1 style="color: white; margin: 0; font-size: 24px;">AfriShop USA</h1>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
-          ${body.replace(/\n/g, '<br>')}
+          ${sanitizedBody}
         </div>
         <div style="padding: 20px; text-align: center; color: #6b7280; font-size: 12px; background: #1e3a5f; border-radius: 0 0 8px 8px;">
           <p style="margin: 0; color: white;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>

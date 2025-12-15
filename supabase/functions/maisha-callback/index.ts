@@ -1,10 +1,57 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-maishapay-signature',
 };
+
+// HMAC signature verification for webhook security
+async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<{ valid: boolean; reason: string }> {
+  const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
+  
+  // If no webhook secret is configured, skip validation (backwards compatible)
+  if (!webhookSecret) {
+    console.log('[Maisha Callback] MAISHAPAY_WEBHOOK_SECRET not configured - skipping signature validation');
+    return { valid: true, reason: 'no_secret_configured' };
+  }
+  
+  // If secret is configured but no signature provided, reject for security
+  if (!signature) {
+    console.warn('[Maisha Callback] Webhook secret configured but no signature provided - rejecting');
+    return { valid: false, reason: 'missing_signature' };
+  }
+  
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(webhookSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    
+    const signatureBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(rawBody));
+    const expectedSignature = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    const providedSig = signature.toLowerCase().replace(/^sha256=/, '');
+    const isValid = expectedSignature === providedSig;
+    
+    if (!isValid) {
+      console.warn('[Maisha Callback] Signature mismatch - rejecting request');
+      return { valid: false, reason: 'signature_mismatch' };
+    }
+    
+    return { valid: true, reason: 'signature_valid' };
+  } catch (error) {
+    console.error('[Maisha Callback] Signature verification error:', error);
+    return { valid: false, reason: 'verification_error' };
+  }
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -14,6 +61,32 @@ serve(async (req) => {
   console.log('[Maisha Callback] Received webhook:', req.method);
 
   try {
+    // Parse body first for signature verification
+    const rawBody = await req.text();
+    
+    // Verify webhook signature for POST requests
+    if (req.method === 'POST') {
+      const signature = req.headers.get('x-maishapay-signature') || 
+                        req.headers.get('x-webhook-signature') ||
+                        req.headers.get('x-signature');
+      
+      const verification = await verifyWebhookSignature(rawBody, signature);
+      
+      if (!verification.valid) {
+        console.error('[Maisha Callback] Invalid webhook signature - rejecting:', verification.reason);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: 'Invalid or missing signature',
+          reason: verification.reason
+        }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      console.log('[Maisha Callback] Webhook signature check passed:', verification.reason);
+    }
+    
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -29,7 +102,6 @@ serve(async (req) => {
     }
 
     // Parse body
-    const rawBody = await req.text();
     if (rawBody) {
       const contentType = req.headers.get('content-type') || '';
       

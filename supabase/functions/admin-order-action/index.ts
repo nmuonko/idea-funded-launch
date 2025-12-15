@@ -27,6 +27,22 @@ serve(async (req) => {
       );
     }
 
+    // Verify user has admin role
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .single();
+
+    if (!roleData) {
+      console.log('[Order Action] Access denied - user is not admin:', user.email);
+      return new Response(
+        JSON.stringify({ error: 'Admin access required' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { orderId, actionType, message, metadata } = await req.json();
 
     console.log('[Order Action]', { orderId, actionType, user: user.email });

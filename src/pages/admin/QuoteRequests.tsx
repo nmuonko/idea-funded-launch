@@ -30,7 +30,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Car, ExternalLink, Clock, Send, DollarSign, Loader2, RefreshCw, Store } from "lucide-react";
+import { Car, ExternalLink, Clock, Send, DollarSign, Loader2, RefreshCw, Store, Calculator, Info } from "lucide-react";
 import { formatCurrency, type SupportedLocale } from "@/lib/formatCurrency";
 
 // Auto-refresh interval: 5 minutes
@@ -49,6 +49,13 @@ interface QuoteRequest {
   admin_notes: string | null;
   created_at: string;
   updated_at: string;
+  // Joined from order_items
+  base_price_usd?: number | null;
+}
+
+interface PricingSettings {
+  markupPercent: number;
+  exchangeRate: number;
 }
 
 const translations = {
@@ -61,9 +68,9 @@ const translations = {
     product: "Product",
     store: "Store",
     requestedAt: "Requested",
-    basePrice: "Base Price",
-    quotedShipping: "Quoted Shipping",
-    quotedTotal: "Quoted Total",
+    basePrice: "Vehicle Price",
+    quotedShipping: "Shipping",
+    quotedTotal: "Total",
     actions: "Actions",
     pending: "Pending",
     sent: "Sent",
@@ -72,7 +79,9 @@ const translations = {
     setQuote: "Set Quote",
     viewProduct: "View Product",
     quoteDialog: "Set Quote for Vehicle",
+    vehiclePrice: "Vehicle Price (USD)",
     shippingCost: "Shipping Cost (USD)",
+    marginFee: "Margin Fee (USD)",
     totalPrice: "Total Price (USD)",
     adminNotes: "Admin Notes",
     submitQuote: "Send Quote",
@@ -86,6 +95,11 @@ const translations = {
     lastUpdated: "Last updated",
     autoRefresh: "Auto-refresh every 5 min",
     vehicle: "Vehicle",
+    calculatedFromSettings: "Calculated from settings",
+    markupPercent: "Margin",
+    breakdown: "Breakdown",
+    autoCalculated: "Auto-calculated (editable)",
+    priceBreakdown: "Price Breakdown",
   },
   fr: {
     title: "Demandes de devis véhicules",
@@ -96,9 +110,9 @@ const translations = {
     product: "Produit",
     store: "Magasin",
     requestedAt: "Demandé le",
-    basePrice: "Prix de base",
-    quotedShipping: "Livraison devisée",
-    quotedTotal: "Total devisé",
+    basePrice: "Prix véhicule",
+    quotedShipping: "Livraison",
+    quotedTotal: "Total",
     actions: "Actions",
     pending: "En attente",
     sent: "Envoyé",
@@ -107,7 +121,9 @@ const translations = {
     setQuote: "Définir le devis",
     viewProduct: "Voir le produit",
     quoteDialog: "Définir le devis pour le véhicule",
+    vehiclePrice: "Prix du véhicule (USD)",
     shippingCost: "Coût de livraison (USD)",
+    marginFee: "Frais de marge (USD)",
     totalPrice: "Prix total (USD)",
     adminNotes: "Notes admin",
     submitQuote: "Envoyer le devis",
@@ -121,6 +137,11 @@ const translations = {
     lastUpdated: "Dernière mise à jour",
     autoRefresh: "Actualisation auto toutes les 5 min",
     vehicle: "Véhicule",
+    calculatedFromSettings: "Calculé depuis les paramètres",
+    markupPercent: "Marge",
+    breakdown: "Détails",
+    autoCalculated: "Calculé automatiquement (modifiable)",
+    priceBreakdown: "Détail du prix",
   },
   sw: {
     title: "Maombi ya Bei za Magari",
@@ -131,9 +152,9 @@ const translations = {
     product: "Bidhaa",
     store: "Duka",
     requestedAt: "Iliombwa",
-    basePrice: "Bei ya Msingi",
-    quotedShipping: "Usafirishaji Ulionukuliwa",
-    quotedTotal: "Jumla Iliyonukuliwa",
+    basePrice: "Bei ya Gari",
+    quotedShipping: "Usafirishaji",
+    quotedTotal: "Jumla",
     actions: "Vitendo",
     pending: "Inasubiri",
     sent: "Imetumwa",
@@ -142,7 +163,9 @@ const translations = {
     setQuote: "Weka Bei",
     viewProduct: "Tazama Bidhaa",
     quoteDialog: "Weka Bei kwa Gari",
+    vehiclePrice: "Bei ya Gari (USD)",
     shippingCost: "Gharama ya Usafirishaji (USD)",
+    marginFee: "Ada ya Margin (USD)",
     totalPrice: "Bei Jumla (USD)",
     adminNotes: "Maelezo ya Admin",
     submitQuote: "Tuma Bei",
@@ -156,6 +179,11 @@ const translations = {
     lastUpdated: "Ilisasishwa mwisho",
     autoRefresh: "Sasisha kiotomatiki kila dakika 5",
     vehicle: "Gari",
+    calculatedFromSettings: "Imehesabiwa kutoka mipangilio",
+    markupPercent: "Margin",
+    breakdown: "Maelezo",
+    autoCalculated: "Imehesabiwa kiotomatiki (inaweza kubadilishwa)",
+    priceBreakdown: "Maelezo ya Bei",
   },
   ln: {
     title: "Bandela ya Ntalo ya Motuka",
@@ -166,8 +194,8 @@ const translations = {
     product: "Eloko",
     store: "Magazini",
     requestedAt: "Esɛngamaki",
-    basePrice: "Ntalo ya Ebandeli",
-    quotedShipping: "Kobimisa Elobamaki",
+    basePrice: "Ntalo ya Motuka",
+    quotedShipping: "Kobimisa",
     quotedTotal: "Ntalo Mobimba",
     actions: "Misala",
     pending: "Kozela",
@@ -177,7 +205,9 @@ const translations = {
     setQuote: "Kotia Ntalo",
     viewProduct: "Tala Eloko",
     quoteDialog: "Kotia Ntalo ya Motuka",
+    vehiclePrice: "Ntalo ya Motuka (USD)",
     shippingCost: "Ntalo ya Kobimisa (USD)",
+    marginFee: "Ntalo ya Margin (USD)",
     totalPrice: "Ntalo Mobimba (USD)",
     adminNotes: "Makomami ya Admin",
     submitQuote: "Tinda Ntalo",
@@ -191,6 +221,11 @@ const translations = {
     lastUpdated: "Ebongisami ya nsuka",
     autoRefresh: "Kobongisa yango moko miniti 5",
     vehicle: "Motuka",
+    calculatedFromSettings: "Etangamaki na mipangilio",
+    markupPercent: "Margin",
+    breakdown: "Maelezo",
+    autoCalculated: "Etangamaki yango moko (elingi kobongisa)",
+    priceBreakdown: "Maelezo ya Ntalo",
   },
 };
 
@@ -206,11 +241,35 @@ export default function QuoteRequests() {
   const [selectedRequest, setSelectedRequest] = useState<QuoteRequest | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [settings, setSettings] = useState<PricingSettings>({ markupPercent: 15, exchangeRate: 2500 });
   
   // Quote form state
   const [quotedShipping, setQuotedShipping] = useState("");
   const [quotedTotal, setQuotedTotal] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
+
+  // Calculated values for display
+  const [calculatedMargin, setCalculatedMargin] = useState(0);
+  const [calculatedTotal, setCalculatedTotal] = useState(0);
+
+  // Fetch pricing settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const { data, error } = await supabase
+        .from("settings")
+        .select("markup_percent, exchange_rate_usd_to_cdf")
+        .limit(1)
+        .single();
+      
+      if (!error && data) {
+        setSettings({
+          markupPercent: Number(data.markup_percent) || 15,
+          exchangeRate: Number(data.exchange_rate_usd_to_cdf) || 2500,
+        });
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const fetchQuoteRequests = useCallback(async (isRefresh = false, silent = false) => {
     if (isRefresh) {
@@ -220,13 +279,24 @@ export default function QuoteRequests() {
     }
     
     try {
+      // Fetch quote requests with order_items base_price_usd
       const { data, error } = await supabase
         .from("quote_requests")
-        .select("*")
+        .select(`
+          *,
+          order_items!inner(base_price_usd, unit_price_usd)
+        `)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setRequests(data || []);
+      
+      // Map the data to include base_price_usd at the top level
+      const mappedData = (data || []).map(item => ({
+        ...item,
+        base_price_usd: item.order_items?.base_price_usd || item.order_items?.unit_price_usd || 0,
+      }));
+      
+      setRequests(mappedData);
       setLastUpdated(new Date());
     } catch (error: any) {
       console.error("Error fetching quote requests:", error);
@@ -255,6 +325,24 @@ export default function QuoteRequests() {
     return () => clearInterval(intervalId);
   }, [fetchQuoteRequests]);
 
+  // Recalculate margin and total when shipping or base price changes
+  useEffect(() => {
+    if (!selectedRequest) return;
+    
+    const basePrice = Number(selectedRequest.base_price_usd) || 0;
+    const shipping = parseFloat(quotedShipping) || 0;
+    const margin = Math.round(basePrice * (settings.markupPercent / 100) * 100) / 100;
+    const total = Math.round((basePrice + shipping + margin) * 100) / 100;
+    
+    setCalculatedMargin(margin);
+    setCalculatedTotal(total);
+    
+    // Auto-fill total if not manually edited
+    if (!quotedTotal || quotedTotal === "" || quotedTotal === selectedRequest.quoted_total_usd?.toString()) {
+      setQuotedTotal(total.toFixed(2));
+    }
+  }, [quotedShipping, selectedRequest, settings.markupPercent]);
+
   const handleManualRefresh = () => {
     fetchQuoteRequests(true);
   };
@@ -269,6 +357,8 @@ export default function QuoteRequests() {
       if (hostname.includes("autotrader")) return "AutoTrader";
       if (hostname.includes("cars.com")) return "Cars.com";
       if (hostname.includes("carmax")) return "CarMax";
+      if (hostname.includes("tesla")) return "Tesla";
+      if (hostname.includes("edmunds")) return "Edmunds";
       return hostname.replace("www.", "").split(".")[0];
     } catch {
       return "-";
@@ -277,8 +367,17 @@ export default function QuoteRequests() {
 
   const openQuoteDialog = (request: QuoteRequest) => {
     setSelectedRequest(request);
-    setQuotedShipping(request.quoted_shipping_usd?.toString() || "");
-    setQuotedTotal(request.quoted_total_usd?.toString() || "");
+    // If quote was already sent, pre-fill with existing values
+    if (request.quoted_shipping_usd) {
+      setQuotedShipping(request.quoted_shipping_usd.toString());
+    } else {
+      setQuotedShipping("");
+    }
+    if (request.quoted_total_usd) {
+      setQuotedTotal(request.quoted_total_usd.toString());
+    } else {
+      setQuotedTotal("");
+    }
     setAdminNotes(request.admin_notes || "");
     setQuoteDialogOpen(true);
   };
@@ -288,9 +387,15 @@ export default function QuoteRequests() {
     
     const shippingValue = parseFloat(quotedShipping);
     const totalValue = parseFloat(quotedTotal);
+    const basePrice = Number(selectedRequest.base_price_usd) || 0;
     
-    if (isNaN(shippingValue) || isNaN(totalValue)) {
-      toast.error("Please enter valid numbers for shipping and total");
+    if (isNaN(shippingValue)) {
+      toast.error("Please enter a valid shipping cost");
+      return;
+    }
+
+    if (isNaN(totalValue) || totalValue <= 0) {
+      toast.error("Please enter a valid total price");
       return;
     }
 
@@ -298,16 +403,27 @@ export default function QuoteRequests() {
       toast.error("Values must be positive");
       return;
     }
+
+    // Validate total is at least base price + shipping
+    if (totalValue < basePrice + shippingValue) {
+      toast.error(`Total must be at least ${formatCurrency(basePrice + shippingValue, { currency: 'USD', locale })} (vehicle + shipping)`);
+      return;
+    }
     
     setSubmitting(true);
     try {
-      // Use the new admin-apply-vehicle-quote edge function
+      // Calculate margin for storage: total - basePrice - shipping
+      const marginValue = Math.round((totalValue - basePrice - shippingValue) * 100) / 100;
+      
+      // Use the admin-apply-vehicle-quote edge function
       // This handles all updates atomically: quote_requests, order_items, orders
       const { data, error } = await supabase.functions.invoke("admin-apply-vehicle-quote", {
         body: {
           quoteRequestId: selectedRequest.id,
           quotedShippingUsd: shippingValue,
           quotedTotalUsd: totalValue,
+          quotedMarginUsd: marginValue,
+          basePriceUsd: basePrice,
           adminNotes: adminNotes || undefined,
         },
       });
@@ -420,6 +536,7 @@ export default function QuoteRequests() {
                     <TableHead className="w-[100px]">{t.status}</TableHead>
                     <TableHead className="min-w-[250px]">{t.product}</TableHead>
                     <TableHead className="w-[120px]">{t.store}</TableHead>
+                    <TableHead className="w-[120px]">{t.basePrice}</TableHead>
                     <TableHead className="w-[120px]">{t.quotedShipping}</TableHead>
                     <TableHead className="w-[120px]">{t.quotedTotal}</TableHead>
                     <TableHead className="w-[150px]">{t.requestedAt}</TableHead>
@@ -464,6 +581,13 @@ export default function QuoteRequests() {
                           <Store className="h-3 w-3 text-muted-foreground" />
                           <span className="text-sm">{request.store_name || getStoreFromUrl(request.product_url)}</span>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-medium">
+                          {request.base_price_usd
+                            ? formatCurrency(Number(request.base_price_usd), { currency: 'USD', locale })
+                            : "-"}
+                        </span>
                       </TableCell>
                       <TableCell>
                         <span className={request.quoted_shipping_usd ? "font-medium text-green-600" : "text-muted-foreground"}>
@@ -543,6 +667,17 @@ export default function QuoteRequests() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            {/* Vehicle Price (read-only) */}
+            <div className="space-y-2">
+              <Label>{t.vehiclePrice}</Label>
+              <div className="p-3 bg-muted rounded-md">
+                <span className="text-lg font-bold">
+                  {formatCurrency(Number(selectedRequest?.base_price_usd) || 0, { currency: 'USD', locale })}
+                </span>
+              </div>
+            </div>
+
+            {/* Shipping Cost */}
             <div className="space-y-2">
               <Label htmlFor="quotedShipping">{t.shippingCost}</Label>
               <div className="relative">
@@ -559,9 +694,48 @@ export default function QuoteRequests() {
                 />
               </div>
             </div>
+
+            {/* Price Breakdown */}
+            <div className="space-y-2 p-3 bg-muted/50 rounded-md border">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Calculator className="h-4 w-4" />
+                {t.priceBreakdown}
+              </div>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{t.vehiclePrice}:</span>
+                  <span>{formatCurrency(Number(selectedRequest?.base_price_usd) || 0, { currency: 'USD', locale })}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{t.shippingCost}:</span>
+                  <span>{formatCurrency(parseFloat(quotedShipping) || 0, { currency: 'USD', locale })}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{t.marginFee} ({settings.markupPercent}%):</span>
+                  <span>{formatCurrency(calculatedMargin, { currency: 'USD', locale })}</span>
+                </div>
+                <div className="flex justify-between font-medium border-t pt-1">
+                  <span>{t.autoCalculated}:</span>
+                  <span className="text-primary">{formatCurrency(calculatedTotal, { currency: 'USD', locale })}</span>
+                </div>
+              </div>
+            </div>
             
+            {/* Total Price (editable, pre-filled) */}
             <div className="space-y-2">
-              <Label htmlFor="quotedTotal">{t.totalPrice}</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="quotedTotal">{t.totalPrice}</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{t.autoCalculated}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <div className="relative">
                 <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -577,6 +751,7 @@ export default function QuoteRequests() {
               </div>
             </div>
             
+            {/* Admin Notes */}
             <div className="space-y-2">
               <Label htmlFor="adminNotes">{t.adminNotes}</Label>
               <Textarea

@@ -37,12 +37,16 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
   
   // CRITICAL: For vehicles with applied quotes, use STORED values - NO recalculation
   if (isVehicle && vehicleQuoteApplied) {
+    const storedBase = Number(item.base_price_usd || 0);
+    const storedMargin = Number(item.markup_fee_usd || 0);
+    const storedSubtotal = Number(item.subtotal_usd || storedBase + storedMargin);
     const storedShipping = Number(item.shipping_fee_usd || 0);
     const storedTotal = Number(item.total_price_usd || 0);
-    const storedSubtotal = Number(item.subtotal_usd || storedTotal - storedShipping);
     
     console.log('[mobile-get-cart] Vehicle with quote - using STORED values:', {
       itemId: item.id,
+      storedBase,
+      storedMargin,
       storedShipping,
       storedTotal,
       vehicleQuoteApplied
@@ -55,14 +59,14 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
       productImageUrl: item.product_image_url || null,
       image_url: item.product_image_url || null,
       store: item.store,
-      basePriceUsd: storedSubtotal,
-      quantity: 1,  // Vehicles are always qty 1
-      unitPriceUsd: storedSubtotal,
       // Use STORED values - these come from admin-apply-vehicle-quote
-      itemBaseTotalUsd: storedSubtotal,
-      itemMarginUsd: 0,  // No margin on vehicles - included in quoted price
-      itemShippingUsd: storedShipping,  // EXACT admin value
-      itemSubtotalUsd: storedTotal,     // EXACT admin value
+      basePriceUsd: storedBase,
+      quantity: 1,  // Vehicles are always qty 1
+      unitPriceUsd: storedBase,
+      itemBaseTotalUsd: storedBase,              // Vehicle price
+      itemMarginUsd: storedMargin,               // Margin from quote (NOT 0!)
+      itemShippingUsd: storedShipping,           // Shipping from admin
+      itemSubtotalUsd: storedTotal,              // Final total
       itemSubtotalCdf: round2(storedTotal * exchangeRate),
       estWeightKg,
       requiresManualQuote: false,
@@ -214,7 +218,7 @@ serve(async (req) => {
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
       .select(`
-        id, product_url, title, product_image_url, store, base_price_usd, quantity,
+        id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
         subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
         est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, 
         is_vehicle, vehicle_quote_applied,
@@ -231,7 +235,7 @@ serve(async (req) => {
     const activeItems: any[] = [];
     const savedItems: any[] = [];
     
-    // Track vehicles and regular items separately
+    // Track vehicles and regular items separately for summary
     let regularItemCount = 0;
     let regularItemsBaseTotal = 0;
     let regularItemsMarginTotal = 0;
@@ -240,8 +244,10 @@ serve(async (req) => {
     
     // Vehicle tracking
     let vehicleCount = 0;
-    let vehicleItemsTotal = 0;
+    let vehicleBasePriceTotal = 0;
+    let vehicleMarginTotal = 0;
     let vehicleShippingTotal = 0;
+    let vehicleTotalUsd = 0;
     let hasVehicleItems = false;
     let allVehiclesQuoted = true;
     let vehiclesWithPendingQuotes: string[] = [];
@@ -262,10 +268,15 @@ serve(async (req) => {
         
         if (formattedItem.vehicleQuoteApplied) {
           // Vehicle has quote - add its STORED totals
-          vehicleItemsTotal += formattedItem.itemSubtotalUsd;
+          vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
+          vehicleMarginTotal += formattedItem.itemMarginUsd;
           vehicleShippingTotal += formattedItem.itemShippingUsd;
-          console.log('[mobile-get-cart] Vehicle with quote:', {
+          vehicleTotalUsd += formattedItem.itemSubtotalUsd;
+          
+          console.log('[mobile-get-cart] Vehicle with quote added to totals:', {
             id: item.id,
+            base: formattedItem.itemBaseTotalUsd,
+            margin: formattedItem.itemMarginUsd,
             shipping: formattedItem.itemShippingUsd,
             total: formattedItem.itemSubtotalUsd
           });
@@ -273,6 +284,8 @@ serve(async (req) => {
           // Vehicle needs quote - can't proceed to payment
           allVehiclesQuoted = false;
           vehiclesWithPendingQuotes.push(item.id);
+          // Still add base price for display
+          vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
         }
       } else {
         // Regular item - calculate as normal
@@ -295,13 +308,24 @@ serve(async (req) => {
 
     // GRAND TOTALS - combine regular items and vehicles
     const totalItemCount = regularItemCount + vehicleCount;
-    const grandTotalUsd = round2(
-      regularItemsSubtotal +      // Regular items (with markup)
-      regularShippingTotal +      // Regular item shipping
-      vehicleItemsTotal           // Vehicle totals (includes vehicle shipping)
-    );
-    const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+    
+    // Total des articles = base prices only (before margin and shipping)
+    const itemsBaseTotalUsd = round2(regularItemsBaseTotal + vehicleBasePriceTotal);
+    
+    // Frais de marge = all margins
+    const totalMarginUsd = round2(regularItemsMarginTotal + vehicleMarginTotal);
+    
+    // Frais de livraison = all shipping
     const totalShippingUsd = round2(regularShippingTotal + vehicleShippingTotal);
+    
+    // Grand total USD
+    const grandTotalUsd = round2(
+      regularItemsSubtotal +      // Regular items (base + margin)
+      regularShippingTotal +      // Regular item shipping
+      vehicleTotalUsd             // Vehicle totals (base + margin + shipping)
+    );
+    
+    const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
     // Determine vehicle quote status
     let vehicleQuoteStatus: 'none' | 'pending' | 'quoted' = 'none';
@@ -314,6 +338,13 @@ serve(async (req) => {
 
     const summary: Record<string, any> = {
       itemCount: totalItemCount,
+      // Combined totals for cart display
+      itemsTotalUsd: itemsBaseTotalUsd,       // "Total des articles" - base prices
+      markupFeeUsd: totalMarginUsd,           // "Frais de marge"
+      shippingFeeUsd: totalShippingUsd,       // "Frais de livraison"
+      totalUsd: grandTotalUsd,                // "Total (USD)"
+      totalCdf: grandTotalCdf,                // "Total (CDF)"
+      exchangeRate: order.exchange_rate_used || exchangeRate,
       // Regular items breakdown
       regularItemCount,
       regularItemsBaseUsd: round2(regularItemsBaseTotal),
@@ -322,18 +353,13 @@ serve(async (req) => {
       regularShippingUsd: round2(regularShippingTotal),
       // Vehicle items breakdown
       vehicleCount,
-      vehicleItemsTotalUsd: round2(vehicleItemsTotal),
-      vehicleShippingTotalUsd: round2(vehicleShippingTotal),
-      // Combined totals
-      itemsTotalUsd: round2(regularItemsSubtotal + vehicleItemsTotal),
-      markupFeeUsd: round2(regularItemsMarginTotal),
-      shippingFeeUsd: totalShippingUsd,
-      totalUsd: grandTotalUsd,
-      totalCdf: grandTotalCdf,
-      exchangeRate: order.exchange_rate_used || exchangeRate,
+      vehicleBasePriceUsd: round2(vehicleBasePriceTotal),
+      vehicleMarginUsd: round2(vehicleMarginTotal),
+      vehicleShippingUsd: round2(vehicleShippingTotal),
+      vehicleTotalUsd: round2(vehicleTotalUsd),
+      // Status flags
       requiresManualQuote: regularRequiresQuote,
       savedItemCount: savedItems.length,
-      // Vehicle status
       hasVehicleItems,
       vehicleQuoteStatus,
       allVehiclesQuoted,
@@ -355,16 +381,28 @@ serve(async (req) => {
 
     console.log('[mobile-get-cart] Summary:', {
       totalItems: totalItemCount,
-      regularItems: regularItemCount,
-      vehicles: vehicleCount,
-      vehicleShipping: vehicleShippingTotal,
+      itemsBase: itemsBaseTotalUsd,
+      margin: totalMarginUsd,
+      shipping: totalShippingUsd,
       totalUsd: grandTotalUsd,
+      vehicleCount,
+      vehicleTotal: vehicleTotalUsd,
       canProceed: canProceedToPayment
     });
 
-    // REGRESSION GUARD
-    if (activeItems.length > 0 && summary.totalUsd === 0 && canProceedToPayment) {
+    // REGRESSION GUARD - detect if totals are unexpectedly zero
+    if (activeItems.length > 0 && grandTotalUsd === 0 && canProceedToPayment) {
       console.warn('[mobile-get-cart] REGRESSION WARNING: Active items but totalUsd = 0');
+      // Log more details for debugging
+      console.warn('[mobile-get-cart] Items detail:', activeItems.map(i => ({
+        id: i.id,
+        isVehicle: i.isVehicle,
+        vehicleQuoteApplied: i.vehicleQuoteApplied,
+        base: i.itemBaseTotalUsd,
+        margin: i.itemMarginUsd,
+        shipping: i.itemShippingUsd,
+        total: i.itemSubtotalUsd
+      })));
     }
     
     return jsonResponse({ 

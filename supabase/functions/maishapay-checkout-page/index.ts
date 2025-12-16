@@ -140,9 +140,24 @@ serve(async (req) => {
       });
     }
 
-    // Get payment amount
-    const amount = order.total_usd || 0;
+    // Get payment amount - ALWAYS use total_usd (already correctly calculated)
+    const amount = Number(order.total_usd) || 0;
     const currency = 'USD';
+    
+    // VALIDATION: Reject invalid amounts before MaishaPay
+    if (!Number.isFinite(amount) || amount <= 0) {
+      console.error('[maishapay-checkout-page] INVALID AMOUNT:', {
+        orderId,
+        total_usd: order.total_usd,
+        total_cdf: order.total_cdf,
+        item_total_usd: order.item_total_usd,
+        shipping_fee_usd: order.shipping_fee_usd,
+      });
+      return new Response(renderErrorPage('Invalid order amount. Please contact support.'), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
     
     // Generate reference if not exists
     const reference = order.maisha_transaction_id || `AFRISHOP-${orderId.slice(0, 8)}-${Date.now().toString(36)}`;
@@ -154,11 +169,19 @@ serve(async (req) => {
       }).eq('id', orderId);
     }
 
-    console.log('[maishapay-checkout-page] Rendering checkout form:', {
+    console.log('[maishapay-checkout-page] MAISHAPAY FORM VALUES:', {
       orderId,
-      amount,
-      currency,
-      reference,
+      currency: 'USD',
+      amount_raw: order.total_usd,
+      amount_formatted: amount.toFixed(2),
+      order_shipping_fee_usd: order.shipping_fee_usd,
+      order_item_total_usd: order.item_total_usd,
+      order_service_fee_usd: order.service_fee_usd,
+      validation: {
+        isNumber: typeof amount === 'number',
+        isFinite: Number.isFinite(amount),
+        isPositive: amount > 0,
+      },
       mode: isLiveMode ? 'live' : 'sandbox',
       callbackUrl,
     });

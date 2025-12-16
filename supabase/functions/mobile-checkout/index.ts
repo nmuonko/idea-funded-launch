@@ -263,29 +263,89 @@ serve(async (req) => {
     const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
     const shippingPercent = settings.shipping_percent ?? 0.10;
 
-    // Calculate totals
+    // Detect vehicle quote items for logging
+    const vehicleQuoteItems = requestedItems.filter(item => 
+      item.is_vehicle === true && item.vehicle_quote_applied === true
+    );
+    const hasVehicleQuoteItems = vehicleQuoteItems.length > 0;
+
+    // Log pre-calculation diagnostics
+    console.log('[mobile-checkout] PRE-MAISHAPAY DIAGNOSTICS:', {
+      order_id: existingOrder.id,
+      contains_vehicle_quote: hasVehicleQuoteItems,
+      vehicle_items: vehicleQuoteItems.map(v => ({
+        id: v.id,
+        title: v.title?.substring(0, 50),
+        base_price_usd: v.base_price_usd,
+        shipping_fee_usd: v.shipping_fee_usd,
+        total_price_usd: v.total_price_usd,
+        vehicle_quote_applied: v.vehicle_quote_applied,
+      })),
+      all_items_count: requestedItems.length,
+    });
+
+    // Calculate totals - SEPARATE vehicle quotes from regular items to prevent double shipping
     let itemCount = 0;
-    let totalItemsUsd = 0;
-    let totalMarginUsd = 0;
-    let itemsSubtotalUsd = 0;
+    let regularItemsBase = 0;      // Base prices for regular items (subtotal_usd)
+    let regularItemsMargin = 0;    // Margin for regular items
+    let vehicleTotal = 0;          // Total for vehicle quote items (already includes quoted shipping)
+    let vehicleShipping = 0;       // Shipping already included in vehicle quotes
 
     requestedItems.forEach(item => {
       const qty = item.quantity || 1;
       itemCount += qty;
-      totalItemsUsd += Number(item.subtotal_usd || 0);
-      totalMarginUsd += Number(item.markup_fee_usd || 0);
-      itemsSubtotalUsd += Number(item.total_price_usd || 0);
+      
+      if (item.is_vehicle === true && item.vehicle_quote_applied === true) {
+        // Vehicle with applied quote - use stored total (shipping already included)
+        // DO NOT add calculateShipping() for these items
+        vehicleTotal += Number(item.total_price_usd || 0);
+        vehicleShipping += Number(item.shipping_fee_usd || 0);
+      } else {
+        // Regular item - will calculate shipping separately
+        regularItemsBase += Number(item.subtotal_usd || 0);
+        regularItemsMargin += Number(item.markup_fee_usd || 0);
+      }
     });
 
-    const shippingFeeUsd = calculateShipping(totalItemsUsd, shippingBaseFeeUsd, shippingPercent);
-    const grandTotalUsd = round2(itemsSubtotalUsd + shippingFeeUsd);
-    const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+    // Calculate shipping ONLY for regular items (non-vehicle)
+    const regularShippingFeeUsd = regularItemsBase > 0 
+      ? calculateShipping(regularItemsBase, shippingBaseFeeUsd, shippingPercent) 
+      : 0;
 
-    console.log('[mobile-checkout] Calculated totals:', {
-      itemCount,
-      totalItemsUsd: round2(totalItemsUsd),
-      shippingFeeUsd,
-      grandTotalUsd,
+    // FINAL TOTALS - no double counting
+    // Regular items: base + margin + calculated shipping
+    // Vehicle items: use stored total_price_usd directly (already has quoted shipping)
+    const regularTotal = round2(regularItemsBase + regularItemsMargin + regularShippingFeeUsd);
+    const grandTotalUsd = round2(regularTotal + vehicleTotal);
+    const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+    
+    // For order record: combined values
+    const totalItemsUsd = round2(regularItemsBase + (vehicleTotal - vehicleShipping)); // Base prices only
+    const totalMarginUsd = round2(regularItemsMargin); // Regular items margin only
+    const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShipping); // Combined shipping
+
+    // VALIDATION: Reject invalid amounts
+    if (!Number.isFinite(grandTotalUsd) || grandTotalUsd <= 0) {
+      console.error('[mobile-checkout] INVALID AMOUNT:', { grandTotalUsd, itemCount, regularTotal, vehicleTotal });
+      return jsonResponse({
+        success: false,
+        code: 'INVALID_AMOUNT',
+        error: 'Unable to calculate order total. Please refresh and try again.',
+      }, 400);
+    }
+
+    console.log('[mobile-checkout] MAISHAPAY PAYLOAD:', {
+      currency: 'USD',
+      amount: grandTotalUsd,
+      contains_vehicle_quote: hasVehicleQuoteItems,
+      breakdown: {
+        regular_items_base: regularItemsBase,
+        regular_items_margin: regularItemsMargin,
+        regular_shipping: regularShippingFeeUsd,
+        regular_total: regularTotal,
+        vehicle_total: vehicleTotal,
+        vehicle_shipping_included: vehicleShipping,
+      },
     });
 
     // Create checkout order

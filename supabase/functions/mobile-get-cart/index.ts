@@ -24,7 +24,7 @@ function calculateItemShipping(
 }
 
 // Format item for response - CRITICAL: Vehicle items use STORED values, no recalculation
-function formatItem(item: any, markupPercent: number, exchangeRate: number) {
+function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;
   const estWeightKg = Number(item.est_weight_kg || 1);
@@ -83,8 +83,12 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
     };
   }
   
-  // For vehicles WITHOUT quotes yet - show as pending
+  // For vehicles WITHOUT quotes yet - show as pending with estimated margin
   if (isVehicle && !vehicleQuoteApplied) {
+    // Calculate estimated margin using vehicle markup
+    const estimatedMargin = round2(basePriceUsd * (vehicleMarkupPercent / 100));
+    const estimatedSubtotal = round2(basePriceUsd + estimatedMargin);
+    
     return {
       id: item.id,
       productUrl: item.product_url,
@@ -96,10 +100,10 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
       quantity: 1,
       unitPriceUsd: basePriceUsd,
       itemBaseTotalUsd: basePriceUsd,
-      itemMarginUsd: 0,
+      itemMarginUsd: estimatedMargin,  // Estimated margin using vehicle markup
       itemShippingUsd: 0,  // No shipping yet - pending quote
-      itemSubtotalUsd: basePriceUsd,  // Base price only until quoted
-      itemSubtotalCdf: round2(basePriceUsd * exchangeRate),
+      itemSubtotalUsd: estimatedSubtotal,  // Base + estimated margin until quoted
+      itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate),
       estWeightKg,
       requiresManualQuote: true,
       isSavedForLater: item.is_saved_for_later || false,
@@ -111,6 +115,7 @@ function formatItem(item: any, markupPercent: number, exchangeRate: number) {
       quoteStatus: quoteStatus || 'PENDING',
       quotedShippingUsd: null,
       quotedTotalUsd: null,
+      vehicleMarkupPercent,  // Include markup % for transparency
     };
   }
   
@@ -172,10 +177,11 @@ serve(async (req) => {
 
     // Get cached pricing settings (5min TTL) - SINGLE SOURCE OF TRUTH
     const settings = await getCachedSettings(supabase);
-    const { exchangeRate, markupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+    const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
 
     console.log('[mobile-get-cart] Using settings:', {
       markupPercent,
+      vehicleMarkupPercent,
       shippingBaseFeeUsd,
       shippingPercent,
       exchangeRate,
@@ -253,7 +259,7 @@ serve(async (req) => {
     let vehiclesWithPendingQuotes: string[] = [];
 
     (items || []).forEach(item => {
-      const formattedItem = formatItem(item, markupPercent, exchangeRate);
+      const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate);
       
       if (item.is_saved_for_later) {
         savedItems.push(formattedItem);
@@ -367,6 +373,7 @@ serve(async (req) => {
       canProceedToPayment,
       // Settings for transparency
       markupPercent,
+      vehicleMarkupPercent,
       shippingBaseFeeUsd,
       shippingPercent,
     };

@@ -7,14 +7,22 @@ import { getCachedSettings, round2 } from "./settings-cache.ts";
 export const HEAVY_THRESHOLD_KG = 9;
 
 // Calculate pricing for an item
+// For vehicles, pass vehicleMarkupPercent instead of general markupPercent
 export function calculateItemPricing(
   basePriceUsd: number,
   quantity: number,
   markupPercent: number,
-  exchangeRate: number
+  exchangeRate: number,
+  isVehicle: boolean = false,
+  vehicleMarkupPercent?: number
 ) {
+  // Use vehicle markup for vehicles, otherwise use general markup
+  const effectiveMarkup = (isVehicle && vehicleMarkupPercent !== undefined) 
+    ? vehicleMarkupPercent 
+    : markupPercent;
+  
   const itemBaseTotalUsd = round2(basePriceUsd * quantity);
-  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
+  const itemMarginUsd = round2(itemBaseTotalUsd * (effectiveMarkup / 100));
   const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
   const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
 
@@ -25,6 +33,7 @@ export function calculateItemPricing(
     itemMarginUsd,
     itemSubtotalUsd,
     itemSubtotalCdf,
+    markupPercentUsed: effectiveMarkup,  // Return which markup was used
   };
 }
 

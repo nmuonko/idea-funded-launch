@@ -243,22 +243,37 @@ serve(async (req) => {
       }
     }
 
+    // Get settings including vehicle markup
+    const { data: settingsData } = await supabase
+      .from("settings")
+      .select("exchange_rate_usd_to_cdf, markup_percent, category_markups")
+      .limit(1)
+      .single();
+
+    const categoryMarkups = (settingsData?.category_markups || {}) as Record<string, number>;
+    const generalMarkup = settingsData?.markup_percent ?? 15;
+    const vehicleMarkupRaw = categoryMarkups.vehicles ?? generalMarkup;
+    const vehicleMarkupPercent = vehicleMarkupRaw < 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
+
     // Use provided base price or get from order item
     const vehicleBasePriceUsd = Math.round((
       basePriceUsd || orderItem.base_price_usd || orderItem.unit_price_usd || 0
     ) * 100) / 100;
 
-    // Calculate margin: total - basePrice - shipping
-    // If quotedMarginUsd provided, use it; otherwise calculate
+    // Calculate margin using VEHICLE MARKUP PERCENT (NOT general markup)
+    // If quotedMarginUsd provided, use it; otherwise calculate from vehicle markup
+    const calculatedMargin = Math.round(vehicleBasePriceUsd * (vehicleMarkupPercent / 100) * 100) / 100;
     const finalMarginUsd = quotedMarginUsd !== undefined 
       ? Math.round(quotedMarginUsd * 100) / 100
-      : Math.round((finalTotalUsd - vehicleBasePriceUsd - finalShippingUsd) * 100) / 100;
+      : calculatedMargin;
 
     // Subtotal = base price + margin (before shipping)
     const finalSubtotalUsd = Math.round((vehicleBasePriceUsd + finalMarginUsd) * 100) / 100;
 
     console.log("[admin-apply-vehicle-quote] Calculated values:", {
       vehicleBasePriceUsd,
+      vehicleMarkupPercent,
+      calculatedMargin,
       finalMarginUsd,
       finalSubtotalUsd,
       finalShippingUsd,

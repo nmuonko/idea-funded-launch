@@ -196,52 +196,15 @@ serve(async (req) => {
       );
     }
 
-    // CRITICAL: Find and delete DUPLICATE items with same normalized URL
-    // This prevents duplicate Tesla items appearing after quote application
+    // NOTE: Duplicate deletion removed - pure updates only
+    // Vehicle items must ALWAYS remain in cart; never delete during admin updates
     const normalizedUrl = normalizeProductUrl(productUrl);
-    console.log("[admin-apply-vehicle-quote] Checking for duplicates:", { productUrl, normalizedUrl });
-    
-    const { data: allOrderItems, error: allItemsError } = await supabase
-      .from("order_items")
-      .select("id, product_url, title")
-      .eq("order_id", orderId)
-      .eq("is_saved_for_later", false);
-    
-    if (!allItemsError && allOrderItems) {
-      // Find items with matching normalized URL (excluding the main order item)
-      const duplicates = allOrderItems.filter(item => {
-        if (item.id === orderItemId) return false; // Keep the main item
-        const itemNormalized = normalizeProductUrl(item.product_url);
-        return itemNormalized === normalizedUrl;
-      });
-      
-      if (duplicates.length > 0) {
-        console.log("[admin-apply-vehicle-quote] Found duplicates to remove:", duplicates.map(d => ({ id: d.id, url: d.product_url })));
-        
-        // Delete duplicate items
-        const duplicateIds = duplicates.map(d => d.id);
-        const { error: deleteError } = await supabase
-          .from("order_items")
-          .delete()
-          .in("id", duplicateIds);
-        
-        if (deleteError) {
-          console.warn("[admin-apply-vehicle-quote] Failed to delete duplicates:", deleteError);
-        } else {
-          console.log("[admin-apply-vehicle-quote] Deleted", duplicates.length, "duplicate items");
-        }
-        
-        // Also delete any quote_requests pointing to deleted items
-        const { error: deleteQuotesError } = await supabase
-          .from("quote_requests")
-          .delete()
-          .in("order_item_id", duplicateIds);
-        
-        if (deleteQuotesError) {
-          console.warn("[admin-apply-vehicle-quote] Failed to delete duplicate quote requests:", deleteQuotesError);
-        }
-      }
-    }
+    console.log("[admin-apply-vehicle-quote] Processing quote (NO deletions):", { 
+      productUrl, 
+      normalizedUrl, 
+      orderItemId,
+      orderId
+    });
 
     // Get settings including vehicle markup
     const { data: settingsData } = await supabase

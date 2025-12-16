@@ -174,21 +174,22 @@ serve(async (req) => {
     const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
     const settingsTime = Date.now() - settingsStart;
 
-    // Get user's active DRAFT order (cart) - SINGLE QUERY
+    // Get user's DRAFT orders - ENFORCE SINGLE DRAFT
     const orderStart = Date.now();
-    const { data: order, error: orderError } = await supabase
+    const { data: drafts, error: orderError } = await supabase
       .from('orders')
-      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote')
+      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
-      .maybeSingle();
+      .order('created_at', { ascending: false });
     const orderTime = Date.now() - orderStart;
 
     if (orderError) {
       console.error('[mobile-get-cart] Order query error:', orderError.message);
     }
 
-    if (!order) {
+    // Handle no drafts
+    if (!drafts || drafts.length === 0) {
       console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms total=${Date.now() - startTime}ms - Empty cart`);
       return jsonResponse({
         ok: true,
@@ -208,6 +209,18 @@ serve(async (req) => {
           canProceedToPayment: true,
         }
       });
+    }
+
+    // If multiple drafts exist, merge them into the most recent
+    let order = drafts[0];
+    if (drafts.length > 1) {
+      console.log('[mobile-get-cart] Multiple DRAFT orders found, merging...');
+      const primaryId = order.id;
+      for (const oldDraft of drafts.slice(1)) {
+        await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', oldDraft.id);
+        await supabase.from('orders').delete().eq('id', oldDraft.id);
+      }
+      console.log('[mobile-get-cart] Merged', drafts.length - 1, 'duplicate drafts');
     }
 
     // Get items with quote requests - SINGLE QUERY with join

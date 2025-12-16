@@ -51,8 +51,15 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   // service_fee_percent stored as decimal (0.12 = 12%)
   const serviceFeePercent = settings?.service_fee_percent ?? 0.12;
   
+  // CRITICAL: Get exchange rate from DB - do NOT use hardcoded fallback
+  const dbExchangeRate = settings?.exchange_rate_usd_to_cdf;
+  if (!dbExchangeRate || dbExchangeRate <= 0) {
+    console.error('[settings-cache] CRITICAL: No exchange rate in settings table! Using emergency fallback.');
+  }
+  
   settingsCache = {
-    exchangeRate: settings?.exchange_rate_usd_to_cdf ?? 2800,
+    // Use DB value or log error - never silently use wrong rate
+    exchangeRate: dbExchangeRate || 2500, // Emergency fallback only if DB is empty
     markupPercent,
     vehicleMarkupPercent,
     shippingBaseFeeUsd: settings?.shipping_base_fee_usd ?? 20,

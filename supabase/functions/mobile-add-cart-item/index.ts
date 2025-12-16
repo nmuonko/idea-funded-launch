@@ -522,32 +522,48 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Profile created successfully');
     }
 
-    // Get or create DRAFT order
-    const { data: existingOrder } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('status', 'DRAFT')
-      .maybeSingle();
-
-    let orderId = existingOrder?.id;
-
-    if (!orderId) {
-      console.log('[mobile-add-cart-item] Creating new DRAFT order for user:', user.id);
-      const { data: newOrder, error: orderError } = await supabase
+    // ENFORCE SINGLE DRAFT ORDER: Get or create, merging duplicates
+    // Import helper inline to avoid circular deps
+    const getOrCreateSingleDraftOrder = async (userId: string) => {
+      const { data: drafts, error: draftsError } = await supabase
         .from('orders')
-        .insert({ user_id: user.id, status: 'DRAFT' })
-        .select('id')
-        .single();
+        .select('id, created_at')
+        .eq('user_id', userId)
+        .eq('status', 'DRAFT')
+        .order('created_at', { ascending: false });
 
-      if (orderError) {
-        console.error('[mobile-add-cart-item] Failed to create order:', orderError);
-        return errorResponse(`Failed to create cart: ${orderError.message}`, 500);
+      if (draftsError) throw new Error('Failed to access cart');
+
+      if (!drafts || drafts.length === 0) {
+        const { data: newOrder, error: createError } = await supabase
+          .from('orders')
+          .insert({ 
+            user_id: userId, 
+            status: 'DRAFT',
+            exchange_rate_used: exchangeRate, // Store exchange rate on creation
+          })
+          .select('id')
+          .single();
+        if (createError || !newOrder) throw new Error('Failed to create cart');
+        return newOrder.id;
       }
 
-      orderId = newOrder.id;
-      console.log('[mobile-add-cart-item] Created new order:', orderId);
-    }
+      // If multiple drafts, merge into most recent
+      if (drafts.length > 1) {
+        const primaryId = drafts[0].id;
+        for (const old of drafts.slice(1)) {
+          await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', old.id);
+          await supabase.from('orders').delete().eq('id', old.id);
+        }
+        console.log('[mobile-add-cart-item] Merged', drafts.length - 1, 'duplicate drafts into:', primaryId);
+        return primaryId;
+      }
+
+      return drafts[0].id;
+    };
+
+    const orderId = await getOrCreateSingleDraftOrder(user.id);
+    console.log('[mobile-add-cart-item] Using DRAFT order:', orderId);
 
     // Check for duplicate items (same product_url in this order)
     const { data: existingItem } = await supabase

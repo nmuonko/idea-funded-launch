@@ -177,10 +177,104 @@ export interface OrderTotals {
 }
 
 /**
+ * Get or create a SINGLE DRAFT order for a user.
+ * If multiple DRAFT orders exist, merges items into the most recent one.
+ * 
+ * @returns { cartId, created } where cartId is the single DRAFT order ID
+ */
+export async function getOrCreateSingleDraftOrder(
+  supabase: any,
+  userId: string,
+  exchangeRate: number
+): Promise<{ cartId: string; created: boolean }> {
+  // Query ALL draft orders for this user, ordered by created_at DESC
+  const { data: drafts, error: draftsError } = await supabase
+    .from('orders')
+    .select('id, created_at')
+    .eq('user_id', userId)
+    .eq('status', 'DRAFT')
+    .order('created_at', { ascending: false });
+
+  if (draftsError) {
+    console.error('[getOrCreateSingleDraftOrder] Error querying drafts:', draftsError);
+    throw new Error('Failed to access cart');
+  }
+
+  // No drafts - create new one
+  if (!drafts || drafts.length === 0) {
+    console.log('[getOrCreateSingleDraftOrder] Creating new DRAFT order for user:', userId);
+    const { data: newOrder, error: createError } = await supabase
+      .from('orders')
+      .insert({
+        user_id: userId,
+        status: 'DRAFT',
+        item_total_usd: 0,
+        service_fee_usd: 0,
+        shipping_fee_usd: 0,
+        total_usd: 0,
+        total_cdf: 0,
+        exchange_rate_used: exchangeRate,
+      })
+      .select('id')
+      .single();
+
+    if (createError || !newOrder) {
+      console.error('[getOrCreateSingleDraftOrder] Failed to create DRAFT order:', createError);
+      throw new Error('Failed to create cart');
+    }
+
+    return { cartId: newOrder.id, created: true };
+  }
+
+  // Single draft - return it
+  if (drafts.length === 1) {
+    console.log('[getOrCreateSingleDraftOrder] Found single DRAFT order:', drafts[0].id);
+    return { cartId: drafts[0].id, created: false };
+  }
+
+  // MULTIPLE DRAFTS - merge into most recent (first in list)
+  const primaryCartId = drafts[0].id;
+  const otherCartIds = drafts.slice(1).map((d: any) => d.id);
+  
+  console.log('[getOrCreateSingleDraftOrder] Merging multiple DRAFT orders:', {
+    primary: primaryCartId,
+    toMerge: otherCartIds,
+  });
+
+  // Move items from old carts to primary cart
+  for (const oldCartId of otherCartIds) {
+    const { error: moveError } = await supabase
+      .from('order_items')
+      .update({ order_id: primaryCartId })
+      .eq('order_id', oldCartId);
+
+    if (moveError) {
+      console.error('[getOrCreateSingleDraftOrder] Error moving items from cart:', oldCartId, moveError);
+    }
+
+    // Delete the empty old cart
+    const { error: deleteError } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', oldCartId);
+
+    if (deleteError) {
+      console.error('[getOrCreateSingleDraftOrder] Error deleting old cart:', oldCartId, deleteError);
+    }
+  }
+
+  console.log('[getOrCreateSingleDraftOrder] Merged', otherCartIds.length, 'carts into:', primaryCartId);
+  return { cartId: primaryCartId, created: false };
+}
+
+/**
  * Calculate and persist order totals from ACTIVE items only (excluding saved-for-later)
  * This is the SINGLE SOURCE OF TRUTH for order total calculations.
  * 
  * CRITICAL: This function NEVER deletes cart data on errors - it only updates totals or returns null.
+ * 
+ * Vehicle items with applied quotes use STORED shipping_fee_usd values.
+ * Regular items have shipping calculated dynamically.
  */
 export async function updateOrderTotals(
   supabase: any,
@@ -189,10 +283,10 @@ export async function updateOrderTotals(
   shippingPercent: number,
   exchangeRate: number
 ): Promise<OrderTotals | null> {
-  // Query all items with is_saved_for_later flag for proper filtering
+  // Query all items including vehicle flags and stored shipping
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later')
+    .select('subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -200,39 +294,84 @@ export async function updateOrderTotals(
     return null;
   }
 
-  let itemTotalUsd = 0;
-  let serviceFeeUsd = 0;
-  let itemsWithMarkupUsd = 0;
-  let requiresManualQuote = false;
-  let activeItemCount = 0;
+  // Track regular items and vehicles separately
+  let regularItemTotalUsd = 0;
+  let regularServiceFeeUsd = 0;
+  let regularItemsWithMarkupUsd = 0;
+  let regularRequiresQuote = false;
+  let regularItemCount = 0;
+
+  // Vehicle totals - vehicles with applied quotes use STORED values
+  let vehicleTotalUsd = 0;
+  let vehicleShippingUsd = 0;
+  let vehicleItemCount = 0;
+  let hasVehiclePendingQuote = false;
 
   // Calculate totals from ACTIVE items only (not saved for later)
   (items || []).forEach((item: any) => {
-    if (!item.is_saved_for_later) {
+    if (item.is_saved_for_later) return; // Skip saved items
+
+    const isVehicle = item.is_vehicle === true;
+    const vehicleQuoteApplied = item.vehicle_quote_applied === true;
+
+    if (isVehicle) {
+      vehicleItemCount++;
+      
+      if (vehicleQuoteApplied) {
+        // Vehicle WITH quote: use STORED total (includes shipping)
+        const storedTotal = Number(item.total_price_usd || 0);
+        const storedShipping = Number(item.shipping_fee_usd || 0);
+        
+        vehicleTotalUsd += storedTotal;
+        vehicleShippingUsd += storedShipping;
+        
+        console.log('[updateOrderTotals] Vehicle with quote:', {
+          total: storedTotal,
+          shipping: storedShipping,
+        });
+      } else {
+        // Vehicle WITHOUT quote: pending, don't include in totals for checkout
+        hasVehiclePendingQuote = true;
+        console.log('[updateOrderTotals] Vehicle pending quote - excluded from totals');
+      }
+    } else {
+      // Regular item
       const subtotal = Number(item.subtotal_usd || 0);
       const markup = Number(item.markup_fee_usd || 0);
       const total = Number(item.total_price_usd || 0);
       const estWeight = Number(item.est_weight_kg || 1);
       const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
 
-      itemTotalUsd += subtotal;
-      serviceFeeUsd += markup;
-      itemsWithMarkupUsd += total;
-      activeItemCount++;
+      regularItemTotalUsd += subtotal;
+      regularServiceFeeUsd += markup;
+      regularItemsWithMarkupUsd += total;
+      regularItemCount++;
 
       if (itemRequiresQuote) {
-        requiresManualQuote = true;
+        regularRequiresQuote = true;
       }
     }
   });
 
-  // Only calculate shipping for active items that don't require manual quote
-  let shippingFeeUsd = 0;
-  if (!requiresManualQuote && activeItemCount > 0) {
-    shippingFeeUsd = calculateShipping(itemTotalUsd, shippingBaseFeeUsd, shippingPercent);
+  // Calculate shipping for REGULAR items only (vehicles have stored shipping)
+  let regularShippingFeeUsd = 0;
+  if (!regularRequiresQuote && regularItemCount > 0) {
+    regularShippingFeeUsd = calculateShipping(regularItemTotalUsd, shippingBaseFeeUsd, shippingPercent);
   }
+
+  // Combined totals
+  const activeItemCount = regularItemCount + vehicleItemCount;
+  const requiresManualQuote = regularRequiresQuote || hasVehiclePendingQuote;
   
-  const totalUsd = round2(itemsWithMarkupUsd + shippingFeeUsd);
+  // Item totals (base prices) - vehicles don't contribute here if pending
+  const itemTotalUsd = round2(regularItemTotalUsd);
+  const serviceFeeUsd = round2(regularServiceFeeUsd);
+  
+  // Total shipping = regular shipping + vehicle shipping
+  const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShippingUsd);
+  
+  // Grand total = regular items with markup + regular shipping + vehicle totals (which include their shipping)
+  const totalUsd = round2(regularItemsWithMarkupUsd + regularShippingFeeUsd + vehicleTotalUsd);
   const totalCdf = round2(totalUsd * exchangeRate);
 
   console.log('[updateOrderTotals] Calculated totals:', {
@@ -254,7 +393,8 @@ export async function updateOrderTotals(
       activeItemCount,
       itemTotalUsd,
       serviceFeeUsd,
-      itemsWithMarkupUsd,
+      regularItemsWithMarkupUsd,
+      vehicleTotalUsd,
     });
     
     // Log to ai_assistant_logs for admin visibility

@@ -14,6 +14,7 @@ import {
   updateOrderTotals,
   isVehicleItem,
   normalizeProductUrl,
+  getOrCreateSingleDraftOrder,
 } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
@@ -77,49 +78,9 @@ serve(async (req) => {
     const settings = await getCachedSettings(supabase);
     const { markupPercent, vehicleMarkupPercent, exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
 
-    // Find existing DRAFT order for this user
-    const { data: existingDraft, error: draftError } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('status', 'DRAFT')
-      .maybeSingle();
-
-    if (draftError) {
-      console.error('[cart-sync-from-client] Error finding draft:', draftError);
-      return errorResponse('Failed to access cart', 500);
-    }
-
-    let cartId: string;
-
-    if (existingDraft) {
-      cartId = existingDraft.id;
-      console.log('[cart-sync-from-client] Found existing DRAFT order:', cartId);
-    } else {
-      // Create new DRAFT order
-      const { data: newOrder, error: createError } = await supabase
-        .from('orders')
-        .insert({
-          user_id: user.id,
-          status: 'DRAFT',
-          item_total_usd: 0,
-          service_fee_usd: 0,
-          shipping_fee_usd: 0,
-          total_usd: 0,
-          total_cdf: 0,
-          exchange_rate_used: exchangeRate,
-        })
-        .select('id')
-        .single();
-
-      if (createError || !newOrder) {
-        console.error('[cart-sync-from-client] Failed to create DRAFT order:', createError);
-        return errorResponse('Failed to create cart', 500);
-      }
-
-      cartId = newOrder.id;
-      console.log('[cart-sync-from-client] Created new DRAFT order:', cartId);
-    }
+    // ENFORCE SINGLE DRAFT ORDER: Get or create, merging duplicates
+    const { cartId, created } = await getOrCreateSingleDraftOrder(supabase, user.id, exchangeRate);
+    console.log('[cart-sync-from-client]', created ? 'Created new' : 'Using existing', 'DRAFT order:', cartId);
 
     // Get existing items for this cart
     const { data: existingItems } = await supabase

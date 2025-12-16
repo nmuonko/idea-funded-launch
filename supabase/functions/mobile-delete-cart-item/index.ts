@@ -32,10 +32,17 @@ serve(async (req) => {
       .from('order_items')
       .select('*, orders!inner(user_id, status, id)')
       .eq('id', itemId)
-      .single();
+      .maybeSingle();  // Use maybeSingle to handle missing items gracefully
 
+    // IDEMPOTENT: If item not found, return success (already deleted)
     if (itemError || !item) {
-      return errorResponse('Item not found', 404);
+      console.log('[mobile-delete-cart-item] Item already removed or not found:', itemId);
+      return jsonResponse({ 
+        success: true, 
+        itemId,
+        status: 'already_removed',
+        message: 'Item already removed' 
+      });
     }
 
     if (item.orders.user_id !== user.id) {

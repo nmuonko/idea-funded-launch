@@ -75,6 +75,52 @@ export function isCarStoreEnum(store: string): boolean {
   return ALL_CAR_STORES_ENUM.includes(store.toUpperCase());
 }
 
+/**
+ * Detect if URL is a Tesla inventory/product page
+ * Ignores query params (e.g., ?PaymentType=lease)
+ */
+export function isTeslaInventoryUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    const path = u.pathname.toLowerCase();
+    
+    if (host !== 'tesla.com') return false;
+    
+    // Match inventory pages and model pages
+    return (
+      path.startsWith('/inventory/') ||
+      path.startsWith('/inventory') ||
+      path.startsWith('/model3') ||
+      path.startsWith('/modely') ||
+      path.startsWith('/models') ||
+      path.startsWith('/modelx') ||
+      path.startsWith('/cybertruck')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if a product URL or store indicates a vehicle requiring manual quote
+ */
+export function isVehicleItem(productUrl: string, store: string): boolean {
+  const upperStore = store?.toUpperCase() || '';
+  
+  // Check if store is a known car marketplace
+  if (ALL_CAR_STORES_ENUM.includes(upperStore)) {
+    return true;
+  }
+  
+  // Fallback: check Tesla URL patterns directly
+  if (isTeslaInventoryUrl(productUrl)) {
+    return true;
+  }
+  
+  return false;
+}
+
 // Check if car store is deprecated for new items
 export function isDeprecatedCarStoreEnum(store: string): boolean {
   return DEPRECATED_CAR_STORES_ENUM.includes(store.toUpperCase());

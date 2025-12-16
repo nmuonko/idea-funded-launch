@@ -11,7 +11,8 @@ import { getCachedSettings } from "../_shared/settings-cache.ts";
 import { 
   calculateItemPricing, 
   detectStore, 
-  updateOrderTotals 
+  updateOrderTotals,
+  isVehicleItem,
 } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
@@ -137,6 +138,12 @@ serve(async (req) => {
       const store = item.store?.toUpperCase() || detectStore(item.productUrl);
       const pricing = calculateItemPricing(item.unitPrice, item.quantity, markupPercent, exchangeRate);
       
+      // Detect vehicle items (Tesla inventory, car marketplaces, etc.)
+      const isVehicle = isVehicleItem(item.productUrl, store);
+      if (isVehicle) {
+        console.log('[cart-sync-from-client] Vehicle item detected:', { url: item.productUrl, store });
+      }
+      
       const itemData = {
         order_id: cartId,
         product_url: item.productUrl,
@@ -152,7 +159,9 @@ serve(async (req) => {
         total_price_cdf: pricing.itemSubtotalCdf,
         est_weight_kg: 1,
         is_saved_for_later: false,
-        requires_manual_quote: false,
+        // Set vehicle flags based on detection
+        is_vehicle: isVehicle,
+        requires_manual_quote: isVehicle,
       };
 
       const existingItemId = existingItemsByUrl.get(item.productUrl);

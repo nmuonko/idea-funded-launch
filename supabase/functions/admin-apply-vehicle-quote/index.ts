@@ -123,9 +123,9 @@ serve(async (req) => {
       );
     }
 
-    // Round to 2 decimal places
+    // Round shipping to 2 decimal places
     const finalShippingUsd = Math.round(shippingValue * 100) / 100;
-    const finalTotalUsd = Math.round(totalValue * 100) / 100;
+    // NOTE: finalTotalUsd will be recalculated below using authoritative backend margin
 
     console.log("[admin-apply-vehicle-quote] APPLYING QUOTE:", { 
       quoteRequestId, 
@@ -133,8 +133,8 @@ serve(async (req) => {
       inputTotal: quotedTotalUsd,
       inputMargin: quotedMarginUsd,
       inputBasePrice: basePriceUsd,
-      finalShippingUsd, 
-      finalTotalUsd,
+      finalShippingUsd,
+      note: "Total and margin will be recalculated by backend",
       adminId: user.id
     });
 
@@ -261,16 +261,17 @@ serve(async (req) => {
     ) * 100) / 100;
 
     // Calculate margin using VEHICLE MARKUP PERCENT (NOT general markup)
-    // If quotedMarginUsd provided, use it; otherwise calculate from vehicle markup
+    // CRITICAL: ALWAYS use backend-calculated margin - ignore frontend value to prevent race conditions
     const calculatedMargin = Math.round(vehicleBasePriceUsd * (vehicleMarkupPercent / 100) * 100) / 100;
-    const finalMarginUsd = quotedMarginUsd !== undefined 
-      ? Math.round(quotedMarginUsd * 100) / 100
-      : calculatedMargin;
+    const finalMarginUsd = calculatedMargin; // AUTHORITATIVE - never trust frontend margin
 
     // Subtotal = base price + margin (before shipping)
     const finalSubtotalUsd = Math.round((vehicleBasePriceUsd + finalMarginUsd) * 100) / 100;
 
-    console.log("[admin-apply-vehicle-quote] Calculated values:", {
+    // CRITICAL: Recalculate total from components - never trust frontend total
+    const finalTotalUsd = Math.round((vehicleBasePriceUsd + finalMarginUsd + finalShippingUsd) * 100) / 100;
+
+    console.log("[admin-apply-vehicle-quote] AUTHORITATIVE backend calculation (ignoring frontend margin/total):", {
       vehicleBasePriceUsd,
       vehicleMarkupPercent,
       calculatedMargin,
@@ -278,6 +279,8 @@ serve(async (req) => {
       finalSubtotalUsd,
       finalShippingUsd,
       finalTotalUsd,
+      frontendMarginIgnored: quotedMarginUsd,
+      frontendTotalIgnored: totalValue,
       orderId,
       orderItemId
     });

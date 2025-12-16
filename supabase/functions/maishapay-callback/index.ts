@@ -436,12 +436,14 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
   } catch (error: any) {
+    // SECURITY FIX: Log full error server-side, return generic message to client
     console.error('[MaishaPay Callback] Exception:', error);
     
     // Always return 200 to acknowledge receipt, even on error
+    // Don't expose internal error details
     return new Response(JSON.stringify({ 
       status: 'error',
-      message: error.message 
+      message: 'An error occurred processing the callback'
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

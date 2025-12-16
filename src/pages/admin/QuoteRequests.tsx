@@ -336,22 +336,23 @@ export default function QuoteRequests() {
   }, [fetchQuoteRequests]);
 
   // Recalculate margin and total when shipping or base price changes - use VEHICLE markup
+  // CRITICAL: Total is ALWAYS base + shipping + margin - no manual override allowed
   useEffect(() => {
     if (!selectedRequest) return;
     
     const basePrice = Number(selectedRequest.base_price_usd) || 0;
     const shipping = parseFloat(quotedShipping) || 0;
-    // Use vehicle-specific markup for vehicles
+    // Use vehicle-specific markup for vehicles - this is the authoritative margin
     const margin = Math.round(basePrice * (settings.vehicleMarkupPercent / 100) * 100) / 100;
+    // Total is ALWAYS base + shipping + margin - enforced, not editable
     const total = Math.round((basePrice + shipping + margin) * 100) / 100;
     
     setCalculatedMargin(margin);
     setCalculatedTotal(total);
     
-    // Auto-fill total if not manually edited
-    if (!quotedTotal || quotedTotal === "" || quotedTotal === selectedRequest.quoted_total_usd?.toString()) {
-      setQuotedTotal(total.toFixed(2));
-    }
+    // ALWAYS update quotedTotal to match calculated total
+    // This ensures consistency between display and what gets sent to backend
+    setQuotedTotal(total.toFixed(2));
   }, [quotedShipping, selectedRequest, settings.vehicleMarkupPercent]);
 
   const handleManualRefresh = () => {
@@ -399,35 +400,33 @@ export default function QuoteRequests() {
     if (!selectedRequest) return;
     
     const shippingValue = parseFloat(quotedShipping);
-    const totalValue = parseFloat(quotedTotal);
     const basePrice = Number(selectedRequest.base_price_usd) || 0;
     
-    if (isNaN(shippingValue)) {
+    if (isNaN(shippingValue) || shippingValue < 0) {
       toast.error("Please enter a valid shipping cost");
       return;
     }
 
-    if (isNaN(totalValue) || totalValue <= 0) {
-      toast.error("Please enter a valid total price");
-      return;
-    }
-
-    if (shippingValue < 0 || totalValue < 0) {
-      toast.error("Values must be positive");
-      return;
-    }
-
-    // Validate total is at least base price + shipping
-    if (totalValue < basePrice + shippingValue) {
-      toast.error(`Total must be at least ${formatCurrency(basePrice + shippingValue, { currency: 'USD', locale })} (vehicle + shipping)`);
+    // CRITICAL: Use calculatedMargin (from vehicleMarkupPercent) - NOT recalculated from total
+    // This ensures the margin sent to backend matches what admin sees in UI
+    const marginValue = calculatedMargin;
+    const totalValue = calculatedTotal;
+    
+    if (totalValue <= 0) {
+      toast.error("Total price must be positive");
       return;
     }
     
+    console.log("[QuoteRequests] Submitting quote with CALCULATED values:", {
+      basePrice,
+      shippingValue,
+      marginValue,
+      totalValue,
+      vehicleMarkupPercent: settings.vehicleMarkupPercent
+    });
+    
     setSubmitting(true);
     try {
-      // Calculate margin for storage: total - basePrice - shipping
-      const marginValue = Math.round((totalValue - basePrice - shippingValue) * 100) / 100;
-      
       // Use the admin-apply-vehicle-quote edge function
       // This handles all updates atomically: quote_requests, order_items, orders
       const { data, error } = await supabase.functions.invoke("admin-apply-vehicle-quote", {
@@ -734,33 +733,25 @@ export default function QuoteRequests() {
               </div>
             </div>
             
-            {/* Total Price (editable, pre-filled) */}
+            {/* Total Price (auto-calculated, read-only) */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <Label htmlFor="quotedTotal">{t.totalPrice}</Label>
+                <Label>{t.totalPrice}</Label>
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger>
                       <Info className="h-4 w-4 text-muted-foreground" />
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{t.autoCalculated}</p>
+                      <p>{t.autoCalculated}: {t.vehiclePrice} + {t.shippingCost} + {t.marginFee}</p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="quotedTotal"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={quotedTotal}
-                  onChange={(e) => setQuotedTotal(e.target.value)}
-                  className="pl-9"
-                  placeholder="0.00"
-                />
+              <div className="p-3 bg-primary/10 rounded-md border-2 border-primary">
+                <span className="text-2xl font-bold text-primary">
+                  {formatCurrency(calculatedTotal, { currency: 'USD', locale })}
+                </span>
               </div>
             </div>
             

@@ -6,23 +6,16 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
+import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
+import { calculateShipping } from "../_shared/cartHelpers.ts";
 
 /**
  * Mobile Checkout Edge Function
  * 
  * Creates order from cart items and returns checkout data.
  * Returns BOTH checkoutUrl AND html field for maximum compatibility.
- * 
- * The mobile app can either:
- * 1. Open checkoutUrl in WebView (simpler but depends on edge function HTML rendering)
- * 2. Render the html field directly in WebView (more reliable)
+ * Uses shared helpers for CONSISTENT totals calculation.
  */
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
-
-function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
-  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
-}
 
 // Generate checkout HTML that auto-submits to MaishaPay
 function generateCheckoutHtml(params: {
@@ -248,20 +241,11 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Get pricing settings
-    const { data: settings, error: settingsError } = await supabase
-      .from('settings')
-      .select('*')
-      .single();
-
-    if (settingsError || !settings) {
-      console.error('[mobile-checkout] Error fetching settings:', settingsError);
-      return jsonResponse({ success: false, error: 'Failed to load pricing configuration.' }, 500);
-    }
-
-    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
-    const shippingPercent = settings.shipping_percent ?? 0.10;
+    // Get pricing settings - USE CACHED SETTINGS (single source of truth)
+    const settings = await getCachedSettings(supabase);
+    const { exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
+    
+    console.log('[mobile-checkout] Settings loaded:', { exchangeRate, shippingBaseFeeUsd, shippingPercent });
 
     // Detect vehicle quote items for logging
     const vehicleQuoteItems = requestedItems.filter(item => 

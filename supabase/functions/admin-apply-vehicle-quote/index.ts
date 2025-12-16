@@ -7,6 +7,20 @@ const corsHeaders = {
 };
 
 /**
+ * Normalize URL for duplicate detection - strip query params, trailing slashes
+ */
+function normalizeProductUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    let path = u.pathname.toLowerCase().replace(/\/+$/, '');
+    return `https://${host}${path}`;
+  } catch {
+    return url.toLowerCase().trim();
+  }
+}
+
+/**
  * Admin Apply Vehicle Quote - ATOMIC & IDEMPOTENT
  * 
  * Stores vehicle quote with full price breakdown: base price, shipping, margin, total.
@@ -173,12 +187,60 @@ serve(async (req) => {
     const orderItemId = quoteCheck.order_item_id;
     const orderId = orderItem.order_id;
     const vehicleTitle = orderItem.title || quoteCheck.title || "Vehicle";
+    const productUrl = quoteCheck.product_url || '';
 
     if (!orderId) {
       return new Response(
         JSON.stringify({ success: false, error: "Order not found for this quote", code: "ORDER_NOT_FOUND" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // CRITICAL: Find and delete DUPLICATE items with same normalized URL
+    // This prevents duplicate Tesla items appearing after quote application
+    const normalizedUrl = normalizeProductUrl(productUrl);
+    console.log("[admin-apply-vehicle-quote] Checking for duplicates:", { productUrl, normalizedUrl });
+    
+    const { data: allOrderItems, error: allItemsError } = await supabase
+      .from("order_items")
+      .select("id, product_url, title")
+      .eq("order_id", orderId)
+      .eq("is_saved_for_later", false);
+    
+    if (!allItemsError && allOrderItems) {
+      // Find items with matching normalized URL (excluding the main order item)
+      const duplicates = allOrderItems.filter(item => {
+        if (item.id === orderItemId) return false; // Keep the main item
+        const itemNormalized = normalizeProductUrl(item.product_url);
+        return itemNormalized === normalizedUrl;
+      });
+      
+      if (duplicates.length > 0) {
+        console.log("[admin-apply-vehicle-quote] Found duplicates to remove:", duplicates.map(d => ({ id: d.id, url: d.product_url })));
+        
+        // Delete duplicate items
+        const duplicateIds = duplicates.map(d => d.id);
+        const { error: deleteError } = await supabase
+          .from("order_items")
+          .delete()
+          .in("id", duplicateIds);
+        
+        if (deleteError) {
+          console.warn("[admin-apply-vehicle-quote] Failed to delete duplicates:", deleteError);
+        } else {
+          console.log("[admin-apply-vehicle-quote] Deleted", duplicates.length, "duplicate items");
+        }
+        
+        // Also delete any quote_requests pointing to deleted items
+        const { error: deleteQuotesError } = await supabase
+          .from("quote_requests")
+          .delete()
+          .in("order_item_id", duplicateIds);
+        
+        if (deleteQuotesError) {
+          console.warn("[admin-apply-vehicle-quote] Failed to delete duplicate quote requests:", deleteQuotesError);
+        }
+      }
     }
 
     // Use provided base price or get from order item

@@ -76,6 +76,36 @@ export function isCarStoreEnum(store: string): boolean {
 }
 
 /**
+ * Normalize URL for duplicate detection
+ * Removes query params, trailing slashes, and normalizes host
+ * CRITICAL: This ensures Tesla URLs with ?PaymentType=lease match base URLs
+ */
+export function normalizeProductUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    // Force lowercase host, remove www prefix
+    const host = u.hostname.replace(/^www\./, '').toLowerCase();
+    // Lowercase path, remove trailing slashes
+    let path = u.pathname.toLowerCase().replace(/\/+$/, '');
+    // Keep essential path but strip query params entirely
+    return `https://${host}${path}`;
+  } catch {
+    // Fallback: just lowercase and trim
+    return url.toLowerCase().trim();
+  }
+}
+
+/**
+ * Check if two URLs refer to the same product (ignoring query params)
+ */
+export function isSameProductUrl(url1: string, url2: string): boolean {
+  return normalizeProductUrl(url1) === normalizeProductUrl(url2);
+}
+
+// Check if store is a car marketplace (duplicate removed below)
+// (isCarStoreEnum moved above with normalizeProductUrl)
+
+/**
  * Detect if URL is a Tesla inventory/product page
  * Ignores query params (e.g., ?PaymentType=lease)
  */

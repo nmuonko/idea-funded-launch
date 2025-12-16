@@ -70,13 +70,28 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // Get MaishaPay credentials
-    const publicKey = Deno.env.get('MAISHA_PUBLIC_KEY');
-    const secretKey = Deno.env.get('MAISHA_SECRET_KEY');
-    const baseUrl = Deno.env.get('MAISHA_API_BASE_URL');
-    const callbackUrl = Deno.env.get('MAISHA_CALLBACK_URL');
+    // Get MaishaPay credentials - use same env vars as working functions
+    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE') || '1';
+    const isLiveMode = gatewayMode === '1';
+    
+    const publicKey = isLiveMode
+      ? (Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY'))
+      : Deno.env.get('MAISHAPAY_PUBLIC_KEY');
+    
+    const secretKey = isLiveMode
+      ? (Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY'))
+      : Deno.env.get('MAISHAPAY_SECRET_KEY');
+    
+    const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || Deno.env.get('MAISHA_CALLBACK_URL');
 
-    if (!publicKey || !secretKey || !baseUrl || !callbackUrl) {
+    if (!publicKey || !secretKey || !callbackUrl) {
+      console.error('[Initiate Payment] Missing MaishaPay config:', { 
+        hasPublicKey: !!publicKey, 
+        hasSecretKey: !!secretKey, 
+        hasCallbackUrl: !!callbackUrl,
+        gatewayMode,
+        isLiveMode
+      });
       return new Response(JSON.stringify({ error: 'MaishaPay not configured' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -86,11 +101,28 @@ serve(async (req) => {
     // Create unique reference
     const reference = `AFRISHOP-${orderId}-${Date.now()}`;
     
-    // Prepare MaishaPay request
+    // USE USD - same as working payment functions (NOT CDF)
+    // This fixes the "Ce mode de paiement ne prend pas en charge la devise en cours" error for vehicle orders
+    const paymentAmount = Number(order.total_usd || 0);
+    const paymentCurrency = 'USD';
+    
+    // Debug logging to verify currency consistency
+    console.log('[Initiate Payment] MaishaPay payload:', {
+      orderId,
+      reference,
+      amount: paymentAmount,
+      currency: paymentCurrency,
+      gatewayMode,
+      isLiveMode,
+      orderTotalUsd: order.total_usd,
+      orderTotalCdf: order.total_cdf,
+    });
+
+    // Prepare MaishaPay request - using USD like the working functions
     const maishaPayload = {
       publicKey,
-      amount: Math.round(order.total_cdf || 0), // MaishaPay likely uses CDF
-      currency: 'CDF',
+      amount: paymentAmount,
+      currency: paymentCurrency,
       reference,
       customerEmail: user.email || '',
       customerPhone: profile?.phone || '',
@@ -98,10 +130,20 @@ serve(async (req) => {
       callbackUrl,
     };
 
-    console.log('[Initiate Payment] Calling MaishaPay:', { reference, amount: maishaPayload.amount });
+    // MaishaPay API endpoint
+    const maishaApiUrl = isLiveMode
+      ? 'https://marchand.maishapay.online/api/v1/transaction/create'
+      : 'https://sandbox.maishapay.online/api/v1/transaction/create';
+
+    console.log('[Initiate Payment] Calling MaishaPay:', { 
+      url: maishaApiUrl,
+      reference, 
+      amount: paymentAmount,
+      currency: paymentCurrency 
+    });
 
     // Call MaishaPay API
-    const maishaResponse = await fetch(`${baseUrl}/transaction/create`, {
+    const maishaResponse = await fetch(maishaApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -117,7 +159,7 @@ serve(async (req) => {
       throw new Error(maishaData.message || 'MaishaPay request failed');
     }
 
-    // Create maisha_payments record
+    // Create maisha_payments record - store USD amounts
     const { error: paymentError } = await supabase
       .from('maisha_payments')
       .insert({
@@ -126,7 +168,7 @@ serve(async (req) => {
         status: 'pending',
         amount_usd: order.total_usd,
         amount_cdf: order.total_cdf,
-        currency: 'CDF',
+        currency: paymentCurrency, // USD - consistent with working functions
         raw_request: maishaPayload,
         raw_response: maishaData,
       });
@@ -149,8 +191,8 @@ serve(async (req) => {
       payment: {
         checkoutUrl: maishaData.checkoutUrl || maishaData.paymentUrl || maishaData.url,
         maishaReference: reference,
-        amount: order.total_cdf,
-        currency: 'CDF',
+        amount: paymentAmount,
+        currency: paymentCurrency, // USD - consistent with working functions
       },
     }), {
       status: 200,

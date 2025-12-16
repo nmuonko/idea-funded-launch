@@ -171,6 +171,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
 }
 
 serve(async (req) => {
+  const startTime = Date.now();
+  
   // Handle CORS preflight
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -178,32 +180,30 @@ serve(async (req) => {
   try {
     // Verify JWT using SERVICE_ROLE
     const { user, supabase } = await verifyAndGetUser(req);
+    const authTime = Date.now() - startTime;
 
     // Get cached pricing settings (5min TTL) - SINGLE SOURCE OF TRUTH
+    const settingsStart = Date.now();
     const settings = await getCachedSettings(supabase);
     const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+    const settingsTime = Date.now() - settingsStart;
 
-    console.log('[mobile-get-cart] Using settings:', {
-      markupPercent,
-      vehicleMarkupPercent,
-      shippingBaseFeeUsd,
-      shippingPercent,
-      exchangeRate,
-    });
-
-    // Get user's active DRAFT order (cart)
+    // Get user's active DRAFT order (cart) - SINGLE QUERY
+    const orderStart = Date.now();
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
       .maybeSingle();
+    const orderTime = Date.now() - orderStart;
 
     if (orderError) {
       console.error('[mobile-get-cart] Order query error:', orderError.message);
     }
 
     if (!order) {
+      console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms total=${Date.now() - startTime}ms - Empty cart`);
       return jsonResponse({
         ok: true,
         activeItems: [],
@@ -224,7 +224,8 @@ serve(async (req) => {
       });
     }
 
-    // Get items with quote requests
+    // Get items with quote requests - SINGLE QUERY with join
+    const itemsStart = Date.now();
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
       .select(`
@@ -236,6 +237,7 @@ serve(async (req) => {
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)
       `)
       .eq('order_id', order.id);
+    const itemsTime = Date.now() - itemsStart;
 
     if (itemsError) {
       console.error('[mobile-get-cart] Items error:', itemsError.message);
@@ -277,30 +279,16 @@ serve(async (req) => {
         hasVehicleItems = true;
         
         if (formattedItem.vehicleQuoteApplied) {
-          // Vehicle has quote - add its STORED totals
-          // CANONICAL SHIPPING SOURCE: formattedItem.itemShippingUsd (stored in order_items.shipping_fee_usd)
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
           vehicleMarginTotal += formattedItem.itemMarginUsd;
-          vehicleShippingTotal += formattedItem.itemShippingUsd;  // NOW CORRECTLY SET ON FORMATTED ITEM
-          vehicleTotalUsd += formattedItem.itemSubtotalUsd;       // base + margin (WITHOUT shipping)
-          
-          console.log('[mobile-get-cart] Vehicle with quote added to totals:', {
-            id: item.id,
-            base: formattedItem.itemBaseTotalUsd,
-            margin: formattedItem.itemMarginUsd,
-            shipping: formattedItem.itemShippingUsd,
-            subtotal: formattedItem.itemSubtotalUsd,  // base + margin
-            total: formattedItem.itemTotalUsd         // base + margin + shipping
-          });
+          vehicleShippingTotal += formattedItem.itemShippingUsd;
+          vehicleTotalUsd += formattedItem.itemSubtotalUsd;
         } else {
-          // Vehicle needs quote - can't proceed to payment
           allVehiclesQuoted = false;
           vehiclesWithPendingQuotes.push(item.id);
-          // Still add base price for display
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
         }
       } else {
-        // Regular item - calculate as normal
         regularItemCount += formattedItem.quantity;
         regularItemsBaseTotal += formattedItem.itemBaseTotalUsd;
         regularItemsMarginTotal += formattedItem.itemMarginUsd;
@@ -312,34 +300,21 @@ serve(async (req) => {
       }
     });
 
-    // Calculate shipping for regular items ONLY (vehicle shipping is stored separately)
+    // Calculate shipping for regular items ONLY
     let regularShippingTotal = 0;
     if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
       regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * shippingPercent));
     }
 
-    // GRAND TOTALS - combine regular items and vehicles
+    // GRAND TOTALS
     const totalItemCount = regularItemCount + vehicleCount;
-    
-    // Total des articles = base prices only (before margin and shipping)
     const itemsBaseTotalUsd = round2(regularItemsBaseTotal + vehicleBasePriceTotal);
-    
-    // Frais de marge = all margins
     const totalMarginUsd = round2(regularItemsMarginTotal + vehicleMarginTotal);
-    
-    // Frais de livraison = all shipping
     const totalShippingUsd = round2(regularShippingTotal + vehicleShippingTotal);
     
-    // Grand total USD - GUARD AGAINST DOUBLE COUNTING
-    // Vehicle shipping is ONLY counted via vehicleShippingTotal (from item.itemShippingUsd)
-    // Vehicle subtotal (vehicleTotalUsd) does NOT include shipping
     const grandTotalUsd = round2(
-      regularItemsSubtotal +      // Regular items (base + margin)
-      regularShippingTotal +      // Regular item shipping
-      vehicleTotalUsd +           // Vehicle subtotals (base + margin, NO shipping)
-      vehicleShippingTotal        // Vehicle shipping (ONLY place it's counted)
+      regularItemsSubtotal + regularShippingTotal + vehicleTotalUsd + vehicleShippingTotal
     );
-    
     const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
     // Determine vehicle quote status
@@ -348,22 +323,17 @@ serve(async (req) => {
       vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : 'pending';
     }
 
-    // Can proceed to payment?
     const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted);
 
-    // CRITICAL: Only use the main fields for cart display!
-    // The _breakdown object is for debugging/admin ONLY - DO NOT add its values to display
+    // LEAN SUMMARY - only fields mobile needs
     const summary: Record<string, any> = {
-      // === MAIN DISPLAY FIELDS (use ONLY these for cart UI) ===
       itemCount: totalItemCount,
-      itemsTotalUsd: itemsBaseTotalUsd,       // "Total des articles" - base prices
-      markupFeeUsd: totalMarginUsd,           // "Frais de marge" - TOTAL margin
-      shippingFeeUsd: totalShippingUsd,       // "Frais de livraison" - TOTAL shipping (DO NOT ADD vehicleShippingUsd!)
-      totalUsd: grandTotalUsd,                // "Total (USD)"
-      totalCdf: grandTotalCdf,                // "Total (CDF)"
+      itemsTotalUsd: itemsBaseTotalUsd,
+      markupFeeUsd: totalMarginUsd,
+      shippingFeeUsd: totalShippingUsd,
+      totalUsd: grandTotalUsd,
+      totalCdf: grandTotalCdf,
       exchangeRate: order.exchange_rate_used || exchangeRate,
-      
-      // === STATUS FLAGS ===
       requiresManualQuote: regularRequiresQuote,
       savedItemCount: savedItems.length,
       hasVehicleItems,
@@ -371,29 +341,6 @@ serve(async (req) => {
       allVehiclesQuoted,
       vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length,
       canProceedToPayment,
-      
-      // === DEBUG ONLY - DO NOT USE FOR DISPLAY ===
-      _debug: {
-        regularItemCount,
-        regularItemsBaseUsd: round2(regularItemsBaseTotal),
-        regularItemsMarkupUsd: round2(regularItemsMarginTotal),
-        regularItemsSubtotalUsd: round2(regularItemsSubtotal),
-        regularShippingUsd: round2(regularShippingTotal),
-        vehicleCount,
-        vehicleBasePriceUsd: round2(vehicleBasePriceTotal),
-        vehicleMarginUsd: round2(vehicleMarginTotal),
-        vehicleShippingUsd: round2(vehicleShippingTotal),
-        vehicleSubtotalUsd: round2(vehicleTotalUsd),  // base + margin (no shipping)
-        note: 'shippingFeeUsd is the SINGLE SOURCE for all shipping - do not add vehicleShippingUsd separately'
-      },
-      
-      // === SETTINGS (for transparency) ===
-      _settings: {
-        markupPercent,
-        vehicleMarkupPercent,
-        shippingBaseFeeUsd,
-        shippingPercent,
-      },
     };
     
     if (regularRequiresQuote) {
@@ -404,31 +351,7 @@ serve(async (req) => {
       summary.vehicleMessage = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
 
-    console.log('[mobile-get-cart] Summary:', {
-      totalItems: totalItemCount,
-      itemsBase: itemsBaseTotalUsd,
-      margin: totalMarginUsd,
-      shipping: totalShippingUsd,
-      totalUsd: grandTotalUsd,
-      vehicleCount,
-      vehicleTotal: vehicleTotalUsd,
-      canProceed: canProceedToPayment
-    });
-
-    // REGRESSION GUARD - detect if totals are unexpectedly zero
-    if (activeItems.length > 0 && grandTotalUsd === 0 && canProceedToPayment) {
-      console.warn('[mobile-get-cart] REGRESSION WARNING: Active items but totalUsd = 0');
-      // Log more details for debugging
-      console.warn('[mobile-get-cart] Items detail:', activeItems.map(i => ({
-        id: i.id,
-        isVehicle: i.isVehicle,
-        vehicleQuoteApplied: i.vehicleQuoteApplied,
-        base: i.itemBaseTotalUsd,
-        margin: i.itemMarginUsd,
-        shipping: i.itemShippingUsd,
-        total: i.itemSubtotalUsd
-      })));
-    }
+    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${Date.now() - startTime}ms - ${totalItemCount} items`);
     
     return jsonResponse({ 
       ok: true,
@@ -439,7 +362,7 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error('[mobile-get-cart] Error:', error.message);
+    console.error(`[mobile-get-cart] PERF duration=${Date.now() - startTime}ms - Error:`, error.message);
     
     if (error.name === 'AuthError') {
       return jsonResponse({ 
@@ -449,7 +372,6 @@ serve(async (req) => {
       }, error.status);
     }
     
-    // Never delete cart on transient errors
     return jsonResponse({ 
       ok: false, 
       code: 'TEMPORARY_ERROR', 

@@ -75,7 +75,7 @@ serve(async (req) => {
 
     // Load cached pricing settings
     const settings = await getCachedSettings(supabase);
-    const { markupPercent, exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
+    const { markupPercent, vehicleMarkupPercent, exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
 
     // Find existing DRAFT order for this user
     const { data: existingDraft, error: draftError } = await supabase
@@ -151,12 +151,26 @@ serve(async (req) => {
     
     for (const item of items) {
       const store = item.store?.toUpperCase() || detectStore(item.productUrl);
-      const pricing = calculateItemPricing(item.unitPrice, item.quantity, markupPercent, exchangeRate);
       
       // Detect vehicle items (Tesla inventory, car marketplaces, etc.)
       const isVehicle = isVehicleItem(item.productUrl, store);
+      
+      // Use vehicle markup for vehicles, general markup for everything else
+      const pricing = calculateItemPricing(
+        item.unitPrice, 
+        item.quantity, 
+        markupPercent, 
+        exchangeRate,
+        isVehicle,
+        vehicleMarkupPercent
+      );
+      
       if (isVehicle) {
-        console.log('[cart-sync-from-client] Vehicle item detected:', { url: item.productUrl, store });
+        console.log('[cart-sync-from-client] Vehicle item detected:', { 
+          url: item.productUrl, 
+          store,
+          markupUsed: vehicleMarkupPercent 
+        });
       }
       
       const itemData = {

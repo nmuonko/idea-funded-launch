@@ -5,6 +5,7 @@
 interface CachedSettings {
   exchangeRate: number;
   markupPercent: number;
+  vehicleMarkupPercent: number;  // Vehicle-specific markup
   shippingBaseFeeUsd: number;
   shippingPercent: number;
   serviceFeePercent: number;
@@ -26,7 +27,7 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   // Fetch fresh settings - select only needed columns
   const { data: settings, error } = await supabase
     .from('settings')
-    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd')
+    .select('exchange_rate_usd_to_cdf, markup_percent, global_markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, category_markups')
     .limit(1)
     .maybeSingle();
 
@@ -39,6 +40,11 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   // If markup is stored as decimal (e.g., 0.15), convert to percentage
   const markupPercent = markupVal < 1 ? markupVal * 100 : markupVal;
   
+  // Vehicle markup from category_markups.vehicles (default to general markup)
+  const categoryMarkups = (settings?.category_markups || {}) as Record<string, number>;
+  const vehicleMarkupRaw = categoryMarkups.vehicles ?? markupPercent;
+  const vehicleMarkupPercent = vehicleMarkupRaw < 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
+  
   // shipping_percent is stored as decimal (0.10 = 10%), keep as decimal for calculations
   const shippingPercent = settings?.shipping_percent ?? 0.10;
   
@@ -48,6 +54,7 @@ export async function getCachedSettings(supabase: any): Promise<CachedSettings> 
   settingsCache = {
     exchangeRate: settings?.exchange_rate_usd_to_cdf ?? 2800,
     markupPercent,
+    vehicleMarkupPercent,
     shippingBaseFeeUsd: settings?.shipping_base_fee_usd ?? 20,
     shippingPercent,
     serviceFeePercent,

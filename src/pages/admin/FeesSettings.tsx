@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw } from 'lucide-react';
+import { Loader2, Percent, DollarSign, Tag, Plus, Trash2, Save, Globe, Truck, RefreshCw, Car } from 'lucide-react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, Language, getAdminTranslation } from '@/lib/i18n/translations';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -20,6 +20,7 @@ export default function FeesSettings() {
   // Core settings
   const [exchangeRateUsdToCdf, setExchangeRateUsdToCdf] = useState(2800);
   const [markupPercent, setMarkupPercent] = useState(15);
+  const [vehicleMarkupPercent, setVehicleMarkupPercent] = useState(18);
   const [shippingBaseFeeUsd, setShippingBaseFeeUsd] = useState(20);
   const [shippingPercent, setShippingPercent] = useState(10);
   
@@ -69,8 +70,14 @@ export default function FeesSettings() {
       const shippingVal = data.shipping_percent || 0.10;
       setShippingPercent(shippingVal > 1 ? shippingVal : shippingVal * 100);
       
-      // Advanced settings
-      setCategoryMarkups((data.category_markups || {}) as Record<string, number>);
+      // Advanced settings - load category markups including vehicles
+      const loadedCategoryMarkups = (data.category_markups || {}) as Record<string, number>;
+      setCategoryMarkups(loadedCategoryMarkups);
+      
+      // Load vehicle markup from category_markups.vehicles or default to general markup
+      const vehicleVal = loadedCategoryMarkups.vehicles ?? markupVal;
+      setVehicleMarkupPercent(vehicleVal > 1 ? vehicleVal : vehicleVal * 100);
+      
       setExtraFees((data.extra_fees || []) as any[]);
       setDiscountCodes((data.discount_codes || []) as any[]);
     } catch (error: any) {
@@ -88,6 +95,12 @@ export default function FeesSettings() {
     try {
       setSaving(true);
 
+      // Update category_markups with vehicle markup
+      const updatedCategoryMarkups = {
+        ...categoryMarkups,
+        vehicles: vehicleMarkupPercent,  // Store vehicle markup in category_markups
+      };
+
       const { error } = await supabase
         .from('settings')
         .update({
@@ -96,7 +109,7 @@ export default function FeesSettings() {
           shipping_base_fee_usd: shippingBaseFeeUsd,
           shipping_percent: shippingPercent / 100,
           exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
-          category_markups: categoryMarkups,
+          category_markups: updatedCategoryMarkups,
           extra_fees: extraFees,
           discount_codes: discountCodes,
           updated_at: new Date().toISOString(),
@@ -303,6 +316,70 @@ export default function FeesSettings() {
             <p className="text-sm text-muted-foreground">
               {t.settings.marginFormula}: {t.common.itemMargin} = {t.common.itemSubtotal} × {markupPercent}%
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Vehicle/Car Markup - DEDICATED SECTION */}
+      <Card className="border-amber-500/30 bg-amber-50/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Car className="h-5 w-5 text-amber-600" />
+            {language === 'fr' ? 'Marge Véhicules' : 'Vehicle Markup'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr' 
+              ? 'Pourcentage de marge appliqué aux véhicules (Tesla, Carvana, CarGurus, etc.)'
+              : 'Markup percentage applied to vehicles (Tesla, Carvana, CarGurus, etc.)'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-4 max-w-md">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="vehicleMarkupPercent">
+                  {language === 'fr' ? 'Marge véhicules' : 'Vehicle markup'} (%)
+                </Label>
+                <Input
+                  id="vehicleMarkupPercent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={vehicleMarkupPercent}
+                  onChange={(e) => setVehicleMarkupPercent(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+              <Badge variant="outline" className="text-lg px-4 py-2 mt-6 border-amber-500 text-amber-600">
+                {vehicleMarkupPercent}%
+              </Badge>
+            </div>
+            
+            {/* Live Vehicle Example */}
+            <div className="bg-amber-500/10 rounded-lg p-4 border border-amber-500/20">
+              <p className="text-sm font-medium mb-2 text-amber-700">
+                {language === 'fr' ? 'Exemple véhicule:' : 'Vehicle example:'} $50,000 Tesla
+              </p>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground">{language === 'fr' ? 'Prix de base' : 'Base price'}</p>
+                  <p className="font-semibold">$50,000.00</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">{language === 'fr' ? 'Marge' : 'Margin'} ({vehicleMarkupPercent}%)</p>
+                  <p className="font-semibold text-amber-600">${(50000 * (vehicleMarkupPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">{language === 'fr' ? 'Sous-total' : 'Subtotal'}</p>
+                  <p className="font-semibold">${(50000 * (1 + vehicleMarkupPercent / 100)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                {language === 'fr' 
+                  ? '* Les frais de livraison sont calculés séparément via devis manuel'
+                  : '* Shipping costs are calculated separately via manual quote'}
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>

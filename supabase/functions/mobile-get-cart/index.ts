@@ -277,14 +277,16 @@ serve(async (req) => {
           // Vehicle has quote - add its STORED totals
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
           vehicleMarginTotal += formattedItem.itemMarginUsd;
-          vehicleShippingTotal += formattedItem.itemShippingUsd;
+          // CRITICAL: Read shipping from RAW item, not formatted (formatted is 0 to prevent frontend double-counting)
+          const rawVehicleShipping = Number(item.shipping_fee_usd || 0);
+          vehicleShippingTotal += rawVehicleShipping;
           vehicleTotalUsd += formattedItem.itemSubtotalUsd;
           
           console.log('[mobile-get-cart] Vehicle with quote added to totals:', {
             id: item.id,
             base: formattedItem.itemBaseTotalUsd,
             margin: formattedItem.itemMarginUsd,
-            shipping: formattedItem.itemShippingUsd,
+            shipping: rawVehicleShipping,  // Log the REAL shipping from DB
             total: formattedItem.itemSubtotalUsd
           });
         } else {

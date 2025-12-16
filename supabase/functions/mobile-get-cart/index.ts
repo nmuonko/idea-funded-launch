@@ -23,7 +23,10 @@ function calculateItemShipping(
   return round2(basePart + extraPart);
 }
 
-// Format item for response - CRITICAL: Vehicle items use STORED values, no recalculation
+/**
+ * Format item for response - STABLE SCHEMA for all item types
+ * Every item has: id, type, title, price fields, quote_status, shipping_cost, updated_at
+ */
 function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;
@@ -31,142 +34,125 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   const isVehicle = item.is_vehicle === true;
   const vehicleQuoteApplied = item.vehicle_quote_applied === true;
   
-  // Get quote request info
+  // Get quote request info - ALWAYS include regardless of status
   const quoteRequest = item.quote_requests?.[0];
-  const quoteStatus = quoteRequest?.status || null;
+  const quoteStatus = quoteRequest?.status || (isVehicle && !vehicleQuoteApplied ? 'PENDING' : null);
+  const quotedShippingUsd = quoteRequest?.quoted_shipping_usd ?? null;
+  const quotedTotalUsd = quoteRequest?.quoted_total_usd ?? null;
   
-  // CRITICAL: For vehicles with applied quotes, use STORED values - NO recalculation
-  // SHIPPING IS STORED AT ITEM LEVEL for vehicles (order_items.shipping_fee_usd)
+  // STABLE BASE FIELDS for all items
+  const baseFields = {
+    id: item.id,
+    type: isVehicle ? 'vehicle' : 'product',  // STABLE TYPE FIELD
+    productUrl: item.product_url,
+    productTitle: item.title || null,
+    title: item.title || null,  // Alias for consistency
+    productImageUrl: item.product_image_url || null,
+    image_url: item.product_image_url || null,
+    store: item.store,
+    quantity: isVehicle ? 1 : quantity,
+    estWeightKg,
+    isSavedForLater: item.is_saved_for_later || false,
+    savedAt: item.saved_at || null,
+    updatedAt: item.updated_at || null,
+    // Quote fields - ALWAYS present (null if not applicable)
+    quoteStatus,
+    quotedShippingUsd,
+    quotedTotalUsd,
+    isVehicle,
+    vehicleQuoteApplied,
+  };
+  
+  // VEHICLE WITH APPLIED QUOTE - use STORED values
   if (isVehicle && vehicleQuoteApplied) {
     const storedBase = Number(item.base_price_usd || 0);
     const storedMargin = Number(item.markup_fee_usd || 0);
-    const storedShipping = Number(item.shipping_fee_usd || 0);  // THE CANONICAL SHIPPING VALUE
-    const storedTotal = Number(item.total_price_usd || 0);      // base + margin + shipping
-    
-    // Calculate subtotal WITHOUT shipping for display breakdown
+    const storedShipping = Number(item.shipping_fee_usd || 0);
+    const storedTotal = Number(item.total_price_usd || 0);
     const subtotalBeforeShipping = round2(storedBase + storedMargin);
     
-    console.log('[mobile-get-cart] Vehicle with quote - using STORED values:', {
+    console.log('[mobile-get-cart] Vehicle WITH quote:', {
       itemId: item.id,
-      storedBase,
-      storedMargin,
-      storedShipping,
-      subtotalBeforeShipping,
-      storedTotal,
-      vehicleQuoteApplied
+      storedBase, storedMargin, storedShipping, storedTotal
     });
     
     return {
-      id: item.id,
-      productUrl: item.product_url,
-      productTitle: item.title || null,
-      productImageUrl: item.product_image_url || null,
-      image_url: item.product_image_url || null,
-      store: item.store,
-      // Use STORED values - these come from admin-apply-vehicle-quote
+      ...baseFields,
       basePriceUsd: storedBase,
-      quantity: 1,  // Vehicles are always qty 1
       unitPriceUsd: storedBase,
-      itemBaseTotalUsd: storedBase,              // Vehicle price
-      itemMarginUsd: storedMargin,               // Margin from quote
-      itemShippingUsd: storedShipping,           // SHIPPING FOR THIS VEHICLE (canonical source)
-      itemSubtotalUsd: subtotalBeforeShipping,   // Base + margin BEFORE shipping
-      itemTotalUsd: storedTotal,                 // Grand total (base + margin + shipping)
+      itemBaseTotalUsd: storedBase,
+      itemMarginUsd: storedMargin,
+      itemShippingUsd: storedShipping,
+      shippingCost: storedShipping,  // STABLE FIELD NAME
+      itemSubtotalUsd: subtotalBeforeShipping,
+      itemTotalUsd: storedTotal,
+      price: storedTotal,  // STABLE FIELD NAME for total
       itemSubtotalCdf: round2(storedTotal * exchangeRate),
-      estWeightKg,
       requiresManualQuote: false,
-      isSavedForLater: item.is_saved_for_later || false,
-      savedAt: item.saved_at || null,
+      isQuoteRequired: false,
       shippingItemType: null,
-      // Vehicle-specific fields
-      isVehicle: true,
-      isQuoteRequired: false,  // Quote has been applied
-      vehicleQuoteApplied: true,
-      quoteStatus: quoteStatus || 'SENT',
-      // NO quotedShippingUsd - shipping is ONLY in itemShippingUsd to prevent double-counting
     };
   }
   
-  // For vehicles WITHOUT quotes yet - show as pending with estimated margin
+  // VEHICLE WITHOUT QUOTE - pending, show estimated values
   if (isVehicle && !vehicleQuoteApplied) {
-    // Calculate estimated margin using vehicle markup
     const estimatedMargin = round2(basePriceUsd * (vehicleMarkupPercent / 100));
     const estimatedSubtotal = round2(basePriceUsd + estimatedMargin);
     
+    console.log('[mobile-get-cart] Vehicle PENDING quote:', {
+      itemId: item.id,
+      basePriceUsd, estimatedMargin, estimatedSubtotal
+    });
+    
     return {
-      id: item.id,
-      productUrl: item.product_url,
-      productTitle: item.title || null,
-      productImageUrl: item.product_image_url || null,
-      image_url: item.product_image_url || null,
-      store: item.store,
+      ...baseFields,
       basePriceUsd,
-      quantity: 1,
       unitPriceUsd: basePriceUsd,
       itemBaseTotalUsd: basePriceUsd,
-      itemMarginUsd: estimatedMargin,  // Estimated margin using vehicle markup
-      itemShippingUsd: 0,  // No shipping yet - pending quote
-      itemSubtotalUsd: estimatedSubtotal,  // Base + estimated margin until quoted
+      itemMarginUsd: estimatedMargin,
+      itemShippingUsd: 0,
+      shippingCost: null,  // Pending quote - no shipping yet
+      itemSubtotalUsd: estimatedSubtotal,
+      itemTotalUsd: estimatedSubtotal,  // No shipping included yet
+      price: estimatedSubtotal,  // Display price (without shipping)
       itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate),
-      estWeightKg,
       requiresManualQuote: true,
-      isSavedForLater: item.is_saved_for_later || false,
-      savedAt: item.saved_at || null,
+      isQuoteRequired: true,
       shippingItemType: null,
-      isVehicle: true,
-      isQuoteRequired: true,  // Needs quote
-      vehicleQuoteApplied: false,
-      quoteStatus: quoteStatus || 'PENDING',
-      quotedShippingUsd: null,
-      quotedTotalUsd: null,
-      vehicleMarkupPercent,  // Include markup % for transparency
+      vehicleMarkupPercent,
     };
   }
   
-  // REGULAR ITEMS (non-vehicles) - calculate as normal
+  // REGULAR PRODUCT - calculate as normal
   const itemRequiresQuote = item.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
-  
-  // Calculate expected values from base price
   const expectedBaseTotal = round2(basePriceUsd * quantity);
   const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
   const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
   const expectedSubtotalCdf = round2(expectedSubtotal * exchangeRate);
 
-  // Use stored values if valid, otherwise use calculated
   const itemBaseTotalUsd = Number(item.subtotal_usd) > 0 ? Number(item.subtotal_usd) : expectedBaseTotal;
   const itemMarginUsd = Number(item.markup_fee_usd) > 0 ? Number(item.markup_fee_usd) : expectedMargin;
   const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
   const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
 
   return {
-    id: item.id,
-    productUrl: item.product_url,
-    productTitle: item.title || null,
-    productImageUrl: item.product_image_url || null,
-    image_url: item.product_image_url || null,
-    store: item.store,
+    ...baseFields,
     basePriceUsd,
-    quantity,
     unitPriceUsd: basePriceUsd,
     itemBaseTotalUsd,
     itemMarginUsd,
-    itemShippingUsd: 0,  // Shipping calculated at order level for regular items
+    itemShippingUsd: 0,
+    shippingCost: 0,
     itemSubtotalUsd,
+    itemTotalUsd: itemSubtotalUsd,
+    price: itemSubtotalUsd,
     itemSubtotalCdf,
-    estWeightKg,
     requiresManualQuote: itemRequiresQuote,
-    isSavedForLater: item.is_saved_for_later || false,
-    savedAt: item.saved_at || null,
+    isQuoteRequired: false,
     shippingItemType: item.shipping_item_types ? {
       key: item.shipping_item_types.key,
       label: item.shipping_item_types.label,
     } : null,
-    isVehicle: false,
-    isQuoteRequired: false,
-    vehicleQuoteApplied: false,
-    quoteStatus: null,
-    quotedShippingUsd: null,
-    quotedTotalUsd: null,
   };
 }
 
@@ -231,7 +217,7 @@ serve(async (req) => {
       .select(`
         id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
         subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
-        est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, 
+        est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
         is_vehicle, vehicle_quote_applied,
         shipping_item_types(key, label),
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)
@@ -282,11 +268,12 @@ serve(async (req) => {
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
           vehicleMarginTotal += formattedItem.itemMarginUsd;
           vehicleShippingTotal += formattedItem.itemShippingUsd;
-          vehicleTotalUsd += formattedItem.itemSubtotalUsd;
+          vehicleTotalUsd += formattedItem.itemTotalUsd;  // Use itemTotalUsd (base+margin+shipping)
         } else {
           allVehiclesQuoted = false;
           vehiclesWithPendingQuotes.push(item.id);
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
+          vehicleMarginTotal += formattedItem.itemMarginUsd;  // Include estimated margin
         }
       } else {
         regularItemCount += formattedItem.quantity;
@@ -312,8 +299,9 @@ serve(async (req) => {
     const totalMarginUsd = round2(regularItemsMarginTotal + vehicleMarginTotal);
     const totalShippingUsd = round2(regularShippingTotal + vehicleShippingTotal);
     
+    // vehicleTotalUsd already includes shipping for quoted vehicles
     const grandTotalUsd = round2(
-      regularItemsSubtotal + regularShippingTotal + vehicleTotalUsd + vehicleShippingTotal
+      regularItemsSubtotal + regularShippingTotal + vehicleTotalUsd
     );
     const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 

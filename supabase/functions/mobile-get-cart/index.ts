@@ -342,28 +342,19 @@ serve(async (req) => {
     // Can proceed to payment?
     const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted);
 
+    // CRITICAL: Only use the main fields for cart display!
+    // The _breakdown object is for debugging/admin ONLY - DO NOT add its values to display
     const summary: Record<string, any> = {
+      // === MAIN DISPLAY FIELDS (use ONLY these for cart UI) ===
       itemCount: totalItemCount,
-      // Combined totals for cart display
       itemsTotalUsd: itemsBaseTotalUsd,       // "Total des articles" - base prices
-      markupFeeUsd: totalMarginUsd,           // "Frais de marge"
-      shippingFeeUsd: totalShippingUsd,       // "Frais de livraison"
+      markupFeeUsd: totalMarginUsd,           // "Frais de marge" - TOTAL margin
+      shippingFeeUsd: totalShippingUsd,       // "Frais de livraison" - TOTAL shipping (DO NOT ADD vehicleShippingUsd!)
       totalUsd: grandTotalUsd,                // "Total (USD)"
       totalCdf: grandTotalCdf,                // "Total (CDF)"
       exchangeRate: order.exchange_rate_used || exchangeRate,
-      // Regular items breakdown
-      regularItemCount,
-      regularItemsBaseUsd: round2(regularItemsBaseTotal),
-      regularItemsMarkupUsd: round2(regularItemsMarginTotal),
-      regularItemsSubtotalUsd: round2(regularItemsSubtotal),
-      regularShippingUsd: round2(regularShippingTotal),
-      // Vehicle items breakdown
-      vehicleCount,
-      vehicleBasePriceUsd: round2(vehicleBasePriceTotal),
-      vehicleMarginUsd: round2(vehicleMarginTotal),
-      vehicleShippingUsd: round2(vehicleShippingTotal),
-      vehicleTotalUsd: round2(vehicleTotalUsd),
-      // Status flags
+      
+      // === STATUS FLAGS ===
       requiresManualQuote: regularRequiresQuote,
       savedItemCount: savedItems.length,
       hasVehicleItems,
@@ -371,11 +362,28 @@ serve(async (req) => {
       allVehiclesQuoted,
       vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length,
       canProceedToPayment,
-      // Settings for transparency
-      markupPercent,
-      vehicleMarkupPercent,
-      shippingBaseFeeUsd,
-      shippingPercent,
+      
+      // === BREAKDOWN (for debugging/admin ONLY - NOT for display addition) ===
+      _breakdown: {
+        regularItemCount,
+        regularItemsBaseUsd: round2(regularItemsBaseTotal),
+        regularItemsMarkupUsd: round2(regularItemsMarginTotal),
+        regularItemsSubtotalUsd: round2(regularItemsSubtotal),
+        regularShippingUsd: round2(regularShippingTotal),
+        vehicleCount,
+        vehicleBasePriceUsd: round2(vehicleBasePriceTotal),
+        vehicleMarginUsd: round2(vehicleMarginTotal),
+        vehicleShippingUsd: round2(vehicleShippingTotal),
+        vehicleTotalUsd: round2(vehicleTotalUsd),
+      },
+      
+      // === SETTINGS (for transparency) ===
+      _settings: {
+        markupPercent,
+        vehicleMarkupPercent,
+        shippingBaseFeeUsd,
+        shippingPercent,
+      },
     };
     
     if (regularRequiresQuote) {

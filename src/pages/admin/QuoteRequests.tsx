@@ -254,27 +254,30 @@ export default function QuoteRequests() {
   const [calculatedTotal, setCalculatedTotal] = useState(0);
 
   // Fetch pricing settings including vehicle-specific markup
-  useEffect(() => {
-    const fetchSettings = async () => {
-      const { data, error } = await supabase
-        .from("settings")
-        .select("markup_percent, exchange_rate_usd_to_cdf, category_markups")
-        .limit(1)
-        .single();
+  const fetchSettings = async () => {
+    const { data, error } = await supabase
+      .from("settings")
+      .select("markup_percent, exchange_rate_usd_to_cdf, category_markups")
+      .limit(1)
+      .single();
+    
+    if (!error && data) {
+      const generalMarkup = Number(data.markup_percent) || 15;
+      // Extract vehicle markup from category_markups.vehicles, fallback to general
+      const categoryMarkups = data.category_markups as Record<string, number> | null;
+      const vehicleMarkup = categoryMarkups?.vehicles ?? generalMarkup;
       
-      if (!error && data) {
-        const generalMarkup = Number(data.markup_percent) || 15;
-        // Extract vehicle markup from category_markups.vehicles, fallback to general
-        const categoryMarkups = data.category_markups as Record<string, number> | null;
-        const vehicleMarkup = categoryMarkups?.vehicles ?? generalMarkup;
-        
-        setSettings({
-          markupPercent: generalMarkup,
-          vehicleMarkupPercent: Number(vehicleMarkup),
-          exchangeRate: Number(data.exchange_rate_usd_to_cdf) || 2500,
-        });
-      }
-    };
+      console.log("[QuoteRequests] Loaded settings - vehicle markup:", vehicleMarkup, "from category_markups:", categoryMarkups);
+      
+      setSettings({
+        markupPercent: generalMarkup,
+        vehicleMarkupPercent: Number(vehicleMarkup),
+        exchangeRate: Number(data.exchange_rate_usd_to_cdf) || 2500,
+      });
+    }
+  };
+
+  useEffect(() => {
     fetchSettings();
   }, []);
 
@@ -373,7 +376,9 @@ export default function QuoteRequests() {
     }
   };
 
-  const openQuoteDialog = (request: QuoteRequest) => {
+  const openQuoteDialog = async (request: QuoteRequest) => {
+    // Refetch settings to ensure we have latest vehicle markup
+    await fetchSettings();
     setSelectedRequest(request);
     // If quote was already sent, pre-fill with existing values
     if (request.quoted_shipping_usd) {

@@ -1419,6 +1419,7 @@ export type Database = {
         Row: {
           amount_cdf: number | null
           amount_usd: number | null
+          confirmation_code: string | null
           created_at: string | null
           currency: string | null
           id: string | null
@@ -1427,6 +1428,32 @@ export type Database = {
           paid_at: string | null
           status: string | null
           updated_at: string | null
+        }
+        Insert: {
+          amount_cdf?: number | null
+          amount_usd?: number | null
+          confirmation_code?: string | null
+          created_at?: string | null
+          currency?: string | null
+          id?: string | null
+          maisha_reference?: string | null
+          order_id?: string | null
+          paid_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount_cdf?: number | null
+          amount_usd?: number | null
+          confirmation_code?: string | null
+          created_at?: string | null
+          currency?: string | null
+          id?: string | null
+          maisha_reference?: string | null
+          order_id?: string | null
+          paid_at?: string | null
+          status?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {

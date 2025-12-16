@@ -81,9 +81,9 @@ export default function TrackOrder() {
     setOrderData(null);
 
     try {
-      // Find payment by confirmation code
+      // Find payment by confirmation code using safe view (excludes sensitive raw API data)
       const { data: payment, error: paymentError } = await supabase
-        .from("maisha_payments")
+        .from("safe_user_payments")
         .select("order_id, confirmation_code")
         .eq("confirmation_code", searchCode)
         .maybeSingle();

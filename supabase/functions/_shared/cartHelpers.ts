@@ -275,6 +275,12 @@ export async function getOrCreateSingleDraftOrder(
  * 
  * Vehicle items with applied quotes use STORED shipping_fee_usd values.
  * Regular items have shipping calculated dynamically.
+ * 
+ * TOTALS BREAKDOWN:
+ * - itemTotalUsd: Sum of base prices (regularItemTotalUsd + vehicleBasePriceTotal)
+ * - serviceFeeUsd: Sum of margins (regularServiceFeeUsd + vehicleMarginTotal)
+ * - shippingFeeUsd: Sum of shipping (regularShippingFeeUsd + vehicleShippingTotal)
+ * - totalUsd: Grand total (items + markup + shipping)
  */
 export async function updateOrderTotals(
   supabase: any,
@@ -286,7 +292,7 @@ export async function updateOrderTotals(
   // Query all items including vehicle flags and stored shipping
   const { data: items, error: itemsError } = await supabase
     .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied')
+    .select('base_price_usd, subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later, is_vehicle, vehicle_quote_applied')
     .eq('order_id', orderId);
 
   if (itemsError) {
@@ -295,15 +301,15 @@ export async function updateOrderTotals(
   }
 
   // Track regular items and vehicles separately
-  let regularItemTotalUsd = 0;
-  let regularServiceFeeUsd = 0;
-  let regularItemsWithMarkupUsd = 0;
+  let regularItemBaseTotal = 0;    // Sum of regular item base prices
+  let regularItemMarginTotal = 0;  // Sum of regular item margins
   let regularRequiresQuote = false;
   let regularItemCount = 0;
 
   // Vehicle totals - vehicles with applied quotes use STORED values
-  let vehicleTotalUsd = 0;
-  let vehicleShippingUsd = 0;
+  let vehicleBasePriceTotal = 0;   // Sum of vehicle base prices
+  let vehicleMarginTotal = 0;      // Sum of vehicle margins
+  let vehicleShippingTotal = 0;    // Sum of vehicle shipping
   let vehicleItemCount = 0;
   let hasVehiclePendingQuote = false;
 
@@ -318,33 +324,41 @@ export async function updateOrderTotals(
       vehicleItemCount++;
       
       if (vehicleQuoteApplied) {
-        // Vehicle WITH quote: use STORED total (includes shipping)
-        const storedTotal = Number(item.total_price_usd || 0);
+        // Vehicle WITH quote: use STORED values
+        const storedBase = Number(item.base_price_usd || 0);
+        const storedMargin = Number(item.markup_fee_usd || 0);
         const storedShipping = Number(item.shipping_fee_usd || 0);
         
-        vehicleTotalUsd += storedTotal;
-        vehicleShippingUsd += storedShipping;
+        vehicleBasePriceTotal += storedBase;
+        vehicleMarginTotal += storedMargin;
+        vehicleShippingTotal += storedShipping;
         
         console.log('[updateOrderTotals] Vehicle with quote:', {
-          total: storedTotal,
+          base: storedBase,
+          margin: storedMargin,
           shipping: storedShipping,
         });
       } else {
-        // Vehicle WITHOUT quote: pending, don't include in totals for checkout
+        // Vehicle WITHOUT quote: include estimated base and margin, but mark as pending
+        const basePrice = Number(item.base_price_usd || 0);
+        const estimatedMargin = Number(item.markup_fee_usd || 0);
+        
+        vehicleBasePriceTotal += basePrice;
+        vehicleMarginTotal += estimatedMargin;
+        // No shipping for pending vehicles
+        
         hasVehiclePendingQuote = true;
-        console.log('[updateOrderTotals] Vehicle pending quote - excluded from totals');
+        console.log('[updateOrderTotals] Vehicle pending quote:', { base: basePrice, margin: estimatedMargin });
       }
     } else {
       // Regular item
-      const subtotal = Number(item.subtotal_usd || 0);
-      const markup = Number(item.markup_fee_usd || 0);
-      const total = Number(item.total_price_usd || 0);
+      const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
+      const margin = Number(item.markup_fee_usd || 0);
       const estWeight = Number(item.est_weight_kg || 1);
       const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
 
-      regularItemTotalUsd += subtotal;
-      regularServiceFeeUsd += markup;
-      regularItemsWithMarkupUsd += total;
+      regularItemBaseTotal += basePrice;
+      regularItemMarginTotal += margin;
       regularItemCount++;
 
       if (itemRequiresQuote) {
@@ -356,33 +370,33 @@ export async function updateOrderTotals(
   // Calculate shipping for REGULAR items only (vehicles have stored shipping)
   let regularShippingFeeUsd = 0;
   if (!regularRequiresQuote && regularItemCount > 0) {
-    regularShippingFeeUsd = calculateShipping(regularItemTotalUsd, shippingBaseFeeUsd, shippingPercent);
+    regularShippingFeeUsd = calculateShipping(regularItemBaseTotal, shippingBaseFeeUsd, shippingPercent);
   }
 
-  // Combined totals
+  // Combined totals - INCLUDE BOTH regular AND vehicle values
   const activeItemCount = regularItemCount + vehicleItemCount;
   const requiresManualQuote = regularRequiresQuote || hasVehiclePendingQuote;
   
-  // Item totals (base prices) - vehicles don't contribute here if pending
-  const itemTotalUsd = round2(regularItemTotalUsd);
-  const serviceFeeUsd = round2(regularServiceFeeUsd);
+  // Item totals = base prices from regular items + vehicle base prices
+  const itemTotalUsd = round2(regularItemBaseTotal + vehicleBasePriceTotal);
+  
+  // Service/margin fee = regular margins + vehicle margins
+  const serviceFeeUsd = round2(regularItemMarginTotal + vehicleMarginTotal);
   
   // Total shipping = regular shipping + vehicle shipping
-  const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShippingUsd);
+  const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShippingTotal);
   
-  // Grand total = regular items with markup + regular shipping + vehicle totals (which include their shipping)
-  const totalUsd = round2(regularItemsWithMarkupUsd + regularShippingFeeUsd + vehicleTotalUsd);
+  // Grand total = items + margins + shipping
+  const totalUsd = round2(itemTotalUsd + serviceFeeUsd + shippingFeeUsd);
   const totalCdf = round2(totalUsd * exchangeRate);
 
   console.log('[updateOrderTotals] Calculated totals:', {
     orderId,
     activeItemCount,
     totalItemsInOrder: items?.length || 0,
-    itemTotalUsd: round2(itemTotalUsd),
-    serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    totalUsd,
-    totalCdf,
+    regularItems: { base: regularItemBaseTotal, margin: regularItemMarginTotal, shipping: regularShippingFeeUsd },
+    vehicleItems: { base: vehicleBasePriceTotal, margin: vehicleMarginTotal, shipping: vehicleShippingTotal },
+    combined: { items: itemTotalUsd, margin: serviceFeeUsd, shipping: shippingFeeUsd, total: totalUsd },
     requiresManualQuote,
   });
 
@@ -393,8 +407,6 @@ export async function updateOrderTotals(
       activeItemCount,
       itemTotalUsd,
       serviceFeeUsd,
-      regularItemsWithMarkupUsd,
-      vehicleTotalUsd,
     });
     
     // Log to ai_assistant_logs for admin visibility
@@ -416,7 +428,7 @@ export async function updateOrderTotals(
     }
   }
 
-  // Persist to orders table
+  // Persist to orders table - ALWAYS use provided exchange rate (from settings)
   const { error: updateError } = await supabase
     .from('orders')
     .update({

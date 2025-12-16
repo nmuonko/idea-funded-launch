@@ -7,6 +7,15 @@ import {
 import { getCachedSettings } from "../_shared/settings-cache.ts";
 import { updateOrderTotals } from "../_shared/cartHelpers.ts";
 
+/**
+ * Mobile Delete Cart Item - IDEMPOTENT
+ * 
+ * Deletes an item from the user's cart and recalculates totals.
+ * If the item doesn't exist, returns success (idempotent).
+ * 
+ * DELETE /mobile-delete-cart-item/:itemId
+ */
+
 serve(async (req) => {
   // Handle CORS preflight
   const corsResponse = handleCors(req);
@@ -17,11 +26,14 @@ serve(async (req) => {
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-delete-cart-item] User authenticated:', user.id);
 
+    // Extract itemId from URL path safely
     const url = new URL(req.url);
-    const itemId = url.pathname.split('/').pop();
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const itemId = pathParts[pathParts.length - 1];
 
-    if (!itemId) {
-      return jsonResponse({ success: false, code: 'INVALID_REQUEST', message: 'Item ID is required' }, 400);
+    // Validate itemId format (UUID)
+    if (!itemId || typeof itemId !== 'string' || itemId.length < 10) {
+      return jsonResponse({ success: false, code: 'INVALID_REQUEST', message: 'Valid item ID is required' }, 400);
     }
 
     console.log('[mobile-delete-cart-item] Deleting item:', itemId);
@@ -116,6 +128,17 @@ serve(async (req) => {
       return jsonResponse({ success: false, code: 'DB_ERROR', message: 'Failed to delete item' }, 500);
     }
 
+    // Also delete any associated quote_requests for this item
+    try {
+      await supabase
+        .from('quote_requests')
+        .delete()
+        .eq('order_item_id', itemId);
+    } catch (quoteDeleteError) {
+      // Non-fatal - quote request might not exist
+      console.log('[mobile-delete-cart-item] Quote request cleanup (non-fatal):', quoteDeleteError);
+    }
+
     // UPDATE ORDER TOTALS after deletion using shared helper
     const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
@@ -137,15 +160,15 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error('[mobile-delete-cart-item] Error:', error.message);
+    console.error('[mobile-delete-cart-item] Error:', error?.message || error);
     
     // Return structured error with success: false (not ok: false)
-    if (error.name === 'AuthError') {
+    if (error?.name === 'AuthError') {
       return jsonResponse({ 
         success: false, 
         code: 'AUTH_ERROR', 
-        message: error.message 
-      }, error.status || 401);
+        message: error?.message || 'Authentication error'
+      }, error?.status || 401);
     }
     
     return jsonResponse({ 

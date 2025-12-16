@@ -84,6 +84,7 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       itemMarginUsd: storedMargin,
       itemShippingUsd: storedShipping,
       shippingCost: storedShipping,  // STABLE FIELD NAME
+      shippingStatus: 'QUOTED',      // Shipping has been quoted by admin
       itemSubtotalUsd: subtotalBeforeShipping,
       itemTotalUsd: storedTotal,
       price: storedTotal,  // STABLE FIELD NAME for total
@@ -111,10 +112,11 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       itemBaseTotalUsd: basePriceUsd,
       itemMarginUsd: estimatedMargin,
       itemShippingUsd: 0,
-      shippingCost: null,  // Pending quote - no shipping yet
+      shippingCost: null,           // Pending quote - no shipping yet
+      shippingStatus: 'PENDING',    // Shipping quote pending from admin
       itemSubtotalUsd: estimatedSubtotal,
       itemTotalUsd: estimatedSubtotal,  // No shipping included yet
-      price: estimatedSubtotal,  // Display price (without shipping)
+      price: estimatedSubtotal,     // Display price (without shipping)
       itemSubtotalCdf: round2(estimatedSubtotal * exchangeRate),
       requiresManualQuote: true,
       isQuoteRequired: true,
@@ -306,16 +308,20 @@ serve(async (req) => {
       regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * shippingPercent));
     }
 
-    // GRAND TOTALS
+    // GRAND TOTALS - consistent with updateOrderTotals in cartHelpers.ts
     const totalItemCount = regularItemCount + vehicleCount;
+    
+    // Item totals = base prices from regular items + vehicle base prices
     const itemsBaseTotalUsd = round2(regularItemsBaseTotal + vehicleBasePriceTotal);
+    
+    // Margin = regular margins + vehicle margins
     const totalMarginUsd = round2(regularItemsMarginTotal + vehicleMarginTotal);
+    
+    // Shipping = regular shipping + vehicle shipping (only for quoted vehicles)
     const totalShippingUsd = round2(regularShippingTotal + vehicleShippingTotal);
     
-    // vehicleTotalUsd already includes shipping for quoted vehicles
-    const grandTotalUsd = round2(
-      regularItemsSubtotal + regularShippingTotal + vehicleTotalUsd
-    );
+    // Grand total = items + margin + shipping
+    const grandTotalUsd = round2(itemsBaseTotalUsd + totalMarginUsd + totalShippingUsd);
     const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
 
     // Determine vehicle quote status
@@ -327,14 +333,20 @@ serve(async (req) => {
     const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted);
 
     // LEAN SUMMARY - only fields mobile needs
+    // CRITICAL: Always use settings exchangeRate as source of truth (not order.exchange_rate_used)
     const summary: Record<string, any> = {
       itemCount: totalItemCount,
       itemsTotalUsd: itemsBaseTotalUsd,
       markupFeeUsd: totalMarginUsd,
       shippingFeeUsd: totalShippingUsd,
+      // Shipping status for mobile UI
+      shippingStatus: hasVehicleItems 
+        ? (allVehiclesQuoted ? 'QUOTED' : 'PENDING_QUOTE')
+        : (regularRequiresQuote ? 'PENDING_QUOTE' : 'CALCULATED'),
       totalUsd: grandTotalUsd,
       totalCdf: grandTotalCdf,
-      exchangeRate: order.exchange_rate_used || exchangeRate,
+      // ALWAYS use settings exchange rate for consistency with admin panel
+      exchangeRate: exchangeRate,
       requiresManualQuote: regularRequiresQuote,
       savedItemCount: savedItems.length,
       hasVehicleItems,
@@ -342,6 +354,13 @@ serve(async (req) => {
       allVehiclesQuoted,
       vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length,
       canProceedToPayment,
+      // Vehicle-specific totals for transparency
+      vehicleTotals: hasVehicleItems ? {
+        basePriceUsd: vehicleBasePriceTotal,
+        marginUsd: vehicleMarginTotal,
+        shippingUsd: vehicleShippingTotal,
+        totalUsd: vehicleTotalUsd,
+      } : null,
     };
     
     if (regularRequiresQuote) {

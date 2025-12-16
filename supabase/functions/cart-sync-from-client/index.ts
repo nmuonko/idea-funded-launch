@@ -254,7 +254,31 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error('[cart-sync-from-client] Unexpected error:', error);
+    console.error('[cart-sync-from-client] Unexpected error:', error?.message || error);
+    
+    // Check for specific error types
+    const errorMessage = error?.message || '';
+    
+    // Database connection errors
+    if (errorMessage.includes('connection') || errorMessage.includes('timeout') || errorMessage.includes('ECONNREFUSED')) {
+      return jsonResponse({ 
+        ok: false, 
+        success: false,
+        code: 'DB_CONNECTION_ERROR', 
+        message: 'Unable to connect to server. Please check your internet connection.' 
+      }, 503);
+    }
+    
+    // Auth errors
+    if (error?.name === 'AuthError' || errorMessage.includes('JWT')) {
+      return jsonResponse({ 
+        ok: false, 
+        success: false,
+        code: 'AUTH_ERROR', 
+        message: 'Session expired. Please login again.' 
+      }, 401);
+    }
+    
     // Return structured error - NEVER delete cart on transient errors
     return jsonResponse({ 
       ok: false, 

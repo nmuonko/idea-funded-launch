@@ -16,6 +16,8 @@ import {
   type ShippingCategoryKey,
 } from "../_shared/shippingCategory.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
+// CRITICAL: Import shared updateOrderTotals to ensure vehicle handling is consistent
+import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
 const addCartItemSchema = z.object({
@@ -116,104 +118,13 @@ async function optionallyGetUser(req: Request): Promise<{ user: User | null; sup
   }
 }
 
-// Calculate and persist order totals from items using settings values
-async function updateOrderTotals(
-  supabase: any,
-  orderId: string,
-  shippingBaseFeeUsd: number,
-  shippingPercent: number,
-  exchangeRate: number
-) {
-  // Get all items for this order
-  const { data: items, error: itemsError } = await supabase
-    .from('order_items')
-    .select('subtotal_usd, markup_fee_usd, total_price_usd, quantity, est_weight_kg, requires_manual_quote, is_saved_for_later')
-    .eq('order_id', orderId);
-
-  if (itemsError) {
-    console.error('[updateOrderTotals] Failed to fetch items:', itemsError);
-    return null;
-  }
-
-  // Calculate order totals from ACTIVE items only
-  let itemTotalUsd = 0;
-  let serviceFeeUsd = 0;
-  let itemsWithMarkupUsd = 0;
-  let requiresManualQuote = false;
-  let activeItemCount = 0;
-
-  (items || []).forEach((item: any) => {
-    // Only count active items (not saved for later)
-    if (!item.is_saved_for_later) {
-      const subtotal = Number(item.subtotal_usd || 0);
-      const markup = Number(item.markup_fee_usd || 0);
-      const total = Number(item.total_price_usd || 0);
-      const estWeight = Number(item.est_weight_kg || 1);
-      const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
-
-      itemTotalUsd += subtotal;
-      serviceFeeUsd += markup;
-      itemsWithMarkupUsd += total;
-      activeItemCount++;
-
-      if (itemRequiresQuote) {
-        requiresManualQuote = true;
-      }
-    }
-  });
-
-  // Calculate shipping using settings: base_fee + (items_subtotal × shipping_percent)
-  let shippingFeeUsd = 0;
-  if (!requiresManualQuote && activeItemCount > 0) {
-    shippingFeeUsd = round2(shippingBaseFeeUsd + (itemTotalUsd * shippingPercent));
-  }
-  
-  // Grand totals
-  const totalUsd = round2(itemsWithMarkupUsd + shippingFeeUsd);
-  const totalCdf = round2(totalUsd * exchangeRate);
-
-  console.log('[updateOrderTotals] Calculated totals:', {
-    orderId,
-    itemTotalUsd: round2(itemTotalUsd),
-    serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    totalUsd,
-    totalCdf,
-    requiresManualQuote,
-    activeItemCount,
-    shippingBaseFeeUsd,
-    shippingPercent,
-  });
-
-  // Persist to orders table
-  const { error: updateError } = await supabase
-    .from('orders')
-    .update({
-      item_total_usd: round2(itemTotalUsd),
-      service_fee_usd: round2(serviceFeeUsd),
-      shipping_fee_usd: round2(shippingFeeUsd),
-      total_usd: totalUsd,
-      total_cdf: totalCdf,
-      exchange_rate_used: exchangeRate,
-      requires_manual_quote: requiresManualQuote,
-    })
-    .eq('id', orderId);
-
-  if (updateError) {
-    console.error('[updateOrderTotals] Failed to update order totals:', updateError);
-    return null;
-  }
-
-  return {
-    itemTotalUsd: round2(itemTotalUsd),
-    serviceFeeUsd: round2(serviceFeeUsd),
-    shippingFeeUsd: round2(shippingFeeUsd),
-    totalUsd,
-    totalCdf,
-    exchangeRate,
-    requiresManualQuote,
-  };
-}
+// REMOVED: Local updateOrderTotals function
+// Now using shared updateOrderTotals from cartHelpers.ts which properly handles vehicles
+// The shared helper:
+// - Separates regular items from vehicles
+// - Uses STORED shipping_fee_usd for vehicles with applied quotes
+// - Only calculates shipping for regular items
+// - Persists all totals to orders table including exchange_rate_used
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -610,7 +521,7 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
 
       // UPDATE ORDER TOTALS after merge - use settings values
-      const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
+      const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
       const mergedImageUrl = updatedItem.product_image_url || null;
       
@@ -698,7 +609,7 @@ serve(async (req) => {
     }
 
     // UPDATE ORDER TOTALS after adding new item - use settings values
-    const summary = await updateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
+    const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
     const newImageUrl = data.product_image_url || null;
     

@@ -55,6 +55,7 @@ interface QuoteRequest {
 
 interface PricingSettings {
   markupPercent: number;
+  vehicleMarkupPercent: number;
   exchangeRate: number;
 }
 
@@ -241,7 +242,7 @@ export default function QuoteRequests() {
   const [selectedRequest, setSelectedRequest] = useState<QuoteRequest | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [settings, setSettings] = useState<PricingSettings>({ markupPercent: 15, exchangeRate: 2500 });
+  const [settings, setSettings] = useState<PricingSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, exchangeRate: 2500 });
   
   // Quote form state
   const [quotedShipping, setQuotedShipping] = useState("");
@@ -252,18 +253,24 @@ export default function QuoteRequests() {
   const [calculatedMargin, setCalculatedMargin] = useState(0);
   const [calculatedTotal, setCalculatedTotal] = useState(0);
 
-  // Fetch pricing settings
+  // Fetch pricing settings including vehicle-specific markup
   useEffect(() => {
     const fetchSettings = async () => {
       const { data, error } = await supabase
         .from("settings")
-        .select("markup_percent, exchange_rate_usd_to_cdf")
+        .select("markup_percent, exchange_rate_usd_to_cdf, category_markups")
         .limit(1)
         .single();
       
       if (!error && data) {
+        const generalMarkup = Number(data.markup_percent) || 15;
+        // Extract vehicle markup from category_markups.vehicles, fallback to general
+        const categoryMarkups = data.category_markups as Record<string, number> | null;
+        const vehicleMarkup = categoryMarkups?.vehicles ?? generalMarkup;
+        
         setSettings({
-          markupPercent: Number(data.markup_percent) || 15,
+          markupPercent: generalMarkup,
+          vehicleMarkupPercent: Number(vehicleMarkup),
           exchangeRate: Number(data.exchange_rate_usd_to_cdf) || 2500,
         });
       }
@@ -325,13 +332,14 @@ export default function QuoteRequests() {
     return () => clearInterval(intervalId);
   }, [fetchQuoteRequests]);
 
-  // Recalculate margin and total when shipping or base price changes
+  // Recalculate margin and total when shipping or base price changes - use VEHICLE markup
   useEffect(() => {
     if (!selectedRequest) return;
     
     const basePrice = Number(selectedRequest.base_price_usd) || 0;
     const shipping = parseFloat(quotedShipping) || 0;
-    const margin = Math.round(basePrice * (settings.markupPercent / 100) * 100) / 100;
+    // Use vehicle-specific markup for vehicles
+    const margin = Math.round(basePrice * (settings.vehicleMarkupPercent / 100) * 100) / 100;
     const total = Math.round((basePrice + shipping + margin) * 100) / 100;
     
     setCalculatedMargin(margin);
@@ -341,7 +349,7 @@ export default function QuoteRequests() {
     if (!quotedTotal || quotedTotal === "" || quotedTotal === selectedRequest.quoted_total_usd?.toString()) {
       setQuotedTotal(total.toFixed(2));
     }
-  }, [quotedShipping, selectedRequest, settings.markupPercent]);
+  }, [quotedShipping, selectedRequest, settings.vehicleMarkupPercent]);
 
   const handleManualRefresh = () => {
     fetchQuoteRequests(true);
@@ -711,7 +719,7 @@ export default function QuoteRequests() {
                   <span>{formatCurrency(parseFloat(quotedShipping) || 0, { currency: 'USD', locale })}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">{t.marginFee} ({settings.markupPercent}%):</span>
+                  <span className="text-muted-foreground">{t.marginFee} ({settings.vehicleMarkupPercent}%):</span>
                   <span>{formatCurrency(calculatedMargin, { currency: 'USD', locale })}</span>
                 </div>
                 <div className="flex justify-between font-medium border-t pt-1">

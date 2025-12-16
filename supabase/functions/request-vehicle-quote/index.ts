@@ -5,6 +5,7 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { notifyAdmin } from "../_shared/email.ts";
+import { isTeslaInventoryUrl, isCarStoreEnum } from "../_shared/cartHelpers.ts";
 
 /**
  * Request Vehicle Quote Edge Function
@@ -147,14 +148,37 @@ serve(async (req) => {
       }, 400);
     }
 
-    // CRITICAL: Filter to only VEHICLE items (is_vehicle = true)
-    // Non-vehicle items should NEVER require a quote
-    const vehicleItems = requestedItems.filter(item => 
-      item.is_vehicle === true && item.vehicle_quote_applied !== true
-    );
+    // CRITICAL: Filter to only VEHICLE items
+    // Primary check: is_vehicle flag in database
+    // Fallback: URL-based detection for Tesla/car marketplace URLs (catches items synced before flag was set)
+    const vehicleItems = requestedItems.filter(item => {
+      // Skip items that already have a quote applied
+      if (item.vehicle_quote_applied === true) {
+        return false;
+      }
+      
+      // Primary check: database flag
+      if (item.is_vehicle === true) {
+        return true;
+      }
+      
+      // Fallback: check Tesla inventory URL patterns
+      if (isTeslaInventoryUrl(item.product_url)) {
+        console.log('[request-vehicle-quote] Tesla URL detected via fallback:', item.product_url);
+        return true;
+      }
+      
+      // Fallback: check car store enum
+      if (isCarStoreEnum(item.store || '')) {
+        console.log('[request-vehicle-quote] Car store detected via fallback:', item.store);
+        return true;
+      }
+      
+      return false;
+    });
     
     if (vehicleItems.length === 0) {
-      console.log('[request-vehicle-quote] No vehicle items found in cart');
+      console.log('[request-vehicle-quote] No vehicle items found in cart after all checks');
       return jsonResponse({ 
         success: false,
         error: 'No vehicle items requiring a quote were found in your cart.',

@@ -36,18 +36,22 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   const quoteStatus = quoteRequest?.status || null;
   
   // CRITICAL: For vehicles with applied quotes, use STORED values - NO recalculation
+  // SHIPPING IS STORED AT ITEM LEVEL for vehicles (order_items.shipping_fee_usd)
   if (isVehicle && vehicleQuoteApplied) {
     const storedBase = Number(item.base_price_usd || 0);
     const storedMargin = Number(item.markup_fee_usd || 0);
-    const storedSubtotal = Number(item.subtotal_usd || storedBase + storedMargin);
-    const storedShipping = Number(item.shipping_fee_usd || 0);
-    const storedTotal = Number(item.total_price_usd || 0);
+    const storedShipping = Number(item.shipping_fee_usd || 0);  // THE CANONICAL SHIPPING VALUE
+    const storedTotal = Number(item.total_price_usd || 0);      // base + margin + shipping
+    
+    // Calculate subtotal WITHOUT shipping for display breakdown
+    const subtotalBeforeShipping = round2(storedBase + storedMargin);
     
     console.log('[mobile-get-cart] Vehicle with quote - using STORED values:', {
       itemId: item.id,
       storedBase,
       storedMargin,
       storedShipping,
+      subtotalBeforeShipping,
       storedTotal,
       vehicleQuoteApplied
     });
@@ -64,10 +68,10 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       quantity: 1,  // Vehicles are always qty 1
       unitPriceUsd: storedBase,
       itemBaseTotalUsd: storedBase,              // Vehicle price
-      itemMarginUsd: storedMargin,               // Margin from quote (NOT 0!)
-      itemShippingUsd: 0,                        // ZERO here - shipping is in summary.shippingFeeUsd to prevent double-counting!
-      itemSubtotalUsd: storedTotal,              // Final total (includes shipping internally)
-      _shippingNote: 'Shipping is in summary.shippingFeeUsd, not per-item',
+      itemMarginUsd: storedMargin,               // Margin from quote
+      itemShippingUsd: storedShipping,           // SHIPPING FOR THIS VEHICLE (canonical source)
+      itemSubtotalUsd: subtotalBeforeShipping,   // Base + margin BEFORE shipping
+      itemTotalUsd: storedTotal,                 // Grand total (base + margin + shipping)
       itemSubtotalCdf: round2(storedTotal * exchangeRate),
       estWeightKg,
       requiresManualQuote: false,
@@ -79,9 +83,7 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       isQuoteRequired: false,  // Quote has been applied
       vehicleQuoteApplied: true,
       quoteStatus: quoteStatus || 'SENT',
-      quotedShippingUsd: null,  // CRITICAL: Shipping is ONLY in summary.shippingFeeUsd - don't duplicate here
-      quotedTotalUsd: quoteRequest?.quoted_total_usd || storedTotal,
-      _quotedShippingForDebug: quoteRequest?.quoted_shipping_usd || storedShipping,  // For debugging only
+      // NO quotedShippingUsd - shipping is ONLY in itemShippingUsd to prevent double-counting
     };
   }
   
@@ -276,19 +278,19 @@ serve(async (req) => {
         
         if (formattedItem.vehicleQuoteApplied) {
           // Vehicle has quote - add its STORED totals
+          // CANONICAL SHIPPING SOURCE: formattedItem.itemShippingUsd (stored in order_items.shipping_fee_usd)
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
           vehicleMarginTotal += formattedItem.itemMarginUsd;
-          // CRITICAL: Read shipping from RAW item, not formatted (formatted is 0 to prevent frontend double-counting)
-          const rawVehicleShipping = Number(item.shipping_fee_usd || 0);
-          vehicleShippingTotal += rawVehicleShipping;
-          vehicleTotalUsd += formattedItem.itemSubtotalUsd;
+          vehicleShippingTotal += formattedItem.itemShippingUsd;  // NOW CORRECTLY SET ON FORMATTED ITEM
+          vehicleTotalUsd += formattedItem.itemSubtotalUsd;       // base + margin (WITHOUT shipping)
           
           console.log('[mobile-get-cart] Vehicle with quote added to totals:', {
             id: item.id,
             base: formattedItem.itemBaseTotalUsd,
             margin: formattedItem.itemMarginUsd,
-            shipping: rawVehicleShipping,  // Log the REAL shipping from DB
-            total: formattedItem.itemSubtotalUsd
+            shipping: formattedItem.itemShippingUsd,
+            subtotal: formattedItem.itemSubtotalUsd,  // base + margin
+            total: formattedItem.itemTotalUsd         // base + margin + shipping
           });
         } else {
           // Vehicle needs quote - can't proceed to payment
@@ -328,11 +330,14 @@ serve(async (req) => {
     // Frais de livraison = all shipping
     const totalShippingUsd = round2(regularShippingTotal + vehicleShippingTotal);
     
-    // Grand total USD
+    // Grand total USD - GUARD AGAINST DOUBLE COUNTING
+    // Vehicle shipping is ONLY counted via vehicleShippingTotal (from item.itemShippingUsd)
+    // Vehicle subtotal (vehicleTotalUsd) does NOT include shipping
     const grandTotalUsd = round2(
       regularItemsSubtotal +      // Regular items (base + margin)
       regularShippingTotal +      // Regular item shipping
-      vehicleTotalUsd             // Vehicle totals (base + margin + shipping)
+      vehicleTotalUsd +           // Vehicle subtotals (base + margin, NO shipping)
+      vehicleShippingTotal        // Vehicle shipping (ONLY place it's counted)
     );
     
     const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
@@ -367,8 +372,8 @@ serve(async (req) => {
       vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length,
       canProceedToPayment,
       
-      // === BREAKDOWN (for debugging/admin ONLY - NOT for display addition) ===
-      _breakdown: {
+      // === DEBUG ONLY - DO NOT USE FOR DISPLAY ===
+      _debug: {
         regularItemCount,
         regularItemsBaseUsd: round2(regularItemsBaseTotal),
         regularItemsMarkupUsd: round2(regularItemsMarginTotal),
@@ -378,7 +383,8 @@ serve(async (req) => {
         vehicleBasePriceUsd: round2(vehicleBasePriceTotal),
         vehicleMarginUsd: round2(vehicleMarginTotal),
         vehicleShippingUsd: round2(vehicleShippingTotal),
-        vehicleTotalUsd: round2(vehicleTotalUsd),
+        vehicleSubtotalUsd: round2(vehicleTotalUsd),  // base + margin (no shipping)
+        note: 'shippingFeeUsd is the SINGLE SOURCE for all shipping - do not add vehicleShippingUsd separately'
       },
       
       // === SETTINGS (for transparency) ===

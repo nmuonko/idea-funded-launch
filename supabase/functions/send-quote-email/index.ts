@@ -63,6 +63,7 @@ const handler = async (req: Request): Promise<Response> => {
     const customerName = profile.full_name || profile.name || "Customer";
     const vehicleTitle = quoteRequest.title || "Vehicle";
     const storeName = quoteRequest.store_name || "Online Store";
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
 
     const formatUSD = (amount: number) => `$${amount.toFixed(2)} USD`;
 
@@ -112,7 +113,7 @@ const handler = async (req: Request): Promise<Response> => {
     <p>To proceed with your purchase, click the button below to view your cart and complete payment:</p>
     
     <div style="text-align: center; margin: 25px 0;">
-      <a href="https://afri-shop.com/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+      <a href="${frontendBaseUrl}/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
         💳 Proceed to Payment
       </a>
     </div>
@@ -149,7 +150,7 @@ const handler = async (req: Request): Promise<Response> => {
     <p>Pour finaliser votre achat, cliquez sur le bouton ci-dessous pour accéder à votre panier et effectuer le paiement :</p>
     
     <div style="text-align: center; margin: 25px 0;">
-      <a href="https://afri-shop.com/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+      <a href="${frontendBaseUrl}/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
         💳 Procéder au paiement
       </a>
     </div>

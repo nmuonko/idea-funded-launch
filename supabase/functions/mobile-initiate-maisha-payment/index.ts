@@ -12,11 +12,17 @@ serve(async (req) => {
   }
 
   try {
-    const supabase = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUPABASE_ANON_KEY") ?? "", {
-      global: { headers: { Authorization: req.headers.get("Authorization")! } },
-    });
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      {
+        global: {
+          headers: { Authorization: req.headers.get("Authorization")! },
+        },
+      }
+    );
 
-    // Authenticate user
+    // 1️⃣ Auth
     const {
       data: { user },
       error: userError,
@@ -29,7 +35,7 @@ serve(async (req) => {
       });
     }
 
-    // Extract orderId from URL path
+    // 2️⃣ Extract orderId from URL path
     const url = new URL(req.url);
     const pathParts = url.pathname.split("/").filter((p) => p);
     const orderId = pathParts[pathParts.length - 1];
@@ -43,7 +49,7 @@ serve(async (req) => {
 
     console.log("[Initiate Payment] Order ID:", orderId, "User:", user.id);
 
-    // Get order and validate
+    // 3️⃣ Load order
     const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("*")
@@ -52,7 +58,7 @@ serve(async (req) => {
       .single();
 
     if (orderError || !order) {
-      console.error("[Initiate Payment] Order lookup error:", orderError);
+      console.error("[Initiate Payment] Order error:", orderError);
       return new Response(JSON.stringify({ error: "Order not found" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -66,22 +72,30 @@ serve(async (req) => {
       });
     }
 
-    // Get user profile for customer info
-    const { data: profile } = await supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle();
+    // 4️⃣ Load profile for phone
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    // Get MaishaPay credentials - use same env vars as working functions
+    // 5️⃣ MaishaPay config
     const gatewayMode = Deno.env.get("MAISHAPAY_GATEWAY_MODE") || "1";
     const isLiveMode = gatewayMode === "1";
 
     const publicKey = isLiveMode
-      ? Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY") || Deno.env.get("MAISHAPAY_PUBLIC_KEY")
+      ? Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY") ||
+        Deno.env.get("MAISHAPAY_PUBLIC_KEY")
       : Deno.env.get("MAISHAPAY_PUBLIC_KEY");
 
     const secretKey = isLiveMode
-      ? Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY") || Deno.env.get("MAISHAPAY_SECRET_KEY")
+      ? Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY") ||
+        Deno.env.get("MAISHAPAY_SECRET_KEY")
       : Deno.env.get("MAISHAPAY_SECRET_KEY");
 
-    const callbackUrl = Deno.env.get("MAISHAPAY_CALLBACK_URL") || Deno.env.get("MAISHA_CALLBACK_URL");
+    const callbackUrl =
+      Deno.env.get("MAISHAPAY_CALLBACK_URL") ||
+      Deno.env.get("MAISHA_CALLBACK_URL");
 
     if (!publicKey || !secretKey || !callbackUrl) {
       console.error("[Initiate Payment] Missing MaishaPay config:", {
@@ -91,47 +105,64 @@ serve(async (req) => {
         gatewayMode,
         isLiveMode,
       });
-      return new Response(JSON.stringify({ error: "MaishaPay not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "MaishaPay not configured" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    // Create unique reference
-    const reference = `AFRISHOP-${orderId}-${Date.now()}`;
+    // 6️⃣ Determine currency & amount from the ORDER (single source of truth)
+    const rawCurrency = (order.currency || "").toString().toUpperCase().trim();
+    let paymentCurrency = rawCurrency === "CDF" ? "CDF" : "USD";
 
-    // ---------- FIX: robust amount calculation in USD ----------
-    // First, try direct total_usd
-    let paymentAmount = Number(order.total_usd ?? 0);
+    const exchangeRate =
+      Number(order.exchange_rate_used) ||
+      Number(order.exchange_rate) ||
+      2500;
 
-    // If total_usd is missing/zero (common for vehicle orders),
-    // derive it from total_cdf and exchange_rate if available.
-    if (!paymentAmount || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      const totalCdf = Number(order.total_cdf ?? 0);
-      const rate = Number(order.exchange_rate ?? 2500);
+    let paymentAmount = 0;
 
-      if (totalCdf > 0 && rate > 0) {
-        paymentAmount = Number((totalCdf / rate).toFixed(2));
+    if (paymentCurrency === "CDF") {
+      // Order is in CDF – use total_cdf if possible
+      paymentAmount = Number(order.total_cdf || 0);
+
+      // Fallback: derive from USD if CDF is missing
+      if ((!paymentAmount || paymentAmount <= 0) && order.total_usd) {
+        paymentAmount = Number(order.total_usd) * exchangeRate;
+      }
+    } else {
+      // Default to USD (matches working normal orders)
+      paymentAmount = Number(order.total_usd || 0);
+
+      // Fallback: derive from CDF if USD is missing
+      if ((!paymentAmount || paymentAmount <= 0) && order.total_cdf) {
+        paymentAmount = Number(order.total_cdf) / exchangeRate;
       }
     }
 
-    // Final safety guard – never send zero/negative amount to MaishaPay
-    if (!paymentAmount || !Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      console.error("[Initiate Payment] Invalid payment amount for order", orderId, {
+    // Round to 2 decimals
+    paymentAmount = Math.round(paymentAmount * 100) / 100;
+
+    if (!paymentAmount || paymentAmount <= 0) {
+      console.error("[Initiate Payment] Invalid amount for order:", {
+        orderId,
+        paymentCurrency,
         total_usd: order.total_usd,
         total_cdf: order.total_cdf,
-        exchange_rate: order.exchange_rate,
+        exchangeRate,
       });
-      return new Response(JSON.stringify({ error: "Invalid order total amount" }), {
+      return new Response(JSON.stringify({ error: "Invalid order amount" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // We keep USD as the transaction currency (same as other working functions)
-    const paymentCurrency = "USD";
+    // 7️⃣ Create unique reference
+    const reference = `AFRISHOP-${orderId}-${Date.now()}`;
 
-    // Debug logging to verify currency & amount
     console.log("[Initiate Payment] MaishaPay payload base:", {
       orderId,
       reference,
@@ -139,16 +170,13 @@ serve(async (req) => {
       currency: paymentCurrency,
       gatewayMode,
       isLiveMode,
-      orderTotalUsd: order.total_usd,
-      orderTotalCdf: order.total_cdf,
-      exchangeRate: order.exchange_rate,
     });
 
-    // Prepare MaishaPay request
+    // 8️⃣ Prepare MaishaPay payload
     const maishaPayload = {
       publicKey,
       amount: paymentAmount,
-      currency: paymentCurrency,
+      currency: paymentCurrency, // EXACT order currency
       reference,
       customerEmail: user.email || "",
       customerPhone: profile?.phone || "",
@@ -156,19 +184,16 @@ serve(async (req) => {
       callbackUrl,
     };
 
-    // MaishaPay API endpoint
     const maishaApiUrl = isLiveMode
       ? "https://marchand.maishapay.online/api/v1/transaction/create"
       : "https://sandbox.maishapay.online/api/v1/transaction/create";
 
     console.log("[Initiate Payment] Calling MaishaPay:", {
       url: maishaApiUrl,
-      reference,
-      amount: paymentAmount,
-      currency: paymentCurrency,
+      payload: maishaPayload,
     });
 
-    // Call MaishaPay API
+    // 9️⃣ Call MaishaPay
     const maishaResponse = await fetch(maishaApiUrl, {
       method: "POST",
       headers: {
@@ -178,30 +203,73 @@ serve(async (req) => {
       body: JSON.stringify(maishaPayload),
     });
 
-    const maishaData = await maishaResponse.json();
+    const rawText = await maishaResponse.text();
+    let maishaData: any = null;
+    try {
+      maishaData = JSON.parse(rawText);
+    } catch {
+      maishaData = { raw: rawText };
+    }
+
     console.log("[Initiate Payment] MaishaPay Response:", maishaData);
 
     if (!maishaResponse.ok) {
-      throw new Error(maishaData.message || "MaishaPay request failed");
+      throw new Error(
+        maishaData?.message ||
+          maishaData?.error ||
+          rawText ||
+          "MaishaPay request failed"
+      );
     }
 
-    // Create maisha_payments record - store USD amounts
-    const { error: paymentError } = await supabase.from("maisha_payments").insert({
-      order_id: orderId,
-      maisha_reference: reference,
-      status: "pending",
-      amount_usd: order.total_usd,
-      amount_cdf: order.total_cdf,
-      currency: paymentCurrency,
-      raw_request: maishaPayload,
-      raw_response: maishaData,
-    });
+    const checkoutUrl =
+      maishaData.checkoutUrl ||
+      maishaData.paymentUrl ||
+      maishaData.url ||
+      null;
+
+    if (!checkoutUrl) {
+      console.error("[Initiate Payment] Missing checkout URL in response");
+      return new Response(
+        JSON.stringify({ error: "Missing checkout URL from MaishaPay" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // 🔟 Store payment record (keep both USD & CDF for reporting)
+    const amountUsdToStore =
+      paymentCurrency === "USD"
+        ? paymentAmount
+        : Number(order.total_usd || paymentAmount / exchangeRate);
+    const amountCdfToStore =
+      paymentCurrency === "CDF"
+        ? paymentAmount
+        : Number(order.total_cdf || paymentAmount * exchangeRate);
+
+    const { error: paymentError } = await supabase
+      .from("maisha_payments")
+      .insert({
+        order_id: orderId,
+        maisha_reference: reference,
+        status: "pending",
+        amount_usd: amountUsdToStore,
+        amount_cdf: amountCdfToStore,
+        currency: paymentCurrency,
+        raw_request: maishaPayload,
+        raw_response: maishaData,
+      });
 
     if (paymentError) {
-      console.error("[Initiate Payment] Error creating payment record:", paymentError);
+      console.error(
+        "[Initiate Payment] Error creating maisha_payments record:",
+        paymentError
+      );
     }
 
-    // Update order with Maisha reference
+    // 1️⃣1️⃣ Update order with Maisha reference
     await supabase
       .from("orders")
       .update({
@@ -210,11 +278,12 @@ serve(async (req) => {
       })
       .eq("id", orderId);
 
+    // 1️⃣2️⃣ Return data to mobile app
     return new Response(
       JSON.stringify({
         orderId,
         payment: {
-          checkoutUrl: maishaData.checkoutUrl || maishaData.paymentUrl || maishaData.url,
+          checkoutUrl,
           maishaReference: reference,
           amount: paymentAmount,
           currency: paymentCurrency,
@@ -223,7 +292,7 @@ serve(async (req) => {
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
+      }
     );
   } catch (error: any) {
     console.error("[Initiate Payment] Error:", error);

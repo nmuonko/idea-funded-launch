@@ -79,8 +79,9 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       isQuoteRequired: false,  // Quote has been applied
       vehicleQuoteApplied: true,
       quoteStatus: quoteStatus || 'SENT',
-      quotedShippingUsd: quoteRequest?.quoted_shipping_usd || storedShipping,
+      quotedShippingUsd: null,  // CRITICAL: Shipping is ONLY in summary.shippingFeeUsd - don't duplicate here
       quotedTotalUsd: quoteRequest?.quoted_total_usd || storedTotal,
+      _quotedShippingForDebug: quoteRequest?.quoted_shipping_usd || storedShipping,  // For debugging only
     };
   }
   

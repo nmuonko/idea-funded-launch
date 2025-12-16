@@ -65,8 +65,9 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
       unitPriceUsd: storedBase,
       itemBaseTotalUsd: storedBase,              // Vehicle price
       itemMarginUsd: storedMargin,               // Margin from quote (NOT 0!)
-      itemShippingUsd: storedShipping,           // Shipping from admin
-      itemSubtotalUsd: storedTotal,              // Final total
+      itemShippingUsd: 0,                        // ZERO here - shipping is in summary.shippingFeeUsd to prevent double-counting!
+      itemSubtotalUsd: storedTotal,              // Final total (includes shipping internally)
+      _shippingNote: 'Shipping is in summary.shippingFeeUsd, not per-item',
       itemSubtotalCdf: round2(storedTotal * exchangeRate),
       estWeightKg,
       requiresManualQuote: false,

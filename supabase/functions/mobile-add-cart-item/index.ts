@@ -15,6 +15,7 @@ import {
   VEHICLE_QUOTE_CONFIDENCE_THRESHOLD,
   type ShippingCategoryKey,
 } from "../_shared/shippingCategory.ts";
+import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 
 // Input validation schema
 const addCartItemSchema = z.object({
@@ -56,8 +57,7 @@ const addCartItemSchema = z.object({
   productImageUrl: z.string().url().max(2048).optional(),
 });
 
-// Round to 2 decimals helper
-const round2 = (n: number) => Math.round(n * 100) / 100;
+// Remove local round2 - use from settings-cache.ts
 
 // Pricing helper - single source of truth for price calculations
 function calculateItemPricing(
@@ -263,21 +263,17 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Shipping type loaded:', { estWeightKg, itemRequiresManualQuote });
     }
 
-    // Load pricing settings
-    const { data: settings } = await supabase.from('settings').select('*').maybeSingle();
+    // Load pricing settings - use cached version for performance
+    const settingsStart = Date.now();
+    const settings = await getCachedSettings(supabase);
+    const settingsTime = Date.now() - settingsStart;
     
-    if (!settings) {
-      console.error('[mobile-add-cart-item] No settings found in database');
-      return errorResponse('Pricing settings not configured', 500);
-    }
+    const markupPercent = settings.markupPercent;
+    const exchangeRate = settings.exchangeRate;
+    const shippingBaseFeeUsd = settings.shippingBaseFeeUsd;
+    const shippingPercent = settings.shippingPercent;
 
-    const markupPercent = settings.markup_percent ?? settings.global_markup_percent ?? 15;
-    const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
-    const shippingBaseFeeUsd = settings.shipping_base_fee_usd ?? 20;
-    // shipping_percent is stored as decimal (0.10) in DB
-    const shippingPercent = settings.shipping_percent ?? 0.10;
-
-    console.log('[mobile-add-cart-item] Using settings:', {
+    console.log(`[mobile-add-cart-item] Settings loaded in ${settingsTime}ms:`, {
       markupPercent,
       shippingBaseFeeUsd,
       shippingPercent,

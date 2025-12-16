@@ -28,6 +28,8 @@ function getLanguageForCountry(country: string): string {
 }
 
 serve(async (req) => {
+  const startTime = Date.now();
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -38,7 +40,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization');
     
     if (!authHeader) {
-      console.log('[auth-me] Missing Authorization header');
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Missing auth header`);
       return new Response(
         JSON.stringify({ code: 401, message: 'Missing or invalid Authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -48,7 +50,7 @@ serve(async (req) => {
     // 2. Extract Bearer token
     const parts = authHeader.split(' ');
     if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
-      console.log('[auth-me] Invalid Authorization header format');
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Invalid auth format`);
       return new Response(
         JSON.stringify({ code: 401, message: 'Invalid Authorization header format. Expected: Bearer <token>' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -58,7 +60,7 @@ serve(async (req) => {
     const accessToken = parts[1];
     
     if (!accessToken || accessToken.length < 10) {
-      console.log('[auth-me] Token is empty or too short');
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Token too short`);
       return new Response(
         JSON.stringify({ code: 401, message: 'Invalid token' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -70,7 +72,7 @@ serve(async (req) => {
     const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
-      console.error('[auth-me] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+      console.error(`[auth-me] PERF duration=${Date.now() - startTime}ms - Missing env vars`);
       return new Response(
         JSON.stringify({ code: 500, message: 'Server configuration error' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -85,16 +87,20 @@ serve(async (req) => {
     });
 
     // 4. Verify JWT and get user
+    const authStart = Date.now();
     const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+    console.log(`[auth-me] Auth verification: ${Date.now() - authStart}ms`);
     
     if (userError) {
       const errorMsg = userError.message?.toLowerCase() || '';
       if (errorMsg.includes('expired') || errorMsg.includes('exp claim')) {
+        console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Token expired`);
         return new Response(
           JSON.stringify({ code: 401, message: 'Token expired', error: 'TOKEN_EXPIRED' }),
           { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Invalid JWT`);
       return new Response(
         JSON.stringify({ code: 401, message: 'Invalid JWT', error: 'INVALID_TOKEN' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -102,27 +108,29 @@ serve(async (req) => {
     }
 
     if (!user) {
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - User not found`);
       return new Response(
         JSON.stringify({ code: 401, message: 'User not found', error: 'USER_NOT_FOUND' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // 5. Fetch user profile
+    // 5. Fetch user profile - SELECT ONLY REQUIRED COLUMNS
+    const profileStart = Date.now();
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('*')
+      .select('user_id, email, full_name, phone, address, address_line1, country, province, state_province, language')
       .eq('user_id', user.id)
       .maybeSingle();
+    console.log(`[auth-me] Profile fetch: ${Date.now() - profileStart}ms`);
 
     if (profileError) {
       console.error('[auth-me] Profile fetch error:', profileError);
     }
 
-    // 6. If no profile exists, create one with defaults
-    let finalProfile = profile;
+    // 6. If no profile exists, create one with defaults (non-blocking for response)
     if (!profile) {
-      console.log('[auth-me] No profile found, creating default profile for user:', user.id);
+      console.log('[auth-me] No profile found, creating default for user:', user.id);
       
       const defaultCountry = 'DR Congo';
       const defaultProvince = 'Kinshasa';
@@ -139,35 +147,48 @@ serve(async (req) => {
         language: defaultLanguage,
       };
 
-      const { data: createdProfile, error: createError } = await supabase
+      // Fire and forget - don't block response
+      supabase
         .from('profiles')
         .upsert(newProfile, { onConflict: 'user_id' })
-        .select()
-        .single();
+        .then(({ error }) => {
+          if (error) console.error('[auth-me] Async profile create failed:', error);
+          else console.log('[auth-me] Async profile created');
+        });
 
-      if (createError) {
-        console.error('[auth-me] Failed to create profile:', createError);
-        // Return a default response even if creation fails
-        finalProfile = newProfile;
-      } else {
-        finalProfile = createdProfile;
-        console.log('[auth-me] Created default profile successfully');
-      }
+      // Return immediately with new profile data
+      const response = {
+        id: user.id,
+        email: newProfile.email,
+        full_name: newProfile.full_name,
+        phone: newProfile.phone,
+        address: newProfile.address,
+        country: newProfile.country,
+        province: newProfile.province,
+        language: newProfile.language,
+      };
+
+      console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - New profile for user: ${user.id}`);
+
+      return new Response(
+        JSON.stringify(response),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // 7. Return complete profile object (never null fields in response)
     const response = {
-      id: finalProfile.user_id || user.id,
-      email: finalProfile.email || user.email || '',
-      full_name: finalProfile.full_name || '',
-      phone: finalProfile.phone || '',
-      address: finalProfile.address || finalProfile.address_line1 || '',
-      country: finalProfile.country || 'DR Congo',
-      province: finalProfile.province || finalProfile.state_province || 'Kinshasa',
-      language: finalProfile.language || 'fr',
+      id: profile.user_id || user.id,
+      email: profile.email || user.email || '',
+      full_name: profile.full_name || '',
+      phone: profile.phone || '',
+      address: profile.address || profile.address_line1 || '',
+      country: profile.country || 'DR Congo',
+      province: profile.province || profile.state_province || 'Kinshasa',
+      language: profile.language || 'fr',
     };
 
-    console.log('[auth-me] Returning profile for user:', user.id);
+    console.log(`[auth-me] PERF duration=${Date.now() - startTime}ms - Success for user: ${user.id}`);
 
     return new Response(
       JSON.stringify(response),
@@ -176,7 +197,7 @@ serve(async (req) => {
 
   } catch (error: any) {
     // Never leak internal errors - always return structured JSON
-    console.error('[auth-me] Unexpected error:', error.message);
+    console.error(`[auth-me] PERF duration=${Date.now() - startTime}ms - Error:`, error.message);
     return new Response(
       JSON.stringify({ code: 500, message: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

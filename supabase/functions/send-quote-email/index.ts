@@ -109,7 +109,13 @@ const handler = async (req: Request): Promise<Response> => {
     
     ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note from our team:</strong> ${adminNotes}</p>` : ''}
     
-    <p>To proceed with your purchase, please log in to your AfriShop account and complete the payment.</p>
+    <p>To proceed with your purchase, click the button below to view your cart and complete payment:</p>
+    
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="https://afri-shop.com/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+        💳 Proceed to Payment
+      </a>
+    </div>
   </div>
 
   <!-- French Section -->
@@ -140,7 +146,13 @@ const handler = async (req: Request): Promise<Response> => {
     
     ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note de notre équipe :</strong> ${adminNotes}</p>` : ''}
     
-    <p>Pour finaliser votre achat, veuillez vous connecter à votre compte AfriShop et procéder au paiement.</p>
+    <p>Pour finaliser votre achat, cliquez sur le bouton ci-dessous pour accéder à votre panier et effectuer le paiement :</p>
+    
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="https://afri-shop.com/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+        💳 Procéder au paiement
+      </a>
+    </div>
   </div>
 
   <!-- Footer -->

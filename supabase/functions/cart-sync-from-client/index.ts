@@ -13,6 +13,7 @@ import {
   detectStore, 
   updateOrderTotals,
   isVehicleItem,
+  normalizeProductUrl,
 } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
@@ -123,13 +124,27 @@ serve(async (req) => {
     // Get existing items for this cart
     const { data: existingItems } = await supabase
       .from('order_items')
-      .select('id, product_url')
+      .select('id, product_url, is_vehicle, vehicle_quote_applied')
       .eq('order_id', cartId);
 
-    const existingItemsByUrl = new Map<string, string>();
+    // Map by NORMALIZED URL to prevent duplicates with different query params
+    // e.g., tesla.com/inventory/used/ms?PaymentType=lease === tesla.com/inventory/used/ms
+    const existingItemsByNormalizedUrl = new Map<string, { id: string; hasQuote: boolean }>();
     (existingItems || []).forEach((item: any) => {
-      existingItemsByUrl.set(item.product_url, item.id);
+      const normalizedUrl = normalizeProductUrl(item.product_url);
+      // If item already has a vehicle quote applied, DON'T overwrite it
+      const existing = existingItemsByNormalizedUrl.get(normalizedUrl);
+      if (!existing || (item.vehicle_quote_applied && !existing.hasQuote)) {
+        existingItemsByNormalizedUrl.set(normalizedUrl, { 
+          id: item.id, 
+          hasQuote: item.vehicle_quote_applied === true 
+        });
+      }
     });
+    
+    console.log('[cart-sync-from-client] Existing items by normalized URL:', 
+      Array.from(existingItemsByNormalizedUrl.entries()).map(([url, data]) => ({ url, ...data }))
+    );
 
     // Upsert items
     const syncedItems: any[] = [];
@@ -164,14 +179,31 @@ serve(async (req) => {
         requires_manual_quote: isVehicle,
       };
 
-      const existingItemId = existingItemsByUrl.get(item.productUrl);
+      // Use NORMALIZED URL for duplicate detection
+      const normalizedUrl = normalizeProductUrl(item.productUrl);
+      const existingItem = existingItemsByNormalizedUrl.get(normalizedUrl);
 
-      if (existingItemId) {
-        // Update existing item
+      if (existingItem) {
+        // CRITICAL: If item already has a vehicle quote applied, don't overwrite pricing
+        if (existingItem.hasQuote) {
+          console.log('[cart-sync-from-client] Skipping update - vehicle quote already applied:', normalizedUrl);
+          // Fetch the existing item to include in response
+          const { data: existing } = await supabase
+            .from('order_items')
+            .select('id, product_url, title, product_image_url, store, base_price_usd, quantity, subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf')
+            .eq('id', existingItem.id)
+            .single();
+          if (existing) {
+            syncedItems.push(existing);
+          }
+          continue;
+        }
+        
+        // Update existing item (no quote applied yet)
         const { data: updated, error: updateError } = await supabase
           .from('order_items')
           .update(itemData)
-          .eq('id', existingItemId)
+          .eq('id', existingItem.id)
           .select('id, product_url, title, product_image_url, store, base_price_usd, quantity, subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf')
           .single();
 
@@ -192,6 +224,8 @@ serve(async (req) => {
           console.error('[cart-sync-from-client] Failed to insert item:', insertError);
         } else {
           syncedItems.push(inserted);
+          // Add to map to prevent duplicates within same sync call
+          existingItemsByNormalizedUrl.set(normalizedUrl, { id: inserted.id, hasQuote: false });
         }
       }
     }

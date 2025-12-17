@@ -50,6 +50,18 @@ export const VEHICLE_CARD_DISABLED_ERROR = {
   message_en: 'Card payment for vehicles is available in USD only. Please select Mobile Money.',
 };
 
+export const VEHICLE_CARD_NOT_AVAILABLE_ERROR = {
+  code: 'VEHICLE_CARD_NOT_AVAILABLE',
+  message_fr: 'Pour les véhicules, veuillez payer via Mobile Money (CDF).',
+  message_en: 'For vehicles, please pay via Mobile Money (CDF).',
+};
+
+export const CHECKOUT_METHOD_MISMATCH_ERROR = {
+  code: 'CHECKOUT_METHOD_MISMATCH',
+  message_fr: 'Configuration de paiement invalide. Veuillez réessayer.',
+  message_en: 'Invalid payment configuration. Please try again.',
+};
+
 // Legacy error (kept for backward compatibility)
 export const VEHICLE_CURRENCY_ERROR = VEHICLE_CARD_DISABLED_ERROR;
 

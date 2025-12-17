@@ -187,7 +187,7 @@ h1{font-size:20px;margin-bottom:8px}
 
 serve(async (req) => {
   // 🔖 VERSION MARKER (proves deploy)
-  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-16-final-currency-method-guard");
+  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-17-vehicle-deposit-policy");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -468,91 +468,145 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    // 🚗 VEHICLE + CARD: ALLOWED - MaishaPay accepts Card in USD
-    // Vehicles can be paid via Card (USD) - no blocking needed
-    if ((hasVehicleQuoteItems || containsVehicle) && REQUESTED_METHOD === 'CARD') {
-      console.log('[mobile-checkout] VEHICLE_CARD_ALLOWED:', {
-        orderId: existingOrder.id,
-        hasVehicleQuoteItems,
-        containsVehicle,
-        requestedMethod: REQUESTED_METHOD,
-        currency: 'USD',
-        note: 'MaishaPay accepts Card payments in USD for vehicle orders',
-      });
-    }
-
     // 🚫 HARD RULE: Client currency is LOGGED but NEVER used to override server decision
-    // This prevents the "Ce mode de paiement ne prend pas en charge la devise encours" error
     const clientRequestedCurrency = (body.currency || '').toUpperCase();
     console.log('[mobile-checkout] CLIENT_CURRENCY_IGNORED:', { clientRequestedCurrency, reason: 'server_enforces_currency' });
-    
-    // 🚫 HARD RULE: Amount size NEVER changes currency or channel
-    // The user's REQUESTED_METHOD and BUYER_ISO determine everything
-    
+
     // ==========================================
-    // 🔒 STEP 4: CONFIGURABLE TRANSACTION LIMITS
+    // 🚗 VEHICLE DEPOSIT PAYMENT POLICY
     // ==========================================
-    // Read limits from environment (with defaults)
-    const CARD_MAX_USD = Number(Deno.env.get('CARD_MAX_USD')) || 100000;  // $100k for vehicles
-    
-    // NOTE: Mobile Money amount limit removed - MaishaPay will handle any operator limits
-    // All Mobile Money payments proceed regardless of amount
-    
-    // Optional: Card limit check (usually much higher)
-    if (REQUESTED_METHOD === 'CARD' && grandTotalUsd > CARD_MAX_USD) {
-      console.log('[mobile-checkout] CARD_LIMIT_CHECK:', {
-        grandTotalUsd,
-        limit: CARD_MAX_USD,
-        isOverLimit: true,
+    // For vehicles: FORCE Mobile Money deposit in CDF, NO Card allowed
+    // This prevents "devise encours" errors from MaishaPay
+    const VEHICLE_DEPOSIT_PERCENT = Number(Deno.env.get('VEHICLE_DEPOSIT_PERCENT')) || 0.20;
+    const VEHICLE_DEPOSIT_MAX_CDF = Number(Deno.env.get('VEHICLE_DEPOSIT_MAX_CDF')) || 5000000;
+    const USD_TO_CDF_RATE = exchangeRate || Number(Deno.env.get('USD_TO_CDF_RATE')) || 2500;
+
+    if (hasVehicleQuoteItems || containsVehicle) {
+      // 🚫 BLOCK CARD for vehicle orders - this prevents "devise encours" error
+      if (REQUESTED_METHOD === 'CARD') {
+        console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
+          orderId: existingOrder.id,
+          hasVehicleQuoteItems,
+          containsVehicle,
+          requestedMethod: REQUESTED_METHOD,
+          reason: 'Vehicle orders require Mobile Money deposit first',
+        });
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: 'VEHICLE_CARD_NOT_ALLOWED',
+          checkout_type: 'VEHICLE_DEPOSIT_REQUIRED',
+          allowed_methods: ['MOBILE_MONEY'],
+          message_en: 'Vehicle orders require a Mobile Money deposit first. Card payment is available for the remaining balance after deposit.',
+          message_fr: 'Les commandes de véhicules nécessitent d\'abord un acompte via Mobile Money. Le paiement par carte est disponible pour le solde restant après l\'acompte.',
+          error: 'Card not available for vehicle deposit',
+          vehicle_total_usd: vehicleTotal,
+          suggested_deposit_cdf: Math.min(Math.round(vehicleTotal * USD_TO_CDF_RATE * VEHICLE_DEPOSIT_PERCENT), VEHICLE_DEPOSIT_MAX_CDF),
+        }, 400);
+      }
+
+      // 🚗 VEHICLE DEPOSIT CALCULATION
+      // Deposit = min(20% of vehicle total in CDF, max deposit limit)
+      const vehicleTotalCdf = Math.round(vehicleTotal * USD_TO_CDF_RATE);
+      const calculatedDeposit = Math.round(vehicleTotalCdf * VEHICLE_DEPOSIT_PERCENT);
+      const depositAmountCdf = Math.min(calculatedDeposit, VEHICLE_DEPOSIT_MAX_CDF);
+      const remainingBalanceCdf = vehicleTotalCdf - depositAmountCdf;
+      const remainingBalanceUsd = round2(remainingBalanceCdf / USD_TO_CDF_RATE);
+
+      console.log('[mobile-checkout] VEHICLE_DEPOSIT_POLICY:', {
+        orderId: existingOrder.id,
+        vehicle_total_usd: vehicleTotal,
+        vehicle_total_cdf: vehicleTotalCdf,
+        deposit_percent: VEHICLE_DEPOSIT_PERCENT,
+        calculated_deposit_cdf: calculatedDeposit,
+        max_deposit_cdf: VEHICLE_DEPOSIT_MAX_CDF,
+        final_deposit_cdf: depositAmountCdf,
+        remaining_balance_cdf: remainingBalanceCdf,
+        remaining_balance_usd: remainingBalanceUsd,
+        currency: 'CDF',
+        method: 'MOBILE_MONEY',
       });
-      return jsonResponse({
-        ok: false,
-        success: false,
-        code: 'AMOUNT_TOO_HIGH_CARD',
-        message_en: `Amount $${grandTotalUsd.toFixed(2)} exceeds card payment limit. Please contact support.`,
-        message_fr: `Montant $${grandTotalUsd.toFixed(2)} dépasse la limite de paiement par carte. Veuillez contacter le support.`,
-        error: 'Amount too high for card',
-      }, 400);
-    }
-    
-    // ==========================================
-    // 🔒 STEP 3: ENFORCE METHOD → COUNTRY → CURRENCY
-    // ==========================================
-    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // A) MOBILE MONEY: DRC ALWAYS uses CDF (USD not supported by MaishaPay Mobile Money in DRC)
-      if (isDRC) {
-        // 🔒 ENFORCED: Mobile Money in DRC ALWAYS uses CDF, regardless of client request
-        paymentCurrency = 'CDF';
-        paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
-        amountFormatted = paymentAmount.toString();
-        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-        currencyReason = 'mobile_money_drc_cdf_enforced'; // Changed from "default" to "enforced"
+
+      // FORCE Mobile Money + CDF for vehicle deposit
+      paymentCurrency = 'CDF';
+      paymentAmount = depositAmountCdf;
+      amountFormatted = depositAmountCdf.toString();
+      displayAmount = `${depositAmountCdf.toLocaleString('fr-FR')} CDF`;
+      maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+      currencyReason = 'vehicle_deposit_momo_cdf_enforced';
+
+      // Store vehicle deposit metadata for the response
+      // (will be used later in the response)
+      const vehicleDepositMeta = {
+        checkout_type: 'VEHICLE_DEPOSIT',
+        allowed_methods: ['MOBILE_MONEY'],
+        deposit_amount_cdf: depositAmountCdf,
+        deposit_percent: VEHICLE_DEPOSIT_PERCENT,
+        vehicle_total_usd: vehicleTotal,
+        vehicle_total_cdf: vehicleTotalCdf,
+        remaining_balance_cdf: remainingBalanceCdf,
+        remaining_balance_usd: remainingBalanceUsd,
+      };
+
+      // Override grandTotalCdf/Usd for vehicle deposit
+      // Note: we'll still track full amounts in order record, but payment is just deposit
+      (body as any)._vehicleDepositMeta = vehicleDepositMeta;
+    } else {
+      // ==========================================
+      // 🔒 REGULAR ITEMS: NORMAL CURRENCY ENFORCEMENT
+      // ==========================================
+      const CARD_MAX_USD = Number(Deno.env.get('CARD_MAX_USD')) || 100000;
+      
+      // Optional: Card limit check
+      if (REQUESTED_METHOD === 'CARD' && grandTotalUsd > CARD_MAX_USD) {
+        console.log('[mobile-checkout] CARD_LIMIT_CHECK:', {
+          grandTotalUsd,
+          limit: CARD_MAX_USD,
+          isOverLimit: true,
+        });
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: 'AMOUNT_TOO_HIGH_CARD',
+          message_en: `Amount $${grandTotalUsd.toFixed(2)} exceeds card payment limit. Please contact support.`,
+          message_fr: `Montant $${grandTotalUsd.toFixed(2)} dépasse la limite de paiement par carte. Veuillez contacter le support.`,
+          error: 'Amount too high for card',
+        }, 400);
+      }
+      
+      // ENFORCE METHOD → COUNTRY → CURRENCY for regular items
+      if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+        if (isDRC) {
+          paymentCurrency = 'CDF';
+          paymentAmount = Math.round(grandTotalCdf);
+          amountFormatted = paymentAmount.toString();
+          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_drc_cdf_enforced';
+        } else {
+          paymentCurrency = 'USD';
+          paymentAmount = round2(grandTotalUsd);
+          amountFormatted = grandTotalUsd.toFixed(2);
+          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_non_drc_usd';
+        }
       } else {
-        // Non-DRC: use USD
+        // CARD: USD universally
         paymentCurrency = 'USD';
         paymentAmount = round2(grandTotalUsd);
         amountFormatted = grandTotalUsd.toFixed(2);
         displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-        currencyReason = 'mobile_money_non_drc_usd';
+        maishapayFlowUsed = 'CARD_SESSION';
+        currencyReason = isDRC ? 'card_drc_usd_allowed' : 'card_non_drc_usd';
+        
+        console.log('[mobile-checkout] CARD_PAYMENT_USD:', {
+          isDRC,
+          grandTotalUsd,
+          currency: 'USD',
+          note: 'MaishaPay accepts Card payments in USD',
+        });
       }
-    } else {
-      // B) CARD: MaishaPay accepts Card in USD (all countries, including DRC)
-      // Card payments use USD universally - no CDF enforcement needed
-      paymentCurrency = 'USD';
-      paymentAmount = round2(grandTotalUsd);
-      amountFormatted = grandTotalUsd.toFixed(2);
-      displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-      maishapayFlowUsed = 'CARD_SESSION';
-      currencyReason = isDRC ? 'card_drc_usd_allowed' : 'card_non_drc_usd';
-      
-      console.log('[mobile-checkout] CARD_PAYMENT_USD:', {
-        isDRC,
-        grandTotalUsd,
-        currency: 'USD',
-        note: 'MaishaPay accepts Card payments in USD',
-      });
     }
 
     // Generate motif (transaction description)
@@ -769,9 +823,57 @@ serve(async (req) => {
       checkoutUrl,
     });
 
+    // Get vehicle deposit metadata if this is a vehicle order
+    const vehicleDepositMeta = (body as any)._vehicleDepositMeta;
+    const isVehicleDeposit = !!vehicleDepositMeta;
+
     // Return BOTH checkoutUrl AND html for compatibility with both USD and CDF amounts
+    // For vehicle orders, include deposit-specific information
+    if (isVehicleDeposit) {
+      return jsonResponse({
+        success: true,
+        checkout_type: 'VEHICLE_DEPOSIT',
+        allowed_methods: ['MOBILE_MONEY'],
+        orderId: checkoutOrder.id,
+        confirmationId,
+        checkoutUrl,
+        html,
+        currency: paymentCurrency,
+        amount: paymentAmount,
+        maishapay_url: checkoutUrl,
+        // Vehicle deposit specific fields
+        deposit_amount_cdf: vehicleDepositMeta.deposit_amount_cdf,
+        deposit_percent: vehicleDepositMeta.deposit_percent,
+        vehicle_total_usd: vehicleDepositMeta.vehicle_total_usd,
+        vehicle_total_cdf: vehicleDepositMeta.vehicle_total_cdf,
+        remaining_balance_cdf: vehicleDepositMeta.remaining_balance_cdf,
+        remaining_balance_usd: vehicleDepositMeta.remaining_balance_usd,
+        message_fr: 'Pour les véhicules, vous payez d\'abord un acompte via Mobile Money. Le solde sera réglé ensuite.',
+        message_en: 'For vehicles, you first pay a deposit via Mobile Money. The remaining balance is paid after.',
+        order: {
+          id: checkoutOrder.id,
+          confirmationId,
+          status: 'PENDING_PAYMENT',
+          itemCount,
+          totalUsd: grandTotalUsd,
+          totalCdf: grandTotalCdf,
+        },
+        paymentDetails: {
+          currency: paymentCurrency,
+          amount: paymentAmount,
+          displayAmount,
+          isDeposit: true,
+          depositInfo: vehicleDepositMeta,
+          exchangeRate,
+          currencyReason,
+        },
+      });
+    }
+
+    // REGULAR (non-vehicle) checkout response
     return jsonResponse({
       success: true,
+      checkout_type: 'FULL_PAYMENT',
       orderId: checkoutOrder.id,
       confirmationId,
       checkoutUrl,

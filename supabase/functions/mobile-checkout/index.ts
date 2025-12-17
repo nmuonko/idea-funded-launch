@@ -493,43 +493,10 @@ serve(async (req) => {
     // 🔒 STEP 4: CONFIGURABLE TRANSACTION LIMITS
     // ==========================================
     // Read limits from environment (with defaults)
-    const MOMO_MAX_CDF = Number(Deno.env.get('MOMO_MAX_CDF')) || 5000000; // ~$2,000 USD
     const CARD_MAX_USD = Number(Deno.env.get('CARD_MAX_USD')) || 100000;  // $100k for vehicles
     
-    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // Mobile Money amount limit (DRC uses CDF)
-      const effectiveAmount = isDRC ? grandTotalCdf : grandTotalUsd;
-      const effectiveLimit = isDRC ? MOMO_MAX_CDF : (MOMO_MAX_CDF / exchangeRate);
-      
-      console.log('[mobile-checkout] MOMO_LIMIT_CHECK:', {
-        isDRC,
-        effectiveAmount,
-        effectiveLimit,
-        currency: isDRC ? 'CDF' : 'USD',
-        isOverLimit: effectiveAmount > effectiveLimit,
-      });
-      
-      if (effectiveAmount > effectiveLimit) {
-        const limitDisplay = isDRC 
-          ? `${MOMO_MAX_CDF.toLocaleString('fr-FR')} CDF`
-          : `$${(MOMO_MAX_CDF / exchangeRate).toFixed(2)} USD`;
-        const amountDisplay = isDRC
-          ? `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF`
-          : `$${grandTotalUsd.toFixed(2)} USD`;
-          
-        return jsonResponse({
-          ok: false,
-          success: false,
-          code: 'AMOUNT_TOO_HIGH_MOMO',
-          message_en: `Amount ${amountDisplay} exceeds Mobile Money limit of ${limitDisplay}. Please pay by card or split the payment.`,
-          message_fr: `Montant ${amountDisplay} trop élevé pour Mobile Money (limite: ${limitDisplay}). Veuillez payer par carte ou fractionner le paiement.`,
-          error: 'Amount too high for Mobile Money',
-          requestedAmount: effectiveAmount,
-          limit: effectiveLimit,
-          currency: isDRC ? 'CDF' : 'USD',
-        }, 400);
-      }
-    }
+    // NOTE: Mobile Money amount limit removed - MaishaPay will handle any operator limits
+    // All Mobile Money payments proceed regardless of amount
     
     // Optional: Card limit check (usually much higher)
     if (REQUESTED_METHOD === 'CARD' && grandTotalUsd > CARD_MAX_USD) {

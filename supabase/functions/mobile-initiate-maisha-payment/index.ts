@@ -2,8 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { 
   detectVehicleOrder, 
-  normalizeVehicleCurrency, 
-  getFxRates,
+  getPaymentCurrencyAndAmount,
   VEHICLE_CURRENCY_ERROR 
 } from "../_shared/vehiclePaymentGuard.ts";
 
@@ -131,67 +130,46 @@ serve(async (req) => {
       reasons: vehicleDetection.reasons,
     });
 
-    // 7️⃣ Determine currency & amount
+    // 7️⃣ Determine currency & amount using shared helper
     const exchangeRate =
       Number(order.exchange_rate_used) ||
       Number(order.exchange_rate) ||
       2500;
+    
+    const totalUsd = Number(order.total_usd) || 0;
+    const totalCdf = Number(order.total_cdf) || (totalUsd * exchangeRate);
 
-    let paymentCurrency = "USD";
-    let paymentAmount = Number(order.total_usd) || 0;
+    // 💰 Use CDF for high-value/vehicle orders to avoid MaishaPay USD limits
+    const paymentInfo = getPaymentCurrencyAndAmount(totalUsd, totalCdf, containsVehicle, exchangeRate);
+    const { currency: paymentCurrency, amount: paymentAmount, amountFormatted, displayAmount, usedCdf, reason: currencyReason } = paymentInfo;
 
-    // For vehicle orders: ALWAYS force USD
-    if (containsVehicle) {
-      console.log("[Initiate Payment] VEHICLE ORDER - Forcing USD currency");
-      
-      // Use admin client to update audit columns
+    console.log("[Initiate Payment] CURRENCY SELECTION:", {
+      orderId,
+      containsVehicle,
+      totalUsd,
+      totalCdf,
+      exchangeRate,
+      paymentCurrency,
+      paymentAmount,
+      amountFormatted,
+      displayAmount,
+      usedCdf,
+      currencyReason,
+    });
+
+    // Update order with currency audit fields
+    if (containsVehicle || usedCdf) {
       const adminSupabase = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
       );
       
-      // Update order with vehicle audit fields
       await adminSupabase.from("orders").update({
-        contains_vehicle: true,
-        normalized_currency: "USD",
+        contains_vehicle: containsVehicle,
+        normalized_currency: paymentCurrency,
         normalized_amount: paymentAmount,
       }).eq("id", orderId);
-      
-      // Force USD - MaishaPay card payments for vehicles only support USD
-      paymentCurrency = "USD";
-      paymentAmount = Number(order.total_usd) || 0;
-      
-      // If total_usd is missing but we have total_cdf, convert it
-      if ((!paymentAmount || paymentAmount <= 0) && order.total_cdf) {
-        paymentAmount = Number(order.total_cdf) / exchangeRate;
-        paymentAmount = Math.round(paymentAmount * 100) / 100;
-        
-        console.log("[Initiate Payment] Converted CDF to USD:", {
-          total_cdf: order.total_cdf,
-          exchangeRate,
-          paymentAmount,
-        });
-      }
-    } else {
-      // Non-vehicle orders: Use existing logic (should be USD)
-      const rawCurrency = (order.currency || "").toString().toUpperCase().trim();
-      paymentCurrency = rawCurrency === "CDF" ? "CDF" : "USD";
-
-      if (paymentCurrency === "CDF") {
-        paymentAmount = Number(order.total_cdf || 0);
-        if ((!paymentAmount || paymentAmount <= 0) && order.total_usd) {
-          paymentAmount = Number(order.total_usd) * exchangeRate;
-        }
-      } else {
-        paymentAmount = Number(order.total_usd || 0);
-        if ((!paymentAmount || paymentAmount <= 0) && order.total_cdf) {
-          paymentAmount = Number(order.total_cdf) / exchangeRate;
-        }
-      }
     }
-
-    // Round to 2 decimals
-    paymentAmount = Math.round(paymentAmount * 100) / 100;
 
     // 8️⃣ Validate amount
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {

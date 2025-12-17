@@ -34,12 +34,63 @@ const FX_RATES: Record<string, number> = {
   USD: 1.0,     // Base currency
 };
 
+// Threshold for high-value orders that should use CDF (MaishaPay USD limit)
+export const HIGH_VALUE_USD_THRESHOLD = 1000;
+
 // Error messages for unsupported currency
 export const VEHICLE_CURRENCY_ERROR = {
   code: 'UNSUPPORTED_VEHICLE_CURRENCY',
   message_fr: 'Le paiement par carte pour les véhicules est disponible uniquement en USD. Veuillez sélectionner Mobile Money ou réessayer en USD.',
   message_en: 'Card payments for vehicles are available in USD only. Please select Mobile Money or retry in USD.',
 };
+
+/**
+ * Determine the payment currency for MaishaPay based on order value and vehicle status.
+ * High-value orders (>$1000) or vehicle orders should use CDF to avoid MaishaPay USD limits.
+ */
+export function getPaymentCurrencyAndAmount(
+  totalUsd: number,
+  totalCdf: number,
+  isVehicle: boolean,
+  exchangeRate: number = 2500
+): {
+  currency: 'USD' | 'CDF';
+  amount: number;
+  amountFormatted: string;
+  displayAmount: string;
+  usedCdf: boolean;
+  reason: string;
+} {
+  const shouldUseCdf = isVehicle || totalUsd >= HIGH_VALUE_USD_THRESHOLD;
+  
+  if (shouldUseCdf) {
+    // Use CDF for high-value/vehicle orders
+    // CDF doesn't use decimals
+    const cdfAmount = totalCdf > 0 ? Math.round(totalCdf) : Math.round(totalUsd * exchangeRate);
+    const reason = isVehicle 
+      ? 'vehicle_order' 
+      : `high_value_order (>$${HIGH_VALUE_USD_THRESHOLD})`;
+    
+    return {
+      currency: 'CDF',
+      amount: cdfAmount,
+      amountFormatted: cdfAmount.toString(),
+      displayAmount: `${cdfAmount.toLocaleString('fr-FR')} CDF (≈ $${totalUsd.toFixed(2)} USD)`,
+      usedCdf: true,
+      reason,
+    };
+  }
+  
+  // Use USD for regular orders under threshold
+  return {
+    currency: 'USD',
+    amount: totalUsd,
+    amountFormatted: totalUsd.toFixed(2),
+    displayAmount: `$${totalUsd.toFixed(2)} USD`,
+    usedCdf: false,
+    reason: 'regular_order',
+  };
+}
 
 /**
  * Check if a string contains any vehicle keywords (excluding false positives)

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { detectVehicleOrder } from "../_shared/vehiclePaymentGuard.ts";
+import { detectVehicleOrder, getPaymentCurrencyAndAmount } from "../_shared/vehiclePaymentGuard.ts";
 
 /**
  * MaishaPay Checkout Page
@@ -9,6 +9,9 @@ import { detectVehicleOrder } from "../_shared/vehiclePaymentGuard.ts";
  * This is required because MaishaPay's checkout works via HTML form POST submission.
  * 
  * URL: /functions/v1/maishapay-checkout-page?order_id=XXX
+ * 
+ * IMPORTANT: High-value orders (>$1000 USD) and vehicle orders use CDF currency
+ * to avoid MaishaPay's USD transaction limits.
  */
 
 const corsHeaders = {
@@ -145,12 +148,13 @@ serve(async (req) => {
     const vehicleDetection = await detectVehicleOrder(supabase, orderId);
     const containsVehicle = vehicleDetection.isVehicle || order.contains_vehicle === true;
 
-    // Get payment amount - ALWAYS use total_usd (already correctly calculated)
-    const amount = Number(order.total_usd) || 0;
-    const currency = 'USD';
+    // Get payment amounts
+    const totalUsd = Number(order.total_usd) || 0;
+    const totalCdf = Number(order.total_cdf) || 0;
+    const exchangeRate = Number(order.exchange_rate_used) || 2500;
     
     // VALIDATION: Reject invalid amounts before MaishaPay
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(totalUsd) || totalUsd <= 0) {
       console.error('[maishapay-checkout-page] INVALID AMOUNT:', {
         orderId,
         containsVehicle,
@@ -164,6 +168,10 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'text/html; charset=utf-8' },
       });
     }
+
+    // 💰 DETERMINE CURRENCY: Use CDF for high-value/vehicle orders to avoid MaishaPay USD limits
+    const paymentInfo = getPaymentCurrencyAndAmount(totalUsd, totalCdf, containsVehicle, exchangeRate);
+    const { currency, amount, amountFormatted, displayAmount, usedCdf, reason } = paymentInfo;
     
     // Generate reference if not exists
     const reference = order.maisha_transaction_id || `AFRISHOP-${orderId.slice(0, 8)}-${Date.now().toString(36)}`;
@@ -171,30 +179,38 @@ serve(async (req) => {
     // Update order with reference if new
     if (!order.maisha_transaction_id) {
       await supabase.from('orders').update({
-        maisha_transaction_id: reference
+        maisha_transaction_id: reference,
+        normalized_currency: currency,
+        normalized_amount: amount,
       }).eq('id', orderId);
     }
 
     // 🚗 VEHICLE CURRENCY GUARD logging
-    console.log('[maishapay-checkout-page] VEHICLE CURRENCY GUARD:', {
+    console.log('[maishapay-checkout-page] CURRENCY SELECTION:', {
       order_id: orderId,
       is_vehicle_order: containsVehicle,
       vehicle_detection_reasons: vehicleDetection.reasons,
       order_contains_vehicle_flag: order.contains_vehicle,
-      original_currency: 'USD',
+      original_usd: totalUsd,
+      original_cdf: totalCdf,
+      exchange_rate: exchangeRate,
       final_currency: currency,
-      final_amount: amount.toFixed(2),
+      final_amount: amountFormatted,
+      used_cdf: usedCdf,
+      reason,
     });
 
     console.log('[maishapay-checkout-page] MAISHAPAY FORM VALUES:', {
       orderId,
-      currency: 'USD',
-      amount_raw: order.total_usd,
-      amount_formatted: amount.toFixed(2),
+      currency,
+      amount_raw: amount,
+      amount_formatted: amountFormatted,
+      display_amount: displayAmount,
       order_shipping_fee_usd: order.shipping_fee_usd,
       order_item_total_usd: order.item_total_usd,
       order_service_fee_usd: order.service_fee_usd,
       contains_vehicle: containsVehicle,
+      used_cdf: usedCdf,
       validation: {
         isNumber: typeof amount === 'number',
         isFinite: Number.isFinite(amount),
@@ -209,8 +225,9 @@ serve(async (req) => {
       publicKey,
       secretKey,
       gatewayMode: isLiveMode ? '1' : '0',
-      amount: amount.toFixed(2),
+      amount: amountFormatted,
       currency,
+      displayAmount,
       reference,
       callbackUrl,
       orderId,
@@ -242,6 +259,7 @@ interface CheckoutParams {
   gatewayMode: string;
   amount: string;
   currency: string;
+  displayAmount: string;
   reference: string;
   callbackUrl: string;
   orderId: string;
@@ -266,7 +284,7 @@ h1{font-size:20px;margin-bottom:8px}
 .subtitle{opacity:0.7;font-size:14px;margin-bottom:24px}
 .amount-box{background:rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:24px}
 .amount-label{font-size:12px;opacity:0.6;margin-bottom:8px}
-.amount{font-size:32px;font-weight:bold;color:#00d4ff}
+.amount{font-size:28px;font-weight:bold;color:#00d4ff}
 .ref{font-size:11px;opacity:0.5;margin-top:8px}
 .btn{width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer}
 .btn:hover{background:#00b8e6}
@@ -284,7 +302,7 @@ h1{font-size:20px;margin-bottom:8px}
   
   <div class="amount-box">
     <p class="amount-label">Montant à payer</p>
-    <p class="amount">$${params.amount} ${params.currency}</p>
+    <p class="amount">${params.displayAmount}</p>
     <p class="ref">Réf: ${params.reference}</p>
   </div>
   

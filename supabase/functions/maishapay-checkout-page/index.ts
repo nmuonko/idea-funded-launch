@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { detectVehicleOrder } from "../_shared/vehiclePaymentGuard.ts";
 
 /**
  * MaishaPay Checkout Page
@@ -140,6 +141,10 @@ serve(async (req) => {
       });
     }
 
+    // 🚗 VEHICLE DETECTION for logging
+    const vehicleDetection = await detectVehicleOrder(supabase, orderId);
+    const containsVehicle = vehicleDetection.isVehicle || order.contains_vehicle === true;
+
     // Get payment amount - ALWAYS use total_usd (already correctly calculated)
     const amount = Number(order.total_usd) || 0;
     const currency = 'USD';
@@ -148,6 +153,7 @@ serve(async (req) => {
     if (!Number.isFinite(amount) || amount <= 0) {
       console.error('[maishapay-checkout-page] INVALID AMOUNT:', {
         orderId,
+        containsVehicle,
         total_usd: order.total_usd,
         total_cdf: order.total_cdf,
         item_total_usd: order.item_total_usd,
@@ -169,6 +175,17 @@ serve(async (req) => {
       }).eq('id', orderId);
     }
 
+    // 🚗 VEHICLE CURRENCY GUARD logging
+    console.log('[maishapay-checkout-page] VEHICLE CURRENCY GUARD:', {
+      order_id: orderId,
+      is_vehicle_order: containsVehicle,
+      vehicle_detection_reasons: vehicleDetection.reasons,
+      order_contains_vehicle_flag: order.contains_vehicle,
+      original_currency: 'USD',
+      final_currency: currency,
+      final_amount: amount.toFixed(2),
+    });
+
     console.log('[maishapay-checkout-page] MAISHAPAY FORM VALUES:', {
       orderId,
       currency: 'USD',
@@ -177,6 +194,7 @@ serve(async (req) => {
       order_shipping_fee_usd: order.shipping_fee_usd,
       order_item_total_usd: order.item_total_usd,
       order_service_fee_usd: order.service_fee_usd,
+      contains_vehicle: containsVehicle,
       validation: {
         isNumber: typeof amount === 'number',
         isFinite: Number.isFinite(amount),

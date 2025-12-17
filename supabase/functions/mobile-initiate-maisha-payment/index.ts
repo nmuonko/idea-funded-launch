@@ -1,5 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  detectVehicleOrder, 
+  normalizeVehicleCurrency, 
+  getFxRates,
+  VEHICLE_CURRENCY_ERROR 
+} from "../_shared/vehiclePaymentGuard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,69 +120,123 @@ serve(async (req) => {
       );
     }
 
-    // 6️⃣ Determine currency & amount from the ORDER (single source of truth)
-    const rawCurrency = (order.currency || "").toString().toUpperCase().trim();
-    let paymentCurrency = rawCurrency === "CDF" ? "CDF" : "USD";
+    // 6️⃣ 🚗 VEHICLE CURRENCY GUARD - Detect vehicle orders
+    const vehicleDetection = await detectVehicleOrder(supabase, orderId);
+    const containsVehicle = vehicleDetection.isVehicle;
 
+    console.log("[Initiate Payment] VEHICLE DETECTION:", {
+      orderId,
+      containsVehicle,
+      vehicleItemCount: vehicleDetection.vehicleItems.length,
+      reasons: vehicleDetection.reasons,
+    });
+
+    // 7️⃣ Determine currency & amount
     const exchangeRate =
       Number(order.exchange_rate_used) ||
       Number(order.exchange_rate) ||
       2500;
 
-    let paymentAmount = 0;
+    let paymentCurrency = "USD";
+    let paymentAmount = Number(order.total_usd) || 0;
 
-    if (paymentCurrency === "CDF") {
-      // Order is in CDF – use total_cdf if possible
-      paymentAmount = Number(order.total_cdf || 0);
-
-      // Fallback: derive from USD if CDF is missing
-      if ((!paymentAmount || paymentAmount <= 0) && order.total_usd) {
-        paymentAmount = Number(order.total_usd) * exchangeRate;
-      }
-    } else {
-      // Default to USD (matches working normal orders)
-      paymentAmount = Number(order.total_usd || 0);
-
-      // Fallback: derive from CDF if USD is missing
+    // For vehicle orders: ALWAYS force USD
+    if (containsVehicle) {
+      console.log("[Initiate Payment] VEHICLE ORDER - Forcing USD currency");
+      
+      // Use admin client to update audit columns
+      const adminSupabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      );
+      
+      // Update order with vehicle audit fields
+      await adminSupabase.from("orders").update({
+        contains_vehicle: true,
+        normalized_currency: "USD",
+        normalized_amount: paymentAmount,
+      }).eq("id", orderId);
+      
+      // Force USD - MaishaPay card payments for vehicles only support USD
+      paymentCurrency = "USD";
+      paymentAmount = Number(order.total_usd) || 0;
+      
+      // If total_usd is missing but we have total_cdf, convert it
       if ((!paymentAmount || paymentAmount <= 0) && order.total_cdf) {
         paymentAmount = Number(order.total_cdf) / exchangeRate;
+        paymentAmount = Math.round(paymentAmount * 100) / 100;
+        
+        console.log("[Initiate Payment] Converted CDF to USD:", {
+          total_cdf: order.total_cdf,
+          exchangeRate,
+          paymentAmount,
+        });
+      }
+    } else {
+      // Non-vehicle orders: Use existing logic (should be USD)
+      const rawCurrency = (order.currency || "").toString().toUpperCase().trim();
+      paymentCurrency = rawCurrency === "CDF" ? "CDF" : "USD";
+
+      if (paymentCurrency === "CDF") {
+        paymentAmount = Number(order.total_cdf || 0);
+        if ((!paymentAmount || paymentAmount <= 0) && order.total_usd) {
+          paymentAmount = Number(order.total_usd) * exchangeRate;
+        }
+      } else {
+        paymentAmount = Number(order.total_usd || 0);
+        if ((!paymentAmount || paymentAmount <= 0) && order.total_cdf) {
+          paymentAmount = Number(order.total_cdf) / exchangeRate;
+        }
       }
     }
 
     // Round to 2 decimals
     paymentAmount = Math.round(paymentAmount * 100) / 100;
 
-    if (!paymentAmount || paymentAmount <= 0) {
-      console.error("[Initiate Payment] Invalid amount for order:", {
+    // 8️⃣ Validate amount
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      console.error("[Initiate Payment] INVALID AMOUNT:", {
         orderId,
+        containsVehicle,
         paymentCurrency,
+        paymentAmount,
         total_usd: order.total_usd,
         total_cdf: order.total_cdf,
         exchangeRate,
       });
-      return new Response(JSON.stringify({ error: "Invalid order amount" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ 
+          error: "Invalid order amount",
+          code: "INVALID_AMOUNT",
+        }), 
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    // 7️⃣ Create unique reference
+    // 9️⃣ Create unique reference
     const reference = `AFRISHOP-${orderId}-${Date.now()}`;
 
-    console.log("[Initiate Payment] MaishaPay payload base:", {
-      orderId,
-      reference,
-      amount: paymentAmount,
-      currency: paymentCurrency,
-      gatewayMode,
-      isLiveMode,
+    // 🔟 Log VEHICLE CURRENCY GUARD diagnostics
+    console.log("[Initiate Payment] VEHICLE CURRENCY GUARD RESULT:", {
+      order_id: orderId,
+      is_vehicle_order: containsVehicle,
+      original_currency_from_order: order.currency || "undefined",
+      original_amount_usd: order.total_usd,
+      original_amount_cdf: order.total_cdf,
+      final_currency: paymentCurrency,
+      final_amount: paymentAmount,
+      payment_method: "card",
+      exchange_rate: exchangeRate,
     });
 
-    // 8️⃣ Prepare MaishaPay payload
+    // 1️⃣1️⃣ Prepare MaishaPay payload
     const maishaPayload = {
       publicKey,
       amount: paymentAmount,
-      currency: paymentCurrency, // EXACT order currency
+      currency: paymentCurrency,
       reference,
       customerEmail: user.email || "",
       customerPhone: profile?.phone || "",
@@ -190,10 +250,12 @@ serve(async (req) => {
 
     console.log("[Initiate Payment] Calling MaishaPay:", {
       url: maishaApiUrl,
-      payload: maishaPayload,
+      currency: paymentCurrency,
+      amount: paymentAmount,
+      containsVehicle,
     });
 
-    // 9️⃣ Call MaishaPay
+    // 1️⃣2️⃣ Call MaishaPay
     const maishaResponse = await fetch(maishaApiUrl, {
       method: "POST",
       headers: {
@@ -211,15 +273,38 @@ serve(async (req) => {
       maishaData = { raw: rawText };
     }
 
-    console.log("[Initiate Payment] MaishaPay Response:", maishaData);
+    console.log("[Initiate Payment] MaishaPay Response:", {
+      status: maishaResponse.status,
+      ok: maishaResponse.ok,
+      hasCheckoutUrl: !!(maishaData?.checkoutUrl || maishaData?.paymentUrl || maishaData?.url),
+    });
 
     if (!maishaResponse.ok) {
-      throw new Error(
-        maishaData?.message ||
-          maishaData?.error ||
-          rawText ||
-          "MaishaPay request failed"
-      );
+      const errorMessage = maishaData?.message || maishaData?.error || rawText || "MaishaPay request failed";
+      
+      // Check for currency error specifically
+      if (errorMessage.toLowerCase().includes("devise") || errorMessage.toLowerCase().includes("currency")) {
+        console.error("[Initiate Payment] CURRENCY ERROR from MaishaPay:", {
+          orderId,
+          containsVehicle,
+          sentCurrency: paymentCurrency,
+          sentAmount: paymentAmount,
+          errorMessage,
+        });
+        
+        return new Response(
+          JSON.stringify({
+            error: errorMessage,
+            ...VEHICLE_CURRENCY_ERROR,
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+      
+      throw new Error(errorMessage);
     }
 
     const checkoutUrl =
@@ -239,7 +324,7 @@ serve(async (req) => {
       );
     }
 
-    // 🔟 Store payment record (keep both USD & CDF for reporting)
+    // 1️⃣3️⃣ Store payment record (keep both USD & CDF for reporting)
     const amountUsdToStore =
       paymentCurrency === "USD"
         ? paymentAmount
@@ -269,7 +354,7 @@ serve(async (req) => {
       );
     }
 
-    // 1️⃣1️⃣ Update order with Maisha reference
+    // 1️⃣4️⃣ Update order with Maisha reference
     await supabase
       .from("orders")
       .update({
@@ -278,7 +363,7 @@ serve(async (req) => {
       })
       .eq("id", orderId);
 
-    // 1️⃣2️⃣ Return data to mobile app
+    // 1️⃣5️⃣ Return data to mobile app
     return new Response(
       JSON.stringify({
         orderId,

@@ -8,7 +8,7 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
-import { detectVehicleFromItems, getPaymentCurrencyAndAmount } from "../_shared/vehiclePaymentGuard.ts";
+import { detectVehicleFromItems, getPaymentCurrencyAndAmount, fetchAndValidateVehicleQuotes, VEHICLE_QUOTE_MISSING_ERROR } from "../_shared/vehiclePaymentGuard.ts";
 
 /**
  * Mobile Checkout Edge Function
@@ -253,11 +253,38 @@ serve(async (req) => {
     const vehicleDetection = detectVehicleFromItems(requestedItems);
     const containsVehicle = vehicleDetection.isVehicle;
     
-    // Detect vehicle quote items for logging
+    // Detect vehicle quote items (items with approved quotes)
     const vehicleQuoteItems = requestedItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied === true
     );
     const hasVehicleQuoteItems = vehicleQuoteItems.length > 0;
+
+    // 🔒 VEHICLE QUOTE VALIDATION: Fetch and validate quotes from database
+    let vehicleQuoteValidation: Awaited<ReturnType<typeof fetchAndValidateVehicleQuotes>> | null = null;
+    if (hasVehicleQuoteItems) {
+      vehicleQuoteValidation = await fetchAndValidateVehicleQuotes(supabase, vehicleQuoteItems);
+      
+      if (!vehicleQuoteValidation.valid) {
+        console.error('[mobile-checkout] VEHICLE QUOTE VALIDATION FAILED:', {
+          orderId: existingOrder.id,
+          vehicleItemIds: vehicleQuoteItems.map(v => v.id),
+          error: vehicleQuoteValidation.error,
+        });
+        return jsonResponse({
+          success: false,
+          code: vehicleQuoteValidation.error?.code || VEHICLE_QUOTE_MISSING_ERROR.code,
+          message_fr: vehicleQuoteValidation.error?.message_fr || VEHICLE_QUOTE_MISSING_ERROR.message_fr,
+          message_en: vehicleQuoteValidation.error?.message_en || VEHICLE_QUOTE_MISSING_ERROR.message_en,
+          error: vehicleQuoteValidation.error?.message_en || 'Vehicle quote not available',
+        }, 400);
+      }
+      
+      console.log('[mobile-checkout] VEHICLE QUOTE VALIDATION SUCCESS:', {
+        orderId: existingOrder.id,
+        vehicleQuoteTotal: vehicleQuoteValidation.totalAmount,
+        quoteDetails: vehicleQuoteValidation.quoteDetails,
+      });
+    }
 
     // Log VEHICLE CURRENCY GUARD diagnostics
     console.log('[mobile-checkout] VEHICLE CURRENCY GUARD:', {
@@ -273,7 +300,7 @@ serve(async (req) => {
         vehicle_quote_applied: v.vehicle_quote_applied,
       })),
       all_items_count: requestedItems.length,
-      final_currency: 'USD', // Always USD for MaishaPay
+      final_currency: containsVehicle ? 'USD' : 'determined_by_value', // Vehicle orders ALWAYS use USD
     });
 
     // Calculate totals - SEPARATE vehicle quotes from regular items to prevent double shipping
@@ -298,6 +325,19 @@ serve(async (req) => {
         regularItemsMargin += Number(item.markup_fee_usd || 0);
       }
     });
+
+    // 🔒 CRITICAL: For vehicle quote items, OVERRIDE with DB quote totals (ignore client amounts)
+    if (hasVehicleQuoteItems && vehicleQuoteValidation && vehicleQuoteValidation.valid) {
+      const dbQuoteTotal = vehicleQuoteValidation.totalAmount;
+      console.log('[mobile-checkout] VEHICLE AMOUNT OVERRIDE:', {
+        client_vehicle_total: vehicleTotal,
+        db_quote_total: dbQuoteTotal,
+        difference: Math.abs(vehicleTotal - dbQuoteTotal),
+        using: 'db_quote_total',
+      });
+      // Use the DB quote total instead of client-calculated amount
+      vehicleTotal = dbQuoteTotal;
+    }
 
     // Calculate shipping ONLY for regular items (non-vehicle)
     const regularShippingFeeUsd = regularItemsBase > 0 
@@ -326,21 +366,30 @@ serve(async (req) => {
       }, 400);
     }
 
-    // 💰 DETERMINE CURRENCY: Use CDF for high-value/vehicle orders to avoid MaishaPay USD limits
+    // 💰 DETERMINE CURRENCY: Vehicle orders MUST use USD; high-value non-vehicle can use CDF
     const paymentInfo = getPaymentCurrencyAndAmount(grandTotalUsd, grandTotalCdf, containsVehicle, exchangeRate);
     const { currency: paymentCurrency, amount: paymentAmount, amountFormatted, displayAmount, usedCdf, reason: currencyReason } = paymentInfo;
 
-    console.log('[mobile-checkout] CURRENCY SELECTION:', {
-      grandTotalUsd,
-      grandTotalCdf,
-      containsVehicle,
-      paymentCurrency,
-      paymentAmount,
-      amountFormatted,
-      displayAmount,
-      usedCdf,
-      currencyReason,
-      contains_vehicle_quote: hasVehicleQuoteItems,
+    // 📊 COMPREHENSIVE PAYMENT SESSION AUDIT LOG
+    console.log('[mobile-checkout] PAYMENT SESSION AUDIT:', {
+      orderId: existingOrder.id,
+      containsVehicleQuote: hasVehicleQuoteItems,
+      requestedPaymentMethod: 'CARD', // Default assumption
+      incoming: {
+        currency: body.currency || 'not_provided',
+        amount: body.amount || 'not_provided',
+      },
+      final: {
+        currency: paymentCurrency,
+        amount: paymentAmount,
+        amountFormatted,
+      },
+      vehicleQuoteDetails: hasVehicleQuoteItems ? {
+        orderItemIds: vehicleQuoteItems.map(v => v.id),
+        quoteCurrency: 'USD',
+        dbQuoteTotal: vehicleQuoteValidation?.totalAmount || 0,
+        quoteRecords: vehicleQuoteValidation?.quoteDetails || [],
+      } : null,
       breakdown: {
         regular_items_base: regularItemsBase,
         regular_items_margin: regularItemsMargin,
@@ -348,6 +397,13 @@ serve(async (req) => {
         regular_total: regularTotal,
         vehicle_total: vehicleTotal,
         vehicle_shipping_included: vehicleShipping,
+        grand_total_usd: grandTotalUsd,
+        grand_total_cdf: grandTotalCdf,
+      },
+      currencyDecision: {
+        usedCdf,
+        reason: currencyReason,
+        vehicleForceUsd: containsVehicle,
       },
     });
 

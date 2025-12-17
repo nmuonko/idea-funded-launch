@@ -2,7 +2,7 @@
  * Vehicle Payment Guard
  * 
  * Detects vehicle orders and enforces USD currency for MaishaPay payments.
- * Vehicle orders that attempt to use non-USD currencies will be normalized to USD.
+ * Vehicle orders MUST use USD currency (not CDF) to avoid payment gateway errors.
  */
 
 // Vehicle store identifiers
@@ -34,19 +34,110 @@ const FX_RATES: Record<string, number> = {
   USD: 1.0,     // Base currency
 };
 
-// Threshold for high-value orders that should use CDF (MaishaPay USD limit)
+// Threshold for high-value orders (for logging purposes only)
 export const HIGH_VALUE_USD_THRESHOLD = 1000;
 
-// Error messages for unsupported currency
-export const VEHICLE_CURRENCY_ERROR = {
-  code: 'UNSUPPORTED_VEHICLE_CURRENCY',
-  message_fr: 'Le paiement par carte pour les véhicules est disponible uniquement en USD. Veuillez sélectionner Mobile Money ou réessayer en USD.',
-  message_en: 'Card payments for vehicles are available in USD only. Please select Mobile Money or retry in USD.',
+// Error messages for vehicle quote issues
+export const VEHICLE_QUOTE_MISSING_ERROR = {
+  code: 'VEHICLE_QUOTE_MISSING',
+  message_fr: 'Le devis véhicule n\'est pas disponible. Veuillez réessayer.',
+  message_en: 'Vehicle quote is not available. Please try again.',
 };
+
+export const VEHICLE_CARD_DISABLED_ERROR = {
+  code: 'VEHICLE_CARD_DISABLED',
+  message_fr: 'Le paiement par carte pour les véhicules est disponible uniquement en USD. Veuillez sélectionner Mobile Money.',
+  message_en: 'Card payment for vehicles is available in USD only. Please select Mobile Money.',
+};
+
+// Legacy error (kept for backward compatibility)
+export const VEHICLE_CURRENCY_ERROR = VEHICLE_CARD_DISABLED_ERROR;
+
+/**
+ * Fetch and validate vehicle quotes from database.
+ * Returns the total amount from approved quotes (status='SENT').
+ */
+export async function fetchAndValidateVehicleQuotes(
+  supabase: any,
+  vehicleItems: any[]
+): Promise<{
+  valid: boolean;
+  totalAmount: number;
+  currency: 'USD';
+  quoteDetails: Array<{ orderItemId: string; quotedTotal: number; quoteCurrency: string; status: string }>;
+  error?: { code: string; message_fr: string; message_en: string };
+}> {
+  if (!vehicleItems || vehicleItems.length === 0) {
+    return {
+      valid: true,
+      totalAmount: 0,
+      currency: 'USD',
+      quoteDetails: [],
+    };
+  }
+
+  const orderItemIds = vehicleItems.map(item => item.id);
+  
+  // Query quote_requests for these vehicle items
+  const { data: quotes, error: quotesError } = await supabase
+    .from('quote_requests')
+    .select('id, order_item_id, quoted_total_usd, quoted_shipping_usd, status')
+    .in('order_item_id', orderItemIds)
+    .eq('status', 'SENT'); // Only approved quotes
+
+  if (quotesError) {
+    console.error('[fetchAndValidateVehicleQuotes] Error fetching quotes:', quotesError);
+    return {
+      valid: false,
+      totalAmount: 0,
+      currency: 'USD',
+      quoteDetails: [],
+      error: VEHICLE_QUOTE_MISSING_ERROR,
+    };
+  }
+
+  // Check if all vehicle items have approved quotes
+  const quotedItemIds = new Set((quotes || []).map((q: any) => q.order_item_id));
+  const missingQuotes = orderItemIds.filter(id => !quotedItemIds.has(id));
+
+  if (missingQuotes.length > 0) {
+    console.log('[fetchAndValidateVehicleQuotes] Missing quotes for items:', missingQuotes);
+    return {
+      valid: false,
+      totalAmount: 0,
+      currency: 'USD',
+      quoteDetails: [],
+      error: VEHICLE_QUOTE_MISSING_ERROR,
+    };
+  }
+
+  // Sum the quoted totals
+  let totalAmount = 0;
+  const quoteDetails: Array<{ orderItemId: string; quotedTotal: number; quoteCurrency: string; status: string }> = [];
+
+  for (const quote of (quotes || [])) {
+    const quotedTotal = Number(quote.quoted_total_usd || 0);
+    totalAmount += quotedTotal;
+    quoteDetails.push({
+      orderItemId: quote.order_item_id,
+      quotedTotal,
+      quoteCurrency: 'USD', // Quotes are always in USD
+      status: quote.status,
+    });
+  }
+
+  return {
+    valid: true,
+    totalAmount: round2(totalAmount),
+    currency: 'USD',
+    quoteDetails,
+  };
+}
 
 /**
  * Determine the payment currency for MaishaPay based on order value and vehicle status.
- * High-value orders (>$1000) or vehicle orders should use CDF to avoid MaishaPay USD limits.
+ * CRITICAL: Vehicle orders MUST use USD (not CDF) to avoid "devise" errors.
+ * Regular high-value orders (non-vehicle) can use CDF.
  */
 export function getPaymentCurrencyAndAmount(
   totalUsd: number,
@@ -61,35 +152,47 @@ export function getPaymentCurrencyAndAmount(
   usedCdf: boolean;
   reason: string;
 } {
-  const shouldUseCdf = isVehicle || totalUsd >= HIGH_VALUE_USD_THRESHOLD;
+  // VEHICLE ORDERS: Always use USD (MaishaPay "devise" error fix)
+  if (isVehicle) {
+    return {
+      currency: 'USD',
+      amount: round2(totalUsd),
+      amountFormatted: totalUsd.toFixed(2),
+      displayAmount: `$${totalUsd.toFixed(2)} USD`,
+      usedCdf: false,
+      reason: 'vehicle_order_usd_enforced',
+    };
+  }
   
-  if (shouldUseCdf) {
-    // Use CDF for high-value/vehicle orders
-    // CDF doesn't use decimals
+  // High-value NON-vehicle orders: Use CDF to avoid MaishaPay USD limits
+  if (totalUsd >= HIGH_VALUE_USD_THRESHOLD) {
     const cdfAmount = totalCdf > 0 ? Math.round(totalCdf) : Math.round(totalUsd * exchangeRate);
-    const reason = isVehicle 
-      ? 'vehicle_order' 
-      : `high_value_order (>$${HIGH_VALUE_USD_THRESHOLD})`;
-    
     return {
       currency: 'CDF',
       amount: cdfAmount,
       amountFormatted: cdfAmount.toString(),
       displayAmount: `${cdfAmount.toLocaleString('fr-FR')} CDF (≈ $${totalUsd.toFixed(2)} USD)`,
       usedCdf: true,
-      reason,
+      reason: `high_value_non_vehicle (>$${HIGH_VALUE_USD_THRESHOLD})`,
     };
   }
   
-  // Use USD for regular orders under threshold
+  // Regular orders under threshold: Use USD
   return {
     currency: 'USD',
-    amount: totalUsd,
+    amount: round2(totalUsd),
     amountFormatted: totalUsd.toFixed(2),
     displayAmount: `$${totalUsd.toFixed(2)} USD`,
     usedCdf: false,
     reason: 'regular_order',
   };
+}
+
+/**
+ * Round to 2 decimal places
+ */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /**
@@ -217,13 +320,6 @@ export function detectVehicleFromItems(items: any[]): {
  */
 export function getFxRates(): Record<string, number> {
   return { ...FX_RATES };
-}
-
-/**
- * Round to 2 decimal places
- */
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 /**

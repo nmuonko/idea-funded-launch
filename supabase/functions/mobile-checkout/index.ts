@@ -75,6 +75,8 @@ function generateCheckoutHtml(params: {
   orderId: string;
   isoCode?: string;
   countryCode?: string;
+  motif?: string;
+  phone?: string;
 }): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
@@ -122,8 +124,10 @@ h1{font-size:20px;margin-bottom:8px}
     <input type="hidden" name="devise" value="${params.currency}">
     <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
     <input type="hidden" name="reference" value="${params.reference}">
+    <input type="hidden" name="motif" value="${params.motif || `Paiement AfriShop ${params.reference}`}">
     ${params.isoCode ? `<input type="hidden" name="isoCode" value="${params.isoCode}">` : ''}
     ${params.countryCode ? `<input type="hidden" name="countryCode" value="${params.countryCode}">` : ''}
+    ${params.phone ? `<input type="hidden" name="phone" value="${params.phone}">` : ''}
     
     <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
   </form>
@@ -447,15 +451,29 @@ serve(async (req) => {
       }, 400);
     }
 
+    // Parse client-requested currency (allows dual currency support for DRC Mobile Money)
+    const clientRequestedCurrency = (body.currency || '').toUpperCase();
+    
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // A) MOBILE MONEY: DRC uses CDF + CD; others use USD
+      // A) MOBILE MONEY: DRC supports BOTH CDF and USD; others use USD
       if (isDRC) {
-        paymentCurrency = 'CDF';
-        paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
-        amountFormatted = paymentAmount.toString();
-        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-        currencyReason = 'mobile_money_drc_cdf_enforced';
+        // Allow client to explicitly request USD for DRC Mobile Money
+        if (clientRequestedCurrency === 'USD') {
+          paymentCurrency = 'USD';
+          paymentAmount = round2(grandTotalUsd);
+          amountFormatted = grandTotalUsd.toFixed(2);
+          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_drc_usd_client_requested';
+        } else {
+          // Default to CDF for DRC Mobile Money (most common)
+          paymentCurrency = 'CDF';
+          paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
+          amountFormatted = paymentAmount.toString();
+          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_drc_cdf_default';
+        }
       } else {
         paymentCurrency = 'USD';
         paymentAmount = round2(grandTotalUsd);
@@ -496,15 +514,8 @@ serve(async (req) => {
       }, 400);
     }
 
-    // 🛡️ GUARD: Mobile Money in DRC must use CDF (force correction if somehow wrong)
-    if (isDRC && REQUESTED_METHOD === 'MOBILE_MONEY' && paymentCurrency !== 'CDF') {
-      console.warn('[mobile-checkout] CURRENCY_CORRECTION: Mobile Money in DRC must use CDF');
-      paymentCurrency = 'CDF';
-      paymentAmount = Math.round(grandTotalCdf);
-      amountFormatted = paymentAmount.toString();
-      displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-      currencyReason = 'mobile_money_drc_cdf_forced_correction';
-    }
+    // Generate motif (transaction description)
+    const motif = `Paiement AfriShop - Commande ${existingOrder.id.slice(0, 8).toUpperCase()}`;
 
     // 📊 COMPREHENSIVE CHECKOUT SESSION AUDIT LOG
     console.log('[mobile-checkout] CHECKOUT_SESSION_AUDIT:', JSON.stringify({
@@ -515,6 +526,7 @@ serve(async (req) => {
       isDRC,
       incoming: {
         currency: body.currency || 'not_provided',
+        clientRequestedCurrency: clientRequestedCurrency || 'not_provided',
         amount: body.amount || 'not_provided',
         isoCode: body.isoCode || 'not_provided',
         payment_method: body.payment_method || body.method || body.channel || 'not_provided',
@@ -525,6 +537,12 @@ serve(async (req) => {
         amountFormatted,
         isoCode,
         countryCode,
+        motif,
+      },
+      dualCurrencyInfo: {
+        usd: { amount: grandTotalUsd, display: `$${grandTotalUsd.toFixed(2)} USD` },
+        cdf: { amount: grandTotalCdf, display: `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF` },
+        exchangeRate,
       },
       maishapayFlowUsed,
       currencyReason,
@@ -645,7 +663,7 @@ serve(async (req) => {
     const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
     const callbackUrl = mobileCallbackUrl;
     
-    // Generate HTML for mobile WebView with country/ISO codes for MaishaPay
+    // Generate HTML for mobile WebView with country/ISO codes and motif for MaishaPay
     const html = generateCheckoutHtml({
       publicKey,
       secretKey,
@@ -658,6 +676,8 @@ serve(async (req) => {
       orderId: checkoutOrder.id,
       isoCode: isDRC ? isoCode : undefined, // Only include for DRC
       countryCode: isDRC ? countryCode : undefined,
+      motif, // Transaction description per MaishaPay API spec
+      phone: profile.phone || undefined, // Recipient phone for MaishaPay
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
@@ -673,7 +693,7 @@ serve(async (req) => {
       checkoutUrl,
     });
 
-    // Return BOTH checkoutUrl AND html for compatibility
+    // Return BOTH checkoutUrl AND html for compatibility with both USD and CDF amounts
     return jsonResponse({
       success: true,
       orderId: checkoutOrder.id,
@@ -687,6 +707,18 @@ serve(async (req) => {
         itemCount,
         totalUsd: grandTotalUsd,
         totalCdf: grandTotalCdf,
+      },
+      // 💰 Payment details with both currency amounts for mobile display
+      paymentDetails: {
+        currency: paymentCurrency,
+        amount: paymentAmount,
+        displayAmount,
+        // Alternative currency amount for display purposes
+        alternativeAmount: paymentCurrency === 'CDF' 
+          ? { currency: 'USD', amount: grandTotalUsd, display: `$${grandTotalUsd.toFixed(2)} USD` }
+          : { currency: 'CDF', amount: Math.round(grandTotalCdf), display: `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF` },
+        exchangeRate,
+        currencyReason,
       },
     });
 

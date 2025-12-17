@@ -108,11 +108,33 @@ serve(async (req) => {
       body: JSON.stringify(refundPayload),
     });
 
-    const maishaData = await maishaResponse.json();
-    console.log('[Refund] MaishaPay response:', maishaData);
+    // SAFE: Read as text first - MaishaPay often returns empty body
+    const responseText = await maishaResponse.text();
+    console.log('[Refund] MaishaPay raw response:', {
+      status: maishaResponse.status,
+      ok: maishaResponse.ok,
+      bodyLength: responseText.length,
+      body: responseText.substring(0, 200),
+    });
+
+    let maishaData: any;
+    if (responseText && responseText.trim() !== '') {
+      try {
+        maishaData = JSON.parse(responseText);
+      } catch (e) {
+        console.error('[Refund] Failed to parse MaishaPay response:', e);
+        maishaData = { success: maishaResponse.ok, rawResponse: responseText };
+      }
+    } else {
+      // Empty body - per MaishaPay docs, this can indicate success
+      maishaData = { success: maishaResponse.ok, _emptyResponse: true };
+      console.log('[Refund] Empty MaishaPay response - treating based on HTTP status');
+    }
+
+    console.log('[Refund] Parsed MaishaPay data:', maishaData);
 
     if (!maishaResponse.ok) {
-      throw new Error(maishaData.message || 'Refund failed');
+      throw new Error(maishaData.message || maishaData.error || `Refund failed with status ${maishaResponse.status}`);
     }
 
     // Update payment status to refunded

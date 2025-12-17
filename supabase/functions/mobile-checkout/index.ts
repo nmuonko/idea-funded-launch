@@ -484,6 +484,76 @@ serve(async (req) => {
     // 🚫 HARD RULE: Amount size NEVER changes currency or channel
     // The user's REQUESTED_METHOD and BUYER_ISO determine everything
     
+    // ==========================================
+    // 🔒 MOBILE MONEY VALIDATION (DRC)
+    // ==========================================
+    // Mobile Money has transaction limits and requires valid phone
+    const MOBILE_MONEY_CDF_LIMIT = 5000000; // ~$2,000 USD - typical Mobile Money limit
+    const MOBILE_MONEY_USD_LIMIT = 2000;
+    
+    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      // 📞 PHONE VALIDATION: Mobile Money in DRC requires valid DRC phone
+      if (isDRC) {
+        const phoneNumber = profile.phone || '';
+        // Valid DRC phone: +243 followed by 9 digits
+        const isValidDRCPhone = /^\+243\d{9}$/.test(phoneNumber.replace(/\s/g, ''));
+        
+        console.log('[mobile-checkout] PHONE_VALIDATION:', {
+          phone: phoneNumber,
+          isDRC,
+          isValidDRCPhone,
+          pattern: '+243 followed by 9 digits',
+        });
+        
+        if (!isValidDRCPhone) {
+          return jsonResponse({
+            ok: false,
+            success: false,
+            code: 'INVALID_PHONE_FOR_MOBILE_MONEY',
+            message_en: 'A valid DRC phone number (+243 followed by 9 digits) is required for Mobile Money payment. Please update your profile.',
+            message_fr: 'Un numéro de téléphone RDC valide (+243 suivi de 9 chiffres) est requis pour le paiement Mobile Money. Veuillez mettre à jour votre profil.',
+            error: 'Invalid phone number for Mobile Money',
+            currentPhone: phoneNumber,
+          }, 400);
+        }
+      }
+      
+      // 💰 AMOUNT VALIDATION: Check if amount exceeds Mobile Money limits
+      const isOverLimit = isDRC 
+        ? (grandTotalCdf > MOBILE_MONEY_CDF_LIMIT)
+        : (grandTotalUsd > MOBILE_MONEY_USD_LIMIT);
+        
+      console.log('[mobile-checkout] AMOUNT_LIMIT_CHECK:', {
+        isDRC,
+        grandTotalUsd,
+        grandTotalCdf,
+        limit: isDRC ? MOBILE_MONEY_CDF_LIMIT : MOBILE_MONEY_USD_LIMIT,
+        currency: isDRC ? 'CDF' : 'USD',
+        isOverLimit,
+      });
+      
+      if (isOverLimit) {
+        const limitDisplay = isDRC 
+          ? `${MOBILE_MONEY_CDF_LIMIT.toLocaleString('fr-FR')} CDF (~$${MOBILE_MONEY_USD_LIMIT} USD)`
+          : `$${MOBILE_MONEY_USD_LIMIT} USD`;
+        const amountDisplay = isDRC
+          ? `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF (~$${grandTotalUsd.toFixed(2)} USD)`
+          : `$${grandTotalUsd.toFixed(2)} USD`;
+          
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: 'AMOUNT_EXCEEDS_MOBILE_MONEY_LIMIT',
+          message_en: `Amount ${amountDisplay} exceeds Mobile Money limit of ${limitDisplay}. Please use Card payment or split your order into smaller purchases.`,
+          message_fr: `Le montant ${amountDisplay} dépasse la limite Mobile Money de ${limitDisplay}. Veuillez utiliser le paiement par Carte ou fractionner votre commande.`,
+          error: 'Amount exceeds Mobile Money limits',
+          requestedAmount: isDRC ? grandTotalCdf : grandTotalUsd,
+          limit: isDRC ? MOBILE_MONEY_CDF_LIMIT : MOBILE_MONEY_USD_LIMIT,
+          currency: isDRC ? 'CDF' : 'USD',
+        }, 400);
+      }
+    }
+    
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
       // A) MOBILE MONEY: DRC ALWAYS uses CDF (USD not supported by MaishaPay Mobile Money in DRC)
       if (isDRC) {

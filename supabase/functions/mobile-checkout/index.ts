@@ -459,21 +459,17 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    // 🚗 VEHICLE + CARD: Block with friendly message (user must use Mobile Money)
+    // 🚗 VEHICLE + CARD: ALLOWED - MaishaPay accepts Card in USD
+    // Vehicles can be paid via Card (USD) - no blocking needed
     if ((hasVehicleQuoteItems || containsVehicle) && REQUESTED_METHOD === 'CARD') {
-      console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
+      console.log('[mobile-checkout] VEHICLE_CARD_ALLOWED:', {
         orderId: existingOrder.id,
         hasVehicleQuoteItems,
         containsVehicle,
         requestedMethod: REQUESTED_METHOD,
+        currency: 'USD',
+        note: 'MaishaPay accepts Card payments in USD for vehicle orders',
       });
-      return jsonResponse({
-        success: false,
-        code: VEHICLE_CARD_NOT_AVAILABLE_ERROR.code,
-        message_fr: VEHICLE_CARD_NOT_AVAILABLE_ERROR.message_fr,
-        message_en: VEHICLE_CARD_NOT_AVAILABLE_ERROR.message_en,
-        error: 'Card payment not available for vehicle orders',
-      }, 400);
     }
 
     // 🚫 HARD RULE: Client currency is LOGGED but NEVER used to override server decision
@@ -574,35 +570,21 @@ serve(async (req) => {
         currencyReason = 'mobile_money_non_drc_usd';
       }
     } else {
-      // B) CARD: DRC uses CDF (never USD+CD), others use USD
-      if (isDRC) {
-        // 🔒 ENFORCED: Force CDF for card in DRC to avoid "USD+CD" combination error
-        paymentCurrency = 'CDF';
-        paymentAmount = Math.round(grandTotalCdf);
-        amountFormatted = paymentAmount.toString();
-        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-        maishapayFlowUsed = 'CARD_SESSION';
-        currencyReason = 'card_drc_cdf_enforced';
-      } else {
-        paymentCurrency = 'USD';
-        paymentAmount = round2(grandTotalUsd);
-        amountFormatted = grandTotalUsd.toFixed(2);
-        displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-        maishapayFlowUsed = 'CARD_SESSION';
-        currencyReason = 'card_non_drc_usd';
-      }
-    }
-
-    // 🛡️ GUARD: Ensure correct currency/country combination (final safety check)
-    if (isDRC && paymentCurrency === 'USD' && REQUESTED_METHOD === 'CARD') {
-      console.error('[mobile-checkout] CHECKOUT_METHOD_MISMATCH: USD+CD for card is invalid');
-      return jsonResponse({
-        success: false,
-        code: CHECKOUT_METHOD_MISMATCH_ERROR.code,
-        message_fr: CHECKOUT_METHOD_MISMATCH_ERROR.message_fr,
-        message_en: CHECKOUT_METHOD_MISMATCH_ERROR.message_en,
-        error: 'USD currency not supported for card payments in DRC',
-      }, 400);
+      // B) CARD: MaishaPay accepts Card in USD (all countries, including DRC)
+      // Card payments use USD universally - no CDF enforcement needed
+      paymentCurrency = 'USD';
+      paymentAmount = round2(grandTotalUsd);
+      amountFormatted = grandTotalUsd.toFixed(2);
+      displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+      maishapayFlowUsed = 'CARD_SESSION';
+      currencyReason = isDRC ? 'card_drc_usd_allowed' : 'card_non_drc_usd';
+      
+      console.log('[mobile-checkout] CARD_PAYMENT_USD:', {
+        isDRC,
+        grandTotalUsd,
+        currency: 'USD',
+        note: 'MaishaPay accepts Card payments in USD',
+      });
     }
 
     // Generate motif (transaction description)

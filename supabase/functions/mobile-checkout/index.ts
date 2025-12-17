@@ -43,23 +43,37 @@ function parsePaymentMethod(body: Record<string, any>): PaymentMethod {
   return 'MOBILE_MONEY';
 }
 
-// Detect buyer country and derive ISO code
-function detectBuyerCountry(profile: { country?: string | null }): { isDRC: boolean; isoCode: string; countryCode: string } {
+// Detect buyer country and derive ISO code from multiple sources
+function detectBuyerCountry(
+  profile: { country?: string | null },
+  payload: Record<string, any> = {}
+): { isDRC: boolean; isoCode: string; countryCode: string } {
+  // Priority: payload.isoCode > payload.recipient.countryCode > payload.customer.countryCode > profile.country > default "CD"
+  const payloadIso = (
+    payload.isoCode || 
+    payload.recipient?.countryCode || 
+    payload.customer?.countryCode || 
+    ''
+  ).toUpperCase();
+  
   const profileCountry = (profile?.country || '').toUpperCase();
   
-  // Check for DRC variations
-  const isDRC = profileCountry.includes('CONGO') || 
-                profileCountry === 'CD' || 
-                profileCountry === 'DRC' ||
-                profileCountry === 'DR CONGO' ||
-                profileCountry === 'RDC' ||
-                profileCountry === ''; // Default empty to DRC (primary market)
+  // Use payload ISO if provided, else derive from profile country
+  let detectedIso = payloadIso;
   
-  // Derive ISO code
-  const isoCode = isDRC ? 'CD' : (profileCountry.slice(0, 2) || 'CD');
-  const countryCode = isoCode;
+  if (!detectedIso) {
+    const isDRCFromProfile = profileCountry.includes('CONGO') || 
+                             profileCountry === 'CD' || 
+                             profileCountry === 'DRC' ||
+                             profileCountry === 'DR CONGO' ||
+                             profileCountry === 'RDC' ||
+                             profileCountry === ''; // Default empty to DRC (primary market)
+    detectedIso = isDRCFromProfile ? 'CD' : (profileCountry.slice(0, 2) || 'CD');
+  }
   
-  return { isDRC, isoCode, countryCode };
+  const isDRC = detectedIso === 'CD';
+  
+  return { isDRC, isoCode: detectedIso, countryCode: detectedIso };
 }
 
 // Generate checkout HTML that auto-submits to MaishaPay
@@ -184,6 +198,17 @@ serve(async (req) => {
 
     // 🔐 PARSE PAYMENT METHOD FROM PAYLOAD (default to MOBILE_MONEY for DRC safety)
     const REQUESTED_METHOD: PaymentMethod = parsePaymentMethod(body);
+    
+    // 📋 FREEZE INCOMING PAYLOAD VALUES (log at entry for debugging)
+    console.log('[mobile-checkout] INCOMING_PAYLOAD_FROZEN:', JSON.stringify({
+      REQUESTED_METHOD,
+      incoming_currency: body.currency || 'not_provided',
+      incoming_isoCode: body.isoCode || 'not_provided',
+      incoming_countryCode: body.countryCode || body.recipient?.countryCode || body.customer?.countryCode || 'not_provided',
+      incoming_amount: body.amount || 'not_provided',
+      payment_method_raw: body.payment_method || body.method || body.channel || 'not_provided',
+      cart_item_ids_count: cart_item_ids?.length || 0,
+    }));
     console.log('[mobile-checkout] Payment method detected:', REQUESTED_METHOD);
 
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
@@ -239,8 +264,8 @@ serve(async (req) => {
     console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
     const profile = userProfile!;
 
-    // 🌍 DETECT BUYER COUNTRY AND DERIVE ISO CODE
-    const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile);
+    // 🌍 DETECT BUYER COUNTRY AND DERIVE ISO CODE (from payload and profile)
+    const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile, body);
     console.log('[mobile-checkout] Buyer country detection:', { country: profile.country, isDRC, isoCode, countryCode });
 
     // Get user's DRAFT order
@@ -451,30 +476,26 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Parse client-requested currency (allows dual currency support for DRC Mobile Money)
+    // 🚫 HARD RULE: Client currency is LOGGED but NEVER used to override server decision
+    // This prevents the "Ce mode de paiement ne prend pas en charge la devise encours" error
     const clientRequestedCurrency = (body.currency || '').toUpperCase();
+    console.log('[mobile-checkout] CLIENT_CURRENCY_IGNORED:', { clientRequestedCurrency, reason: 'server_enforces_currency' });
+    
+    // 🚫 HARD RULE: Amount size NEVER changes currency or channel
+    // The user's REQUESTED_METHOD and BUYER_ISO determine everything
     
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // A) MOBILE MONEY: DRC supports BOTH CDF and USD; others use USD
+      // A) MOBILE MONEY: DRC ALWAYS uses CDF (USD not supported by MaishaPay Mobile Money in DRC)
       if (isDRC) {
-        // Allow client to explicitly request USD for DRC Mobile Money
-        if (clientRequestedCurrency === 'USD') {
-          paymentCurrency = 'USD';
-          paymentAmount = round2(grandTotalUsd);
-          amountFormatted = grandTotalUsd.toFixed(2);
-          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_drc_usd_client_requested';
-        } else {
-          // Default to CDF for DRC Mobile Money (most common)
-          paymentCurrency = 'CDF';
-          paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
-          amountFormatted = paymentAmount.toString();
-          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_drc_cdf_default';
-        }
+        // 🔒 ENFORCED: Mobile Money in DRC ALWAYS uses CDF, regardless of client request
+        paymentCurrency = 'CDF';
+        paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
+        amountFormatted = paymentAmount.toString();
+        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+        currencyReason = 'mobile_money_drc_cdf_enforced'; // Changed from "default" to "enforced"
       } else {
+        // Non-DRC: use USD
         paymentCurrency = 'USD';
         paymentAmount = round2(grandTotalUsd);
         amountFormatted = grandTotalUsd.toFixed(2);
@@ -485,7 +506,7 @@ serve(async (req) => {
     } else {
       // B) CARD: DRC uses CDF (never USD+CD), others use USD
       if (isDRC) {
-        // Force CDF for card in DRC to avoid "USD+CD" combination error
+        // 🔒 ENFORCED: Force CDF for card in DRC to avoid "USD+CD" combination error
         paymentCurrency = 'CDF';
         paymentAmount = Math.round(grandTotalCdf);
         amountFormatted = paymentAmount.toString();
@@ -662,6 +683,23 @@ serve(async (req) => {
     // Use mobile callback URL for WebView interception
     const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
     const callbackUrl = mobileCallbackUrl;
+    
+    // 📊 PRE-MAISHAPAY PAYLOAD LOG (exact values being sent)
+    console.log('[mobile-checkout] MAISHAPAY_FINAL_PAYLOAD:', JSON.stringify({
+      finalIsoCode: isDRC ? isoCode : 'not_sent',
+      finalCurrency: paymentCurrency,
+      finalAmount: paymentAmount,
+      finalAmountFormatted: amountFormatted,
+      REQUESTED_METHOD,
+      gatewayMode: isLiveMode ? '1' : '0',
+      reference,
+      motif,
+      callbackUrl,
+      orderId: checkoutOrder.id,
+      // Show redacted keys for debugging
+      publicKeyPrefix: publicKey?.slice(0, 8) + '...',
+      secretKeyPrefix: secretKey?.slice(0, 8) + '...',
+    }));
     
     // Generate HTML for mobile WebView with country/ISO codes and motif for MaishaPay
     const html = generateCheckoutHtml({

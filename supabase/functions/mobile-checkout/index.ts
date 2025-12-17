@@ -8,6 +8,7 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
+import { detectVehicleFromItems } from "../_shared/vehiclePaymentGuard.ts";
 
 /**
  * Mobile Checkout Edge Function
@@ -247,25 +248,31 @@ serve(async (req) => {
     
     console.log('[mobile-checkout] Settings loaded:', { exchangeRate, shippingBaseFeeUsd, shippingPercent });
 
+    // 🚗 VEHICLE DETECTION using shared helper
+    const vehicleDetection = detectVehicleFromItems(requestedItems);
+    const containsVehicle = vehicleDetection.isVehicle;
+    
     // Detect vehicle quote items for logging
     const vehicleQuoteItems = requestedItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied === true
     );
     const hasVehicleQuoteItems = vehicleQuoteItems.length > 0;
 
-    // Log pre-calculation diagnostics
-    console.log('[mobile-checkout] PRE-MAISHAPAY DIAGNOSTICS:', {
+    // Log VEHICLE CURRENCY GUARD diagnostics
+    console.log('[mobile-checkout] VEHICLE CURRENCY GUARD:', {
       order_id: existingOrder.id,
+      contains_vehicle: containsVehicle,
       contains_vehicle_quote: hasVehicleQuoteItems,
-      vehicle_items: vehicleQuoteItems.map(v => ({
+      vehicle_detection_reasons: vehicleDetection.reasons,
+      vehicle_items: vehicleDetection.vehicleItems.map(v => ({
         id: v.id,
         title: v.title?.substring(0, 50),
-        base_price_usd: v.base_price_usd,
-        shipping_fee_usd: v.shipping_fee_usd,
-        total_price_usd: v.total_price_usd,
+        store: v.store,
+        is_vehicle: v.is_vehicle,
         vehicle_quote_applied: v.vehicle_quote_applied,
       })),
       all_items_count: requestedItems.length,
+      final_currency: 'USD', // Always USD for MaishaPay
     });
 
     // Calculate totals - SEPARATE vehicle quotes from regular items to prevent double shipping
@@ -349,6 +356,10 @@ serve(async (req) => {
         maisha_payment_status: 'PENDING',
         admin_notes: notes || null,
         shipping_city: mapToShippingCity(profile.city),
+        // Vehicle payment audit fields
+        contains_vehicle: containsVehicle,
+        normalized_currency: 'USD', // Always USD for MaishaPay
+        normalized_amount: grandTotalUsd,
       })
       .select()
       .single();

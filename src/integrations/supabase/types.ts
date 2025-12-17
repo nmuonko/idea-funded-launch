@@ -771,6 +771,7 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           carrier: string | null
+          contains_vehicle: boolean | null
           created_at: string
           delivered_at: string | null
           estimated_delivery: string | null
@@ -782,6 +783,8 @@ export type Database = {
           maisha_payment_status: string | null
           maisha_status_code: string | null
           maisha_transaction_id: string | null
+          normalized_amount: number | null
+          normalized_currency: string | null
           operator_ref_id: string | null
           payment_notes: string | null
           payment_verification_method: string | null
@@ -808,6 +811,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           carrier?: string | null
+          contains_vehicle?: boolean | null
           created_at?: string
           delivered_at?: string | null
           estimated_delivery?: string | null
@@ -819,6 +823,8 @@ export type Database = {
           maisha_payment_status?: string | null
           maisha_status_code?: string | null
           maisha_transaction_id?: string | null
+          normalized_amount?: number | null
+          normalized_currency?: string | null
           operator_ref_id?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null
@@ -845,6 +851,7 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           carrier?: string | null
+          contains_vehicle?: boolean | null
           created_at?: string
           delivered_at?: string | null
           estimated_delivery?: string | null
@@ -856,6 +863,8 @@ export type Database = {
           maisha_payment_status?: string | null
           maisha_status_code?: string | null
           maisha_transaction_id?: string | null
+          normalized_amount?: number | null
+          normalized_currency?: string | null
           operator_ref_id?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null

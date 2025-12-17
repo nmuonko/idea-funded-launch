@@ -29,9 +29,9 @@ type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
  * Uses shared helpers for CONSISTENT totals calculation.
  */
 
-// Parse payment method from payload
+// STEP 1: Parse and normalize payment method from payload
 function parsePaymentMethod(body: Record<string, any>): PaymentMethod {
-  const rawMethod = (body.payment_method || body.method || body.channel || '').toString().toUpperCase();
+  const rawMethod = (body.payment_method || body.method || body.channel || body.pay_with || '').toString().toUpperCase();
   
   // Check for card-related keywords
   if (rawMethod.includes('CARD') || rawMethod.includes('VISA') || rawMethod.includes('MASTER') || 
@@ -39,7 +39,13 @@ function parsePaymentMethod(body: Record<string, any>): PaymentMethod {
     return 'CARD';
   }
   
-  // Default to MOBILE_MONEY (safer for DRC)
+  // Check for mobile money keywords
+  if (rawMethod.includes('MOBILE') || rawMethod.includes('MOMO') || rawMethod.includes('MPESA') ||
+      rawMethod.includes('AIRTEL') || rawMethod.includes('ORANGE')) {
+    return 'MOBILE_MONEY';
+  }
+  
+  // Default to MOBILE_MONEY (safer for DRC primary market)
   return 'MOBILE_MONEY';
 }
 
@@ -180,6 +186,9 @@ h1{font-size:20px;margin-bottom:8px}
 }
 
 serve(async (req) => {
+  // 🔖 VERSION MARKER (proves deploy)
+  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-16-final-currency-method-guard");
+  
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
@@ -481,75 +490,67 @@ serve(async (req) => {
     // The user's REQUESTED_METHOD and BUYER_ISO determine everything
     
     // ==========================================
-    // 🔒 MOBILE MONEY VALIDATION (DRC)
+    // 🔒 STEP 4: CONFIGURABLE TRANSACTION LIMITS
     // ==========================================
-    // Mobile Money has transaction limits and requires valid phone
-    const MOBILE_MONEY_CDF_LIMIT = 5000000; // ~$2,000 USD - typical Mobile Money limit
-    const MOBILE_MONEY_USD_LIMIT = 2000;
+    // Read limits from environment (with defaults)
+    const MOMO_MAX_CDF = Number(Deno.env.get('MOMO_MAX_CDF')) || 5000000; // ~$2,000 USD
+    const CARD_MAX_USD = Number(Deno.env.get('CARD_MAX_USD')) || 100000;  // $100k for vehicles
     
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // 📞 PHONE VALIDATION: Mobile Money in DRC requires valid DRC phone
-      if (isDRC) {
-        const phoneNumber = profile.phone || '';
-        // Valid DRC phone: +243 followed by 9 digits
-        const isValidDRCPhone = /^\+243\d{9}$/.test(phoneNumber.replace(/\s/g, ''));
-        
-        console.log('[mobile-checkout] PHONE_VALIDATION:', {
-          phone: phoneNumber,
-          isDRC,
-          isValidDRCPhone,
-          pattern: '+243 followed by 9 digits',
-        });
-        
-        if (!isValidDRCPhone) {
-          return jsonResponse({
-            ok: false,
-            success: false,
-            code: 'INVALID_PHONE_FOR_MOBILE_MONEY',
-            message_en: 'A valid DRC phone number (+243 followed by 9 digits) is required for Mobile Money payment. Please update your profile.',
-            message_fr: 'Un numéro de téléphone RDC valide (+243 suivi de 9 chiffres) est requis pour le paiement Mobile Money. Veuillez mettre à jour votre profil.',
-            error: 'Invalid phone number for Mobile Money',
-            currentPhone: phoneNumber,
-          }, 400);
-        }
-      }
+      // Mobile Money amount limit (DRC uses CDF)
+      const effectiveAmount = isDRC ? grandTotalCdf : grandTotalUsd;
+      const effectiveLimit = isDRC ? MOMO_MAX_CDF : (MOMO_MAX_CDF / exchangeRate);
       
-      // 💰 AMOUNT VALIDATION: Check if amount exceeds Mobile Money limits
-      const isOverLimit = isDRC 
-        ? (grandTotalCdf > MOBILE_MONEY_CDF_LIMIT)
-        : (grandTotalUsd > MOBILE_MONEY_USD_LIMIT);
-        
-      console.log('[mobile-checkout] AMOUNT_LIMIT_CHECK:', {
+      console.log('[mobile-checkout] MOMO_LIMIT_CHECK:', {
         isDRC,
-        grandTotalUsd,
-        grandTotalCdf,
-        limit: isDRC ? MOBILE_MONEY_CDF_LIMIT : MOBILE_MONEY_USD_LIMIT,
+        effectiveAmount,
+        effectiveLimit,
         currency: isDRC ? 'CDF' : 'USD',
-        isOverLimit,
+        isOverLimit: effectiveAmount > effectiveLimit,
       });
       
-      if (isOverLimit) {
+      if (effectiveAmount > effectiveLimit) {
         const limitDisplay = isDRC 
-          ? `${MOBILE_MONEY_CDF_LIMIT.toLocaleString('fr-FR')} CDF (~$${MOBILE_MONEY_USD_LIMIT} USD)`
-          : `$${MOBILE_MONEY_USD_LIMIT} USD`;
+          ? `${MOMO_MAX_CDF.toLocaleString('fr-FR')} CDF`
+          : `$${(MOMO_MAX_CDF / exchangeRate).toFixed(2)} USD`;
         const amountDisplay = isDRC
-          ? `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF (~$${grandTotalUsd.toFixed(2)} USD)`
+          ? `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF`
           : `$${grandTotalUsd.toFixed(2)} USD`;
           
         return jsonResponse({
           ok: false,
           success: false,
-          code: 'AMOUNT_EXCEEDS_MOBILE_MONEY_LIMIT',
-          message_en: `Amount ${amountDisplay} exceeds Mobile Money limit of ${limitDisplay}. Please use Card payment or split your order into smaller purchases.`,
-          message_fr: `Le montant ${amountDisplay} dépasse la limite Mobile Money de ${limitDisplay}. Veuillez utiliser le paiement par Carte ou fractionner votre commande.`,
-          error: 'Amount exceeds Mobile Money limits',
-          requestedAmount: isDRC ? grandTotalCdf : grandTotalUsd,
-          limit: isDRC ? MOBILE_MONEY_CDF_LIMIT : MOBILE_MONEY_USD_LIMIT,
+          code: 'AMOUNT_TOO_HIGH_MOMO',
+          message_en: `Amount ${amountDisplay} exceeds Mobile Money limit of ${limitDisplay}. Please pay by card or split the payment.`,
+          message_fr: `Montant ${amountDisplay} trop élevé pour Mobile Money (limite: ${limitDisplay}). Veuillez payer par carte ou fractionner le paiement.`,
+          error: 'Amount too high for Mobile Money',
+          requestedAmount: effectiveAmount,
+          limit: effectiveLimit,
           currency: isDRC ? 'CDF' : 'USD',
         }, 400);
       }
     }
     
+    // Optional: Card limit check (usually much higher)
+    if (REQUESTED_METHOD === 'CARD' && grandTotalUsd > CARD_MAX_USD) {
+      console.log('[mobile-checkout] CARD_LIMIT_CHECK:', {
+        grandTotalUsd,
+        limit: CARD_MAX_USD,
+        isOverLimit: true,
+      });
+      return jsonResponse({
+        ok: false,
+        success: false,
+        code: 'AMOUNT_TOO_HIGH_CARD',
+        message_en: `Amount $${grandTotalUsd.toFixed(2)} exceeds card payment limit. Please contact support.`,
+        message_fr: `Montant $${grandTotalUsd.toFixed(2)} dépasse la limite de paiement par carte. Veuillez contacter le support.`,
+        error: 'Amount too high for card',
+      }, 400);
+    }
+    
+    // ==========================================
+    // 🔒 STEP 3: ENFORCE METHOD → COUNTRY → CURRENCY
+    // ==========================================
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
       // A) MOBILE MONEY: DRC ALWAYS uses CDF (USD not supported by MaishaPay Mobile Money in DRC)
       if (isDRC) {
@@ -590,20 +591,30 @@ serve(async (req) => {
     // Generate motif (transaction description)
     const motif = `Paiement AfriShop - Commande ${existingOrder.id.slice(0, 8).toUpperCase()}`;
 
-    // 📊 COMPREHENSIVE CHECKOUT SESSION AUDIT LOG
+    // 📊 STEP 6: MANDATORY CHECKOUT_FINAL LOG (user-requested format)
+    const rawMethod = body.payment_method || body.method || body.channel || body.pay_with || 'not_provided';
+    console.log("CHECKOUT_FINAL", {
+      requestedMethod: REQUESTED_METHOD,
+      buyerIso: isoCode,
+      finalIso: isDRC ? 'CD' : isoCode,
+      finalCurrency: paymentCurrency,
+      finalAmount: paymentAmount,
+      containsVehicleQuote: hasVehicleQuoteItems,
+      incoming: {
+        method: rawMethod,
+        currency: body.currency || 'not_provided',
+        iso: body.isoCode || 'not_provided',
+        amount: body.amount || 'not_provided',
+      },
+    });
+
+    // Additional detailed audit log for debugging
     console.log('[mobile-checkout] CHECKOUT_SESSION_AUDIT:', JSON.stringify({
       orderId: existingOrder.id,
       REQUESTED_METHOD,
       containsVehicleQuote: hasVehicleQuoteItems,
       buyerCountry: profile.country,
       isDRC,
-      incoming: {
-        currency: body.currency || 'not_provided',
-        clientRequestedCurrency: clientRequestedCurrency || 'not_provided',
-        amount: body.amount || 'not_provided',
-        isoCode: body.isoCode || 'not_provided',
-        payment_method: body.payment_method || body.method || body.channel || 'not_provided',
-      },
       final: {
         currency: paymentCurrency,
         amount: paymentAmount,

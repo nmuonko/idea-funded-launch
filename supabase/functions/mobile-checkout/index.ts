@@ -701,6 +701,14 @@ serve(async (req) => {
       secretKeyPrefix: secretKey?.slice(0, 8) + '...',
     }));
     
+    // 🔐 FINAL CONFIRMATION LOG (user-requested format)
+    console.log("MAISHAPAY_FINAL", {
+      paymentMethod: REQUESTED_METHOD,
+      buyerCountry: isoCode,
+      finalCurrency: paymentCurrency,
+      finalAmount: paymentAmount,
+    });
+    
     // Generate HTML for mobile WebView with country/ISO codes and motif for MaishaPay
     const html = generateCheckoutHtml({
       publicKey,

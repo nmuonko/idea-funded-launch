@@ -169,14 +169,54 @@ serve(async (req) => {
       });
     }
 
-    // 💰 DETERMINE CURRENCY: Use CDF for high-value/vehicle orders to avoid MaishaPay USD limits
-    const paymentInfo = getPaymentCurrencyAndAmount(totalUsd, totalCdf, containsVehicle, exchangeRate);
-    const { currency, amount, amountFormatted, displayAmount, usedCdf, reason } = paymentInfo;
+    // 💰 DETERMINE CURRENCY: PRIORITY is stored normalized values from mobile-checkout
+    // This ensures CDF enforcement for DRC Mobile Money is respected
+    let currency: 'USD' | 'CDF';
+    let amount: number;
+    let amountFormatted: string;
+    let displayAmount: string;
+    let usedCdf: boolean;
+    let reason: string;
+
+    // Check if mobile-checkout already determined currency (stored in order)
+    if (order.normalized_currency && order.normalized_amount) {
+      // USE STORED VALUES - respect mobile-checkout's currency decision
+      currency = order.normalized_currency as 'USD' | 'CDF';
+      amount = Number(order.normalized_amount);
+      amountFormatted = currency === 'CDF' ? amount.toString() : amount.toFixed(2);
+      displayAmount = currency === 'CDF' 
+        ? `${amount.toLocaleString('fr-FR')} CDF`
+        : `$${amount.toFixed(2)} USD`;
+      usedCdf = currency === 'CDF';
+      reason = 'using_stored_normalized_values_from_mobile_checkout';
+      
+      console.log('[maishapay-checkout-page] USING STORED CURRENCY FROM mobile-checkout:', {
+        normalized_currency: order.normalized_currency,
+        normalized_amount: order.normalized_amount,
+        final_currency: currency,
+        final_amount: amount,
+      });
+    } else {
+      // FALLBACK: Calculate if no stored values (old orders)
+      const paymentInfo = getPaymentCurrencyAndAmount(totalUsd, totalCdf, containsVehicle, exchangeRate);
+      currency = paymentInfo.currency;
+      amount = paymentInfo.amount;
+      amountFormatted = paymentInfo.amountFormatted;
+      displayAmount = paymentInfo.displayAmount;
+      usedCdf = paymentInfo.usedCdf;
+      reason = paymentInfo.reason;
+      
+      console.log('[maishapay-checkout-page] FALLBACK: Calculated currency (no stored values):', {
+        currency,
+        amount,
+        reason,
+      });
+    }
     
     // Generate reference if not exists
     const reference = order.maisha_transaction_id || `AFRISHOP-${orderId.slice(0, 8)}-${Date.now().toString(36)}`;
 
-    // Update order with reference if new
+    // Update order with reference and currency if new
     if (!order.maisha_transaction_id) {
       await supabase.from('orders').update({
         maisha_transaction_id: reference,
@@ -314,6 +354,8 @@ h1{font-size:20px;margin-bottom:8px}
     <input type="hidden" name="devise" value="${params.currency}">
     <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
     <input type="hidden" name="reference" value="${params.reference}">
+    ${params.currency === 'CDF' ? '<input type="hidden" name="isoCode" value="CD">' : ''}
+    ${params.currency === 'CDF' ? '<input type="hidden" name="countryCode" value="CD">' : ''}
     
     <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
   </form>

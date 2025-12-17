@@ -8,7 +8,7 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
-import { detectVehicleFromItems } from "../_shared/vehiclePaymentGuard.ts";
+import { detectVehicleFromItems, getPaymentCurrencyAndAmount } from "../_shared/vehiclePaymentGuard.ts";
 
 /**
  * Mobile Checkout Edge Function
@@ -25,6 +25,7 @@ function generateCheckoutHtml(params: {
   gatewayMode: string;
   amount: string;
   currency: string;
+  displayAmount: string;
   reference: string;
   callbackUrl: string;
   orderId: string;
@@ -46,7 +47,7 @@ h1{font-size:20px;margin-bottom:8px}
 .subtitle{opacity:0.7;font-size:14px;margin-bottom:24px}
 .amount-box{background:rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:24px}
 .amount-label{font-size:12px;opacity:0.6;margin-bottom:8px}
-.amount{font-size:32px;font-weight:bold;color:#00d4ff}
+.amount{font-size:28px;font-weight:bold;color:#00d4ff}
 .ref{font-size:11px;opacity:0.5;margin-top:8px}
 .btn{width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer}
 .secure{margin-top:20px;font-size:11px;opacity:0.4}
@@ -63,7 +64,7 @@ h1{font-size:20px;margin-bottom:8px}
   
   <div class="amount-box">
     <p class="amount-label">Montant à payer</p>
-    <p class="amount">$${params.amount} ${params.currency}</p>
+    <p class="amount">${params.displayAmount}</p>
     <p class="ref">Réf: ${params.reference}</p>
   </div>
   
@@ -325,9 +326,20 @@ serve(async (req) => {
       }, 400);
     }
 
-    console.log('[mobile-checkout] MAISHAPAY PAYLOAD:', {
-      currency: 'USD',
-      amount: grandTotalUsd,
+    // 💰 DETERMINE CURRENCY: Use CDF for high-value/vehicle orders to avoid MaishaPay USD limits
+    const paymentInfo = getPaymentCurrencyAndAmount(grandTotalUsd, grandTotalCdf, containsVehicle, exchangeRate);
+    const { currency: paymentCurrency, amount: paymentAmount, amountFormatted, displayAmount, usedCdf, reason: currencyReason } = paymentInfo;
+
+    console.log('[mobile-checkout] CURRENCY SELECTION:', {
+      grandTotalUsd,
+      grandTotalCdf,
+      containsVehicle,
+      paymentCurrency,
+      paymentAmount,
+      amountFormatted,
+      displayAmount,
+      usedCdf,
+      currencyReason,
       contains_vehicle_quote: hasVehicleQuoteItems,
       breakdown: {
         regular_items_base: regularItemsBase,
@@ -358,8 +370,8 @@ serve(async (req) => {
         shipping_city: mapToShippingCity(profile.city),
         // Vehicle payment audit fields
         contains_vehicle: containsVehicle,
-        normalized_currency: 'USD', // Always USD for MaishaPay
-        normalized_amount: grandTotalUsd,
+        normalized_currency: paymentCurrency,
+        normalized_amount: paymentAmount,
       })
       .select()
       .single();
@@ -395,11 +407,12 @@ serve(async (req) => {
         maisha_reference: reference,
         amount_usd: grandTotalUsd,
         amount_cdf: grandTotalCdf,
-        currency: 'USD',
+        currency: paymentCurrency,
         status: 'pending',
         user_id: user.id,
         raw_request: {
-          amount: grandTotalUsd,
+          amount: paymentAmount,
+          currency: paymentCurrency,
           email: profile.email || user.email,
           phone: profile.phone,
           customerName: profile.full_name,
@@ -442,8 +455,9 @@ serve(async (req) => {
       publicKey,
       secretKey,
       gatewayMode: isLiveMode ? '1' : '0',
-      amount: grandTotalUsd.toFixed(2),
-      currency: 'USD',
+      amount: amountFormatted,
+      currency: paymentCurrency,
+      displayAmount,
       reference,
       callbackUrl,
       orderId: checkoutOrder.id,

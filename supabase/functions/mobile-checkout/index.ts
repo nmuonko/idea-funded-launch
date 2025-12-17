@@ -8,7 +8,18 @@ import {
 import { isProfileComplete, getMissingProfileFields, formatProfileForResponse } from "../_shared/profileHelper.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
-import { detectVehicleFromItems, getPaymentCurrencyAndAmount, fetchAndValidateVehicleQuotes, VEHICLE_QUOTE_MISSING_ERROR } from "../_shared/vehiclePaymentGuard.ts";
+import { 
+  detectVehicleFromItems, 
+  getPaymentCurrencyAndAmount, 
+  fetchAndValidateVehicleQuotes, 
+  VEHICLE_QUOTE_MISSING_ERROR,
+  VEHICLE_CARD_NOT_AVAILABLE_ERROR,
+  CHECKOUT_METHOD_MISMATCH_ERROR,
+} from "../_shared/vehiclePaymentGuard.ts";
+
+// Payment method types
+type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
+type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
 
 /**
  * Mobile Checkout Edge Function
@@ -17,6 +28,39 @@ import { detectVehicleFromItems, getPaymentCurrencyAndAmount, fetchAndValidateVe
  * Returns BOTH checkoutUrl AND html field for maximum compatibility.
  * Uses shared helpers for CONSISTENT totals calculation.
  */
+
+// Parse payment method from payload
+function parsePaymentMethod(body: Record<string, any>): PaymentMethod {
+  const rawMethod = (body.payment_method || body.method || body.channel || '').toString().toUpperCase();
+  
+  // Check for card-related keywords
+  if (rawMethod.includes('CARD') || rawMethod.includes('VISA') || rawMethod.includes('MASTER') || 
+      rawMethod.includes('CREDIT') || rawMethod.includes('DEBIT')) {
+    return 'CARD';
+  }
+  
+  // Default to MOBILE_MONEY (safer for DRC)
+  return 'MOBILE_MONEY';
+}
+
+// Detect buyer country and derive ISO code
+function detectBuyerCountry(profile: { country?: string | null }): { isDRC: boolean; isoCode: string; countryCode: string } {
+  const profileCountry = (profile?.country || '').toUpperCase();
+  
+  // Check for DRC variations
+  const isDRC = profileCountry.includes('CONGO') || 
+                profileCountry === 'CD' || 
+                profileCountry === 'DRC' ||
+                profileCountry === 'DR CONGO' ||
+                profileCountry === 'RDC' ||
+                profileCountry === ''; // Default empty to DRC (primary market)
+  
+  // Derive ISO code
+  const isoCode = isDRC ? 'CD' : (profileCountry.slice(0, 2) || 'CD');
+  const countryCode = isoCode;
+  
+  return { isDRC, isoCode, countryCode };
+}
 
 // Generate checkout HTML that auto-submits to MaishaPay
 function generateCheckoutHtml(params: {
@@ -29,6 +73,8 @@ function generateCheckoutHtml(params: {
   reference: string;
   callbackUrl: string;
   orderId: string;
+  isoCode?: string;
+  countryCode?: string;
 }): string {
   const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
   
@@ -76,6 +122,8 @@ h1{font-size:20px;margin-bottom:8px}
     <input type="hidden" name="devise" value="${params.currency}">
     <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
     <input type="hidden" name="reference" value="${params.reference}">
+    ${params.isoCode ? `<input type="hidden" name="isoCode" value="${params.isoCode}">` : ''}
+    ${params.countryCode ? `<input type="hidden" name="countryCode" value="${params.countryCode}">` : ''}
     
     <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
   </form>
@@ -130,6 +178,10 @@ serve(async (req) => {
     const body = await req.json();
     const { cart_item_ids, notes } = body;
 
+    // 🔐 PARSE PAYMENT METHOD FROM PAYLOAD (default to MOBILE_MONEY for DRC safety)
+    const REQUESTED_METHOD: PaymentMethod = parsePaymentMethod(body);
+    console.log('[mobile-checkout] Payment method detected:', REQUESTED_METHOD);
+
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
       return jsonResponse({ success: false, error: 'cart_item_ids array is required and must not be empty' }, 400);
     }
@@ -182,6 +234,10 @@ serve(async (req) => {
 
     console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
     const profile = userProfile!;
+
+    // 🌍 DETECT BUYER COUNTRY AND DERIVE ISO CODE
+    const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile);
+    console.log('[mobile-checkout] Buyer country detection:', { country: profile.country, isDRC, isoCode, countryCode });
 
     // Get user's DRAFT order
     const { data: existingOrder, error: orderFetchError } = await supabase
@@ -366,24 +422,112 @@ serve(async (req) => {
       }, 400);
     }
 
-    // 💰 DETERMINE CURRENCY: Vehicle orders MUST use USD; high-value non-vehicle can use CDF
-    const paymentInfo = getPaymentCurrencyAndAmount(grandTotalUsd, grandTotalCdf, containsVehicle, exchangeRate);
-    const { currency: paymentCurrency, amount: paymentAmount, amountFormatted, displayAmount, usedCdf, reason: currencyReason } = paymentInfo;
+    // 💰 PAYMENT METHOD-AWARE CURRENCY ENFORCEMENT
+    let paymentCurrency: 'USD' | 'CDF';
+    let paymentAmount: number;
+    let amountFormatted: string;
+    let displayAmount: string;
+    let maishapayFlowUsed: MaishapayFlow;
+    let currencyReason: string;
 
-    // 📊 COMPREHENSIVE PAYMENT SESSION AUDIT LOG
-    console.log('[mobile-checkout] PAYMENT SESSION AUDIT:', {
+    // 🚗 VEHICLE + CARD: Block with friendly message (user must use Mobile Money)
+    if ((hasVehicleQuoteItems || containsVehicle) && REQUESTED_METHOD === 'CARD') {
+      console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
+        orderId: existingOrder.id,
+        hasVehicleQuoteItems,
+        containsVehicle,
+        requestedMethod: REQUESTED_METHOD,
+      });
+      return jsonResponse({
+        success: false,
+        code: VEHICLE_CARD_NOT_AVAILABLE_ERROR.code,
+        message_fr: VEHICLE_CARD_NOT_AVAILABLE_ERROR.message_fr,
+        message_en: VEHICLE_CARD_NOT_AVAILABLE_ERROR.message_en,
+        error: 'Card payment not available for vehicle orders',
+      }, 400);
+    }
+
+    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      // A) MOBILE MONEY: DRC uses CDF + CD; others use USD
+      if (isDRC) {
+        paymentCurrency = 'CDF';
+        paymentAmount = Math.round(grandTotalCdf); // CDF has no decimals
+        amountFormatted = paymentAmount.toString();
+        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+        currencyReason = 'mobile_money_drc_cdf_enforced';
+      } else {
+        paymentCurrency = 'USD';
+        paymentAmount = round2(grandTotalUsd);
+        amountFormatted = grandTotalUsd.toFixed(2);
+        displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+        currencyReason = 'mobile_money_non_drc_usd';
+      }
+    } else {
+      // B) CARD: DRC uses CDF (never USD+CD), others use USD
+      if (isDRC) {
+        // Force CDF for card in DRC to avoid "USD+CD" combination error
+        paymentCurrency = 'CDF';
+        paymentAmount = Math.round(grandTotalCdf);
+        amountFormatted = paymentAmount.toString();
+        displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+        maishapayFlowUsed = 'CARD_SESSION';
+        currencyReason = 'card_drc_cdf_enforced';
+      } else {
+        paymentCurrency = 'USD';
+        paymentAmount = round2(grandTotalUsd);
+        amountFormatted = grandTotalUsd.toFixed(2);
+        displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+        maishapayFlowUsed = 'CARD_SESSION';
+        currencyReason = 'card_non_drc_usd';
+      }
+    }
+
+    // 🛡️ GUARD: Ensure correct currency/country combination (final safety check)
+    if (isDRC && paymentCurrency === 'USD' && REQUESTED_METHOD === 'CARD') {
+      console.error('[mobile-checkout] CHECKOUT_METHOD_MISMATCH: USD+CD for card is invalid');
+      return jsonResponse({
+        success: false,
+        code: CHECKOUT_METHOD_MISMATCH_ERROR.code,
+        message_fr: CHECKOUT_METHOD_MISMATCH_ERROR.message_fr,
+        message_en: CHECKOUT_METHOD_MISMATCH_ERROR.message_en,
+        error: 'USD currency not supported for card payments in DRC',
+      }, 400);
+    }
+
+    // 🛡️ GUARD: Mobile Money in DRC must use CDF (force correction if somehow wrong)
+    if (isDRC && REQUESTED_METHOD === 'MOBILE_MONEY' && paymentCurrency !== 'CDF') {
+      console.warn('[mobile-checkout] CURRENCY_CORRECTION: Mobile Money in DRC must use CDF');
+      paymentCurrency = 'CDF';
+      paymentAmount = Math.round(grandTotalCdf);
+      amountFormatted = paymentAmount.toString();
+      displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+      currencyReason = 'mobile_money_drc_cdf_forced_correction';
+    }
+
+    // 📊 COMPREHENSIVE CHECKOUT SESSION AUDIT LOG
+    console.log('[mobile-checkout] CHECKOUT_SESSION_AUDIT:', JSON.stringify({
       orderId: existingOrder.id,
+      REQUESTED_METHOD,
       containsVehicleQuote: hasVehicleQuoteItems,
-      requestedPaymentMethod: 'CARD', // Default assumption
+      buyerCountry: profile.country,
+      isDRC,
       incoming: {
         currency: body.currency || 'not_provided',
         amount: body.amount || 'not_provided',
+        isoCode: body.isoCode || 'not_provided',
+        payment_method: body.payment_method || body.method || body.channel || 'not_provided',
       },
       final: {
         currency: paymentCurrency,
         amount: paymentAmount,
         amountFormatted,
+        isoCode,
+        countryCode,
       },
+      maishapayFlowUsed,
+      currencyReason,
       vehicleQuoteDetails: hasVehicleQuoteItems ? {
         orderItemIds: vehicleQuoteItems.map(v => v.id),
         quoteCurrency: 'USD',
@@ -400,12 +544,7 @@ serve(async (req) => {
         grand_total_usd: grandTotalUsd,
         grand_total_cdf: grandTotalCdf,
       },
-      currencyDecision: {
-        usedCdf,
-        reason: currencyReason,
-        vehicleForceUsd: containsVehicle,
-      },
-    });
+    }, null, 2));
 
     // Create checkout order
     const timestamp = Date.now().toString(36);
@@ -506,7 +645,7 @@ serve(async (req) => {
     const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
     const callbackUrl = mobileCallbackUrl;
     
-    // Generate HTML for mobile WebView
+    // Generate HTML for mobile WebView with country/ISO codes for MaishaPay
     const html = generateCheckoutHtml({
       publicKey,
       secretKey,
@@ -517,6 +656,8 @@ serve(async (req) => {
       reference,
       callbackUrl,
       orderId: checkoutOrder.id,
+      isoCode: isDRC ? isoCode : undefined, // Only include for DRC
+      countryCode: isDRC ? countryCode : undefined,
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';

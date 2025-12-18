@@ -189,10 +189,10 @@ const STORE_SELECTORS: Record<StoreType, string[]> = {
     '.heading-3', // Price often in heading
     '.text-primary-darker',
   ],
-  // NEW: Temu (Affordable Deals)
-  temu: [
+  // Mercari (Used & Cheap)
+  mercari: [
     '[data-testid="price"]',
-    '.goods-price',
+    '.item-price',
     '.product-price',
     '.price-value',
     '.sale-price',
@@ -252,8 +252,8 @@ const STORE_TIMEOUTS: Record<StoreType, { fast: number; standard: number }> = {
   target: { fast: 3000, standard: 4000 },
   macys: { fast: 3000, standard: 4000 },
   homedepot: { fast: 3000, standard: 4000 },
-  // NEW: Temu & Wayfair
-  temu: { fast: 3000, standard: 4000 },
+  // Mercari & Wayfair
+  mercari: { fast: 3000, standard: 4000 },
   wayfair: { fast: 3000, standard: 4000 },
   // Car sites - slightly longer but still bounded (5s)
   carvana: { fast: 4000, standard: 5000 },

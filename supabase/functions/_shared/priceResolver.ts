@@ -6,7 +6,7 @@
 export type StoreType = 
   | 'amazon' | 'walmart' | 'bestbuy' | 'ebay' | 'target' 
   | 'shein' | 'macys' | 'homedepot' 
-  | 'temu' | 'wayfair'  // NEW: Affordable Deals & Home/Furniture
+  | 'mercari' | 'wayfair'  // Mercari (Used & Cheap) & Wayfair (Home/Furniture)
   | 'carvana' | 'cargurus'  // DEPRECATED: Keep for historical data compatibility
   | 'tesla_used' | 'edmunds'  // Active car stores
   | 'aliexpress' | 'generic';
@@ -44,8 +44,8 @@ const ALLOWED_DOMAINS = [
   'lowes.com',
   'costco.com',
   'newegg.com',
-  // NEW: Affordable Deals & Home/Furniture
-  'temu.com',
+  // Mercari (Used & Cheap) & Wayfair (Home/Furniture)
+  'mercari.com',
   'wayfair.com',
   // Car marketplaces (deprecated - kept for historical compatibility)
   'carvana.com',
@@ -84,8 +84,8 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   ebay: 6,        // Prices change frequently (auctions)
   shein: 4,       // Flash sales, frequent price changes - shorter cache
   aliexpress: 4,  // Dynamic pricing - shorter cache
-  // NEW: Temu & Wayfair
-  temu: 4,        // Flash sales similar to SHEIN
+  // Mercari & Wayfair
+  mercari: 6,     // Used items - moderate TTL
   wayfair: 12,    // Stable home furniture pricing
   // Car marketplaces (stable pricing)
   carvana: 48,    // DEPRECATED - kept for historical data
@@ -107,8 +107,8 @@ export const HOT_CACHE_TTL_MINUTES: Record<string, number> = {
   ebay: 5,        // Auctions change frequently
   shein: 5,       // Very short due to dynamic pricing
   aliexpress: 5,  // Very short due to dynamic pricing
-  // NEW: Temu & Wayfair
-  temu: 5,        // Flash sales like SHEIN
+  // Mercari & Wayfair
+  mercari: 10,    // Used items - moderate TTL
   wayfair: 15,    // Stable pricing
   // Car marketplaces - longer hot cache (stable pricing)
   carvana: 30,
@@ -244,8 +244,8 @@ export function detectStore(url: string): StoreType {
     if (host.includes('shein.')) return 'shein';
     if (host.includes('macys.')) return 'macys';
     if (host.includes('homedepot.')) return 'homedepot';
-    // NEW: Temu & Wayfair
-    if (host.includes('temu.')) return 'temu';
+    // Mercari & Wayfair
+    if (host.includes('mercari.')) return 'mercari';
     if (host.includes('wayfair.')) return 'wayfair';
     // Active car stores (preferred)
     if (host.includes('tesla.') && pathname.includes('/inventory')) return 'tesla_used';
@@ -275,8 +275,8 @@ export function getStoreLabel(store: string): string {
     shein: 'SHEIN',
     macys: "Macy's",
     homedepot: 'Home Depot',
-    // NEW: Temu & Wayfair
-    temu: 'Temu',
+    // Mercari & Wayfair
+    mercari: 'Mercari',
     wayfair: 'Wayfair',
     // Active car stores
     tesla_used: 'Tesla Used',
@@ -318,7 +318,7 @@ export function detectCurrency(text: string, url: string): { code: string; symbo
   if (url.includes('amazon.com') || url.includes('walmart.com') || 
       url.includes('bestbuy.com') || url.includes('target.com') ||
       url.includes('homedepot.com') || url.includes('macys.com') ||
-      url.includes('temu.com') || url.includes('wayfair.com')) {
+      url.includes('mercari.com') || url.includes('wayfair.com')) {
     return { code: 'USD', symbol: '$' };
   }
   

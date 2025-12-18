@@ -1573,6 +1573,7 @@ export type Database = {
         | "EDMUNDS"
         | "TEMU"
         | "WAYFAIR"
+        | "MERCARI"
       ticket_priority: "low" | "medium" | "high" | "urgent"
       ticket_status:
         | "open"
@@ -1731,6 +1732,7 @@ export const Constants = {
         "EDMUNDS",
         "TEMU",
         "WAYFAIR",
+        "MERCARI",
       ],
       ticket_priority: ["low", "medium", "high", "urgent"],
       ticket_status: [

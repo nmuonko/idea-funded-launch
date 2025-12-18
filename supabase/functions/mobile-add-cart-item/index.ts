@@ -44,12 +44,15 @@ const addCartItemSchema = z.object({
           'homedepot.com', 'www.homedepot.com',
           'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
           'macys.com', 'www.macys.com', 'm.macys.com',
+          // NEW: Temu and Wayfair
+          'temu.com', 'www.temu.com', 'm.temu.com',
+          'wayfair.com', 'www.wayfair.com',
         ];
         return allowedDomains.some(d => parsed.hostname.endsWith(d));
       } catch {
         return false;
       }
-    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Tesla, Edmunds, Target, Home Depot, SHEIN, Macy's)"),
+    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Tesla, Edmunds, Target, Home Depot, SHEIN, Macy's, Temu, Wayfair)"),
   productPrice: z.number()
     .positive("Price must be positive")
     .max(1000000, "Price exceeds maximum"),
@@ -231,6 +234,8 @@ serve(async (req) => {
       else if (hostname.includes('homedepot')) store = 'OTHER';
       else if (hostname.includes('shein')) store = 'OTHER';
       else if (hostname.includes('macys')) store = 'OTHER';
+      else if (hostname.includes('temu')) store = 'TEMU';
+      else if (hostname.includes('wayfair')) store = 'WAYFAIR';
     } catch (e) {
       console.error('[mobile-add-cart-item] Invalid URL format:', e);
     }

@@ -1,0 +1,3 @@
+-- Add TEMU and WAYFAIR to the store_type enum
+ALTER TYPE store_type ADD VALUE IF NOT EXISTS 'TEMU';
+ALTER TYPE store_type ADD VALUE IF NOT EXISTS 'WAYFAIR';

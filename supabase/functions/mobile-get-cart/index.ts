@@ -126,7 +126,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   }
   
   // REGULAR PRODUCT - calculate as normal
-  const itemRequiresQuote = item.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
+  // FIXED: Only vehicles require manual quote, NOT heavy items
+  const itemRequiresQuote = item.is_vehicle === true && item.vehicle_quote_applied !== true;
   const expectedBaseTotal = round2(basePriceUsd * quantity);
   const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
   const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);

@@ -24,8 +24,8 @@ const ALLOWED_DOMAINS = [
   'homedepot.com', 'www.homedepot.com',
   'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
   'macys.com', 'www.macys.com', 'm.macys.com',
-  // NEW: Temu and Wayfair
-  'temu.com', 'www.temu.com', 'm.temu.com',
+  // Mercari and Wayfair
+  'mercari.com', 'www.mercari.com',
   'wayfair.com', 'www.wayfair.com',
 ];
 

@@ -207,17 +207,16 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'SAVED_ITEMS', message: 'Cannot checkout items that are saved for later.' }, 400);
     }
 
-    // Check for manual quote items (vehicles without applied quotes)
+    // FIXED: Check for VEHICLES requiring manual quote only (not heavy items)
     const pendingQuoteItems = requestedItems.filter(item => 
-      item.requires_manual_quote === true || 
-      (item.is_vehicle === true && item.vehicle_quote_applied !== true)
+      item.is_vehicle === true && item.vehicle_quote_applied !== true
     );
     if (pendingQuoteItems.length > 0) {
       return jsonResponse({ 
         success: false, 
         error: 'QUOTE_REQUIRED', 
-        message: 'Some items require a shipping quote before checkout.',
-        pendingItems: pendingQuoteItems.map(i => ({ id: i.id, title: i.title }))
+        message: 'Vehicle items require a shipping quote before checkout.',
+        pendingItems: pendingQuoteItems.map(i => ({ id: i.id, title: i.title, isVehicle: true }))
       }, 400);
     }
 

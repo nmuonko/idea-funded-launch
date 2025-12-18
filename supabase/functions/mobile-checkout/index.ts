@@ -316,23 +316,24 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Cannot checkout items that are saved for later.' }, 400);
     }
 
-    // Check for items requiring manual quote
-    const manualQuoteItems = requestedItems.filter(item => item.requires_manual_quote);
-    if (manualQuoteItems.length > 0) {
-      const quoteItemIds = manualQuoteItems.map(item => item.id);
-      const { data: existingQuotes } = await supabase
-        .from('quote_requests')
-        .select('id, order_item_id, status')
-        .in('order_item_id', quoteItemIds);
+    // FIXED: Check for VEHICLES requiring manual quote (not heavy items)
+    // Only vehicles with pending quotes block checkout
+    const vehiclesWithPendingQuotes = requestedItems.filter(item => 
+      item.is_vehicle === true && item.vehicle_quote_applied !== true
+    );
+    
+    if (vehiclesWithPendingQuotes.length > 0) {
+      console.log('[mobile-checkout] Vehicles with pending quotes found:', vehiclesWithPendingQuotes.map(v => v.id));
       
       return jsonResponse({ 
         success: false,
         code: 'QUOTE_REQUIRED',
-        message: 'Some items require a custom shipping quote.',
-        quoteRequiredItems: manualQuoteItems.map(item => ({
+        message: 'Vehicle items require a custom shipping quote before checkout.',
+        quoteRequiredItems: vehiclesWithPendingQuotes.map(item => ({
           id: item.id,
           title: item.title,
           productUrl: item.product_url,
+          isVehicle: true,
         })),
       }, 400);
     }

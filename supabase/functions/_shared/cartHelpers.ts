@@ -354,16 +354,13 @@ export async function updateOrderTotals(
       // Regular item
       const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
       const margin = Number(item.markup_fee_usd || 0);
-      const estWeight = Number(item.est_weight_kg || 1);
-      const itemRequiresQuote = item.requires_manual_quote || estWeight > HEAVY_THRESHOLD_KG;
+      // FIXED: Only vehicles require manual quote, NOT heavy items
+      // Regular products never block checkout regardless of weight
 
       regularItemBaseTotal += basePrice;
       regularItemMarginTotal += margin;
       regularItemCount++;
-
-      if (itemRequiresQuote) {
-        regularRequiresQuote = true;
-      }
+      // Regular items never require manual quote - removed weight-based check
     }
   });
 

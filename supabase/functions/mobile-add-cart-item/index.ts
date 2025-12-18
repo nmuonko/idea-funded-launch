@@ -173,8 +173,9 @@ serve(async (req) => {
       }
 
       estWeightKg = shippingType.est_weight_kg;
-      itemRequiresManualQuote = shippingType.requires_manual_quote || estWeightKg > HEAVY_THRESHOLD_KG;
-      console.log('[mobile-add-cart-item] Shipping type loaded:', { estWeightKg, itemRequiresManualQuote });
+      // FIXED: Only vehicles require manual quote, NOT heavy items
+      itemRequiresManualQuote = false; // Will be set later if item is a vehicle
+      console.log('[mobile-add-cart-item] Shipping type loaded:', { estWeightKg });
     }
 
     // Load pricing settings - use cached version for performance
@@ -349,13 +350,13 @@ serve(async (req) => {
       if (shippingType) {
         finalShippingTypeId = shippingType.id;
         estWeightKg = shippingType.estWeightKg;
-        itemRequiresManualQuote = shippingType.requiresManualQuote || estWeightKg > HEAVY_THRESHOLD_KG;
+        // FIXED: Only vehicles require manual quote, NOT heavy items or shipping type flags
+        itemRequiresManualQuote = false;
         
         console.log('[mobile-add-cart-item] Applied category:', {
           category: detection.category,
           shippingTypeId: finalShippingTypeId,
           estWeightKg,
-          requiresManualQuote: itemRequiresManualQuote,
           isEstimated: detection.isEstimated,
         });
       }

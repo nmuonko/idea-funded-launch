@@ -6,8 +6,9 @@
 export type StoreType = 
   | 'amazon' | 'walmart' | 'bestbuy' | 'ebay' | 'target' 
   | 'shein' | 'macys' | 'homedepot' 
+  | 'temu' | 'wayfair'  // NEW: Affordable Deals & Home/Furniture
   | 'carvana' | 'cargurus'  // DEPRECATED: Keep for historical data compatibility
-  | 'tesla_used' | 'edmunds'  // NEW: Active car stores
+  | 'tesla_used' | 'edmunds'  // Active car stores
   | 'aliexpress' | 'generic';
 
 // Active car store types (for new items)
@@ -43,12 +44,15 @@ const ALLOWED_DOMAINS = [
   'lowes.com',
   'costco.com',
   'newegg.com',
+  // NEW: Affordable Deals & Home/Furniture
+  'temu.com',
+  'wayfair.com',
   // Car marketplaces (deprecated - kept for historical compatibility)
   'carvana.com',
   'cargurus.com',
   'autotrader.com',
   'cars.com',
-  // NEW: Active car marketplaces
+  // Active car marketplaces
   'tesla.com',
   'edmunds.com',
 ];
@@ -80,11 +84,14 @@ export const STORE_TTL_HOURS: Record<string, number> = {
   ebay: 6,        // Prices change frequently (auctions)
   shein: 4,       // Flash sales, frequent price changes - shorter cache
   aliexpress: 4,  // Dynamic pricing - shorter cache
+  // NEW: Temu & Wayfair
+  temu: 4,        // Flash sales similar to SHEIN
+  wayfair: 12,    // Stable home furniture pricing
   // Car marketplaces (stable pricing)
   carvana: 48,    // DEPRECATED - kept for historical data
   cargurus: 48,   // DEPRECATED - kept for historical data
-  tesla_used: 48, // NEW: Tesla used inventory
-  edmunds: 48,    // NEW: Edmunds car listings
+  tesla_used: 48, // Tesla used inventory
+  edmunds: 48,    // Edmunds car listings
   generic: 8,     // Reduced generic TTL
 };
 
@@ -100,6 +107,9 @@ export const HOT_CACHE_TTL_MINUTES: Record<string, number> = {
   ebay: 5,        // Auctions change frequently
   shein: 5,       // Very short due to dynamic pricing
   aliexpress: 5,  // Very short due to dynamic pricing
+  // NEW: Temu & Wayfair
+  temu: 5,        // Flash sales like SHEIN
+  wayfair: 15,    // Stable pricing
   // Car marketplaces - longer hot cache (stable pricing)
   carvana: 30,
   cargurus: 30,
@@ -234,7 +244,10 @@ export function detectStore(url: string): StoreType {
     if (host.includes('shein.')) return 'shein';
     if (host.includes('macys.')) return 'macys';
     if (host.includes('homedepot.')) return 'homedepot';
-    // NEW: Active car stores (preferred)
+    // NEW: Temu & Wayfair
+    if (host.includes('temu.')) return 'temu';
+    if (host.includes('wayfair.')) return 'wayfair';
+    // Active car stores (preferred)
     if (host.includes('tesla.') && pathname.includes('/inventory')) return 'tesla_used';
     if (host.includes('edmunds.')) return 'edmunds';
     // DEPRECATED: Car stores (kept for backward compatibility)
@@ -262,6 +275,9 @@ export function getStoreLabel(store: string): string {
     shein: 'SHEIN',
     macys: "Macy's",
     homedepot: 'Home Depot',
+    // NEW: Temu & Wayfair
+    temu: 'Temu',
+    wayfair: 'Wayfair',
     // Active car stores
     tesla_used: 'Tesla Used',
     edmunds: 'Edmunds',
@@ -301,7 +317,8 @@ export function detectCurrency(text: string, url: string): { code: string; symbo
   // Major US retailers - always USD
   if (url.includes('amazon.com') || url.includes('walmart.com') || 
       url.includes('bestbuy.com') || url.includes('target.com') ||
-      url.includes('homedepot.com') || url.includes('macys.com')) {
+      url.includes('homedepot.com') || url.includes('macys.com') ||
+      url.includes('temu.com') || url.includes('wayfair.com')) {
     return { code: 'USD', symbol: '$' };
   }
   

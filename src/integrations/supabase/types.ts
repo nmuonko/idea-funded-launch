@@ -1571,6 +1571,8 @@ export type Database = {
         | "OTHER"
         | "TESLA_USED"
         | "EDMUNDS"
+        | "TEMU"
+        | "WAYFAIR"
       ticket_priority: "low" | "medium" | "high" | "urgent"
       ticket_status:
         | "open"
@@ -1727,6 +1729,8 @@ export const Constants = {
         "OTHER",
         "TESLA_USED",
         "EDMUNDS",
+        "TEMU",
+        "WAYFAIR",
       ],
       ticket_priority: ["low", "medium", "high", "urgent"],
       ticket_status: [

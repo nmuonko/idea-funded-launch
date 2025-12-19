@@ -8,13 +8,14 @@ const corsHeaders = {
 };
 
 // HMAC signature verification for webhook security
+// SECURITY: Webhook secret is REQUIRED. Requests are rejected if not configured.
 async function verifyWebhookSignature(rawBody: string, signature: string | null): Promise<{ valid: boolean; reason: string }> {
   const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
   
-  // If no webhook secret is configured, skip validation (backwards compatible)
+  // SECURITY FIX: Reject if webhook secret is not configured
   if (!webhookSecret) {
-    console.log('[Maisha Callback] MAISHAPAY_WEBHOOK_SECRET not configured - skipping signature validation');
-    return { valid: true, reason: 'no_secret_configured' };
+    console.error('[Maisha Callback] CRITICAL: MAISHAPAY_WEBHOOK_SECRET not configured - rejecting request for security');
+    return { valid: false, reason: 'webhook_secret_not_configured' };
   }
   
   // If secret is configured but no signature provided, reject for security

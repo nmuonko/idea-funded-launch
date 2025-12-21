@@ -5,6 +5,7 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
+import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
 
 // Heavy threshold for manual quote requirement (non-vehicles)
 const HEAVY_THRESHOLD_KG = 9;
@@ -154,8 +155,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     requiresManualQuote: itemRequiresQuote,
     isQuoteRequired: false,
     shippingItemType: item.shipping_item_types ? {
-      key: item.shipping_item_types.key,
-      label: item.shipping_item_types.label,
+      key: normalizeCategorySlug(item.shipping_item_types.key) || item.shipping_item_types.key,
+      label: getCategoryLabel(normalizeCategorySlug(item.shipping_item_types.key)) || item.shipping_item_types.label,
     } : null,
   };
 }

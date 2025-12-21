@@ -562,3 +562,53 @@ export const AUTO_APPLY_CONFIDENCE_THRESHOLD = 0.8;
 
 // Lower threshold for vehicle detection (we want to catch vehicles even with less certainty)
 export const VEHICLE_QUOTE_CONFIDENCE_THRESHOLD = 0.7;
+
+/**
+ * PROMPT 4: Normalize category to slug-safe format
+ * Converts display names or raw keys to normalized slugs:
+ * - "Affordable Deals" → "affordable_deals"
+ * - "Home & Furniture" → "home_furniture"
+ * - "browse.affordable deals" → "affordable_deals"
+ * - "Used & Cheap" → "used_cheap"
+ */
+export function normalizeCategorySlug(category: string | null | undefined): string | null {
+  if (!category) return null;
+  
+  // Remove i18n prefixes like "browse."
+  let slug = category.replace(/^browse\./i, '');
+  
+  // Convert to lowercase
+  slug = slug.toLowerCase();
+  
+  // Replace & with empty (e.g., "home & furniture" → "home furniture")
+  slug = slug.replace(/&/g, '');
+  
+  // Replace spaces and multiple underscores with single underscore
+  slug = slug.replace(/\s+/g, '_').replace(/_+/g, '_');
+  
+  // Remove leading/trailing underscores
+  slug = slug.replace(/^_+|_+$/g, '');
+  
+  return slug || null;
+}
+
+/**
+ * Get human-readable label for a category slug
+ */
+export function getCategoryLabel(slug: string | null | undefined): string {
+  if (!slug) return 'Other';
+  
+  const labels: Record<string, string> = {
+    'clothes_shoes': 'Clothing & Shoes',
+    'small_electronics': 'Small Electronics',
+    'laptop_tablet': 'Laptops & Tablets',
+    'console_medium': 'Medium Items',
+    'tv_large_appliance': 'Large Appliances',
+    'vehicle': 'Vehicle',
+    'affordable_deals': 'Affordable Deals',
+    'home_furniture': 'Home & Furniture',
+    'used_cheap': 'Used & Cheap',
+  };
+  
+  return labels[slug] || slug.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}

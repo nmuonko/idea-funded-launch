@@ -47,10 +47,10 @@ serve(async (req) => {
       return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
     }
 
-    // Get confirmation code from maisha_payments
+    // Get confirmation code and currency from maisha_payments
     const { data: payment } = await supabase
       .from('maisha_payments')
-      .select('confirmation_code')
+      .select('confirmation_code, currency, amount_usd, amount_cdf')
       .eq('order_id', order.id)
       .maybeSingle();
 
@@ -58,6 +58,7 @@ serve(async (req) => {
     const orderRef = order.id.substring(0, 8).toUpperCase();
     const itemCount = order.order_items?.length || 0;
     const confirmationCode = payment?.confirmation_code || null;
+    const paymentCurrency = payment?.currency || order.normalized_currency || 'USD';
 
     // Build base response data - ensuring id is ALWAYS defined
     const buildResponse = (status: string, paymentStatus: string, orderStatus: string, message: string) => ({
@@ -72,12 +73,20 @@ serve(async (req) => {
       status,
       paymentStatus,
       orderStatus,
-      // Amounts
+      // Amounts - include both currencies
       totalUsd: order.total_usd || 0,
       totalCdf: order.total_cdf || 0,
       total_amount_usd: order.total_usd || 0,
       total_amount_cdf: order.total_cdf || 0,
       itemCount,
+      // Currency information
+      currency: paymentCurrency,
+      currencySelected: order.normalized_currency || paymentCurrency,
+      exchangeRate: order.exchange_rate_used || 2500,
+      // Display amounts based on selected currency
+      displayAmount: paymentCurrency === 'CDF' 
+        ? `${Math.round(order.total_cdf || 0).toLocaleString('fr-FR')} CDF`
+        : `$${(order.total_usd || 0).toFixed(2)} USD`,
       // Payment details
       confirmationCode,
       payment_provider: 'maishapay',

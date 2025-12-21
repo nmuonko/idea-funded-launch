@@ -476,9 +476,16 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    // 🚫 HARD RULE: Client currency is LOGGED but NEVER used to override server decision
+    // 🔄 DUAL-CURRENCY SUPPORT: Accept explicit currency selection from client
+    // Allowed values: 'CDF' or 'USD'. Default: behavior based on payment method + country
     const clientRequestedCurrency = (body.currency || '').toUpperCase();
-    console.log('[mobile-checkout] CLIENT_CURRENCY_IGNORED:', { clientRequestedCurrency, reason: 'server_enforces_currency' });
+    const explicitCurrencySelection = (clientRequestedCurrency === 'CDF' || clientRequestedCurrency === 'USD');
+    
+    console.log('[mobile-checkout] CURRENCY_SELECTION:', { 
+      clientRequestedCurrency, 
+      explicitCurrencySelection,
+      note: explicitCurrencySelection ? 'Using client-selected currency' : 'Using server-determined currency'
+    });
 
     // ==========================================
     // 🚗 VEHICLE DEPOSIT PAYMENT POLICY
@@ -583,39 +590,64 @@ serve(async (req) => {
       }
       
       // ENFORCE METHOD → COUNTRY → CURRENCY for regular items
+      // But allow explicit client currency selection when valid
       if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-        if (isDRC) {
-          paymentCurrency = 'CDF';
-          paymentAmount = Math.round(grandTotalCdf);
-          amountFormatted = paymentAmount.toString();
-          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_drc_cdf_enforced';
-        } else {
+        // For Mobile Money: Allow explicit CDF/USD selection, default to CDF for DRC
+        if (explicitCurrencySelection && clientRequestedCurrency === 'USD') {
+          // Client explicitly requested USD for Mobile Money
           paymentCurrency = 'USD';
           paymentAmount = round2(grandTotalUsd);
           amountFormatted = grandTotalUsd.toFixed(2);
           displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
           maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_non_drc_usd';
+          currencyReason = 'client_selected_usd';
+        } else if (explicitCurrencySelection && clientRequestedCurrency === 'CDF') {
+          // Client explicitly requested CDF
+          paymentCurrency = 'CDF';
+          paymentAmount = Math.round(grandTotalCdf);
+          amountFormatted = paymentAmount.toString();
+          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'client_selected_cdf';
+        } else if (isDRC) {
+          // Default: DRC uses CDF for Mobile Money
+          paymentCurrency = 'CDF';
+          paymentAmount = Math.round(grandTotalCdf);
+          amountFormatted = paymentAmount.toString();
+          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_drc_cdf_default';
+        } else {
+          // Non-DRC uses USD for Mobile Money
+          paymentCurrency = 'USD';
+          paymentAmount = round2(grandTotalUsd);
+          amountFormatted = grandTotalUsd.toFixed(2);
+          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+          currencyReason = 'mobile_money_non_drc_usd_default';
         }
       } else {
-        // CARD: USD universally
+        // CARD: USD universally (no CDF option for cards)
         paymentCurrency = 'USD';
         paymentAmount = round2(grandTotalUsd);
         amountFormatted = grandTotalUsd.toFixed(2);
         displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
         maishapayFlowUsed = 'CARD_SESSION';
-        currencyReason = isDRC ? 'card_drc_usd_allowed' : 'card_non_drc_usd';
+        currencyReason = 'card_usd_only';
         
-        console.log('[mobile-checkout] CARD_PAYMENT_USD:', {
-          isDRC,
-          grandTotalUsd,
-          currency: 'USD',
-          note: 'MaishaPay accepts Card payments in USD',
-        });
+        // Log if client requested CDF for card (not supported)
+        if (clientRequestedCurrency === 'CDF') {
+          console.log('[mobile-checkout] CARD_CDF_OVERRIDE:', {
+            clientRequested: 'CDF',
+            actual: 'USD',
+            reason: 'Card payments only support USD',
+          });
+        }
       }
     }
+
+    // 📦 Store FX rate and both amounts for verification
+    const fxRateUsed = exchangeRate;
 
     // Generate motif (transaction description)
     const motif = `Paiement AfriShop - Commande ${existingOrder.id.slice(0, 8).toUpperCase()}`;

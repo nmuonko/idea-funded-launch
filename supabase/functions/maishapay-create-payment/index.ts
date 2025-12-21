@@ -29,7 +29,7 @@ serve(async (req) => {
     console.log("[MAISHAPAY LIVE] Processing payment request for:", body.confirmationId);
 
     // Validate required fields
-    const { amount, confirmationId, email, name } = body;
+    const { amount, confirmationId, email, name, currency: requestedCurrency } = body;
     if (!amount || !confirmationId || !email) {
       console.error("[MAISHAPAY LIVE] Missing required fields");
       return new Response(
@@ -37,6 +37,19 @@ serve(async (req) => {
         { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
+    
+    // Support dual currency: CDF or USD (default to USD for backward compatibility)
+    const paymentCurrency = (requestedCurrency || 'USD').toUpperCase();
+    const validCurrencies = ['USD', 'CDF'];
+    if (!validCurrencies.includes(paymentCurrency)) {
+      console.error("[MAISHAPAY LIVE] Invalid currency:", paymentCurrency);
+      return new Response(
+        JSON.stringify({ ok: false, code: "INVALID_CURRENCY", message: `Currency must be one of: ${validCurrencies.join(', ')}` }),
+        { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
+      );
+    }
+    
+    console.log("[MAISHAPAY LIVE] Payment currency:", paymentCurrency, "Amount:", amount);
 
     // Read LIVE config from environment
     const mode = Deno.env.get("MAISHAPAY_MODE");
@@ -119,7 +132,7 @@ serve(async (req) => {
     <input type="hidden" name="secretApiKey" value="${escapeHtml(liveSecret)}" />
     <input type="hidden" name="gatewayMode" value="1" />
     <input type="hidden" name="montant" value="${escapeHtml(String(amount))}" />
-    <input type="hidden" name="devise" value="USD" />
+    <input type="hidden" name="devise" value="${paymentCurrency}" />
     <input type="hidden" name="callbackUrl" value="${escapeHtml(callbackUrl)}" />
     <input type="hidden" name="reference" value="${escapeHtml(confirmationId)}" />
     <input type="hidden" name="email_client" value="${escapeHtml(email)}" />
@@ -135,7 +148,7 @@ serve(async (req) => {
 </body>
 </html>`;
 
-    console.log("[MAISHAPAY LIVE] Generated payment form HTML for reference:", confirmationId);
+    console.log("[MAISHAPAY LIVE] Generated payment form HTML for reference:", confirmationId, "currency:", paymentCurrency);
 
     // Return HTML for WebView rendering - NO SECRETS IN JSON RESPONSE
     return new Response(
@@ -145,7 +158,7 @@ serve(async (req) => {
         // Only return non-sensitive data for mobile app display
         reference: confirmationId,
         amount: amount,
-        currency: "USD"
+        currency: paymentCurrency
       }),
       { status: 200, headers: { ...cors, "Content-Type": "application/json" } }
     );

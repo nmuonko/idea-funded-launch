@@ -15,6 +15,9 @@ const verifyPaymentSchema = z.object({
   description: z.string().max(500).optional().default(''),
   transactionRefId: z.string().max(255).optional().default(''),
   operatorRefId: z.string().max(255).optional().default(''),
+  // MaishaPay may return currency and amount for validation
+  currency: z.string().max(10).optional(),
+  amount: z.union([z.string(), z.number()]).optional(),
 });
 
 /**
@@ -114,7 +117,7 @@ serve(async (req) => {
       );
     }
 
-    const { orderId, status, description, transactionRefId, operatorRefId } = parseResult.data;
+    const { orderId, status, description, transactionRefId, operatorRefId, currency: callbackCurrency, amount: callbackAmount } = parseResult.data;
 
     // ========== SECURITY: Authorization Check ==========
     const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
@@ -181,9 +184,44 @@ serve(async (req) => {
     // Fetch the order to verify it exists
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status, user_id, total_usd, total_cdf, maisha_transaction_id')
+      .select('id, status, user_id, total_usd, total_cdf, maisha_transaction_id, normalized_currency, normalized_amount, exchange_rate_used')
       .eq('id', orderId)
       .single();
+
+    if (orderError || !order) {
+      console.error('[verify-payment] Order not found:', orderId, orderError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Order not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate currency if provided in callback
+    const expectedCurrency = order.normalized_currency || 'USD';
+    if (callbackCurrency && callbackCurrency.toUpperCase() !== expectedCurrency.toUpperCase()) {
+      console.warn('[verify-payment] CURRENCY_MISMATCH:', {
+        expected: expectedCurrency,
+        received: callbackCurrency,
+        orderId: order.id,
+      });
+      // Log mismatch but don't fail - payment gateway may have different format
+    }
+
+    // Validate amount if provided
+    const expectedAmount = expectedCurrency === 'CDF' ? order.total_cdf : order.total_usd;
+    if (callbackAmount) {
+      const receivedAmount = Number(callbackAmount);
+      const amountDiff = Math.abs(receivedAmount - expectedAmount);
+      // Allow small variance for rounding
+      if (amountDiff > 1) {
+        console.warn('[verify-payment] AMOUNT_MISMATCH:', {
+          expected: expectedAmount,
+          received: receivedAmount,
+          difference: amountDiff,
+          currency: expectedCurrency,
+        });
+      }
+    }
 
     if (orderError || !order) {
       console.error('[verify-payment] Order not found:', orderId, orderError);
@@ -320,6 +358,13 @@ serve(async (req) => {
           paymentStatus: updatedOrder.maisha_payment_status,
           totalUsd: updatedOrder.total_usd,
           totalCdf: updatedOrder.total_cdf,
+          // Currency information
+          currency: expectedCurrency,
+          currencySelected: expectedCurrency,
+          exchangeRate: order.exchange_rate_used || 2500,
+          displayAmount: expectedCurrency === 'CDF'
+            ? `${Math.round(updatedOrder.total_cdf || 0).toLocaleString('fr-FR')} CDF`
+            : `$${(updatedOrder.total_usd || 0).toFixed(2)} USD`,
           transactionRef: updatedOrder.maisha_transaction_id,
           operatorRef: updatedOrder.operator_ref_id,
           statusCode: updatedOrder.maisha_status_code,

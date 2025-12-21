@@ -52,7 +52,10 @@ serve(async (req) => {
       transactionRefId, 
       operatorRefId,
       orderId,
-      rawQuery 
+      rawQuery,
+      // MaishaPay callback may include currency and amount
+      currency: callbackCurrency,
+      amount: callbackAmount,
     } = body;
 
     console.log('[maishapay-process-result] Received:', { 
@@ -61,6 +64,8 @@ serve(async (req) => {
       transactionRefId, 
       operatorRefId,
       orderId,
+      callbackCurrency,
+      callbackAmount,
     });
 
     // Create Supabase client with service role
@@ -199,24 +204,51 @@ serve(async (req) => {
       console.log('[maishapay-process-result] Generated confirmation code:', confirmationCode);
     }
 
-    // Update or create payment record
+    // Determine the expected currency and validate
+    // order.normalized_currency contains what we sent to MaishaPay
+    const expectedCurrency = order.normalized_currency || 'USD';
+    const receivedCurrency = callbackCurrency || expectedCurrency; // Use callback currency if provided
+    
+    // Validate currency match
+    if (callbackCurrency && callbackCurrency.toUpperCase() !== expectedCurrency.toUpperCase()) {
+      console.warn('[maishapay-process-result] CURRENCY_MISMATCH:', {
+        expected: expectedCurrency,
+        received: callbackCurrency,
+        orderId: order.id,
+      });
+      // Don't fail - log and continue, but record the mismatch
+    }
+
+    // Determine which amount to use based on currency
+    const paymentCurrency = receivedCurrency.toUpperCase();
+    const expectedAmount = paymentCurrency === 'CDF' ? order.total_cdf : order.total_usd;
+
+    // Update or create payment record with currency-aware data
     const paymentData = {
       order_id: order.id,
       user_id: order.user_id,
       maisha_reference: transactionRefId || payment?.maisha_reference || `REF-${Date.now()}`,
       amount_usd: order.total_usd,
       amount_cdf: order.total_cdf,
-      currency: 'USD',
+      currency: paymentCurrency, // Use the actual payment currency
       status: normalizedStatus === 'SUCCESS' ? 'paid' : normalizedStatus === 'PENDING' ? 'pending' : 'failed',
       confirmation_code: confirmationCode,
       maishapay_status: String(status),
       maishapay_description: description,
       maishapay_transaction_ref_id: transactionRefId,
       maishapay_operator_ref_id: operatorRefId,
-      raw_query: rawQuery || { status, description, transactionRefId, operatorRefId },
+      raw_query: rawQuery || { status, description, transactionRefId, operatorRefId, currency: paymentCurrency, amount: callbackAmount },
       paid_at: normalizedStatus === 'SUCCESS' ? new Date().toISOString() : null,
       updated_at: new Date().toISOString(),
     };
+    
+    console.log('[maishapay-process-result] Payment currency validation:', {
+      expectedCurrency,
+      receivedCurrency: paymentCurrency,
+      expectedAmount,
+      receivedAmount: callbackAmount,
+      match: !callbackAmount || Math.abs(Number(callbackAmount) - expectedAmount) < 1,
+    });
 
     if (payment) {
       // Update existing payment
@@ -291,9 +323,12 @@ serve(async (req) => {
         confirmationCode,
         description: description || (normalizedStatus === 'SUCCESS' ? 'Payment successful' : 'Payment processing'),
         orderId: order.id,
+        // Return both currency amounts for display
         amountUsd: order.total_usd,
         amountCdf: order.total_cdf,
-        currency: 'USD',
+        currency: paymentCurrency, // The currency actually used for payment
+        currencySelected: expectedCurrency,
+        exchangeRateUsed: order.exchange_rate_used,
       }),
       { 
         status: 200, 

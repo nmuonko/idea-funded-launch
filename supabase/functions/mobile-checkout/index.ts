@@ -322,13 +322,20 @@ serve(async (req) => {
       item.is_vehicle === true && item.vehicle_quote_applied !== true
     );
     
-    if (vehiclesWithPendingQuotes.length > 0) {
+    const hasVehicleItems = vehiclesWithPendingQuotes.length > 0;
+    
+    if (hasVehicleItems) {
       console.log('[mobile-checkout] Vehicles with pending quotes found:', vehiclesWithPendingQuotes.map(v => v.id));
       
+      // PROMPT 3: Structured QUOTE_REQUIRED response with summary flags
       return jsonResponse({ 
         success: false,
         code: 'QUOTE_REQUIRED',
         message: 'Vehicle items require a custom shipping quote before checkout.',
+        summary: {
+          has_vehicle_items: true,
+          requires_custom_quote: true,
+        },
         quoteRequiredItems: vehiclesWithPendingQuotes.map(item => ({
           id: item.id,
           title: item.title,
@@ -903,12 +910,25 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('[mobile-checkout] Error:', error.message);
+    const debugId = `err-${Date.now().toString(36)}`;
     
     if (error.name === 'AuthError') {
-      return jsonResponse({ success: false, error: error.message }, error.status);
+      return jsonResponse({ 
+        success: false, 
+        code: 'AUTH_ERROR',
+        error: error.message,
+        debug_id: debugId,
+      }, error.status);
     }
     
-    return jsonResponse({ success: false, error: 'An unexpected error occurred. Please try again.' }, 500);
+    // PROMPT 3: Return structured RETRY code for temporary errors
+    return jsonResponse({ 
+      success: false, 
+      code: 'RETRY',
+      message: 'Temporary issue, please retry.',
+      error: 'An unexpected error occurred. Please try again.',
+      debug_id: debugId,
+    }, 500);
   }
 });
 

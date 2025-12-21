@@ -126,8 +126,9 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   }
   
   // REGULAR PRODUCT - calculate as normal
-  // FIXED: Only vehicles require manual quote, NOT heavy items
-  const itemRequiresQuote = item.is_vehicle === true && item.vehicle_quote_applied !== true;
+  // CRITICAL FIX: Regular products NEVER require manual quote
+  // Only vehicles with is_vehicle === true require quotes (handled above)
+  const itemRequiresQuote = false; // Regular products never require quote
   const expectedBaseTotal = round2(basePriceUsd * quantity);
   const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
   const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
@@ -364,11 +365,10 @@ serve(async (req) => {
       } : null,
     };
     
-    if (regularRequiresQuote) {
-      summary.message = "We'll contact you for a custom shipping quote.";
-    }
-    
+    // FIXED: Only show quote message for vehicles, NOT for regularRequiresQuote
+    // regularRequiresQuote should always be false for non-vehicles
     if (hasVehicleItems && !allVehiclesQuoted) {
+      summary.message = "Un devis de livraison est nécessaire pour votre véhicule.";
       summary.vehicleMessage = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
 

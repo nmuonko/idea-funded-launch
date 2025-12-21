@@ -201,6 +201,8 @@ const STORE_DEFAULT_CATEGORIES: Record<string, ShippingCategoryKey> = {
   'EBAY': 'console_medium',     // General marketplace
   'BESTBUY': 'small_electronics', // Electronics retailer
   'HOMEDEPOT': 'console_medium',  // Home improvement
+  'MERCARI': 'console_medium',    // Used goods marketplace
+  'WAYFAIR': 'tv_large_appliance', // Home/Furniture retailer
 };
 
 // URL path patterns that strongly indicate vehicles

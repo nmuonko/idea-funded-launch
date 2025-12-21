@@ -277,24 +277,62 @@ serve(async (req) => {
     const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile, body);
     console.log('[mobile-checkout] Buyer country detection:', { country: profile.country, isDRC, isoCode, countryCode });
 
-    // Get user's DRAFT order
-    const { data: existingOrder, error: orderFetchError } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('status', 'DRAFT')
-      .maybeSingle();
+    // Get user's DRAFT order - respect cart_id if provided
+    const providedCartId = body.cart_id || body.cartId || body.order_id || body.orderId;
+    let existingOrder: { id: string } | null = null;
+    
+    if (providedCartId) {
+      // Client provided a specific cart_id - fetch that exact cart
+      console.log('[mobile-checkout] Using provided cart_id:', providedCartId);
+      const { data: specificOrder, error: specificOrderError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', providedCartId)
+        .eq('user_id', user.id)
+        .eq('status', 'DRAFT')
+        .maybeSingle();
 
-    if (orderFetchError) {
-      console.error('[mobile-checkout] Error fetching draft order:', orderFetchError);
-      return jsonResponse({ success: false, error: 'Failed to fetch cart data.' }, 500);
+      if (specificOrderError) {
+        console.error('[mobile-checkout] Error fetching specific cart:', specificOrderError);
+        return jsonResponse({ success: false, error: 'Failed to fetch cart data.' }, 500);
+      }
+
+      if (!specificOrder) {
+        console.warn('[mobile-checkout] Provided cart_id not found or not active:', providedCartId);
+        return jsonResponse({
+          success: false,
+          code: 'CART_NOT_FOUND',
+          message: 'Cart not found or no longer active.',
+          cart_id: providedCartId,
+        }, 400);
+      }
+      
+      existingOrder = specificOrder;
+    } else {
+      // No cart_id provided - fallback to selecting any DRAFT order (legacy behavior)
+      console.log('[mobile-checkout] No cart_id provided, falling back to DRAFT order lookup');
+      const { data: draftOrder, error: orderFetchError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('status', 'DRAFT')
+        .maybeSingle();
+
+      if (orderFetchError) {
+        console.error('[mobile-checkout] Error fetching draft order:', orderFetchError);
+        return jsonResponse({ success: false, error: 'Failed to fetch cart data.' }, 500);
+      }
+
+      if (!draftOrder) {
+        return jsonResponse({ success: false, error: 'Your cart is empty. Please add items before checkout.' }, 400);
+      }
+      
+      existingOrder = draftOrder;
     }
+    
+    console.log('[mobile-checkout] Using order:', existingOrder.id);
 
-    if (!existingOrder) {
-      return jsonResponse({ success: false, error: 'Your cart is empty. Please add items before checkout.' }, 400);
-    }
-
-    // Get requested items
+    // Get requested items from the resolved cart
     const { data: requestedItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
@@ -306,8 +344,24 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
     }
 
+    // Improved error response when items mismatch
+    const foundItemIds = new Set((requestedItems || []).map(item => item.id));
+    const missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
+    
     if (!requestedItems || requestedItems.length !== cart_item_ids.length) {
-      return jsonResponse({ success: false, error: 'Some requested items were not found in your cart.' }, 400);
+      console.warn('[mobile-checkout] Cart desync detected:', {
+        requested: cart_item_ids.length,
+        found: requestedItems?.length || 0,
+        missing: missingItemIds,
+        order_id: existingOrder.id,
+      });
+      return jsonResponse({
+        success: false,
+        code: 'CART_DESYNC',
+        message: 'Cart changed. Please refresh.',
+        missing_item_ids: missingItemIds,
+        cart_id: existingOrder.id,
+      }, 400);
     }
 
     // Check for saved items

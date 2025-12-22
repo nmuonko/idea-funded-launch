@@ -578,93 +578,135 @@ serve(async (req) => {
     });
 
     // ==========================================
-    // 🚗 VEHICLE DEPOSIT PAYMENT POLICY
+    // 🚗 VEHICLE DEPOSIT PAYMENT POLICY (2025-12-22 STABILIZATION)
     // ==========================================
-    // For vehicles: Default requires Mobile Money deposit in CDF
-    // Card can be ENABLED via VEHICLE_CARD_ALLOWED env var (for future MaishaPay support)
+    // CHANGE: Vehicle card payments are now ALLOWED by default.
+    // Set VEHICLE_CARD_ALLOWED=false explicitly to disable card for vehicles.
+    // CHANGE: Currency is no longer forced to CDF - respects client selection.
     const VEHICLE_DEPOSIT_PERCENT = Number(Deno.env.get('VEHICLE_DEPOSIT_PERCENT')) || 0.20;
     const VEHICLE_DEPOSIT_MAX_CDF = Number(Deno.env.get('VEHICLE_DEPOSIT_MAX_CDF')) || 5000000;
     const USD_TO_CDF_RATE = exchangeRate || Number(Deno.env.get('USD_TO_CDF_RATE')) || 2500;
-    // 🔧 CONFIGURABLE: Set VEHICLE_CARD_ALLOWED=true to enable card for vehicles when MaishaPay supports it
-    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') === 'true';
+    // 🔧 FIX #1: Default TRUE - card allowed unless explicitly disabled with VEHICLE_CARD_ALLOWED=false
+    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false';
 
     if (hasVehicleQuoteItems || containsVehicle) {
-      // 🔒 CARD RESTRICTION for vehicle orders (configurable)
+      // 🔒 CARD RESTRICTION: Only block if EXPLICITLY disabled via env var
       if (REQUESTED_METHOD === 'CARD' && !VEHICLE_CARD_ALLOWED) {
+        // FIX #3: Enhanced logging for diagnosability
         console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
           orderId: existingOrder.id,
           hasVehicleQuoteItems,
           containsVehicle,
           requestedMethod: REQUESTED_METHOD,
+          requestedCurrency: clientRequestedCurrency || 'not_specified',
           vehicleCardAllowed: VEHICLE_CARD_ALLOWED,
-          reason: 'Vehicle orders require Mobile Money deposit first (card disabled by policy)',
+          vehicleCardEnvVar: Deno.env.get('VEHICLE_CARD_ALLOWED') || 'not_set',
+          reason: 'Card explicitly disabled via VEHICLE_CARD_ALLOWED=false',
         });
+        // FIX #1C: Structured error with requested_method for frontend
         return jsonResponse({
           ok: false,
           success: false,
           code: 'MAISHAPAY_METHOD_NOT_ALLOWED',
           checkout_type: 'VEHICLE_DEPOSIT_REQUIRED',
           allowed_methods: ['MOBILE_MONEY'],
+          requested_method: REQUESTED_METHOD, // FIX: Added for frontend clarity
           message_en: 'Vehicle orders require a Mobile Money deposit first. Card payment is available for the remaining balance after deposit.',
           message_fr: 'Les commandes de véhicules nécessitent d\'abord un acompte via Mobile Money. Le paiement par carte est disponible pour le solde restant après l\'acompte.',
-          error: 'Card not available for vehicle deposit',
+          error: 'Card not available for vehicle deposit', // Backward compat
           details: {
-            currency: 'CDF', // Vehicle deposits use CDF
+            currency: clientRequestedCurrency || 'USD',
             amount: vehicleTotal,
             item_type: 'vehicle',
             pay_method: 'card',
-            vehicle_card_policy: 'disabled',
+            vehicle_card_policy: 'explicitly_disabled',
+            env_var_value: Deno.env.get('VEHICLE_CARD_ALLOWED') || 'not_set',
           },
           vehicle_total_usd: vehicleTotal,
           suggested_deposit_cdf: Math.min(Math.round(vehicleTotal * USD_TO_CDF_RATE * VEHICLE_DEPOSIT_PERCENT), VEHICLE_DEPOSIT_MAX_CDF),
         }, 400);
       }
 
-      // 🚗 VEHICLE DEPOSIT CALCULATION
-      // Deposit = min(20% of vehicle total in CDF, max deposit limit)
+      // 🚗 VEHICLE DEPOSIT CALCULATION (for reference/metadata only now)
       const vehicleTotalCdf = Math.round(vehicleTotal * USD_TO_CDF_RATE);
       const calculatedDeposit = Math.round(vehicleTotalCdf * VEHICLE_DEPOSIT_PERCENT);
       const depositAmountCdf = Math.min(calculatedDeposit, VEHICLE_DEPOSIT_MAX_CDF);
+      const depositAmountUsd = round2(depositAmountCdf / USD_TO_CDF_RATE);
       const remainingBalanceCdf = vehicleTotalCdf - depositAmountCdf;
       const remainingBalanceUsd = round2(remainingBalanceCdf / USD_TO_CDF_RATE);
+
+      // FIX #2: Respect client currency selection for vehicles (no forced CDF)
+      // Default to USD for vehicles if not specified (aligned with vehiclePaymentGuard)
+      const vehicleRequestedCurrency = explicitCurrencySelection ? clientRequestedCurrency : 'USD';
+      
+      // Validate currency
+      const SUPPORTED_CURRENCIES = ['USD', 'CDF'];
+      if (!SUPPORTED_CURRENCIES.includes(vehicleRequestedCurrency)) {
+        console.log('[mobile-checkout] CURRENCY_NOT_SUPPORTED:', {
+          orderId: existingOrder.id,
+          requested: vehicleRequestedCurrency,
+          supported: SUPPORTED_CURRENCIES,
+        });
+        return jsonResponse({
+          ok: false,
+          success: false,
+          code: 'CURRENCY_NOT_SUPPORTED',
+          supported: SUPPORTED_CURRENCIES,
+          requested: vehicleRequestedCurrency,
+          message_en: `Currency "${vehicleRequestedCurrency}" is not supported. Please use USD or CDF.`,
+          message_fr: `La devise "${vehicleRequestedCurrency}" n'est pas supportée. Veuillez utiliser USD ou CDF.`,
+          error: `Unsupported currency: ${vehicleRequestedCurrency}`,
+        }, 400);
+      }
+
+      // FIX #2B: Calculate payment amount based on selected currency
+      if (vehicleRequestedCurrency === 'CDF') {
+        paymentCurrency = 'CDF';
+        paymentAmount = depositAmountCdf;
+        amountFormatted = depositAmountCdf.toString();
+        displayAmount = `${depositAmountCdf.toLocaleString('fr-FR')} CDF`;
+      } else {
+        paymentCurrency = 'USD';
+        paymentAmount = depositAmountUsd;
+        amountFormatted = depositAmountUsd.toFixed(2);
+        displayAmount = `$${depositAmountUsd.toFixed(2)} USD`;
+      }
+      
+      // FIX #2C: Respect requested payment method (no forced MOBILE_MONEY)
+      maishapayFlowUsed = REQUESTED_METHOD === 'CARD' ? 'CARD_SESSION' : 'MOBILE_MONEY_SESSION';
+      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${paymentCurrency.toLowerCase()}_selected`;
 
       console.log('[mobile-checkout] VEHICLE_DEPOSIT_POLICY:', {
         orderId: existingOrder.id,
         vehicle_total_usd: vehicleTotal,
         vehicle_total_cdf: vehicleTotalCdf,
         deposit_percent: VEHICLE_DEPOSIT_PERCENT,
-        calculated_deposit_cdf: calculatedDeposit,
+        deposit_amount_cdf: depositAmountCdf,
+        deposit_amount_usd: depositAmountUsd,
         max_deposit_cdf: VEHICLE_DEPOSIT_MAX_CDF,
-        final_deposit_cdf: depositAmountCdf,
         remaining_balance_cdf: remainingBalanceCdf,
         remaining_balance_usd: remainingBalanceUsd,
-        currency: 'CDF',
-        method: 'MOBILE_MONEY',
+        // FIX #2: Log actual selection instead of forced values
+        selected_currency: paymentCurrency,
+        selected_method: REQUESTED_METHOD,
+        vehicle_card_allowed: VEHICLE_CARD_ALLOWED,
       });
 
-      // FORCE Mobile Money + CDF for vehicle deposit
-      paymentCurrency = 'CDF';
-      paymentAmount = depositAmountCdf;
-      amountFormatted = depositAmountCdf.toString();
-      displayAmount = `${depositAmountCdf.toLocaleString('fr-FR')} CDF`;
-      maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-      currencyReason = 'vehicle_deposit_momo_cdf_enforced';
-
       // Store vehicle deposit metadata for the response
-      // (will be used later in the response)
       const vehicleDepositMeta = {
         checkout_type: 'VEHICLE_DEPOSIT',
-        allowed_methods: ['MOBILE_MONEY'],
+        allowed_methods: VEHICLE_CARD_ALLOWED ? ['CARD', 'MOBILE_MONEY'] : ['MOBILE_MONEY'], // FIX: Dynamic
         deposit_amount_cdf: depositAmountCdf,
+        deposit_amount_usd: depositAmountUsd,
         deposit_percent: VEHICLE_DEPOSIT_PERCENT,
         vehicle_total_usd: vehicleTotal,
         vehicle_total_cdf: vehicleTotalCdf,
         remaining_balance_cdf: remainingBalanceCdf,
         remaining_balance_usd: remainingBalanceUsd,
+        selected_currency: paymentCurrency,
+        selected_method: REQUESTED_METHOD,
       };
 
-      // Override grandTotalCdf/Usd for vehicle deposit
-      // Note: we'll still track full amounts in order record, but payment is just deposit
       (body as any)._vehicleDepositMeta = vehicleDepositMeta;
     } else {
       // ==========================================
@@ -933,6 +975,27 @@ serve(async (req) => {
       finalAmount: paymentAmount,
     });
     
+    // FIX #3: MAISHAPAY_INIT log for diagnosability (no secrets)
+    console.log('MAISHAPAY_INIT', {
+      orderId: checkoutOrder.id,
+      containsVehicle,
+      hasVehicleQuoteItems,
+      requestedMethod: REQUESTED_METHOD,
+      requestedCurrency: clientRequestedCurrency || 'not_specified',
+      finalCurrency: paymentCurrency,
+      finalAmount: paymentAmount,
+      amountFormatted,
+      displayAmount,
+      isoCode,
+      isDRC,
+      maishapayFlowUsed,
+      currencyReason,
+      gatewayMode: isLiveMode ? 'live' : 'sandbox',
+      // Env config status (not values)
+      vehicleCardAllowed: Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false',
+      vehicleCardEnvSet: !!Deno.env.get('VEHICLE_CARD_ALLOWED'),
+    });
+
     // Generate HTML for mobile WebView with country/ISO codes and motif for MaishaPay
     const html = generateCheckoutHtml({
       publicKey,

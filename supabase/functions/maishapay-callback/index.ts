@@ -302,6 +302,8 @@ const handler = async (req: Request): Promise<Response> => {
     console.log('[MaishaPay Callback] Found order:', order.id, 'current status:', order.status);
 
     // Prepare update data
+    // IMPORTANT: Failed/cancelled payments do NOT change order status to CANCELLED
+    // This preserves the cart for retry. Only SUCCESS changes status to PAID.
     const updateData: any = {
       maisha_transaction_id: paymentData.transactionRefId || reference,
       operator_ref_id: paymentData.operatorRefId || null,
@@ -311,14 +313,20 @@ const handler = async (req: Request): Promise<Response> => {
     };
 
     // Update order status based on payment result
+    // NOTE: On failure, we keep status as PENDING_PAYMENT to allow retries
     if (normalizedStatus === 'paid') {
       updateData.status = 'PAID';
       updateData.maisha_payment_status = 'SUCCESS';
       updateData.payment_verified_at = new Date().toISOString();
+      console.log('[MaishaPay Callback] Payment SUCCESS - order will be marked PAID');
     } else if (normalizedStatus === 'failed') {
+      // Keep status as PENDING_PAYMENT - cart is preserved for retry
       updateData.maisha_payment_status = 'FAILED';
+      console.log('[MaishaPay Callback] Payment FAILED - order stays PENDING_PAYMENT for retry');
     } else if (normalizedStatus === 'cancelled') {
+      // Keep status as PENDING_PAYMENT - cart is preserved for retry
       updateData.maisha_payment_status = 'CANCELLED';
+      console.log('[MaishaPay Callback] Payment CANCELLED - order stays PENDING_PAYMENT for retry');
     } else {
       updateData.maisha_payment_status = 'PENDING';
     }

@@ -180,10 +180,11 @@ serve(async (req) => {
     const settingsTime = Date.now() - settingsStart;
 
     // Get user's DRAFT orders - ENFORCE SINGLE DRAFT
+    // Include cart_version for frontend sync
     const orderStart = Date.now();
     const { data: drafts, error: orderError } = await supabase
       .from('orders')
-      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at')
+      .select('id, item_total_usd, service_fee_usd, shipping_fee_usd, total_usd, total_cdf, exchange_rate_used, requires_manual_quote, created_at, cart_version')
       .eq('user_id', user.id)
       .eq('status', 'DRAFT')
       .order('created_at', { ascending: false });
@@ -338,6 +339,8 @@ serve(async (req) => {
     // LEAN SUMMARY - only fields mobile needs
     // CRITICAL: Always use settings exchangeRate as source of truth (not order.exchange_rate_used)
     const summary: Record<string, any> = {
+      cartId: order.id,
+      cartVersion: order.cart_version || 1, // Include for version mismatch detection
       itemCount: totalItemCount,
       itemsTotalUsd: itemsBaseTotalUsd,
       markupFeeUsd: totalMarginUsd,

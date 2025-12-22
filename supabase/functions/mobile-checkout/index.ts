@@ -279,14 +279,15 @@ serve(async (req) => {
 
     // Get user's DRAFT order - respect cart_id if provided
     const providedCartId = body.cart_id || body.cartId || body.order_id || body.orderId;
-    let existingOrder: { id: string } | null = null;
+    const clientCartVersion = Number(body.cart_version) || null; // Client's last known version
+    let existingOrder: { id: string; cart_version: number } | null = null;
     
     if (providedCartId) {
-      // Client provided a specific cart_id - fetch that exact cart
+      // Client provided a specific cart_id - fetch that exact cart with version
       console.log('[mobile-checkout] Using provided cart_id:', providedCartId);
       const { data: specificOrder, error: specificOrderError } = await supabase
         .from('orders')
-        .select('id')
+        .select('id, cart_version')
         .eq('id', providedCartId)
         .eq('user_id', user.id)
         .eq('status', 'DRAFT')
@@ -300,6 +301,7 @@ serve(async (req) => {
       if (!specificOrder) {
         console.warn('[mobile-checkout] Provided cart_id not found or not active:', providedCartId);
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'CART_NOT_FOUND',
           message: 'Cart not found or no longer active.',
@@ -313,7 +315,7 @@ serve(async (req) => {
       console.log('[mobile-checkout] No cart_id provided, falling back to DRAFT order lookup');
       const { data: draftOrder, error: orderFetchError } = await supabase
         .from('orders')
-        .select('id')
+        .select('id, cart_version')
         .eq('user_id', user.id)
         .eq('status', 'DRAFT')
         .maybeSingle();
@@ -330,7 +332,41 @@ serve(async (req) => {
       existingOrder = draftOrder;
     }
     
-    console.log('[mobile-checkout] Using order:', existingOrder.id);
+    console.log('[mobile-checkout] Using order:', existingOrder.id, 'version:', existingOrder.cart_version);
+
+    // 🔄 CART VERSION CHECK - Prevent "Cart changed. Please refresh." with recovery
+    if (clientCartVersion !== null && existingOrder.cart_version !== clientCartVersion) {
+      console.warn('[mobile-checkout] CART_VERSION_MISMATCH:', {
+        client_version: clientCartVersion,
+        server_version: existingOrder.cart_version,
+        order_id: existingOrder.id,
+      });
+
+      // Fetch current cart state for recovery
+      const { data: currentItems } = await supabase
+        .from('order_items')
+        .select('id, title, quantity, subtotal_usd, total_price_usd, is_saved_for_later')
+        .eq('order_id', existingOrder.id)
+        .eq('is_saved_for_later', false);
+
+      const cartSnapshot = {
+        cart_id: existingOrder.id,
+        cart_version: existingOrder.cart_version,
+        items: currentItems || [],
+        item_count: currentItems?.length || 0,
+        total_usd: currentItems?.reduce((sum, item) => sum + Number(item.total_price_usd || 0), 0) || 0,
+      };
+
+      return jsonResponse({
+        ok: false,
+        success: false,
+        code: 'CART_VERSION_MISMATCH',
+        message: 'Cart changed. Please refresh.',
+        client_cart_version: clientCartVersion,
+        server_cart_version: existingOrder.cart_version,
+        server_cart: cartSnapshot,
+      }, 409); // 409 Conflict - indicates version conflict
+    }
 
     // Get requested items from the resolved cart
     const { data: requestedItems, error: itemsError } = await supabase
@@ -544,31 +580,41 @@ serve(async (req) => {
     // ==========================================
     // 🚗 VEHICLE DEPOSIT PAYMENT POLICY
     // ==========================================
-    // For vehicles: FORCE Mobile Money deposit in CDF, NO Card allowed
-    // This prevents "devise encours" errors from MaishaPay
+    // For vehicles: Default requires Mobile Money deposit in CDF
+    // Card can be ENABLED via VEHICLE_CARD_ALLOWED env var (for future MaishaPay support)
     const VEHICLE_DEPOSIT_PERCENT = Number(Deno.env.get('VEHICLE_DEPOSIT_PERCENT')) || 0.20;
     const VEHICLE_DEPOSIT_MAX_CDF = Number(Deno.env.get('VEHICLE_DEPOSIT_MAX_CDF')) || 5000000;
     const USD_TO_CDF_RATE = exchangeRate || Number(Deno.env.get('USD_TO_CDF_RATE')) || 2500;
+    // 🔧 CONFIGURABLE: Set VEHICLE_CARD_ALLOWED=true to enable card for vehicles when MaishaPay supports it
+    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') === 'true';
 
     if (hasVehicleQuoteItems || containsVehicle) {
-      // 🚫 BLOCK CARD for vehicle orders - this prevents "devise encours" error
-      if (REQUESTED_METHOD === 'CARD') {
+      // 🔒 CARD RESTRICTION for vehicle orders (configurable)
+      if (REQUESTED_METHOD === 'CARD' && !VEHICLE_CARD_ALLOWED) {
         console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
           orderId: existingOrder.id,
           hasVehicleQuoteItems,
           containsVehicle,
           requestedMethod: REQUESTED_METHOD,
-          reason: 'Vehicle orders require Mobile Money deposit first',
+          vehicleCardAllowed: VEHICLE_CARD_ALLOWED,
+          reason: 'Vehicle orders require Mobile Money deposit first (card disabled by policy)',
         });
         return jsonResponse({
           ok: false,
           success: false,
-          code: 'VEHICLE_CARD_NOT_ALLOWED',
+          code: 'MAISHAPAY_METHOD_NOT_ALLOWED',
           checkout_type: 'VEHICLE_DEPOSIT_REQUIRED',
           allowed_methods: ['MOBILE_MONEY'],
           message_en: 'Vehicle orders require a Mobile Money deposit first. Card payment is available for the remaining balance after deposit.',
           message_fr: 'Les commandes de véhicules nécessitent d\'abord un acompte via Mobile Money. Le paiement par carte est disponible pour le solde restant après l\'acompte.',
           error: 'Card not available for vehicle deposit',
+          details: {
+            currency: 'CDF', // Vehicle deposits use CDF
+            amount: vehicleTotal,
+            item_type: 'vehicle',
+            pay_method: 'card',
+            vehicle_card_policy: 'disabled',
+          },
           vehicle_total_usd: vehicleTotal,
           suggested_deposit_cdf: Math.min(Math.round(vehicleTotal * USD_TO_CDF_RATE * VEHICLE_DEPOSIT_PERCENT), VEHICLE_DEPOSIT_MAX_CDF),
         }, 400);

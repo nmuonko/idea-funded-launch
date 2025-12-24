@@ -389,6 +389,71 @@ export type Database = {
           },
         ]
       }
+      checkout_sessions: {
+        Row: {
+          cart_snapshot: Json
+          created_at: string
+          currency: string
+          grand_total: number
+          id: string
+          integrity_hash: string
+          maisha_reference: string | null
+          metadata: Json | null
+          order_id: string | null
+          paid_at: string | null
+          pay_method: string
+          redirect_url: string | null
+          status: string
+          totals_breakdown: Json
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          cart_snapshot?: Json
+          created_at?: string
+          currency?: string
+          grand_total: number
+          id?: string
+          integrity_hash: string
+          maisha_reference?: string | null
+          metadata?: Json | null
+          order_id?: string | null
+          paid_at?: string | null
+          pay_method?: string
+          redirect_url?: string | null
+          status?: string
+          totals_breakdown?: Json
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          cart_snapshot?: Json
+          created_at?: string
+          currency?: string
+          grand_total?: number
+          id?: string
+          integrity_hash?: string
+          maisha_reference?: string | null
+          metadata?: Json | null
+          order_id?: string | null
+          paid_at?: string | null
+          pay_method?: string
+          redirect_url?: string | null
+          status?: string
+          totals_breakdown?: Json
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_sessions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_email_logs: {
         Row: {
           body: string

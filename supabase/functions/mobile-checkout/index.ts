@@ -30,6 +30,7 @@ type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
  * 2. Creates checkout_session record with integrity_hash
  * 3. Returns totals_breakdown for frontend display
  * 4. Structured logs: CHECKOUT_INIT, CHECKOUT_DEDUPED, CHECKOUT_TOTALS_RECOMPUTED, etc.
+ * 5. CHECKOUT_PAYABLE_FINAL log proves UI vs server equality
  */
 
 // ============================================
@@ -378,7 +379,7 @@ h1{font-size:20px;margin-bottom:8px}
 
 serve(async (req) => {
   // 🔖 VERSION MARKER - P0 STABILIZATION BUILD
-  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-stabilization");
+  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-payable-final");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -399,13 +400,27 @@ serve(async (req) => {
     const body = await req.json();
     const { cart_item_ids, notes } = body;
 
-    // P0 FIX: Frontend must NOT send totals - we ignore any client-sent amounts
-    if (body.total || body.amount || body.grand_total) {
-      console.log('CHECKOUT_CLIENT_TOTAL_IGNORED', {
-        client_total: body.total,
-        client_amount: body.amount,
-        client_grand_total: body.grand_total,
-        reason: 'Server is single source of truth - client totals ignored',
+    // ============================================
+    // P0 CRITICAL: Capture client amounts as DEBUG ONLY
+    // These values are NEVER used in calculations or MaishaPay calls
+    // ============================================
+    const ui_amount_usd = body.amount_usd !== undefined ? Number(body.amount_usd) : null;
+    const ui_amount_cdf = body.amount_cdf !== undefined ? Number(body.amount_cdf) : null;
+    
+    // Also capture legacy total fields as debug
+    const ui_total = body.total !== undefined ? Number(body.total) : null;
+    const ui_amount = body.amount !== undefined ? Number(body.amount) : null;
+    const ui_grand_total = body.grand_total !== undefined ? Number(body.grand_total) : null;
+
+    // Log all client-sent amounts (debug only - NEVER used for payment)
+    if (ui_amount_usd !== null || ui_amount_cdf !== null || ui_total !== null || ui_amount !== null || ui_grand_total !== null) {
+      console.log('CHECKOUT_CLIENT_AMOUNTS_DEBUG_ONLY', {
+        ui_amount_usd,
+        ui_amount_cdf,
+        ui_total,
+        ui_amount,
+        ui_grand_total,
+        reason: 'Client amounts captured for debugging only - server is single source of truth',
       });
     }
 
@@ -702,10 +717,11 @@ serve(async (req) => {
     }
 
     // ============================================
-    // Payment currency and amount determination
+    // P0 CRITICAL: Determine SINGLE payable amount and currency
+    // This is the ONLY source for MaishaPay amount
     // ============================================
-    let paymentCurrency: 'USD' | 'CDF';
-    let paymentAmount: number;
+    let payable_currency: 'USD' | 'CDF';
+    let payable_amount: number;
     let amountFormatted: string;
     let displayAmount: string;
     let maishapayFlowUsed: MaishapayFlow;
@@ -735,7 +751,7 @@ serve(async (req) => {
         }, 400);
       }
 
-      // Calculate deposit amounts
+      // Calculate deposit amounts from SERVER-COMPUTED totals
       const vehicleTotalUsd = totalsBreakdown.vehicle_quote_total || totalsBreakdown.grand_total;
       const vehicleTotalCdf = Math.round(vehicleTotalUsd * USD_TO_CDF_RATE);
       const calculatedDeposit = Math.round(vehicleTotalCdf * VEHICLE_DEPOSIT_PERCENT);
@@ -748,46 +764,46 @@ serve(async (req) => {
         : 'USD';
 
       if (vehicleRequestedCurrency === 'CDF') {
-        paymentCurrency = 'CDF';
-        paymentAmount = depositAmountCdf;
+        payable_currency = 'CDF';
+        payable_amount = depositAmountCdf;
         amountFormatted = depositAmountCdf.toString();
         displayAmount = `${depositAmountCdf.toLocaleString('fr-FR')} CDF`;
       } else {
-        paymentCurrency = 'USD';
-        paymentAmount = depositAmountUsd;
+        payable_currency = 'USD';
+        payable_amount = depositAmountUsd;
         amountFormatted = depositAmountUsd.toFixed(2);
         displayAmount = `$${depositAmountUsd.toFixed(2)} USD`;
       }
       
       maishapayFlowUsed = REQUESTED_METHOD === 'CARD' ? 'CARD_SESSION' : 'MOBILE_MONEY_SESSION';
-      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${paymentCurrency.toLowerCase()}`;
+      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${payable_currency.toLowerCase()}`;
     } else {
-      // Regular item payment
+      // Regular item payment - use SERVER-COMPUTED grand_total
       if (REQUESTED_METHOD === 'MOBILE_MONEY') {
         if (clientRequestedCurrency === 'USD') {
-          paymentCurrency = 'USD';
-          paymentAmount = round2(totalsBreakdown.grand_total);
+          payable_currency = 'USD';
+          payable_amount = round2(totalsBreakdown.grand_total);
           amountFormatted = totalsBreakdown.grand_total.toFixed(2);
           displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
           currencyReason = 'mobile_money_usd_selected';
         } else if (clientRequestedCurrency === 'CDF' || isDRC) {
-          paymentCurrency = 'CDF';
-          paymentAmount = Math.round(totalsBreakdown.cdf_equivalent);
-          amountFormatted = paymentAmount.toString();
-          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
+          payable_currency = 'CDF';
+          payable_amount = Math.round(totalsBreakdown.cdf_equivalent);
+          amountFormatted = payable_amount.toString();
+          displayAmount = `${payable_amount.toLocaleString('fr-FR')} CDF`;
           currencyReason = clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_selected' : 'mobile_money_drc_default';
         } else {
-          paymentCurrency = 'USD';
-          paymentAmount = round2(totalsBreakdown.grand_total);
+          payable_currency = 'USD';
+          payable_amount = round2(totalsBreakdown.grand_total);
           amountFormatted = totalsBreakdown.grand_total.toFixed(2);
           displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
           currencyReason = 'mobile_money_usd_default';
         }
         maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
       } else {
-        // CARD: USD only
-        paymentCurrency = 'USD';
-        paymentAmount = round2(totalsBreakdown.grand_total);
+        // CARD: USD only - use SERVER-COMPUTED grand_total
+        payable_currency = 'USD';
+        payable_amount = round2(totalsBreakdown.grand_total);
         amountFormatted = totalsBreakdown.grand_total.toFixed(2);
         displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
         maishapayFlowUsed = 'CARD_SESSION';
@@ -812,7 +828,7 @@ serve(async (req) => {
     const integrityHash = await generateIntegrityHash({
       cart_snapshot: cartSnapshot,
       totals_breakdown: totalsBreakdown,
-      currency: paymentCurrency,
+      currency: payable_currency,
       pay_method: REQUESTED_METHOD,
     });
 
@@ -836,8 +852,8 @@ serve(async (req) => {
         admin_notes: notes || null,
         shipping_city: mapToShippingCity(profile.city),
         contains_vehicle: containsVehicle,
-        normalized_currency: paymentCurrency,
-        normalized_amount: paymentAmount,
+        normalized_currency: payable_currency,
+        normalized_amount: payable_amount,
       })
       .select()
       .single();
@@ -875,9 +891,9 @@ serve(async (req) => {
         order_id: checkoutOrder.id,
         cart_snapshot: cartSnapshot,
         totals_breakdown: totalsBreakdown,
-        currency: paymentCurrency,
+        currency: payable_currency,
         pay_method: REQUESTED_METHOD,
-        grand_total: paymentAmount,
+        grand_total: payable_amount,
         integrity_hash: integrityHash,
         maisha_reference: reference,
         status: 'initiated',
@@ -887,6 +903,14 @@ serve(async (req) => {
           isDRC,
           isoCode,
           currencyReason,
+          // Store UI amounts for debugging (never used for payment)
+          debug_ui_amounts: {
+            ui_amount_usd,
+            ui_amount_cdf,
+            ui_total,
+            ui_amount,
+            ui_grand_total,
+          },
         },
       })
       .select('id')
@@ -896,7 +920,7 @@ serve(async (req) => {
       console.warn('[mobile-checkout] Failed to create checkout_session (non-fatal):', sessionError);
     }
 
-    // Create payment record
+    // Create payment record - uses payable_amount (server-computed)
     await supabase
       .from('maisha_payments')
       .insert({
@@ -904,12 +928,12 @@ serve(async (req) => {
         maisha_reference: reference,
         amount_usd: totalsBreakdown.grand_total,
         amount_cdf: totalsBreakdown.cdf_equivalent,
-        currency: paymentCurrency,
+        currency: payable_currency,
         status: 'pending',
         user_id: user.id,
         raw_request: {
-          amount: paymentAmount,
-          currency: paymentCurrency,
+          amount: payable_amount,
+          currency: payable_currency,
           email: profile.email || user.email,
           phone: profile.phone,
           customerName: profile.full_name,
@@ -947,7 +971,7 @@ serve(async (req) => {
     const motif = `Paiement AfriShop - Commande ${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
 
     // ============================================
-    // CHECKOUT_CREATE_MAISHAPAY: Log before MaishaPay call
+    // CHECKOUT_CREATE_MAISHAPAY: Uses payable_amount (server-computed)
     // ============================================
     console.log('CHECKOUT_CREATE_MAISHAPAY', {
       orderId: checkoutOrder.id,
@@ -956,20 +980,21 @@ serve(async (req) => {
       hasVehicleQuoteItems,
       requestedMethod: REQUESTED_METHOD,
       requestedCurrency: clientRequestedCurrency || 'not_specified',
-      finalCurrency: paymentCurrency,
-      finalAmount: paymentAmount,
+      // P0 CRITICAL: These are the values sent to MaishaPay
+      payable_currency,
+      payable_amount,
       gatewayMode: isLiveMode ? 'live' : 'sandbox',
       reference,
     });
 
-    // Generate HTML for mobile WebView
+    // Generate HTML for mobile WebView - uses payable_amount
     const html = generateCheckoutHtml({
       publicKey,
       secretKey,
       gatewayMode: isLiveMode ? '1' : '0',
-      amount: amountFormatted,
-      currency: paymentCurrency,
-      displayAmount,
+      amount: amountFormatted,          // Derived from payable_amount
+      currency: payable_currency,        // Server-determined
+      displayAmount,                     // Derived from payable_amount
       reference,
       callbackUrl: mobileCallbackUrl,
       orderId: checkoutOrder.id,
@@ -984,6 +1009,29 @@ serve(async (req) => {
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     // ============================================
+    // CHECKOUT_PAYABLE_FINAL: Proves UI vs server equality
+    // This is the critical log that proves what was charged
+    // ============================================
+    console.log('CHECKOUT_PAYABLE_FINAL', {
+      // Client-sent amounts (DEBUG ONLY - never used for payment)
+      ui_amount_usd,
+      ui_amount_cdf,
+      // Server-computed payable amount (ACTUALLY SENT TO MAISHAPAY)
+      payable_amount,
+      payable_currency,
+      // Context
+      order_id: checkoutOrder.id,
+      user_id: user.id,
+      maishapay_reference: reference,
+      checkout_session_id: checkoutSession?.id || null,
+      // Breakdown for verification
+      server_grand_total_usd: totalsBreakdown.grand_total,
+      server_cdf_equivalent: totalsBreakdown.cdf_equivalent,
+      contains_vehicle: containsVehicle,
+      is_deposit: containsVehicle || hasVehicleQuoteItems,
+    });
+
+    // ============================================
     // CHECKOUT_FINAL: Success response
     // ============================================
     console.log('CHECKOUT_FINAL', {
@@ -992,12 +1040,12 @@ serve(async (req) => {
       confirmationId,
       reference,
       grandTotalUsd: totalsBreakdown.grand_total,
-      paymentCurrency,
-      paymentAmount,
+      payable_currency,
+      payable_amount,
       integrityHash: integrityHash.slice(0, 16) + '...',
     });
 
-    // Return response with totals_breakdown and integrity_hash
+    // Return response with payable_amount, payable_currency, totals_breakdown
     return jsonResponse({
       success: true,
       checkout_type: containsVehicle ? 'VEHICLE_DEPOSIT' : 'FULL_PAYMENT',
@@ -1006,8 +1054,12 @@ serve(async (req) => {
       confirmationId,
       checkoutUrl,
       html,
-      currency: paymentCurrency,
-      amount: paymentAmount,
+      // P0 CRITICAL: Single payable values
+      payable_amount,
+      payable_currency,
+      // Legacy fields for backwards compatibility
+      currency: payable_currency,
+      amount: payable_amount,
       // P0 FIX: Return totals_breakdown for frontend verification
       totals_breakdown: {
         subtotal: totalsBreakdown.subtotal_items,
@@ -1015,12 +1067,20 @@ serve(async (req) => {
         markup: totalsBreakdown.markup_fee,
         taxes: totalsBreakdown.taxes_fee,
         grand_total: totalsBreakdown.grand_total,
-        currency: paymentCurrency,
+        currency: payable_currency,
         cdf_equivalent: totalsBreakdown.cdf_equivalent,
         exchange_rate: totalsBreakdown.exchange_rate,
+        // Vehicle deposit info if applicable
+        is_deposit: containsVehicle || hasVehicleQuoteItems,
+        vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
       },
       // P0 FIX: Return integrity_hash for verification
       integrity_hash: integrityHash,
+      // Debug: client-sent amounts (for comparison, never used for payment)
+      debug: {
+        ui_amount_usd,
+        ui_amount_cdf,
+      },
       order: {
         id: checkoutOrder.id,
         confirmationId,
@@ -1030,10 +1090,10 @@ serve(async (req) => {
         totalCdf: totalsBreakdown.cdf_equivalent,
       },
       paymentDetails: {
-        currency: paymentCurrency,
-        amount: paymentAmount,
+        currency: payable_currency,
+        amount: payable_amount,
         displayAmount,
-        alternativeAmount: paymentCurrency === 'CDF' 
+        alternativeAmount: payable_currency === 'CDF' 
           ? { currency: 'USD', amount: totalsBreakdown.grand_total, display: `$${totalsBreakdown.grand_total.toFixed(2)} USD` }
           : { currency: 'CDF', amount: Math.round(totalsBreakdown.cdf_equivalent), display: `${Math.round(totalsBreakdown.cdf_equivalent).toLocaleString('fr-FR')} CDF` },
         exchangeRate,

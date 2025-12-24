@@ -10,11 +10,8 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping } from "../_shared/cartHelpers.ts";
 import { 
   detectVehicleFromItems, 
-  getPaymentCurrencyAndAmount, 
   fetchAndValidateVehicleQuotes, 
   VEHICLE_QUOTE_MISSING_ERROR,
-  VEHICLE_CARD_NOT_AVAILABLE_ERROR,
-  CHECKOUT_METHOD_MISMATCH_ERROR,
 } from "../_shared/vehiclePaymentGuard.ts";
 import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
@@ -23,14 +20,14 @@ type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
 type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
 
 /**
- * Mobile Checkout Edge Function - P0 STABILIZATION (2025-12-24)
+ * Mobile Checkout Edge Function - P0 FULL PAYMENT (2025-12-24)
  * 
- * CRITICAL FIXES:
- * 1. Server is SINGLE SOURCE OF TRUTH for totals - frontend NEVER sends totals
- * 2. Creates checkout_session record with integrity_hash
- * 3. Returns totals_breakdown for frontend display
- * 4. Structured logs: CHECKOUT_INIT, CHECKOUT_DEDUPED, CHECKOUT_TOTALS_RECOMPUTED, etc.
- * 5. CHECKOUT_PAYABLE_FINAL log proves UI vs server equality
+ * CRITICAL REQUIREMENTS:
+ * 1. Server is SINGLE SOURCE OF TRUTH for totals - client amounts are DEBUG ONLY
+ * 2. NO DEPOSIT LOGIC - ALL orders (including vehicles) pay FULL PRICE
+ * 3. NO CAPS/LIMITS - payable_amount = server-computed grand_total
+ * 4. MaishaPay receives EXACTLY payable_amount and payable_currency
+ * 5. Structured logs: CHECKOUT_PAYABLE_COMPUTED, CHECKOUT_MAISHAPAY_AMOUNT_SENT
  */
 
 // ============================================
@@ -123,6 +120,7 @@ function deduplicateCartItems(items: any[]): {
 
 // ============================================
 // P0 FIX: Recompute totals server-side (SINGLE SOURCE OF TRUTH)
+// NO CAPS, NO LIMITS, NO DEPOSIT LOGIC
 // ============================================
 interface TotalsBreakdown {
   subtotal_items: number;
@@ -378,8 +376,8 @@ h1{font-size:20px;margin-bottom:8px}
 }
 
 serve(async (req) => {
-  // 🔖 VERSION MARKER - P0 STABILIZATION BUILD
-  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-payable-final");
+  // 🔖 VERSION MARKER - P0 FULL PAYMENT (NO DEPOSIT, NO CAPS)
+  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-full-payment-no-caps");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -718,8 +716,7 @@ serve(async (req) => {
 
     // ============================================
     // P0 CRITICAL: Determine SINGLE payable amount and currency
-    // This is the ONLY source for MaishaPay amount
-    // FULL PAYMENT REQUIRED - NO DEPOSIT LOGIC
+    // NO CAPS, NO LIMITS, NO DEPOSIT - FULL GRAND TOTAL ONLY
     // ============================================
     let payable_currency: 'USD' | 'CDF';
     let payable_amount: number;
@@ -728,49 +725,48 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    const USD_TO_CDF_RATE = exchangeRate;
-
-    // ALL items (including vehicles) pay FULL PRICE upfront
-    // No deposit logic - charge grand_total for everything
+    // ALL items pay FULL PRICE upfront - no deposit, no caps, no limits
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
       if (clientRequestedCurrency === 'USD') {
         payable_currency = 'USD';
         payable_amount = round2(totalsBreakdown.grand_total);
-        amountFormatted = totalsBreakdown.grand_total.toFixed(2);
-        displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
-        currencyReason = containsVehicle ? 'vehicle_full_payment_usd' : 'mobile_money_usd_selected';
+        amountFormatted = payable_amount.toFixed(2);
+        displayAmount = `$${amountFormatted} USD`;
+        currencyReason = 'mobile_money_usd_full_payment';
       } else if (clientRequestedCurrency === 'CDF' || isDRC) {
         payable_currency = 'CDF';
         payable_amount = Math.round(totalsBreakdown.cdf_equivalent);
         amountFormatted = payable_amount.toString();
         displayAmount = `${payable_amount.toLocaleString('fr-FR')} CDF`;
-        currencyReason = containsVehicle 
-          ? 'vehicle_full_payment_cdf' 
-          : (clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_selected' : 'mobile_money_drc_default');
+        currencyReason = clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_full_payment' : 'mobile_money_drc_default_full_payment';
       } else {
         payable_currency = 'USD';
         payable_amount = round2(totalsBreakdown.grand_total);
-        amountFormatted = totalsBreakdown.grand_total.toFixed(2);
-        displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
-        currencyReason = containsVehicle ? 'vehicle_full_payment_usd_default' : 'mobile_money_usd_default';
+        amountFormatted = payable_amount.toFixed(2);
+        displayAmount = `$${amountFormatted} USD`;
+        currencyReason = 'mobile_money_usd_default_full_payment';
       }
       maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
     } else {
       // CARD: USD only - use SERVER-COMPUTED grand_total
       payable_currency = 'USD';
       payable_amount = round2(totalsBreakdown.grand_total);
-      amountFormatted = totalsBreakdown.grand_total.toFixed(2);
-      displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
+      amountFormatted = payable_amount.toFixed(2);
+      displayAmount = `$${amountFormatted} USD`;
       maishapayFlowUsed = 'CARD_SESSION';
-      currencyReason = containsVehicle ? 'vehicle_full_payment_card_usd' : 'card_usd_only';
+      currencyReason = 'card_usd_full_payment';
     }
 
-    console.log('CHECKOUT_FULL_PAYMENT_MODE', {
-      contains_vehicle: containsVehicle,
-      grand_total_usd: totalsBreakdown.grand_total,
+    // ============================================
+    // CHECKOUT_PAYABLE_COMPUTED: Required structured log #1
+    // ============================================
+    console.log('CHECKOUT_PAYABLE_COMPUTED', {
       payable_amount,
       payable_currency,
-      reason: 'Full payment required - no deposit logic',
+      server_grand_total: totalsBreakdown.grand_total,
+      ui_amount_usd,
+      ui_amount_cdf,
+      payment_method: REQUESTED_METHOD,
     });
 
     // ============================================
@@ -933,20 +929,14 @@ serve(async (req) => {
     const motif = `Paiement AfriShop - Commande ${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
 
     // ============================================
-    // CHECKOUT_CREATE_MAISHAPAY: Uses payable_amount (server-computed)
+    // CHECKOUT_MAISHAPAY_AMOUNT_SENT: Required structured log #2
+    // Proves what we're sending to MaishaPay
     // ============================================
-    console.log('CHECKOUT_CREATE_MAISHAPAY', {
-      orderId: checkoutOrder.id,
-      checkout_session_id: checkoutSession?.id || null,
-      containsVehicle,
-      hasVehicleQuoteItems,
-      requestedMethod: REQUESTED_METHOD,
-      requestedCurrency: clientRequestedCurrency || 'not_specified',
-      // P0 CRITICAL: These are the values sent to MaishaPay
-      payable_currency,
+    console.log('CHECKOUT_MAISHAPAY_AMOUNT_SENT', {
+      montant_sent: amountFormatted,
+      devise_sent: payable_currency,
       payable_amount,
-      gatewayMode: isLiveMode ? 'live' : 'sandbox',
-      reference,
+      payable_currency,
     });
 
     // Generate HTML for mobile WebView - uses payable_amount
@@ -971,29 +961,6 @@ serve(async (req) => {
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     // ============================================
-    // CHECKOUT_PAYABLE_FINAL: Proves UI vs server equality
-    // This is the critical log that proves what was charged
-    // ============================================
-    console.log('CHECKOUT_PAYABLE_FINAL', {
-      // Client-sent amounts (DEBUG ONLY - never used for payment)
-      ui_amount_usd,
-      ui_amount_cdf,
-      // Server-computed payable amount (ACTUALLY SENT TO MAISHAPAY)
-      payable_amount,
-      payable_currency,
-      // Context
-      order_id: checkoutOrder.id,
-      user_id: user.id,
-      maishapay_reference: reference,
-      checkout_session_id: checkoutSession?.id || null,
-      // Breakdown for verification
-      server_grand_total_usd: totalsBreakdown.grand_total,
-      server_cdf_equivalent: totalsBreakdown.cdf_equivalent,
-      contains_vehicle: containsVehicle,
-      is_deposit: containsVehicle || hasVehicleQuoteItems,
-    });
-
-    // ============================================
     // CHECKOUT_FINAL: Success response
     // ============================================
     console.log('CHECKOUT_FINAL', {
@@ -1010,7 +977,7 @@ serve(async (req) => {
     // Return response with payable_amount, payable_currency, totals_breakdown
     return jsonResponse({
       success: true,
-      checkout_type: containsVehicle ? 'VEHICLE_FULL_PAYMENT' : 'FULL_PAYMENT',
+      checkout_type: 'FULL_PAYMENT',
       orderId: checkoutOrder.id,
       checkout_session_id: checkoutSession?.id || null,
       confirmationId,
@@ -1032,8 +999,6 @@ serve(async (req) => {
         currency: payable_currency,
         cdf_equivalent: totalsBreakdown.cdf_equivalent,
         exchange_rate: totalsBreakdown.exchange_rate,
-        // Vehicle deposit info if applicable
-        is_deposit: containsVehicle || hasVehicleQuoteItems,
         vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
       },
       // P0 FIX: Return integrity_hash for verification

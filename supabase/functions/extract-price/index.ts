@@ -280,51 +280,156 @@ interface ProductInfo {
   imageUrl: string | null;
 }
 
+// ============== BAD TITLE BLOCKLIST ==============
+// Titles matching these patterns are rejected and treated as null
+const BAD_TITLE_PATTERNS = [
+  /skip\s+to\s+main\s+content/i,
+  /product\s+summary\s+presents\s+key\s+product\s+information/i,
+  /^home$/i,
+  /^homepage$/i,
+  /^tesla$/i,
+  /^amazon$/i,
+  /^walmart$/i,
+  /^ebay$/i,
+  /^target$/i,
+  /^best\s*buy$/i,
+  /^shein$/i,
+  /^carvana$/i,
+  /^cargurus$/i,
+  /^wayfair$/i,
+  /^mercari$/i,
+  /^shop\s+now$/i,
+  /^buy\s+now$/i,
+  /^welcome$/i,
+  /^page\s+not\s+found$/i,
+  /^404$/i,
+  /^error$/i,
+  /^loading/i,
+  /^untitled/i,
+];
+
+// Check if title looks like a URL
+function looksLikeUrl(title: string): boolean {
+  return /https?:\/\//.test(title) || /www\./.test(title) || /\.com\//.test(title) || /\.co\./.test(title);
+}
+
+// Validate and sanitize title
+function validateTitle(rawTitle: string | null): string | null {
+  if (!rawTitle) return null;
+  
+  const trimmed = rawTitle.trim();
+  
+  // Too short or too long
+  if (trimmed.length < 3 || trimmed.length > 500) return null;
+  
+  // Check blocklist patterns
+  for (const pattern of BAD_TITLE_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      console.log(`[extract-price] EXTRACT_PRICE_TITLE_REJECTED pattern="${pattern.source}" title="${trimmed.substring(0, 50)}"`);
+      return null;
+    }
+  }
+  
+  // Check if it looks like a URL
+  if (looksLikeUrl(trimmed)) {
+    console.log(`[extract-price] EXTRACT_PRICE_TITLE_REJECTED reason="looks_like_url" title="${trimmed.substring(0, 50)}"`);
+    return null;
+  }
+  
+  return trimmed;
+}
+
 function extractProductInfo(html: string, store: StoreType): ProductInfo {
   let title: string | null = null;
+  let rawTitle: string | null = null;
+  let titleSource: string | null = null;
   let imageUrl: string | null = null;
 
-  // Strategy 1: JSON-LD
-  try {
-    const jsonLdMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
-    if (jsonLdMatches) {
-      for (const match of jsonLdMatches) {
-        const jsonContent = match.replace(/<script[^>]*>|<\/script>/gi, '').trim();
-        try {
-          const data = JSON.parse(jsonContent);
-          const items = Array.isArray(data) ? data : [data];
-          for (const item of items) {
-            if (item['@type'] === 'Product' || item['@type']?.includes?.('Product')) {
-              if (!title && item.name) title = String(item.name).trim();
-              if (!imageUrl && item.image) {
-                const img = Array.isArray(item.image) ? item.image[0] : item.image;
-                imageUrl = typeof img === 'string' ? img : img?.url ?? null;
+  // ===== TITLE EXTRACTION PRIORITY ORDER =====
+  // Priority 1: og:title meta tag (most reliable for product pages)
+  if (!rawTitle) {
+    const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                    html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+    if (ogTitle && ogTitle[1]) {
+      rawTitle = ogTitle[1].trim();
+      titleSource = 'og:title';
+    }
+  }
+
+  // Priority 2: twitter:title meta tag
+  if (!rawTitle) {
+    const twitterTitle = html.match(/<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i) ||
+                         html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*name=["']twitter:title["']/i);
+    if (twitterTitle && twitterTitle[1]) {
+      rawTitle = twitterTitle[1].trim();
+      titleSource = 'twitter:title';
+    }
+  }
+
+  // Priority 3: JSON-LD Product name
+  if (!rawTitle) {
+    try {
+      const jsonLdMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+      if (jsonLdMatches) {
+        for (const match of jsonLdMatches) {
+          const jsonContent = match.replace(/<script[^>]*>|<\/script>/gi, '').trim();
+          try {
+            const data = JSON.parse(jsonContent);
+            const items = Array.isArray(data) ? data : [data];
+            for (const item of items) {
+              if (item['@type'] === 'Product' || item['@type']?.includes?.('Product')) {
+                if (!rawTitle && item.name) {
+                  rawTitle = String(item.name).trim();
+                  titleSource = 'json-ld';
+                }
+                if (!imageUrl && item.image) {
+                  const img = Array.isArray(item.image) ? item.image[0] : item.image;
+                  imageUrl = typeof img === 'string' ? img : img?.url ?? null;
+                }
               }
             }
-          }
-        } catch { /* Invalid JSON */ }
+          } catch { /* Invalid JSON */ }
+        }
       }
-    }
-  } catch { /* Extraction failed */ }
-
-  // Strategy 2: Meta tags
-  if (!title) {
-    const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
-    if (ogTitle) title = ogTitle[1].trim();
-  }
-  if (!imageUrl) {
-    const ogImage = html.match(/<meta[^>]*property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i);
-    if (ogImage) imageUrl = ogImage[1];
+    } catch { /* Extraction failed */ }
   }
 
-  // Strategy 3: Title tag fallback
-  if (!title) {
+  // Priority 4: Document <title> tag (with store name stripping)
+  if (!rawTitle) {
     const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    if (titleTag) {
-      title = titleTag[1]
-        .replace(/\s*[-|–—]\s*(Amazon|Walmart|eBay|Best Buy|Target|SHEIN|Home Depot|Macy's|Carvana|CarGurus).*$/i, '')
+    if (titleTag && titleTag[1]) {
+      rawTitle = titleTag[1]
+        .replace(/\s*[-|–—:]\s*(Amazon|Walmart|eBay|Best Buy|Target|SHEIN|Home Depot|Macy's|Carvana|CarGurus|Wayfair|Mercari|Tesla|Edmunds).*$/i, '')
+        .replace(/\s*\|\s*(Amazon|Walmart|eBay|Best Buy|Target|SHEIN|Home Depot|Macy's|Carvana|CarGurus|Wayfair|Mercari|Tesla|Edmunds).*$/i, '')
         .trim();
+      titleSource = 'document-title';
     }
+  }
+
+  // Priority 5: h1 fallback (last resort)
+  if (!rawTitle) {
+    const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+    if (h1Match && h1Match[1]) {
+      rawTitle = h1Match[1].trim();
+      titleSource = 'h1';
+    }
+  }
+
+  // Log raw title before validation
+  console.log(`[extract-price] EXTRACT_PRICE_TITLE_RAW source="${titleSource || 'none'}" title="${rawTitle?.substring(0, 80) || 'null'}"`);
+
+  // Validate title through blocklist
+  title = validateTitle(rawTitle);
+
+  // Log final title after validation
+  console.log(`[extract-price] EXTRACT_PRICE_TITLE_FINAL title="${title?.substring(0, 80) || 'null'}" accepted=${title !== null}`);
+
+  // ===== IMAGE EXTRACTION =====
+  // Get image from og:image if not already found via JSON-LD
+  if (!imageUrl) {
+    const ogImage = html.match(/<meta[^>]*property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i) ||
+                    html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i);
+    if (ogImage && ogImage[1]) imageUrl = ogImage[1];
   }
 
   // Normalize image URL

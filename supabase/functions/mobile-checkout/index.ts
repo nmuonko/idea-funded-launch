@@ -719,6 +719,7 @@ serve(async (req) => {
     // ============================================
     // P0 CRITICAL: Determine SINGLE payable amount and currency
     // This is the ONLY source for MaishaPay amount
+    // FULL PAYMENT REQUIRED - NO DEPOSIT LOGIC
     // ============================================
     let payable_currency: 'USD' | 'CDF';
     let payable_amount: number;
@@ -727,89 +728,50 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false';
-    const VEHICLE_DEPOSIT_PERCENT = Number(Deno.env.get('VEHICLE_DEPOSIT_PERCENT')) || 0.20;
-    const VEHICLE_DEPOSIT_MAX_CDF = Number(Deno.env.get('VEHICLE_DEPOSIT_MAX_CDF')) || 5000000;
     const USD_TO_CDF_RATE = exchangeRate;
 
-    if (hasVehicleQuoteItems || containsVehicle) {
-      // Vehicle payment handling
-      if (REQUESTED_METHOD === 'CARD' && !VEHICLE_CARD_ALLOWED) {
-        console.log('CHECKOUT_VEHICLE_CARD_BLOCKED', {
-          orderId: existingOrder.id,
-          reason: 'VEHICLE_CARD_ALLOWED=false',
-        });
-        return jsonResponse({
-          ok: false,
-          success: false,
-          code: 'MAISHAPAY_METHOD_NOT_ALLOWED',
-          checkout_type: 'VEHICLE_DEPOSIT_REQUIRED',
-          allowed_methods: ['MOBILE_MONEY'],
-          requested_method: REQUESTED_METHOD,
-          error: 'Card not available for vehicle deposit',
-          totals_breakdown: totalsBreakdown,
-        }, 400);
-      }
-
-      // Calculate deposit amounts from SERVER-COMPUTED totals
-      const vehicleTotalUsd = totalsBreakdown.vehicle_quote_total || totalsBreakdown.grand_total;
-      const vehicleTotalCdf = Math.round(vehicleTotalUsd * USD_TO_CDF_RATE);
-      const calculatedDeposit = Math.round(vehicleTotalCdf * VEHICLE_DEPOSIT_PERCENT);
-      const depositAmountCdf = Math.min(calculatedDeposit, VEHICLE_DEPOSIT_MAX_CDF);
-      const depositAmountUsd = round2(depositAmountCdf / USD_TO_CDF_RATE);
-
-      // Determine currency based on client request or default to USD
-      const vehicleRequestedCurrency = (clientRequestedCurrency === 'CDF' || clientRequestedCurrency === 'USD') 
-        ? clientRequestedCurrency 
-        : 'USD';
-
-      if (vehicleRequestedCurrency === 'CDF') {
-        payable_currency = 'CDF';
-        payable_amount = depositAmountCdf;
-        amountFormatted = depositAmountCdf.toString();
-        displayAmount = `${depositAmountCdf.toLocaleString('fr-FR')} CDF`;
-      } else {
-        payable_currency = 'USD';
-        payable_amount = depositAmountUsd;
-        amountFormatted = depositAmountUsd.toFixed(2);
-        displayAmount = `$${depositAmountUsd.toFixed(2)} USD`;
-      }
-      
-      maishapayFlowUsed = REQUESTED_METHOD === 'CARD' ? 'CARD_SESSION' : 'MOBILE_MONEY_SESSION';
-      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${payable_currency.toLowerCase()}`;
-    } else {
-      // Regular item payment - use SERVER-COMPUTED grand_total
-      if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-        if (clientRequestedCurrency === 'USD') {
-          payable_currency = 'USD';
-          payable_amount = round2(totalsBreakdown.grand_total);
-          amountFormatted = totalsBreakdown.grand_total.toFixed(2);
-          displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
-          currencyReason = 'mobile_money_usd_selected';
-        } else if (clientRequestedCurrency === 'CDF' || isDRC) {
-          payable_currency = 'CDF';
-          payable_amount = Math.round(totalsBreakdown.cdf_equivalent);
-          amountFormatted = payable_amount.toString();
-          displayAmount = `${payable_amount.toLocaleString('fr-FR')} CDF`;
-          currencyReason = clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_selected' : 'mobile_money_drc_default';
-        } else {
-          payable_currency = 'USD';
-          payable_amount = round2(totalsBreakdown.grand_total);
-          amountFormatted = totalsBreakdown.grand_total.toFixed(2);
-          displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
-          currencyReason = 'mobile_money_usd_default';
-        }
-        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-      } else {
-        // CARD: USD only - use SERVER-COMPUTED grand_total
+    // ALL items (including vehicles) pay FULL PRICE upfront
+    // No deposit logic - charge grand_total for everything
+    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      if (clientRequestedCurrency === 'USD') {
         payable_currency = 'USD';
         payable_amount = round2(totalsBreakdown.grand_total);
         amountFormatted = totalsBreakdown.grand_total.toFixed(2);
         displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
-        maishapayFlowUsed = 'CARD_SESSION';
-        currencyReason = 'card_usd_only';
+        currencyReason = containsVehicle ? 'vehicle_full_payment_usd' : 'mobile_money_usd_selected';
+      } else if (clientRequestedCurrency === 'CDF' || isDRC) {
+        payable_currency = 'CDF';
+        payable_amount = Math.round(totalsBreakdown.cdf_equivalent);
+        amountFormatted = payable_amount.toString();
+        displayAmount = `${payable_amount.toLocaleString('fr-FR')} CDF`;
+        currencyReason = containsVehicle 
+          ? 'vehicle_full_payment_cdf' 
+          : (clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_selected' : 'mobile_money_drc_default');
+      } else {
+        payable_currency = 'USD';
+        payable_amount = round2(totalsBreakdown.grand_total);
+        amountFormatted = totalsBreakdown.grand_total.toFixed(2);
+        displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
+        currencyReason = containsVehicle ? 'vehicle_full_payment_usd_default' : 'mobile_money_usd_default';
       }
+      maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
+    } else {
+      // CARD: USD only - use SERVER-COMPUTED grand_total
+      payable_currency = 'USD';
+      payable_amount = round2(totalsBreakdown.grand_total);
+      amountFormatted = totalsBreakdown.grand_total.toFixed(2);
+      displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
+      maishapayFlowUsed = 'CARD_SESSION';
+      currencyReason = containsVehicle ? 'vehicle_full_payment_card_usd' : 'card_usd_only';
     }
+
+    console.log('CHECKOUT_FULL_PAYMENT_MODE', {
+      contains_vehicle: containsVehicle,
+      grand_total_usd: totalsBreakdown.grand_total,
+      payable_amount,
+      payable_currency,
+      reason: 'Full payment required - no deposit logic',
+    });
 
     // ============================================
     // Create cart snapshot for checkout_session
@@ -1048,7 +1010,7 @@ serve(async (req) => {
     // Return response with payable_amount, payable_currency, totals_breakdown
     return jsonResponse({
       success: true,
-      checkout_type: containsVehicle ? 'VEHICLE_DEPOSIT' : 'FULL_PAYMENT',
+      checkout_type: containsVehicle ? 'VEHICLE_FULL_PAYMENT' : 'FULL_PAYMENT',
       orderId: checkoutOrder.id,
       checkout_session_id: checkoutSession?.id || null,
       confirmationId,

@@ -16,36 +16,229 @@ import {
   VEHICLE_CARD_NOT_AVAILABLE_ERROR,
   CHECKOUT_METHOD_MISMATCH_ERROR,
 } from "../_shared/vehiclePaymentGuard.ts";
+import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
 
 // Payment method types
 type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
 type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
 
 /**
- * Mobile Checkout Edge Function
+ * Mobile Checkout Edge Function - P0 STABILIZATION (2025-12-24)
  * 
- * Creates order from cart items and returns checkout data.
- * Returns BOTH checkoutUrl AND html field for maximum compatibility.
- * Uses shared helpers for CONSISTENT totals calculation.
+ * CRITICAL FIXES:
+ * 1. Server is SINGLE SOURCE OF TRUTH for totals - frontend NEVER sends totals
+ * 2. Creates checkout_session record with integrity_hash
+ * 3. Returns totals_breakdown for frontend display
+ * 4. Structured logs: CHECKOUT_INIT, CHECKOUT_DEDUPED, CHECKOUT_TOTALS_RECOMPUTED, etc.
  */
+
+// ============================================
+// P0 FIX: Generate integrity hash for checkout session
+// ============================================
+async function generateIntegrityHash(data: {
+  cart_snapshot: any[];
+  totals_breakdown: any;
+  currency: string;
+  pay_method: string;
+}): Promise<string> {
+  const encoder = new TextEncoder();
+  const payload = JSON.stringify(data);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(payload));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ============================================
+// P0 FIX: Deduplicate cart items by item_id or (store + url)
+// ============================================
+interface DeduplicatedItem {
+  item_id: string;
+  store: string;
+  url: string;
+  title: string;
+  image: string | null;
+  unit_price: number;
+  currency: string;
+  quantity: number;
+  type: string;
+  metadata: any;
+  original_item: any;
+}
+
+function deduplicateCartItems(items: any[]): { 
+  deduped: DeduplicatedItem[]; 
+  duplicatesRemoved: number;
+  dedupeLog: any[];
+} {
+  const seen = new Map<string, DeduplicatedItem>();
+  const dedupeLog: any[] = [];
+  let duplicatesRemoved = 0;
+
+  for (const item of items) {
+    // Use item.id as primary key, fallback to store+url hash
+    const itemId = item.id || `${item.store}_${item.product_url}`.toLowerCase();
+    
+    if (seen.has(itemId)) {
+      // Duplicate found - merge quantities
+      const existing = seen.get(itemId)!;
+      const oldQty = existing.quantity;
+      existing.quantity += (item.quantity || 1);
+      duplicatesRemoved++;
+      dedupeLog.push({
+        action: 'merged',
+        item_id: itemId,
+        old_qty: oldQty,
+        added_qty: item.quantity || 1,
+        new_qty: existing.quantity,
+      });
+    } else {
+      seen.set(itemId, {
+        item_id: itemId,
+        store: item.store,
+        url: item.product_url,
+        title: item.title || '',
+        image: item.product_image_url || null,
+        unit_price: Number(item.base_price_usd || item.unit_price_usd || 0),
+        currency: 'USD',
+        quantity: item.quantity || 1,
+        type: item.is_vehicle ? 'vehicle' : 'regular',
+        metadata: {
+          shipping_item_type_id: item.shipping_item_type_id,
+          is_vehicle: item.is_vehicle,
+          vehicle_quote_applied: item.vehicle_quote_applied,
+          requires_manual_quote: item.requires_manual_quote,
+        },
+        original_item: item,
+      });
+    }
+  }
+
+  return {
+    deduped: Array.from(seen.values()),
+    duplicatesRemoved,
+    dedupeLog,
+  };
+}
+
+// ============================================
+// P0 FIX: Recompute totals server-side (SINGLE SOURCE OF TRUTH)
+// ============================================
+interface TotalsBreakdown {
+  subtotal_items: number;
+  shipping_fee: number;
+  markup_fee: number;
+  taxes_fee: number;
+  grand_total: number;
+  currency: string;
+  exchange_rate: number;
+  cdf_equivalent: number;
+  item_count: number;
+  markup_rules_used: any[];
+  contains_vehicle: boolean;
+  vehicle_quote_total: number;
+}
+
+async function recomputeTotalsServerSide(
+  items: any[],
+  settings: any,
+  vehicleQuoteValidation: any | null
+): Promise<TotalsBreakdown> {
+  const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
+  
+  let regularItemsBase = 0;
+  let regularItemsMargin = 0;
+  let vehicleTotal = 0;
+  let vehicleShipping = 0;
+  let itemCount = 0;
+  const markupRulesUsed: any[] = [];
+
+  for (const item of items) {
+    const qty = item.quantity || 1;
+    itemCount += qty;
+    const isVehicle = item.is_vehicle === true;
+    const vehicleQuoteApplied = item.vehicle_quote_applied === true;
+
+    if (isVehicle && vehicleQuoteApplied) {
+      // Vehicle with applied quote - use stored total (shipping already included)
+      vehicleTotal += Number(item.total_price_usd || 0);
+      vehicleShipping += Number(item.shipping_fee_usd || 0);
+      markupRulesUsed.push({
+        item_id: item.id,
+        rule: 'vehicle_quote_applied',
+        markup_percent: vehicleMarkupPercent,
+        source: 'stored_quote',
+      });
+    } else {
+      // Regular item - calculate markup
+      const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
+      const effectiveMarkup = isVehicle ? vehicleMarkupPercent : markupPercent;
+      const marginAmount = round2(basePrice * (effectiveMarkup / 100));
+      
+      regularItemsBase += basePrice;
+      regularItemsMargin += marginAmount;
+      markupRulesUsed.push({
+        item_id: item.id,
+        rule: isVehicle ? 'vehicle_pending_quote' : 'standard_markup',
+        markup_percent: effectiveMarkup,
+        base_price: basePrice,
+        margin: marginAmount,
+      });
+    }
+  }
+
+  // P0: If vehicle quote validation succeeded, use DB quote total (override client amounts)
+  if (vehicleQuoteValidation && vehicleQuoteValidation.valid) {
+    const dbQuoteTotal = vehicleQuoteValidation.totalAmount;
+    console.log('CHECKOUT_VEHICLE_QUOTE_OVERRIDE', {
+      client_vehicle_total: vehicleTotal,
+      db_quote_total: dbQuoteTotal,
+      using: 'db_quote_total',
+    });
+    vehicleTotal = dbQuoteTotal;
+  }
+
+  // Calculate shipping for regular items only (vehicles have stored shipping)
+  const regularShippingFee = regularItemsBase > 0 
+    ? calculateShipping(regularItemsBase, shippingBaseFeeUsd, shippingPercent) 
+    : 0;
+
+  const subtotalItems = round2(regularItemsBase + (vehicleTotal - vehicleShipping));
+  const shippingFee = round2(regularShippingFee + vehicleShipping);
+  const markupFee = round2(regularItemsMargin);
+  const taxesFee = 0; // No taxes currently implemented
+  const grandTotal = round2(subtotalItems + markupFee + shippingFee + taxesFee);
+  const cdfEquivalent = round2(grandTotal * exchangeRate);
+
+  return {
+    subtotal_items: subtotalItems,
+    shipping_fee: shippingFee,
+    markup_fee: markupFee,
+    taxes_fee: taxesFee,
+    grand_total: grandTotal,
+    currency: 'USD',
+    exchange_rate: exchangeRate,
+    cdf_equivalent: cdfEquivalent,
+    item_count: itemCount,
+    markup_rules_used: markupRulesUsed,
+    contains_vehicle: items.some(i => i.is_vehicle === true),
+    vehicle_quote_total: vehicleTotal,
+  };
+}
 
 // STEP 1: Parse and normalize payment method from payload
 function parsePaymentMethod(body: Record<string, any>): PaymentMethod {
   const rawMethod = (body.payment_method || body.method || body.channel || body.pay_with || '').toString().toUpperCase();
   
-  // Check for card-related keywords
   if (rawMethod.includes('CARD') || rawMethod.includes('VISA') || rawMethod.includes('MASTER') || 
       rawMethod.includes('CREDIT') || rawMethod.includes('DEBIT')) {
     return 'CARD';
   }
   
-  // Check for mobile money keywords
   if (rawMethod.includes('MOBILE') || rawMethod.includes('MOMO') || rawMethod.includes('MPESA') ||
       rawMethod.includes('AIRTEL') || rawMethod.includes('ORANGE')) {
     return 'MOBILE_MONEY';
   }
   
-  // Default to MOBILE_MONEY (safer for DRC primary market)
   return 'MOBILE_MONEY';
 }
 
@@ -54,7 +247,6 @@ function detectBuyerCountry(
   profile: { country?: string | null },
   payload: Record<string, any> = {}
 ): { isDRC: boolean; isoCode: string; countryCode: string } {
-  // Priority: payload.isoCode > payload.recipient.countryCode > payload.customer.countryCode > profile.country > default "CD"
   const payloadIso = (
     payload.isoCode || 
     payload.recipient?.countryCode || 
@@ -64,7 +256,6 @@ function detectBuyerCountry(
   
   const profileCountry = (profile?.country || '').toUpperCase();
   
-  // Use payload ISO if provided, else derive from profile country
   let detectedIso = payloadIso;
   
   if (!detectedIso) {
@@ -73,7 +264,7 @@ function detectBuyerCountry(
                              profileCountry === 'DRC' ||
                              profileCountry === 'DR CONGO' ||
                              profileCountry === 'RDC' ||
-                             profileCountry === ''; // Default empty to DRC (primary market)
+                             profileCountry === '';
     detectedIso = isDRCFromProfile ? 'CD' : (profileCountry.slice(0, 2) || 'CD');
   }
   
@@ -186,8 +377,8 @@ h1{font-size:20px;margin-bottom:8px}
 }
 
 serve(async (req) => {
-  // 🔖 VERSION MARKER (proves deploy)
-  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-17-vehicle-deposit-policy");
+  // 🔖 VERSION MARKER - P0 STABILIZATION BUILD
+  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-stabilization");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -197,7 +388,10 @@ serve(async (req) => {
   }
 
   try {
-    console.log('[mobile-checkout] Request received');
+    // ============================================
+    // CHECKOUT_INIT: Log entry point
+    // ============================================
+    console.log('CHECKOUT_INIT', { timestamp: new Date().toISOString() });
 
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-checkout] User authenticated:', user.id);
@@ -205,26 +399,45 @@ serve(async (req) => {
     const body = await req.json();
     const { cart_item_ids, notes } = body;
 
-    // 🔐 PARSE PAYMENT METHOD FROM PAYLOAD (default to MOBILE_MONEY for DRC safety)
-    const REQUESTED_METHOD: PaymentMethod = parsePaymentMethod(body);
-    
-    // 📋 FREEZE INCOMING PAYLOAD VALUES (log at entry for debugging)
-    console.log('[mobile-checkout] INCOMING_PAYLOAD_FROZEN:', JSON.stringify({
-      REQUESTED_METHOD,
-      incoming_currency: body.currency || 'not_provided',
-      incoming_isoCode: body.isoCode || 'not_provided',
-      incoming_countryCode: body.countryCode || body.recipient?.countryCode || body.customer?.countryCode || 'not_provided',
-      incoming_amount: body.amount || 'not_provided',
-      payment_method_raw: body.payment_method || body.method || body.channel || 'not_provided',
-      cart_item_ids_count: cart_item_ids?.length || 0,
-    }));
-    console.log('[mobile-checkout] Payment method detected:', REQUESTED_METHOD);
-
-    if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
-      return jsonResponse({ success: false, error: 'cart_item_ids array is required and must not be empty' }, 400);
+    // P0 FIX: Frontend must NOT send totals - we ignore any client-sent amounts
+    if (body.total || body.amount || body.grand_total) {
+      console.log('CHECKOUT_CLIENT_TOTAL_IGNORED', {
+        client_total: body.total,
+        client_amount: body.amount,
+        client_grand_total: body.grand_total,
+        reason: 'Server is single source of truth - client totals ignored',
+      });
     }
 
-    console.log('[mobile-checkout] Checkout requested for items:', cart_item_ids);
+    // Parse payment method and currency from payload
+    const REQUESTED_METHOD: PaymentMethod = parsePaymentMethod(body);
+    const clientRequestedCurrency = (body.currency || '').toUpperCase();
+    
+    // P0 FIX: Validate currency (card = USD only)
+    if (REQUESTED_METHOD === 'CARD' && clientRequestedCurrency === 'CDF') {
+      console.log('CHECKOUT_CURRENCY_OVERRIDE', {
+        requested: 'CDF',
+        enforced: 'USD',
+        reason: 'Card payments only support USD',
+      });
+    }
+
+    console.log('CHECKOUT_INIT', {
+      user_id: user.id,
+      cart_item_ids_count: cart_item_ids?.length || 0,
+      pay_method: REQUESTED_METHOD,
+      currency: clientRequestedCurrency || 'not_specified',
+    });
+
+    // P0 FIX: Validate cart_items is not empty
+    if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
+      console.log('CHECKOUT_ERROR', { code: 'EMPTY_CART', cart_item_ids });
+      return jsonResponse({ 
+        success: false, 
+        code: 'EMPTY_CART',
+        error: 'cart_item_ids array is required and must not be empty' 
+      }, 400);
+    }
 
     // Fetch user profile for shipping details
     const { data: userProfile, error: profileError } = await supabase
@@ -237,24 +450,8 @@ serve(async (req) => {
       console.error('[mobile-checkout] Error fetching profile:', profileError);
     }
 
-    console.log('[mobile-checkout] User profile data:', userProfile ? {
-      hasFullName: !!userProfile.full_name,
-      hasPhone: !!userProfile.phone,
-      hasAddress: !!userProfile.address_line1,
-      hasCity: !!userProfile.city,
-      hasState: !!userProfile.state_province,
-      hasPostal: !!userProfile.postal_code,
-      hasCountry: !!userProfile.country,
-      full_name: userProfile.full_name,
-      phone: userProfile.phone,
-      address_line1: userProfile.address_line1,
-    } : 'NO PROFILE FOUND');
-
     if (!isProfileComplete(userProfile)) {
       const missingFields = getMissingProfileFields(userProfile);
-      console.log('[mobile-checkout] User profile incomplete. Missing fields:', missingFields);
-      
-      // Create a user-friendly message based on missing fields
       const fieldNames: Record<string, string> = {
         fullName: 'full name',
         phone: 'phone number',
@@ -270,21 +467,15 @@ serve(async (req) => {
       }, 400);
     }
 
-    console.log('[mobile-checkout] Profile complete, auto-filling shipping info');
     const profile = userProfile!;
-
-    // 🌍 DETECT BUYER COUNTRY AND DERIVE ISO CODE (from payload and profile)
     const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile, body);
-    console.log('[mobile-checkout] Buyer country detection:', { country: profile.country, isDRC, isoCode, countryCode });
 
-    // Get user's DRAFT order - respect cart_id if provided
+    // Get user's DRAFT order
     const providedCartId = body.cart_id || body.cartId || body.order_id || body.orderId;
-    const clientCartVersion = Number(body.cart_version) || null; // Client's last known version
+    const clientCartVersion = Number(body.cart_version) || null;
     let existingOrder: { id: string; cart_version: number } | null = null;
     
     if (providedCartId) {
-      // Client provided a specific cart_id - fetch that exact cart with version
-      console.log('[mobile-checkout] Using provided cart_id:', providedCartId);
       const { data: specificOrder, error: specificOrderError } = await supabase
         .from('orders')
         .select('id, cart_version')
@@ -299,7 +490,6 @@ serve(async (req) => {
       }
 
       if (!specificOrder) {
-        console.warn('[mobile-checkout] Provided cart_id not found or not active:', providedCartId);
         return jsonResponse({
           ok: false,
           success: false,
@@ -311,8 +501,6 @@ serve(async (req) => {
       
       existingOrder = specificOrder;
     } else {
-      // No cart_id provided - fallback to selecting any DRAFT order (legacy behavior)
-      console.log('[mobile-checkout] No cart_id provided, falling back to DRAFT order lookup');
       const { data: draftOrder, error: orderFetchError } = await supabase
         .from('orders')
         .select('id, cart_version')
@@ -326,36 +514,29 @@ serve(async (req) => {
       }
 
       if (!draftOrder) {
-        return jsonResponse({ success: false, error: 'Your cart is empty. Please add items before checkout.' }, 400);
+        return jsonResponse({ 
+          success: false, 
+          code: 'EMPTY_CART',
+          error: 'Your cart is empty. Please add items before checkout.' 
+        }, 400);
       }
       
       existingOrder = draftOrder;
     }
-    
-    console.log('[mobile-checkout] Using order:', existingOrder.id, 'version:', existingOrder.cart_version);
 
-    // 🔄 CART VERSION CHECK - Prevent "Cart changed. Please refresh." with recovery
+    // P1 FIX: Cart version check - ensures cart consistency
     if (clientCartVersion !== null && existingOrder.cart_version !== clientCartVersion) {
-      console.warn('[mobile-checkout] CART_VERSION_MISMATCH:', {
+      console.warn('CHECKOUT_CART_VERSION_MISMATCH', {
         client_version: clientCartVersion,
         server_version: existingOrder.cart_version,
         order_id: existingOrder.id,
       });
 
-      // Fetch current cart state for recovery
       const { data: currentItems } = await supabase
         .from('order_items')
         .select('id, title, quantity, subtotal_usd, total_price_usd, is_saved_for_later')
         .eq('order_id', existingOrder.id)
         .eq('is_saved_for_later', false);
-
-      const cartSnapshot = {
-        cart_id: existingOrder.id,
-        cart_version: existingOrder.cart_version,
-        items: currentItems || [],
-        item_count: currentItems?.length || 0,
-        total_usd: currentItems?.reduce((sum, item) => sum + Number(item.total_price_usd || 0), 0) || 0,
-      };
 
       return jsonResponse({
         ok: false,
@@ -364,12 +545,17 @@ serve(async (req) => {
         message: 'Cart changed. Please refresh.',
         client_cart_version: clientCartVersion,
         server_cart_version: existingOrder.cart_version,
-        server_cart: cartSnapshot,
-      }, 409); // 409 Conflict - indicates version conflict
+        server_cart: {
+          cart_id: existingOrder.id,
+          cart_version: existingOrder.cart_version,
+          items: currentItems || [],
+          item_count: currentItems?.length || 0,
+        },
+      }, 409);
     }
 
-    // Get requested items from the resolved cart
-    const { data: requestedItems, error: itemsError } = await supabase
+    // Fetch requested items from DB (server-side source of truth)
+    const { data: dbItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
       .in('id', cart_item_ids)
@@ -380,16 +566,14 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Failed to fetch cart items.' }, 500);
     }
 
-    // Improved error response when items mismatch
-    const foundItemIds = new Set((requestedItems || []).map(item => item.id));
+    const foundItemIds = new Set((dbItems || []).map(item => item.id));
     const missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
     
-    if (!requestedItems || requestedItems.length !== cart_item_ids.length) {
-      console.warn('[mobile-checkout] Cart desync detected:', {
+    if (!dbItems || dbItems.length !== cart_item_ids.length) {
+      console.warn('CHECKOUT_CART_DESYNC', {
         requested: cart_item_ids.length,
-        found: requestedItems?.length || 0,
+        found: dbItems?.length || 0,
         missing: missingItemIds,
-        order_id: existingOrder.id,
       });
       return jsonResponse({
         success: false,
@@ -401,23 +585,37 @@ serve(async (req) => {
     }
 
     // Check for saved items
-    const savedItems = requestedItems.filter(item => item.is_saved_for_later);
+    const savedItems = dbItems.filter(item => item.is_saved_for_later);
     if (savedItems.length > 0) {
-      return jsonResponse({ success: false, error: 'Cannot checkout items that are saved for later.' }, 400);
+      return jsonResponse({ 
+        success: false, 
+        code: 'SAVED_ITEMS_IN_CART',
+        error: 'Cannot checkout items that are saved for later.' 
+      }, 400);
     }
 
-    // FIXED: Check for VEHICLES requiring manual quote (not heavy items)
-    // Only vehicles with pending quotes block checkout
-    const vehiclesWithPendingQuotes = requestedItems.filter(item => 
+    // ============================================
+    // CHECKOUT_DEDUPED: Deduplicate cart items
+    // ============================================
+    const { deduped, duplicatesRemoved, dedupeLog } = deduplicateCartItems(dbItems);
+    console.log('CHECKOUT_DEDUPED', {
+      original_count: dbItems.length,
+      deduped_count: deduped.length,
+      duplicates_removed: duplicatesRemoved,
+      dedupe_log: dedupeLog,
+    });
+
+    // P2 FIX: Check for vehicles requiring manual quote
+    const vehiclesWithPendingQuotes = dbItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied !== true
     );
     
-    const hasVehicleItems = vehiclesWithPendingQuotes.length > 0;
-    
-    if (hasVehicleItems) {
-      console.log('[mobile-checkout] Vehicles with pending quotes found:', vehiclesWithPendingQuotes.map(v => v.id));
+    if (vehiclesWithPendingQuotes.length > 0) {
+      console.log('CHECKOUT_QUOTE_REQUIRED', {
+        vehicle_count: vehiclesWithPendingQuotes.length,
+        vehicle_ids: vehiclesWithPendingQuotes.map(v => v.id),
+      });
       
-      // PROMPT 3: Structured QUOTE_REQUIRED response with summary flags
       return jsonResponse({ 
         success: false,
         code: 'QUOTE_REQUIRED',
@@ -435,29 +633,25 @@ serve(async (req) => {
       }, 400);
     }
 
-    // Get pricing settings - USE CACHED SETTINGS (single source of truth)
+    // Get pricing settings
     const settings = await getCachedSettings(supabase);
-    const { exchangeRate, shippingBaseFeeUsd, shippingPercent } = settings;
-    
-    console.log('[mobile-checkout] Settings loaded:', { exchangeRate, shippingBaseFeeUsd, shippingPercent });
+    const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
 
-    // 🚗 VEHICLE DETECTION using shared helper
-    const vehicleDetection = detectVehicleFromItems(requestedItems);
+    // Vehicle detection and quote validation
+    const vehicleDetection = detectVehicleFromItems(dbItems);
     const containsVehicle = vehicleDetection.isVehicle;
     
-    // Detect vehicle quote items (items with approved quotes)
-    const vehicleQuoteItems = requestedItems.filter(item => 
+    const vehicleQuoteItems = dbItems.filter(item => 
       item.is_vehicle === true && item.vehicle_quote_applied === true
     );
     const hasVehicleQuoteItems = vehicleQuoteItems.length > 0;
 
-    // 🔒 VEHICLE QUOTE VALIDATION: Fetch and validate quotes from database
     let vehicleQuoteValidation: Awaited<ReturnType<typeof fetchAndValidateVehicleQuotes>> | null = null;
     if (hasVehicleQuoteItems) {
       vehicleQuoteValidation = await fetchAndValidateVehicleQuotes(supabase, vehicleQuoteItems);
       
       if (!vehicleQuoteValidation.valid) {
-        console.error('[mobile-checkout] VEHICLE QUOTE VALIDATION FAILED:', {
+        console.error('CHECKOUT_VEHICLE_QUOTE_INVALID', {
           orderId: existingOrder.id,
           vehicleItemIds: vehicleQuoteItems.map(v => v.id),
           error: vehicleQuoteValidation.error,
@@ -470,87 +664,36 @@ serve(async (req) => {
           error: vehicleQuoteValidation.error?.message_en || 'Vehicle quote not available',
         }, 400);
       }
-      
-      console.log('[mobile-checkout] VEHICLE QUOTE VALIDATION SUCCESS:', {
-        orderId: existingOrder.id,
-        vehicleQuoteTotal: vehicleQuoteValidation.totalAmount,
-        quoteDetails: vehicleQuoteValidation.quoteDetails,
-      });
     }
 
-    // Log VEHICLE CURRENCY GUARD diagnostics
-    console.log('[mobile-checkout] VEHICLE CURRENCY GUARD:', {
-      order_id: existingOrder.id,
-      contains_vehicle: containsVehicle,
-      contains_vehicle_quote: hasVehicleQuoteItems,
-      vehicle_detection_reasons: vehicleDetection.reasons,
-      vehicle_items: vehicleDetection.vehicleItems.map(v => ({
-        id: v.id,
-        title: v.title?.substring(0, 50),
-        store: v.store,
-        is_vehicle: v.is_vehicle,
-        vehicle_quote_applied: v.vehicle_quote_applied,
-      })),
-      all_items_count: requestedItems.length,
-      final_currency: containsVehicle ? 'USD' : 'determined_by_value', // Vehicle orders ALWAYS use USD
-    });
-
-    // Calculate totals - SEPARATE vehicle quotes from regular items to prevent double shipping
-    let itemCount = 0;
-    let regularItemsBase = 0;      // Base prices for regular items (subtotal_usd)
-    let regularItemsMargin = 0;    // Margin for regular items
-    let vehicleTotal = 0;          // Total for vehicle quote items (already includes quoted shipping)
-    let vehicleShipping = 0;       // Shipping already included in vehicle quotes
-
-    requestedItems.forEach(item => {
-      const qty = item.quantity || 1;
-      itemCount += qty;
-      
-      if (item.is_vehicle === true && item.vehicle_quote_applied === true) {
-        // Vehicle with applied quote - use stored total (shipping already included)
-        // DO NOT add calculateShipping() for these items
-        vehicleTotal += Number(item.total_price_usd || 0);
-        vehicleShipping += Number(item.shipping_fee_usd || 0);
-      } else {
-        // Regular item - will calculate shipping separately
-        regularItemsBase += Number(item.subtotal_usd || 0);
-        regularItemsMargin += Number(item.markup_fee_usd || 0);
-      }
-    });
-
-    // 🔒 CRITICAL: For vehicle quote items, OVERRIDE with DB quote totals (ignore client amounts)
-    if (hasVehicleQuoteItems && vehicleQuoteValidation && vehicleQuoteValidation.valid) {
-      const dbQuoteTotal = vehicleQuoteValidation.totalAmount;
-      console.log('[mobile-checkout] VEHICLE AMOUNT OVERRIDE:', {
-        client_vehicle_total: vehicleTotal,
-        db_quote_total: dbQuoteTotal,
-        difference: Math.abs(vehicleTotal - dbQuoteTotal),
-        using: 'db_quote_total',
-      });
-      // Use the DB quote total instead of client-calculated amount
-      vehicleTotal = dbQuoteTotal;
-    }
-
-    // Calculate shipping ONLY for regular items (non-vehicle)
-    const regularShippingFeeUsd = regularItemsBase > 0 
-      ? calculateShipping(regularItemsBase, shippingBaseFeeUsd, shippingPercent) 
-      : 0;
-
-    // FINAL TOTALS - no double counting
-    // Regular items: base + margin + calculated shipping
-    // Vehicle items: use stored total_price_usd directly (already has quoted shipping)
-    const regularTotal = round2(regularItemsBase + regularItemsMargin + regularShippingFeeUsd);
-    const grandTotalUsd = round2(regularTotal + vehicleTotal);
-    const grandTotalCdf = round2(grandTotalUsd * exchangeRate);
+    // ============================================
+    // CHECKOUT_TOTALS_RECOMPUTED: Server computes totals
+    // ============================================
+    const totalsBreakdown = await recomputeTotalsServerSide(dbItems, settings, vehicleQuoteValidation);
     
-    // For order record: combined values
-    const totalItemsUsd = round2(regularItemsBase + (vehicleTotal - vehicleShipping)); // Base prices only
-    const totalMarginUsd = round2(regularItemsMargin); // Regular items margin only
-    const shippingFeeUsd = round2(regularShippingFeeUsd + vehicleShipping); // Combined shipping
+    console.log('CHECKOUT_TOTALS_RECOMPUTED', {
+      subtotal_items: totalsBreakdown.subtotal_items,
+      shipping_fee: totalsBreakdown.shipping_fee,
+      markup_fee: totalsBreakdown.markup_fee,
+      taxes_fee: totalsBreakdown.taxes_fee,
+      grand_total: totalsBreakdown.grand_total,
+      currency: totalsBreakdown.currency,
+      cdf_equivalent: totalsBreakdown.cdf_equivalent,
+      item_count: totalsBreakdown.item_count,
+      contains_vehicle: totalsBreakdown.contains_vehicle,
+    });
 
-    // VALIDATION: Reject invalid amounts
-    if (!Number.isFinite(grandTotalUsd) || grandTotalUsd <= 0) {
-      console.error('[mobile-checkout] INVALID AMOUNT:', { grandTotalUsd, itemCount, regularTotal, vehicleTotal });
+    // Log each markup rule used
+    for (const rule of totalsBreakdown.markup_rules_used) {
+      console.log('CHECKOUT_MARKUP_RULE_USED', rule);
+    }
+
+    // Validate grand total
+    if (!Number.isFinite(totalsBreakdown.grand_total) || totalsBreakdown.grand_total <= 0) {
+      console.error('CHECKOUT_INVALID_TOTAL', { 
+        grand_total: totalsBreakdown.grand_total, 
+        item_count: totalsBreakdown.item_count 
+      });
       return jsonResponse({
         success: false,
         code: 'INVALID_AMOUNT',
@@ -558,7 +701,9 @@ serve(async (req) => {
       }, 400);
     }
 
-    // 💰 PAYMENT METHOD-AWARE CURRENCY ENFORCEMENT
+    // ============================================
+    // Payment currency and amount determination
+    // ============================================
     let paymentCurrency: 'USD' | 'CDF';
     let paymentAmount: number;
     let amountFormatted: string;
@@ -566,100 +711,42 @@ serve(async (req) => {
     let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
-    // 🔄 DUAL-CURRENCY SUPPORT: Accept explicit currency selection from client
-    // Allowed values: 'CDF' or 'USD'. Default: behavior based on payment method + country
-    const clientRequestedCurrency = (body.currency || '').toUpperCase();
-    const explicitCurrencySelection = (clientRequestedCurrency === 'CDF' || clientRequestedCurrency === 'USD');
-    
-    console.log('[mobile-checkout] CURRENCY_SELECTION:', { 
-      clientRequestedCurrency, 
-      explicitCurrencySelection,
-      note: explicitCurrencySelection ? 'Using client-selected currency' : 'Using server-determined currency'
-    });
-
-    // ==========================================
-    // 🚗 VEHICLE DEPOSIT PAYMENT POLICY (2025-12-22 STABILIZATION)
-    // ==========================================
-    // CHANGE: Vehicle card payments are now ALLOWED by default.
-    // Set VEHICLE_CARD_ALLOWED=false explicitly to disable card for vehicles.
-    // CHANGE: Currency is no longer forced to CDF - respects client selection.
+    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false';
     const VEHICLE_DEPOSIT_PERCENT = Number(Deno.env.get('VEHICLE_DEPOSIT_PERCENT')) || 0.20;
     const VEHICLE_DEPOSIT_MAX_CDF = Number(Deno.env.get('VEHICLE_DEPOSIT_MAX_CDF')) || 5000000;
-    const USD_TO_CDF_RATE = exchangeRate || Number(Deno.env.get('USD_TO_CDF_RATE')) || 2500;
-    // 🔧 FIX #1: Default TRUE - card allowed unless explicitly disabled with VEHICLE_CARD_ALLOWED=false
-    const VEHICLE_CARD_ALLOWED = Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false';
+    const USD_TO_CDF_RATE = exchangeRate;
 
     if (hasVehicleQuoteItems || containsVehicle) {
-      // 🔒 CARD RESTRICTION: Only block if EXPLICITLY disabled via env var
+      // Vehicle payment handling
       if (REQUESTED_METHOD === 'CARD' && !VEHICLE_CARD_ALLOWED) {
-        // FIX #3: Enhanced logging for diagnosability
-        console.log('[mobile-checkout] VEHICLE_CARD_BLOCKED:', {
+        console.log('CHECKOUT_VEHICLE_CARD_BLOCKED', {
           orderId: existingOrder.id,
-          hasVehicleQuoteItems,
-          containsVehicle,
-          requestedMethod: REQUESTED_METHOD,
-          requestedCurrency: clientRequestedCurrency || 'not_specified',
-          vehicleCardAllowed: VEHICLE_CARD_ALLOWED,
-          vehicleCardEnvVar: Deno.env.get('VEHICLE_CARD_ALLOWED') || 'not_set',
-          reason: 'Card explicitly disabled via VEHICLE_CARD_ALLOWED=false',
+          reason: 'VEHICLE_CARD_ALLOWED=false',
         });
-        // FIX #1C: Structured error with requested_method for frontend
         return jsonResponse({
           ok: false,
           success: false,
           code: 'MAISHAPAY_METHOD_NOT_ALLOWED',
           checkout_type: 'VEHICLE_DEPOSIT_REQUIRED',
           allowed_methods: ['MOBILE_MONEY'],
-          requested_method: REQUESTED_METHOD, // FIX: Added for frontend clarity
-          message_en: 'Vehicle orders require a Mobile Money deposit first. Card payment is available for the remaining balance after deposit.',
-          message_fr: 'Les commandes de véhicules nécessitent d\'abord un acompte via Mobile Money. Le paiement par carte est disponible pour le solde restant après l\'acompte.',
-          error: 'Card not available for vehicle deposit', // Backward compat
-          details: {
-            currency: clientRequestedCurrency || 'USD',
-            amount: vehicleTotal,
-            item_type: 'vehicle',
-            pay_method: 'card',
-            vehicle_card_policy: 'explicitly_disabled',
-            env_var_value: Deno.env.get('VEHICLE_CARD_ALLOWED') || 'not_set',
-          },
-          vehicle_total_usd: vehicleTotal,
-          suggested_deposit_cdf: Math.min(Math.round(vehicleTotal * USD_TO_CDF_RATE * VEHICLE_DEPOSIT_PERCENT), VEHICLE_DEPOSIT_MAX_CDF),
+          requested_method: REQUESTED_METHOD,
+          error: 'Card not available for vehicle deposit',
+          totals_breakdown: totalsBreakdown,
         }, 400);
       }
 
-      // 🚗 VEHICLE DEPOSIT CALCULATION (for reference/metadata only now)
-      const vehicleTotalCdf = Math.round(vehicleTotal * USD_TO_CDF_RATE);
+      // Calculate deposit amounts
+      const vehicleTotalUsd = totalsBreakdown.vehicle_quote_total || totalsBreakdown.grand_total;
+      const vehicleTotalCdf = Math.round(vehicleTotalUsd * USD_TO_CDF_RATE);
       const calculatedDeposit = Math.round(vehicleTotalCdf * VEHICLE_DEPOSIT_PERCENT);
       const depositAmountCdf = Math.min(calculatedDeposit, VEHICLE_DEPOSIT_MAX_CDF);
       const depositAmountUsd = round2(depositAmountCdf / USD_TO_CDF_RATE);
-      const remainingBalanceCdf = vehicleTotalCdf - depositAmountCdf;
-      const remainingBalanceUsd = round2(remainingBalanceCdf / USD_TO_CDF_RATE);
 
-      // FIX #2: Respect client currency selection for vehicles (no forced CDF)
-      // Default to USD for vehicles if not specified (aligned with vehiclePaymentGuard)
-      const vehicleRequestedCurrency = explicitCurrencySelection ? clientRequestedCurrency : 'USD';
-      
-      // Validate currency
-      const SUPPORTED_CURRENCIES = ['USD', 'CDF'];
-      if (!SUPPORTED_CURRENCIES.includes(vehicleRequestedCurrency)) {
-        console.log('[mobile-checkout] CURRENCY_NOT_SUPPORTED:', {
-          orderId: existingOrder.id,
-          requested: vehicleRequestedCurrency,
-          supported: SUPPORTED_CURRENCIES,
-        });
-        return jsonResponse({
-          ok: false,
-          success: false,
-          code: 'CURRENCY_NOT_SUPPORTED',
-          supported: SUPPORTED_CURRENCIES,
-          requested: vehicleRequestedCurrency,
-          message_en: `Currency "${vehicleRequestedCurrency}" is not supported. Please use USD or CDF.`,
-          message_fr: `La devise "${vehicleRequestedCurrency}" n'est pas supportée. Veuillez utiliser USD ou CDF.`,
-          error: `Unsupported currency: ${vehicleRequestedCurrency}`,
-        }, 400);
-      }
+      // Determine currency based on client request or default to USD
+      const vehicleRequestedCurrency = (clientRequestedCurrency === 'CDF' || clientRequestedCurrency === 'USD') 
+        ? clientRequestedCurrency 
+        : 'USD';
 
-      // FIX #2B: Calculate payment amount based on selected currency
       if (vehicleRequestedCurrency === 'CDF') {
         paymentCurrency = 'CDF';
         paymentAmount = depositAmountCdf;
@@ -672,186 +759,66 @@ serve(async (req) => {
         displayAmount = `$${depositAmountUsd.toFixed(2)} USD`;
       }
       
-      // FIX #2C: Respect requested payment method (no forced MOBILE_MONEY)
       maishapayFlowUsed = REQUESTED_METHOD === 'CARD' ? 'CARD_SESSION' : 'MOBILE_MONEY_SESSION';
-      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${paymentCurrency.toLowerCase()}_selected`;
-
-      console.log('[mobile-checkout] VEHICLE_DEPOSIT_POLICY:', {
-        orderId: existingOrder.id,
-        vehicle_total_usd: vehicleTotal,
-        vehicle_total_cdf: vehicleTotalCdf,
-        deposit_percent: VEHICLE_DEPOSIT_PERCENT,
-        deposit_amount_cdf: depositAmountCdf,
-        deposit_amount_usd: depositAmountUsd,
-        max_deposit_cdf: VEHICLE_DEPOSIT_MAX_CDF,
-        remaining_balance_cdf: remainingBalanceCdf,
-        remaining_balance_usd: remainingBalanceUsd,
-        // FIX #2: Log actual selection instead of forced values
-        selected_currency: paymentCurrency,
-        selected_method: REQUESTED_METHOD,
-        vehicle_card_allowed: VEHICLE_CARD_ALLOWED,
-      });
-
-      // Store vehicle deposit metadata for the response
-      const vehicleDepositMeta = {
-        checkout_type: 'VEHICLE_DEPOSIT',
-        allowed_methods: VEHICLE_CARD_ALLOWED ? ['CARD', 'MOBILE_MONEY'] : ['MOBILE_MONEY'], // FIX: Dynamic
-        deposit_amount_cdf: depositAmountCdf,
-        deposit_amount_usd: depositAmountUsd,
-        deposit_percent: VEHICLE_DEPOSIT_PERCENT,
-        vehicle_total_usd: vehicleTotal,
-        vehicle_total_cdf: vehicleTotalCdf,
-        remaining_balance_cdf: remainingBalanceCdf,
-        remaining_balance_usd: remainingBalanceUsd,
-        selected_currency: paymentCurrency,
-        selected_method: REQUESTED_METHOD,
-      };
-
-      (body as any)._vehicleDepositMeta = vehicleDepositMeta;
+      currencyReason = `vehicle_deposit_${REQUESTED_METHOD.toLowerCase()}_${paymentCurrency.toLowerCase()}`;
     } else {
-      // ==========================================
-      // 🔒 REGULAR ITEMS: NORMAL CURRENCY ENFORCEMENT
-      // ==========================================
-      const CARD_MAX_USD = Number(Deno.env.get('CARD_MAX_USD')) || 100000;
-      
-      // Optional: Card limit check
-      if (REQUESTED_METHOD === 'CARD' && grandTotalUsd > CARD_MAX_USD) {
-        console.log('[mobile-checkout] CARD_LIMIT_CHECK:', {
-          grandTotalUsd,
-          limit: CARD_MAX_USD,
-          isOverLimit: true,
-        });
-        return jsonResponse({
-          ok: false,
-          success: false,
-          code: 'AMOUNT_TOO_HIGH_CARD',
-          message_en: `Amount $${grandTotalUsd.toFixed(2)} exceeds card payment limit. Please contact support.`,
-          message_fr: `Montant $${grandTotalUsd.toFixed(2)} dépasse la limite de paiement par carte. Veuillez contacter le support.`,
-          error: 'Amount too high for card',
-        }, 400);
-      }
-      
-      // ENFORCE METHOD → COUNTRY → CURRENCY for regular items
-      // But allow explicit client currency selection when valid
+      // Regular item payment
       if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-        // For Mobile Money: Allow explicit CDF/USD selection, default to CDF for DRC
-        if (explicitCurrencySelection && clientRequestedCurrency === 'USD') {
-          // Client explicitly requested USD for Mobile Money
+        if (clientRequestedCurrency === 'USD') {
           paymentCurrency = 'USD';
-          paymentAmount = round2(grandTotalUsd);
-          amountFormatted = grandTotalUsd.toFixed(2);
-          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'client_selected_usd';
-        } else if (explicitCurrencySelection && clientRequestedCurrency === 'CDF') {
-          // Client explicitly requested CDF
+          paymentAmount = round2(totalsBreakdown.grand_total);
+          amountFormatted = totalsBreakdown.grand_total.toFixed(2);
+          displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
+          currencyReason = 'mobile_money_usd_selected';
+        } else if (clientRequestedCurrency === 'CDF' || isDRC) {
           paymentCurrency = 'CDF';
-          paymentAmount = Math.round(grandTotalCdf);
+          paymentAmount = Math.round(totalsBreakdown.cdf_equivalent);
           amountFormatted = paymentAmount.toString();
           displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'client_selected_cdf';
-        } else if (isDRC) {
-          // Default: DRC uses CDF for Mobile Money
-          paymentCurrency = 'CDF';
-          paymentAmount = Math.round(grandTotalCdf);
-          amountFormatted = paymentAmount.toString();
-          displayAmount = `${paymentAmount.toLocaleString('fr-FR')} CDF`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_drc_cdf_default';
+          currencyReason = clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_selected' : 'mobile_money_drc_default';
         } else {
-          // Non-DRC uses USD for Mobile Money
           paymentCurrency = 'USD';
-          paymentAmount = round2(grandTotalUsd);
-          amountFormatted = grandTotalUsd.toFixed(2);
-          displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
-          maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
-          currencyReason = 'mobile_money_non_drc_usd_default';
+          paymentAmount = round2(totalsBreakdown.grand_total);
+          amountFormatted = totalsBreakdown.grand_total.toFixed(2);
+          displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
+          currencyReason = 'mobile_money_usd_default';
         }
+        maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
       } else {
-        // CARD: USD universally (no CDF option for cards)
+        // CARD: USD only
         paymentCurrency = 'USD';
-        paymentAmount = round2(grandTotalUsd);
-        amountFormatted = grandTotalUsd.toFixed(2);
-        displayAmount = `$${grandTotalUsd.toFixed(2)} USD`;
+        paymentAmount = round2(totalsBreakdown.grand_total);
+        amountFormatted = totalsBreakdown.grand_total.toFixed(2);
+        displayAmount = `$${totalsBreakdown.grand_total.toFixed(2)} USD`;
         maishapayFlowUsed = 'CARD_SESSION';
         currencyReason = 'card_usd_only';
-        
-        // Log if client requested CDF for card (not supported)
-        if (clientRequestedCurrency === 'CDF') {
-          console.log('[mobile-checkout] CARD_CDF_OVERRIDE:', {
-            clientRequested: 'CDF',
-            actual: 'USD',
-            reason: 'Card payments only support USD',
-          });
-        }
       }
     }
 
-    // 📦 Store FX rate and both amounts for verification
-    const fxRateUsed = exchangeRate;
+    // ============================================
+    // Create cart snapshot for checkout_session
+    // ============================================
+    const cartSnapshot = deduped.map(d => ({
+      item_id: d.item_id,
+      store: d.store,
+      url: d.url,
+      title: d.title,
+      unit_price: d.unit_price,
+      quantity: d.quantity,
+      type: d.type,
+    }));
 
-    // Generate motif (transaction description)
-    const motif = `Paiement AfriShop - Commande ${existingOrder.id.slice(0, 8).toUpperCase()}`;
-
-    // 📊 STEP 6: MANDATORY CHECKOUT_FINAL LOG (user-requested format)
-    const rawMethod = body.payment_method || body.method || body.channel || body.pay_with || 'not_provided';
-    console.log("CHECKOUT_FINAL", {
-      requestedMethod: REQUESTED_METHOD,
-      buyerIso: isoCode,
-      finalIso: isDRC ? 'CD' : isoCode,
-      finalCurrency: paymentCurrency,
-      finalAmount: paymentAmount,
-      containsVehicleQuote: hasVehicleQuoteItems,
-      incoming: {
-        method: rawMethod,
-        currency: body.currency || 'not_provided',
-        iso: body.isoCode || 'not_provided',
-        amount: body.amount || 'not_provided',
-      },
+    // Generate integrity hash
+    const integrityHash = await generateIntegrityHash({
+      cart_snapshot: cartSnapshot,
+      totals_breakdown: totalsBreakdown,
+      currency: paymentCurrency,
+      pay_method: REQUESTED_METHOD,
     });
 
-    // Additional detailed audit log for debugging
-    console.log('[mobile-checkout] CHECKOUT_SESSION_AUDIT:', JSON.stringify({
-      orderId: existingOrder.id,
-      REQUESTED_METHOD,
-      containsVehicleQuote: hasVehicleQuoteItems,
-      buyerCountry: profile.country,
-      isDRC,
-      final: {
-        currency: paymentCurrency,
-        amount: paymentAmount,
-        amountFormatted,
-        isoCode,
-        countryCode,
-        motif,
-      },
-      dualCurrencyInfo: {
-        usd: { amount: grandTotalUsd, display: `$${grandTotalUsd.toFixed(2)} USD` },
-        cdf: { amount: grandTotalCdf, display: `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF` },
-        exchangeRate,
-      },
-      maishapayFlowUsed,
-      currencyReason,
-      vehicleQuoteDetails: hasVehicleQuoteItems ? {
-        orderItemIds: vehicleQuoteItems.map(v => v.id),
-        quoteCurrency: 'USD',
-        dbQuoteTotal: vehicleQuoteValidation?.totalAmount || 0,
-        quoteRecords: vehicleQuoteValidation?.quoteDetails || [],
-      } : null,
-      breakdown: {
-        regular_items_base: regularItemsBase,
-        regular_items_margin: regularItemsMargin,
-        regular_shipping: regularShippingFeeUsd,
-        regular_total: regularTotal,
-        vehicle_total: vehicleTotal,
-        vehicle_shipping_included: vehicleShipping,
-        grand_total_usd: grandTotalUsd,
-        grand_total_cdf: grandTotalCdf,
-      },
-    }, null, 2));
-
+    // ============================================
     // Create checkout order
+    // ============================================
     const timestamp = Date.now().toString(36);
     
     const { data: checkoutOrder, error: createOrderError } = await supabase
@@ -859,16 +826,15 @@ serve(async (req) => {
       .insert({
         user_id: user.id,
         status: 'PENDING_PAYMENT',
-        item_total_usd: round2(totalItemsUsd),
-        service_fee_usd: round2(totalMarginUsd),
-        shipping_fee_usd: round2(shippingFeeUsd),
-        total_usd: grandTotalUsd,
-        total_cdf: grandTotalCdf,
+        item_total_usd: round2(totalsBreakdown.subtotal_items),
+        service_fee_usd: round2(totalsBreakdown.markup_fee),
+        shipping_fee_usd: round2(totalsBreakdown.shipping_fee),
+        total_usd: totalsBreakdown.grand_total,
+        total_cdf: totalsBreakdown.cdf_equivalent,
         exchange_rate_used: exchangeRate,
         maisha_payment_status: 'PENDING',
         admin_notes: notes || null,
         shipping_city: mapToShippingCity(profile.city),
-        // Vehicle payment audit fields
         contains_vehicle: containsVehicle,
         normalized_currency: paymentCurrency,
         normalized_amount: paymentAmount,
@@ -887,7 +853,7 @@ serve(async (req) => {
       maisha_transaction_id: reference,
     }).eq('id', checkoutOrder.id);
 
-    // Move items to new order
+    // Move items to new order (P1: only moves, never deletes)
     const { error: moveItemsError } = await supabase
       .from('order_items')
       .update({ order_id: checkoutOrder.id })
@@ -899,14 +865,45 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
     }
 
+    // ============================================
+    // Create checkout_session record (P0 FIX)
+    // ============================================
+    const { data: checkoutSession, error: sessionError } = await supabase
+      .from('checkout_sessions')
+      .insert({
+        user_id: user.id,
+        order_id: checkoutOrder.id,
+        cart_snapshot: cartSnapshot,
+        totals_breakdown: totalsBreakdown,
+        currency: paymentCurrency,
+        pay_method: REQUESTED_METHOD,
+        grand_total: paymentAmount,
+        integrity_hash: integrityHash,
+        maisha_reference: reference,
+        status: 'initiated',
+        metadata: {
+          client_cart_version: clientCartVersion,
+          server_cart_version: existingOrder.cart_version,
+          isDRC,
+          isoCode,
+          currencyReason,
+        },
+      })
+      .select('id')
+      .single();
+
+    if (sessionError) {
+      console.warn('[mobile-checkout] Failed to create checkout_session (non-fatal):', sessionError);
+    }
+
     // Create payment record
     await supabase
       .from('maisha_payments')
       .insert({
         order_id: checkoutOrder.id,
         maisha_reference: reference,
-        amount_usd: grandTotalUsd,
-        amount_cdf: grandTotalCdf,
+        amount_usd: totalsBreakdown.grand_total,
+        amount_cdf: totalsBreakdown.cdf_equivalent,
         currency: paymentCurrency,
         status: 'pending',
         user_id: user.id,
@@ -946,57 +943,26 @@ serve(async (req) => {
       }, 500);
     }
 
-    // Use mobile callback URL for WebView interception
     const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
-    const callbackUrl = mobileCallbackUrl;
-    
-    // 📊 PRE-MAISHAPAY PAYLOAD LOG (exact values being sent)
-    console.log('[mobile-checkout] MAISHAPAY_FINAL_PAYLOAD:', JSON.stringify({
-      finalIsoCode: isDRC ? isoCode : 'not_sent',
-      finalCurrency: paymentCurrency,
-      finalAmount: paymentAmount,
-      finalAmountFormatted: amountFormatted,
-      REQUESTED_METHOD,
-      gatewayMode: isLiveMode ? '1' : '0',
-      reference,
-      motif,
-      callbackUrl,
+    const motif = `Paiement AfriShop - Commande ${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
+
+    // ============================================
+    // CHECKOUT_CREATE_MAISHAPAY: Log before MaishaPay call
+    // ============================================
+    console.log('CHECKOUT_CREATE_MAISHAPAY', {
       orderId: checkoutOrder.id,
-      // Show redacted keys for debugging
-      publicKeyPrefix: publicKey?.slice(0, 8) + '...',
-      secretKeyPrefix: secretKey?.slice(0, 8) + '...',
-    }));
-    
-    // 🔐 FINAL CONFIRMATION LOG (user-requested format)
-    console.log("MAISHAPAY_FINAL", {
-      paymentMethod: REQUESTED_METHOD,
-      buyerCountry: isoCode,
-      finalCurrency: paymentCurrency,
-      finalAmount: paymentAmount,
-    });
-    
-    // FIX #3: MAISHAPAY_INIT log for diagnosability (no secrets)
-    console.log('MAISHAPAY_INIT', {
-      orderId: checkoutOrder.id,
+      checkout_session_id: checkoutSession?.id || null,
       containsVehicle,
       hasVehicleQuoteItems,
       requestedMethod: REQUESTED_METHOD,
       requestedCurrency: clientRequestedCurrency || 'not_specified',
       finalCurrency: paymentCurrency,
       finalAmount: paymentAmount,
-      amountFormatted,
-      displayAmount,
-      isoCode,
-      isDRC,
-      maishapayFlowUsed,
-      currencyReason,
       gatewayMode: isLiveMode ? 'live' : 'sandbox',
-      // Env config status (not values)
-      vehicleCardAllowed: Deno.env.get('VEHICLE_CARD_ALLOWED') !== 'false',
-      vehicleCardEnvSet: !!Deno.env.get('VEHICLE_CARD_ALLOWED'),
+      reference,
     });
 
-    // Generate HTML for mobile WebView with country/ISO codes and motif for MaishaPay
+    // Generate HTML for mobile WebView
     const html = generateCheckoutHtml({
       publicKey,
       secretKey,
@@ -1005,99 +971,71 @@ serve(async (req) => {
       currency: paymentCurrency,
       displayAmount,
       reference,
-      callbackUrl,
+      callbackUrl: mobileCallbackUrl,
       orderId: checkoutOrder.id,
-      isoCode: isDRC ? isoCode : undefined, // Only include for DRC
+      isoCode: isDRC ? isoCode : undefined,
       countryCode: isDRC ? countryCode : undefined,
-      motif, // Transaction description per MaishaPay API spec
-      phone: profile.phone || undefined, // Recipient phone for MaishaPay
+      motif,
+      phone: profile.phone || undefined,
     });
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
-    console.log('[mobile-checkout] Order created successfully');
-    console.log('[mobile-checkout] Order details:', {
+    // ============================================
+    // CHECKOUT_FINAL: Success response
+    // ============================================
+    console.log('CHECKOUT_FINAL', {
       orderId: checkoutOrder.id,
+      checkout_session_id: checkoutSession?.id || null,
       confirmationId,
       reference,
-      grandTotalUsd,
-      checkoutUrl,
+      grandTotalUsd: totalsBreakdown.grand_total,
+      paymentCurrency,
+      paymentAmount,
+      integrityHash: integrityHash.slice(0, 16) + '...',
     });
 
-    // Get vehicle deposit metadata if this is a vehicle order
-    const vehicleDepositMeta = (body as any)._vehicleDepositMeta;
-    const isVehicleDeposit = !!vehicleDepositMeta;
-
-    // Return BOTH checkoutUrl AND html for compatibility with both USD and CDF amounts
-    // For vehicle orders, include deposit-specific information
-    if (isVehicleDeposit) {
-      return jsonResponse({
-        success: true,
-        checkout_type: 'VEHICLE_DEPOSIT',
-        allowed_methods: ['MOBILE_MONEY'],
-        orderId: checkoutOrder.id,
-        confirmationId,
-        checkoutUrl,
-        html,
-        currency: paymentCurrency,
-        amount: paymentAmount,
-        maishapay_url: checkoutUrl,
-        // Vehicle deposit specific fields
-        deposit_amount_cdf: vehicleDepositMeta.deposit_amount_cdf,
-        deposit_percent: vehicleDepositMeta.deposit_percent,
-        vehicle_total_usd: vehicleDepositMeta.vehicle_total_usd,
-        vehicle_total_cdf: vehicleDepositMeta.vehicle_total_cdf,
-        remaining_balance_cdf: vehicleDepositMeta.remaining_balance_cdf,
-        remaining_balance_usd: vehicleDepositMeta.remaining_balance_usd,
-        message_fr: 'Pour les véhicules, vous payez d\'abord un acompte via Mobile Money. Le solde sera réglé ensuite.',
-        message_en: 'For vehicles, you first pay a deposit via Mobile Money. The remaining balance is paid after.',
-        order: {
-          id: checkoutOrder.id,
-          confirmationId,
-          status: 'PENDING_PAYMENT',
-          itemCount,
-          totalUsd: grandTotalUsd,
-          totalCdf: grandTotalCdf,
-        },
-        paymentDetails: {
-          currency: paymentCurrency,
-          amount: paymentAmount,
-          displayAmount,
-          isDeposit: true,
-          depositInfo: vehicleDepositMeta,
-          exchangeRate,
-          currencyReason,
-        },
-      });
-    }
-
-    // REGULAR (non-vehicle) checkout response
+    // Return response with totals_breakdown and integrity_hash
     return jsonResponse({
       success: true,
-      checkout_type: 'FULL_PAYMENT',
+      checkout_type: containsVehicle ? 'VEHICLE_DEPOSIT' : 'FULL_PAYMENT',
       orderId: checkoutOrder.id,
+      checkout_session_id: checkoutSession?.id || null,
       confirmationId,
       checkoutUrl,
-      html, // Mobile app can render this directly in WebView
+      html,
+      currency: paymentCurrency,
+      amount: paymentAmount,
+      // P0 FIX: Return totals_breakdown for frontend verification
+      totals_breakdown: {
+        subtotal: totalsBreakdown.subtotal_items,
+        shipping: totalsBreakdown.shipping_fee,
+        markup: totalsBreakdown.markup_fee,
+        taxes: totalsBreakdown.taxes_fee,
+        grand_total: totalsBreakdown.grand_total,
+        currency: paymentCurrency,
+        cdf_equivalent: totalsBreakdown.cdf_equivalent,
+        exchange_rate: totalsBreakdown.exchange_rate,
+      },
+      // P0 FIX: Return integrity_hash for verification
+      integrity_hash: integrityHash,
       order: {
         id: checkoutOrder.id,
         confirmationId,
         status: 'PENDING_PAYMENT',
-        itemCount,
-        totalUsd: grandTotalUsd,
-        totalCdf: grandTotalCdf,
+        itemCount: totalsBreakdown.item_count,
+        totalUsd: totalsBreakdown.grand_total,
+        totalCdf: totalsBreakdown.cdf_equivalent,
       },
-      // 💰 Payment details with both currency amounts for mobile display
       paymentDetails: {
         currency: paymentCurrency,
         amount: paymentAmount,
         displayAmount,
-        // Alternative currency amount for display purposes
         alternativeAmount: paymentCurrency === 'CDF' 
-          ? { currency: 'USD', amount: grandTotalUsd, display: `$${grandTotalUsd.toFixed(2)} USD` }
-          : { currency: 'CDF', amount: Math.round(grandTotalCdf), display: `${Math.round(grandTotalCdf).toLocaleString('fr-FR')} CDF` },
+          ? { currency: 'USD', amount: totalsBreakdown.grand_total, display: `$${totalsBreakdown.grand_total.toFixed(2)} USD` }
+          : { currency: 'CDF', amount: Math.round(totalsBreakdown.cdf_equivalent), display: `${Math.round(totalsBreakdown.cdf_equivalent).toLocaleString('fr-FR')} CDF` },
         exchangeRate,
         currencyReason,
       },
@@ -1116,7 +1054,6 @@ serve(async (req) => {
       }, error.status);
     }
     
-    // PROMPT 3: Return structured RETRY code for temporary errors
     return jsonResponse({ 
       success: false, 
       code: 'RETRY',

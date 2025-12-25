@@ -121,71 +121,53 @@ export function SupportChat() {
     scrollToBottom();
   }, [messages]);
 
-  // Load or create conversation
+  // Load or create conversation using edge function
   useEffect(() => {
     if (!user || !isOpen) return;
 
     const loadConversation = async () => {
       setLoading(true);
       try {
-        // Find existing active conversation
-        const { data: existing, error: fetchError } = await supabase
+        // Use edge function to reliably start/resume conversation
+        const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
+          body: {}
+        });
+
+        if (startError) {
+          console.error('support-start error:', startError);
+          throw startError;
+        }
+
+        if (!startData?.ok || !startData?.conversation_id) {
+          throw new Error(startData?.error || 'Failed to start chat');
+        }
+
+        const conversationId = startData.conversation_id;
+
+        // Fetch conversation details
+        const { data: convoData, error: convoError } = await supabase
           .from('support_conversations')
           .select('*')
-          .eq('user_id', user.id)
-          .neq('status', 'closed')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .eq('id', conversationId)
+          .single();
 
-        if (fetchError) throw fetchError;
+        if (convoError) throw convoError;
 
-        if (existing) {
-          setConversation(existing as Conversation);
-          // Load messages
-          const { data: msgs } = await supabase
-            .from('support_messages')
-            .select('*')
-            .eq('conversation_id', existing.id)
-            .order('created_at', { ascending: true });
-          
-          setMessages((msgs || []) as Message[]);
-        } else {
-          // Create new conversation
-          const { data: newConv, error: createError } = await supabase
-            .from('support_conversations')
-            .insert({
-              user_id: user.id,
-              language: language,
-              status: 'bot',
-            })
-            .select()
-            .single();
+        setConversation(convoData as Conversation);
 
-          if (createError) throw createError;
-          
-          setConversation(newConv as Conversation);
-          
-          // Add welcome message
-          const { data: welcomeMsg } = await supabase
-            .from('support_messages')
-            .insert({
-              conversation_id: newConv.id,
-              sender_type: 'bot',
-              content: t.welcome,
-            })
-            .select()
-            .single();
-
-          if (welcomeMsg) {
-            setMessages([welcomeMsg as Message]);
-          }
-        }
+        // Load messages
+        const { data: msgs } = await supabase
+          .from('support_messages')
+          .select('*')
+          .eq('conversation_id', conversationId)
+          .order('created_at', { ascending: true });
+        
+        setMessages((msgs || []) as Message[]);
       } catch (error) {
         console.error('Error loading conversation:', error);
         toast({
           title: 'Error',
-          description: 'Failed to load chat',
+          description: 'Impossible de démarrer le chat',
           variant: 'destructive',
         });
       } finally {
@@ -194,7 +176,7 @@ export function SupportChat() {
     };
 
     loadConversation();
-  }, [user, isOpen, language, t.welcome, toast]);
+  }, [user, isOpen, toast]);
 
   // Subscribe to realtime messages
   useEffect(() => {

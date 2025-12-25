@@ -390,6 +390,5 @@ export default function SupportInbox() {
           )}
         </div>
       </div>
-    </div>
   );
 }

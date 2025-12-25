@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car, Activity
+  Palette, Shield, Car, Activity, Headphones
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -48,6 +48,7 @@ export function AdminLayout() {
     { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
     { to: '/admin/shipping-types', icon: Truck, label: t.sidebar.shippingTypes, permission: 'can_manage_shipping_types' as const },
     { to: '/admin/support', icon: MessageSquare, label: t.sidebar.supportTickets, permission: 'can_view_tickets' as const },
+    { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
     { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
     { to: '/admin/knowledge-base', icon: BookOpen, label: t.sidebar.knowledgeBase, permission: 'can_view_knowledge_base' as const },
     { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },

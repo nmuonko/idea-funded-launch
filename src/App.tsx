@@ -29,6 +29,7 @@ import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportTickets from "./pages/admin/SupportTickets";
+import AdminSupportInbox from "./pages/admin/SupportInbox";
 import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
@@ -151,6 +152,11 @@ const App = () => {
               <Route path="support" element={
                 <AdminRouteGuard requiredPermission="can_view_tickets">
                   <AdminSupportTickets />
+                </AdminRouteGuard>
+              } />
+              <Route path="support-inbox" element={
+                <AdminRouteGuard requiredPermission="can_view_tickets">
+                  <AdminSupportInbox />
                 </AdminRouteGuard>
               } />
               <Route path="ticket-analytics" element={

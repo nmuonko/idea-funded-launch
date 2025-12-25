@@ -10,7 +10,9 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertCircle, Mail, Lock } from 'lucide-react';
+import { Loader2, AlertCircle, Mail, Lock, Globe } from 'lucide-react';
+import { LanguageDropdown } from '@/components/support/LanguageDropdown';
+import { SupportChat } from '@/components/support/SupportChat';
 
 export default function Profile() {
   const { user, profile, setProfile, loadProfile } = useAuth();
@@ -324,6 +326,20 @@ export default function Profile() {
                 </Button>
               </form>
             </div>
+
+            <Separator className="my-8" />
+
+            {/* Language Selection */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Globe className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-semibold">Langue / Language</h3>
+              </div>
+              <LanguageDropdown />
+            </div>
+
+            {/* Support Chat */}
+            <SupportChat />
           </CardContent>
         </Card>
       </div>

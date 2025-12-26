@@ -269,3 +269,6 @@ verify_jwt = false
 
 [functions.initiate-link-payment]
 verify_jwt = false
+
+[functions.payment-decision]
+verify_jwt = false

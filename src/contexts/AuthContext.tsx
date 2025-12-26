@@ -253,6 +253,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
+        // Handle PASSWORD_RECOVERY event - redirect to reset password page
+        if (event === 'PASSWORD_RECOVERY') {
+          console.log('[Auth] PASSWORD_RECOVERY event detected, redirecting to reset password page');
+          // Use setTimeout to avoid calling navigate during render
+          setTimeout(() => {
+            window.location.href = '/auth/reset-password';
+          }, 0);
+          return;
+        }
+        
         // Defer admin check and profile load to avoid deadlock - CRITICAL for Supabase auth
         if (session?.user) {
           const userId = session.user.id;

@@ -1,10 +1,29 @@
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Shield, Lock, Zap } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 
 export default function Index() {
+  const navigate = useNavigate();
+
+  // Detect password recovery tokens in URL hash and redirect to reset password page
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash) {
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const type = hashParams.get('type');
+      
+      // If this is a recovery flow, redirect to reset password page with the hash
+      if (type === 'recovery') {
+        console.log('[Index] Detected recovery flow, redirecting to /auth/reset-password');
+        navigate(`/auth/reset-password${hash}`, { replace: true });
+        return;
+      }
+    }
+  }, [navigate]);
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,11%)] to-[hsl(215,30%,15%)]">
       {/* Animated background elements */}

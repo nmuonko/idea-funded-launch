@@ -21,26 +21,31 @@ export default function ResetPassword() {
   useEffect(() => {
     // Check if we have a valid recovery session
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      // Also check URL hash for recovery tokens
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const type = hashParams.get('type');
-      const accessToken = hashParams.get('access_token');
-      const refreshToken = hashParams.get('refresh_token');
-
-      if (type === 'recovery' && accessToken && refreshToken) {
-        // Set the session from recovery tokens
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (error) {
-          setError('Invalid or expired password reset link');
+        // Also check URL hash for recovery tokens
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const type = hashParams.get('type');
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+
+        if (type === 'recovery' && accessToken && refreshToken) {
+          // Set the session from recovery tokens
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          
+          if (sessionError) {
+            setError('Lien invalide ou expiré. Veuillez refaire "Mot de passe oublié".');
+          }
+        } else if (!session) {
+          setError('Lien invalide ou expiré. Veuillez refaire "Mot de passe oublié".');
         }
-      } else if (!session) {
-        setError('Invalid or expired password reset link');
+      } catch (err) {
+        console.error('Session check error:', err);
+        setError('Lien invalide ou expiré. Veuillez refaire "Mot de passe oublié".');
       }
     };
 
@@ -104,12 +109,14 @@ export default function ResetPassword() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[hsl(222,47%,8%)] via-[hsl(222,47%,11%)] to-[hsl(215,30%,15%)] p-4">
         <Card className="w-full max-w-md bg-card/50 backdrop-blur-xl border-border/30">
           <CardHeader className="text-center">
-            <CardTitle className="text-destructive">Link Expired</CardTitle>
-            <CardDescription>{error}</CardDescription>
+            <CardTitle className="text-destructive">Lien invalide</CardTitle>
+            <CardDescription className="text-muted-foreground">
+              {error}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => navigate('/auth')} className="w-full">
-              Back to Sign In
+              Retour à la connexion
             </Button>
           </CardContent>
         </Card>

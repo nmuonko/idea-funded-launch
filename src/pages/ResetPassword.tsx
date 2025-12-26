@@ -68,6 +68,9 @@ export default function ResetPassword() {
             return;
           }
           
+          // Mark session as active to prevent AuthContext from clearing it
+          sessionStorage.setItem('sessionActive', 'true');
+          
           // Session set successfully - ready to show form
           setSessionReady(true);
           return;
@@ -119,6 +122,19 @@ export default function ResetPassword() {
     setLoading(true);
     
     try {
+      // Verify session exists before attempting update
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast({
+          title: 'Erreur',
+          description: 'Session expirée. Veuillez refaire "Mot de passe oublié".',
+          variant: 'destructive',
+        });
+        setError('Session expirée. Veuillez refaire "Mot de passe oublié".');
+        setLoading(false);
+        return;
+      }
+      
       const { error } = await supabase.auth.updateUser({ password });
       
       if (error) throw error;

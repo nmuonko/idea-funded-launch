@@ -59,7 +59,11 @@ export default function Auth() {
     setLoading(true);
     
     try {
-      // Use production domain for password reset redirect
+      /**
+       * IMPORTANT: Supabase Dashboard → Authentication → URL Configuration
+       * must allowlist: https://afrishop-usa.com/auth/reset-password
+       * Otherwise redirectTo may be replaced by Site URL.
+       */
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: 'https://afrishop-usa.com/auth/reset-password',
       });

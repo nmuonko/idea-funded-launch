@@ -73,9 +73,15 @@ serve(async (req) => {
       }
     }
 
-    if (!token || token.length < 32) {
+    // Validate token before database lookup
+    if (!token || token === ':token' || token.length < 16) {
+      console.log('[resolve-payment-link] Invalid token format:', token);
       return new Response(
-        JSON.stringify({ ok: false, error: 'Invalid or missing token' } as ResolveResponse),
+        JSON.stringify({ 
+          ok: false, 
+          error: 'Invalid or missing token',
+          code: 'INVALID_TOKEN'
+        } as ResolveResponse),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

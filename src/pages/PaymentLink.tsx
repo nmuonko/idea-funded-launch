@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, CreditCard, Building2, Phone, Mail, Copy, Check, ExternalLink } from 'lucide-react';
+import { AlertCircle, CreditCard, Building2, Phone, Mail, Copy, Check, ExternalLink, Home, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -38,6 +38,14 @@ interface PaymentLinkData {
   error?: string;
 }
 
+// Validate token format before API call
+function isValidToken(token: string | undefined): boolean {
+  if (!token) return false;
+  if (token === ':token') return false;
+  if (token.length < 16) return false;
+  return true;
+}
+
 export default function PaymentLink() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -49,14 +57,17 @@ export default function PaymentLink() {
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) {
-      setError('Invalid payment link');
+    // Validate token BEFORE calling API
+    if (!isValidToken(token)) {
+      setError(language === 'fr' 
+        ? 'Ce lien de paiement est incomplet ou expiré. Veuillez ouvrir le lien complet reçu par email/SMS.'
+        : 'This payment link is incomplete or expired. Please open the full link received by email/SMS.');
       setLoading(false);
       return;
     }
 
     resolvePaymentLink();
-  }, [token]);
+  }, [token, language]);
 
   const resolvePaymentLink = async () => {
     try {
@@ -64,21 +75,33 @@ export default function PaymentLink() {
         body: { token },
       });
 
+      // Handle edge function errors gracefully - no throwing
       if (invokeError) {
         console.error('Error resolving payment link:', invokeError);
-        setError('Unable to load payment details. Please try again.');
+        setError(language === 'fr'
+          ? 'Impossible de charger les détails du paiement. Veuillez réessayer.'
+          : 'Unable to load payment details. Please try again.');
+        setLoading(false);
         return;
       }
 
-      if (!result.ok) {
-        setError(result.error || 'Payment link is invalid or expired');
+      // Handle API error responses
+      if (!result || !result.ok) {
+        const errorMessage = result?.error || (language === 'fr'
+          ? 'Ce lien de paiement est invalide ou expiré.'
+          : 'This payment link is invalid or expired.');
+        setError(errorMessage);
+        setLoading(false);
         return;
       }
 
       setData(result);
     } catch (err) {
+      // Catch any unexpected errors - never throw to error boundary
       console.error('Exception resolving payment link:', err);
-      setError('An error occurred. Please try again.');
+      setError(language === 'fr'
+        ? 'Une erreur est survenue. Veuillez réessayer.'
+        : 'An error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -155,17 +178,33 @@ export default function PaymentLink() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
-          <CardHeader>
-            <div className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="h-6 w-6" />
-              <CardTitle>{language === 'fr' ? 'Lien invalide' : 'Invalid Link'}</CardTitle>
+          <CardHeader className="text-center">
+            <div className="mx-auto w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-4">
+              <AlertCircle className="h-8 w-8 text-destructive" />
             </div>
-            <CardDescription>{error}</CardDescription>
+            <CardTitle className="text-2xl">
+              {language === 'fr' ? 'Lien invalide' : 'Invalid Link'}
+            </CardTitle>
+            <CardDescription className="mt-2">
+              {error}
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Button onClick={() => navigate('/')} variant="outline" className="w-full">
+          <CardContent className="space-y-3">
+            <Button onClick={() => navigate('/')} variant="default" className="w-full">
+              <Home className="mr-2 h-4 w-4" />
               {language === 'fr' ? 'Retour à l\'accueil' : 'Return Home'}
             </Button>
+            <a 
+              href="https://wa.me/12025551234" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="block"
+            >
+              <Button variant="outline" className="w-full">
+                <MessageCircle className="mr-2 h-4 w-4" />
+                {language === 'fr' ? 'Contacter le support' : 'Contact Support'}
+              </Button>
+            </a>
           </CardContent>
         </Card>
       </div>

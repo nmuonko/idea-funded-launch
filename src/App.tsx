@@ -12,6 +12,7 @@ import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
+import PaymentLink from "./pages/PaymentLink";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
@@ -106,6 +107,7 @@ const App = () => {
             <Route path="/payment/fail" element={<PaymentFail />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
+            <Route path="/pay/:token" element={<PaymentLink />} />
             
             <Route path="/admin" element={
               <ProtectedRoute requireAdmin>

@@ -260,3 +260,12 @@ verify_jwt = true
 
 [functions.cleanup-expired-data]
 verify_jwt = false
+
+[functions.create-payment-link]
+verify_jwt = true
+
+[functions.resolve-payment-link]
+verify_jwt = false
+
+[functions.initiate-link-payment]
+verify_jwt = false

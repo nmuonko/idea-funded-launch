@@ -7,6 +7,8 @@ import {
   jsonResponse,
 } from "../_shared/auth.ts";
 import { verifyPaymentStatus, getMaishaPayConfig } from "../_shared/maishapay.ts";
+import { checkRateLimit, getClientIp, rateLimitExceededResponse } from "../_shared/rateLimiter.ts";
+import { generateTraceId, createTracedLogger } from "../_shared/auditLog.ts";
 
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -16,11 +18,39 @@ serve(async (req) => {
     return errorResponse('Method not allowed', 405);
   }
 
+  const traceId = generateTraceId();
+  const log = createTracedLogger(traceId);
+
   try {
-    console.log('[mobile-verify-payment] Request received');
+    log.log('mobile-verify-payment started');
 
     const { user, supabase } = await verifyAndGetUser(req);
-    console.log('[mobile-verify-payment] User authenticated:', user.id);
+    log.log('User authenticated', { userId: user.id });
+
+    // Rate limiting: 30 requests per 10 minutes per user
+    const clientIp = getClientIp(req);
+    const rateLimitResult = await checkRateLimit(
+      supabase,
+      `user:${user.id}:verify-payment`,
+      30,
+      10
+    );
+
+    if (!rateLimitResult.allowed) {
+      log.warn('Rate limit exceeded', { 
+        userId: user.id, 
+        count: rateLimitResult.count,
+        limit: rateLimitResult.limit,
+      });
+      return rateLimitExceededResponse(
+        { 
+          allowed: false, 
+          user_result: rateLimitResult,
+          blocked_by: 'user',
+        },
+        'verify-payment'
+      );
+    }
 
     const body = await req.json();
     const { order_id, maishapay_reference } = body;
@@ -30,7 +60,7 @@ serve(async (req) => {
     }
 
     const config = getMaishaPayConfig();
-    console.log('[mobile-verify-payment] Mode:', config.mode);
+    log.log('MaishaPay mode', { mode: config.mode });
 
     // Find the order with item count
     let query = supabase.from('orders').select('*, order_items(id)');
@@ -92,10 +122,12 @@ serve(async (req) => {
       payment_provider: 'maishapay',
       mode: config.mode,
       message,
+      trace_id: traceId,
     });
 
     // If already paid, return current status
     if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
+      log.log('Order already paid', { orderId: order.id });
       return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
     }
 
@@ -103,22 +135,30 @@ serve(async (req) => {
     const reference = order.maisha_transaction_id || `AFRISHOP-${order.id}`;
     const verifyResult = await verifyPaymentStatus(reference);
 
-    console.log('[mobile-verify-payment] Verify result:', verifyResult);
+    log.log('Verify result', { 
+      orderId: order.id,
+      status: verifyResult.status,
+      success: verifyResult.success,
+    });
 
-    // Update order if status changed
+    // Update order if status changed using atomic RPC
     if (verifyResult.success && verifyResult.status === 'paid') {
-      await supabase.from('orders').update({
-        status: 'PAID',
-        maisha_payment_status: 'SUCCESS',
-        operator_ref_id: verifyResult.operatorRefId,
-        updated_at: new Date().toISOString(),
-      }).eq('id', order.id);
+      // Use the atomic finalize_paid_order RPC
+      const { data: finalizeResult, error: finalizeError } = await supabase.rpc(
+        'finalize_paid_order',
+        {
+          p_order_id: order.id,
+          p_payment_ref: verifyResult.transactionId || reference,
+          p_operator_ref: verifyResult.operatorRefId || null,
+          p_trace_id: traceId,
+        }
+      );
 
-      // Update payment record
-      await supabase.from('maisha_payments').update({
-        status: 'paid',
-        paid_at: new Date().toISOString(),
-      }).eq('order_id', order.id);
+      if (finalizeError) {
+        log.error('Finalize RPC failed', { error: finalizeError.message });
+      } else {
+        log.log('Order finalized as paid', { result: finalizeResult });
+      }
 
       return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
     }
@@ -131,7 +171,7 @@ serve(async (req) => {
     ));
 
   } catch (error: any) {
-    console.error('[mobile-verify-payment] Error:', error.message);
+    log.error('Error', { message: error.message });
     
     if (error.name === 'AuthError') {
       return errorResponse(error.message, error.status);
@@ -139,7 +179,8 @@ serve(async (req) => {
     
     return jsonResponse({ 
       error: 'INTERNAL_ERROR', 
-      message: error.message 
+      message: error.message,
+      trace_id: traceId,
     }, 500);
   }
 });

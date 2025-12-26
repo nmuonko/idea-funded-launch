@@ -48,6 +48,18 @@ serve(async (req) => {
     const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get('pageSize') || '20')));
     const offset = (page - 1) * pageSize;
 
+    // Get total count using efficient method (estimated for large tables)
+    const countStart = Date.now();
+    
+    // For accurate count on smaller result sets, use count query
+    const { count: totalCount, error: countError } = await supabase
+      .from('orders')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .neq('status', 'DRAFT');
+    
+    const countTime = Date.now() - countStart;
+
     // Optimized query with payment data joined
     const queryStart = Date.now();
     const { data: orders, error } = await supabase
@@ -61,6 +73,7 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .neq('status', 'DRAFT')
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false }) // Stable secondary sort
       .range(offset, offset + pageSize - 1);
     const queryTime = Date.now() - queryStart;
 
@@ -115,7 +128,13 @@ serve(async (req) => {
       };
     });
 
-    console.log(`[mobile-get-orders] PERF auth=${authTime}ms query=${queryTime}ms total=${Date.now() - startTime}ms - ${formattedOrders.length} orders`);
+    // Calculate has_more reliably
+    const fetchedCount = formattedOrders.length;
+    const hasMore = totalCount !== null 
+      ? (offset + fetchedCount) < totalCount
+      : fetchedCount === pageSize;
+
+    console.log(`[mobile-get-orders] PERF auth=${authTime}ms count=${countTime}ms query=${queryTime}ms total=${Date.now() - startTime}ms - ${formattedOrders.length} orders`);
 
     return jsonResponse({
       ok: true,
@@ -123,7 +142,9 @@ serve(async (req) => {
       orders: formattedOrders,
       page,
       pageSize,
-      hasMore: formattedOrders.length === pageSize,
+      total_count: totalCount || 0,
+      hasMore,
+      has_more: hasMore,
     });
 
   } catch (error: any) {

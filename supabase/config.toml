@@ -257,3 +257,6 @@ verify_jwt = true
 
 [functions.execute-ai-action]
 verify_jwt = true
+
+[functions.cleanup-expired-data]
+verify_jwt = false

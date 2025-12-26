@@ -689,6 +689,107 @@ export type Database = {
           },
         ]
       }
+      manual_transfer_proofs: {
+        Row: {
+          admin_notes: string | null
+          created_at: string
+          file_path: string
+          id: string
+          mime_type: string | null
+          order_id: string
+          original_filename: string | null
+          reference: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          session_id: string
+          size_bytes: number | null
+          status: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          created_at?: string
+          file_path: string
+          id?: string
+          mime_type?: string | null
+          order_id: string
+          original_filename?: string | null
+          reference: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          session_id: string
+          size_bytes?: number | null
+          status?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          created_at?: string
+          file_path?: string
+          id?: string
+          mime_type?: string | null
+          order_id?: string
+          original_filename?: string | null
+          reference?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          session_id?: string
+          size_bytes?: number | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_transfer_proofs_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_transfer_proofs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "manual_transfer_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      manual_transfer_sessions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          order_id: string
+          reference: string
+          status: string
+          upload_token: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          order_id: string
+          reference: string
+          status?: string
+          upload_token: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          order_id?: string
+          reference?: string
+          status?: string
+          upload_token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_transfer_sessions_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_actions: {
         Row: {
           action_message: string | null

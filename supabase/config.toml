@@ -272,3 +272,12 @@ verify_jwt = false
 
 [functions.payment-decision]
 verify_jwt = false
+
+[functions.create-manual-transfer-session]
+verify_jwt = true
+
+[functions.get-manual-transfer-page]
+verify_jwt = false
+
+[functions.upload-manual-transfer-proof]
+verify_jwt = false

@@ -2,36 +2,29 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { normalizePaymentStatus } from "../_shared/maishapay.ts";
+import { generateTraceId, logAudit } from "../_shared/auditLog.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-webhook-signature',
 };
 
-// Input validation schema
 const verifyPaymentSchema = z.object({
   orderId: z.string().uuid(),
   status: z.union([z.string(), z.number()]),
   description: z.string().max(500).optional().default(''),
   transactionRefId: z.string().max(255).optional().default(''),
   operatorRefId: z.string().max(255).optional().default(''),
-  // MaishaPay may return currency and amount for validation
   currency: z.string().max(10).optional(),
   amount: z.union([z.string(), z.number()]).optional(),
 });
 
-/**
- * HMAC-SHA256 signature verification for webhook security
- */
 async function verifyWebhookSignature(
   payload: string,
   signature: string | null,
   secret: string
 ): Promise<boolean> {
-  if (!signature || !secret) {
-    console.warn('[verify-payment] Missing signature or secret for webhook verification');
-    return false;
-  }
+  if (!signature || !secret) return false;
 
   try {
     const encoder = new TextEncoder();
@@ -48,10 +41,7 @@ async function verifyWebhookSignature(
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    // Constant-time comparison to prevent timing attacks
-    if (computedSignature.length !== signature.length) {
-      return false;
-    }
+    if (computedSignature.length !== signature.length) return false;
     let result = 0;
     for (let i = 0; i < computedSignature.length; i++) {
       result |= computedSignature.charCodeAt(i) ^ signature.charCodeAt(i);
@@ -63,19 +53,7 @@ async function verifyWebhookSignature(
   }
 }
 
-/**
- * verify-payment Edge Function
- * 
- * Called by mobile app after WebView detects MaishaPay redirect to callback URL.
- * Updates order status based on MaishaPay response parameters.
- * 
- * SECURITY: Requires one of:
- * 1. Valid webhook signature (x-webhook-signature header)
- * 2. Valid JWT token (user must own the order)
- * 3. Service role key (internal calls)
- */
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -87,13 +65,13 @@ serve(async (req) => {
     );
   }
 
-  try {
-    console.log('[verify-payment] Request received');
+  const traceId = generateTraceId();
 
-    // Read raw body for signature verification
+  try {
+    console.log('[verify-payment] Request received, trace:', traceId);
+
     const rawBody = await req.text();
     
-    // Parse and validate request body
     let body: unknown;
     try {
       body = JSON.parse(rawBody);
@@ -106,20 +84,15 @@ serve(async (req) => {
 
     const parseResult = verifyPaymentSchema.safeParse(body);
     if (!parseResult.success) {
-      console.error('[verify-payment] Validation error:', parseResult.error.errors);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid request data',
-          details: parseResult.error.errors,
-        }),
+        JSON.stringify({ success: false, error: 'Invalid request data', details: parseResult.error.errors }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { orderId, status, description, transactionRefId, operatorRefId, currency: callbackCurrency, amount: callbackAmount } = parseResult.data;
+    const { orderId, status, description, transactionRefId, operatorRefId } = parseResult.data;
 
-    // ========== SECURITY: Authorization Check ==========
+    // Authorization check
     const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');
     const signature = req.headers.get('x-webhook-signature');
     const authHeader = req.headers.get('authorization');
@@ -130,16 +103,13 @@ serve(async (req) => {
     let authMethod = 'none';
     let authenticatedUserId: string | null = null;
 
-    // Method 1: Webhook signature verification (for MaishaPay callbacks)
+    // Webhook signature
     if (webhookSecret && signature) {
       isAuthorized = await verifyWebhookSignature(rawBody, signature, webhookSecret);
-      if (isAuthorized) {
-        authMethod = 'webhook';
-        console.log('[verify-payment] Authorized via webhook signature');
-      }
+      if (isAuthorized) authMethod = 'webhook';
     }
 
-    // Method 2: JWT token verification (for authenticated users)
+    // JWT token
     if (!isAuthorized && authHeader?.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -153,233 +123,170 @@ serve(async (req) => {
         authenticatedUserId = user.id;
         isAuthorized = true;
         authMethod = 'jwt';
-        console.log('[verify-payment] Authorized via JWT for user:', user.id);
       }
     }
 
-    // Method 3: Service role key (for internal calls)
+    // Service role
     if (!isAuthorized && authHeader === `Bearer ${supabaseServiceKey}`) {
       isAuthorized = true;
       authMethod = 'service_role';
-      console.log('[verify-payment] Authorized via service role key');
     }
 
-    // Reject if no valid authorization
     if (!isAuthorized) {
-      console.warn('[verify-payment] Unauthorized request for order:', orderId);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Unauthorized', 
-          message: 'Valid webhook signature or authentication required' 
-        }),
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    // ========== END SECURITY CHECK ==========
 
-    // Create Supabase client with service_role key to bypass RLS
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch the order to verify it exists
+    // Fetch order
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status, user_id, total_usd, total_cdf, maisha_transaction_id, normalized_currency, normalized_amount, exchange_rate_used')
+      .select('id, status, user_id, total_usd, total_cdf, maisha_transaction_id, normalized_currency, exchange_rate_used')
       .eq('id', orderId)
       .single();
 
     if (orderError || !order) {
-      console.error('[verify-payment] Order not found:', orderId, orderError);
       return new Response(
         JSON.stringify({ success: false, error: 'Order not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate currency if provided in callback
-    const expectedCurrency = order.normalized_currency || 'USD';
-    if (callbackCurrency && callbackCurrency.toUpperCase() !== expectedCurrency.toUpperCase()) {
-      console.warn('[verify-payment] CURRENCY_MISMATCH:', {
-        expected: expectedCurrency,
-        received: callbackCurrency,
-        orderId: order.id,
-      });
-      // Log mismatch but don't fail - payment gateway may have different format
-    }
-
-    // Validate amount if provided
-    const expectedAmount = expectedCurrency === 'CDF' ? order.total_cdf : order.total_usd;
-    if (callbackAmount) {
-      const receivedAmount = Number(callbackAmount);
-      const amountDiff = Math.abs(receivedAmount - expectedAmount);
-      // Allow small variance for rounding
-      if (amountDiff > 1) {
-        console.warn('[verify-payment] AMOUNT_MISMATCH:', {
-          expected: expectedAmount,
-          received: receivedAmount,
-          difference: amountDiff,
-          currency: expectedCurrency,
-        });
-      }
-    }
-
-    if (orderError || !order) {
-      console.error('[verify-payment] Order not found:', orderId, orderError);
-      return new Response(
-        JSON.stringify({ success: false, error: 'Order not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // SECURITY: If authenticated via JWT, verify user owns the order
+    // JWT user must own the order
     if (authMethod === 'jwt' && authenticatedUserId && order.user_id !== authenticatedUserId) {
-      console.warn('[verify-payment] User', authenticatedUserId, 'attempted to verify order', orderId, 'owned by', order.user_id);
       return new Response(
-        JSON.stringify({ success: false, error: 'Forbidden', message: 'You do not own this order' }),
+        JSON.stringify({ success: false, error: 'Forbidden' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('[verify-payment] Found order:', { id: order.id, currentStatus: order.status, authMethod });
-
-    // Prevent re-processing of already completed orders
-    if (order.status === 'PAID' || order.status === 'COMPLETED' || order.status === 'SHIPPED' || order.status === 'DELIVERED') {
-      console.log('[verify-payment] Order already processed, returning current state');
+    // Already processed?
+    if (['PAID', 'COMPLETED', 'SHIPPED', 'READY_FOR_PICKUP'].includes(order.status)) {
       return new Response(
         JSON.stringify({ 
           success: true, 
           message: 'Order already processed',
-          order: {
-            id: order.id,
-            status: order.status,
-            totalUsd: order.total_usd,
-            totalCdf: order.total_cdf,
-          },
+          order: { id: order.id, status: order.status, totalUsd: order.total_usd, totalCdf: order.total_cdf },
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Only allow status updates for PENDING_PAYMENT orders
+    // Must be PENDING_PAYMENT
     if (order.status !== 'PENDING_PAYMENT') {
-      console.log('[verify-payment] Order not in PENDING_PAYMENT state:', order.status);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid order state',
-          message: `Order status is ${order.status}, expected PENDING_PAYMENT`
-        }),
+        JSON.stringify({ success: false, error: 'Invalid order state', message: `Order status is ${order.status}` }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Normalize MaishaPay status code
     const normalizedStatus = normalizePaymentStatus(status);
-    console.log('[verify-payment] Status mapping:', { raw: status, normalized: normalizedStatus });
+    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus });
 
-    // Map to order status
-    let newOrderStatus: string;
-    let maishapayStatus: string;
+    // Log to audit
+    await logAudit(supabase, {
+      traceId,
+      eventType: 'VERIFY_PAYMENT_REQUEST',
+      userId: order.user_id,
+      orderId,
+      payload: { normalizedStatus, authMethod },
+    });
 
-    switch (normalizedStatus) {
-      case 'paid':
-        newOrderStatus = 'PAID';
-        maishapayStatus = 'SUCCESS';
-        break;
-      case 'cancelled':
-        newOrderStatus = 'PENDING_PAYMENT'; // Keep as pending so user can retry
-        maishapayStatus = 'CANCELLED';
-        break;
-      case 'failed':
-        newOrderStatus = 'CANCELLED';
-        maishapayStatus = 'FAILED';
-        break;
-      default:
-        newOrderStatus = 'PENDING_PAYMENT';
-        maishapayStatus = 'PENDING';
-    }
+    // ============================================
+    // P0 FIX: Use finalize_paid_order RPC for atomicity
+    // ============================================
+    if (normalizedStatus === 'paid') {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('finalize_paid_order', {
+        p_order_id: orderId,
+        p_payment_ref: transactionRefId || order.maisha_transaction_id,
+        p_operator_ref: operatorRefId || null,
+        p_trace_id: traceId,
+      });
 
-    console.log('[verify-payment] Updating order to:', { newOrderStatus, maishapayStatus });
+      if (rpcError) {
+        console.error('[verify-payment] finalize_paid_order RPC error:', rpcError);
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to finalize order' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
 
-    // Update the order
-    const { data: updatedOrder, error: updateError } = await supabase
-      .from('orders')
-      .update({
-        status: newOrderStatus,
+      console.log('[verify-payment] finalize_paid_order result:', rpcResult);
+
+      // Fetch updated order
+      const { data: updatedOrder } = await supabase
+        .from('orders')
+        .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, operator_ref_id')
+        .eq('id', orderId)
+        .single();
+
+      const orderRef = orderId.substring(0, 8).toUpperCase();
+      const expectedCurrency = order.normalized_currency || 'USD';
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          order: {
+            id: updatedOrder?.id || orderId,
+            orderRef,
+            status: updatedOrder?.status || 'PAID',
+            paymentStatus: 'SUCCESS',
+            totalUsd: updatedOrder?.total_usd,
+            totalCdf: updatedOrder?.total_cdf,
+            currency: expectedCurrency,
+            exchangeRate: order.exchange_rate_used || 2500,
+            transactionRef: updatedOrder?.maisha_transaction_id,
+            operatorRef: updatedOrder?.operator_ref_id,
+          },
+          authMethod,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+
+    } else {
+      // Failed/cancelled - keep as PENDING_PAYMENT for retry
+      const maishapayStatus = normalizedStatus === 'failed' ? 'FAILED' : normalizedStatus === 'cancelled' ? 'CANCELLED' : 'PENDING';
+      
+      await supabase.from('orders').update({
         maisha_payment_status: maishapayStatus,
         maisha_status_code: String(status),
         maisha_description: description || null,
-        operator_ref_id: operatorRefId || null,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', orderId)
-      .select('id, status, total_usd, total_cdf, maisha_transaction_id, maisha_payment_status, maisha_status_code, maisha_description, operator_ref_id')
-      .single();
+      }).eq('id', orderId);
 
-    if (updateError) {
-      console.error('[verify-payment] Failed to update order:', updateError);
+      await supabase.from('maisha_payments').update({
+        status: normalizedStatus,
+        maishapay_status: maishapayStatus,
+        maishapay_description: description || null,
+        updated_at: new Date().toISOString(),
+      }).eq('order_id', orderId);
+
+      const orderRef = orderId.substring(0, 8).toUpperCase();
+
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to update order' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: true,
+          order: {
+            id: orderId,
+            orderRef,
+            status: 'PENDING_PAYMENT',
+            paymentStatus: maishapayStatus,
+            totalUsd: order.total_usd,
+            totalCdf: order.total_cdf,
+          },
+          authMethod,
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('[verify-payment] Order updated successfully');
-
-    // Update maisha_payments table
-    const { error: paymentUpdateError } = await supabase
-      .from('maisha_payments')
-      .update({
-        status: normalizedStatus,
-        maishapay_status: maishapayStatus,
-        maishapay_transaction_ref_id: transactionRefId || null,
-        maishapay_operator_ref_id: operatorRefId || null,
-        maishapay_description: description || null,
-        paid_at: normalizedStatus === 'paid' ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('order_id', orderId);
-
-    if (paymentUpdateError) {
-      console.warn('[verify-payment] Failed to update maisha_payments:', paymentUpdateError);
-      // Don't fail the request, order is already updated
-    }
-
-    // Generate order reference for display
-    const orderRef = orderId.substring(0, 8).toUpperCase();
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        order: {
-          id: updatedOrder.id,
-          orderRef,
-          status: updatedOrder.status,
-          paymentStatus: updatedOrder.maisha_payment_status,
-          totalUsd: updatedOrder.total_usd,
-          totalCdf: updatedOrder.total_cdf,
-          // Currency information
-          currency: expectedCurrency,
-          currencySelected: expectedCurrency,
-          exchangeRate: order.exchange_rate_used || 2500,
-          displayAmount: expectedCurrency === 'CDF'
-            ? `${Math.round(updatedOrder.total_cdf || 0).toLocaleString('fr-FR')} CDF`
-            : `$${(updatedOrder.total_usd || 0).toFixed(2)} USD`,
-          transactionRef: updatedOrder.maisha_transaction_id,
-          operatorRef: updatedOrder.operator_ref_id,
-          statusCode: updatedOrder.maisha_status_code,
-          description: updatedOrder.maisha_description,
-        },
-        authMethod,
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
   } catch (error: unknown) {
     console.error('[verify-payment] Unexpected error:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
     return new Response(
-      JSON.stringify({ success: false, error: message }),
+      JSON.stringify({ success: false, error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

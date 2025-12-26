@@ -169,3 +169,46 @@ export function createTracedLogger(traceId: string) {
     },
   };
 }
+
+/**
+ * Simplified logAudit wrapper for easy usage
+ * Usage: await logAudit(supabase, { traceId, eventType, userId?, orderId?, payload? })
+ */
+export async function logAudit(
+  supabase: SupabaseClient,
+  params: {
+    traceId: string;
+    eventType: string;
+    userId?: string;
+    orderId?: string;
+    paymentAttemptId?: string;
+    payload?: Record<string, unknown>;
+    errorMessage?: string;
+    durationMs?: number;
+  }
+): Promise<void> {
+  try {
+    const compactPayload = params.payload 
+      ? compactifyPayload(params.payload as AuditPayload) 
+      : {};
+    
+    const { error } = await supabase
+      .from('system_audit_log')
+      .insert({
+        trace_id: params.traceId,
+        event_type: params.eventType,
+        user_id: params.userId || null,
+        order_id: params.orderId || null,
+        payment_attempt_id: params.paymentAttemptId || null,
+        payload: compactPayload,
+        error_message: params.errorMessage?.substring(0, 500) || null,
+        duration_ms: params.durationMs || null,
+      });
+    
+    if (error) {
+      console.error('[AuditLog] Failed to insert:', error.message);
+    }
+  } catch (err) {
+    console.error('[AuditLog] Exception:', err);
+  }
+}

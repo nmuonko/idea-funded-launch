@@ -19,11 +19,19 @@ export function extractBearerToken(authHeader: string | null): string | null {
   return parts[1];
 }
 
+// Module-level admin client instance for connection reuse
+let adminClientInstance: SupabaseClient | null = null;
+
 /**
- * Creates a Supabase admin client using SERVICE_ROLE key
+ * Creates or returns a cached Supabase admin client using SERVICE_ROLE key
  * This bypasses RLS and should only be used for server-side operations
+ * Connection is reused across requests for better performance
  */
 export function createAdminClient(): SupabaseClient {
+  if (adminClientInstance) {
+    return adminClientInstance;
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -31,12 +39,22 @@ export function createAdminClient(): SupabaseClient {
     throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
   }
 
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+  adminClientInstance = createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
-    }
+    },
+    db: {
+      schema: 'public',
+    },
+    global: {
+      headers: {
+        'x-request-timeout': '5000', // 5 second query timeout
+      },
+    },
   });
+
+  return adminClientInstance;
 }
 
 /**
@@ -68,9 +86,14 @@ export function createUserClient(req: Request): SupabaseClient {
   });
 }
 
+// Short-lived auth cache for repeated auth checks within edge function lifecycle
+const authCache = new Map<string, { user: User; expiry: number }>();
+const AUTH_CACHE_TTL = 30_000; // 30 seconds
+
 /**
  * Verifies JWT token and returns the authenticated user
  * Uses SERVICE_ROLE to validate the token server-side
+ * Includes short-lived caching for performance (30s TTL)
  */
 export async function verifyAndGetUser(req: Request): Promise<{ user: User; supabase: SupabaseClient }> {
   const authHeader = req.headers.get('Authorization');
@@ -78,6 +101,12 @@ export async function verifyAndGetUser(req: Request): Promise<{ user: User; supa
   
   if (!token) {
     throw new AuthError('Missing or invalid Authorization header', 401);
+  }
+
+  // Check cache first
+  const cached = authCache.get(token);
+  if (cached && Date.now() < cached.expiry) {
+    return { user: cached.user, supabase: createAdminClient() };
   }
 
   // Use admin client to verify the token
@@ -92,6 +121,19 @@ export async function verifyAndGetUser(req: Request): Promise<{ user: User; supa
   
   if (!user) {
     throw new AuthError('Invalid JWT - no user found', 401);
+  }
+  
+  // Cache the result for 30 seconds
+  authCache.set(token, { user, expiry: Date.now() + AUTH_CACHE_TTL });
+  
+  // Clean up old cache entries periodically (every 100 verifications)
+  if (authCache.size > 100) {
+    const now = Date.now();
+    for (const [key, value] of authCache.entries()) {
+      if (now >= value.expiry) {
+        authCache.delete(key);
+      }
+    }
   }
   
   // Return admin client for server operations, or create user client for RLS
@@ -175,4 +217,29 @@ export function handleCors(req: Request): Response | null {
     return new Response(null, { headers: corsHeaders });
   }
   return null;
+}
+
+/**
+ * Log performance metrics to the database (async, non-blocking)
+ */
+export async function logPerformanceMetric(
+  supabase: SupabaseClient,
+  functionName: string,
+  durationMs: number,
+  success: boolean = true,
+  userId?: string,
+  metadata?: Record<string, any>
+): Promise<void> {
+  try {
+    // Fire and forget - don't await
+    supabase.from('performance_metrics').insert({
+      function_name: functionName,
+      duration_ms: durationMs,
+      success,
+      user_id: userId || null,
+      metadata: metadata || {},
+    }).then(() => {});
+  } catch (e) {
+    // Silently fail - don't impact main request
+  }
 }

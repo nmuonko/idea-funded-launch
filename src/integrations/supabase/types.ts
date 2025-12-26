@@ -1180,6 +1180,36 @@ export type Database = {
           },
         ]
       }
+      performance_metrics: {
+        Row: {
+          created_at: string | null
+          duration_ms: number
+          function_name: string
+          id: string
+          metadata: Json | null
+          success: boolean | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          duration_ms: number
+          function_name: string
+          id?: string
+          metadata?: Json | null
+          success?: boolean | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          duration_ms?: number
+          function_name?: string
+          id?: string
+          metadata?: Json | null
+          success?: boolean | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       price_cache: {
         Row: {
           base_price: number
@@ -2035,6 +2065,16 @@ export type Database = {
           target_applicants: number
         }[]
       }
+      get_table_statistics: {
+        Args: never
+        Returns: {
+          idx_scans: number
+          index_usage_pct: number
+          row_estimate: number
+          seq_scans: number
+          table_name: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -2043,7 +2083,12 @@ export type Database = {
         Returns: boolean
       }
       is_admin: { Args: never; Returns: boolean }
+      is_admin_cached: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      merge_draft_orders: {
+        Args: { p_primary_id: string; p_secondary_ids: string[] }
+        Returns: Json
+      }
       search_submission_by_code: {
         Args: { search_code: string }
         Returns: {

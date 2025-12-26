@@ -1038,6 +1038,47 @@ export type Database = {
           },
         ]
       }
+      payment_links: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          id: string
+          order_id: string
+          status: string
+          token: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          order_id: string
+          status?: string
+          token?: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          id?: string
+          order_id?: string
+          status?: string
+          token?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_links_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_cache: {
         Row: {
           base_price: number
@@ -1365,6 +1406,14 @@ export type Database = {
       }
       settings: {
         Row: {
+          bank_account_holder: string | null
+          bank_account_number: string | null
+          bank_address: string | null
+          bank_iban: string | null
+          bank_instructions_en: string | null
+          bank_instructions_fr: string | null
+          bank_name: string | null
+          bank_swift: string | null
           category_markups: Json | null
           created_at: string
           discount_codes: Json | null
@@ -1372,14 +1421,26 @@ export type Database = {
           extra_fees: Json | null
           global_markup_percent: number | null
           id: string
+          maishapay_max_cdf: number | null
+          maishapay_max_usd: number | null
           markup_percent: number | null
           min_service_fee_usd: number | null
           service_fee_percent: number
           shipping_base_fee_usd: number
           shipping_percent: number
+          support_email: string | null
+          support_whatsapp: string | null
           updated_at: string
         }
         Insert: {
+          bank_account_holder?: string | null
+          bank_account_number?: string | null
+          bank_address?: string | null
+          bank_iban?: string | null
+          bank_instructions_en?: string | null
+          bank_instructions_fr?: string | null
+          bank_name?: string | null
+          bank_swift?: string | null
           category_markups?: Json | null
           created_at?: string
           discount_codes?: Json | null
@@ -1387,14 +1448,26 @@ export type Database = {
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          maishapay_max_cdf?: number | null
+          maishapay_max_usd?: number | null
           markup_percent?: number | null
           min_service_fee_usd?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
+          support_email?: string | null
+          support_whatsapp?: string | null
           updated_at?: string
         }
         Update: {
+          bank_account_holder?: string | null
+          bank_account_number?: string | null
+          bank_address?: string | null
+          bank_iban?: string | null
+          bank_instructions_en?: string | null
+          bank_instructions_fr?: string | null
+          bank_name?: string | null
+          bank_swift?: string | null
           category_markups?: Json | null
           created_at?: string
           discount_codes?: Json | null
@@ -1402,11 +1475,15 @@ export type Database = {
           extra_fees?: Json | null
           global_markup_percent?: number | null
           id?: string
+          maishapay_max_cdf?: number | null
+          maishapay_max_usd?: number | null
           markup_percent?: number | null
           min_service_fee_usd?: number | null
           service_fee_percent?: number
           shipping_base_fee_usd?: number
           shipping_percent?: number
+          support_email?: string | null
+          support_whatsapp?: string | null
           updated_at?: string
         }
         Relationships: []

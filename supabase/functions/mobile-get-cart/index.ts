@@ -217,16 +217,29 @@ serve(async (req) => {
       });
     }
 
-    // If multiple drafts exist, merge them into the most recent
+    // If multiple drafts exist, merge them into the most recent using batch RPC
     let order = drafts[0];
     if (drafts.length > 1) {
-      console.log('[mobile-get-cart] Multiple DRAFT orders found, merging...');
+      console.log('[mobile-get-cart] Multiple DRAFT orders found, merging with RPC...');
       const primaryId = order.id;
-      for (const oldDraft of drafts.slice(1)) {
-        await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', oldDraft.id);
-        await supabase.from('orders').delete().eq('id', oldDraft.id);
+      const secondaryIds = drafts.slice(1).map(d => d.id);
+      
+      // Use batched RPC for atomic merge operation
+      const { data: mergeResult, error: mergeError } = await supabase.rpc('merge_draft_orders', {
+        p_primary_id: primaryId,
+        p_secondary_ids: secondaryIds
+      });
+      
+      if (mergeError) {
+        console.error('[mobile-get-cart] Merge RPC failed, falling back to sequential:', mergeError.message);
+        // Fallback to sequential (should rarely happen)
+        for (const oldDraft of drafts.slice(1)) {
+          await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', oldDraft.id);
+          await supabase.from('orders').delete().eq('id', oldDraft.id);
+        }
+      } else {
+        console.log('[mobile-get-cart] Merged via RPC:', mergeResult);
       }
-      console.log('[mobile-get-cart] Merged', drafts.length - 1, 'duplicate drafts');
     }
 
     // Get items with quote requests - SINGLE QUERY with join

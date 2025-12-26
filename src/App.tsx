@@ -14,6 +14,7 @@ import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
 import PaymentLink from "./pages/PaymentLink";
 import PaymentLinkTest from "./pages/PaymentLinkTest";
+import ManualTransfer from "./pages/ManualTransfer";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
@@ -42,6 +43,7 @@ import ThemeSettings from "./pages/admin/ThemeSettings";
 import AdminAccessDenied from "./pages/admin/AccessDenied";
 import AuditLog from "./pages/admin/AuditLog";
 import QuoteRequests from "./pages/admin/QuoteRequests";
+import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
@@ -110,6 +112,7 @@ const App = () => {
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/pay/:token" element={<PaymentLink />} />
             <Route path="/pay-test" element={<PaymentLinkTest />} />
+            <Route path="/manual-transfer/:uploadToken" element={<ManualTransfer />} />
             
             <Route path="/admin" element={
               <ProtectedRoute requireAdmin>
@@ -216,6 +219,11 @@ const App = () => {
               <Route path="quote-requests" element={
                 <AdminRouteGuard requiredPermission="can_view_orders">
                   <QuoteRequests />
+                </AdminRouteGuard>
+              } />
+              <Route path="transfer-proofs" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <TransferProofs />
                 </AdminRouteGuard>
               } />
               <Route path="health" element={

@@ -14,6 +14,65 @@ interface QuoteEmailRequest {
   adminNotes?: string;
 }
 
+// Helper to create manual transfer session
+async function createManualTransferSession(
+  supabase: any,
+  orderId: string,
+  frontendBaseUrl: string
+): Promise<{ url: string; reference: string } | null> {
+  try {
+    // Check for existing active session
+    const { data: existingSession } = await supabase
+      .from("manual_transfer_sessions")
+      .select("*")
+      .eq("order_id", orderId)
+      .eq("status", "active")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+
+    if (existingSession) {
+      return {
+        url: `${frontendBaseUrl}/manual-transfer/${existingSession.upload_token}`,
+        reference: existingSession.reference,
+      };
+    }
+
+    // Generate new token and reference
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    const uploadToken = Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
+    
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const shortId = orderId.slice(0, 8).toUpperCase();
+    const reference = `VIR-${shortId}-${timestamp}`;
+
+    // Create new session
+    const { data: newSession, error } = await supabase
+      .from("manual_transfer_sessions")
+      .insert({
+        order_id: orderId,
+        reference,
+        upload_token: uploadToken,
+        status: "active",
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[send-quote-email] Failed to create transfer session:", error);
+      return null;
+    }
+
+    return {
+      url: `${frontendBaseUrl}/manual-transfer/${newSession.upload_token}`,
+      reference: newSession.reference,
+    };
+  } catch (err) {
+    console.error("[send-quote-email] Error creating transfer session:", err);
+    return null;
+  }
+}
+
 const handler = async (req: Request): Promise<Response> => {
   console.log("[send-quote-email] Received request");
 
@@ -45,6 +104,21 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
+    // Get the order_id from the order_item
+    const { data: orderItem, error: itemError } = await supabase
+      .from("order_items")
+      .select("order_id")
+      .eq("id", quoteRequest.order_item_id)
+      .single();
+
+    if (itemError || !orderItem) {
+      console.error("[send-quote-email] Order item not found:", itemError);
+      return new Response(
+        JSON.stringify({ error: "Order item not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Fetch user email
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
@@ -64,6 +138,13 @@ const handler = async (req: Request): Promise<Response> => {
     const vehicleTitle = quoteRequest.title || "Vehicle";
     const storeName = quoteRequest.store_name || "Online Store";
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+
+    // Create manual transfer session for bank payment
+    const transferSession = await createManualTransferSession(supabase, orderItem.order_id, frontendBaseUrl);
+    const paymentUrl = transferSession?.url || `${frontendBaseUrl}/cart`;
+    const paymentReference = transferSession?.reference || "";
+
+    console.log("[send-quote-email] Transfer session created:", { url: paymentUrl, reference: paymentReference });
 
     const formatUSD = (amount: number) => `$${amount.toFixed(2)} USD`;
 
@@ -110,11 +191,18 @@ const handler = async (req: Request): Promise<Response> => {
     
     ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note from our team:</strong> ${adminNotes}</p>` : ''}
     
-    <p>To proceed with your purchase, click the button below to view your cart and complete payment:</p>
+    ${paymentReference ? `
+    <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #f59e0b;">
+      <p style="margin: 0; font-weight: bold; color: #92400e;">📋 Your Payment Reference: <span style="font-family: monospace; font-size: 18px;">${paymentReference}</span></p>
+      <p style="margin: 5px 0 0; font-size: 14px; color: #92400e;">Use this reference when making your bank transfer.</p>
+    </div>
+    ` : ''}
+    
+    <p>To proceed with your purchase, click the button below to view bank transfer details and upload your payment proof:</p>
     
     <div style="text-align: center; margin: 25px 0;">
-      <a href="${frontendBaseUrl}/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-        💳 Proceed to Payment
+      <a href="${paymentUrl}" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+        🏦 Pay by Bank Transfer
       </a>
     </div>
   </div>
@@ -147,11 +235,18 @@ const handler = async (req: Request): Promise<Response> => {
     
     ${adminNotes ? `<p style="background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #1e3a5f;"><strong>Note de notre équipe :</strong> ${adminNotes}</p>` : ''}
     
-    <p>Pour finaliser votre achat, cliquez sur le bouton ci-dessous pour accéder à votre panier et effectuer le paiement :</p>
+    ${paymentReference ? `
+    <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #f59e0b;">
+      <p style="margin: 0; font-weight: bold; color: #92400e;">📋 Votre référence de paiement : <span style="font-family: monospace; font-size: 18px;">${paymentReference}</span></p>
+      <p style="margin: 5px 0 0; font-size: 14px; color: #92400e;">Utilisez cette référence lors de votre virement bancaire.</p>
+    </div>
+    ` : ''}
+    
+    <p>Pour finaliser votre achat, cliquez sur le bouton ci-dessous pour voir les coordonnées bancaires et télécharger votre preuve de paiement :</p>
     
     <div style="text-align: center; margin: 25px 0;">
-      <a href="${frontendBaseUrl}/cart" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-        💳 Procéder au paiement
+      <a href="${paymentUrl}" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 16px 40px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+        🏦 Payer par virement bancaire
       </a>
     </div>
   </div>
@@ -210,7 +305,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     return new Response(
-      JSON.stringify({ success: result.success, emailId: result.id }),
+      JSON.stringify({ success: result.success, emailId: result.id, transferUrl: paymentUrl }),
       { status: result.success ? 200 : 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {

@@ -963,6 +963,81 @@ export type Database = {
           },
         ]
       }
+      payment_attempts: {
+        Row: {
+          amount: number
+          attempt_count: number
+          cart_hash: string
+          checkout_session_id: string | null
+          created_at: string
+          currency: string
+          expires_at: string
+          id: string
+          idempotency_key: string
+          last_error: string | null
+          order_id: string | null
+          payment_method: string | null
+          provider: string | null
+          provider_ref: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          attempt_count?: number
+          cart_hash: string
+          checkout_session_id?: string | null
+          created_at?: string
+          currency?: string
+          expires_at?: string
+          id?: string
+          idempotency_key: string
+          last_error?: string | null
+          order_id?: string | null
+          payment_method?: string | null
+          provider?: string | null
+          provider_ref?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          attempt_count?: number
+          cart_hash?: string
+          checkout_session_id?: string | null
+          created_at?: string
+          currency?: string
+          expires_at?: string
+          id?: string
+          idempotency_key?: string
+          last_error?: string | null
+          order_id?: string | null
+          payment_method?: string | null
+          provider?: string | null
+          provider_ref?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_attempts_checkout_session_id_fkey"
+            columns: ["checkout_session_id"]
+            isOneToOne: false
+            referencedRelation: "checkout_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_cache: {
         Row: {
           base_price: number
@@ -1228,6 +1303,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rate_limits: {
+        Row: {
+          count: number
+          expires_at: string
+          id: string
+          key: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          expires_at?: string
+          id?: string
+          key: string
+          window_start?: string
+        }
+        Update: {
+          count?: number
+          expires_at?: string
+          id?: string
+          key?: string
+          window_start?: string
+        }
+        Relationships: []
       }
       recommendation_clicks: {
         Row: {
@@ -1526,6 +1625,45 @@ export type Database = {
           },
         ]
       }
+      system_audit_log: {
+        Row: {
+          created_at: string
+          duration_ms: number | null
+          error_message: string | null
+          event_type: string
+          id: string
+          order_id: string | null
+          payload: Json | null
+          payment_attempt_id: string | null
+          trace_id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          event_type: string
+          id?: string
+          order_id?: string | null
+          payload?: Json | null
+          payment_attempt_id?: string | null
+          trace_id: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          duration_ms?: number | null
+          error_message?: string | null
+          event_type?: string
+          id?: string
+          order_id?: string | null
+          payload?: Json | null
+          payment_attempt_id?: string | null
+          trace_id?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       ticket_messages: {
         Row: {
           created_at: string
@@ -1645,9 +1783,31 @@ export type Database = {
       }
     }
     Functions: {
+      check_rate_limit: {
+        Args: { p_key: string; p_limit: number; p_window_minutes: number }
+        Returns: Json
+      }
       clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
+      cleanup_expired_records: { Args: never; Returns: Json }
+      finalize_paid_order: {
+        Args: {
+          p_operator_ref?: string
+          p_order_id: string
+          p_payment_ref: string
+          p_trace_id?: string
+        }
+        Returns: Json
+      }
+      generate_cart_hash_from_order: {
+        Args: {
+          p_currency: string
+          p_order_id: string
+          p_payment_method: string
+        }
+        Returns: string
+      }
       generate_project_code: { Args: never; Returns: string }
       get_active_session: {
         Args: never

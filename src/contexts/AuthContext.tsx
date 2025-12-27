@@ -297,63 +297,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
-      // Preflight check: Validate Supabase config
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      console.log('[Auth] Attempting sign in for:', email);
       
-      if (!supabaseUrl || !supabaseKey) {
-        console.error('[Auth] Missing Supabase config:', {
-          hasUrl: !!supabaseUrl,
-          hasKey: !!supabaseKey,
-          hostname: window.location.hostname,
-        });
-        toast({
-          title: 'Configuration Error',
-          description: 'Supabase environment variables are missing. Please contact the administrator.',
-          variant: 'destructive',
-        });
-        return { error: new Error('Missing Supabase configuration'), userId: null };
-      }
-
-      // Preflight health check - lightweight connectivity test (non-blocking)
-      try {
-        const healthUrl = `${supabaseUrl}/auth/v1/health`;
-        console.log('[Auth] Preflight health check:', healthUrl);
-        
-        const healthResponse = await fetch(healthUrl, {
-          method: 'GET',
-          headers: {
-            'apikey': supabaseKey,
-          },
-        });
-        
-        if (!healthResponse.ok) {
-          console.warn('[Auth] Health check returned:', healthResponse.status);
-        } else {
-          console.log('[Auth] Health check passed');
-        }
-      } catch (healthError: any) {
-        // Log the error but don't block sign-in - the actual auth call may still work
-        console.warn('[Auth] Preflight health check failed (non-blocking):', {
-          error: healthError.message,
-          name: healthError.name,
-          hostname: window.location.hostname,
-        });
-        // Continue with sign-in attempt - don't return early
-      }
-
-      // Proceed with actual sign-in
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       
       if (error) {
-        console.error('[Auth] Sign in auth error:', {
-          message: error.message,
-          status: error.status,
-          code: (error as any).code,
-        });
+        console.error('[Auth] Sign in error:', error.message);
         
         // Map common auth errors to user-friendly messages
         let userMessage = error.message;
@@ -361,6 +313,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           userMessage = 'Invalid email or password. Please try again.';
         } else if (error.message?.includes('Email not confirmed')) {
           userMessage = 'Please check your email and confirm your account before signing in.';
+        } else if (error.message === 'Failed to fetch') {
+          userMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
         }
         
         toast({
@@ -370,6 +324,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
         return { error, userId: null };
       }
+      
+      console.log('[Auth] Sign in successful');
       
       // Store remember me preference
       if (rememberMe) {
@@ -386,38 +342,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return { error: null, userId: data.user?.id ?? null };
     } catch (error: any) {
-      console.error('[Auth] Sign in exception:', {
-        message: error.message,
-        name: error.name,
-        stack: error.stack?.split('\n').slice(0, 3),
-        hostname: window.location.hostname,
-        origin: window.location.origin,
-      });
-      
-      // Classify the error type
-      const isNetworkError = error.message === 'Failed to fetch' || 
-                             error.name === 'TypeError' ||
-                             error.message?.includes('network') ||
-                             error.message?.includes('CORS') ||
-                             error.message?.includes('blocked');
-      
-      const isCspError = error.message?.includes('Content Security Policy') ||
-                         error.message?.includes('CSP');
-      
-      let title = 'Error';
-      let description = error.message;
-      
-      if (isCspError) {
-        title = 'Security Policy Error';
-        description = 'Network blocked by site security policy (CSP). Please contact administrator.';
-      } else if (isNetworkError) {
-        title = 'Connection Error';
-        description = 'Unable to connect to the authentication server. Please check your internet connection and try again.';
-      }
+      console.error('[Auth] Sign in exception:', error.message);
       
       toast({
-        title,
-        description,
+        title: 'Connection Error',
+        description: 'Unable to connect to the authentication server. Please try again.',
         variant: 'destructive',
       });
       return { error, userId: null };

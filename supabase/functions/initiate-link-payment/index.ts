@@ -1,5 +1,19 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  generateRequestId,
+  generateReference,
+  buildRedirectResponse,
+  buildManualResponse,
+  buildCheckoutErrorResponse,
+  buildServerErrorResponse,
+  getBankDetailsFromSettings,
+  checkSoftRateLimit,
+  logCheckoutEvent,
+  truncate,
+  CHECKOUT_ERROR_CODES,
+  type BankTransferDetails,
+} from "../_shared/checkoutResponse.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,23 +23,32 @@ const corsHeaders = {
 /**
  * initiate-link-payment Edge Function
  * 
- * PUBLIC endpoint - initiates MaishaPay checkout from a payment link.
- * Enforces currency based on amount limits.
- * Idempotent: reuses existing pending checkout sessions within 10 minutes.
+ * PUBLIC endpoint - initiates payment from a payment link.
+ * 
+ * CRITICAL: ALWAYS returns HTTP 200 for expected cases:
+ * - Amount exceeds limits → mode="manual" with bank_transfer
+ * - Provider failure → mode="manual" with bank_transfer + error
+ * - Rate limit soft → mode="manual" with bank_transfer + error
+ * 
+ * Only truly unexpected server faults return 500.
  * 
  * Input: { token: string, payment_method?: 'MOBILE_MONEY' | 'CARD' }
- * Output: { success: true, checkout_url: string, html: string }
+ * Output: CheckoutResponse schema
  */
 serve(async (req) => {
+  const requestId = generateRequestId();
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   if (req.method !== 'POST') {
-    return new Response(
-      JSON.stringify({ success: false, error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return buildCheckoutErrorResponse({
+      error: {
+        code: CHECKOUT_ERROR_CODES.INVALID_INPUT,
+        message: 'Method not allowed',
+      },
+    });
   }
 
   try {
@@ -33,15 +56,37 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
 
-    const body = await req.json();
+    // Parse request safely
+    let body: { token?: string; payment_method?: string } = {};
+    try {
+      body = await req.json();
+    } catch {
+      logCheckoutEvent(requestId, 'PARSE_ERROR', { error: 'Invalid JSON body' });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.INVALID_INPUT,
+          message: 'Invalid request body',
+        },
+      });
+    }
+
     const { token, payment_method = 'MOBILE_MONEY' } = body;
 
+    // Validate token
     if (!token || token.length < 32) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Invalid token' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logCheckoutEvent(requestId, 'VALIDATION_ERROR', { error: 'Invalid token' });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.INVALID_INPUT,
+          message: 'Invalid or missing token',
+        },
+      });
     }
+
+    logCheckoutEvent(requestId, 'INITIATE_PAYMENT_START', {
+      token_prefix: token.substring(0, 8),
+      payment_method,
+    });
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -50,43 +95,103 @@ serve(async (req) => {
       .from('payment_links')
       .select('id, order_id, status, expires_at')
       .eq('token', token)
-      .eq('status', 'active')
-      .gt('expires_at', new Date().toISOString())
       .maybeSingle();
 
     if (linkError || !link) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Payment link invalid or expired' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logCheckoutEvent(requestId, 'LINK_NOT_FOUND', { token_prefix: token.substring(0, 8) });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.LINK_NOT_FOUND,
+          message: 'Payment link not found',
+          message_fr: 'Lien de paiement introuvable',
+        },
+      });
+    }
+
+    // Check link status
+    if (link.status !== 'active') {
+      logCheckoutEvent(requestId, 'LINK_INACTIVE', { status: link.status });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.LINK_EXPIRED,
+          message: 'This payment link is no longer active',
+          message_fr: 'Ce lien de paiement n\'est plus actif',
+        },
+      });
+    }
+
+    // Check expiry
+    if (new Date(link.expires_at) < new Date()) {
+      logCheckoutEvent(requestId, 'LINK_EXPIRED', { expires_at: link.expires_at });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.LINK_EXPIRED,
+          message: 'Payment link has expired. Please request a new link.',
+          message_fr: 'Le lien de paiement a expiré. Veuillez demander un nouveau lien.',
+        },
+      });
     }
 
     // Fetch order
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, user_id, status, total_usd, total_cdf, exchange_rate_used, contains_vehicle')
+      .select('id, user_id, status, total_usd, total_cdf, exchange_rate_used, contains_vehicle, maisha_transaction_id')
       .eq('id', link.order_id)
       .single();
 
     if (orderError || !order) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Order not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logCheckoutEvent(requestId, 'ORDER_NOT_FOUND', { order_id: link.order_id });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.ORDER_NOT_FOUND,
+          message: 'Order not found',
+        },
+      });
     }
 
     // Check order status
     if (order.status === 'PAID' || order.status === 'COMPLETED') {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Order already paid' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logCheckoutEvent(requestId, 'ORDER_ALREADY_PAID', { order_id: order.id, status: order.status });
+      return buildCheckoutErrorResponse({
+        error: {
+          code: CHECKOUT_ERROR_CODES.ORDER_ALREADY_PAID,
+          message: 'This order has already been paid.',
+          message_fr: 'Cette commande a déjà été payée.',
+        },
+        order_id: order.id,
+        amount: Number(order.total_usd || 0),
+        currency: 'USD',
+      });
+    }
+
+    // Soft rate limit check (returns manual mode, not hard block)
+    const rateLimitResult = checkSoftRateLimit(order.user_id || 'anonymous');
+    if (!rateLimitResult.allowed) {
+      logCheckoutEvent(requestId, 'RATE_LIMIT_SOFT', {
+        order_id: order.id,
+        count: rateLimitResult.count,
+        limit: rateLimitResult.limit,
+      });
     }
 
     // Fetch settings
     const { data: settings } = await supabase
       .from('settings')
-      .select('exchange_rate_usd_to_cdf, maishapay_max_usd, maishapay_max_cdf')
+      .select(`
+        exchange_rate_usd_to_cdf,
+        maishapay_max_usd,
+        maishapay_max_cdf,
+        bank_name,
+        bank_account_holder,
+        bank_account_number,
+        bank_swift,
+        bank_iban,
+        bank_address,
+        bank_instructions_fr,
+        bank_instructions_en,
+        support_whatsapp,
+        support_email
+      `)
       .limit(1)
       .single();
 
@@ -97,7 +202,38 @@ serve(async (req) => {
     const totalUsd = Number(order.total_usd || 0);
     const totalCdf = Math.round(totalUsd * fxRate);
 
-    // Determine enforced currency
+    // Generate or use existing reference
+    const reference = order.maisha_transaction_id || generateReference(order.id, order.user_id);
+
+    // Get bank details for fallback
+    const bankDetails = getBankDetailsFromSettings(settings);
+    const fallbackBankDetails: BankTransferDetails = bankDetails || {
+      beneficiary_name: 'AfriShop LLC',
+      bank_name: 'Contact support@afrishop.com',
+      iban_or_rib: '',
+      swift_or_bic: '',
+      notes: 'Please contact support for bank transfer instructions.',
+    };
+
+    // Check if rate limited (soft limit - still allow manual mode)
+    if (!rateLimitResult.allowed) {
+      return buildManualResponse({
+        order_id: order.id,
+        reference,
+        amount: totalUsd,
+        currency: 'USD',
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
+        bank_transfer: fallbackBankDetails,
+        error: {
+          code: CHECKOUT_ERROR_CODES.RATE_LIMIT_SOFT,
+          message: 'Too many requests. Please use bank transfer or try again later.',
+          message_fr: 'Trop de requêtes. Veuillez utiliser le virement bancaire ou réessayer plus tard.',
+        },
+      });
+    }
+
+    // Determine enforced currency based on limits
     let enforcedCurrency: 'USD' | 'CDF';
     let payableAmount: number;
 
@@ -108,20 +244,54 @@ serve(async (req) => {
       enforcedCurrency = 'CDF';
       payableAmount = totalCdf;
     } else {
-      // Should not reach here if client checked decision first
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Order total exceeds MaishaPay limits. Bank transfer required.',
-          decision: 'MANUAL_BANK'
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      // Amount exceeds ALL limits → MUST use bank transfer
+      logCheckoutEvent(requestId, 'MANUAL_MODE_REQUIRED', {
+        order_id: order.id,
+        total_usd: totalUsd,
+        total_cdf: totalCdf,
+        max_usd: maxUsd,
+        max_cdf: maxCdf,
+        reason: 'amount_exceeds_all_limits',
+      });
+
+      // Update order status to pending bank transfer
+      await supabase
+        .from('orders')
+        .update({
+          status: 'PENDING_PAYMENT',
+          maisha_transaction_id: reference,
+          normalized_currency: 'USD',
+          normalized_amount: totalUsd,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      // Create a manual transfer session for tracking
+      await supabase
+        .from('manual_transfer_sessions')
+        .upsert({
+          order_id: order.id,
+          reference,
+          upload_token: crypto.randomUUID(),
+          status: 'active',
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        }, { onConflict: 'order_id' });
+
+      // Return HTTP 200 with mode="manual" (NOT 400!)
+      return buildManualResponse({
+        order_id: order.id,
+        reference,
+        amount: totalUsd,
+        currency: 'USD',
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
+        bank_transfer: fallbackBankDetails,
+      });
     }
 
     // Check for existing pending checkout session (idempotency)
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    
+
     const { data: existingSession } = await supabase
       .from('checkout_sessions')
       .select('id, maisha_reference, redirect_url, status')
@@ -134,48 +304,47 @@ serve(async (req) => {
       .maybeSingle();
 
     if (existingSession && existingSession.redirect_url) {
-      console.log('LINK_PAYMENT_IDEMPOTENT_HIT', {
+      logCheckoutEvent(requestId, 'IDEMPOTENT_HIT', {
         order_id: order.id,
         session_id: existingSession.id,
       });
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          checkout_url: existingSession.redirect_url,
-          reused: true,
-          session_id: existingSession.id,
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return buildRedirectResponse({
+        order_id: order.id,
+        reference: existingSession.maisha_reference || reference,
+        redirect_url: existingSession.redirect_url,
+        amount: payableAmount,
+        currency: enforcedCurrency,
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
+        session_id: existingSession.id,
+        reused: true,
+      });
     }
 
     // Update order status to PENDING_PAYMENT if still DRAFT
     if (order.status === 'DRAFT') {
       await supabase
         .from('orders')
-        .update({ 
+        .update({
           status: 'PENDING_PAYMENT',
           normalized_currency: enforcedCurrency,
           normalized_amount: payableAmount,
           exchange_rate_used: fxRate,
+          maisha_transaction_id: reference,
           updated_at: new Date().toISOString(),
         })
         .eq('id', order.id);
     }
 
-    // Generate reference
-    const timestamp = Date.now().toString(36);
-    const reference = `AFRISHOP-${order.id.slice(0, 8)}-${timestamp}`;
-
     // Get MaishaPay config
     const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
     const legacyMode = Deno.env.get('MAISHAPAY_MODE');
     const isLiveMode = gatewayMode === '1' || legacyMode === '1' || legacyMode?.toLowerCase() === 'live';
-    
+
     let publicKey: string;
     let secretKey: string;
-    
+
     if (isLiveMode) {
       publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
       secretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY') || Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || '';
@@ -184,19 +353,31 @@ serve(async (req) => {
       secretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY') || Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || '';
     }
 
+    // If MaishaPay not configured, fallback to manual mode
     if (!publicKey || !secretKey) {
-      console.error('[initiate-link-payment] Missing MaishaPay keys');
-      return new Response(
-        JSON.stringify({ success: false, error: 'Payment gateway not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      logCheckoutEvent(requestId, 'MAISHAPAY_NOT_CONFIGURED', { order_id: order.id });
+
+      return buildManualResponse({
+        order_id: order.id,
+        reference,
+        amount: totalUsd,
+        currency: 'USD',
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
+        bank_transfer: fallbackBankDetails,
+        error: {
+          code: CHECKOUT_ERROR_CODES.PROVIDER_LINK_FAILED,
+          message: 'Payment gateway not configured. Please use bank transfer.',
+          message_fr: 'Passerelle de paiement non configurée. Veuillez utiliser le virement bancaire.',
+        },
+      });
     }
 
-    const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') || 
+    const callbackUrl = Deno.env.get('MAISHAPAY_CALLBACK_URL') ||
       `${supabaseUrl}/functions/v1/maishapay-callback`;
 
     // Format amount
-    const amountFormatted = enforcedCurrency === 'CDF' 
+    const amountFormatted = enforcedCurrency === 'CDF'
       ? payableAmount.toString()
       : payableAmount.toFixed(2);
 
@@ -204,14 +385,8 @@ serve(async (req) => {
       ? `${payableAmount.toLocaleString('fr-FR')} CDF`
       : `$${payableAmount.toFixed(2)} USD`;
 
-    // Update order with transaction reference
-    await supabase
-      .from('orders')
-      .update({ maisha_transaction_id: reference })
-      .eq('id', order.id);
-
     // Create checkout session
-    const { data: checkoutSession } = await supabase
+    const { data: checkoutSession, error: sessionError } = await supabase
       .from('checkout_sessions')
       .insert({
         user_id: order.user_id,
@@ -224,10 +399,33 @@ serve(async (req) => {
         integrity_hash: `link-${token.substring(0, 16)}`,
         maisha_reference: reference,
         status: 'initiated',
-        metadata: { from_payment_link: true, link_id: link.id },
+        metadata: { from_payment_link: true, link_id: link.id, request_id: requestId },
       })
       .select('id')
       .single();
+
+    if (sessionError) {
+      logCheckoutEvent(requestId, 'SESSION_CREATE_FAILED', {
+        order_id: order.id,
+        error: sessionError.message,
+      });
+
+      // Fallback to manual mode instead of returning 500
+      return buildManualResponse({
+        order_id: order.id,
+        reference,
+        amount: totalUsd,
+        currency: 'USD',
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
+        bank_transfer: fallbackBankDetails,
+        error: {
+          code: CHECKOUT_ERROR_CODES.PROVIDER_LINK_FAILED,
+          message: 'Unable to create checkout session. Please use bank transfer.',
+          message_fr: 'Impossible de créer la session de paiement. Veuillez utiliser le virement bancaire.',
+        },
+      });
+    }
 
     // Create maisha_payments record
     await supabase
@@ -330,7 +528,7 @@ h1{font-size:20px;margin-bottom:8px}
 
     // Store redirect URL for idempotency
     const checkoutPageUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${order.id}`;
-    
+
     if (checkoutSession?.id) {
       await supabase
         .from('checkout_sessions')
@@ -338,33 +536,43 @@ h1{font-size:20px;margin-bottom:8px}
         .eq('id', checkoutSession.id);
     }
 
-    console.log('LINK_PAYMENT_INITIATED', {
+    logCheckoutEvent(requestId, 'PAYMENT_INITIATED', {
       order_id: order.id,
       link_id: link.id,
       currency: enforcedCurrency,
       amount: payableAmount,
-      reference,
+      mode: 'redirect',
     });
 
+    // Return success with both redirect URL and HTML
     return new Response(
       JSON.stringify({
-        success: true,
-        checkout_url: checkoutPageUrl,
-        html,
-        reference,
+        ok: true,
+        mode: 'redirect',
         currency: enforcedCurrency,
         amount: payableAmount,
+        order_id: order.id,
+        reference,
+        redirect_url: checkoutPageUrl,
+        checkout_url: checkoutPageUrl,
+        html,
+        fx_rate: fxRate,
+        amount_cdf: totalCdf,
         display_amount: displayAmount,
         session_id: checkoutSession?.id,
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      }
     );
 
   } catch (error: unknown) {
-    console.error('[initiate-link-payment] Unexpected error:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logCheckoutEvent(requestId, 'UNEXPECTED_ERROR', { error: truncate(errorMessage, 200) });
+    return buildServerErrorResponse(requestId);
   }
 });

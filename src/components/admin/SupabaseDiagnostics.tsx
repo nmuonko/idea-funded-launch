@@ -3,11 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle, XCircle, AlertTriangle, Wifi, Server, Shield } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, AlertTriangle, Wifi, Server, Shield, Zap } from 'lucide-react';
 import { 
   getSupabaseConfig, 
   testSupabaseHealth, 
   testSupabaseRest,
+  testSupabaseClient,
   type HealthCheckResult 
 } from '@/lib/supabaseHealth';
 
@@ -64,6 +65,12 @@ const ResultDisplay = ({ result, label }: { result: HealthCheckResult | null; la
         </Alert>
       )}
       
+      {result.details && (
+        <p className="text-xs text-muted-foreground mt-1">
+          {result.details}
+        </p>
+      )}
+      
       {result.errorType === 'csp_blocked' && (
         <Alert className="mt-2 border-amber-500/50 bg-amber-500/10">
           <Shield className="h-4 w-4 text-amber-500" />
@@ -95,7 +102,8 @@ const ResultDisplay = ({ result, label }: { result: HealthCheckResult | null; la
 export default function SupabaseDiagnostics() {
   const [healthResult, setHealthResult] = useState<HealthCheckResult | null>(null);
   const [restResult, setRestResult] = useState<HealthCheckResult | null>(null);
-  const [loading, setLoading] = useState<'health' | 'rest' | null>(null);
+  const [clientResult, setClientResult] = useState<HealthCheckResult | null>(null);
+  const [loading, setLoading] = useState<'health' | 'rest' | 'client' | null>(null);
   
   const config = getSupabaseConfig();
   const isDev = import.meta.env.DEV;
@@ -111,6 +119,13 @@ export default function SupabaseDiagnostics() {
     setLoading('rest');
     const result = await testSupabaseRest();
     setRestResult(result);
+    setLoading(null);
+  };
+  
+  const runClientTest = async () => {
+    setLoading('client');
+    const result = await testSupabaseClient();
+    setClientResult(result);
     setLoading(null);
   };
   
@@ -150,7 +165,7 @@ export default function SupabaseDiagnostics() {
         </div>
         
         {/* Test Buttons */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button 
             variant="outline" 
             size="sm" 
@@ -178,9 +193,24 @@ export default function SupabaseDiagnostics() {
             )}
             Test REST API
           </Button>
+          
+          <Button 
+            variant="default" 
+            size="sm" 
+            onClick={runClientTest}
+            disabled={loading !== null}
+          >
+            {loading === 'client' ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Zap className="h-4 w-4 mr-2" />
+            )}
+            Test Supabase Client
+          </Button>
         </div>
         
         {/* Results */}
+        <ResultDisplay result={clientResult} label="Supabase Client (getSession)" />
         <ResultDisplay result={healthResult} label="Auth Health (/auth/v1/health)" />
         <ResultDisplay result={restResult} label="REST API (/rest/v1/)" />
       </CardContent>

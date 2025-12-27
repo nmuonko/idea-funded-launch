@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -12,6 +12,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { isLovablePreview } from '@/lib/environment';
+
+// Lazy load diagnostics panel for DEV only
+const SupabaseDiagnostics = lazy(() => import('@/components/admin/SupabaseDiagnostics'));
+const isDev = import.meta.env.DEV;
+
 export default function Auth() {
   const [searchParams] = useSearchParams();
   const isAdminMode = searchParams.get('mode') === 'admin';
@@ -165,6 +170,13 @@ export default function Auth() {
               className="h-28 md:h-36 w-auto drop-shadow-[0_0_30px_rgba(59,130,246,0.4)]"
             />
           </div>
+
+          {/* DEV Diagnostics Panel */}
+          {isDev && (
+            <Suspense fallback={<div className="animate-pulse h-32 bg-muted/20 rounded-lg" />}>
+              <SupabaseDiagnostics />
+            </Suspense>
+          )}
 
           {/* Preview Environment Warning */}
           {inPreview && (

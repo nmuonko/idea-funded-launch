@@ -51,10 +51,21 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("[create-manual-transfer-session] Processing order:", order_id);
 
-    // Verify order exists
+    // Verify order exists and get customer info
     const { data: order, error: orderError } = await supabase
       .from("orders")
-      .select("id, status")
+      .select(`
+        id, 
+        status,
+        total_usd,
+        total_cdf,
+        user_id,
+        profiles!orders_user_id_fkey (
+          full_name,
+          email,
+          phone
+        )
+      `)
       .eq("id", order_id)
       .single();
 
@@ -114,6 +125,28 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     console.log("[create-manual-transfer-session] Created new session:", newSession.id);
+
+    // Trigger notification for large transfers ($1000+)
+    const amountUsd = Number(order.total_usd) || 0;
+    if (amountUsd >= 1000) {
+      try {
+        const profile = order.profiles as { full_name?: string; email?: string; phone?: string } | null;
+        await supabase.functions.invoke("notify-large-bank-transfer", {
+          body: {
+            order_id,
+            reference: newSession.reference,
+            amount_usd: amountUsd,
+            amount_cdf: Number(order.total_cdf) || undefined,
+            customer_name: profile?.full_name,
+            customer_email: profile?.email,
+            customer_phone: profile?.phone,
+          },
+        });
+        console.log("[create-manual-transfer-session] Large transfer notification sent");
+      } catch (notifyErr) {
+        console.error("[create-manual-transfer-session] Notification error (non-blocking):", notifyErr);
+      }
+    }
 
     return new Response(
       JSON.stringify({

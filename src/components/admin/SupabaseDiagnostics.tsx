@@ -3,12 +3,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle, XCircle, AlertTriangle, Wifi, Server, Shield, Zap } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, AlertTriangle, Wifi, Server, Shield, Zap, ShieldAlert } from 'lucide-react';
 import { 
   getSupabaseConfig, 
   testSupabaseHealth, 
   testSupabaseRest,
   testSupabaseClient,
+  checkForBlockers,
   type HealthCheckResult 
 } from '@/lib/supabaseHealth';
 
@@ -85,6 +86,23 @@ const ResultDisplay = ({ result, label }: { result: HealthCheckResult | null; la
         </Alert>
       )}
       
+      {result.errorType === 'network_error' && (
+        <Alert className="mt-2 border-amber-500/50 bg-amber-500/10">
+          <ShieldAlert className="h-4 w-4 text-amber-500" />
+          <AlertTitle>Network Blocked</AlertTitle>
+          <AlertDescription className="text-xs">
+            <strong>Common causes:</strong>
+            <ul className="list-disc ml-4 mt-1 space-y-1">
+              <li>Ad blocker or privacy extension (uBlock, Privacy Badger, etc.) blocking "supabase.co"</li>
+              <li>Corporate firewall or proxy</li>
+              <li>VPN interference</li>
+              <li>Browser privacy settings</li>
+            </ul>
+            <p className="mt-2 font-semibold">Try: Disable ad blockers, use incognito mode, or try a different browser.</p>
+          </AlertDescription>
+        </Alert>
+      )}
+      
       {result.errorType === 'env_missing' && (
         <Alert className="mt-2 border-amber-500/50 bg-amber-500/10">
           <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -103,7 +121,8 @@ export default function SupabaseDiagnostics() {
   const [healthResult, setHealthResult] = useState<HealthCheckResult | null>(null);
   const [restResult, setRestResult] = useState<HealthCheckResult | null>(null);
   const [clientResult, setClientResult] = useState<HealthCheckResult | null>(null);
-  const [loading, setLoading] = useState<'health' | 'rest' | 'client' | null>(null);
+  const [blockerResult, setBlockerResult] = useState<{ blocked: boolean; reason: string } | null>(null);
+  const [loading, setLoading] = useState<'health' | 'rest' | 'client' | 'blocker' | null>(null);
   
   const config = getSupabaseConfig();
   const isDev = import.meta.env.DEV;
@@ -126,6 +145,13 @@ export default function SupabaseDiagnostics() {
     setLoading('client');
     const result = await testSupabaseClient();
     setClientResult(result);
+    setLoading(null);
+  };
+  
+  const runBlockerCheck = async () => {
+    setLoading('blocker');
+    const result = await checkForBlockers();
+    setBlockerResult(result);
     setLoading(null);
   };
   
@@ -207,7 +233,32 @@ export default function SupabaseDiagnostics() {
             )}
             Test Supabase Client
           </Button>
+          
+          <Button 
+            variant="secondary" 
+            size="sm" 
+            onClick={runBlockerCheck}
+            disabled={loading !== null}
+          >
+            {loading === 'blocker' ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <ShieldAlert className="h-4 w-4 mr-2" />
+            )}
+            Check for Blockers
+          </Button>
         </div>
+        
+        {/* Blocker Check Result */}
+        {blockerResult && (
+          <Alert variant={blockerResult.blocked ? 'destructive' : 'default'} className="mt-2">
+            <ShieldAlert className="h-4 w-4" />
+            <AlertTitle>{blockerResult.blocked ? 'Network Blocking Detected' : 'External Requests Work'}</AlertTitle>
+            <AlertDescription className="text-xs">
+              {blockerResult.reason}
+            </AlertDescription>
+          </Alert>
+        )}
         
         {/* Results */}
         <ResultDisplay result={clientResult} label="Supabase Client (getSession)" />

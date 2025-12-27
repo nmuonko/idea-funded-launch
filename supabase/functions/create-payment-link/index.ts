@@ -159,26 +159,73 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    const totalUsd = Number(order.total_usd || 0);
+    // CRITICAL: All amounts in DOLLARS (not cents!) and whole CDF
+    const totalUsdDollars = Number(order.total_usd || 0);
     const fxRate = settings?.exchange_rate_usd_to_cdf || order.exchange_rate_used || 2500;
-    const totalCdf = Math.round(totalUsd * fxRate);
-    const maxUsd = settings?.maishapay_max_usd || 5000;
-    const maxCdf = settings?.maishapay_max_cdf || 30000000;
+    const totalCdfUnits = Math.round(totalUsdDollars * fxRate);
+    const maxUsdDollars = settings?.maishapay_max_usd || 5000;
+    const maxCdfUnits = settings?.maishapay_max_cdf || 30000000;
 
     // Generate reference
     const reference = generateReference(order_id, order.user_id);
 
-    // Determine if this requires bank transfer (amount exceeds limits)
-    const requiresBankTransfer = totalUsd > maxUsd && totalCdf > maxCdf;
+    /**
+     * PAYMENT FLOW DECISION LOGIC:
+     * 
+     * 1. If total_usd <= 5000 → MAISHAPAY (USD payment)
+     * 2. If total_usd > 5000 AND total_cdf <= 30M → MAISHAPAY_CDF_FORCED (CDF payment)
+     * 3. If total_cdf > 30M → BANK_TRANSFER
+     */
+    type PaymentFlow = 'MAISHAPAY' | 'MAISHAPAY_CDF_FORCED' | 'BANK_TRANSFER';
+    
+    let payment_flow: PaymentFlow;
+    let payable_currency: 'USD' | 'CDF';
+    let payable_amount: number;
+
+    if (totalUsdDollars <= maxUsdDollars) {
+      // RULE 1: USD within MaishaPay limit
+      payment_flow = 'MAISHAPAY';
+      payable_currency = 'USD';
+      payable_amount = Math.round(totalUsdDollars * 100) / 100;
+    } else if (totalCdfUnits <= maxCdfUnits) {
+      // RULE 2: USD exceeds limit, but CDF conversion is within limit
+      payment_flow = 'MAISHAPAY_CDF_FORCED';
+      payable_currency = 'CDF';
+      payable_amount = totalCdfUnits;
+    } else {
+      // RULE 3: Both limits exceeded → Bank transfer required
+      payment_flow = 'BANK_TRANSFER';
+      payable_currency = 'USD';
+      payable_amount = Math.round(totalUsdDollars * 100) / 100;
+    }
+
+    // STRUCTURED LOG: Payment flow decision with all inputs
+    logCheckoutEvent(requestId, 'CHECKOUT_LIMITS_DECISION', {
+      order_id,
+      total_usd_dollars: totalUsdDollars,
+      total_usd_cents: Math.round(totalUsdDollars * 100),
+      total_cdf_units: totalCdfUnits,
+      usd_limit_dollars: maxUsdDollars,
+      cdf_limit_units: maxCdfUnits,
+      fx_rate: fxRate,
+      payment_flow,
+      payable_currency,
+      payable_amount,
+      usd_exceeds_limit: totalUsdDollars > maxUsdDollars,
+      cdf_exceeds_limit: totalCdfUnits > maxCdfUnits,
+    });
+
+    // Only require bank transfer when payment_flow is BANK_TRANSFER
+    const requiresBankTransfer = payment_flow === 'BANK_TRANSFER';
 
     if (requiresBankTransfer) {
       logCheckoutEvent(requestId, 'MANUAL_MODE_REQUIRED', {
         order_id,
-        total_usd: totalUsd,
-        total_cdf: totalCdf,
-        max_usd: maxUsd,
-        max_cdf: maxCdf,
-        reason: 'amount_exceeds_limits',
+        total_usd_dollars: totalUsdDollars,
+        total_cdf_units: totalCdfUnits,
+        max_usd_dollars: maxUsdDollars,
+        max_cdf_units: maxCdfUnits,
+        reason: 'amount_exceeds_all_limits',
       });
 
       // Get bank details
@@ -189,10 +236,10 @@ serve(async (req) => {
         return buildManualResponse({
           order_id,
           reference,
-          amount: totalUsd,
+          amount: totalUsdDollars,
           currency: 'USD',
           fx_rate: fxRate,
-          amount_cdf: totalCdf,
+          amount_cdf: totalCdfUnits,
           bank_transfer: {
             beneficiary_name: 'Contact Support',
             bank_name: 'Contact support for bank details',
@@ -214,8 +261,8 @@ serve(async (req) => {
         .update({
           status: 'PENDING_PAYMENT',
           maisha_transaction_id: reference,
-          normalized_currency: 'USD',
-          normalized_amount: totalUsd,
+          normalized_currency: payable_currency,
+          normalized_amount: payable_amount,
           updated_at: new Date().toISOString(),
         })
         .eq('id', order_id);
@@ -224,10 +271,10 @@ serve(async (req) => {
       return buildManualResponse({
         order_id,
         reference,
-        amount: totalUsd,
+        amount: totalUsdDollars,
         currency: 'USD',
         fx_rate: fxRate,
-        amount_cdf: totalCdf,
+        amount_cdf: totalCdfUnits,
         bank_transfer: bankDetails,
       });
     }
@@ -246,6 +293,8 @@ serve(async (req) => {
         order_id,
         link_id: existingLink.id,
         expires_at: existingLink.expires_at,
+        payment_flow,
+        payable_currency,
       });
 
       const url = `${frontendBaseUrl}/pay/${existingLink.token}`;
@@ -254,10 +303,10 @@ serve(async (req) => {
         order_id,
         reference,
         redirect_url: url,
-        amount: totalUsd,
-        currency: 'USD',
+        amount: payable_amount,
+        currency: payable_currency,
         fx_rate: fxRate,
-        amount_cdf: totalCdf,
+        amount_cdf: totalCdfUnits,
         reused: true,
       });
     }
@@ -292,10 +341,10 @@ serve(async (req) => {
       return buildManualResponse({
         order_id,
         reference,
-        amount: totalUsd,
+        amount: totalUsdDollars,
         currency: 'USD',
         fx_rate: fxRate,
-        amount_cdf: totalCdf,
+        amount_cdf: totalCdfUnits,
         bank_transfer: bankDetails || {
           beneficiary_name: 'Contact Support',
           bank_name: 'Contact support for bank details',
@@ -313,7 +362,10 @@ serve(async (req) => {
     logCheckoutEvent(requestId, 'LINK_CREATED', {
       order_id,
       link_id: newLink.id,
-      total_usd: totalUsd,
+      total_usd_dollars: totalUsdDollars,
+      payment_flow,
+      payable_currency,
+      payable_amount,
       mode: 'redirect',
     });
 
@@ -323,10 +375,10 @@ serve(async (req) => {
       order_id,
       reference,
       redirect_url: url,
-      amount: totalUsd,
-      currency: 'USD',
+      amount: payable_amount,
+      currency: payable_currency,
       fx_rate: fxRate,
-      amount_cdf: totalCdf,
+      amount_cdf: totalCdfUnits,
       reused: false,
     });
 

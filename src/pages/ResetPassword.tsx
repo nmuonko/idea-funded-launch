@@ -148,10 +148,7 @@ export default function ResetPassword() {
       // Clear URL hash
       window.history.replaceState(null, '', window.location.pathname);
       
-      // Redirect after delay
-      setTimeout(() => {
-        navigate('/auth', { replace: true });
-      }, 3000);
+      // Do NOT auto-redirect - let user click button
     } catch (err: any) {
       toast({
         title: 'Error',
@@ -193,11 +190,16 @@ export default function ResetPassword() {
             <div className="mx-auto mb-4">
               <CheckCircle className="h-12 w-12 text-green-500" />
             </div>
-            <CardTitle>Mot de passe mis à jour !</CardTitle>
+            <CardTitle>Mot de passe mis à jour avec succès ✅</CardTitle>
             <CardDescription>
-              Redirection vers la connexion...
+              Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.
             </CardDescription>
           </CardHeader>
+          <CardContent>
+            <Button onClick={() => navigate('/auth', { replace: true })} className="w-full">
+              Se connecter
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );

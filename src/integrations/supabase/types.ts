@@ -286,6 +286,45 @@ export type Database = {
           },
         ]
       }
+      bank_transfer_submissions: {
+        Row: {
+          contact: string | null
+          created_at: string
+          file_path: string
+          id: string
+          name: string | null
+          notes: string | null
+          reference: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+        }
+        Insert: {
+          contact?: string | null
+          created_at?: string
+          file_path: string
+          id?: string
+          name?: string | null
+          notes?: string | null
+          reference: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Update: {
+          contact?: string | null
+          created_at?: string
+          file_path?: string
+          id?: string
+          name?: string | null
+          notes?: string | null
+          reference?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       bank_transfer_view_tokens: {
         Row: {
           created_at: string | null

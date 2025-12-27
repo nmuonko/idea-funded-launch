@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle, Stethoscope } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { isLovablePreview } from '@/lib/environment';
+import { NetworkBlockedBanner } from '@/components/NetworkBlockedBanner';
 
 // Lazy load diagnostics panel - allow in DEV, ?debug=true, or after auth error
 const SupabaseDiagnostics = lazy(() => import('@/components/admin/SupabaseDiagnostics'));
@@ -22,6 +23,7 @@ export default function Auth() {
   const debugParam = searchParams.get('debug') === 'true';
   const isAdminMode = searchParams.get('mode') === 'admin';
   const [showDiagnosticsPanel, setShowDiagnosticsPanel] = useState(isDev || debugParam);
+  const [networkBlocked, setNetworkBlocked] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -53,11 +55,12 @@ export default function Auth() {
     const { error, userId } = await signIn(email, password, rememberMe);
     
     if (error) {
-      // Show diagnostics panel on production network errors
+      // Show network blocked banner on production network errors
       const isNetworkError = error.message === 'Failed to fetch' || error.name === 'TypeError';
       if (isNetworkError && !isLovablePreview()) {
+        console.error('[Auth] Network error detected - showing blocked banner');
+        setNetworkBlocked(true);
         setAuthError(true);
-        setShowDiagnosticsPanel(true);
       }
       setLoading(false);
       return;
@@ -213,15 +216,25 @@ export default function Auth() {
             />
           </div>
 
-          {/* Diagnostics Panel - DEV, ?debug=true, or after auth error */}
-          {showDiagnosticsPanel && (
+          {/* Network Blocked Banner - shown when Supabase is unreachable */}
+          {networkBlocked && (
+            <NetworkBlockedBanner 
+              onRetrySuccess={() => {
+                setNetworkBlocked(false);
+                setAuthError(false);
+              }} 
+            />
+          )}
+
+          {/* Diagnostics Panel - DEV, ?debug=true, or after auth error (but not if network blocked banner shown) */}
+          {showDiagnosticsPanel && !networkBlocked && (
             <Suspense fallback={<div className="animate-pulse h-32 bg-muted/20 rounded-lg" />}>
               <SupabaseDiagnostics />
             </Suspense>
           )}
           
           {/* Show Run Diagnostics button if there was an auth error but panel is hidden */}
-          {authError && !showDiagnosticsPanel && (
+          {authError && !showDiagnosticsPanel && !networkBlocked && (
             <Button
               variant="outline"
               className="w-full border-amber-500/50 text-amber-500 hover:bg-amber-500/10"

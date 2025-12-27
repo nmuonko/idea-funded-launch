@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { isLovablePreview } from '@/lib/environment';
 
 export interface UserProfile {
   id: string;
@@ -299,6 +300,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       console.log('[Auth] Attempting sign in for:', email);
       
+      // Check if we're in the Lovable preview environment
+      const inPreview = isLovablePreview();
+      if (inPreview) {
+        console.warn('[Auth] Running in Lovable preview - auth may be restricted');
+      }
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -309,16 +316,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         // Map common auth errors to user-friendly messages
         let userMessage = error.message;
+        let title = 'Authentication Failed';
+        
         if (error.message === 'Invalid login credentials') {
           userMessage = 'Invalid email or password. Please try again.';
         } else if (error.message?.includes('Email not confirmed')) {
           userMessage = 'Please check your email and confirm your account before signing in.';
         } else if (error.message === 'Failed to fetch') {
-          userMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+          // Check if this is a preview environment issue
+          if (inPreview) {
+            title = 'Preview Environment';
+            userMessage = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
+          } else {
+            userMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+          }
         }
         
         toast({
-          title: 'Authentication Failed',
+          title,
           description: userMessage,
           variant: 'destructive',
         });
@@ -344,9 +359,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) {
       console.error('[Auth] Sign in exception:', error.message);
       
+      // Check if this is a preview environment issue
+      const inPreview = isLovablePreview();
+      const isNetworkError = error.message === 'Failed to fetch' || error.name === 'TypeError';
+      
+      let title = 'Connection Error';
+      let description = 'Unable to connect to the authentication server. Please try again.';
+      
+      if (inPreview && isNetworkError) {
+        title = 'Preview Environment';
+        description = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
+      }
+      
       toast({
-        title: 'Connection Error',
-        description: 'Unable to connect to the authentication server. Please try again.',
+        title,
+        description,
         variant: 'destructive',
       });
       return { error, userId: null };

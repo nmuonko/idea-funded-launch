@@ -8,9 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, ArrowLeft, Shield, KeyRound } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
-
+import { isLovablePreview } from '@/lib/environment';
 export default function Auth() {
   const [searchParams] = useSearchParams();
   const isAdminMode = searchParams.get('mode') === 'admin';
@@ -24,7 +25,8 @@ export default function Auth() {
   const { signIn, checkAdminStatus } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
-
+  
+  const inPreview = isLovablePreview();
   // Detect recovery token in URL hash
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -163,6 +165,17 @@ export default function Auth() {
               className="h-28 md:h-36 w-auto drop-shadow-[0_0_30px_rgba(59,130,246,0.4)]"
             />
           </div>
+
+          {/* Preview Environment Warning */}
+          {inPreview && (
+            <Alert variant="destructive" className="bg-destructive/10 border-destructive/30 animate-fade-in">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                You're in the preview environment. Authentication may not work here. 
+                Please test on <a href="https://afrishop-usa.com/auth" className="underline font-medium">afrishop-usa.com</a>.
+              </AlertDescription>
+            </Alert>
+          )}
 
           {/* Login Card */}
           <Card className="bg-card/50 backdrop-blur-xl border-border/30 shadow-2xl animate-scale-in">

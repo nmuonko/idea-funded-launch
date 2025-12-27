@@ -52,13 +52,23 @@ export const validateEnvVariables = (): { valid: boolean; errors: string[] } => 
 
 const classifyError = (error: any): HealthCheckResult['errorType'] => {
   const message = error?.message || String(error);
+  const errorName = error?.name || '';
   
+  // CSP blocking
   if (message.includes('Refused to connect') || message.includes('Content Security Policy')) {
     return 'csp_blocked';
   }
-  if (message === 'Failed to fetch' || error?.name === 'TypeError') {
+  
+  // CORS errors often manifest as TypeError with "Failed to fetch"
+  if (message === 'Failed to fetch' || errorName === 'TypeError') {
     return 'network_error';
   }
+  
+  // Network errors
+  if (message.includes('NetworkError') || message.includes('net::ERR')) {
+    return 'network_error';
+  }
+  
   return 'unknown';
 };
 
@@ -91,8 +101,10 @@ export const testSupabaseHealth = async (): Promise<HealthCheckResult> => {
   try {
     const response = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
       method: 'GET',
+      mode: 'cors',
       headers: {
         'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
       },
     });
     
@@ -117,11 +129,21 @@ export const testSupabaseHealth = async (): Promise<HealthCheckResult> => {
       latencyMs,
     };
   } catch (error: any) {
+    const latencyMs = Date.now() - startTime;
+    const errorType = classifyError(error);
+    
+    // Add more details for network errors
+    let details = '';
+    if (errorType === 'network_error') {
+      details = `This could be a CORS preflight failure, DNS issue, or the server is unreachable. Error name: ${error.name}`;
+    }
+    
     return {
       success: false,
       error: error.message,
-      errorType: classifyError(error),
-      latencyMs: Date.now() - startTime,
+      errorType,
+      latencyMs,
+      details,
     };
   }
 };
@@ -140,8 +162,10 @@ export const testSupabaseRest = async (): Promise<HealthCheckResult> => {
   try {
     const response = await fetch(`${SUPABASE_URL}/rest/v1/`, {
       method: 'GET',
+      mode: 'cors',
       headers: {
         'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
       },
     });
     
@@ -166,11 +190,65 @@ export const testSupabaseRest = async (): Promise<HealthCheckResult> => {
       latencyMs,
     };
   } catch (error: any) {
+    const latencyMs = Date.now() - startTime;
+    const errorType = classifyError(error);
+    
+    let details = '';
+    if (errorType === 'network_error') {
+      details = `This could be a CORS preflight failure, DNS issue, or the server is unreachable. Error name: ${error.name}`;
+    }
+    
+    return {
+      success: false,
+      error: error.message,
+      errorType,
+      latencyMs,
+      details,
+    };
+  }
+};
+
+/**
+ * Test using the actual Supabase client (not raw fetch)
+ * This helps distinguish between fetch issues and client configuration issues
+ */
+export const testSupabaseClient = async (): Promise<HealthCheckResult> => {
+  const startTime = Date.now();
+  
+  try {
+    // Dynamic import to avoid circular dependency
+    const { supabase } = await import('@/integrations/supabase/client');
+    
+    // Try to get the session - this uses the configured Supabase client
+    const { data, error } = await supabase.auth.getSession();
+    
+    const latencyMs = Date.now() - startTime;
+    
+    if (error) {
+      return {
+        success: false,
+        error: error.message,
+        errorType: classifyError(error),
+        latencyMs,
+        details: `Supabase client error: ${error.name || 'Unknown'}`,
+      };
+    }
+    
+    return {
+      success: true,
+      status: 200,
+      statusText: 'OK',
+      errorType: 'none',
+      latencyMs,
+      details: data.session ? 'Session exists' : 'No active session (expected if not logged in)',
+    };
+  } catch (error: any) {
     return {
       success: false,
       error: error.message,
       errorType: classifyError(error),
       latencyMs: Date.now() - startTime,
+      details: `Client exception: ${error.name}`,
     };
   }
 };

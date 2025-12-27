@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- CSP handled by hosting platform -->
+    <!-- Fallback CSP - allows Supabase connections if hosting platform CSP is misconfigured -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://*.supabase.in wss://*.supabase.co wss://*.supabase.in; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; frame-ancestors 'self';" />
     <title>AfriShop - From USA to You | Admin Portal</title>
     <meta name="description" content="AfriShop Admin Portal - Manage orders, payments, shipping, and customer support for USA to DRC e-commerce operations." />
     <meta name="author" content="AfriShop" />

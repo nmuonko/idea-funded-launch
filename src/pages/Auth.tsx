@@ -9,18 +9,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle } from 'lucide-react';
+import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle, Stethoscope } from 'lucide-react';
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { isLovablePreview } from '@/lib/environment';
 
-// Lazy load diagnostics panel - allow in DEV or with ?debug=true
+// Lazy load diagnostics panel - allow in DEV, ?debug=true, or after auth error
 const SupabaseDiagnostics = lazy(() => import('@/components/admin/SupabaseDiagnostics'));
 const isDev = import.meta.env.DEV;
 
 export default function Auth() {
   const [searchParams] = useSearchParams();
-  const showDiagnostics = isDev || searchParams.get('debug') === 'true';
+  const debugParam = searchParams.get('debug') === 'true';
   const isAdminMode = searchParams.get('mode') === 'admin';
+  const [showDiagnosticsPanel, setShowDiagnosticsPanel] = useState(isDev || debugParam);
+  const [authError, setAuthError] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -46,9 +48,18 @@ export default function Auth() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setAuthError(false);
+    
     const { error, userId } = await signIn(email, password, rememberMe);
     
-    if (!error && userId) {
+    if (error) {
+      // Show diagnostics panel on production network errors
+      const isNetworkError = error.message === 'Failed to fetch' || error.name === 'TypeError';
+      if (isNetworkError && !isLovablePreview()) {
+        setAuthError(true);
+        setShowDiagnosticsPanel(true);
+      }
+    } else if (userId) {
       // Check if user is admin using the returned userId
       const isAdminUser = await checkAdminStatus(userId);
       if (isAdminUser) {
@@ -172,11 +183,23 @@ export default function Auth() {
             />
           </div>
 
-          {/* Diagnostics Panel - DEV or ?debug=true */}
-          {showDiagnostics && (
+          {/* Diagnostics Panel - DEV, ?debug=true, or after auth error */}
+          {showDiagnosticsPanel && (
             <Suspense fallback={<div className="animate-pulse h-32 bg-muted/20 rounded-lg" />}>
               <SupabaseDiagnostics />
             </Suspense>
+          )}
+          
+          {/* Show Run Diagnostics button if there was an auth error but panel is hidden */}
+          {authError && !showDiagnosticsPanel && (
+            <Button
+              variant="outline"
+              className="w-full border-amber-500/50 text-amber-500 hover:bg-amber-500/10"
+              onClick={() => setShowDiagnosticsPanel(true)}
+            >
+              <Stethoscope className="mr-2 h-4 w-4" />
+              Run Diagnostics
+            </Button>
           )}
 
           {/* Preview Environment Warning */}

@@ -15,6 +15,7 @@ import { PendingActionsSidebar } from '@/components/admin/dashboard/PendingActio
 import { OperationalInsightsTabs } from '@/components/admin/dashboard/OperationalInsightsTabs';
 import { DateRangeFilter, type DateRange, getDateRangeFromPreset } from '@/components/admin/dashboard/DateRangeFilter';
 import { CustomerOverviewWidget } from '@/components/admin/dashboard/CustomerOverviewWidget';
+import { PendingBankTransfersWidget } from '@/components/admin/dashboard/PendingBankTransfersWidget';
 
 interface DashboardStats {
   totalOrders: number;
@@ -163,11 +164,14 @@ export default function AdminDashboard() {
           {/* B. Primary Chart with Tabs (Orders Overview + Conversion) */}
           <ChartTabs dateRange={dateRange} />
 
-          {/* C. Operational Insights - Tabbed (Shipping, Payments, Saved Carts) */}
+          {/* C. Pending Bank Transfers Widget */}
+          <PendingBankTransfersWidget />
+
+          {/* D. Operational Insights - Tabbed (Shipping, Payments, Saved Carts) */}
           <OperationalInsightsTabs dateRange={dateRange} />
         </div>
 
-        {/* D. Right Side Panel - Slim Sticky Sidebar */}
+        {/* E. Right Side Panel - Slim Sticky Sidebar */}
         <div className="lg:sticky lg:top-4 lg:self-start space-y-6">
           <PendingActionsSidebar />
           <AIActionsPanel />

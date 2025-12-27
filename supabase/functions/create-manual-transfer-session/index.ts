@@ -148,6 +148,20 @@ serve(async (req: Request): Promise<Response> => {
       }
     }
 
+    // Generate secure bank transfer view link
+    let bankTransferUrl: string | undefined;
+    try {
+      const { data: linkResult } = await supabase.functions.invoke("create-bank-transfer-view-link", {
+        body: { order_id },
+      });
+      if (linkResult?.ok && linkResult?.url) {
+        bankTransferUrl = linkResult.url;
+        console.log("[create-manual-transfer-session] Bank transfer view URL:", bankTransferUrl);
+      }
+    } catch (linkErr) {
+      console.error("[create-manual-transfer-session] Failed to create bank view link (non-blocking):", linkErr);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
@@ -155,6 +169,7 @@ serve(async (req: Request): Promise<Response> => {
         upload_token: newSession.upload_token,
         reference: newSession.reference,
         url: `${frontendBaseUrl}/manual-transfer/${newSession.upload_token}`,
+        bank_transfer_url: bankTransferUrl,
         expires_at: newSession.expires_at,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

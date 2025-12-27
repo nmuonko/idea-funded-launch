@@ -12,6 +12,7 @@ import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
+import BankTransfer from "./pages/BankTransfer";
 import PaymentLink from "./pages/PaymentLink";
 import PaymentLinkTest from "./pages/PaymentLinkTest";
 import ManualTransfer from "./pages/ManualTransfer";
@@ -45,6 +46,7 @@ import AuditLog from "./pages/admin/AuditLog";
 import QuoteRequests from "./pages/admin/QuoteRequests";
 import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
+import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -113,7 +115,8 @@ const App = () => {
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/pay/:token" element={<PaymentLink />} />
             <Route path="/pay-test" element={<PaymentLinkTest />} />
-            <Route path="/bank-transfer" element={<BankTransferInfo />} />
+            <Route path="/bank-transfer" element={<BankTransfer />} />
+            <Route path="/bank-transfer-info" element={<BankTransferInfo />} />
             <Route path="/manual-transfer/:uploadToken" element={<ManualTransfer />} />
             
             <Route path="/admin" element={
@@ -231,6 +234,11 @@ const App = () => {
               <Route path="health" element={
                 <AdminRouteGuard requiredPermission="can_view_dashboard">
                   <AdminHealth />
+                </AdminRouteGuard>
+              } />
+              <Route path="bank-transfer-settings" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <BankTransferSettings />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

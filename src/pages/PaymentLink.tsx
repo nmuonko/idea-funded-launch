@@ -278,11 +278,9 @@ export default function PaymentLink() {
 
   if (!data) return null;
 
-  // Manual Bank Payment UI
-  if (data.decision === 'MANUAL_BANK' && data.bank_details) {
-    const instructions = language === 'fr' 
-      ? data.bank_details.instructions_fr 
-      : data.bank_details.instructions_en;
+  // Manual Bank Payment UI - Simplified with link to bank details page
+  if (data.decision === 'MANUAL_BANK') {
+    const bankTransferUrl = `/bank-transfer?ref=${encodeURIComponent(data.reference_code || '')}&amount=${data.total_usd?.toFixed(2) || ''}&amount_cdf=${data.total_cdf || ''}&currency=USD`;
 
     return (
       <div className="min-h-screen bg-background py-8 px-4">
@@ -312,11 +310,21 @@ export default function PaymentLink() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">
                   {language === 'fr' ? 'Référence' : 'Reference'}
                 </span>
-                <span className="font-mono font-medium">{data.reference_code}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-medium">{data.reference_code}</span>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => copyToClipboard(data.reference_code!, 'ref')}
+                  >
+                    {copied === 'ref' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
@@ -341,113 +349,42 @@ export default function PaymentLink() {
             </CardContent>
           </Card>
 
-          {/* Bank Details */}
+          {/* Bank Details Link */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {language === 'fr' ? 'Coordonnées bancaires' : 'Bank Details'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <BankField 
-                label={language === 'fr' ? 'Banque' : 'Bank'}
-                value={data.bank_details.bank_name}
-                onCopy={() => copyToClipboard(data.bank_details!.bank_name, 'bank')}
-                copied={copied === 'bank'}
-              />
-              <BankField 
-                label={language === 'fr' ? 'Titulaire' : 'Account Holder'}
-                value={data.bank_details.account_holder}
-                onCopy={() => copyToClipboard(data.bank_details!.account_holder, 'holder')}
-                copied={copied === 'holder'}
-              />
-              <BankField 
-                label={language === 'fr' ? 'Numéro de compte' : 'Account Number'}
-                value={data.bank_details.account_number}
-                onCopy={() => copyToClipboard(data.bank_details!.account_number, 'account')}
-                copied={copied === 'account'}
-              />
-              <BankField 
-                label="SWIFT/BIC"
-                value={data.bank_details.swift}
-                onCopy={() => copyToClipboard(data.bank_details!.swift, 'swift')}
-                copied={copied === 'swift'}
-              />
-              {data.bank_details.iban && (
-                <BankField 
-                  label="IBAN"
-                  value={data.bank_details.iban}
-                  onCopy={() => copyToClipboard(data.bank_details!.iban!, 'iban')}
-                  copied={copied === 'iban'}
-                />
-              )}
-              {data.bank_details.bank_address && (
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">
-                    {language === 'fr' ? 'Adresse de la banque' : 'Bank Address'}
-                  </p>
-                  <p className="text-sm">{data.bank_details.bank_address}</p>
-                </div>
-              )}
+            <CardContent className="pt-6 space-y-4">
+              <p className="text-center text-muted-foreground">
+                {language === 'fr' 
+                  ? 'Cliquez ci-dessous pour voir les coordonnées bancaires complètes et les instructions.'
+                  : 'Click below to see complete bank details and instructions.'}
+              </p>
+              <Button 
+                className="w-full"
+                size="lg"
+                onClick={() => navigate(bankTransferUrl)}
+              >
+                <Building2 className="mr-2 h-5 w-5" />
+                {language === 'fr' ? 'Voir les coordonnées bancaires' : 'View Full Bank Transfer Details'}
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </Button>
+            </CardContent>
+          </Card>
 
-              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mt-4">
-                <p className="text-sm font-medium text-primary mb-2">
-                  ⚠️ {language === 'fr' ? 'Référence de paiement obligatoire' : 'Required Payment Reference'}
-                </p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 bg-background rounded px-3 py-2 font-mono text-sm">
-                    {data.reference_code}
-                  </code>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => copyToClipboard(data.reference_code!, 'ref')}
-                  >
-                    {copied === 'ref' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
+          {/* Important Note */}
+          <Card className="border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20">
+            <CardContent className="pt-6">
+              <div className="flex gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-amber-800 dark:text-amber-200">
+                    {language === 'fr' ? 'Important' : 'Important'}
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-300 mt-1">
+                    {language === 'fr' 
+                      ? `Incluez la référence "${data.reference_code}" dans le libellé de votre virement.`
+                      : `Include reference "${data.reference_code}" in your transfer description.`}
+                  </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Instructions */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {language === 'fr' ? 'Instructions' : 'Instructions'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground whitespace-pre-line">{instructions}</p>
-            </CardContent>
-          </Card>
-
-          {/* Support Contact */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {language === 'fr' ? 'Envoyer la preuve de paiement' : 'Send Payment Proof'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <a 
-                href={`https://wa.me/${data.bank_details.support_whatsapp.replace(/[^0-9]/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 bg-green-500/10 hover:bg-green-500/20 rounded-lg transition-colors"
-              >
-                <Phone className="h-5 w-5 text-green-600" />
-                <span className="flex-1">WhatsApp: {data.bank_details.support_whatsapp}</span>
-                <ExternalLink className="h-4 w-4 text-muted-foreground" />
-              </a>
-              <a 
-                href={`mailto:${data.bank_details.support_email}?subject=Payment Proof - ${data.reference_code}`}
-                className="flex items-center gap-3 p-3 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg transition-colors"
-              >
-                <Mail className="h-5 w-5 text-blue-600" />
-                <span className="flex-1">{data.bank_details.support_email}</span>
-                <ExternalLink className="h-4 w-4 text-muted-foreground" />
-              </a>
             </CardContent>
           </Card>
         </div>

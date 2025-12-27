@@ -79,11 +79,35 @@ export const getRecommendation = (errorType: HealthCheckResult['errorType']): st
     case 'csp_blocked':
       return 'Content Security Policy is blocking Supabase connections. This is a hosting configuration issue. Contact support.';
     case 'network_error':
-      return 'Unable to reach the server. Check your internet connection or try again later.';
+      return 'Unable to reach the server. This is often caused by: 1) Ad blocker or privacy extension blocking "supabase.co", 2) Corporate firewall, 3) VPN interference. Try disabling ad blockers or using incognito mode.';
     case 'auth_error':
       return 'Authentication configuration error. The API key may be invalid. Contact support.';
     default:
       return 'An unexpected error occurred. Please try again or contact support.';
+  }
+};
+
+/**
+ * Check if the browser might be blocking requests (ad blocker detection)
+ */
+export const checkForBlockers = async (): Promise<{ blocked: boolean; reason: string }> => {
+  try {
+    // Try a simple fetch to a known working endpoint
+    const testController = new AbortController();
+    const timeoutId = setTimeout(() => testController.abort(), 5000);
+    
+    const response = await fetch('https://www.google.com/favicon.ico', {
+      method: 'HEAD',
+      mode: 'no-cors',
+      signal: testController.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    // If we can reach Google but not Supabase, likely an ad blocker
+    return { blocked: false, reason: 'External requests work - Supabase might be specifically blocked' };
+  } catch {
+    return { blocked: true, reason: 'All external requests blocked - check network/firewall' };
   }
 };
 

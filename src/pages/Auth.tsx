@@ -59,14 +59,44 @@ export default function Auth() {
         setAuthError(true);
         setShowDiagnosticsPanel(true);
       }
-    } else if (userId) {
-      // Check if user is admin using the returned userId
-      const isAdminUser = await checkAdminStatus(userId);
+      setLoading(false);
+      return;
+    }
+    
+    if (userId) {
+      // Check if user is admin with retry logic for network errors
+      let isAdminUser = false;
+      let networkError = false;
+      
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`[Auth] Admin check attempt ${attempt}/3`);
+          isAdminUser = await checkAdminStatus(userId);
+          networkError = false;
+          break; // Success - exit retry loop
+        } catch (err: any) {
+          console.error(`[Auth] Admin check attempt ${attempt} failed:`, err.message);
+          networkError = true;
+          if (attempt < 3) {
+            // Exponential backoff: 1s, 2s
+            await new Promise(r => setTimeout(r, 1000 * attempt));
+          }
+        }
+      }
+      
       if (isAdminUser) {
         navigate('/admin');
+      } else if (networkError) {
+        // Network error after 3 retries - DO NOT sign out, show retry option
+        setAuthError(true);
+        setShowDiagnosticsPanel(true);
+        toast({
+          title: 'Connection Error',
+          description: 'Could not verify admin permissions. Please check your connection and try again.',
+          variant: 'destructive',
+        });
       } else {
-        // Sign out and redirect to access denied page
-        await supabase.auth.signOut();
+        // Confirmed non-admin - redirect WITHOUT signing out (let them know they don't have access)
         navigate('/access-denied');
       }
     }

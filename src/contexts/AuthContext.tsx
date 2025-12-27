@@ -53,49 +53,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
+  /**
+   * Check if a user has admin role.
+   * THROWS on network errors so callers can distinguish network failure from confirmed non-admin.
+   */
   const checkAdminStatus = async (userId?: string): Promise<boolean> => {
-    try {
-      const uid = userId || user?.id;
-      
-      if (!uid) {
-        console.log('[Admin Check] No user ID available');
-        setIsAdmin(false);
-        return false;
-      }
-
-      console.log('[Admin Check] Checking user:', { uid });
-
-      // Direct query to user_roles table (RPC was hanging)
-      console.log('[Admin Check] Querying user_roles...');
-      const { data, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', uid)
-        .eq('role', 'admin')
-        .maybeSingle();
-
-      console.log('[Admin Check] Query Response:', { data, roleError });
-
-      if (roleError) {
-        console.error('[Admin Check] Error checking role:', roleError);
-        setIsAdmin(false);
-        return false;
-      }
-
-      if (data && data.role === 'admin') {
-        console.log('[Admin Check] ✅ User IS admin');
-        setIsAdmin(true);
-        return true;
-      }
-
-      console.log('[Admin Check] ❌ User is NOT admin');
-      setIsAdmin(false);
-      return false;
-    } catch (error) {
-      console.error('[Admin Check] Exception:', error);
+    const uid = userId || user?.id;
+    
+    if (!uid) {
+      console.log('[Admin Check] No user ID available');
       setIsAdmin(false);
       return false;
     }
+
+    console.log('[Admin Check] Checking user:', { uid });
+
+    // Direct query to user_roles table (RPC was hanging)
+    console.log('[Admin Check] Querying user_roles...');
+    const { data, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', uid)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    console.log('[Admin Check] Query Response:', { data, roleError });
+
+    if (roleError) {
+      console.error('[Admin Check] Network/query error:', roleError);
+      // THROW so callers can retry on network errors instead of treating as "not admin"
+      throw new Error(`Failed to verify admin status: ${roleError.message}`);
+    }
+
+    if (data && data.role === 'admin') {
+      console.log('[Admin Check] ✅ User IS admin');
+      setIsAdmin(true);
+      return true;
+    }
+
+    console.log('[Admin Check] ❌ User is NOT admin (confirmed)');
+    setIsAdmin(false);
+    return false;
   };
 
   // Load user profile from profiles table - creates one if missing

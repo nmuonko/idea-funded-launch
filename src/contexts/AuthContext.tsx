@@ -297,15 +297,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
+      // Preflight check: Validate Supabase config
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      
+      if (!supabaseUrl || !supabaseKey) {
+        console.error('[Auth] Missing Supabase config:', {
+          hasUrl: !!supabaseUrl,
+          hasKey: !!supabaseKey,
+          hostname: window.location.hostname,
+        });
+        toast({
+          title: 'Configuration Error',
+          description: 'Supabase environment variables are missing. Please contact the administrator.',
+          variant: 'destructive',
+        });
+        return { error: new Error('Missing Supabase configuration'), userId: null };
+      }
+
+      // Preflight health check - lightweight connectivity test
+      try {
+        const healthUrl = `${supabaseUrl}/auth/v1/health`;
+        console.log('[Auth] Preflight health check:', healthUrl);
+        
+        const healthResponse = await fetch(healthUrl, {
+          method: 'GET',
+          headers: {
+            'apikey': supabaseKey,
+          },
+        });
+        
+        if (!healthResponse.ok) {
+          console.warn('[Auth] Health check returned:', healthResponse.status);
+        } else {
+          console.log('[Auth] Health check passed');
+        }
+      } catch (healthError: any) {
+        console.error('[Auth] Preflight health check failed:', {
+          error: healthError.message,
+          name: healthError.name,
+          hostname: window.location.hostname,
+          supabaseUrl: supabaseUrl.replace(/https?:\/\//, '').split('.')[0] + '.supabase.co',
+        });
+        
+        // Check if CSP blocked the request
+        if (healthError.message?.includes('Content Security Policy') || 
+            healthError.message?.includes('CSP') ||
+            healthError.name === 'TypeError') {
+          toast({
+            title: 'Network Blocked',
+            description: 'Connection to authentication server is blocked. This may be a security policy (CSP) issue. Please contact support.',
+            variant: 'destructive',
+          });
+          return { error: healthError, userId: null };
+        }
+      }
+
+      // Proceed with actual sign-in
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
       
       if (error) {
+        console.error('[Auth] Sign in auth error:', {
+          message: error.message,
+          status: error.status,
+          code: (error as any).code,
+        });
+        
+        // Map common auth errors to user-friendly messages
+        let userMessage = error.message;
+        if (error.message === 'Invalid login credentials') {
+          userMessage = 'Invalid email or password. Please try again.';
+        } else if (error.message?.includes('Email not confirmed')) {
+          userMessage = 'Please check your email and confirm your account before signing in.';
+        }
+        
         toast({
-          title: 'Error',
-          description: error.message,
+          title: 'Authentication Failed',
+          description: userMessage,
           variant: 'destructive',
         });
         return { error, userId: null };
@@ -326,18 +397,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return { error: null, userId: data.user?.id ?? null };
     } catch (error: any) {
-      console.error('[Auth] Sign in error:', error);
+      console.error('[Auth] Sign in exception:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.split('\n').slice(0, 3),
+        hostname: window.location.hostname,
+        origin: window.location.origin,
+      });
       
-      // Handle network errors specifically
+      // Classify the error type
       const isNetworkError = error.message === 'Failed to fetch' || 
                              error.name === 'TypeError' ||
-                             error.message?.includes('network');
+                             error.message?.includes('network') ||
+                             error.message?.includes('CORS') ||
+                             error.message?.includes('blocked');
+      
+      const isCspError = error.message?.includes('Content Security Policy') ||
+                         error.message?.includes('CSP');
+      
+      let title = 'Error';
+      let description = error.message;
+      
+      if (isCspError) {
+        title = 'Security Policy Error';
+        description = 'Network blocked by site security policy (CSP). Please contact administrator.';
+      } else if (isNetworkError) {
+        title = 'Connection Error';
+        description = 'Unable to connect to the authentication server. Please check your internet connection and try again.';
+      }
       
       toast({
-        title: isNetworkError ? 'Connection Error' : 'Error',
-        description: isNetworkError 
-          ? 'Unable to connect to the server. Please check your internet connection and try again.'
-          : error.message,
+        title,
+        description,
         variant: 'destructive',
       });
       return { error, userId: null };

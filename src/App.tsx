@@ -55,6 +55,7 @@ import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFail from "./pages/PaymentFail";
 import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
+import BankTransferInfo from "./pages/BankTransferInfo";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -112,6 +113,7 @@ const App = () => {
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/pay/:token" element={<PaymentLink />} />
             <Route path="/pay-test" element={<PaymentLinkTest />} />
+            <Route path="/bank-transfer" element={<BankTransferInfo />} />
             <Route path="/manual-transfer/:uploadToken" element={<ManualTransfer />} />
             
             <Route path="/admin" element={

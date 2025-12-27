@@ -10,6 +10,7 @@ import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
+import { SupabaseConfigGuard } from "@/components/SupabaseConfigGuard";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
 import PublicBankTransfer from "./pages/PublicBankTransfer";
@@ -69,7 +70,7 @@ const App = () => {
   });
 
   return (
-    <>
+    <SupabaseConfigGuard>
       {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
@@ -255,7 +256,7 @@ const App = () => {
           </AuthProvider>
         </LanguageProvider>
       </QueryClientProvider>
-    </>
+    </SupabaseConfigGuard>
   );
 };
 

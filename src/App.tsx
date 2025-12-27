@@ -12,9 +12,8 @@ import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
+import PublicBankTransfer from "./pages/PublicBankTransfer";
 import BankTransfer from "./pages/BankTransfer";
-import PaymentLink from "./pages/PaymentLink";
-import PaymentLinkTest from "./pages/PaymentLinkTest";
 import ManualTransfer from "./pages/ManualTransfer";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
@@ -47,6 +46,7 @@ import QuoteRequests from "./pages/admin/QuoteRequests";
 import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
+import BankTransferSubmissions from "./pages/admin/BankTransferSubmissions";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -113,9 +113,8 @@ const App = () => {
             <Route path="/payment/fail" element={<PaymentFail />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
-            <Route path="/pay/:token" element={<PaymentLink />} />
-            <Route path="/pay-test" element={<PaymentLinkTest />} />
-            <Route path="/bank-transfer" element={<BankTransfer />} />
+            <Route path="/bank-transfer" element={<PublicBankTransfer />} />
+            <Route path="/bank-transfer-legacy" element={<BankTransfer />} />
             <Route path="/bank-transfer-info" element={<BankTransferInfo />} />
             <Route path="/manual-transfer/:uploadToken" element={<ManualTransfer />} />
             
@@ -239,6 +238,11 @@ const App = () => {
               <Route path="bank-transfer-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <BankTransferSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="bank-transfer-submissions" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <BankTransferSubmissions />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

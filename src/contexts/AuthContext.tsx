@@ -315,7 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: new Error('Missing Supabase configuration'), userId: null };
       }
 
-      // Preflight health check - lightweight connectivity test
+      // Preflight health check - lightweight connectivity test (non-blocking)
       try {
         const healthUrl = `${supabaseUrl}/auth/v1/health`;
         console.log('[Auth] Preflight health check:', healthUrl);
@@ -333,24 +333,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('[Auth] Health check passed');
         }
       } catch (healthError: any) {
-        console.error('[Auth] Preflight health check failed:', {
+        // Log the error but don't block sign-in - the actual auth call may still work
+        console.warn('[Auth] Preflight health check failed (non-blocking):', {
           error: healthError.message,
           name: healthError.name,
           hostname: window.location.hostname,
-          supabaseUrl: supabaseUrl.replace(/https?:\/\//, '').split('.')[0] + '.supabase.co',
         });
-        
-        // Check if CSP blocked the request
-        if (healthError.message?.includes('Content Security Policy') || 
-            healthError.message?.includes('CSP') ||
-            healthError.name === 'TypeError') {
-          toast({
-            title: 'Network Blocked',
-            description: 'Connection to authentication server is blocked. This may be a security policy (CSP) issue. Please contact support.',
-            variant: 'destructive',
-          });
-          return { error: healthError, userId: null };
-        }
+        // Continue with sign-in attempt - don't return early
       }
 
       // Proceed with actual sign-in

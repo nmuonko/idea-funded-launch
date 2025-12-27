@@ -326,9 +326,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return { error: null, userId: data.user?.id ?? null };
     } catch (error: any) {
+      console.error('[Auth] Sign in error:', error);
+      
+      // Handle network errors specifically
+      const isNetworkError = error.message === 'Failed to fetch' || 
+                             error.name === 'TypeError' ||
+                             error.message?.includes('network');
+      
       toast({
-        title: 'Error',
-        description: error.message,
+        title: isNetworkError ? 'Connection Error' : 'Error',
+        description: isNetworkError 
+          ? 'Unable to connect to the server. Please check your internet connection and try again.'
+          : error.message,
         variant: 'destructive',
       });
       return { error, userId: null };

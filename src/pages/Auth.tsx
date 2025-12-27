@@ -13,12 +13,13 @@ import { Loader2, ArrowLeft, Shield, KeyRound, AlertTriangle } from 'lucide-reac
 import afrishopLogo from '@/assets/afrishop-logo.png';
 import { isLovablePreview } from '@/lib/environment';
 
-// Lazy load diagnostics panel for DEV only
+// Lazy load diagnostics panel - allow in DEV or with ?debug=true
 const SupabaseDiagnostics = lazy(() => import('@/components/admin/SupabaseDiagnostics'));
 const isDev = import.meta.env.DEV;
 
 export default function Auth() {
   const [searchParams] = useSearchParams();
+  const showDiagnostics = isDev || searchParams.get('debug') === 'true';
   const isAdminMode = searchParams.get('mode') === 'admin';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -171,8 +172,8 @@ export default function Auth() {
             />
           </div>
 
-          {/* DEV Diagnostics Panel */}
-          {isDev && (
+          {/* Diagnostics Panel - DEV or ?debug=true */}
+          {showDiagnostics && (
             <Suspense fallback={<div className="animate-pulse h-32 bg-muted/20 rounded-lg" />}>
               <SupabaseDiagnostics />
             </Suspense>
@@ -200,18 +201,32 @@ export default function Auth() {
                 )}
               </div>
               <CardTitle className="text-2xl font-bold text-foreground">
-                {isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Admin Sign In'}
+                {inPreview ? 'Preview Mode' : isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Admin Sign In'}
               </CardTitle>
               <CardDescription className="text-muted-foreground">
-                {isUpdatePassword
-                  ? 'Enter your new password below'
-                  : isResetPassword 
-                    ? 'Enter your email to receive a password reset link' 
-                    : 'Enter your credentials to access the dashboard'}
+                {inPreview
+                  ? 'Sign in is disabled in the preview environment'
+                  : isUpdatePassword
+                    ? 'Enter your new password below'
+                    : isResetPassword 
+                      ? 'Enter your email to receive a password reset link' 
+                      : 'Enter your credentials to access the dashboard'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {isUpdatePassword ? (
+              {/* Preview mode - show redirect to production */}
+              {inPreview ? (
+                <div className="space-y-4 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Authentication requires the production environment. Please use the link below to sign in.
+                  </p>
+                  <Button asChild className="w-full h-11">
+                    <a href="https://afrishop-usa.com/auth" target="_blank" rel="noopener noreferrer">
+                      Go to Production Sign In
+                    </a>
+                  </Button>
+                </div>
+              ) : isUpdatePassword ? (
                 <form onSubmit={handleUpdatePassword} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New Password</Label>

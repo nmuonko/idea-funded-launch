@@ -130,12 +130,56 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // 1. Verify authentication
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      console.error("support-chat-bot: Missing Authorization header");
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 2. Get authenticated user
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      console.error("support-chat-bot: Invalid auth token", authError?.message);
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { conversation_id, message, language = 'fr' } = await req.json();
 
     if (!conversation_id || !message) {
       return new Response(
         JSON.stringify({ error: "conversation_id and message are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Verify conversation ownership BEFORE inserting messages
+    const { data: conversation, error: convError } = await supabase
+      .from('support_conversations')
+      .select('user_id')
+      .eq('id', conversation_id)
+      .single();
+
+    if (convError || !conversation) {
+      console.error("support-chat-bot: Conversation not found", conversation_id);
+      return new Response(
+        JSON.stringify({ error: 'Conversation not found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (conversation.user_id !== user.id) {
+      console.error("support-chat-bot: User does not own conversation", { userId: user.id, conversationUserId: conversation.user_id });
+      return new Response(
+        JSON.stringify({ error: 'Forbidden - not your conversation' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -200,9 +244,9 @@ serve(async (req) => {
     );
   } catch (error: unknown) {
     console.error("Error in support-chat-bot:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: errorMessage }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

@@ -142,21 +142,27 @@ export default function BankTransferInfo() {
 
   const DetailRow = ({ label, value, field }: { label: string; value: string | null; field: string }) => (
     <div className="flex items-center justify-between py-3 border-b border-border last:border-0">
-      <div>
+      <div className="flex-1 min-w-0">
         <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="font-medium text-foreground">{value || '-'}</p>
+        <p className="font-medium text-foreground truncate">{value || '-'}</p>
       </div>
       {value && (
         <Button
-          variant="ghost"
+          variant="outline"
           size="sm"
           onClick={() => copyToClipboard(value, field)}
-          className="h-8 w-8 p-0"
+          className="ml-3 gap-2 shrink-0"
         >
           {copiedField === field ? (
-            <Check className="h-4 w-4 text-green-500" />
+            <>
+              <Check className="h-4 w-4 text-green-500" />
+              <span className="hidden sm:inline">{language === 'fr' ? 'Copié!' : 'Copied!'}</span>
+            </>
           ) : (
-            <Copy className="h-4 w-4" />
+            <>
+              <Copy className="h-4 w-4" />
+              <span className="hidden sm:inline">{language === 'fr' ? 'Copier' : 'Copy'}</span>
+            </>
           )}
         </Button>
       )}
@@ -292,9 +298,9 @@ export default function BankTransferInfo() {
 
         {/* Missing Info Warning */}
         {missingCriticalInfo && !editMode && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
+          <Alert className="border-amber-500 bg-amber-500/10">
+            <AlertCircle className="h-4 w-4 text-amber-500" />
+            <AlertDescription className="text-amber-700 dark:text-amber-300 font-medium">
               {language === 'fr' 
                 ? 'Les informations bancaires sont incomplètes. Veuillez contacter le support.' 
                 : 'Bank information is incomplete. Please contact support.'}
@@ -394,6 +400,30 @@ export default function BankTransferInfo() {
                     field="address" 
                   />
                 )}
+              </div>
+            )}
+
+            {/* Copy All Button */}
+            {!editMode && details && (details.bank_name || details.bank_account_number) && (
+              <div className="pt-4 border-t border-border mt-2">
+                <Button
+                  variant="default"
+                  className="w-full gap-2"
+                  onClick={() => {
+                    const allDetails = [
+                      details.bank_name && `${language === 'fr' ? 'Banque' : 'Bank'}: ${details.bank_name}`,
+                      details.bank_account_holder && `${language === 'fr' ? 'Titulaire' : 'Account Holder'}: ${details.bank_account_holder}`,
+                      details.bank_account_number && `${language === 'fr' ? 'Numéro de Compte' : 'Account Number'}: ${details.bank_account_number}`,
+                      details.bank_swift && `SWIFT/BIC: ${details.bank_swift}`,
+                      details.bank_iban && `IBAN: ${details.bank_iban}`,
+                      orderRef && `${language === 'fr' ? 'Référence' : 'Reference'}: ${orderRef}`,
+                    ].filter(Boolean).join('\n');
+                    copyToClipboard(allDetails, 'all');
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                  {language === 'fr' ? 'Copier toutes les informations' : 'Copy All Bank Details'}
+                </Button>
               </div>
             )}
           </CardContent>

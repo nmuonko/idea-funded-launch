@@ -281,3 +281,6 @@ verify_jwt = false
 
 [functions.upload-manual-transfer-proof]
 verify_jwt = false
+
+[functions.notify-large-bank-transfer]
+verify_jwt = false

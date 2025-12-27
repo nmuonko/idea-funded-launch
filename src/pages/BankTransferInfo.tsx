@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Copy, Check, Building2, Edit2, Save, X, Phone, Mail, Loader2, AlertCircle } from 'lucide-react';
+import { Copy, Check, Building2, Edit2, Save, X, Phone, Mail, Loader2, AlertCircle, ArrowLeft, CreditCard } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface BankDetails {
@@ -25,6 +26,16 @@ interface BankDetails {
 
 export default function BankTransferInfo() {
   const { isAdmin, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
+  // URL params for order context
+  const orderRef = searchParams.get('ref');
+  const orderAmount = searchParams.get('amount');
+  const orderAmountCdf = searchParams.get('amount_cdf');
+  const orderCurrency = searchParams.get('currency') || 'USD';
+  const hasOrderContext = !!(orderRef && orderAmount);
+  
   const [details, setDetails] = useState<BankDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -155,6 +166,73 @@ export default function BankTransferInfo() {
   return (
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-6">
+        {/* Back button when accessed with order context */}
+        {hasOrderContext && (
+          <Button 
+            variant="ghost" 
+            className="mb-2"
+            onClick={() => navigate(-1)}
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            {language === 'fr' ? 'Retour au paiement' : 'Back to Payment'}
+          </Button>
+        )}
+
+        {/* Order Context Card - shown when accessed from payment link */}
+        {hasOrderContext && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5 text-primary" />
+                <CardTitle className="text-lg">
+                  {language === 'fr' ? 'Détails du paiement' : 'Payment Details'}
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">
+                  {language === 'fr' ? 'Référence' : 'Reference'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold">{orderRef}</span>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => copyToClipboard(orderRef!, 'orderRef')}
+                  >
+                    {copiedField === 'orderRef' ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">
+                  {language === 'fr' ? 'Montant' : 'Amount'}
+                </span>
+                <span className="font-semibold">${orderAmount} {orderCurrency}</span>
+              </div>
+              {orderAmountCdf && (
+                <div className="flex justify-between border-t pt-2">
+                  <span className="font-medium">
+                    {language === 'fr' ? 'Montant à payer' : 'Amount to Pay'}
+                  </span>
+                  <span className="text-lg font-bold text-primary">
+                    {Number(orderAmountCdf).toLocaleString('fr-FR')} CDF
+                  </span>
+                </div>
+              )}
+              <div className="bg-amber-100 dark:bg-amber-900/30 rounded-lg p-3 mt-2">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
+                  ⚠️ {language === 'fr' 
+                    ? `Incluez la référence "${orderRef}" dans le libellé de votre virement.`
+                    : `Include reference "${orderRef}" in your transfer description.`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">

@@ -284,3 +284,9 @@ verify_jwt = false
 
 [functions.notify-large-bank-transfer]
 verify_jwt = false
+
+[functions.create-bank-transfer-view-link]
+verify_jwt = false
+
+[functions.get-bank-transfer-view]
+verify_jwt = false

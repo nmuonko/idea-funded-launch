@@ -286,6 +286,38 @@ export type Database = {
           },
         ]
       }
+      bank_transfer_view_tokens: {
+        Row: {
+          created_at: string | null
+          expires_at: string
+          id: string
+          order_id: string
+          token: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at: string
+          id?: string
+          order_id: string
+          token: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string
+          id?: string
+          order_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_transfer_view_tokens_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cart_recovery_ab_tests: {
         Row: {
           cart_value_usd: number | null

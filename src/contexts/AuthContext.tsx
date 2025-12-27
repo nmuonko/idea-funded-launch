@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { isLovablePreview } from '@/lib/environment';
+import { runQuickDiagnostic, getRecommendation } from '@/lib/supabaseHealth';
 
 export interface UserProfile {
   id: string;
@@ -328,7 +329,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             title = 'Preview Environment';
             userMessage = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
           } else {
-            userMessage = 'Unable to connect to the server. Please check your internet connection and try again.';
+            // Run diagnostics to get specific error type on production
+            console.log('[Auth] Running diagnostics for network error...');
+            const diagnostic = await runQuickDiagnostic();
+            console.log('[Auth] Diagnostic result:', diagnostic);
+            
+            title = diagnostic.errorType === 'env_missing' ? 'Configuration Error' :
+                    diagnostic.errorType === 'csp_blocked' ? 'Security Policy Error' :
+                    'Connection Error';
+            userMessage = diagnostic.recommendation;
           }
         }
         
@@ -369,6 +378,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (inPreview && isNetworkError) {
         title = 'Preview Environment';
         description = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
+      } else if (isNetworkError) {
+        // Run diagnostics on production network errors
+        try {
+          const diagnostic = await runQuickDiagnostic();
+          title = diagnostic.errorType === 'env_missing' ? 'Configuration Error' :
+                  diagnostic.errorType === 'csp_blocked' ? 'Security Policy Error' :
+                  'Connection Error';
+          description = diagnostic.recommendation;
+        } catch (diagError) {
+          console.error('[Auth] Diagnostic failed:', diagError);
+        }
       }
       
       toast({

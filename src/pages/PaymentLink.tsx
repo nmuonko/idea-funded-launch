@@ -119,25 +119,90 @@ export default function PaymentLink() {
         },
       });
 
-      if (invokeError || !result.success) {
-        toast.error(result?.error || 'Failed to initiate payment');
+      // Handle invoke error (network issues, etc.)
+      if (invokeError) {
+        console.error('Invoke error:', invokeError);
+        toast.error(language === 'fr' 
+          ? 'Erreur de connexion. Veuillez réessayer.' 
+          : 'Connection error. Please try again.');
         return;
       }
 
-      // If we have HTML, render it in a new window or navigate
+      // Handle mode="manual" response (large payment fallback or provider failure)
+      if (result?.mode === 'manual' && result?.bank_transfer) {
+        // Switch UI to show bank transfer details
+        setData({
+          ...data,
+          decision: 'MANUAL_BANK',
+          bank_details: {
+            bank_name: result.bank_transfer.bank_name || '',
+            account_holder: result.bank_transfer.beneficiary_name || '',
+            account_number: result.bank_transfer.iban_or_rib || '',
+            swift: result.bank_transfer.swift_or_bic || '',
+            iban: result.bank_transfer.iban_or_rib,
+            bank_address: result.bank_transfer.bank_address,
+            instructions_fr: result.bank_transfer.notes || 'Veuillez inclure la référence dans le libellé du virement.',
+            instructions_en: result.bank_transfer.notes || 'Please include the reference in the transfer description.',
+            support_whatsapp: data.bank_details?.support_whatsapp || '',
+            support_email: data.bank_details?.support_email || '',
+          },
+          reference_code: result.reference || data.reference_code,
+          total_usd: result.amount || data.total_usd,
+          total_cdf: result.amount_cdf || data.total_cdf,
+        });
+        
+        // Show informational toast if there was an error
+        if (result.error?.code) {
+          const errorMessage = result.error.code === 'PROVIDER_LINK_FAILED'
+            ? (language === 'fr' 
+              ? 'Le paiement mobile n\'est pas disponible. Veuillez utiliser le virement bancaire.'
+              : 'Mobile payment is unavailable. Please use bank transfer.')
+            : (language === 'fr'
+              ? 'Montant élevé - virement bancaire requis.'
+              : 'Large amount - bank transfer required.');
+          toast.info(errorMessage);
+        }
+        return;
+      }
+
+      // Handle error response without manual fallback
+      if (!result?.ok) {
+        toast.error(result?.error?.message || result?.error || 
+          (language === 'fr' ? 'Échec du paiement' : 'Payment failed'));
+        return;
+      }
+
+      // Handle mode="redirect" - redirect to payment URL
+      if (result.mode === 'redirect' && result.redirect_url) {
+        window.location.href = result.redirect_url;
+        return;
+      }
+
+      // Legacy support: handle HTML response
       if (result.html) {
-        // Open MaishaPay checkout
         const win = window.open('', '_self');
         if (win) {
           win.document.write(result.html);
           win.document.close();
         }
-      } else if (result.checkout_url) {
-        window.location.href = result.checkout_url;
+        return;
       }
+
+      // Legacy support: handle checkout_url
+      if (result.checkout_url) {
+        window.location.href = result.checkout_url;
+        return;
+      }
+
+      // Fallback if no action could be taken
+      toast.error(language === 'fr' 
+        ? 'Réponse inattendue. Veuillez réessayer.' 
+        : 'Unexpected response. Please try again.');
     } catch (err) {
       console.error('Exception initiating payment:', err);
-      toast.error('An error occurred. Please try again.');
+      toast.error(language === 'fr' 
+        ? 'Une erreur est survenue. Veuillez réessayer.' 
+        : 'An error occurred. Please try again.');
     } finally {
       setInitiating(false);
     }

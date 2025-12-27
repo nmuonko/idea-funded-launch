@@ -1,6 +1,5 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders, handleOptions } from "../_shared/http.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { getCorsHeaders, handleCors } from "../_shared/http.ts";
 
 const LARGE_TRANSFER_THRESHOLD_USD = 1000;
 
@@ -15,7 +14,9 @@ interface NotificationPayload {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return handleOptions();
+  const corsHeaders = getCorsHeaders();
+  
+  if (req.method === "OPTIONS") return handleCors();
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -182,10 +183,11 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("Error in notify-large-bank-transfer:", error);
+    const corsHeaders = getCorsHeaders();
     return new Response(
       JSON.stringify({ 
         ok: false, 
-        error: error.message 
+        error: error instanceof Error ? error.message : "Unknown error"
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

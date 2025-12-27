@@ -98,6 +98,7 @@ export default function SupabaseDiagnostics() {
   const [loading, setLoading] = useState<'health' | 'rest' | null>(null);
   
   const config = getSupabaseConfig();
+  const isDev = import.meta.env.DEV;
   
   const runHealthTest = async () => {
     setLoading('health');
@@ -119,7 +120,9 @@ export default function SupabaseDiagnostics() {
         <div className="flex items-center gap-2">
           <Server className="h-5 w-5 text-amber-500" />
           <CardTitle className="text-lg">Supabase Diagnostics</CardTitle>
-          <Badge variant="outline" className="text-amber-500 border-amber-500">DEV</Badge>
+          <Badge variant="outline" className="text-amber-500 border-amber-500">
+            {isDev ? 'DEV' : 'DEBUG'}
+          </Badge>
         </div>
         <CardDescription>
           Debug connectivity issues with Supabase

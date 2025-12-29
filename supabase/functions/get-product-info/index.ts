@@ -62,20 +62,42 @@ const BOT_DETECTION_PATTERNS = [
   /access\s+denied/i,
   /please\s+verify/i,
   /security\s+check/i,
-  /cloudflare/i,
+  /cloudflare.*challenge/i,
   /blocked/i,
   /not\s+a\s+robot/i,
+  /are\s+you\s+a\s+human/i,
+  /press\s+&\s+hold/i,
+  /verification\s+required/i,
 ];
 
 function detectBotBlock(html: string): boolean {
-  if (html.length < 5000) {
-    for (const pattern of BOT_DETECTION_PATTERNS) {
-      if (pattern.test(html)) {
-        console.log('[get-product-info] Bot detection triggered:', pattern.source);
-        return true;
-      }
+  const isShortPage = html.length < 10000;
+  
+  for (const pattern of BOT_DETECTION_PATTERNS) {
+    if (pattern.test(html)) {
+      console.log('[get-product-info] Bot detection triggered:', pattern.source);
+      return true;
     }
   }
+  
+  // Check for title containing bot detection hints
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    const title = titleMatch[1].toLowerCase();
+    if (title.includes('robot') || title.includes('human') || 
+        title.includes('captcha') || title.includes('verify') ||
+        title.includes('blocked') || title.includes('access denied')) {
+      console.log('[get-product-info] Bot detection triggered in title:', title.substring(0, 50));
+      return true;
+    }
+  }
+  
+  // If page is very short, it's likely a challenge page
+  if (isShortPage && !html.includes('"price"') && !html.includes('product')) {
+    console.log('[get-product-info] Suspiciously short page, likely bot challenge');
+    return true;
+  }
+  
   return false;
 }
 

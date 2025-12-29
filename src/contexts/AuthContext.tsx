@@ -68,6 +68,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     console.log('[Admin Check] Checking user:', { uid });
 
+    // Ensure we have a valid session before querying - this is critical for RLS
+    // After signIn, the client session might not be fully propagated yet
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) {
+      console.log('[Admin Check] No session found, refreshing...');
+      // Try to refresh the session
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshData.session) {
+        console.error('[Admin Check] Session refresh failed:', refreshError?.message);
+        // Don't throw here - the user might just need to wait for session propagation
+        setIsAdmin(false);
+        return false;
+      }
+      console.log('[Admin Check] Session refreshed successfully');
+    }
+
     // Direct query to user_roles table (RPC was hanging)
     console.log('[Admin Check] Querying user_roles...');
     const { data, error: roleError } = await supabase
@@ -348,6 +364,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       
       console.log('[Auth] Sign in successful');
+      
+      // CRITICAL: Set session and user state immediately after successful sign-in
+      // This ensures subsequent RLS queries have the correct auth context
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.user ?? null);
+        console.log('[Auth] Session and user state updated immediately');
+      }
       
       // Store remember me preference
       if (rememberMe) {

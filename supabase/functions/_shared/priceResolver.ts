@@ -309,17 +309,21 @@ export function getCurrencySymbol(code: string): string {
  * IMPORTANT: US stores (SHEIN US, Amazon, Walmart, etc.) always use USD
  */
 export function detectCurrency(text: string, url: string): { code: string; symbol: string } {
-  // SHEIN US/COM is ALWAYS USD - never CDF
-  if (url.includes('shein.com') || url.includes('us.shein.com') || url.includes('m.shein.com')) {
-    return { code: 'USD', symbol: '$' };
-  }
+  // Force USD for ALL major US stores - this is the most reliable approach
+  // These stores NEVER sell in CDF regardless of page content
+  const forceUsdDomains = [
+    'amazon.com', 'walmart.com', 'bestbuy.com', 'target.com',
+    'homedepot.com', 'macys.com', 'ebay.com', 'newegg.com', 'costco.com',
+    'shein.com', 'us.shein.com', 'm.shein.com',
+    'mercari.com', 'wayfair.com',
+    'carvana.com', 'cargurus.com', 'tesla.com', 'edmunds.com', 'autotrader.com', 'cars.com'
+  ];
   
-  // Major US retailers - always USD
-  if (url.includes('amazon.com') || url.includes('walmart.com') || 
-      url.includes('bestbuy.com') || url.includes('target.com') ||
-      url.includes('homedepot.com') || url.includes('macys.com') ||
-      url.includes('mercari.com') || url.includes('wayfair.com')) {
-    return { code: 'USD', symbol: '$' };
+  const urlLower = url.toLowerCase();
+  for (const domain of forceUsdDomains) {
+    if (urlLower.includes(domain)) {
+      return { code: 'USD', symbol: '$' };
+    }
   }
   
   // Check URL for domain hints first
@@ -336,18 +340,15 @@ export function detectCurrency(text: string, url: string): { code: string; symbo
     return { code: 'MXN', symbol: 'MX$' };
   }
   
-  // Check text for currency symbols/codes - but be careful with false positives
+  // Check text for currency symbols/codes - but be very careful with false positives
   if (/£|GBP/i.test(text)) return { code: 'GBP', symbol: '£' };
   if (/€|EUR/i.test(text)) return { code: 'EUR', symbol: '€' };
   if (/CA\$|CAD/i.test(text)) return { code: 'CAD', symbol: 'CA$' };
   
-  // CDF only if explicitly mentioned with monetary context (not random text)
-  // This prevents false positives from random page content
-  if (/(?:prix|price|total)[:\s]*[\d.,]+\s*(?:CDF|FC)/i.test(text)) {
-    return { code: 'CDF', symbol: 'FC' };
-  }
+  // NEVER detect CDF from page content - too many false positives
+  // CDF should only be used when explicitly set by backend pricing logic
   
-  // Default to USD for all US-based stores
+  // Default to USD - this is the safest assumption for e-commerce
   return { code: 'USD', symbol: '$' };
 }
 

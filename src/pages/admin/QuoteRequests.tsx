@@ -248,6 +248,7 @@ export default function QuoteRequests() {
   const [quotedShipping, setQuotedShipping] = useState("");
   const [quotedTotal, setQuotedTotal] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
+  const [editedVehiclePrice, setEditedVehiclePrice] = useState(""); // NEW: editable vehicle price
 
   // Calculated values for display
   const [calculatedMargin, setCalculatedMargin] = useState(0);
@@ -340,7 +341,8 @@ export default function QuoteRequests() {
   useEffect(() => {
     if (!selectedRequest) return;
     
-    const basePrice = Number(selectedRequest.base_price_usd) || 0;
+    // Use edited price if available, otherwise use original
+    const basePrice = editedVehiclePrice ? parseFloat(editedVehiclePrice) : Number(selectedRequest.base_price_usd) || 0;
     const shipping = parseFloat(quotedShipping) || 0;
     // Use vehicle-specific markup for vehicles - this is the authoritative margin
     const margin = Math.round(basePrice * (settings.vehicleMarkupPercent / 100) * 100) / 100;
@@ -353,7 +355,7 @@ export default function QuoteRequests() {
     // ALWAYS update quotedTotal to match calculated total
     // This ensures consistency between display and what gets sent to backend
     setQuotedTotal(total.toFixed(2));
-  }, [quotedShipping, selectedRequest, settings.vehicleMarkupPercent]);
+  }, [quotedShipping, selectedRequest, settings.vehicleMarkupPercent, editedVehiclePrice]);
 
   const handleManualRefresh = () => {
     fetchQuoteRequests(true);
@@ -381,6 +383,8 @@ export default function QuoteRequests() {
     // Refetch settings to ensure we have latest vehicle markup
     await fetchSettings();
     setSelectedRequest(request);
+    // Pre-fill vehicle price from order item
+    setEditedVehiclePrice((request.base_price_usd || 0).toString());
     // If quote was already sent, pre-fill with existing values
     if (request.quoted_shipping_usd) {
       setQuotedShipping(request.quoted_shipping_usd.toString());
@@ -400,10 +404,16 @@ export default function QuoteRequests() {
     if (!selectedRequest) return;
     
     const shippingValue = parseFloat(quotedShipping);
-    const basePrice = Number(selectedRequest.base_price_usd) || 0;
+    // Use edited vehicle price
+    const basePrice = parseFloat(editedVehiclePrice) || Number(selectedRequest.base_price_usd) || 0;
     
     if (isNaN(shippingValue) || shippingValue < 0) {
       toast.error("Please enter a valid shipping cost");
+      return;
+    }
+    
+    if (isNaN(basePrice) || basePrice <= 0) {
+      toast.error("Please enter a valid vehicle price");
       return;
     }
 
@@ -435,7 +445,7 @@ export default function QuoteRequests() {
           quotedShippingUsd: shippingValue,
           quotedTotalUsd: totalValue,
           quotedMarginUsd: marginValue,
-          basePriceUsd: basePrice,
+          basePriceUsd: basePrice, // Send the edited vehicle price
           adminNotes: adminNotes || undefined,
         },
       });
@@ -679,13 +689,21 @@ export default function QuoteRequests() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            {/* Vehicle Price (read-only) */}
+            {/* Vehicle Price (editable) */}
             <div className="space-y-2">
-              <Label>{t.vehiclePrice}</Label>
-              <div className="p-3 bg-muted rounded-md">
-                <span className="text-lg font-bold">
-                  {formatCurrency(Number(selectedRequest?.base_price_usd) || 0, { currency: 'USD', locale })}
-                </span>
+              <Label htmlFor="vehiclePrice">{t.vehiclePrice}</Label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="vehiclePrice"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editedVehiclePrice}
+                  onChange={(e) => setEditedVehiclePrice(e.target.value)}
+                  className="pl-9 text-lg font-bold"
+                  placeholder="0.00"
+                />
               </div>
             </div>
 
@@ -716,7 +734,7 @@ export default function QuoteRequests() {
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.vehiclePrice}:</span>
-                  <span>{formatCurrency(Number(selectedRequest?.base_price_usd) || 0, { currency: 'USD', locale })}</span>
+                  <span>{formatCurrency(parseFloat(editedVehiclePrice) || 0, { currency: 'USD', locale })}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.shippingCost}:</span>

@@ -128,30 +128,35 @@ serve(async (req) => {
     // 7️⃣ PAYMENT ROUTING RULES - Calculate totals
     const totalUsd = Number(order.total_usd) || 0;
     const exchangeRate = Number(order.exchange_rate_used) || Number(order.exchange_rate) || 2500;
-    const cdfConverted = Math.round(totalUsd * exchangeRate);
+    const computedCdf = Math.round(totalUsd * exchangeRate);
+    const orderCdf = Number(order.total_cdf);
+    const resolvedOrderCdf = Number.isFinite(orderCdf) && orderCdf > 0 ? orderCdf : computedCdf;
+
+    console.log("[Initiate Payment] CDF AMOUNT RESOLUTION:", { totalUsd, exchangeRate, computedCdf, orderCdf, resolvedOrderCdf });
 
     console.log("[Initiate Payment] ROUTING DECISION:", {
       orderId,
       totalUsd,
       exchangeRate,
-      cdfConverted,
+      computedCdf,
+      resolvedOrderCdf,
       forceCurrency,
       USD_LIMIT,
       CDF_LIMIT,
     });
 
     // RULE 2c: Block if exceeds all limits - BANK TRANSFER REQUIRED
-    if (totalUsd > USD_LIMIT && cdfConverted > CDF_LIMIT) {
+    if (totalUsd > USD_LIMIT && computedCdf > CDF_LIMIT) {
       console.log("[Initiate Payment] BLOCKED - BANK_TRANSFER_REQUIRED");
       return new Response(
         JSON.stringify({
           success: false,
           code: 'BANK_TRANSFER_REQUIRED',
           totalUsd,
-          cdfConverted,
+          cdfConverted: computedCdf,
           cap: CDF_LIMIT,
-          message_fr: `Montant trop élevé (${cdfConverted.toLocaleString()} CDF). Virement bancaire requis.`,
-          message_en: `Amount too high (${cdfConverted.toLocaleString()} CDF). Bank transfer required.`,
+          message_fr: `Montant trop élevé (${computedCdf.toLocaleString()} CDF). Virement bancaire requis.`,
+          message_en: `Amount too high (${computedCdf.toLocaleString()} CDF). Bank transfer required.`,
         }),
         {
           status: 400,
@@ -166,17 +171,17 @@ serve(async (req) => {
     let currencyReason: string;
 
     // RULE 2b: If USD > 5000 but CDF <= 30M, FORCE CDF (overrides forceCurrency)
-    if (totalUsd > USD_LIMIT && cdfConverted <= CDF_LIMIT) {
+    if (totalUsd > USD_LIMIT && computedCdf <= CDF_LIMIT) {
       paymentCurrency = 'CDF';
-      paymentAmount = cdfConverted;
+      paymentAmount = resolvedOrderCdf;
       currencyReason = 'FORCE_CDF_HIGH_USD';
-      console.log("[Initiate Payment] FORCED CDF due to high USD value:", { totalUsd, cdfConverted });
+      console.log("[Initiate Payment] FORCED CDF due to high USD value:", { totalUsd, computedCdf, resolvedOrderCdf });
     }
     // RULE 2a: USD within limit - respect forceCurrency
     else if (totalUsd <= USD_LIMIT) {
       if (forceCurrency === 'CDF') {
         paymentCurrency = 'CDF';
-        paymentAmount = Number(order.total_cdf) || cdfConverted;
+        paymentAmount = resolvedOrderCdf;
         currencyReason = 'FORCE_CURRENCY_CDF';
       } else if (forceCurrency === 'USD') {
         paymentCurrency = 'USD';
@@ -202,17 +207,22 @@ serve(async (req) => {
       currencyReason,
     });
 
-    // Update order with currency audit fields
-    const adminSupabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
-    
-    await adminSupabase.from("orders").update({
-      normalized_currency: paymentCurrency,
-      normalized_amount: paymentAmount,
-      exchange_rate_used: exchangeRate,
-    }).eq("id", orderId);
+    // Update order with currency audit fields (safe guard for missing service key)
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (serviceKey) {
+      const adminSupabase = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        serviceKey
+      );
+      const { error: auditErr } = await adminSupabase.from("orders").update({
+        normalized_currency: paymentCurrency,
+        normalized_amount: paymentAmount,
+        exchange_rate_used: exchangeRate,
+      }).eq("id", orderId);
+      if (auditErr) console.warn("[Initiate Payment] Audit update failed:", auditErr);
+    } else {
+      console.warn("[Initiate Payment] Missing SUPABASE_SERVICE_ROLE_KEY: skipping audit update");
+    }
 
     // 9️⃣ Validate amount
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
@@ -252,13 +262,22 @@ serve(async (req) => {
     });
 
     // 1️⃣1️⃣ Prepare MaishaPay payload
+    const customerPhone =
+      profile?.phone ||
+      (profile as any)?.phone_number ||
+      (profile as any)?.phoneNumber ||
+      (profile as any)?.phoneNumberFormatted ||
+      "";
+
+    console.log("[Initiate Payment] CUSTOMER CONTACT:", { email: user.email, customerPhone });
+
     const maishaPayload = {
       publicKey,
       amount: paymentAmount,
       currency: paymentCurrency,
       reference,
       customerEmail: user.email || "",
-      customerPhone: profile?.phone || "",
+      customerPhone,
       description: `AfriShop order ${orderId}`,
       callbackUrl,
     };

@@ -290,3 +290,6 @@ verify_jwt = false
 
 [functions.get-bank-transfer-view]
 verify_jwt = false
+
+[functions.mobile-health]
+verify_jwt = false

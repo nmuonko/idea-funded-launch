@@ -6,11 +6,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Payment limits
+// Payment limits - DO NOT CHANGE
 const USD_LIMIT = 5000;
 const CDF_LIMIT = 30000000;
 
 serve(async (req) => {
+  // Generate request ID for tracing
+  const requestId = crypto.randomUUID();
+  
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -21,7 +24,7 @@ serve(async (req) => {
     const forceCurrency: 'USD' | 'CDF' | null = body.forceCurrency || null;
     const shippingCity: string | null = body.shippingCity || null;
 
-    console.log("[Initiate Payment] Request body:", { forceCurrency, shippingCity });
+    console.log(`[${requestId}] Request body:`, { forceCurrency, shippingCity });
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -40,11 +43,14 @@ serve(async (req) => {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+      console.log(`[${requestId}] AUTH FAILED:`, userError?.message);
+      return new Response(JSON.stringify({ success: false, error: "Unauthorized", requestId }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    console.log(`[${requestId}] AUTH OK: user=${user.id}`);
 
     // 3️⃣ Extract orderId from URL path
     const url = new URL(req.url);
@@ -52,13 +58,14 @@ serve(async (req) => {
     const orderId = pathParts[pathParts.length - 1];
 
     if (!orderId) {
-      return new Response(JSON.stringify({ success: false, error: "Order ID required" }), {
+      console.log(`[${requestId}] MISSING ORDER ID`);
+      return new Response(JSON.stringify({ success: false, error: "Order ID required", requestId }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log("[Initiate Payment] Order ID:", orderId, "User:", user.id);
+    console.log(`[${requestId}] ORDER LOAD: orderId=${orderId}, userId=${user.id}`);
 
     // 4️⃣ Load order
     const { data: order, error: orderError } = await supabase
@@ -69,21 +76,24 @@ serve(async (req) => {
       .single();
 
     if (orderError || !order) {
-      console.error("[Initiate Payment] Order error:", orderError);
-      return new Response(JSON.stringify({ success: false, error: "Order not found" }), {
+      console.error(`[${requestId}] ORDER NOT FOUND:`, orderError?.message);
+      return new Response(JSON.stringify({ success: false, error: "Order not found", requestId }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (order.status !== "PENDING_PAYMENT") {
-      return new Response(JSON.stringify({ success: false, error: "Order cannot be paid" }), {
+      console.log(`[${requestId}] INVALID STATUS: ${order.status}`);
+      return new Response(JSON.stringify({ success: false, error: "Order cannot be paid", code: "INVALID_STATUS", requestId }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 5️⃣ Load profile for phone
+    console.log(`[${requestId}] ORDER LOADED: status=${order.status}, total_usd=${order.total_usd}`);
+
+    // 5️⃣ Load profile for phone (guard against null)
     const { data: profile } = await supabase
       .from("profiles")
       .select("*")
@@ -109,7 +119,7 @@ serve(async (req) => {
       Deno.env.get("MAISHA_CALLBACK_URL");
 
     if (!publicKey || !secretKey || !callbackUrl) {
-      console.error("[Initiate Payment] Missing MaishaPay config:", {
+      console.error(`[${requestId}] MISSING MAISHAPAY CONFIG:`, {
         hasPublicKey: !!publicKey,
         hasSecretKey: !!secretKey,
         hasCallbackUrl: !!callbackUrl,
@@ -117,7 +127,7 @@ serve(async (req) => {
         isLiveMode,
       });
       return new Response(
-        JSON.stringify({ success: false, error: "MaishaPay not configured" }),
+        JSON.stringify({ success: false, error: "MaishaPay not configured", requestId }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -127,27 +137,58 @@ serve(async (req) => {
 
     // 7️⃣ PAYMENT ROUTING RULES - Calculate totals
     const totalUsd = Number(order.total_usd) || 0;
-    const exchangeRate = Number(order.exchange_rate_used) || Number(order.exchange_rate) || 2500;
+    
+    // Validate totalUsd > 0
+    if (totalUsd <= 0) {
+      console.error(`[${requestId}] INVALID_AMOUNT: totalUsd=${totalUsd}`);
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: "Order has no valid amount",
+          code: "INVALID_AMOUNT",
+          totalUsd,
+          requestId,
+        }), 
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Validate and fallback exchange rate (must be finite and >= 1)
+    let exchangeRate = Number(order.exchange_rate_used) || Number(order.exchange_rate) || 0;
+    if (!Number.isFinite(exchangeRate) || exchangeRate < 1) {
+      console.warn(`[${requestId}] EXCHANGE RATE FALLBACK: original=${exchangeRate}, using 2500`);
+      exchangeRate = 2500;
+    }
+
     const computedCdf = Math.round(totalUsd * exchangeRate);
     const orderCdf = Number(order.total_cdf);
     const resolvedOrderCdf = Number.isFinite(orderCdf) && orderCdf > 0 ? orderCdf : computedCdf;
 
-    console.log("[Initiate Payment] CDF AMOUNT RESOLUTION:", { totalUsd, exchangeRate, computedCdf, orderCdf, resolvedOrderCdf });
+    console.log(`[${requestId}] CDF RESOLUTION:`, { 
+      totalUsd, 
+      exchangeRate, 
+      computedCdf, 
+      orderCdf: order.total_cdf, 
+      resolvedOrderCdf 
+    });
 
-    console.log("[Initiate Payment] ROUTING DECISION:", {
-      orderId,
+    console.log(`[${requestId}] ROUTING CHECK:`, {
       totalUsd,
-      exchangeRate,
       computedCdf,
       resolvedOrderCdf,
       forceCurrency,
       USD_LIMIT,
       CDF_LIMIT,
+      overUsdLimit: totalUsd > USD_LIMIT,
+      overCdfLimit: computedCdf > CDF_LIMIT,
     });
 
     // RULE 2c: Block if exceeds all limits - BANK TRANSFER REQUIRED
     if (totalUsd > USD_LIMIT && computedCdf > CDF_LIMIT) {
-      console.log("[Initiate Payment] BLOCKED - BANK_TRANSFER_REQUIRED");
+      console.log(`[${requestId}] BLOCKED - BANK_TRANSFER_REQUIRED`);
       return new Response(
         JSON.stringify({
           success: false,
@@ -157,6 +198,7 @@ serve(async (req) => {
           cap: CDF_LIMIT,
           message_fr: `Montant trop élevé (${computedCdf.toLocaleString()} CDF). Virement bancaire requis.`,
           message_en: `Amount too high (${computedCdf.toLocaleString()} CDF). Bank transfer required.`,
+          requestId,
         }),
         {
           status: 400,
@@ -175,7 +217,7 @@ serve(async (req) => {
       paymentCurrency = 'CDF';
       paymentAmount = resolvedOrderCdf;
       currencyReason = 'FORCE_CDF_HIGH_USD';
-      console.log("[Initiate Payment] FORCED CDF due to high USD value:", { totalUsd, computedCdf, resolvedOrderCdf });
+      console.log(`[${requestId}] FORCED CDF: totalUsd=${totalUsd} > ${USD_LIMIT}, using resolvedOrderCdf=${resolvedOrderCdf}`);
     }
     // RULE 2a: USD within limit - respect forceCurrency
     else if (totalUsd <= USD_LIMIT) {
@@ -200,7 +242,7 @@ serve(async (req) => {
       currencyReason = 'FALLBACK';
     }
 
-    console.log("[Initiate Payment] FINAL CURRENCY:", {
+    console.log(`[${requestId}] FINAL CURRENCY:`, {
       paymentCurrency,
       paymentAmount,
       forceCurrency,
@@ -210,24 +252,32 @@ serve(async (req) => {
     // Update order with currency audit fields (safe guard for missing service key)
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (serviceKey) {
-      const adminSupabase = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        serviceKey
-      );
-      const { error: auditErr } = await adminSupabase.from("orders").update({
-        normalized_currency: paymentCurrency,
-        normalized_amount: paymentAmount,
-        exchange_rate_used: exchangeRate,
-      }).eq("id", orderId);
-      if (auditErr) console.warn("[Initiate Payment] Audit update failed:", auditErr);
+      try {
+        const adminSupabase = createClient(
+          Deno.env.get("SUPABASE_URL") ?? "",
+          serviceKey
+        );
+        const { error: auditErr } = await adminSupabase.from("orders").update({
+          normalized_currency: paymentCurrency,
+          normalized_amount: paymentAmount,
+          exchange_rate_used: exchangeRate,
+        }).eq("id", orderId);
+        
+        if (auditErr) {
+          console.warn(`[${requestId}] AUDIT UPDATE FAILED (non-blocking):`, auditErr.message);
+        } else {
+          console.log(`[${requestId}] AUDIT UPDATE OK`);
+        }
+      } catch (auditError: any) {
+        console.warn(`[${requestId}] AUDIT UPDATE EXCEPTION (non-blocking):`, auditError.message);
+      }
     } else {
-      console.warn("[Initiate Payment] Missing SUPABASE_SERVICE_ROLE_KEY: skipping audit update");
+      console.warn(`[${requestId}] SKIPPING AUDIT UPDATE: missing SUPABASE_SERVICE_ROLE_KEY`);
     }
 
-    // 9️⃣ Validate amount
+    // 9️⃣ Validate final payment amount
     if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      console.error("[Initiate Payment] INVALID AMOUNT:", {
-        orderId,
+      console.error(`[${requestId}] INVALID FINAL AMOUNT:`, {
         paymentCurrency,
         paymentAmount,
         total_usd: order.total_usd,
@@ -239,6 +289,7 @@ serve(async (req) => {
           success: false,
           error: "Invalid order amount",
           code: "INVALID_AMOUNT",
+          requestId,
         }), 
         {
           status: 400,
@@ -250,7 +301,7 @@ serve(async (req) => {
     // 🔟 Create unique reference
     const reference = `AFRISHOP-${orderId}-${Date.now()}`;
 
-    console.log("[Initiate Payment] PAYMENT DETAILS:", {
+    console.log(`[${requestId}] PAYMENT DETAILS:`, {
       order_id: orderId,
       original_amount_usd: order.total_usd,
       original_amount_cdf: order.total_cdf,
@@ -261,15 +312,20 @@ serve(async (req) => {
       reference,
     });
 
-    // 1️⃣1️⃣ Prepare MaishaPay payload
-    const customerPhone =
-      profile?.phone ||
-      (profile as any)?.phone_number ||
-      (profile as any)?.phoneNumber ||
-      (profile as any)?.phoneNumberFormatted ||
-      "";
+    // 1️⃣1️⃣ Prepare MaishaPay payload with phone fallbacks + null guard
+    const customerPhone = profile
+      ? (profile.phone ||
+         (profile as any)?.phone_number ||
+         (profile as any)?.phoneNumber ||
+         (profile as any)?.phoneNumberFormatted ||
+         "")
+      : "";
 
-    console.log("[Initiate Payment] CUSTOMER CONTACT:", { email: user.email, customerPhone });
+    console.log(`[${requestId}] CUSTOMER CONTACT:`, { 
+      email: user.email, 
+      customerPhone: customerPhone ? "SET" : "EMPTY",
+      hasProfile: !!profile 
+    });
 
     const maishaPayload = {
       publicKey,
@@ -286,10 +342,11 @@ serve(async (req) => {
       ? "https://marchand.maishapay.online/api/v1/transaction/create"
       : "https://sandbox.maishapay.online/api/v1/transaction/create";
 
-    console.log("[Initiate Payment] Calling MaishaPay:", {
+    console.log(`[${requestId}] MAISHAPAY CALL:`, {
       url: maishaApiUrl,
       currency: paymentCurrency,
       amount: paymentAmount,
+      isLiveMode,
     });
 
     // 1️⃣2️⃣ Call MaishaPay
@@ -310,7 +367,7 @@ serve(async (req) => {
       maishaData = { raw: rawText };
     }
 
-    console.log("[Initiate Payment] MaishaPay Response:", {
+    console.log(`[${requestId}] MAISHAPAY RESPONSE:`, {
       status: maishaResponse.status,
       ok: maishaResponse.ok,
       hasCheckoutUrl: !!(maishaData?.checkoutUrl || maishaData?.paymentUrl || maishaData?.url),
@@ -319,8 +376,7 @@ serve(async (req) => {
     if (!maishaResponse.ok) {
       const errorMessage = maishaData?.message || maishaData?.error || rawText || "MaishaPay request failed";
       
-      console.error("[Initiate Payment] MaishaPay ERROR:", {
-        orderId,
+      console.error(`[${requestId}] MAISHAPAY ERROR:`, {
         sentCurrency: paymentCurrency,
         sentAmount: paymentAmount,
         errorMessage,
@@ -331,6 +387,7 @@ serve(async (req) => {
           success: false,
           error: errorMessage,
           code: "MAISHAPAY_ERROR",
+          requestId,
         }),
         {
           status: 400,
@@ -346,9 +403,9 @@ serve(async (req) => {
       null;
 
     if (!checkoutUrl) {
-      console.error("[Initiate Payment] Missing checkout URL in response");
+      console.error(`[${requestId}] MISSING CHECKOUT URL in response`);
       return new Response(
-        JSON.stringify({ success: false, error: "Missing checkout URL from MaishaPay" }),
+        JSON.stringify({ success: false, error: "Missing checkout URL from MaishaPay", requestId }),
         {
           status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -380,20 +437,27 @@ serve(async (req) => {
       });
 
     if (paymentError) {
-      console.error(
-        "[Initiate Payment] Error creating maisha_payments record:",
-        paymentError
-      );
+      console.error(`[${requestId}] DB WRITE maisha_payments FAILED:`, paymentError.message);
+    } else {
+      console.log(`[${requestId}] DB WRITE maisha_payments OK`);
     }
 
     // 1️⃣4️⃣ Update order with Maisha reference
-    await supabase
+    const { error: orderUpdateError } = await supabase
       .from("orders")
       .update({
         maisha_transaction_id: reference,
         maisha_payment_status: "pending",
       })
       .eq("id", orderId);
+
+    if (orderUpdateError) {
+      console.error(`[${requestId}] DB WRITE orders FAILED:`, orderUpdateError.message);
+    } else {
+      console.log(`[${requestId}] DB WRITE orders OK`);
+    }
+
+    console.log(`[${requestId}] SUCCESS: checkoutUrl obtained, returning to mobile`);
 
     // 1️⃣5️⃣ Return data to mobile app - FLAT RESPONSE FORMAT
     return new Response(
@@ -412,8 +476,8 @@ serve(async (req) => {
       }
     );
   } catch (error: any) {
-    console.error("[Initiate Payment] Error:", error);
-    return new Response(JSON.stringify({ success: false, error: error.message }), {
+    console.error(`[${requestId}] UNHANDLED ERROR:`, error.message);
+    return new Response(JSON.stringify({ success: false, error: error.message, requestId }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

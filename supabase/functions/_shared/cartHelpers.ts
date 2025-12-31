@@ -38,12 +38,16 @@ export function calculateItemPricing(
 }
 
 // Dynamic shipping calculation: base + (percentage × items subtotal)
+// SAFEGUARD: Normalizes shippingPercent regardless of storage format
+// If shippingPercent > 1, it's stored as percent (10) so divide by 100
+// Otherwise treat as decimal (0.10)
 export function calculateShipping(
   itemsSubtotal: number, 
   shippingBaseFee: number, 
   shippingPercent: number
 ): number {
-  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  return round2(shippingBaseFee + (itemsSubtotal * normalizedPercent));
 }
 
 // Detect store from URL

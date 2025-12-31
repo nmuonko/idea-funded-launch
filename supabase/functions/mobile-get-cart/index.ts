@@ -12,13 +12,16 @@ const HEAVY_THRESHOLD_KG = 9;
 const EXTRA_PER_KG_USD = 8;
 
 // Calculate shipping for a REGULAR (non-vehicle) item using settings
+// SAFEGUARD: shippingPercent MUST be in decimal form (0.10) not percent (10)
 function calculateItemShipping(
   subtotalUsd: number, 
   estWeightKg: number,
   shippingBaseFeeUsd: number,
   shippingPercent: number
 ): number {
-  const basePart = shippingBaseFeeUsd + (subtotalUsd * shippingPercent);
+  // Normalize: if > 1, treat as percent and divide by 100
+  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  const basePart = shippingBaseFeeUsd + (subtotalUsd * normalizedPercent);
   const extraWeight = Math.max(0, estWeightKg - 1);
   const extraPart = extraWeight * EXTRA_PER_KG_USD;
   return round2(basePart + extraPart);
@@ -320,9 +323,11 @@ serve(async (req) => {
     });
 
     // Calculate shipping for regular items ONLY
+    // SAFEGUARD: Normalize shippingPercent (if > 1, treat as percent and divide by 100)
+    const normalizedShippingPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
     let regularShippingTotal = 0;
     if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
-      regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * shippingPercent));
+      regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * normalizedShippingPercent));
     }
 
     // GRAND TOTALS - consistent with updateOrderTotals in cartHelpers.ts

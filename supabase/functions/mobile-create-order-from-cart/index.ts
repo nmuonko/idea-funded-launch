@@ -10,8 +10,11 @@ import {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 // Dynamic shipping calculation: base + (percentage × items subtotal)
+// SAFEGUARD: shippingPercent MUST be in decimal form (0.10) not percent (10)
 function calculateShipping(itemsSubtotal: number, shippingBaseFee: number, shippingPercent: number): number {
-  return round2(shippingBaseFee + (itemsSubtotal * shippingPercent));
+  // Normalize: if > 1, treat as percent and divide by 100
+  const normalizedPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
+  return round2(shippingBaseFee + (itemsSubtotal * normalizedPercent));
 }
 
 // Calculate cart summary from items - single source of truth

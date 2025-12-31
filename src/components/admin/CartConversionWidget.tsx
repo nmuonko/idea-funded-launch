@@ -28,9 +28,9 @@ export function CartConversionWidget() {
       setLoading(true);
 
       // Get active carts (DRAFT and PENDING_PAYMENT)
-      const { data: activeCarts } = await supabase
+      const { count: activeCount } = await supabase
         .from('orders')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .in('status', ['DRAFT', 'PENDING_PAYMENT']);
 
       // Get completed orders this month
@@ -38,9 +38,9 @@ export function CartConversionWidget() {
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
 
-      const { data: completedThisMonth } = await supabase
+      const { count: completedCount } = await supabase
         .from('orders')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'])
         .gte('created_at', startOfMonth.toISOString());
 
@@ -50,34 +50,29 @@ export function CartConversionWidget() {
       const endOfLastMonth = new Date(startOfMonth);
       endOfLastMonth.setSeconds(-1);
 
-      const { data: completedLastMonth } = await supabase
+      const { count: completedLastMonthCount } = await supabase
         .from('orders')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .in('status', ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'])
         .gte('created_at', startOfLastMonth.toISOString())
         .lte('created_at', endOfLastMonth.toISOString());
 
       // Get total carts created this month (including converted ones)
-      const { data: totalCartsThisMonth } = await supabase
+      const { count: totalCarts } = await supabase
         .from('orders')
-        .select('id', { count: 'exact', head: true })
+        .select('*', { count: 'exact', head: true })
         .gte('created_at', startOfMonth.toISOString());
 
-      const activeCount = activeCarts?.length || 0;
-      const completedCount = completedThisMonth?.length || 0;
-      const totalCarts = totalCartsThisMonth?.length || 0;
-      const completedLastMonthCount = completedLastMonth?.length || 0;
-
-      const conversionRate = totalCarts > 0 ? (completedCount / totalCarts) * 100 : 0;
+      const conversionRate = (totalCarts || 0) > 0 ? ((completedCount || 0) / (totalCarts || 1)) * 100 : 0;
       
       // Calculate trend compared to last month
-      const trend = completedLastMonthCount > 0 
-        ? ((completedCount - completedLastMonthCount) / completedLastMonthCount) * 100 
+      const trend = (completedLastMonthCount || 0) > 0 
+        ? (((completedCount || 0) - (completedLastMonthCount || 0)) / (completedLastMonthCount || 1)) * 100 
         : 0;
 
       setMetrics({
-        activeCarts: activeCount,
-        completedOrders: completedCount,
+        activeCarts: activeCount || 0,
+        completedOrders: completedCount || 0,
         conversionRate,
         trend,
       });

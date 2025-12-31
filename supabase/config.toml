@@ -293,3 +293,12 @@ verify_jwt = false
 
 [functions.mobile-health]
 verify_jwt = false
+
+[functions.get-bank-transfer-settings]
+verify_jwt = false
+
+[functions.submit-support-message]
+verify_jwt = true
+
+[functions.merge-guest-cart]
+verify_jwt = true

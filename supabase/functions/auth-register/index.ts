@@ -173,10 +173,10 @@ serve(async (req) => {
       },
     });
 
-    // Send verification email using Supabase's built-in method
+    // Send verification email using magiclink type (doesn't require password)
     if (authData?.user) {
       const { error: emailError } = await supabaseAdmin.auth.admin.generateLink({
-        type: 'signup',
+        type: 'magiclink',
         email: email.trim(),
         options: {
           redirectTo: `${frontendBaseUrl}/email-confirmed`,
@@ -186,7 +186,7 @@ serve(async (req) => {
       if (emailError) {
         console.warn('[auth-register] Failed to send verification email:', emailError.message);
       } else {
-        console.log('[auth-register] Verification email sent to:', email);
+        console.log('[auth-register] Verification email link generated for:', email);
       }
     }
 

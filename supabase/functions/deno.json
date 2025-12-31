@@ -5,7 +5,6 @@
     "resend": "npm:resend@4.0.0"
   },
   "compilerOptions": {
-    "allowJs": true,
     "jsx": "react"
   }
 }

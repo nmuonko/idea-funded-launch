@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2
+  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -41,6 +41,7 @@ export function AdminLayout() {
     { to: '/admin/customers', icon: UserCircle, label: t.sidebar.customers || 'Customers', permission: 'can_view_customers' as const },
     { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
     { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
+    { to: '/admin/price-confirmations', icon: DollarSign, label: 'Price Confirmations', permission: 'can_view_orders' as const },
     { to: '/admin/carts', icon: ShoppingCart, label: t.sidebar.activeCarts, permission: 'can_view_active_carts' as const },
     { to: '/admin/saved-carts', icon: Bookmark, label: t.sidebar.savedCarts, permission: 'can_view_saved_carts' as const },
     { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },

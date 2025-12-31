@@ -44,6 +44,7 @@ import ThemeSettings from "./pages/admin/ThemeSettings";
 import AdminAccessDenied from "./pages/admin/AccessDenied";
 import AuditLog from "./pages/admin/AuditLog";
 import QuoteRequests from "./pages/admin/QuoteRequests";
+import PriceConfirmations from "./pages/admin/PriceConfirmations";
 import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
@@ -224,6 +225,11 @@ const App = () => {
               <Route path="quote-requests" element={
                 <AdminRouteGuard requiredPermission="can_view_orders">
                   <QuoteRequests />
+                </AdminRouteGuard>
+              } />
+              <Route path="price-confirmations" element={
+                <AdminRouteGuard requiredPermission="can_view_orders">
+                  <PriceConfirmations />
                 </AdminRouteGuard>
               } />
               <Route path="transfer-proofs" element={

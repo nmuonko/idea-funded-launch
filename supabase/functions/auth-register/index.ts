@@ -161,16 +161,34 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Create auth user with email auto-confirmed
+    // Create auth user - email verification required
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: email.trim(),
       password,
-      email_confirm: true,
+      email_confirm: false, // Triggers email verification
       user_metadata: {
         full_name: fullName.trim(),
         phone: phoneNumber.trim(),
       },
     });
+
+    // Send verification email using Supabase's built-in method
+    if (authData?.user) {
+      const { error: emailError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'signup',
+        email: email.trim(),
+        options: {
+          redirectTo: `${frontendBaseUrl}/email-confirmed`,
+        },
+      });
+      
+      if (emailError) {
+        console.warn('[auth-register] Failed to send verification email:', emailError.message);
+      } else {
+        console.log('[auth-register] Verification email sent to:', email);
+      }
+    }
 
     if (authError) {
       console.error('[auth-register] Auth error:', authError.message);
@@ -264,7 +282,7 @@ serve(async (req) => {
         JSON.stringify({
           ok: true,
           userId,
-          requiresEmailConfirmation: false,
+          requiresEmailConfirmation: true,
           message: 'Account created successfully. Please sign in.',
           user: {
             id: userId,
@@ -282,7 +300,7 @@ serve(async (req) => {
       JSON.stringify({
         ok: true,
         userId: sessionData.user.id,
-        requiresEmailConfirmation: false,
+        requiresEmailConfirmation: true,
         user: {
           id: sessionData.user.id,
           email: sessionData.user.email,

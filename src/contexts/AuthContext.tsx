@@ -428,8 +428,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   ) => {
     try {
-      // Use production domain for email verification redirect
-      const redirectUrl = 'https://afri-shop.com/email-confirmed';
+      // Use correct production domain for email verification redirect
+      const redirectUrl = `${window.location.origin}/email-confirmed`;
       
       const { data, error } = await supabase.auth.signUp({
         email,

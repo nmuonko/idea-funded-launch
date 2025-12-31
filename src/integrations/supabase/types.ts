@@ -1326,6 +1326,72 @@ export type Database = {
         }
         Relationships: []
       }
+      price_confirmations: {
+        Row: {
+          admin_currency: string | null
+          admin_note: string | null
+          admin_price: number | null
+          cart_item_id: string | null
+          created_at: string
+          extracted_currency: string | null
+          extracted_price: number | null
+          extraction_confidence: number | null
+          extraction_source: string | null
+          id: string
+          product_url: string
+          proposed_currency: string
+          proposed_price: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          store: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_currency?: string | null
+          admin_note?: string | null
+          admin_price?: number | null
+          cart_item_id?: string | null
+          created_at?: string
+          extracted_currency?: string | null
+          extracted_price?: number | null
+          extraction_confidence?: number | null
+          extraction_source?: string | null
+          id?: string
+          product_url: string
+          proposed_currency: string
+          proposed_price: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          store: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_currency?: string | null
+          admin_note?: string | null
+          admin_price?: number | null
+          cart_item_id?: string | null
+          created_at?: string
+          extracted_currency?: string | null
+          extracted_price?: number | null
+          extraction_confidence?: number | null
+          extraction_source?: string | null
+          id?: string
+          product_url?: string
+          proposed_currency?: string
+          proposed_price?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          store?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       product_cache: {
         Row: {
           created_at: string | null

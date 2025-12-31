@@ -154,7 +154,18 @@ serve(async (req) => {
     const markupPercent = Number(settings?.markup_percent) || 15;
     const exchangeRate = Number(settings?.exchange_rate_usd_to_cdf) || 2500;
     const shippingBaseFee = Number(settings?.shipping_base_fee_usd) || 10;
-    const shippingPercent = Number(settings?.shipping_percent) || 10;
+    
+    // SAFEGUARD: Normalize shipping_percent to decimal (0.10) regardless of storage format
+    // If > 1, it's stored as percent (10) so divide by 100; otherwise treat as decimal (0.10)
+    const rawShippingPercent = Number(settings?.shipping_percent) || 0.10;
+    const shippingPercent = rawShippingPercent > 1 ? rawShippingPercent / 100 : rawShippingPercent;
+    const shippingCalcMode = rawShippingPercent > 1 ? 'percent_to_decimal' : 'already_decimal';
+    
+    console.log(`[${requestId}] Shipping percent normalization:`, {
+      raw: rawShippingPercent,
+      normalized: shippingPercent,
+      mode: shippingCalcMode,
+    });
 
     // Find or create user's DRAFT order
     let { data: draftOrder } = await supabase
@@ -206,11 +217,29 @@ serve(async (req) => {
       });
     });
 
+    // DEDUPLICATE guest items by normalized URL BEFORE processing
+    // This prevents duplicates and ensures we don't process the same item twice
+    const seenNormalizedUrls = new Set<string>();
+    const dedupedGuestItems: GuestCartItem[] = [];
+    
+    for (const item of guestItems) {
+      if (!item.productUrl) continue;
+      const normalized = normalizeProductUrl(item.productUrl);
+      if (!seenNormalizedUrls.has(normalized)) {
+        seenNormalizedUrls.add(normalized);
+        dedupedGuestItems.push(item);
+      } else {
+        console.log(`[${requestId}] Deduped guest item (same normalized URL):`, normalized);
+      }
+    }
+    
+    console.log(`[${requestId}] Deduped ${guestItems.length} -> ${dedupedGuestItems.length} items`);
+
     // Merge items (idempotent - safe to retry)
     let mergedCount = 0;
     let skippedCount = 0;
 
-    for (const guestItem of guestItems) {
+    for (const guestItem of dedupedGuestItems) {
       if (!guestItem.productUrl || guestItem.unitPrice <= 0) {
         console.log(`[${requestId}] Skipping invalid item:`, guestItem);
         skippedCount++;
@@ -268,16 +297,19 @@ serve(async (req) => {
           mergedCount++;
         }
       } else {
-        // Insert new
-        const { error: insertError } = await supabase
+        // Insert new - use .select('id').single() to get the real ID
+        const { data: insertedItem, error: insertError } = await supabase
           .from('order_items')
-          .insert(itemData);
+          .insert(itemData)
+          .select('id')
+          .single();
 
         if (insertError) {
           console.error(`[${requestId}] Failed to insert item:`, insertError.message);
         } else {
           mergedCount++;
-          existingByUrl.set(normalizedUrl, { id: 'new', hasQuote: false });
+          // Store the REAL inserted ID to prevent duplicates in same batch
+          existingByUrl.set(normalizedUrl, { id: insertedItem.id, hasQuote: false });
         }
       }
     }
@@ -303,10 +335,18 @@ serve(async (req) => {
       if (item.requires_manual_quote) requiresManualQuote = true;
     });
 
-    // Add shipping
-    const shippingFeeUsd = Math.round((shippingBaseFee + (itemTotalUsd * shippingPercent / 100)) * 100) / 100;
+    // Add shipping - shippingPercent is already normalized to decimal (0.10)
+    const shippingFeeUsd = Math.round((shippingBaseFee + (itemTotalUsd * shippingPercent)) * 100) / 100;
     const grandTotalUsd = Math.round((totalUsd + shippingFeeUsd) * 100) / 100;
     const grandTotalCdf = Math.round(grandTotalUsd * exchangeRate);
+    
+    console.log(`[${requestId}] Shipping calc:`, {
+      itemTotalUsd,
+      shippingBaseFee,
+      shippingPercent,
+      shippingPercentContribution: Math.round(itemTotalUsd * shippingPercent * 100) / 100,
+      shippingFeeUsd,
+    });
 
     // Update order totals
     await supabase
@@ -331,6 +371,8 @@ serve(async (req) => {
         success: true,
         merged_count: mergedCount,
         skipped_count: skippedCount,
+        deduped_from: guestItems.length,
+        deduped_to: dedupedGuestItems.length,
         cart_id: draftOrder.id,
         totals: {
           item_total_usd: itemTotalUsd,
@@ -338,6 +380,14 @@ serve(async (req) => {
           total_usd: grandTotalUsd,
           total_cdf: grandTotalCdf,
           requires_manual_quote: requiresManualQuote,
+        },
+        // DEBUG: Shipping calculation details for mobile debugging
+        shipping_debug: {
+          shipping_percent_raw: rawShippingPercent,
+          shipping_percent_used: shippingPercent,
+          shipping_calc_mode: shippingCalcMode,
+          shipping_base_fee: shippingBaseFee,
+          shipping_percent_contribution: Math.round(itemTotalUsd * shippingPercent * 100) / 100,
         },
         message: mergedCount > 0 
           ? `Successfully merged ${mergedCount} item(s) into your cart`

@@ -3,7 +3,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { isLovablePreview } from '@/lib/environment';
-import { runQuickDiagnostic, getRecommendation } from '@/lib/supabaseHealth';
+import { runQuickDiagnostic } from '@/lib/supabaseHealth';
 
 export interface UserProfile {
   id: string;
@@ -15,6 +15,7 @@ export interface UserProfile {
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
+  province: string | null;
   state_province: string | null;
   postal_code: string | null;
   country: string | null;
@@ -182,6 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           address_line1: null,
           address_line2: null,
           city: null,
+          province: null,
           state_province: null,
           postal_code: null,
           country: 'DR Congo',
@@ -288,10 +290,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const userId = session.user.id;
           setTimeout(() => {
             console.log('[Auth] Deferred admin check and profile load for:', userId);
-            Promise.all([
+            Promise.allSettled([
               checkAdminStatus(userId),
               loadProfile(userId)
-            ]).then(() => {
+            ]).finally(() => {
               setLoading(false);
             });
           }, 0);
@@ -581,7 +583,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return refreshed?.access_token ?? null;
       }
       
-      console.log('[Auth] Token valid, expires:', new Date(expiresAt! * 1000).toISOString());
+      if (expiresAt) {
+        console.log('[Auth] Token valid, expires:', new Date(expiresAt * 1000).toISOString());
+      } else {
+        console.log('[Auth] Token valid (expires_at not available)');
+      }
       return currentSession.access_token;
     } catch (error) {
       console.error('[Auth] Exception getting access token:', error);

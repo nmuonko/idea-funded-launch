@@ -338,21 +338,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else if (error.message?.includes('Email not confirmed')) {
           userMessage = 'Please check your email and confirm your account before signing in.';
         } else if (error.message === 'Failed to fetch') {
-          // Check if this is a preview environment issue
-          if (inPreview) {
-            title = 'Preview Environment';
-            userMessage = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
-          } else {
-            // Run diagnostics to get specific error type on production
-            console.log('[Auth] Running diagnostics for network error...');
-            const diagnostic = await runQuickDiagnostic();
-            console.log('[Auth] Diagnostic result:', diagnostic);
-            
-            title = diagnostic.errorType === 'env_missing' ? 'Configuration Error' :
-                    diagnostic.errorType === 'csp_blocked' ? 'Security Policy Error' :
-                    'Connection Error';
-            userMessage = diagnostic.recommendation;
-          }
+          // Run diagnostics to get specific error type
+          console.log('[Auth] Running diagnostics for network error...');
+          const diagnostic = await runQuickDiagnostic();
+          console.log('[Auth] Diagnostic result:', diagnostic);
+          
+          title = diagnostic.errorType === 'env_missing' ? 'Configuration Error' :
+                  diagnostic.errorType === 'csp_blocked' ? 'Security Policy Error' :
+                  'Connection Error';
+          userMessage = diagnostic.recommendation;
         }
         
         toast({
@@ -397,11 +391,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let title = 'Connection Error';
       let description = 'Unable to connect to the authentication server. Please try again.';
       
-      if (inPreview && isNetworkError) {
-        title = 'Preview Environment';
-        description = 'Authentication is restricted in the preview. Please test on the published production site (afrishop-usa.com).';
-      } else if (isNetworkError) {
-        // Run diagnostics on production network errors
+      if (isNetworkError) {
+        // Run diagnostics on network errors
         try {
           const diagnostic = await runQuickDiagnostic();
           title = diagnostic.errorType === 'env_missing' ? 'Configuration Error' :

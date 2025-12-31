@@ -247,11 +247,10 @@ export default function Auth() {
 
           {/* Preview Environment Warning */}
           {inPreview && (
-            <Alert variant="destructive" className="bg-destructive/10 border-destructive/30 animate-fade-in">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>
-                You're in the preview environment. Authentication may not work here. 
-                Please test on <a href="https://afrishop-usa.com/auth" className="underline font-medium">afrishop-usa.com</a>.
+            <Alert className="bg-amber-500/10 border-amber-500/30 animate-fade-in">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              <AlertDescription className="text-amber-200">
+                Preview environment - some features may have limited functionality.
               </AlertDescription>
             </Alert>
           )}
@@ -267,32 +266,18 @@ export default function Auth() {
                 )}
               </div>
               <CardTitle className="text-2xl font-bold text-foreground">
-                {inPreview ? 'Preview Mode' : isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Admin Sign In'}
+                {isUpdatePassword ? 'Set New Password' : isResetPassword ? 'Reset Password' : 'Admin Sign In'}
               </CardTitle>
               <CardDescription className="text-muted-foreground">
-                {inPreview
-                  ? 'Sign in is disabled in the preview environment'
-                  : isUpdatePassword
-                    ? 'Enter your new password below'
-                    : isResetPassword 
-                      ? 'Enter your email to receive a password reset link' 
-                      : 'Enter your credentials to access the dashboard'}
+                {isUpdatePassword
+                  ? 'Enter your new password below'
+                  : isResetPassword 
+                    ? 'Enter your email to receive a password reset link' 
+                    : 'Enter your credentials to access the dashboard'}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Preview mode - show redirect to production */}
-              {inPreview ? (
-                <div className="space-y-4 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    Authentication requires the production environment. Please use the link below to sign in.
-                  </p>
-                  <Button asChild className="w-full h-11">
-                    <a href="https://afrishop-usa.com/auth" target="_blank" rel="noopener noreferrer">
-                      Go to Production Sign In
-                    </a>
-                  </Button>
-                </div>
-              ) : isUpdatePassword ? (
+              {isUpdatePassword ? (
                 <form onSubmit={handleUpdatePassword} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New Password</Label>

@@ -78,11 +78,14 @@ Deno.serve(async (req) => {
       admin_note: body.admin_note ?? null,
     };
 
+    let finalPriceUsd: number | null = null;
+
     if (action === 'APPROVE') {
       updateData.status = 'APPROVED';
       // Use admin-provided price if available, otherwise use proposed price
       updateData.admin_price = body.admin_price ?? existing.proposed_price;
       updateData.admin_currency = body.admin_currency?.toUpperCase() ?? existing.proposed_currency;
+      finalPriceUsd = updateData.admin_price;
     } else if (action === 'ADJUST') {
       // ADJUST requires admin_price and admin_currency
       if (typeof body.admin_price !== 'number' || body.admin_price <= 0) {
@@ -94,13 +97,14 @@ Deno.serve(async (req) => {
       updateData.status = 'ADJUSTED';
       updateData.admin_price = body.admin_price;
       updateData.admin_currency = body.admin_currency.toUpperCase();
+      finalPriceUsd = body.admin_price;
     } else if (action === 'REJECT') {
       updateData.status = 'REJECTED';
       updateData.admin_price = null;
       updateData.admin_currency = null;
     }
 
-    // Perform the update
+    // Perform the update on price_confirmations
     const { data: updated, error: updateError } = await supabase
       .from('price_confirmations')
       .update(updateData)
@@ -113,11 +117,69 @@ Deno.serve(async (req) => {
       return errorResponse('Failed to update price confirmation', 500);
     }
 
-    console.log('[admin-review-price-confirmation] Updated:', updated.id, 'to', updated.status);
+    console.log('[admin-review-price-confirmation] Updated confirmation:', updated.id, 'to', updated.status);
+
+    // CRITICAL: Update the linked order_items if cart_item_id exists
+    let cartItemUpdated = false;
+    if (existing.cart_item_id) {
+      const cartItemUpdate: Record<string, any> = {
+        price_confirmation_status: updateData.status,
+        price_confirmation_id: body.confirmation_id,
+        updated_at: new Date().toISOString(),
+      };
+
+      // If approved or adjusted, update the base_price_usd with the admin-approved price
+      if (action === 'APPROVE' || action === 'ADJUST') {
+        if (finalPriceUsd !== null) {
+          cartItemUpdate.admin_adjusted_price = finalPriceUsd;
+          cartItemUpdate.base_price_usd = finalPriceUsd;
+          
+          // Also recalculate markup if we have settings
+          const { data: settings } = await supabase
+            .from('settings')
+            .select('markup_percent, exchange_rate_usd_to_cdf')
+            .single();
+          
+          if (settings) {
+            const markupPercent = Number(settings.markup_percent ?? 15) / 100;
+            const markupFeeUsd = Math.round(finalPriceUsd * markupPercent * 100) / 100;
+            const subtotalUsd = finalPriceUsd;
+            const totalPriceUsd = Math.round((finalPriceUsd + markupFeeUsd) * 100) / 100;
+            const totalPriceCdf = Math.round(totalPriceUsd * Number(settings.exchange_rate_usd_to_cdf) * 100) / 100;
+            
+            cartItemUpdate.markup_fee_usd = markupFeeUsd;
+            cartItemUpdate.subtotal_usd = subtotalUsd;
+            cartItemUpdate.total_price_usd = totalPriceUsd;
+            cartItemUpdate.total_price_cdf = totalPriceCdf;
+            
+            console.log('[admin-review-price-confirmation] Recalculated cart item prices:', {
+              base_price_usd: finalPriceUsd,
+              markup_fee_usd: markupFeeUsd,
+              total_price_usd: totalPriceUsd,
+            });
+          }
+        }
+      }
+
+      const { error: cartError } = await supabase
+        .from('order_items')
+        .update(cartItemUpdate)
+        .eq('id', existing.cart_item_id);
+
+      if (cartError) {
+        console.error('[admin-review-price-confirmation] Failed to update cart item:', cartError);
+        // Don't fail the whole request, but log it
+      } else {
+        cartItemUpdated = true;
+        console.log('[admin-review-price-confirmation] Updated cart item:', existing.cart_item_id, 'status:', updateData.status);
+      }
+    }
 
     return jsonResponse({
       success: true,
       confirmation: updated,
+      cart_item_updated: cartItemUpdated,
+      final_price_usd: finalPriceUsd,
     });
 
   } catch (error) {

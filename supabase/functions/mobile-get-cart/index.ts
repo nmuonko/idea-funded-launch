@@ -44,6 +44,12 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   const quotedShippingUsd = quoteRequest?.quoted_shipping_usd ?? null;
   const quotedTotalUsd = quoteRequest?.quoted_total_usd ?? null;
   
+  // Get price confirmation info
+  const priceConfirmationStatus = item.price_confirmation_status ?? null;
+  const adminAdjustedPrice = item.admin_adjusted_price ?? null;
+  const priceConfirmationId = item.price_confirmation_id ?? null;
+  const hasPendingPriceConfirmation = priceConfirmationStatus === 'PENDING';
+  
   // STABLE BASE FIELDS for all items
   const baseFields = {
     id: item.id,
@@ -65,6 +71,11 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     quotedTotalUsd,
     isVehicle,
     vehicleQuoteApplied,
+    // Price confirmation fields - CRITICAL for mobile app checkout blocking
+    priceConfirmationStatus,
+    adminAdjustedPrice,
+    priceConfirmationId,
+    hasPendingPriceConfirmation,
   };
   
   // VEHICLE WITH APPLIED QUOTE - use STORED values
@@ -245,7 +256,7 @@ serve(async (req) => {
       }
     }
 
-    // Get items with quote requests - SINGLE QUERY with join
+    // Get items with quote requests and price confirmations - SINGLE QUERY with join
     const itemsStart = Date.now();
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
@@ -254,6 +265,7 @@ serve(async (req) => {
         subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
         est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
         is_vehicle, vehicle_quote_applied,
+        price_confirmation_status, admin_adjusted_price, price_confirmation_id,
         shipping_item_types(key, label),
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)
       `)
@@ -285,6 +297,10 @@ serve(async (req) => {
     let allVehiclesQuoted = true;
     let vehiclesWithPendingQuotes: string[] = [];
 
+    // CRITICAL: Price confirmation tracking for checkout blocking
+    let pendingPriceConfirmations: string[] = [];
+    let hasPendingPriceConfirmation = false;
+
     (items || []).forEach(item => {
       const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate);
       
@@ -294,6 +310,12 @@ serve(async (req) => {
       }
       
       activeItems.push(formattedItem);
+      
+      // Track pending price confirmations
+      if (formattedItem.hasPendingPriceConfirmation) {
+        hasPendingPriceConfirmation = true;
+        pendingPriceConfirmations.push(item.id);
+      }
       
       if (formattedItem.isVehicle) {
         vehicleCount++;
@@ -352,7 +374,10 @@ serve(async (req) => {
       vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : 'pending';
     }
 
-    const canProceedToPayment = !regularRequiresQuote && (!hasVehicleItems || allVehiclesQuoted);
+    // CRITICAL: Checkout is blocked if there are pending price confirmations
+    const canProceedToPayment = !regularRequiresQuote && 
+                                 (!hasVehicleItems || allVehiclesQuoted) && 
+                                 !hasPendingPriceConfirmation;
 
     // LEAN SUMMARY - only fields mobile needs
     // CRITICAL: Always use settings exchangeRate as source of truth (not order.exchange_rate_used)
@@ -378,6 +403,10 @@ serve(async (req) => {
       allVehiclesQuoted,
       vehiclesWithPendingQuotes: vehiclesWithPendingQuotes.length,
       canProceedToPayment,
+      // CRITICAL: Price confirmation status for checkout blocking
+      hasPendingPriceConfirmation,
+      pendingPriceConfirmationCount: pendingPriceConfirmations.length,
+      pendingPriceConfirmationItemIds: pendingPriceConfirmations,
       // Vehicle-specific totals for transparency
       vehicleTotals: hasVehicleItems ? {
         basePriceUsd: vehicleBasePriceTotal,
@@ -387,14 +416,16 @@ serve(async (req) => {
       } : null,
     };
     
-    // FIXED: Only show quote message for vehicles, NOT for regularRequiresQuote
-    // regularRequiresQuote should always be false for non-vehicles
-    if (hasVehicleItems && !allVehiclesQuoted) {
+    // Show appropriate blocking messages
+    if (hasPendingPriceConfirmation) {
+      summary.message = "Le prix d'un ou plusieurs articles est en attente de confirmation.";
+      summary.priceConfirmationMessage = "Le prix d'un ou plusieurs articles est en attente de confirmation par un administrateur.";
+    } else if (hasVehicleItems && !allVehiclesQuoted) {
       summary.message = "Un devis de livraison est nécessaire pour votre véhicule.";
       summary.vehicleMessage = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
 
-    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${Date.now() - startTime}ms - ${totalItemCount} items`);
+    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${Date.now() - startTime}ms - ${totalItemCount} items, ${pendingPriceConfirmations.length} pending price confirmations`);
     
     return jsonResponse({ 
       ok: true,

@@ -85,6 +85,25 @@ Deno.serve(async (req) => {
 
     console.log('[submit-price-confirmation] Created:', data.id);
 
+    // CRITICAL: If cart_item_id provided, update the order_item's price_confirmation_status
+    if (body.cart_item_id) {
+      const { error: cartError } = await supabase
+        .from('order_items')
+        .update({
+          price_confirmation_status: 'PENDING',
+          price_confirmation_id: data.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', body.cart_item_id);
+
+      if (cartError) {
+        console.error('[submit-price-confirmation] Failed to update cart item:', cartError);
+        // Don't fail the whole request, but log it
+      } else {
+        console.log('[submit-price-confirmation] Updated cart item:', body.cart_item_id, 'status: PENDING');
+      }
+    }
+
     return jsonResponse({
       success: true,
       confirmation_id: data.id,

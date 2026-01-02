@@ -901,6 +901,7 @@ export type Database = {
       }
       order_items: {
         Row: {
+          admin_adjusted_price: number | null
           base_price_usd: number | null
           created_at: string
           est_weight_kg: number | null
@@ -911,6 +912,8 @@ export type Database = {
           markup_fee_usd: number | null
           notes: string | null
           order_id: string
+          price_confirmation_id: string | null
+          price_confirmation_status: string | null
           product_image_url: string | null
           product_url: string
           quantity: number
@@ -929,6 +932,7 @@ export type Database = {
           vehicle_quote_applied: boolean | null
         }
         Insert: {
+          admin_adjusted_price?: number | null
           base_price_usd?: number | null
           created_at?: string
           est_weight_kg?: number | null
@@ -939,6 +943,8 @@ export type Database = {
           markup_fee_usd?: number | null
           notes?: string | null
           order_id: string
+          price_confirmation_id?: string | null
+          price_confirmation_status?: string | null
           product_image_url?: string | null
           product_url: string
           quantity?: number
@@ -957,6 +963,7 @@ export type Database = {
           vehicle_quote_applied?: boolean | null
         }
         Update: {
+          admin_adjusted_price?: number | null
           base_price_usd?: number | null
           created_at?: string
           est_weight_kg?: number | null
@@ -967,6 +974,8 @@ export type Database = {
           markup_fee_usd?: number | null
           notes?: string | null
           order_id?: string
+          price_confirmation_id?: string | null
+          price_confirmation_status?: string | null
           product_image_url?: string | null
           product_url?: string
           quantity?: number
@@ -990,6 +999,13 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_price_confirmation_id_fkey"
+            columns: ["price_confirmation_id"]
+            isOneToOne: false
+            referencedRelation: "price_confirmations"
             referencedColumns: ["id"]
           },
           {

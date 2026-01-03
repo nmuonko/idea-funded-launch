@@ -1342,6 +1342,54 @@ export type Database = {
         }
         Relationships: []
       }
+      price_capture_cache: {
+        Row: {
+          canonical_url: string | null
+          capture_count: number
+          captured_at: string
+          confidence: number
+          currency: string
+          expires_at: string
+          id: string
+          last_seen_at: string
+          price_value: number
+          product_key: string
+          source: string
+          store: string
+          title: string | null
+        }
+        Insert: {
+          canonical_url?: string | null
+          capture_count?: number
+          captured_at?: string
+          confidence?: number
+          currency?: string
+          expires_at: string
+          id?: string
+          last_seen_at?: string
+          price_value: number
+          product_key: string
+          source: string
+          store: string
+          title?: string | null
+        }
+        Update: {
+          canonical_url?: string | null
+          capture_count?: number
+          captured_at?: string
+          confidence?: number
+          currency?: string
+          expires_at?: string
+          id?: string
+          last_seen_at?: string
+          price_value?: number
+          product_key?: string
+          source?: string
+          store?: string
+          title?: string | null
+        }
+        Relationships: []
+      }
       price_confirmations: {
         Row: {
           admin_currency: string | null
@@ -2148,6 +2196,7 @@ export type Database = {
         Args: { p_key: string; p_limit: number; p_window_minutes: number }
         Returns: Json
       }
+      clean_expired_capture_cache: { Args: never; Returns: undefined }
       clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
@@ -2185,6 +2234,25 @@ export type Database = {
           target_applicants: number
         }[]
       }
+      get_cached_price: {
+        Args: { product_key_input: string; store_input: string }
+        Returns: {
+          canonical_url: string
+          capture_count: number
+          captured_at: string
+          confidence: number
+          currency: string
+          expires_at: string
+          id: string
+          is_expired: boolean
+          last_seen_at: string
+          price_value: number
+          product_key: string
+          source: string
+          store: string
+          title: string
+        }[]
+      }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
       get_public_exchange_rate: { Args: never; Returns: number }
       get_public_session_info: {
@@ -2218,6 +2286,7 @@ export type Database = {
           target_applicants: number
         }[]
       }
+      get_store_cache_ttl: { Args: { store_input: string }; Returns: number }
       get_table_statistics: {
         Args: never
         Returns: {
@@ -2253,6 +2322,20 @@ export type Database = {
         }[]
       }
       sync_profile_emails: { Args: never; Returns: undefined }
+      upsert_cached_price: {
+        Args: {
+          canonical_url_input: string
+          confidence_input: number
+          currency_input: string
+          price_value_input: number
+          product_key_input: string
+          source_input: string
+          store_input: string
+          title_input: string
+          ttl_minutes: number
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "user"

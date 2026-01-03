@@ -3,6 +3,7 @@
  * 
  * This module provides utilities for caching captured prices from WebView
  * to improve accuracy and speed across users without overloading the backend.
+ * Includes price history tracking for instability detection.
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -50,7 +51,23 @@ export interface UpsertResult {
   action?: 'inserted' | 'updated' | 'skipped';
   id?: string;
   expires_at?: string;
+  price_changed?: boolean;
+  currency_changed?: boolean;
   error?: string;
+}
+
+export interface PriceInstability {
+  store: string;
+  product_key: string;
+  is_unstable: boolean;
+  changes_24h: number;
+  changes_7d: number;
+  last_change_at: string | null;
+  price_range: {
+    min_price?: number;
+    max_price?: number;
+    price_spread?: number;
+  };
 }
 
 /**
@@ -193,9 +210,52 @@ export async function getCachedPrice(
 }
 
 /**
+ * Fetch price instability data for a product
+ * Used to determine if tap-to-pick should be forced
+ */
+export async function getPriceInstability(
+  store: string,
+  productKey: string
+): Promise<PriceInstability | null> {
+  try {
+    const startTime = Date.now();
+    
+    const { data, error } = await supabase.rpc('get_price_instability', {
+      store_input: store.toLowerCase(),
+      product_key_input: productKey,
+    });
+    
+    const duration = Date.now() - startTime;
+    
+    if (error) {
+      console.error('[PriceCache] Error fetching instability:', error);
+      return null;
+    }
+    
+    if (!data) {
+      return null;
+    }
+    
+    const instability = data as unknown as PriceInstability;
+    console.log(
+      `[PriceCache] Instability check: store=${store}, key=${productKey}, ` +
+      `unstable=${instability.is_unstable}, changes_24h=${instability.changes_24h}, ` +
+      `changes_7d=${instability.changes_7d}, duration=${duration}ms`
+    );
+    
+    return instability;
+    
+  } catch (error) {
+    console.error('[PriceCache] Exception fetching instability:', error);
+    return null;
+  }
+}
+
+/**
  * Upsert a price into the cache
  * Only updates if the new entry has higher or equal confidence, 
  * or if existing entry is expired, or if source is 'tap'
+ * Automatically tracks price history when price changes
  */
 export async function upsertCachedPrice(params: {
   store: string;
@@ -221,15 +281,16 @@ export async function upsertCachedPrice(params: {
   } = params;
   
   try {
+    // Block manual source at frontend level
+    if (source === 'manual') {
+      console.warn('[PriceCache] Skipping cache upsert: manual source not allowed');
+      return { success: false, error: 'Manual source is not allowed for cache writes' };
+    }
+    
     // Validate confidence requirements
     if (source === 'auto' && confidence < 0.85) {
       console.warn('[PriceCache] Skipping cache upsert: auto source requires confidence >= 0.85');
       return { success: false, error: 'Auto source requires confidence >= 0.85' };
-    }
-    
-    if (source === 'manual' && confidence < 0.95) {
-      console.warn('[PriceCache] Skipping cache upsert: manual source requires confidence >= 0.95');
-      return { success: false, error: 'Manual source requires confidence >= 0.95' };
     }
     
     const startTime = Date.now();
@@ -261,7 +322,7 @@ export async function upsertCachedPrice(params: {
     console.log(
       `[PriceCache] Upsert ${result.action}: store=${store}, key=${productKey}, ` +
       `price=${priceValue} ${currency}, source=${source}, confidence=${confidence}, ` +
-      `ttl=${ttlMinutes}min, duration=${duration}ms`
+      `ttl=${ttlMinutes}min, price_changed=${result.price_changed}, duration=${duration}ms`
     );
     
     return result;
@@ -284,7 +345,7 @@ export function pricesMatch(
 }
 
 /**
- * Determine action based on cache lookup and extraction result
+ * Determine action based on cache lookup, extraction result, and instability
  */
 export interface PriceCacheDecision {
   action: 'use_cached' | 'use_extracted' | 'require_tap' | 'show_cached_reference';
@@ -293,6 +354,7 @@ export interface PriceCacheDecision {
   confidence: number;
   source: PriceCaptureSource | 'extracted';
   cachedPrice?: CachedPrice;
+  isUnstable?: boolean;
   reason: string;
 }
 
@@ -300,8 +362,36 @@ export function decidePriceAction(params: {
   cachedPrice: CachedPrice | null;
   extractedPrice: number | null;
   extractedConfidence?: number;
+  instability?: PriceInstability | null;
 }): PriceCacheDecision {
-  const { cachedPrice, extractedPrice, extractedConfidence = 0.9 } = params;
+  const { cachedPrice, extractedPrice, extractedConfidence = 0.9, instability } = params;
+  const isUnstable = instability?.is_unstable ?? false;
+  
+  // If item is unstable, require tap unless extraction matches cache exactly
+  if (isUnstable) {
+    if (cachedPrice && extractedPrice !== null && pricesMatch(extractedPrice, cachedPrice.price_value)) {
+      return {
+        action: 'use_cached',
+        price: cachedPrice.price_value,
+        currency: cachedPrice.currency,
+        confidence: 0.9, // Lower confidence for unstable items
+        source: cachedPrice.source,
+        cachedPrice,
+        isUnstable: true,
+        reason: 'Prix instable mais extraction correspond au cache',
+      };
+    }
+    return {
+      action: 'require_tap',
+      price: extractedPrice ?? cachedPrice?.price_value ?? 0,
+      currency: cachedPrice?.currency ?? 'USD',
+      confidence: 0.5,
+      source: 'extracted',
+      cachedPrice: cachedPrice ?? undefined,
+      isUnstable: true,
+      reason: 'Prix instable — touchez le prix pour confirmer',
+    };
+  }
   
   // Case 1: No cache, no extraction -> require tap
   if (!cachedPrice && extractedPrice === null) {
@@ -311,6 +401,7 @@ export function decidePriceAction(params: {
       currency: 'USD',
       confidence: 0,
       source: 'extracted',
+      isUnstable: false,
       reason: 'No cached price and auto extraction failed',
     };
   }
@@ -323,6 +414,7 @@ export function decidePriceAction(params: {
       currency: 'USD',
       confidence: extractedConfidence,
       source: 'extracted',
+      isUnstable: false,
       reason: 'No cached price, using auto-extracted price',
     };
   }
@@ -339,6 +431,7 @@ export function decidePriceAction(params: {
           confidence: 0.95, // Boost confidence when matches old cache
           source: 'extracted',
           cachedPrice,
+          isUnstable: false,
           reason: 'Extracted price matches expired cache, high confidence',
         };
       }
@@ -350,6 +443,7 @@ export function decidePriceAction(params: {
         confidence: 0.5,
         source: 'extracted',
         cachedPrice,
+        isUnstable: false,
         reason: 'Extracted price differs from expired cache, verification needed',
       };
     }
@@ -361,6 +455,7 @@ export function decidePriceAction(params: {
       confidence: 0.3,
       source: cachedPrice.source,
       cachedPrice,
+      isUnstable: false,
       reason: 'Cache expired and extraction failed, showing old price as reference',
     };
   }
@@ -377,6 +472,7 @@ export function decidePriceAction(params: {
           confidence: 0.95, // High confidence when both agree
           source: cachedPrice.source,
           cachedPrice,
+          isUnstable: false,
           reason: 'Extracted price matches fresh cache',
         };
       }
@@ -388,6 +484,7 @@ export function decidePriceAction(params: {
         confidence: 0.5,
         source: 'extracted',
         cachedPrice,
+        isUnstable: false,
         reason: `Price mismatch: extracted $${extractedPrice} vs cached $${cachedPrice.price_value}`,
       };
     }
@@ -399,6 +496,7 @@ export function decidePriceAction(params: {
       confidence: cachedPrice.confidence,
       source: cachedPrice.source,
       cachedPrice,
+      isUnstable: false,
       reason: 'Using fresh cached price (extraction failed)',
     };
   }
@@ -410,6 +508,7 @@ export function decidePriceAction(params: {
     currency: 'USD',
     confidence: 0,
     source: 'extracted',
+    isUnstable: false,
     reason: 'Unexpected state, requiring tap verification',
   };
 }
@@ -432,4 +531,27 @@ export function formatCachedPriceInfo(cached: CachedPrice): string {
   }
   
   return `${cached.currency === 'USD' ? '$' : cached.currency}${cached.price_value.toFixed(2)} (${timeAgo})`;
+}
+
+/**
+ * Format instability warning message
+ */
+export function formatInstabilityWarning(instability: PriceInstability): string {
+  if (!instability.is_unstable) return '';
+  
+  const { changes_24h, changes_7d, price_range } = instability;
+  
+  if (changes_24h >= 2) {
+    return `Prix instable (${changes_24h} changements en 24h)`;
+  }
+  
+  if (changes_7d >= 3) {
+    const spread = price_range.price_spread;
+    if (spread && spread > 0) {
+      return `Prix variable ($${price_range.min_price?.toFixed(2)} - $${price_range.max_price?.toFixed(2)})`;
+    }
+    return `Prix instable (${changes_7d} changements en 7j)`;
+  }
+  
+  return 'Prix instable — touchez le prix pour confirmer';
 }

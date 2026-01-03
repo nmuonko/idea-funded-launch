@@ -1456,6 +1456,54 @@ export type Database = {
         }
         Relationships: []
       }
+      price_history: {
+        Row: {
+          canonical_url: string | null
+          captured_at: string
+          change_type: string
+          confidence: number
+          currency: string
+          id: string
+          prev_currency: string | null
+          prev_price_value: number | null
+          price_value: number
+          product_key: string
+          source: string
+          store: string
+          title: string | null
+        }
+        Insert: {
+          canonical_url?: string | null
+          captured_at?: string
+          change_type?: string
+          confidence?: number
+          currency?: string
+          id?: string
+          prev_currency?: string | null
+          prev_price_value?: number | null
+          price_value: number
+          product_key: string
+          source: string
+          store: string
+          title?: string | null
+        }
+        Update: {
+          canonical_url?: string | null
+          captured_at?: string
+          change_type?: string
+          confidence?: number
+          currency?: string
+          id?: string
+          prev_currency?: string | null
+          prev_price_value?: number | null
+          price_value?: number
+          product_key?: string
+          source?: string
+          store?: string
+          title?: string | null
+        }
+        Relationships: []
+      }
       product_cache: {
         Row: {
           created_at: string | null
@@ -2254,6 +2302,10 @@ export type Database = {
         }[]
       }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
+      get_price_instability: {
+        Args: { product_key_input: string; store_input: string }
+        Returns: Json
+      }
       get_public_exchange_rate: { Args: never; Returns: number }
       get_public_session_info: {
         Args: never

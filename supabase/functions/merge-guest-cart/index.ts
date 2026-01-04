@@ -20,6 +20,7 @@ interface GuestCartItem {
 interface MergeRequest {
   guest_device_id?: string;  // Device ID for tracking
   guest_items: GuestCartItem[];  // Items stored locally on device
+  idempotency_key?: string;  // Idempotency key to prevent duplicate merges
 }
 
 // Normalize URLs to prevent duplicates
@@ -125,6 +126,56 @@ serve(async (req) => {
 
     const guestItems = body.guest_items || [];
     const guestDeviceId = body.guest_device_id;
+    const idempotencyKey = body.idempotency_key;
+
+    // Check idempotency - prevent duplicate merge requests
+    if (idempotencyKey) {
+      const idempotencyKeyFull = `merge_cart:${user.id}:${idempotencyKey}`;
+      
+      const { data: rateCheck } = await supabase
+        .rpc('check_rate_limit', {
+          p_key: idempotencyKeyFull,
+          p_limit: 1,
+          p_window_minutes: 60, // 1 hour window for idempotency
+        });
+
+      if (rateCheck && !rateCheck.allowed) {
+        console.log(`[${requestId}] Idempotent request - already processed:`, idempotencyKey);
+        
+        // Return success but indicate it was already processed
+        // Fetch current cart state to return
+        const { data: existingOrder } = await supabase
+          .from('orders')
+          .select('id, total_usd, total_cdf, item_total_usd, shipping_fee_usd, requires_manual_quote')
+          .eq('user_id', user.id)
+          .eq('status', 'DRAFT')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        return new Response(
+          JSON.stringify({
+            success: true,
+            idempotent: true,
+            merged_count: 0,
+            skipped_count: guestItems.length,
+            cart_id: existingOrder?.id || null,
+            totals: existingOrder ? {
+              item_total_usd: existingOrder.item_total_usd,
+              shipping_fee_usd: existingOrder.shipping_fee_usd,
+              total_usd: existingOrder.total_usd,
+              total_cdf: existingOrder.total_cdf,
+              requires_manual_quote: existingOrder.requires_manual_quote,
+            } : null,
+            message: 'Request already processed (idempotent)',
+            requestId,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`[${requestId}] Idempotency key accepted:`, idempotencyKey);
+    }
 
     if (!guestItems.length) {
       console.log(`[${requestId}] No guest items to merge`);
@@ -142,6 +193,9 @@ serve(async (req) => {
     console.log(`[${requestId}] Merging ${guestItems.length} guest items for user:`, user.id);
     if (guestDeviceId) {
       console.log(`[${requestId}] Guest device ID:`, guestDeviceId);
+    }
+    if (idempotencyKey) {
+      console.log(`[${requestId}] Idempotency key:`, idempotencyKey);
     }
 
     // Fetch settings for pricing

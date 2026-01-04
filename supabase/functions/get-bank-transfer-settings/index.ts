@@ -3,10 +3,18 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, if-none-match',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+  'Pragma': 'no-cache',
 };
+
+// Generate ETag from updated_at timestamp
+function generateETag(updatedAt: string | null): string {
+  if (!updatedAt) return '"v0"';
+  const hash = btoa(updatedAt).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+  return `"${hash}"`;
+}
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -46,6 +54,22 @@ serve(async (req) => {
       );
     }
 
+    // Generate ETag for cache validation
+    const etag = generateETag(data?.updated_at || null);
+    const clientEtag = req.headers.get('If-None-Match');
+    
+    // If client has same version, return 304 Not Modified
+    if (clientEtag && clientEtag === etag) {
+      console.log(`[${requestId}] ETag match - returning 304`);
+      return new Response(null, { 
+        status: 304, 
+        headers: { 
+          ...corsHeaders, 
+          'ETag': etag,
+        } 
+      });
+    }
+
     // If no settings found, return empty but valid response
     if (!data) {
       console.log(`[${requestId}] No bank transfer settings configured`);
@@ -55,9 +79,17 @@ serve(async (req) => {
           configured: false,
           settings: null,
           updated_at: null,
+          version: 0,
           requestId,
         }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { 
+          status: 200, 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json',
+            'ETag': '"v0"',
+          } 
+        }
       );
     }
 
@@ -73,7 +105,10 @@ serve(async (req) => {
       );
     }
 
-    console.log(`[${requestId}] Returning bank transfer settings, updated_at:`, data.updated_at);
+    // Generate a version number from updated_at for simple cache busting
+    const version = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+
+    console.log(`[${requestId}] Returning bank transfer settings, updated_at:`, data.updated_at, 'version:', version);
 
     return new Response(
       JSON.stringify({
@@ -90,9 +125,17 @@ serve(async (req) => {
           support_email: settings.support_email || '',
         },
         updated_at: data.updated_at,
+        version: version,
         requestId,
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'ETag': etag,
+        } 
+      }
     );
 
   } catch (error: any) {

@@ -147,22 +147,38 @@ serve(async (req) => {
       }
     }
 
-    // Insert the message
+    // Insert the message using service role (bypasses RLS)
+    // This ensures the insert succeeds even if RLS policies have issues
     const { data: message, error: insertError } = await supabase
       .from('support_messages')
       .insert({
         conversation_id: conversationId,
         content: content,
         sender_type: 'user',
-        meta: { user_id: user.id },
+        meta: { 
+          user_id: user.id,
+          user_email: user.email || null,
+          submitted_at: new Date().toISOString(),
+        },
       })
       .select('id, content, created_at, sender_type')
       .single();
 
     if (insertError) {
-      console.error(`[${requestId}] Failed to insert message:`, insertError.message);
+      console.error(`[${requestId}] Failed to insert message:`, insertError.message, insertError.code, insertError.details);
+      
+      // Provide more specific error info for debugging
       return new Response(
-        JSON.stringify({ success: false, code: 'INSERT_FAILED', message: 'Failed to send message' }),
+        JSON.stringify({ 
+          success: false, 
+          code: 'INSERT_FAILED', 
+          message: 'Failed to send message',
+          debug: {
+            error_code: insertError.code,
+            error_hint: insertError.hint || null,
+            conversation_id: conversationId,
+          },
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

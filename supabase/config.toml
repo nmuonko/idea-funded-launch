@@ -302,3 +302,6 @@ verify_jwt = true
 
 [functions.merge-guest-cart]
 verify_jwt = true
+
+[functions.public-shipping-config]
+verify_jwt = false

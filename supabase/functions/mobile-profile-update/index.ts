@@ -153,10 +153,17 @@ serve(async (req) => {
       updateData.name = fullName.trim();
     }
     if (phoneNumber !== undefined) updateData.phone = phoneNumber.trim();
-    if (addressLine1 !== undefined) updateData.address_line1 = addressLine1.trim();
+    if (addressLine1 !== undefined) {
+      updateData.address_line1 = addressLine1.trim();
+      updateData.address = addressLine1.trim(); // Also update legacy 'address' column
+    }
     if (addressLine2 !== undefined) updateData.address_line2 = addressLine2?.trim() || null;
     if (city !== undefined) updateData.city = city.trim();
-    if (stateOrProvince !== undefined) updateData.state_province = stateOrProvince.trim();
+    if (stateOrProvince !== undefined) {
+      const trimmedProvince = stateOrProvince.trim();
+      updateData.state_province = trimmedProvince;
+      updateData.province = trimmedProvince; // Update BOTH columns for consistency
+    }
     if (country !== undefined) updateData.country = country.trim();
     if (language !== undefined) updateData.language = language;
 

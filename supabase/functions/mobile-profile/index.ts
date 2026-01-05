@@ -177,10 +177,10 @@ serve(async (req) => {
 
     console.log('[mobile-profile] User authenticated:', user.id);
 
-    // 5. Fetch user profile - only select columns that exist in the table
+    // 5. Fetch user profile - select ALL address-related columns
     let { data: profile, error: profileError } = await supabaseAdmin
       .from('profiles')
-      .select('user_id, email, full_name, name, phone, address, address_line1, country, province, state_province, language')
+      .select('user_id, email, full_name, name, phone, address, address_line1, address_line2, city, country, province, state_province, postal_code, language')
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -203,15 +203,19 @@ serve(async (req) => {
         full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
         phone: user.user_metadata?.phone || '',
         address: '',
+        address_line1: '',
+        address_line2: '',
+        city: '',
         country: defaultCountry,
         province: defaultProvince,
+        state_province: defaultProvince,
         language: defaultLanguage,
       };
 
       const { data: createdProfile, error: createError } = await supabaseAdmin
         .from('profiles')
         .upsert(newProfile, { onConflict: 'user_id' })
-        .select('user_id, email, full_name, name, phone, address, address_line1, country, province, state_province, language')
+        .select('user_id, email, full_name, name, phone, address, address_line1, address_line2, city, country, province, state_province, postal_code, language')
         .single();
 
       if (createError) {
@@ -230,19 +234,37 @@ serve(async (req) => {
 
     console.log('[mobile-profile] Profile retrieved, complete:', hasCompleteProfile);
 
-    // 8. Return profile in the simplified format - never null values
-    // STANDARDIZED: Added ok/success fields for consistent response format
+    // 8. Return profile in BOTH formats for backwards compatibility
+    // camelCase for new mobile app, snake_case for legacy
     const response = {
       ok: true,
       success: true,
+      // Primary ID
       id: profile?.user_id || user.id,
+      // Email
       email: profile?.email || user.email || '',
+      // Full name - both formats
       full_name: profile?.full_name || profile?.name || '',
+      fullName: profile?.full_name || profile?.name || '',
+      // Phone - both formats
       phone: profile?.phone || '',
+      phoneNumber: profile?.phone || '',
+      // Address fields - camelCase (new format)
+      addressLine1: profile?.address_line1 || profile?.address || '',
+      addressLine2: profile?.address_line2 || '',
+      city: profile?.city || '',
+      stateOrProvince: profile?.state_province || profile?.province || '',
+      // Address fields - snake_case (legacy format)
       address: profile?.address || profile?.address_line1 || '',
-      country: profile?.country || 'DR Congo',
+      address_line1: profile?.address_line1 || '',
+      address_line2: profile?.address_line2 || '',
+      state_province: profile?.state_province || profile?.province || '',
       province: profile?.province || profile?.state_province || 'Kinshasa',
+      // Country
+      country: profile?.country || 'DR Congo',
+      // Language
       language: profile?.language || 'fr',
+      // Completeness
       hasCompleteProfile,
       missingFields,
     };

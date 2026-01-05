@@ -159,7 +159,8 @@ serve(async (req) => {
     if (resend && invitationId) {
       console.log('[admin-invite-user] Resending invitation:', invitationId);
       
-      const { data: invitation, error: invErr } = await supabase
+      // Use service client to bypass RLS
+      const { data: invitation, error: invErr } = await serviceSupabase
         .from('admin_invitations')
         .select('*')
         .eq('id', invitationId)
@@ -181,8 +182,8 @@ serve(async (req) => {
       // Send email
       const emailResult = await sendInvitationEmail(invitation.email, invitation.role, invitation.token);
       
-      // Update invitation with new expiration and email status
-      await supabase
+      // Update invitation with new expiration and email status (use service client)
+      await serviceSupabase
         .from('admin_invitations')
         .update({ 
           expires_at: newExpires.toISOString(),
@@ -231,8 +232,8 @@ serve(async (req) => {
     }
 
     if (existingUser) {
-      // User exists - check if already admin
-      const { data: existingRole } = await supabase
+      // User exists - check if already admin (use service client to bypass RLS)
+      const { data: existingRole } = await serviceSupabase
         .from('user_roles')
         .select('*')
         .eq('user_id', existingUser.id)
@@ -249,8 +250,8 @@ serve(async (req) => {
         });
       }
 
-      // Add admin role to existing user
-      const { error: roleError } = await supabase
+      // Add admin role to existing user (use service client)
+      const { error: roleError } = await serviceSupabase
         .from('user_roles')
         .insert({ user_id: existingUser.id, role: 'admin', admin_role: role });
 
@@ -274,8 +275,8 @@ serve(async (req) => {
       });
     }
 
-    // Create invitation for new user
-    const { data: invitation, error: inviteError } = await supabase
+    // Create invitation for new user (use service client to bypass RLS)
+    const { data: invitation, error: inviteError } = await serviceSupabase
       .from('admin_invitations')
       .insert({
         email,
@@ -319,8 +320,8 @@ serve(async (req) => {
           ...userPermissions,
         });
 
-      // Mark invitation as accepted
-      await supabase
+      // Mark invitation as accepted (use service client)
+      await serviceSupabase
         .from('admin_invitations')
         .update({ status: 'accepted', accepted_at: new Date().toISOString() })
         .eq('id', invitation.id);
@@ -340,8 +341,8 @@ serve(async (req) => {
     const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
     const inviteUrl = `${frontendUrl}/accept-invite?token=${invitation.token}`;
 
-    // Update invitation with email status and URL
-    await supabase
+    // Update invitation with email status and URL (use service client)
+    await serviceSupabase
       .from('admin_invitations')
       .update({ 
         email_sent: emailResult.sent,

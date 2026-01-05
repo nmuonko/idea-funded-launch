@@ -27,15 +27,46 @@ import {
  * }
  */
 
+// Accept ANY of these key formats for each field
 interface UpdateProfileRequest {
+  // Full name variants
   fullName?: string;
+  full_name?: string;
+  name?: string;
+  // Phone variants
   phoneNumber?: string;
+  phone_number?: string;
+  phone?: string;
+  // Address line 1 variants
   addressLine1?: string;
+  address_line1?: string;
+  address_line_1?: string;
+  // Address line 2 variants
   addressLine2?: string;
+  address_line2?: string;
+  address_line_2?: string;
+  // City
   city?: string;
+  // State/Province variants
   stateOrProvince?: string;
+  state_or_province?: string;
+  stateProvince?: string;
+  state_province?: string;
+  province?: string;
+  // Country
   country?: string;
+  // Language
   language?: string;
+}
+
+// Normalize incoming keys to get the actual value
+function normalizeField<T>(body: Record<string, any>, ...keys: string[]): T | undefined {
+  for (const key of keys) {
+    if (body[key] !== undefined) {
+      return body[key] as T;
+    }
+  }
+  return undefined;
 }
 
 function validatePhone(phone: string): boolean {
@@ -63,16 +94,18 @@ serve(async (req) => {
     console.log('[mobile-profile-update] User authenticated:', user.id);
 
     const body: UpdateProfileRequest = await req.json();
-    const {
-      fullName,
-      phoneNumber,
-      addressLine1,
-      addressLine2,
-      city,
-      stateOrProvince,
-      country,
-      language,
-    } = body;
+    
+    // Normalize all incoming keys to support multiple formats
+    const fullName = normalizeField<string>(body, 'fullName', 'full_name', 'name');
+    const phoneNumber = normalizeField<string>(body, 'phoneNumber', 'phone_number', 'phone');
+    const addressLine1 = normalizeField<string>(body, 'addressLine1', 'address_line1', 'address_line_1');
+    const addressLine2 = normalizeField<string>(body, 'addressLine2', 'address_line2', 'address_line_2');
+    const city = normalizeField<string>(body, 'city');
+    const stateOrProvince = normalizeField<string>(body, 'stateOrProvince', 'state_or_province', 'stateProvince', 'state_province', 'province');
+    const country = normalizeField<string>(body, 'country');
+    const language = normalizeField<string>(body, 'language');
+    
+    console.log('[mobile-profile-update] Normalized fields:', { fullName, phoneNumber, addressLine1, city, stateOrProvince, country });
 
     // Validate phone if provided
     if (phoneNumber && !validatePhone(phoneNumber)) {

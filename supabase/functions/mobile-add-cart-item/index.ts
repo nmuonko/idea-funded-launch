@@ -468,8 +468,12 @@ serve(async (req) => {
       console.log('[mobile-add-cart-item] Profile created successfully');
     }
 
-    // ENFORCE SINGLE DRAFT ORDER: Get or create, merging duplicates
-    const getOrCreateSingleDraftOrder = async (userId: string) => {
+    // SHARED CART RESOLUTION: Same logic as mobile-get-cart
+    // Returns the single DRAFT order ID for this user, creating if needed
+    const resolveCartId = async (userId: string): Promise<string> => {
+      console.log('[ADD_CART_DEBUG] resolveCartId called for userId:', userId);
+      
+      // Step 1: Find existing DRAFT orders for this user
       const { data: drafts, error: draftsError } = await supabase
         .from('orders')
         .select('id, created_at')
@@ -477,38 +481,55 @@ serve(async (req) => {
         .eq('status', 'DRAFT')
         .order('created_at', { ascending: false });
 
-      if (draftsError) throw new Error('Failed to access cart');
+      if (draftsError) {
+        console.error('[ADD_CART_DEBUG] Failed to query drafts:', draftsError);
+        throw new Error('Failed to access cart');
+      }
+      
+      console.log('[ADD_CART_DEBUG] Found drafts:', drafts?.length || 0);
 
+      // Step 2: If no drafts, create one
       if (!drafts || drafts.length === 0) {
+        console.log('[ADD_CART_DEBUG] Creating new DRAFT order for user:', userId);
         const { data: newOrder, error: createError } = await supabase
           .from('orders')
           .insert({ 
             user_id: userId, 
             status: 'DRAFT',
-            exchange_rate_used: exchangeRate, // Store exchange rate on creation
+            exchange_rate_used: exchangeRate,
           })
           .select('id')
           .single();
-        if (createError || !newOrder) throw new Error('Failed to create cart');
+        
+        if (createError || !newOrder) {
+          console.error('[ADD_CART_DEBUG] Failed to create order:', createError);
+          throw new Error('Failed to create cart');
+        }
+        
+        console.log('[ADD_CART_DEBUG] Created new order:', newOrder.id);
         return newOrder.id;
       }
 
-      // If multiple drafts, merge into most recent
+      // Step 3: If multiple drafts exist, merge them
       if (drafts.length > 1) {
         const primaryId = drafts[0].id;
+        const secondaryIds = drafts.slice(1).map(d => d.id);
+        console.log('[ADD_CART_DEBUG] Merging', secondaryIds.length, 'drafts into:', primaryId);
+        
         for (const old of drafts.slice(1)) {
           await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', old.id);
           await supabase.from('orders').delete().eq('id', old.id);
         }
-        console.log('[mobile-add-cart-item] Merged', drafts.length - 1, 'duplicate drafts into:', primaryId);
+        
         return primaryId;
       }
 
+      console.log('[ADD_CART_DEBUG] Using existing draft:', drafts[0].id);
       return drafts[0].id;
     };
 
-    const orderId = await getOrCreateSingleDraftOrder(user.id);
-    console.log('[mobile-add-cart-item] Using DRAFT order:', orderId);
+    const orderId = await resolveCartId(user.id);
+    console.log('[ADD_CART_DEBUG] { userId:', user.id, ', cartId:', orderId, '}');
 
     // Check for duplicate items (same product_url in this order)
     const { data: existingItem } = await supabase
@@ -627,6 +648,26 @@ serve(async (req) => {
       return errorResponse('Failed to add item to cart.', 500);
     }
 
+    // CRITICAL: Read-back validation - confirm the item is readable
+    const { data: readBackItem, error: readBackError } = await supabase
+      .from('order_items')
+      .select('id, order_id')
+      .eq('id', data.id)
+      .eq('order_id', orderId)
+      .single();
+
+    if (readBackError || !readBackItem) {
+      console.error('[ADD_CART_DEBUG] READ-BACK FAILED! Insert succeeded but item not readable:', {
+        insertedId: data.id,
+        orderId,
+        userId: user.id,
+        readBackError: readBackError?.message,
+      });
+      return errorResponse('Insert reported success but row not readable; likely RLS or cart mismatch', 500);
+    }
+
+    console.log('[ADD_CART_DEBUG] Read-back confirmed:', { itemId: readBackItem.id, orderId: readBackItem.order_id });
+
     // CRITICAL: If user edited price, create admin notification for review
     if (userEdited) {
       console.log('[mobile-add-cart-item] User edited price - creating admin notification');
@@ -681,10 +722,20 @@ serve(async (req) => {
     // UPDATE ORDER TOTALS after adding new item - use settings values
     const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
 
+    // Get item count for the response
+    const { count: itemCount } = await supabase
+      .from('order_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('order_id', orderId);
+
     const newImageUrl = data.product_image_url || null;
+    
+    console.log('[ADD_CART_DEBUG] Success! { userId:', user.id, ', cartId:', orderId, ', insertedId:', data.id, ', itemCount:', itemCount, '}');
     
     return jsonResponse({
       success: true,
+      cart_id: orderId,  // Include cart_id in response for verification
+      item_count: itemCount || 1,
       item: {
         id: data.id,
         productUrl: data.product_url,

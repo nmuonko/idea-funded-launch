@@ -193,14 +193,16 @@ serve(async (req) => {
     const { user, supabase } = await verifyAndGetUser(req);
     const authTime = Date.now() - startTime;
 
+    console.log('[GET_CART_DEBUG] User authenticated:', user.id);
+
     // Get cached pricing settings (5min TTL) - SINGLE SOURCE OF TRUTH
     const settingsStart = Date.now();
     const settings = await getCachedSettings(supabase);
     const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
     const settingsTime = Date.now() - settingsStart;
 
-    // Get user's DRAFT orders - ENFORCE SINGLE DRAFT
-    // Include cart_version for frontend sync
+    // SHARED CART RESOLUTION: Same logic as mobile-add-cart-item
+    // Returns the single DRAFT order for this user, creating if needed
     const orderStart = Date.now();
     const { data: drafts, error: orderError } = await supabase
       .from('orders')
@@ -211,17 +213,20 @@ serve(async (req) => {
     const orderTime = Date.now() - orderStart;
 
     if (orderError) {
-      console.error('[mobile-get-cart] Order query error:', orderError.message);
+      console.error('[GET_CART_DEBUG] Order query error:', orderError.message);
     }
 
-    // Handle no drafts
+    console.log('[GET_CART_DEBUG] { userId:', user.id, ', draftsFound:', drafts?.length || 0, '}');
+
+    // Handle no drafts - return empty cart
     if (!drafts || drafts.length === 0) {
-      console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms total=${Date.now() - startTime}ms - Empty cart`);
+      console.log(`[GET_CART_DEBUG] Empty cart. PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms total=${Date.now() - startTime}ms`);
       return jsonResponse({
         ok: true,
         activeItems: [],
         savedItems: [],
         summary: {
+          cartId: null,
           itemCount: 0,
           itemsTotalUsd: 0,
           markupFeeUsd: 0,
@@ -242,7 +247,7 @@ serve(async (req) => {
     // If multiple drafts exist, merge them into the most recent using batch RPC
     let order = drafts[0];
     if (drafts.length > 1) {
-      console.log('[mobile-get-cart] Multiple DRAFT orders found, merging with RPC...');
+      console.log('[GET_CART_DEBUG] Multiple DRAFT orders found, merging with RPC...');
       const primaryId = order.id;
       const secondaryIds = drafts.slice(1).map(d => d.id);
       
@@ -253,16 +258,17 @@ serve(async (req) => {
       });
       
       if (mergeError) {
-        console.error('[mobile-get-cart] Merge RPC failed, falling back to sequential:', mergeError.message);
-        // Fallback to sequential (should rarely happen)
+        console.error('[GET_CART_DEBUG] Merge RPC failed, falling back to sequential:', mergeError.message);
         for (const oldDraft of drafts.slice(1)) {
           await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', oldDraft.id);
           await supabase.from('orders').delete().eq('id', oldDraft.id);
         }
       } else {
-        console.log('[mobile-get-cart] Merged via RPC:', mergeResult);
+        console.log('[GET_CART_DEBUG] Merged via RPC:', mergeResult);
       }
     }
+
+    console.log('[GET_CART_DEBUG] Using cartId:', order.id);
 
     // Get items with quote requests and price confirmations - SINGLE QUERY with join
     const itemsStart = Date.now();
@@ -281,8 +287,10 @@ serve(async (req) => {
     const itemsTime = Date.now() - itemsStart;
 
     if (itemsError) {
-      console.error('[mobile-get-cart] Items error:', itemsError.message);
+      console.error('[GET_CART_DEBUG] Items error:', itemsError.message);
     }
+
+    console.log('[GET_CART_DEBUG] { userId:', user.id, ', cartId:', order.id, ', itemCount:', items?.length || 0, '}');
 
     // Separate active and saved items
     const activeItems: any[] = [];

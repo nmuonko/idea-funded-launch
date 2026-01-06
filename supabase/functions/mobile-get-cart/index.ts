@@ -44,11 +44,19 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   const quotedShippingUsd = quoteRequest?.quoted_shipping_usd ?? null;
   const quotedTotalUsd = quoteRequest?.quoted_total_usd ?? null;
   
-  // Get price confirmation info
+  // Get price confirmation info - ROBUST case-insensitive check across multiple fields
   const priceConfirmationStatus = item.price_confirmation_status ?? null;
   const adminAdjustedPrice = item.admin_adjusted_price ?? null;
   const priceConfirmationId = item.price_confirmation_id ?? null;
-  const hasPendingPriceConfirmation = priceConfirmationStatus === 'PENDING';
+  // Parse meta if it's a string (shouldn't happen but defensive)
+  const metaObj = typeof item.meta === 'string' ? JSON.parse(item.meta) : (item.meta || {});
+  const rawPendingCheck = String(
+    priceConfirmationStatus ||
+    metaObj?.price_confirmation_status ||
+    metaObj?.priceConfirmationStatus ||
+    ''
+  ).toUpperCase().trim();
+  const hasPendingPriceConfirmation = rawPendingCheck === 'PENDING';
   
   // STABLE BASE FIELDS for all items
   const baseFields = {

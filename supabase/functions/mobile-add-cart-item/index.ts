@@ -68,7 +68,18 @@ const addCartItemSchema = z.object({
     originalPriceUsd: z.number().optional(),
     price_confirmation_status: z.string().optional(),
     priceConfirmationStatus: z.string().optional(),
-  }).optional(),
+    price_was_modified: z.boolean().optional(),
+    edited_price: z.number().optional(),
+    captured_price: z.number().optional(),
+    price_source: z.string().optional(),
+  }).passthrough().optional(),
+  // Top-level fields for backward compatibility
+  priceEdited: z.boolean().optional(),
+  editedPrice: z.number().optional(),
+  capturedPrice: z.number().optional(),
+  price_confirmation_status: z.string().optional(),
+  priceConfirmationStatus: z.string().optional(),
+  price_source: z.string().optional(),
 });
 
 // Remove local round2 - use from settings-cache.ts
@@ -165,14 +176,40 @@ serve(async (req) => {
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest });
 
     // Detect if price was edited by user (requires admin confirmation)
+    // Accept both camelCase and snake_case from payload/meta
+    const { priceEdited: bodyPriceEdited, editedPrice: bodyEditedPrice, capturedPrice: bodyCapturedPrice, 
+            price_confirmation_status: bodyPriceStatus, priceConfirmationStatus: bodyPriceStatusCamel,
+            price_source: bodyPriceSource } = parseResult.data;
+    
+    // Normalize price confirmation status (case-insensitive)
+    const explicitPendingStatus = 
+      String(bodyPriceStatus || bodyPriceStatusCamel || meta?.price_confirmation_status || meta?.priceConfirmationStatus || '')
+        .toUpperCase().trim() === 'PENDING';
+    
+    // Compute edited flag from multiple signals
+    const capturedRef = bodyCapturedPrice ?? meta?.capturedPrice ?? meta?.capturedPriceUsd ?? meta?.captured_price;
+    const editedRef = bodyEditedPrice ?? meta?.edited_price;
     const priceEdited = 
+      // Explicit edit flags
+      bodyPriceEdited === true ||
       meta?.priceEdited === true ||
+      meta?.price_was_modified === true ||
+      // Explicit pending status from payload
+      explicitPendingStatus ||
+      // Price source indicates manual/edited
+      bodyPriceSource === 'manual' || bodyPriceSource === 'edited' ||
+      meta?.price_source === 'manual' || meta?.price_source === 'edited' ||
+      // originalPriceUsd or capturedPriceUsd presence indicates edit tracking
       meta?.originalPriceUsd !== undefined ||
       meta?.capturedPriceUsd !== undefined ||
-      (meta?.capturedPrice !== undefined && Math.abs(productPrice - Number(meta.capturedPrice)) > 0.01) ||
-      (meta?.capturedPriceUsd !== undefined && Math.abs(productPrice - Number(meta.capturedPriceUsd)) > 0.01);
+      // editedPrice exists and differs from capturedPrice
+      (editedRef !== undefined && capturedRef !== undefined && Math.abs(Number(editedRef) - Number(capturedRef)) > 0.01) ||
+      // Submitted price differs from captured price
+      (capturedRef !== undefined && Math.abs(productPrice - Number(capturedRef)) > 0.01);
     
-    console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', productPrice, 'captured=', meta?.capturedPrice || meta?.capturedPriceUsd);
+    console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', productPrice, 
+      'captured=', capturedRef, 'editedPrice=', editedRef, 
+      'explicitPending=', explicitPendingStatus, 'priceSource=', bodyPriceSource || meta?.price_source);
 
     // Load shipping type if provided
     let estWeightKg = 1; // default 1kg

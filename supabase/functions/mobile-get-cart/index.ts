@@ -452,14 +452,37 @@ serve(async (req) => {
       mode: shippingPercent > 1 ? 'normalized_from_percent' : 'used_as_decimal',
     };
 
+    // DEBUG FIELDS: Prove items exist with a direct COUNT from DB
+    const { count: debugDbCount } = await supabase
+      .from('order_items')
+      .select('*', { count: 'exact', head: true })
+      .eq('order_id', order.id);
+
     const totalTime = Date.now() - startTime;
-    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'get-cart', userId: user.id, cartId: order.id, action: 'response', itemCount: activeItems.length, savedCount: savedItems.length, pendingCount: pendingPriceConfirmations.length, hasPending: hasPendingPriceConfirmation, canCheckout: canProceedToPayment }));
+    console.log('[CART_DEBUG]', JSON.stringify({ 
+      fn: 'get-cart', 
+      userId: user.id, 
+      cartId: order.id, 
+      action: 'response', 
+      itemCount: activeItems.length, 
+      savedCount: savedItems.length, 
+      pendingCount: pendingPriceConfirmations.length, 
+      hasPending: hasPendingPriceConfirmation, 
+      canCheckout: canProceedToPayment,
+      debug_db_count: debugDbCount 
+    }));
 
     return jsonResponse({
       ok: true,
       activeItems,
       savedItems,
       summary,
+      // DEBUG FIELDS - TEMPORARY: Prove backend is returning data correctly
+      debug_cart_id: order.id,
+      debug_user_id: user.id,
+      debug_item_count_db: debugDbCount,
+      debug_active_items_returned: activeItems.length,
+      debug_saved_items_returned: savedItems.length,
     });
 
   } catch (error: any) {

@@ -222,6 +222,10 @@ export default function AdminUsers() {
         },
       });
 
+      // Handle edge function errors - check data for error field first (non-2xx responses)
+      if (data?.error) {
+        throw new Error(data.error);
+      }
       if (error) throw error;
 
       toast({

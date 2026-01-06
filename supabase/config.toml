@@ -305,3 +305,6 @@ verify_jwt = true
 
 [functions.public-shipping-config]
 verify_jwt = false
+
+[functions.admin-confirm-price]
+verify_jwt = true

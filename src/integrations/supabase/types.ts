@@ -92,6 +92,36 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          payload: Json
+          read_at: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
       admin_settings: {
         Row: {
           created_at: string
@@ -903,6 +933,7 @@ export type Database = {
         Row: {
           admin_adjusted_price: number | null
           base_price_usd: number | null
+          captured_price: number | null
           created_at: string
           est_weight_kg: number | null
           id: string
@@ -914,6 +945,7 @@ export type Database = {
           order_id: string
           price_confirmation_id: string | null
           price_confirmation_status: string | null
+          price_source: string | null
           product_image_url: string | null
           product_url: string
           quantity: number
@@ -934,6 +966,7 @@ export type Database = {
         Insert: {
           admin_adjusted_price?: number | null
           base_price_usd?: number | null
+          captured_price?: number | null
           created_at?: string
           est_weight_kg?: number | null
           id?: string
@@ -945,6 +978,7 @@ export type Database = {
           order_id: string
           price_confirmation_id?: string | null
           price_confirmation_status?: string | null
+          price_source?: string | null
           product_image_url?: string | null
           product_url: string
           quantity?: number
@@ -965,6 +999,7 @@ export type Database = {
         Update: {
           admin_adjusted_price?: number | null
           base_price_usd?: number | null
+          captured_price?: number | null
           created_at?: string
           est_weight_kg?: number | null
           id?: string
@@ -976,6 +1011,7 @@ export type Database = {
           order_id?: string
           price_confirmation_id?: string | null
           price_confirmation_status?: string | null
+          price_source?: string | null
           product_image_url?: string | null
           product_url?: string
           quantity?: number
@@ -2155,6 +2191,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_notifications: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          payload: Json
+          read_at: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          payload?: Json
+          read_at?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       user_roles: {
         Row: {

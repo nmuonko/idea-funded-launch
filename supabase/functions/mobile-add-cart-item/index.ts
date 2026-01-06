@@ -529,7 +529,7 @@ serve(async (req) => {
     };
 
     const orderId = await resolveCartId(user.id);
-    console.log('[ADD_CART_DEBUG] { userId:', user.id, ', cartId:', orderId, '}');
+    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'add-cart-item', userId: user.id, cartId: orderId, action: 'resolved' }));
 
     // Check for duplicate items (same product_url in this order)
     const { data: existingItem } = await supabase
@@ -730,7 +730,7 @@ serve(async (req) => {
 
     const newImageUrl = data.product_image_url || null;
     
-    console.log('[ADD_CART_DEBUG] Success! { userId:', user.id, ', cartId:', orderId, ', insertedId:', data.id, ', itemCount:', itemCount, '}');
+    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'add-cart-item', userId: user.id, cartId: orderId, action: 'insert_success', insertedItemId: data.id, itemCount: itemCount, priceConfirmationStatus, pendingCount: priceConfirmationStatus === 'PENDING' ? 1 : 0 }));
     
     return jsonResponse({
       success: true,

@@ -290,7 +290,7 @@ serve(async (req) => {
       console.error('[GET_CART_DEBUG] Items error:', itemsError.message);
     }
 
-    console.log('[GET_CART_DEBUG] { userId:', user.id, ', cartId:', order.id, ', itemCount:', items?.length || 0, '}');
+    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'get-cart', userId: user.id, cartId: order.id, action: 'items_loaded', itemCount: items?.length || 0 }));
 
     // Separate active and saved items
     const activeItems: any[] = [];
@@ -453,7 +453,7 @@ serve(async (req) => {
     };
 
     const totalTime = Date.now() - startTime;
-    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${totalTime}ms - ${activeItems.length} active, ${savedItems.length} saved`);
+    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'get-cart', userId: user.id, cartId: order.id, action: 'response', itemCount: activeItems.length, savedCount: savedItems.length, pendingCount: pendingPriceConfirmations.length, hasPending: hasPendingPriceConfirmation, canCheckout: canProceedToPayment }));
 
     return jsonResponse({
       ok: true,

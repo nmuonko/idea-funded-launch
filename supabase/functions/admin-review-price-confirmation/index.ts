@@ -1,4 +1,5 @@
 import { corsHeaders, handleCors, verifyAndGetUser, errorResponse, jsonResponse, AuthError, createAdminClient } from '../_shared/auth.ts';
+import { sendEmail } from '../_shared/email.ts';
 
 const ALLOWED_ACTIONS = ['APPROVE', 'ADJUST', 'REJECT'];
 const ALLOWED_CURRENCIES = ['USD', 'CDF'];
@@ -9,6 +10,59 @@ interface ReviewPriceConfirmationRequest {
   admin_price?: number;
   admin_currency?: string;
   admin_note?: string;
+}
+
+// Build bilingual price approval email
+function buildPriceApprovalEmail(params: {
+  customerName: string;
+  itemTitle: string;
+  approvedPrice: number;
+  currency: string;
+  appUrl?: string;
+}): { subject: string; html: string } {
+  const { customerName, itemTitle, approvedPrice, currency, appUrl = 'https://afrishop-usa.com' } = params;
+  
+  const formattedPrice = currency === 'USD' 
+    ? `$${approvedPrice.toFixed(2)}` 
+    : `${approvedPrice.toLocaleString()} CDF`;
+
+  return {
+    subject: "Prix confirmé — Finalisez votre commande / Price approved — Complete your order",
+    html: `
+      <div style="max-width: 600px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #374151;">
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); padding: 30px; text-align: center;">
+          <h1 style="color: white; margin: 0;">✓ Prix Confirmé / Price Approved</h1>
+        </div>
+        <div style="padding: 30px; background: #f9fafb;">
+          <p>Bonjour ${customerName},</p>
+          <p>Bonne nouvelle ! Le prix de votre article a été vérifié et confirmé par notre équipe.</p>
+          
+          <p>Hello ${customerName},</p>
+          <p>Good news! The price for your item has been verified and confirmed by our team.</p>
+          
+          <div style="background: #dcfce7; padding: 20px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 20px 0;">
+            <h2 style="margin-top: 0; color: #166534;">Article / Item</h2>
+            <p style="margin: 5px 0;"><strong>Produit / Product:</strong> ${itemTitle}</p>
+            <p style="margin: 5px 0;"><strong>Prix confirmé / Confirmed price:</strong> ${formattedPrice}</p>
+          </div>
+
+          <p>Vous pouvez maintenant finaliser votre commande.</p>
+          <p>You can now complete your order.</p>
+          
+          <p style="margin-top: 20px; text-align: center;">
+            <a href="${appUrl}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+              Finaliser la commande / Complete Order
+            </a>
+          </p>
+          
+          <p style="margin-top: 20px;">Merci pour votre confiance ! / Thank you for shopping with AfriShop!</p>
+        </div>
+        <div style="background: #1e3a5f; padding: 20px; text-align: center; color: white; font-size: 12px;">
+          <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>
+        </div>
+      </div>
+    `,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -121,6 +175,8 @@ Deno.serve(async (req) => {
 
     // CRITICAL: Update the linked order_items if cart_item_id exists
     let cartItemUpdated = false;
+    let emailSent = false;
+    
     if (existing.cart_item_id) {
       const cartItemUpdate: Record<string, any> = {
         price_confirmation_status: updateData.status,
@@ -175,11 +231,78 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ============================================
+    // SEND EMAIL NOTIFICATION ON APPROVAL/ADJUSTMENT
+    // ============================================
+    if ((action === 'APPROVE' || action === 'ADJUST') && finalPriceUsd !== null) {
+      try {
+        // Fetch user profile to get email and name
+        const { data: userProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('email, full_name, name')
+          .eq('user_id', existing.user_id)
+          .maybeSingle();
+
+        if (profileError) {
+          console.error('[admin-review-price-confirmation] Failed to fetch user profile:', profileError);
+        }
+
+        const userEmail = userProfile?.email;
+        const customerName = userProfile?.full_name || userProfile?.name || 'Customer';
+
+        if (userEmail) {
+          // Get cart item title if available
+          let itemTitle = 'Your item';
+          if (existing.cart_item_id) {
+            const { data: cartItem } = await supabase
+              .from('order_items')
+              .select('title, product_url')
+              .eq('id', existing.cart_item_id)
+              .maybeSingle();
+            
+            if (cartItem?.title) {
+              itemTitle = cartItem.title;
+            } else if (cartItem?.product_url) {
+              itemTitle = `Item from ${new URL(cartItem.product_url).hostname}`;
+            }
+          }
+
+          const emailTemplate = buildPriceApprovalEmail({
+            customerName,
+            itemTitle,
+            approvedPrice: finalPriceUsd,
+            currency: updateData.admin_currency || 'USD',
+          });
+
+          const emailResult = await sendEmail({
+            to: userEmail,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
+            category: 'order_status_update',
+          });
+
+          emailSent = emailResult.success;
+          console.log('[admin-review-price-confirmation] Email notification result:', {
+            to: userEmail,
+            success: emailResult.success,
+            id: emailResult.id,
+            error: emailResult.error,
+          });
+        } else {
+          console.warn('[admin-review-price-confirmation] No email found for user:', existing.user_id);
+        }
+      } catch (emailError) {
+        console.error('[admin-review-price-confirmation] Failed to send email notification:', emailError);
+        // Don't fail the whole request for email failure
+      }
+    }
+
     return jsonResponse({
       success: true,
       confirmation: updated,
       cart_item_updated: cartItemUpdated,
       final_price_usd: finalPriceUsd,
+      email_sent: emailSent,
     });
 
   } catch (error) {

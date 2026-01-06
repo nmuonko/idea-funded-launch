@@ -9,47 +9,22 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateItemPricing, updateOrderTotals } from "../_shared/cartHelpers.ts";
 
 /**
- * Detect if price was edited by user (requires admin confirmation)
- * Accepts both camelCase and snake_case from payload/meta
+ * CRITICAL: Detect if price was USER edited using ONLY explicit signals
+ * NEVER mark PENDING due to scraped price mismatch
  */
-function detectPriceEdited(body: Record<string, any>, currentPrice: number): { 
-  priceEdited: boolean; 
-  capturedRef: number | undefined;
-  editedRef: number | undefined;
-  priceSource: string | undefined;
-} {
-  const meta = body.meta || {};
+function isUserEditedPrice(body: any): boolean {
+  // Check explicit boolean flags (handle string "true" too)
+  const priceEditedFlag = 
+    body?.priceEdited === true ||
+    String(body?.priceEdited ?? "").toLowerCase() === "true" ||
+    body?.manual_price === true ||
+    String(body?.manual_price ?? "").toLowerCase() === "true";
   
-  // Normalize price confirmation status (case-insensitive)
-  const explicitPendingStatus = 
-    String(body.price_confirmation_status || body.priceConfirmationStatus || 
-           meta.price_confirmation_status || meta.priceConfirmationStatus || '')
-      .toUpperCase().trim() === 'PENDING';
+  // Check price_source (case-insensitive)
+  const priceSource = String(body?.price_source ?? "").toLowerCase();
+  const isManualSource = priceSource === "manual_user";
   
-  // Get price references
-  const capturedRef = body.capturedPrice ?? meta.capturedPrice ?? meta.capturedPriceUsd ?? meta.captured_price;
-  const editedRef = body.editedPrice ?? body.productPrice ?? meta.edited_price;
-  const priceSource = body.price_source ?? meta.price_source;
-  
-  // Compute edited flag from multiple signals
-  const priceEdited = 
-    // Explicit edit flags
-    body.priceEdited === true ||
-    meta.priceEdited === true ||
-    meta.price_was_modified === true ||
-    // Explicit pending status from payload
-    explicitPendingStatus ||
-    // Price source indicates manual/edited
-    priceSource === 'manual' || priceSource === 'edited' ||
-    // originalPriceUsd or capturedPriceUsd presence indicates edit tracking
-    meta.originalPriceUsd !== undefined ||
-    meta.capturedPriceUsd !== undefined ||
-    // editedPrice exists and differs from capturedPrice
-    (editedRef !== undefined && capturedRef !== undefined && Math.abs(Number(editedRef) - Number(capturedRef)) > 0.01) ||
-    // New price (productPrice) differs from captured price
-    (capturedRef !== undefined && body.productPrice !== undefined && Math.abs(Number(body.productPrice) - Number(capturedRef)) > 0.01);
-  
-  return { priceEdited, capturedRef, editedRef, priceSource };
+  return priceEditedFlag || isManualSource;
 }
 
 serve(async (req) => {
@@ -71,7 +46,7 @@ serve(async (req) => {
     // Verify item belongs to user and is in a DRAFT order - select only needed columns
     const { data: item, error: itemError } = await supabase
       .from('order_items')
-      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, orders!inner(user_id, status, id)')
+      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, captured_price, orders!inner(user_id, status, id)')
       .eq('id', itemId)
       .single();
 
@@ -136,15 +111,48 @@ serve(async (req) => {
       updateData.total_price_usd = pricing.itemSubtotalUsd;
       updateData.total_price_cdf = pricing.itemSubtotalCdf;
       
-      // Detect if price was edited by user (requires admin confirmation)
-      const { priceEdited, capturedRef, editedRef, priceSource } = detectPriceEdited(body, newPrice);
+      // CRITICAL: Detect if price was USER edited using ONLY explicit signals
+      const userEdited = isUserEditedPrice(body);
+      const capturedPrice = body.capturedPrice ?? body.captured_price ?? item.captured_price ?? null;
+      const currency = body.currency ?? 'USD';
       
-      console.log('[PRICE_CONFIRM] UPDATE edited=', priceEdited, 'newPrice=', newPrice, 
-        'captured=', capturedRef, 'editedPrice=', editedRef, 'priceSource=', priceSource);
+      console.log('[PRICE_CONFIRM] UPDATE userEdited=', userEdited, 
+        'priceEdited=', body.priceEdited,
+        'manual_price=', body.manual_price,
+        'price_source=', body.price_source,
+        'newPrice=', newPrice,
+        'capturedPrice=', capturedPrice);
       
-      if (priceEdited) {
+      if (userEdited) {
         updateData.price_confirmation_status = 'PENDING';
-        console.log('[mobile-update-cart-item] Price edited - setting price_confirmation_status=PENDING');
+        updateData.price_source = 'manual_user';
+        if (capturedPrice !== null) {
+          updateData.captured_price = capturedPrice;
+        }
+        console.log('[mobile-update-cart-item] Price edited by user - setting price_confirmation_status=PENDING');
+        
+        // Create admin notification for price review
+        const { error: notifError } = await supabase
+          .from('admin_notifications')
+          .insert({
+            type: 'PRICE_REVIEW',
+            title: 'Price confirmation needed',
+            body: `User updated price for cart item. Review required.`,
+            payload: {
+              cart_item_id: itemId,
+              user_id: user.id,
+              captured_price: capturedPrice,
+              user_price: newPrice,
+              currency,
+            },
+          });
+        
+        if (notifError) {
+          console.error('[mobile-update-cart-item] Failed to create admin notification:', notifError);
+          // Don't fail the operation
+        } else {
+          console.log('[mobile-update-cart-item] Admin notification created for price review');
+        }
       }
     }
 
@@ -158,7 +166,7 @@ serve(async (req) => {
       .from('order_items')
       .update(updateData)
       .eq('id', itemId)
-      .select('id, title, store, product_image_url, base_price_usd, quantity, subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, is_saved_for_later, price_confirmation_status')
+      .select('id, title, store, product_image_url, base_price_usd, quantity, subtotal_usd, markup_fee_usd, total_price_usd, total_price_cdf, is_saved_for_later, price_confirmation_status, price_source')
       .single();
 
     if (updateError) {
@@ -184,6 +192,7 @@ serve(async (req) => {
         totalCdf: updatedItem.total_price_cdf,
         isSavedForLater: updatedItem.is_saved_for_later || false,
         priceConfirmationStatus: updatedItem.price_confirmation_status,
+        priceSource: updatedItem.price_source,
       },
       summary,
     });

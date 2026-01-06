@@ -44,19 +44,15 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   const quotedShippingUsd = quoteRequest?.quoted_shipping_usd ?? null;
   const quotedTotalUsd = quoteRequest?.quoted_total_usd ?? null;
   
-  // Get price confirmation info - ROBUST case-insensitive check across multiple fields
+  // CRITICAL: Price confirmation - check ONLY the DB column, not meta fields
   const priceConfirmationStatus = item.price_confirmation_status ?? null;
   const adminAdjustedPrice = item.admin_adjusted_price ?? null;
   const priceConfirmationId = item.price_confirmation_id ?? null;
-  // Parse meta if it's a string (shouldn't happen but defensive)
-  const metaObj = typeof item.meta === 'string' ? JSON.parse(item.meta) : (item.meta || {});
-  const rawPendingCheck = String(
-    priceConfirmationStatus ||
-    metaObj?.price_confirmation_status ||
-    metaObj?.priceConfirmationStatus ||
-    ''
-  ).toUpperCase().trim();
-  const hasPendingPriceConfirmation = rawPendingCheck === 'PENDING';
+  const priceSource = item.price_source ?? null;
+  const capturedPrice = item.captured_price ?? null;
+  
+  // SIMPLE check: is the item PENDING based on DB column only
+  const hasPendingPriceConfirmation = String(priceConfirmationStatus || '').toUpperCase().trim() === 'PENDING';
   
   // STABLE BASE FIELDS for all items
   const baseFields = {
@@ -83,6 +79,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     priceConfirmationStatus,
     adminAdjustedPrice,
     priceConfirmationId,
+    priceSource,
+    capturedPrice,
     hasPendingPriceConfirmation,
   };
   
@@ -235,6 +233,8 @@ serve(async (req) => {
           hasVehicleItems: false,
           vehicleQuoteStatus: 'none',
           canProceedToPayment: true,
+          hasPendingPriceConfirmation: false,
+          pendingPriceConfirmationCount: 0,
         }
       });
     }
@@ -273,7 +273,7 @@ serve(async (req) => {
         subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
         est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
         is_vehicle, vehicle_quote_applied,
-        price_confirmation_status, admin_adjusted_price, price_confirmation_id,
+        price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price,
         shipping_item_types(key, label),
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)
       `)
@@ -306,6 +306,7 @@ serve(async (req) => {
     let vehiclesWithPendingQuotes: string[] = [];
 
     // CRITICAL: Price confirmation tracking for checkout blocking
+    // Check ONLY the DB column price_confirmation_status, NOT meta fields
     let pendingPriceConfirmations: string[] = [];
     let hasPendingPriceConfirmation = false;
 
@@ -319,7 +320,7 @@ serve(async (req) => {
       
       activeItems.push(formattedItem);
       
-      // Track pending price confirmations
+      // Track pending price confirmations - ONLY check DB column
       if (formattedItem.hasPendingPriceConfirmation) {
         hasPendingPriceConfirmation = true;
         pendingPriceConfirmations.push(item.id);
@@ -430,34 +431,51 @@ serve(async (req) => {
       summary.priceConfirmationMessage = "Le prix d'un ou plusieurs articles est en attente de confirmation par un administrateur.";
     } else if (hasVehicleItems && !allVehiclesQuoted) {
       summary.message = "Un devis de livraison est nécessaire pour votre véhicule.";
-      summary.vehicleMessage = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
-
-    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${Date.now() - startTime}ms - ${totalItemCount} items, ${pendingPriceConfirmations.length} pending price confirmations`);
     
-    return jsonResponse({ 
+    // Add debug info for shipping calculations
+    summary.shipping_debug = {
+      raw_shippingPercent: shippingPercent,
+      normalized_shippingPercent: normalizedShippingPercent,
+      shippingBaseFeeUsd,
+      regularItemsBaseTotal,
+      regularShippingTotal,
+      vehicleShippingTotal,
+      mode: shippingPercent > 1 ? 'normalized_from_percent' : 'used_as_decimal',
+    };
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[mobile-get-cart] PERF auth=${authTime}ms settings=${settingsTime}ms order=${orderTime}ms items=${itemsTime}ms total=${totalTime}ms - ${activeItems.length} active, ${savedItems.length} saved`);
+
+    return jsonResponse({
       ok: true,
-      items: activeItems,
       activeItems,
       savedItems,
-      summary 
+      summary,
     });
 
   } catch (error: any) {
-    console.error(`[mobile-get-cart] PERF duration=${Date.now() - startTime}ms - Error:`, error.message);
+    console.error('[mobile-get-cart] Error:', error.message);
     
+    // Return structured error that mobile can handle gracefully
     if (error.name === 'AuthError') {
       return jsonResponse({ 
         ok: false, 
-        code: 'AUTH_ERROR', 
-        message: error.message 
+        code: 'SESSION_EXPIRED', 
+        message: error.message,
+        // Include empty cart data so UI can still render
+        activeItems: [],
+        savedItems: [],
       }, error.status);
     }
     
+    // For other errors, return empty cart with error flag
     return jsonResponse({ 
       ok: false, 
       code: 'TEMPORARY_ERROR', 
-      message: 'Temporary problem loading cart. Please try again.' 
+      message: 'Temporary problem loading cart. Please try again.',
+      activeItems: [],
+      savedItems: [],
     }, 500);
   }
 });

@@ -60,29 +60,15 @@ const addCartItemSchema = z.object({
   shippingItemTypeId: z.string().uuid().optional(),
   productTitle: z.string().max(500).optional(),
   productImageUrl: z.string().url().max(2048).optional(),
-  // Meta fields for price confirmation detection
-  meta: z.object({
-    priceEdited: z.boolean().optional(),
-    capturedPrice: z.number().optional(),
-    capturedPriceUsd: z.number().optional(),
-    originalPriceUsd: z.number().optional(),
-    price_confirmation_status: z.string().optional(),
-    priceConfirmationStatus: z.string().optional(),
-    price_was_modified: z.boolean().optional(),
-    edited_price: z.number().optional(),
-    captured_price: z.number().optional(),
-    price_source: z.string().optional(),
-  }).passthrough().optional(),
-  // Top-level fields for backward compatibility
-  priceEdited: z.boolean().optional(),
-  editedPrice: z.number().optional(),
-  capturedPrice: z.number().optional(),
-  price_confirmation_status: z.string().optional(),
-  priceConfirmationStatus: z.string().optional(),
+  // Explicit user-edited price signals
+  priceEdited: z.union([z.boolean(), z.string()]).optional(),
+  manual_price: z.union([z.boolean(), z.string()]).optional(),
   price_source: z.string().optional(),
-});
-
-// Remove local round2 - use from settings-cache.ts
+  // Captured price for reference (from scraper)
+  capturedPrice: z.number().optional(),
+  captured_price: z.number().optional(),
+  currency: z.string().optional(),
+}).passthrough();
 
 // Pricing helper - single source of truth for price calculations
 function calculateItemPricing(
@@ -104,6 +90,25 @@ function calculateItemPricing(
     itemSubtotalUsd,
     itemSubtotalCdf,
   };
+}
+
+/**
+ * CRITICAL: Detect if price was USER edited using ONLY explicit signals
+ * NEVER mark PENDING due to scraped price mismatch
+ */
+function isUserEditedPrice(body: any): boolean {
+  // Check explicit boolean flags (handle string "true" too)
+  const priceEditedFlag = 
+    body?.priceEdited === true ||
+    String(body?.priceEdited ?? "").toLowerCase() === "true" ||
+    body?.manual_price === true ||
+    String(body?.manual_price ?? "").toLowerCase() === "true";
+  
+  // Check price_source (case-insensitive)
+  const priceSource = String(body?.price_source ?? "").toLowerCase();
+  const isManualSource = priceSource === "manual_user";
+  
+  return priceEditedFlag || isManualSource;
 }
 
 // Heavy threshold for manual quote requirement
@@ -141,14 +146,6 @@ async function optionallyGetUser(req: Request): Promise<{ user: User | null; sup
   }
 }
 
-// REMOVED: Local updateOrderTotals function
-// Now using shared updateOrderTotals from cartHelpers.ts which properly handles vehicles
-// The shared helper:
-// - Separates regular items from vehicles
-// - Uses STORED shipping_fee_usd for vehicles with applied quotes
-// - Only calculates shipping for regular items
-// - Persists all totals to orders table including exchange_rate_used
-
 serve(async (req) => {
   // Handle CORS preflight
   const corsResponse = handleCors(req);
@@ -171,45 +168,21 @@ serve(async (req) => {
       return errorResponse(errorMessage, 400);
     }
 
-    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl, meta } = parseResult.data;
+    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
 
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest });
 
-    // Detect if price was edited by user (requires admin confirmation)
-    // Accept both camelCase and snake_case from payload/meta
-    const { priceEdited: bodyPriceEdited, editedPrice: bodyEditedPrice, capturedPrice: bodyCapturedPrice, 
-            price_confirmation_status: bodyPriceStatus, priceConfirmationStatus: bodyPriceStatusCamel,
-            price_source: bodyPriceSource } = parseResult.data;
+    // CRITICAL: Detect if price was USER edited using ONLY explicit signals
+    const userEdited = isUserEditedPrice(body);
+    const capturedPrice = body.capturedPrice ?? body.captured_price ?? null;
+    const currency = body.currency ?? 'USD';
     
-    // Normalize price confirmation status (case-insensitive)
-    const explicitPendingStatus = 
-      String(bodyPriceStatus || bodyPriceStatusCamel || meta?.price_confirmation_status || meta?.priceConfirmationStatus || '')
-        .toUpperCase().trim() === 'PENDING';
-    
-    // Compute edited flag from multiple signals
-    const capturedRef = bodyCapturedPrice ?? meta?.capturedPrice ?? meta?.capturedPriceUsd ?? meta?.captured_price;
-    const editedRef = bodyEditedPrice ?? meta?.edited_price;
-    const priceEdited = 
-      // Explicit edit flags
-      bodyPriceEdited === true ||
-      meta?.priceEdited === true ||
-      meta?.price_was_modified === true ||
-      // Explicit pending status from payload
-      explicitPendingStatus ||
-      // Price source indicates manual/edited
-      bodyPriceSource === 'manual' || bodyPriceSource === 'edited' ||
-      meta?.price_source === 'manual' || meta?.price_source === 'edited' ||
-      // originalPriceUsd or capturedPriceUsd presence indicates edit tracking
-      meta?.originalPriceUsd !== undefined ||
-      meta?.capturedPriceUsd !== undefined ||
-      // editedPrice exists and differs from capturedPrice
-      (editedRef !== undefined && capturedRef !== undefined && Math.abs(Number(editedRef) - Number(capturedRef)) > 0.01) ||
-      // Submitted price differs from captured price
-      (capturedRef !== undefined && Math.abs(productPrice - Number(capturedRef)) > 0.01);
-    
-    console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', productPrice, 
-      'captured=', capturedRef, 'editedPrice=', editedRef, 
-      'explicitPending=', explicitPendingStatus, 'priceSource=', bodyPriceSource || meta?.price_source);
+    console.log('[PRICE_CONFIRM] userEdited=', userEdited, 
+      'priceEdited=', body.priceEdited,
+      'manual_price=', body.manual_price,
+      'price_source=', body.price_source,
+      'productPrice=', productPrice,
+      'capturedPrice=', capturedPrice);
 
     // Load shipping type if provided
     let estWeightKg = 1; // default 1kg
@@ -496,7 +469,6 @@ serve(async (req) => {
     }
 
     // ENFORCE SINGLE DRAFT ORDER: Get or create, merging duplicates
-    // Import helper inline to avoid circular deps
     const getOrCreateSingleDraftOrder = async (userId: string) => {
       const { data: drafts, error: draftsError } = await supabase
         .from('orders')
@@ -617,6 +589,10 @@ serve(async (req) => {
     }
 
     // Insert new item into order_items
+    // CRITICAL: Set price_confirmation_status based on userEdited flag ONLY
+    const priceConfirmationStatus = userEdited ? 'PENDING' : 'APPROVED';
+    const priceSource = userEdited ? 'manual_user' : 'scraped';
+    
     const { data, error: itemError } = await supabase
       .from('order_items')
       .insert({
@@ -638,8 +614,10 @@ serve(async (req) => {
         est_weight_kg: estWeightKg,
         requires_manual_quote: itemRequiresManualQuote,
         is_vehicle: isVehicle,
-        // Force PENDING if user edited the price
-        ...(priceEdited && { price_confirmation_status: 'PENDING' }),
+        // CRITICAL: Price confirmation fields
+        price_confirmation_status: priceConfirmationStatus,
+        price_source: priceSource,
+        captured_price: capturedPrice,
       })
       .select()
       .single();
@@ -647,6 +625,34 @@ serve(async (req) => {
     if (itemError) {
       console.error('[mobile-add-cart-item] cart_items insert error:', itemError);
       return errorResponse('Failed to add item to cart.', 500);
+    }
+
+    // CRITICAL: If user edited price, create admin notification for review
+    if (userEdited) {
+      console.log('[mobile-add-cart-item] User edited price - creating admin notification');
+      const { error: notifError } = await supabase
+        .from('admin_notifications')
+        .insert({
+          type: 'PRICE_REVIEW',
+          title: 'Price confirmation needed',
+          body: `User edited price for ${productTitle || store} item. Review required.`,
+          payload: {
+            cart_item_id: data.id,
+            user_id: user.id,
+            store,
+            product_url: productUrl,
+            captured_price: capturedPrice,
+            user_price: productPrice,
+            currency,
+          },
+        });
+      
+      if (notifError) {
+        console.error('[mobile-add-cart-item] Failed to create admin notification:', notifError);
+        // Don't fail the operation, just log
+      } else {
+        console.log('[mobile-add-cart-item] Admin notification created for price review');
+      }
     }
 
     // If this is a vehicle, create a quote request
@@ -703,6 +709,8 @@ serve(async (req) => {
         isVehicle: data.is_vehicle || false,
         isQuoteRequired: isVehicle && vehicleRequiresQuote,
         quoteStatus: quoteStatus,
+        // Price confirmation status
+        priceConfirmationStatus: data.price_confirmation_status,
       },
       summary,
     });

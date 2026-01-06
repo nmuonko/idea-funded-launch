@@ -608,6 +608,38 @@ serve(async (req) => {
     }
 
     // ============================================
+    // P0 CRITICAL: Check for pending price confirmations
+    // Block checkout if any item has a pending price confirmation
+    // ============================================
+    const pendingPriceItems = dbItems.filter(item => {
+      // Check all possible locations for pending status
+      const status = item.price_confirmation_status?.toUpperCase?.() ?? '';
+      const metaStatus = (item.meta?.price_confirmation_status || item.meta?.priceConfirmationStatus || '').toString().toUpperCase();
+      
+      return status === 'PENDING' || metaStatus === 'PENDING';
+    });
+
+    if (pendingPriceItems.length > 0) {
+      console.log('CHECKOUT_PRICE_CONFIRMATION_REQUIRED', {
+        pending_count: pendingPriceItems.length,
+        pending_item_ids: pendingPriceItems.map(i => i.id),
+      });
+
+      return jsonResponse({
+        ok: false,
+        success: false,
+        code: 'PRICE_CONFIRMATION_REQUIRED',
+        message_fr: "Un ou plusieurs articles ont un prix modifié en attente de vérification. Vous recevrez un e-mail après confirmation.",
+        message_en: "One or more items have an edited price pending admin review. You'll receive an email once approved.",
+        pendingItems: pendingPriceItems.map(item => ({
+          id: item.id,
+          name: item.title || 'Unknown item',
+          url: item.product_url,
+        })),
+      }, 409);
+    }
+
+    // ============================================
     // CHECKOUT_DEDUPED: Deduplicate cart items
     // ============================================
     const { deduped, duplicatesRemoved, dedupeLog } = deduplicateCartItems(dbItems);

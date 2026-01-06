@@ -612,11 +612,15 @@ serve(async (req) => {
     // Block checkout if any item has a pending price confirmation
     // ============================================
     const pendingPriceItems = dbItems.filter(item => {
-      // Check all possible locations for pending status
-      const status = item.price_confirmation_status?.toUpperCase?.() ?? '';
-      const metaStatus = (item.meta?.price_confirmation_status || item.meta?.priceConfirmationStatus || '').toString().toUpperCase();
+      // Check all possible locations for pending status (case-insensitive)
+      const rawStatus = String(
+        item.price_confirmation_status ||
+        item.meta?.price_confirmation_status ||
+        item.meta?.priceConfirmationStatus ||
+        ''
+      ).toUpperCase().trim();
       
-      return status === 'PENDING' || metaStatus === 'PENDING';
+      return rawStatus === 'PENDING';
     });
 
     if (pendingPriceItems.length > 0) {

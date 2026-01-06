@@ -93,6 +93,46 @@ serve(async (req) => {
 
     console.log(`[${requestId}] ORDER LOADED: status=${order.status}, total_usd=${order.total_usd}`);
 
+    // 4.5️⃣ Check for pending price confirmations (case-insensitive)
+    const { data: orderItems, error: itemsError } = await supabase
+      .from("order_items")
+      .select("id, title, product_url, price_confirmation_status, is_saved_for_later")
+      .eq("order_id", orderId)
+      .eq("is_saved_for_later", false);
+
+    if (itemsError) {
+      console.error(`[${requestId}] ITEMS FETCH ERROR:`, itemsError.message);
+    }
+
+    const pendingPriceItems = (orderItems || []).filter(item => {
+      const rawStatus = String(item.price_confirmation_status || '').toUpperCase().trim();
+      return rawStatus === 'PENDING';
+    });
+
+    if (pendingPriceItems.length > 0) {
+      console.log(`[${requestId}] PRICE_CONFIRMATION_REQUIRED:`, {
+        pending_count: pendingPriceItems.length,
+        pending_item_ids: pendingPriceItems.map(i => i.id),
+      });
+
+      return new Response(JSON.stringify({
+        ok: false,
+        success: false,
+        code: 'PRICE_CONFIRMATION_REQUIRED',
+        message_fr: "Un ou plusieurs articles ont un prix modifié en attente de vérification. Vous recevrez un e-mail après confirmation.",
+        message_en: "One or more items have an edited price pending admin review. You'll receive an email once approved.",
+        pendingItems: pendingPriceItems.map(item => ({
+          id: item.id,
+          name: item.title || 'Unknown item',
+          url: item.product_url,
+        })),
+        requestId,
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // 5️⃣ Load profile for phone (guard against null)
     const { data: profile } = await supabase
       .from("profiles")

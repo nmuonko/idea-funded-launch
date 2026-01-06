@@ -28,6 +28,15 @@ const syncCartSchema = z.object({
     unitPrice: z.number().positive().max(1000000),
     quantity: z.number().int().positive().max(100).default(1),
     currency: z.string().max(10).optional().default('USD'),
+    // Meta fields for price confirmation detection
+    meta: z.object({
+      priceEdited: z.boolean().optional(),
+      capturedPrice: z.number().optional(),
+      capturedPriceUsd: z.number().optional(),
+      originalPriceUsd: z.number().optional(),
+      price_confirmation_status: z.string().optional(),
+      priceConfirmationStatus: z.string().optional(),
+    }).optional(),
   })).max(50), // Max 50 items per sync
 });
 
@@ -116,6 +125,17 @@ serve(async (req) => {
       // Detect vehicle items (Tesla inventory, car marketplaces, etc.)
       const isVehicle = isVehicleItem(item.productUrl, store);
       
+      // Detect if price was edited by user (requires admin confirmation)
+      const meta = item.meta || {};
+      const priceEdited = 
+        meta.priceEdited === true ||
+        meta.originalPriceUsd !== undefined ||
+        meta.capturedPriceUsd !== undefined ||
+        (meta.capturedPrice !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPrice)) > 0.01) ||
+        (meta.capturedPriceUsd !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPriceUsd)) > 0.01);
+      
+      console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', item.unitPrice, 'captured=', meta.capturedPrice || meta.capturedPriceUsd);
+      
       // Use vehicle markup for vehicles, general markup for everything else
       const pricing = calculateItemPricing(
         item.unitPrice, 
@@ -134,7 +154,7 @@ serve(async (req) => {
         });
       }
       
-      const itemData = {
+      const itemData: Record<string, any> = {
         order_id: cartId,
         product_url: item.productUrl,
         title: item.title || null,
@@ -153,6 +173,11 @@ serve(async (req) => {
         is_vehicle: isVehicle,
         requires_manual_quote: isVehicle,
       };
+      
+      // Force PENDING if user edited the price
+      if (priceEdited) {
+        itemData.price_confirmation_status = 'PENDING';
+      }
 
       // Use NORMALIZED URL for duplicate detection
       const normalizedUrl = normalizeProductUrl(item.productUrl);

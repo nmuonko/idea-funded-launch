@@ -60,6 +60,15 @@ const addCartItemSchema = z.object({
   shippingItemTypeId: z.string().uuid().optional(),
   productTitle: z.string().max(500).optional(),
   productImageUrl: z.string().url().max(2048).optional(),
+  // Meta fields for price confirmation detection
+  meta: z.object({
+    priceEdited: z.boolean().optional(),
+    capturedPrice: z.number().optional(),
+    capturedPriceUsd: z.number().optional(),
+    originalPriceUsd: z.number().optional(),
+    price_confirmation_status: z.string().optional(),
+    priceConfirmationStatus: z.string().optional(),
+  }).optional(),
 });
 
 // Remove local round2 - use from settings-cache.ts
@@ -151,9 +160,19 @@ serve(async (req) => {
       return errorResponse(errorMessage, 400);
     }
 
-    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
+    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl, meta } = parseResult.data;
 
     console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest });
+
+    // Detect if price was edited by user (requires admin confirmation)
+    const priceEdited = 
+      meta?.priceEdited === true ||
+      meta?.originalPriceUsd !== undefined ||
+      meta?.capturedPriceUsd !== undefined ||
+      (meta?.capturedPrice !== undefined && Math.abs(productPrice - Number(meta.capturedPrice)) > 0.01) ||
+      (meta?.capturedPriceUsd !== undefined && Math.abs(productPrice - Number(meta.capturedPriceUsd)) > 0.01);
+    
+    console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', productPrice, 'captured=', meta?.capturedPrice || meta?.capturedPriceUsd);
 
     // Load shipping type if provided
     let estWeightKg = 1; // default 1kg
@@ -582,6 +601,8 @@ serve(async (req) => {
         est_weight_kg: estWeightKg,
         requires_manual_quote: itemRequiresManualQuote,
         is_vehicle: isVehicle,
+        // Force PENDING if user edited the price
+        ...(priceEdited && { price_confirmation_status: 'PENDING' }),
       })
       .select()
       .single();

@@ -1262,6 +1262,44 @@ export type Database = {
           },
         ]
       }
+      payment_events: {
+        Row: {
+          created_at: string | null
+          event_id: string | null
+          event_type: string
+          id: string
+          payload: Json
+          payment_id: string | null
+          provider_key: string
+        }
+        Insert: {
+          created_at?: string | null
+          event_id?: string | null
+          event_type: string
+          id?: string
+          payload: Json
+          payment_id?: string | null
+          provider_key: string
+        }
+        Update: {
+          created_at?: string | null
+          event_id?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          payment_id?: string | null
+          provider_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_events_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_links: {
         Row: {
           created_at: string
@@ -1296,6 +1334,116 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "payment_links_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_providers: {
+        Row: {
+          config_public: Json | null
+          created_at: string | null
+          display_name: string
+          id: string
+          is_default: boolean | null
+          is_enabled: boolean | null
+          priority: number | null
+          provider_key: string
+          secret_refs: Json | null
+          supported_countries: string[] | null
+          supported_methods: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          config_public?: Json | null
+          created_at?: string | null
+          display_name: string
+          id?: string
+          is_default?: boolean | null
+          is_enabled?: boolean | null
+          priority?: number | null
+          provider_key: string
+          secret_refs?: Json | null
+          supported_countries?: string[] | null
+          supported_methods?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          config_public?: Json | null
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          is_default?: boolean | null
+          is_enabled?: boolean | null
+          priority?: number | null
+          provider_key?: string
+          secret_refs?: Json | null
+          supported_countries?: string[] | null
+          supported_methods?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      payments: {
+        Row: {
+          amount: number
+          country: string | null
+          created_at: string | null
+          currency: string
+          customer_phone: string | null
+          id: string
+          order_id: string
+          paid_at: string | null
+          provider_deposit_id: string | null
+          provider_key: string
+          provider_transaction_id: string | null
+          raw_events: Json | null
+          raw_request: Json | null
+          reference: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount: number
+          country?: string | null
+          created_at?: string | null
+          currency: string
+          customer_phone?: string | null
+          id?: string
+          order_id: string
+          paid_at?: string | null
+          provider_deposit_id?: string | null
+          provider_key: string
+          provider_transaction_id?: string | null
+          raw_events?: Json | null
+          raw_request?: Json | null
+          reference: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number
+          country?: string | null
+          created_at?: string | null
+          currency?: string
+          customer_phone?: string | null
+          id?: string
+          order_id?: string
+          paid_at?: string | null
+          provider_deposit_id?: string | null
+          provider_key?: string
+          provider_transaction_id?: string | null
+          raw_events?: Json | null
+          raw_request?: Json | null
+          reference?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"

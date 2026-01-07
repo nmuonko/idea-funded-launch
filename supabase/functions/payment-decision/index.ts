@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getActiveProvider, createAdminClient } from "../_shared/paymentProviders.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,12 +12,13 @@ const corsHeaders = {
  * 
  * MAISHAPAY: USD payment via MaishaPay (total_usd <= 5000)
  * MAISHAPAY_CDF_FORCED: CDF payment via MaishaPay (total_usd > 5000 but total_cdf <= 30M)
+ * PAWAPAY: Payment via pawaPay (alternative provider)
  * BANK_TRANSFER: Manual bank transfer (total_cdf > 30M)
  */
-type PaymentFlow = 'MAISHAPAY' | 'MAISHAPAY_CDF_FORCED' | 'BANK_TRANSFER';
+type PaymentFlow = 'MAISHAPAY' | 'MAISHAPAY_CDF_FORCED' | 'PAWAPAY' | 'BANK_TRANSFER';
 
 // Legacy type for backwards compatibility
-type PaymentDecision = 'MAISHAPAY_USD' | 'MAISHAPAY_CDF' | 'MANUAL_BANK';
+type PaymentDecision = 'MAISHAPAY_USD' | 'MAISHAPAY_CDF' | 'PAWAPAY' | 'MANUAL_BANK';
 
 interface DecisionResponse {
   ok: boolean;
@@ -24,6 +26,12 @@ interface DecisionResponse {
   payment_flow?: PaymentFlow;
   payable_currency?: 'USD' | 'CDF';
   payable_amount?: number;
+  provider?: {
+    key: string;
+    name: string;
+    supportedMethods?: string[];
+    initiateUrl?: string;
+  };
   // Legacy fields for backwards compatibility
   decision?: PaymentDecision;
   total_usd?: number;
@@ -33,6 +41,7 @@ interface DecisionResponse {
     usd_max: number;
     cdf_max: number;
   };
+  available_providers?: string[];
   message_fr?: string;
   message_en?: string;
   error?: string;
@@ -57,7 +66,8 @@ function computePaymentFlow(
   totalUsdDollars: number,
   fxRate: number,
   maxUsdDollars: number,
-  maxCdfUnits: number
+  maxCdfUnits: number,
+  activeProviderKey: string = 'maishapay'
 ): { 
   payment_flow: PaymentFlow;
   payable_currency: 'USD' | 'CDF';
@@ -70,6 +80,9 @@ function computePaymentFlow(
   // Convert USD to CDF (whole units)
   const totalCdf = Math.round(totalUsdDollars * fxRate);
 
+  // Determine provider label for messages
+  const providerLabel = activeProviderKey === 'pawapay' ? 'pawaPay' : 'MaishaPay';
+
   // Log the decision inputs for debugging
   console.log('CHECKOUT_LIMITS_DECISION', {
     total_usd_dollars: totalUsdDollars,
@@ -80,25 +93,29 @@ function computePaymentFlow(
     fx_rate: fxRate,
     usd_exceeds_limit: totalUsdDollars > maxUsdDollars,
     cdf_exceeds_limit: totalCdf > maxCdfUnits,
+    active_provider: activeProviderKey,
   });
 
-  // RULE 1: USD within limit → MaishaPay USD
+  // RULE 1: USD within limit → Provider USD
   if (totalUsdDollars <= maxUsdDollars) {
+    const paymentFlow = activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY';
+    const decision = activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY_USD';
     const result = {
-      payment_flow: 'MAISHAPAY' as PaymentFlow,
+      payment_flow: paymentFlow as PaymentFlow,
       payable_currency: 'USD' as const,
       payable_amount: Math.round(totalUsdDollars * 100) / 100, // Round to 2 decimals
       totalCdf,
-      decision: 'MAISHAPAY_USD' as PaymentDecision,
-      message_fr: `Paiement en USD via MaishaPay ($${totalUsdDollars.toFixed(2)})`,
-      message_en: `Pay in USD via MaishaPay ($${totalUsdDollars.toFixed(2)})`,
+      decision: decision as PaymentDecision,
+      message_fr: `Paiement en USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
+      message_en: `Pay in USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
     };
     console.log('CHECKOUT_LIMITS_DECISION_RESULT', { ...result, reason: 'usd_within_limit' });
     return result;
   }
   
-  // RULE 2: USD exceeds limit but CDF within limit → MaishaPay CDF (forced conversion)
-  if (totalCdf <= maxCdfUnits) {
+  // RULE 2: USD exceeds limit but CDF within limit → Provider CDF (forced conversion)
+  // Note: pawaPay may not support CDF, so this only applies to MaishaPay
+  if (totalCdf <= maxCdfUnits && activeProviderKey === 'maishapay') {
     const result = {
       payment_flow: 'MAISHAPAY_CDF_FORCED' as PaymentFlow,
       payable_currency: 'CDF' as const,
@@ -131,9 +148,12 @@ function computePaymentFlow(
  * 
  * Returns payment decision based on order/cart total.
  * Used by mobile app and frontend before initiating checkout.
+ * Now integrates with multi-provider routing.
  * 
- * Input: { order_id: string } OR { cart_snapshot: CartItem[] } OR { total_usd: number }
- * Output: DecisionResponse with payment_flow, payable_currency, payable_amount
+ * Input: { order_id: string, country?: string, method?: string } 
+ *    OR { cart_snapshot: CartItem[], country?: string, method?: string } 
+ *    OR { total_usd: number, country?: string, method?: string }
+ * Output: DecisionResponse with payment_flow, payable_currency, payable_amount, provider
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -145,7 +165,13 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    let body: { order_id?: string; cart_snapshot?: CartItem[]; total_usd?: number } = {};
+    let body: { 
+      order_id?: string; 
+      cart_snapshot?: CartItem[]; 
+      total_usd?: number;
+      country?: string;
+      method?: string;
+    } = {};
     
     if (req.method === 'POST') {
       try {
@@ -158,7 +184,7 @@ serve(async (req) => {
       }
     }
 
-    const { order_id, cart_snapshot, total_usd: providedTotal } = body;
+    const { order_id, cart_snapshot, total_usd: providedTotal, country, method } = body;
 
     // Validate input - need at least one
     if (!order_id && !cart_snapshot && providedTotal === undefined) {
@@ -218,6 +244,23 @@ serve(async (req) => {
       totalUsdDollars = 0;
     }
 
+    // Get active provider using the new routing system
+    const buyerCountry = country || 'CD'; // Default to DRC
+    const paymentMethod = method || 'mobile_money';
+    
+    let activeProvider = null;
+    let providerKey = 'maishapay'; // Default fallback
+    
+    try {
+      const adminClient = createAdminClient();
+      activeProvider = await getActiveProvider(adminClient, buyerCountry, paymentMethod);
+      if (activeProvider) {
+        providerKey = activeProvider.provider_key;
+      }
+    } catch (providerErr) {
+      console.warn('[payment-decision] Provider lookup failed, using default:', providerErr);
+    }
+
     // Compute decision using standardized logic
     const { 
       payment_flow, 
@@ -231,8 +274,16 @@ serve(async (req) => {
       totalUsdDollars,
       fxRate,
       maxUsdDollars,
-      maxCdfUnits
+      maxCdfUnits,
+      providerKey
     );
+
+    // Build available providers list
+    const availableProviders: string[] = [];
+    if (payment_flow !== 'BANK_TRANSFER') {
+      availableProviders.push(providerKey);
+    }
+    availableProviders.push('bank_transfer');
 
     console.log('[payment-decision] Final decision:', {
       input: order_id ? 'order_id' : cart_snapshot ? 'cart_snapshot' : 'total_usd',
@@ -241,6 +292,7 @@ serve(async (req) => {
       payment_flow,
       payable_currency,
       payable_amount,
+      provider: providerKey,
     });
 
     const response: DecisionResponse = {
@@ -249,6 +301,16 @@ serve(async (req) => {
       payment_flow,
       payable_currency,
       payable_amount,
+      provider: activeProvider ? {
+        key: activeProvider.provider_key,
+        name: activeProvider.display_name,
+        supportedMethods: activeProvider.supported_methods || [],
+        initiateUrl: `/functions/v1/${activeProvider.provider_key}-create-payment`,
+      } : {
+        key: providerKey,
+        name: providerKey === 'maishapay' ? 'MaishaPay' : 'pawaPay',
+        initiateUrl: `/functions/v1/${providerKey}-create-payment`,
+      },
       // Legacy fields for backwards compatibility
       decision,
       total_usd: totalUsdDollars,
@@ -258,6 +320,7 @@ serve(async (req) => {
         usd_max: maxUsdDollars,
         cdf_max: maxCdfUnits,
       },
+      available_providers: availableProviders,
       message_fr,
       message_en,
     };

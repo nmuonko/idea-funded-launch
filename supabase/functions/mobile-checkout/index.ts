@@ -14,6 +14,13 @@ import {
   VEHICLE_QUOTE_MISSING_ERROR,
 } from "../_shared/vehiclePaymentGuard.ts";
 import { crypto } from "https://deno.land/std@0.190.0/crypto/mod.ts";
+import { 
+  getActiveProvider, 
+  createPaymentRecord,
+  generatePaymentReference as generateProviderRef,
+  validateProviderSecrets,
+} from "../_shared/paymentProviders.ts";
+import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 // Payment method types
 type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
@@ -934,6 +941,141 @@ serve(async (req) => {
         },
       });
 
+    // Generate confirmationId early for use in both provider branches
+    const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
+
+    // ============================================
+    // PROVIDER ROUTING: Check for active provider
+    // ============================================
+    const provider = await getActiveProvider(supabase, isoCode || 'COD', REQUESTED_METHOD);
+    
+    console.log('CHECKOUT_PROVIDER_SELECTED', {
+      provider: provider?.provider_key || 'maishapay',
+      is_enabled: provider?.is_enabled || false,
+      country: isoCode,
+      method: REQUESTED_METHOD,
+    });
+
+    // ============================================
+    // PAWAPAY BRANCH: If pawaPay is active, use USSD push
+    // ============================================
+    if (provider && provider.provider_key === 'pawapay' && provider.is_enabled) {
+      const secretsValid = validateProviderSecrets(provider);
+      
+      if (secretsValid.valid) {
+        console.log('CHECKOUT_PAWAPAY_INIT', { orderId: checkoutOrder.id });
+        
+        try {
+          const pawaConfig = getPawaPayConfig(provider);
+          const pawaReference = generateProviderRef(checkoutOrder.id);
+          
+          const depositResult = await createDeposit(pawaConfig, {
+            orderId: checkoutOrder.id,
+            amount: payable_amount,
+            currency: payable_currency,
+            customerPhone: profile.phone || '',
+            customerEmail: profile.email || user.email || '',
+            country: isoCode || 'COD',
+            reference: pawaReference,
+            description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
+          });
+
+          if (depositResult.success) {
+            // Create payment record in unified payments table
+            await createPaymentRecord(supabase, {
+              order_id: checkoutOrder.id,
+              provider_key: 'pawapay',
+              amount: payable_amount,
+              currency: payable_currency,
+              reference: pawaReference,
+              customer_phone: profile.phone || '',
+              country: isoCode || 'COD',
+              provider_deposit_id: depositResult.provider_deposit_id,
+              raw_request: depositResult.raw_request,
+              status: 'pending',
+            });
+
+            console.log('CHECKOUT_PAWAPAY_SUCCESS', {
+              orderId: checkoutOrder.id,
+              depositId: depositResult.provider_deposit_id,
+              reference: pawaReference,
+            });
+
+            // Return redirectUrl to payment-callback page that polls for status
+            const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+            const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
+            const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
+
+            return jsonResponse({
+              success: true,
+              checkout_type: 'FULL_PAYMENT',
+              orderId: checkoutOrder.id,
+              checkout_session_id: checkoutSession?.id || null,
+              confirmationId,
+              provider: 'pawapay',
+              payment_flow: 'USSD_PUSH',
+              redirectUrl,
+              checkoutUrl: redirectUrl, // Alias for backwards compat
+              message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
+              // P0 CRITICAL: Single payable values
+              payable_amount,
+              payable_currency,
+              currency: payable_currency,
+              amount: payable_amount,
+              totals_breakdown: {
+                subtotal: totalsBreakdown.subtotal_items,
+                shipping: totalsBreakdown.shipping_fee,
+                markup: totalsBreakdown.markup_fee,
+                taxes: totalsBreakdown.taxes_fee,
+                grand_total: totalsBreakdown.grand_total,
+                currency: payable_currency,
+                cdf_equivalent: totalsBreakdown.cdf_equivalent,
+                exchange_rate: totalsBreakdown.exchange_rate,
+                vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
+              },
+              integrity_hash: integrityHash,
+              order: {
+                id: checkoutOrder.id,
+                confirmationId,
+                status: 'PENDING_PAYMENT',
+                itemCount: totalsBreakdown.item_count,
+                totalUsd: totalsBreakdown.grand_total,
+                totalCdf: totalsBreakdown.cdf_equivalent,
+              },
+              paymentDetails: {
+                currency: payable_currency,
+                amount: payable_amount,
+                displayAmount,
+              },
+            });
+          } else {
+            console.warn('CHECKOUT_PAWAPAY_FAILED', {
+              orderId: checkoutOrder.id,
+              error: depositResult.error,
+              fallback: 'maishapay',
+            });
+            // Fall through to MaishaPay
+          }
+        } catch (pawaError: any) {
+          console.error('CHECKOUT_PAWAPAY_ERROR', {
+            orderId: checkoutOrder.id,
+            error: pawaError.message,
+            fallback: 'maishapay',
+          });
+          // Fall through to MaishaPay
+        }
+      } else {
+        console.warn('CHECKOUT_PAWAPAY_SECRETS_MISSING', {
+          missing: secretsValid.missing,
+          fallback: 'maishapay',
+        });
+      }
+    }
+
+    // ============================================
+    // MAISHAPAY BRANCH: Default payment provider
+    // ============================================
+
     // Get MaishaPay configuration
     const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
     const legacyMode = Deno.env.get('MAISHAPAY_MODE');
@@ -994,7 +1136,6 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
-    const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     // ============================================
     // CHECKOUT_FINAL: Success response

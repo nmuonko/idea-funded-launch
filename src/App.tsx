@@ -49,6 +49,7 @@ import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import BankTransferSubmissions from "./pages/admin/BankTransferSubmissions";
+import PaymentProviders from "./pages/admin/PaymentProviders";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -250,6 +251,11 @@ const App = () => {
               <Route path="bank-transfer-submissions" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <BankTransferSubmissions />
+                </AdminRouteGuard>
+              } />
+              <Route path="payment-providers" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <PaymentProviders />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

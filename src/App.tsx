@@ -58,6 +58,7 @@ import MaishapayResult from "./pages/MaishapayResult";
 import AcceptInvite from "./pages/AcceptInvite";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFail from "./pages/PaymentFail";
+import PaymentCallback from "./pages/PaymentCallback";
 import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
 import BankTransferInfo from "./pages/BankTransferInfo";
@@ -114,6 +115,7 @@ const App = () => {
             <Route path="/email-confirmed" element={<EmailConfirmed />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/fail" element={<PaymentFail />} />
+            <Route path="/payment-callback" element={<PaymentCallback />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
             <Route path="/bank-transfer" element={<PublicBankTransfer />} />

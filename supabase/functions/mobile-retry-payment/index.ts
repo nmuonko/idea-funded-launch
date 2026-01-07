@@ -10,6 +10,13 @@ import {
   getMaishaPayConfig,
   validateConfig,
 } from "../_shared/maishapay.ts";
+import { 
+  getActiveProvider, 
+  createPaymentRecord,
+  generatePaymentReference,
+  validateProviderSecrets,
+} from "../_shared/paymentProviders.ts";
+import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -24,21 +31,10 @@ serve(async (req) => {
     console.log('[mobile-retry-payment] User authenticated:', user.id);
 
     const body = await req.json();
-    const { order_id } = body;
+    const { order_id, payment_method, country } = body;
 
     if (!order_id) {
       return errorResponse('order_id is required', 400);
-    }
-
-    // Validate MaishaPay configuration
-    const maishaConfig = getMaishaPayConfig();
-    const configValidation = validateConfig(maishaConfig);
-    if (!configValidation.valid) {
-      console.error('[mobile-retry-payment] Config error:', configValidation.error);
-      return jsonResponse({ 
-        error: 'PAYMENT_CONFIG_ERROR', 
-        message: 'Payment gateway not configured' 
-      }, 500);
     }
 
     // Get order and validate ownership
@@ -91,6 +87,99 @@ serve(async (req) => {
     const customerEmail = user.email || '';
     const customerPhone = profile?.phone || '';
     const customerName = profile?.full_name || profile?.name || '';
+
+    // Determine the active payment provider
+    const provider = await getActiveProvider(supabase, country || 'COD', payment_method || 'MOBILE_MONEY');
+    
+    console.log('[mobile-retry-payment] Active provider:', provider?.provider_key || 'none');
+
+    // ==================== PAWAPAY ROUTING ====================
+    
+    if (provider && provider.provider_key === 'pawapay' && provider.is_enabled) {
+      console.log('[mobile-retry-payment] Routing retry to pawaPay');
+      
+      const secretsValid = validateProviderSecrets(provider);
+      if (!secretsValid.valid) {
+        console.error('[mobile-retry-payment] pawaPay secrets missing:', secretsValid.missing);
+        // Fall through to MaishaPay
+      } else {
+        try {
+          const pawaConfig = getPawaPayConfig(provider);
+          const reference = generatePaymentReference(order_id);
+          
+          const depositResult = await createDeposit(pawaConfig, {
+            orderId: order_id,
+            amount: order.total_usd,
+            currency: 'USD',
+            customerPhone,
+            customerEmail,
+            country: country || 'COD',
+            reference,
+            description: `AfriShop Order #${order_id.slice(0, 8)} (Retry)`,
+          });
+
+          if (depositResult.success) {
+            // Create payment record in unified payments table
+            await createPaymentRecord(supabase, {
+              order_id,
+              provider_key: 'pawapay',
+              amount: order.total_usd,
+              currency: 'USD',
+              reference,
+              customer_phone: customerPhone,
+              country: country || 'COD',
+              provider_deposit_id: depositResult.provider_deposit_id,
+              raw_request: { ...depositResult.raw_request, retry: true },
+              status: 'pending',
+            });
+
+            // Update order status
+            await supabase.from('orders').update({
+              status: 'PENDING_PAYMENT',
+              maisha_payment_status: 'PENDING',
+              updated_at: new Date().toISOString(),
+            }).eq('id', order_id);
+
+            console.log('[mobile-retry-payment] pawaPay retry SUCCESS:', {
+              orderId: order_id,
+              depositId: depositResult.provider_deposit_id,
+            });
+
+            return jsonResponse({
+              success: true,
+              order_id,
+              provider: 'pawapay',
+              payment_flow: 'USSD_PUSH',
+              message: depositResult.message || 'Payment request sent to your phone',
+              is_retry: true,
+              order: {
+                id: order_id,
+                status: 'PENDING_PAYMENT',
+                totalUsd: order.total_usd,
+                totalCdf: order.total_cdf,
+              },
+            });
+          } else {
+            console.warn('[mobile-retry-payment] pawaPay deposit failed, falling back to MaishaPay:', depositResult.error);
+          }
+        } catch (pawaError: any) {
+          console.error('[mobile-retry-payment] pawaPay error, falling back to MaishaPay:', pawaError.message);
+        }
+      }
+    }
+
+    // ==================== MAISHAPAY FALLBACK ====================
+
+    // Validate MaishaPay configuration
+    const maishaConfig = getMaishaPayConfig();
+    const configValidation = validateConfig(maishaConfig);
+    if (!configValidation.valid) {
+      console.error('[mobile-retry-payment] Config error:', configValidation.error);
+      return jsonResponse({ 
+        error: 'PAYMENT_CONFIG_ERROR', 
+        message: 'Payment gateway not configured' 
+      }, 500);
+    }
 
     // Create new payment session with retry suffix
     const retryOrderId = `${order_id}-R${Date.now().toString(36)}`;
@@ -145,7 +234,7 @@ serve(async (req) => {
       updated_at: new Date().toISOString(),
     }).eq('id', order_id);
 
-    console.log('[mobile-retry-payment] Retry payment created:', {
+    console.log('[mobile-retry-payment] MaishaPay retry created:', {
       orderId: order_id,
       reference: paymentResult.reference,
       mode: maishaConfig.mode,
@@ -170,6 +259,8 @@ serve(async (req) => {
       maishapay_transaction_id: paymentResult.reference,
       maishapay_reference: paymentResult.reference,
       payment_url: paymentResult.checkoutUrl,
+      provider: 'maishapay',
+      payment_flow: 'HTML_CHECKOUT',
       payment_mode: maishaConfig.mode,
       checkout_fields: formFields,
       is_retry: true,

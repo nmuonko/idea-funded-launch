@@ -9,6 +9,13 @@ import {
 import { verifyPaymentStatus, getMaishaPayConfig } from "../_shared/maishapay.ts";
 import { checkRateLimit, getClientIp, rateLimitExceededResponse } from "../_shared/rateLimiter.ts";
 import { generateTraceId, createTracedLogger } from "../_shared/auditLog.ts";
+import { 
+  getPaymentByOrderId, 
+  getProviderByKey,
+  normalizePaymentStatus,
+  updatePaymentStatus,
+} from "../_shared/paymentProviders.ts";
+import { verifyDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -77,6 +84,145 @@ serve(async (req) => {
       return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
     }
 
+    // ==================== CHECK UNIFIED PAYMENTS TABLE FIRST ====================
+    
+    const unifiedPayment = await getPaymentByOrderId(supabase, order.id);
+    
+    if (unifiedPayment && unifiedPayment.provider_key === 'pawapay') {
+      log.log('Using pawaPay verification', { paymentId: unifiedPayment.id });
+      
+      // Check if already completed in DB
+      if (unifiedPayment.status === 'succeeded') {
+        return jsonResponse({
+          success: true,
+          id: order.id,
+          orderId: order.id,
+          order_number: order.id.substring(0, 8).toUpperCase(),
+          orderRef: order.id.substring(0, 8).toUpperCase(),
+          status: 'paid',
+          paymentStatus: 'SUCCESS',
+          orderStatus: 'PAID',
+          totalUsd: order.total_usd || 0,
+          totalCdf: order.total_cdf || 0,
+          currency: unifiedPayment.currency || 'USD',
+          provider: 'pawapay',
+          payment_provider: 'pawapay',
+          confirmationCode: unifiedPayment.provider_transaction_id,
+          message: 'Paiement confirmé',
+          trace_id: traceId,
+        });
+      }
+      
+      // Verify with pawaPay API if deposit ID exists
+      if (unifiedPayment.provider_deposit_id) {
+        try {
+          const provider = await getProviderByKey(supabase, 'pawapay');
+          if (provider) {
+            const pawaConfig = getPawaPayConfig(provider);
+            const verifyResult = await verifyDeposit(pawaConfig, unifiedPayment.provider_deposit_id);
+            
+            log.log('pawaPay verify result', { 
+              status: verifyResult.status,
+              success: verifyResult.success,
+            });
+            
+            if (verifyResult.status === 'succeeded') {
+              // Update payment and order status
+              await updatePaymentStatus(supabase, unifiedPayment.id, 'succeeded', {
+                provider_transaction_id: verifyResult.provider_transaction_id,
+                paid_at: verifyResult.paid_at,
+              });
+              
+              // Update order status
+              await supabase.from('orders').update({
+                status: 'PAID',
+                maisha_payment_status: 'SUCCESS',
+              }).eq('id', order.id);
+              
+              return jsonResponse({
+                success: true,
+                id: order.id,
+                orderId: order.id,
+                order_number: order.id.substring(0, 8).toUpperCase(),
+                orderRef: order.id.substring(0, 8).toUpperCase(),
+                status: 'paid',
+                paymentStatus: 'SUCCESS',
+                orderStatus: 'PAID',
+                totalUsd: order.total_usd || 0,
+                totalCdf: order.total_cdf || 0,
+                currency: unifiedPayment.currency || 'USD',
+                provider: 'pawapay',
+                payment_provider: 'pawapay',
+                confirmationCode: verifyResult.provider_transaction_id,
+                message: 'Paiement confirmé',
+                trace_id: traceId,
+              });
+            }
+            
+            if (verifyResult.status === 'failed') {
+              await updatePaymentStatus(supabase, unifiedPayment.id, 'failed');
+              
+              return jsonResponse({
+                success: true,
+                id: order.id,
+                orderId: order.id,
+                order_number: order.id.substring(0, 8).toUpperCase(),
+                status: 'failed',
+                paymentStatus: 'FAILED',
+                orderStatus: order.status,
+                totalUsd: order.total_usd || 0,
+                totalCdf: order.total_cdf || 0,
+                currency: unifiedPayment.currency || 'USD',
+                provider: 'pawapay',
+                message: verifyResult.error || 'Paiement échoué',
+                trace_id: traceId,
+              });
+            }
+            
+            // Still pending
+            return jsonResponse({
+              success: true,
+              id: order.id,
+              orderId: order.id,
+              order_number: order.id.substring(0, 8).toUpperCase(),
+              status: 'pending',
+              paymentStatus: 'PENDING',
+              orderStatus: order.status,
+              totalUsd: order.total_usd || 0,
+              totalCdf: order.total_cdf || 0,
+              currency: unifiedPayment.currency || 'USD',
+              provider: 'pawapay',
+              message: 'Paiement en attente de confirmation',
+              trace_id: traceId,
+            });
+          }
+        } catch (pawaError: any) {
+          log.error('pawaPay verify error', { error: pawaError.message });
+          // Fall through to return pending status
+        }
+      }
+      
+      // Return current status from DB
+      const mappedStatus = normalizePaymentStatus('pawapay', unifiedPayment.status);
+      return jsonResponse({
+        success: true,
+        id: order.id,
+        orderId: order.id,
+        order_number: order.id.substring(0, 8).toUpperCase(),
+        status: mappedStatus === 'succeeded' ? 'paid' : mappedStatus,
+        paymentStatus: mappedStatus === 'succeeded' ? 'SUCCESS' : 'PENDING',
+        orderStatus: order.status,
+        totalUsd: order.total_usd || 0,
+        totalCdf: order.total_cdf || 0,
+        currency: unifiedPayment.currency || 'USD',
+        provider: 'pawapay',
+        message: 'Paiement en attente de confirmation',
+        trace_id: traceId,
+      });
+    }
+
+    // ==================== MAISHAPAY VERIFICATION ====================
+
     // Get confirmation code and currency from maisha_payments
     const { data: payment } = await supabase
       .from('maisha_payments')
@@ -119,6 +265,7 @@ serve(async (req) => {
         : `$${(order.total_usd || 0).toFixed(2)} USD`,
       // Payment details
       confirmationCode,
+      provider: 'maishapay',
       payment_provider: 'maishapay',
       mode: config.mode,
       message,

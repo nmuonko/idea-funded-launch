@@ -1,5 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { 
+  getActiveProvider, 
+  createPaymentRecord,
+  generatePaymentReference,
+  validateProviderSecrets,
+} from "../_shared/paymentProviders.ts";
+import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,8 +30,10 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const forceCurrency: 'USD' | 'CDF' | null = body.forceCurrency || null;
     const shippingCity: string | null = body.shippingCity || null;
+    const paymentMethod: string = body.payment_method || body.method || 'MOBILE_MONEY';
+    const country: string = body.country || 'COD';
 
-    console.log(`[${requestId}] Request body:`, { forceCurrency, shippingCity });
+    console.log(`[${requestId}] Request body:`, { forceCurrency, shippingCity, paymentMethod, country });
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -140,42 +149,17 @@ serve(async (req) => {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    // 6️⃣ MaishaPay config
-    const gatewayMode = Deno.env.get("MAISHAPAY_GATEWAY_MODE") || "1";
-    const isLiveMode = gatewayMode === "1";
+    // Customer contact info
+    const customerPhone = profile
+      ? (profile.phone ||
+         (profile as any)?.phone_number ||
+         (profile as any)?.phoneNumber ||
+         (profile as any)?.phoneNumberFormatted ||
+         "")
+      : "";
+    const customerEmail = user.email || "";
 
-    const publicKey = isLiveMode
-      ? Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY") ||
-        Deno.env.get("MAISHAPAY_PUBLIC_KEY")
-      : Deno.env.get("MAISHAPAY_PUBLIC_KEY");
-
-    const secretKey = isLiveMode
-      ? Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY") ||
-        Deno.env.get("MAISHAPAY_SECRET_KEY")
-      : Deno.env.get("MAISHAPAY_SECRET_KEY");
-
-    const callbackUrl =
-      Deno.env.get("MAISHAPAY_CALLBACK_URL") ||
-      Deno.env.get("MAISHA_CALLBACK_URL");
-
-    if (!publicKey || !secretKey || !callbackUrl) {
-      console.error(`[${requestId}] MISSING MAISHAPAY CONFIG:`, {
-        hasPublicKey: !!publicKey,
-        hasSecretKey: !!secretKey,
-        hasCallbackUrl: !!callbackUrl,
-        gatewayMode,
-        isLiveMode,
-      });
-      return new Response(
-        JSON.stringify({ success: false, error: "MaishaPay not configured", requestId }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    // 7️⃣ PAYMENT ROUTING RULES - Calculate totals
+    // 6️⃣ Calculate totals for routing decision
     const totalUsd = Number(order.total_usd) || 0;
     
     // Validate totalUsd > 0
@@ -215,17 +199,6 @@ serve(async (req) => {
       resolvedOrderCdf 
     });
 
-    console.log(`[${requestId}] ROUTING CHECK:`, {
-      totalUsd,
-      computedCdf,
-      resolvedOrderCdf,
-      forceCurrency,
-      USD_LIMIT,
-      CDF_LIMIT,
-      overUsdLimit: totalUsd > USD_LIMIT,
-      overCdfLimit: computedCdf > CDF_LIMIT,
-    });
-
     // RULE 2c: Block if exceeds all limits - BANK TRANSFER REQUIRED
     if (totalUsd > USD_LIMIT && computedCdf > CDF_LIMIT) {
       console.log(`[${requestId}] BLOCKED - BANK_TRANSFER_REQUIRED`);
@@ -247,7 +220,7 @@ serve(async (req) => {
       );
     }
 
-    // 8️⃣ Determine currency & amount based on routing rules
+    // Determine currency & amount based on routing rules
     let paymentCurrency: 'USD' | 'CDF';
     let paymentAmount: number;
     let currencyReason: string;
@@ -257,7 +230,6 @@ serve(async (req) => {
       paymentCurrency = 'CDF';
       paymentAmount = resolvedOrderCdf;
       currencyReason = 'FORCE_CDF_HIGH_USD';
-      console.log(`[${requestId}] FORCED CDF: totalUsd=${totalUsd} > ${USD_LIMIT}, using resolvedOrderCdf=${resolvedOrderCdf}`);
     }
     // RULE 2a: USD within limit - respect forceCurrency
     else if (totalUsd <= USD_LIMIT) {
@@ -270,13 +242,11 @@ serve(async (req) => {
         paymentAmount = totalUsd;
         currencyReason = 'FORCE_CURRENCY_USD';
       } else {
-        // Default: use USD for amounts within limit
         paymentCurrency = 'USD';
         paymentAmount = totalUsd;
         currencyReason = 'DEFAULT_USD';
       }
     } else {
-      // Fallback (should not reach here given rule checks above)
       paymentCurrency = 'USD';
       paymentAmount = totalUsd;
       currencyReason = 'FALLBACK';
@@ -288,6 +258,155 @@ serve(async (req) => {
       forceCurrency,
       currencyReason,
     });
+
+    // Validate final payment amount
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      console.error(`[${requestId}] INVALID FINAL AMOUNT:`, {
+        paymentCurrency,
+        paymentAmount,
+        total_usd: order.total_usd,
+        total_cdf: order.total_cdf,
+        exchangeRate,
+      });
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: "Invalid order amount",
+          code: "INVALID_AMOUNT",
+          requestId,
+        }), 
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // ==================== PROVIDER ROUTING ====================
+    
+    // Check if pawaPay is enabled and should be used
+    const provider = await getActiveProvider(supabase, country, paymentMethod);
+    
+    console.log(`[${requestId}] Active provider:`, provider?.provider_key || 'none');
+
+    if (provider && provider.provider_key === 'pawapay' && provider.is_enabled) {
+      console.log(`[${requestId}] Routing to pawaPay`);
+      
+      const secretsValid = validateProviderSecrets(provider);
+      if (!secretsValid.valid) {
+        console.error(`[${requestId}] pawaPay secrets missing:`, secretsValid.missing);
+        // Fall through to MaishaPay
+      } else {
+        try {
+          const pawaConfig = getPawaPayConfig(provider);
+          const reference = generatePaymentReference(orderId);
+          
+          const depositResult = await createDeposit(pawaConfig, {
+            orderId,
+            amount: paymentAmount,
+            currency: paymentCurrency,
+            customerPhone,
+            customerEmail,
+            country,
+            reference,
+            description: `AfriShop Order #${orderId.slice(0, 8)}`,
+          });
+
+          if (depositResult.success) {
+            // Create payment record in unified payments table
+            await createPaymentRecord(supabase, {
+              order_id: orderId,
+              provider_key: 'pawapay',
+              amount: paymentAmount,
+              currency: paymentCurrency,
+              reference,
+              customer_phone: customerPhone,
+              country,
+              provider_deposit_id: depositResult.provider_deposit_id,
+              raw_request: depositResult.raw_request,
+              status: 'pending',
+            });
+
+            // Update order with normalized currency audit
+            const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+            if (serviceKey) {
+              const adminSupabase = createClient(
+                Deno.env.get("SUPABASE_URL") ?? "",
+                serviceKey
+              );
+              await adminSupabase.from("orders").update({
+                normalized_currency: paymentCurrency,
+                normalized_amount: paymentAmount,
+                exchange_rate_used: exchangeRate,
+                maisha_payment_status: 'PENDING',
+              }).eq("id", orderId);
+            }
+
+            console.log(`[${requestId}] pawaPay SUCCESS - Order:`, orderId);
+
+            return new Response(
+              JSON.stringify({
+                success: true,
+                checkoutUrl: null, // No URL for USSD push
+                orderId,
+                confirmationId: reference,
+                provider: 'pawapay',
+                payment_flow: 'USSD_PUSH',
+                message: depositResult.message || 'Payment request sent to your phone',
+                amount: paymentAmount,
+                currency: paymentCurrency,
+                requestId,
+              }),
+              {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
+            );
+          } else {
+            console.warn(`[${requestId}] pawaPay deposit failed, falling back to MaishaPay:`, depositResult.error);
+          }
+        } catch (pawaError: any) {
+          console.error(`[${requestId}] pawaPay error, falling back to MaishaPay:`, pawaError.message);
+        }
+      }
+    }
+
+    // ==================== MAISHAPAY FALLBACK ====================
+
+    // MaishaPay config
+    const gatewayMode = Deno.env.get("MAISHAPAY_GATEWAY_MODE") || "1";
+    const isLiveMode = gatewayMode === "1";
+
+    const publicKey = isLiveMode
+      ? Deno.env.get("MAISHAPAY_LIVE_PUBLIC_KEY") ||
+        Deno.env.get("MAISHAPAY_PUBLIC_KEY")
+      : Deno.env.get("MAISHAPAY_PUBLIC_KEY");
+
+    const secretKey = isLiveMode
+      ? Deno.env.get("MAISHAPAY_LIVE_SECRET_KEY") ||
+        Deno.env.get("MAISHAPAY_SECRET_KEY")
+      : Deno.env.get("MAISHAPAY_SECRET_KEY");
+
+    const callbackUrl =
+      Deno.env.get("MAISHAPAY_CALLBACK_URL") ||
+      Deno.env.get("MAISHA_CALLBACK_URL");
+
+    if (!publicKey || !secretKey || !callbackUrl) {
+      console.error(`[${requestId}] MISSING MAISHAPAY CONFIG:`, {
+        hasPublicKey: !!publicKey,
+        hasSecretKey: !!secretKey,
+        hasCallbackUrl: !!callbackUrl,
+        gatewayMode,
+        isLiveMode,
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: "MaishaPay not configured", requestId }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
 
     // Update order with currency audit fields (safe guard for missing service key)
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -315,30 +434,7 @@ serve(async (req) => {
       console.warn(`[${requestId}] SKIPPING AUDIT UPDATE: missing SUPABASE_SERVICE_ROLE_KEY`);
     }
 
-    // 9️⃣ Validate final payment amount
-    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      console.error(`[${requestId}] INVALID FINAL AMOUNT:`, {
-        paymentCurrency,
-        paymentAmount,
-        total_usd: order.total_usd,
-        total_cdf: order.total_cdf,
-        exchangeRate,
-      });
-      return new Response(
-        JSON.stringify({ 
-          success: false,
-          error: "Invalid order amount",
-          code: "INVALID_AMOUNT",
-          requestId,
-        }), 
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    // 🔟 Create unique reference
+    // Create unique reference
     const reference = `AFRISHOP-${orderId}-${Date.now()}`;
 
     console.log(`[${requestId}] PAYMENT DETAILS:`, {
@@ -352,15 +448,7 @@ serve(async (req) => {
       reference,
     });
 
-    // 1️⃣1️⃣ Prepare MaishaPay payload with phone fallbacks + null guard
-    const customerPhone = profile
-      ? (profile.phone ||
-         (profile as any)?.phone_number ||
-         (profile as any)?.phoneNumber ||
-         (profile as any)?.phoneNumberFormatted ||
-         "")
-      : "";
-
+    // Prepare MaishaPay payload with phone fallbacks + null guard
     console.log(`[${requestId}] CUSTOMER CONTACT:`, { 
       email: user.email, 
       customerPhone: customerPhone ? "SET" : "EMPTY",
@@ -372,7 +460,7 @@ serve(async (req) => {
       amount: paymentAmount,
       currency: paymentCurrency,
       reference,
-      customerEmail: user.email || "",
+      customerEmail,
       customerPhone,
       description: `AfriShop order ${orderId}`,
       callbackUrl,
@@ -389,7 +477,7 @@ serve(async (req) => {
       isLiveMode,
     });
 
-    // 1️⃣2️⃣ Call MaishaPay
+    // Call MaishaPay
     const maishaResponse = await fetch(maishaApiUrl, {
       method: "POST",
       headers: {
@@ -453,7 +541,7 @@ serve(async (req) => {
       );
     }
 
-    // 1️⃣3️⃣ Store payment record (keep both USD & CDF for reporting)
+    // Store payment record (keep both USD & CDF for reporting)
     const amountUsdToStore =
       paymentCurrency === "USD"
         ? paymentAmount
@@ -482,7 +570,7 @@ serve(async (req) => {
       console.log(`[${requestId}] DB WRITE maisha_payments OK`);
     }
 
-    // 1️⃣4️⃣ Update order with Maisha reference
+    // Update order with Maisha reference
     const { error: orderUpdateError } = await supabase
       .from("orders")
       .update({
@@ -499,16 +587,19 @@ serve(async (req) => {
 
     console.log(`[${requestId}] SUCCESS: checkoutUrl obtained, returning to mobile`);
 
-    // 1️⃣5️⃣ Return data to mobile app - FLAT RESPONSE FORMAT
+    // Return data to mobile app - FLAT RESPONSE FORMAT
     return new Response(
       JSON.stringify({
         success: true,
         checkoutUrl,
         orderId,
         confirmationId: reference,
+        provider: 'maishapay',
+        payment_flow: 'REDIRECT',
         message: `Payment initiated in ${paymentCurrency}`,
         amount: paymentAmount,
         currency: paymentCurrency,
+        requestId,
       }),
       {
         status: 200,

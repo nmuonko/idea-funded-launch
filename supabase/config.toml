@@ -308,3 +308,18 @@ verify_jwt = false
 
 [functions.admin-confirm-price]
 verify_jwt = true
+
+[functions.pawapay-create-payment]
+verify_jwt = true
+
+[functions.pawapay-callback]
+verify_jwt = false
+
+[functions.pawapay-verify-payment]
+verify_jwt = true
+
+[functions.get-payment-providers]
+verify_jwt = true
+
+[functions.update-payment-provider]
+verify_jwt = true

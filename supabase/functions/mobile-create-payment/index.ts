@@ -15,9 +15,18 @@ import {
 } from "../_shared/maishapay.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateShipping as calcShipping } from "../_shared/cartHelpers.ts";
+import { 
+  getActiveProvider, 
+  createPaymentRecord,
+  generatePaymentReference as generateProviderRef,
+  validateProviderSecrets,
+} from "../_shared/paymentProviders.ts";
+import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 /**
- * Mobile Create Payment - STABLE PAYMENT INITIALIZATION
+ * Mobile Create Payment - PROVIDER-AGNOSTIC PAYMENT INITIALIZATION
+ * 
+ * Routes to the active payment provider (MaishaPay or pawaPay).
  * 
  * Accepts EITHER:
  * - cartId: UUID of the DRAFT order (will use ALL active items)
@@ -39,28 +48,18 @@ serve(async (req) => {
   try {
     console.log('[mobile-create-payment] Request received');
 
-    // FIRST: Validate MaishaPay configuration
-    const maishaConfig = getMaishaPayConfig();
-    const configValidation = validateConfig(maishaConfig);
-    
-    if (!configValidation.valid) {
-      console.error('[mobile-create-payment] MaishaPay config error:', configValidation.error);
-      return jsonResponse({ 
-        success: false,
-        error: 'PAYMENT_CONFIG_ERROR',
-        message: 'Payment gateway is not properly configured. Please contact support.' 
-      }, 500);
-    }
-
-    console.log('[mobile-create-payment] MaishaPay mode:', maishaConfig.mode);
-
     // Verify JWT
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-create-payment] User authenticated:', user.id);
 
-    // Parse request body - accept EITHER cartId OR cart_item_ids
+    // Parse request body
     const body = await req.json();
-    const { cartId, cart_item_ids, payment_method, phone, email } = body;
+    const { cartId, cart_item_ids, payment_method, phone, email, country } = body;
+
+    // Determine the active payment provider
+    const provider = await getActiveProvider(supabase, country || 'COD', payment_method || 'MOBILE_MONEY');
+    
+    console.log('[mobile-create-payment] Active provider:', provider?.provider_key || 'none');
 
     // Get cached settings - SINGLE SOURCE OF TRUTH
     const settings = await getCachedSettings(supabase);
@@ -314,6 +313,110 @@ serve(async (req) => {
       return jsonResponse({ success: false, error: 'CHECKOUT_ERROR', message: 'Failed to process checkout. Please try again.' }, 500);
     }
 
+    // Get user profile for customer info
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('phone, full_name, name')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const customerPhone = phone || profile?.phone || '';
+    const customerEmail = email || user.email || '';
+    const customerName = profile?.full_name || profile?.name || '';
+
+    // ==================== PROVIDER ROUTING ====================
+    
+    // Check if pawaPay is enabled and should be used
+    if (provider && provider.provider_key === 'pawapay' && provider.is_enabled) {
+      console.log('[mobile-create-payment] Routing to pawaPay');
+      
+      const secretsValid = validateProviderSecrets(provider);
+      if (!secretsValid.valid) {
+        console.error('[mobile-create-payment] pawaPay secrets missing:', secretsValid.missing);
+        // Fall through to MaishaPay
+      } else {
+        try {
+          const pawaConfig = getPawaPayConfig(provider);
+          const reference = generateProviderRef(checkoutOrder.id);
+          
+          const depositResult = await createDeposit(pawaConfig, {
+            orderId: checkoutOrder.id,
+            amount: grandTotalUsd,
+            currency: 'USD',
+            customerPhone,
+            customerEmail,
+            country: country || 'COD',
+            reference,
+            description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
+          });
+
+          if (depositResult.success) {
+            // Create payment record in unified payments table
+            await createPaymentRecord(supabase, {
+              order_id: checkoutOrder.id,
+              provider_key: 'pawapay',
+              amount: grandTotalUsd,
+              currency: 'USD',
+              reference,
+              customer_phone: customerPhone,
+              country: country || 'COD',
+              provider_deposit_id: depositResult.provider_deposit_id,
+              raw_request: depositResult.raw_request,
+              status: 'pending',
+            });
+
+            console.log('[mobile-create-payment] pawaPay SUCCESS - Order:', checkoutOrder.id);
+
+            return jsonResponse({
+              success: true,
+              orderId: checkoutOrder.id,
+              cartId: checkoutOrder.id,
+              confirmationId: checkoutOrder.id.slice(0, 8).toUpperCase(),
+              provider: 'pawapay',
+              payment_flow: 'USSD_PUSH',
+              message: depositResult.message || 'Payment request sent to your phone',
+              totals: {
+                itemsTotal: totalItemsUsd,
+                marginFee: totalMarginUsd,
+                shippingFee: totalShippingUsd,
+                totalUsd: grandTotalUsd,
+                totalCdf: grandTotalCdf,
+                exchangeRate,
+              },
+              order: {
+                id: checkoutOrder.id,
+                status: 'PENDING_PAYMENT',
+                itemCount,
+                totalUsd: grandTotalUsd,
+                totalCdf: grandTotalCdf,
+              },
+            });
+          } else {
+            console.warn('[mobile-create-payment] pawaPay deposit failed, falling back to MaishaPay:', depositResult.error);
+          }
+        } catch (pawaError: any) {
+          console.error('[mobile-create-payment] pawaPay error, falling back to MaishaPay:', pawaError.message);
+        }
+      }
+    }
+
+    // ==================== MAISHAPAY FALLBACK ====================
+    
+    // Validate MaishaPay configuration
+    const maishaConfig = getMaishaPayConfig();
+    const configValidation = validateConfig(maishaConfig);
+    
+    if (!configValidation.valid) {
+      console.error('[mobile-create-payment] MaishaPay config error:', configValidation.error);
+      return jsonResponse({ 
+        success: false,
+        error: 'PAYMENT_CONFIG_ERROR',
+        message: 'Payment gateway is not properly configured. Please contact support.' 
+      }, 500);
+    }
+
+    console.log('[mobile-create-payment] Using MaishaPay mode:', maishaConfig.mode);
+
     // STEP 7: Generate payment reference and create payment record
     const paymentReference = generatePaymentReference(checkoutOrder.id);
     const orderNumber = checkoutOrder.id.slice(0, 8).toUpperCase();
@@ -364,7 +467,7 @@ serve(async (req) => {
       }, 500);
     }
 
-    console.log('[mobile-create-payment] SUCCESS - Order:', checkoutOrder.id, 'Reference:', paymentReference);
+    console.log('[mobile-create-payment] MaishaPay SUCCESS - Order:', checkoutOrder.id, 'Reference:', paymentReference);
 
     // Return success with totals for mobile display
     return jsonResponse({
@@ -372,6 +475,8 @@ serve(async (req) => {
       orderId: checkoutOrder.id,
       cartId: checkoutOrder.id, // Alias for compatibility
       confirmationId: orderNumber,
+      provider: 'maishapay',
+      payment_flow: 'HTML_CHECKOUT',
       html: html,
       totals: {
         itemsTotal: totalItemsUsd,

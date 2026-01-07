@@ -46,6 +46,7 @@ export function AdminLayout() {
     { to: '/admin/saved-carts', icon: Bookmark, label: t.sidebar.savedCarts, permission: 'can_view_saved_carts' as const },
     { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
     { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
+    { to: '/admin/payment-providers', icon: CreditCard, label: 'Payment Providers', permission: 'can_view_payments' as const },
     { to: '/admin/transfer-proofs', icon: FileCheck, label: t.sidebar.transferProofs || 'Transfer Proofs', permission: 'can_view_payments' as const },
     { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
     { to: '/admin/shipping-types', icon: Truck, label: t.sidebar.shippingTypes, permission: 'can_manage_shipping_types' as const },

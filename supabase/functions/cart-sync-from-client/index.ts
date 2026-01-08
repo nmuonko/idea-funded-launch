@@ -175,8 +175,54 @@ serve(async (req) => {
       };
       
       // Force PENDING if user edited the price
+      let priceConfirmationId: string | null = null;
       if (priceEdited) {
         itemData.price_confirmation_status = 'PENDING';
+        
+        // Create price_confirmations record for admin panel
+        const capturedPrice = meta.capturedPrice || meta.capturedPriceUsd || null;
+        const { data: priceConfirmation, error: pcError } = await supabase
+          .from('price_confirmations')
+          .insert({
+            user_id: user.id,
+            product_url: item.productUrl,
+            store: store,
+            proposed_price: item.unitPrice,
+            proposed_currency: (item.currency || 'USD').toUpperCase(),
+            extracted_price: capturedPrice,
+            extracted_currency: capturedPrice ? (item.currency || 'USD').toUpperCase() : null,
+            extraction_source: capturedPrice ? 'structured' : 'manual',
+            extraction_confidence: capturedPrice ? 0.8 : null,
+            status: 'PENDING',
+          })
+          .select('id')
+          .single();
+        
+        if (pcError) {
+          console.error('[cart-sync-from-client] Failed to create price_confirmations:', pcError);
+        } else {
+          console.log('[cart-sync-from-client] Created price_confirmations:', priceConfirmation.id);
+          priceConfirmationId = priceConfirmation.id;
+          itemData.price_confirmation_id = priceConfirmationId;
+        }
+        
+        // Create admin notification for price review
+        await supabase
+          .from('admin_notifications')
+          .insert({
+            type: 'PRICE_REVIEW',
+            title: 'Price Review Required',
+            body: `User submitted manual price: $${item.unitPrice.toFixed(2)} for ${item.title || item.productUrl}`,
+            payload: {
+              user_id: user.id,
+              product_url: item.productUrl,
+              title: item.title,
+              captured_price: capturedPrice,
+              user_price: item.unitPrice,
+              currency: item.currency || 'USD',
+              price_confirmation_id: priceConfirmationId,
+            },
+          });
       }
 
       // Use NORMALIZED URL for duplicate detection

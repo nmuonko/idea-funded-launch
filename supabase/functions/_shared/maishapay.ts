@@ -36,7 +36,7 @@ export interface CreatePaymentResult {
 
 export interface VerifyPaymentResult {
   success: boolean;
-  status: 'paid' | 'pending' | 'failed' | 'cancelled';
+  status: 'succeeded' | 'pending' | 'failed' | 'cancelled';
   transactionId?: string;
   operatorRefId?: string;
   paidAt?: string;
@@ -284,14 +284,18 @@ export function generateCheckoutHtml(params: {
 /**
  * Normalize payment status from MaishaPay response
  */
-export function normalizePaymentStatus(status: string | number): 'paid' | 'pending' | 'failed' | 'cancelled' {
+/**
+ * Normalize payment status from MaishaPay response
+ * Returns 'succeeded' for consistency with pawaPay adapter
+ */
+export function normalizePaymentStatus(status: string | number): 'succeeded' | 'pending' | 'failed' | 'cancelled' {
   if (!status && status !== 0) return 'pending';
   
   const normalized = String(status).toLowerCase();
   
   // MaishaPay uses numeric status codes: 202 = success/accepted
-  if (normalized === '202' || normalized === 'success' || normalized === 'paid' || normalized === 'accepted' || normalized === '1' || normalized.includes('success')) {
-    return 'paid';
+  if (normalized === '202' || normalized === 'success' || normalized === 'paid' || normalized === 'succeeded' || normalized === 'accepted' || normalized === '1' || normalized.includes('success')) {
+    return 'succeeded';
   }
   if (normalized === 'cancelled' || normalized === 'canceled' || normalized === '203') {
     return 'cancelled';

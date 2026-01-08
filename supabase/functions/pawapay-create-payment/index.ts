@@ -119,7 +119,7 @@ serve(async (req) => {
       currency: paymentCurrency as 'USD' | 'CDF',
       customerPhone: phone,
       customerEmail: profile?.email || user.email || '',
-      country: 'COD',
+      country: 'CD',
       reference,
       description: `AfriShop order ${orderId.slice(0, 8)}`,
     });
@@ -158,7 +158,7 @@ serve(async (req) => {
       currency: paymentCurrency,
       reference,
       customer_phone: formatPhoneE164(phone),
-      country: 'COD',
+      country: 'CD',
       provider_deposit_id: result.provider_deposit_id,
       raw_request: result.raw_request,
       status: 'pending',
@@ -188,6 +188,11 @@ serve(async (req) => {
 
     log.log('Payment created successfully', { reference });
 
+    // Build redirect URL for mobile app polling
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const projectHost = supabaseUrl.replace('https://', '').replace('.supabase.co', '');
+    const redirectUrl = `https://afri-shop.com/payment-callback?orderId=${orderId}&provider=pawapay`;
+
     // Return response compatible with existing mobile app
     return jsonResponse({
       success: true,
@@ -198,6 +203,8 @@ serve(async (req) => {
       provider_deposit_id: result.provider_deposit_id,
       status: 'pending',
       message: result.message || 'Payment request sent to your phone',
+      payment_flow: 'USSD_PUSH',
+      redirectUrl, // For mobile WebView intercept
       totals: {
         itemTotal: order.item_total_usd || order.total_usd,
         serviceFee: order.service_fee_usd || 0,

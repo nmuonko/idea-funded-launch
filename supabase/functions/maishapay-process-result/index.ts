@@ -120,24 +120,22 @@ serve(async (req) => {
       }
     }
 
-    // Strategy 3: Extract order ID from reference (format: AFRISHOP-{orderId8chars}-{timestamp})
+    // Strategy 3: Extract full order ID from reference (format: AFRISHOP-{fullOrderId}-{timestamp})
+    // The orderId section between first and second dash should be the complete UUID
     if (!order && transactionRefId) {
-      const parts = transactionRefId.split('-');
-      if (parts.length >= 2 && parts[0] === 'AFRISHOP') {
-        const partialOrderId = parts[1];
+      const match = transactionRefId.match(/^AFRISHOP-([0-9a-f-]{36})-/i);
+      if (match && match[1]) {
+        const fullOrderId = match[1];
         
-        const { data: orderByPartial } = await supabase
+        const { data: orderByFullId } = await supabase
           .from('orders')
           .select('*')
-          .ilike('id', `${partialOrderId}%`)
-          .in('status', ['PENDING_PAYMENT', 'DRAFT'])
-          .order('created_at', { ascending: false })
-          .limit(1)
+          .eq('id', fullOrderId)
           .maybeSingle();
         
-        if (orderByPartial) {
-          order = orderByPartial;
-          console.log('[maishapay-process-result] Found order by partial ID match');
+        if (orderByFullId) {
+          order = orderByFullId;
+          console.log('[maishapay-process-result] Found order by full ID match:', fullOrderId);
         }
       }
     }

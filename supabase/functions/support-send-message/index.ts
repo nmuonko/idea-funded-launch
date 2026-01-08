@@ -162,12 +162,12 @@ Deno.serve(async (req) => {
       newStatus = "waiting_agent"; // Switch to waiting_agent for admin to see
     }
 
-    // Insert AI response
+    // Insert bot/AI response (using 'bot' as sender_type per DB constraint)
     const { error: aiMsgError } = await supabase
       .from("support_messages")
       .insert({
         conversation_id: conversationId,
-        sender_type: "ai",
+        sender_type: "bot",
         content: aiMessage,
         meta: { source: aiSource, faq_id: faqId },
       });

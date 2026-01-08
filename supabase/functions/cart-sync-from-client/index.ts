@@ -36,6 +36,7 @@ const syncCartSchema = z.object({
       originalPriceUsd: z.number().optional(),
       price_confirmation_status: z.string().optional(),
       priceConfirmationStatus: z.string().optional(),
+      price_source: z.string().optional(),
     }).optional(),
   })).max(50), // Max 50 items per sync
 });
@@ -127,10 +128,14 @@ serve(async (req) => {
       
       // Detect if price was edited by user (requires admin confirmation)
       const meta = item.meta || {};
+      // Check meta.price_source for "manual" or "manual_user"
+      const priceSource = String(meta.price_source ?? "").toLowerCase();
+      const isManualSource = priceSource === "manual_user" || priceSource === "manual";
+      
       const priceEdited = 
+        isManualSource ||
         meta.priceEdited === true ||
         meta.originalPriceUsd !== undefined ||
-        meta.capturedPriceUsd !== undefined ||
         (meta.capturedPrice !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPrice)) > 0.01) ||
         (meta.capturedPriceUsd !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPriceUsd)) > 0.01);
       

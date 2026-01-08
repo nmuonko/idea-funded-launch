@@ -131,6 +131,39 @@ serve(async (req) => {
         }
         console.log('[mobile-update-cart-item] Price edited by user - setting price_confirmation_status=PENDING');
         
+        // Get item details for the price_confirmations record
+        const { data: itemDetails } = await supabase
+          .from('order_items')
+          .select('product_url, store, title')
+          .eq('id', itemId)
+          .single();
+        
+        // Create price_confirmations record (this is what admin panel queries)
+        const { data: priceConfirmation, error: pcError } = await supabase
+          .from('price_confirmations')
+          .insert({
+            user_id: user.id,
+            cart_item_id: itemId,
+            product_url: itemDetails?.product_url || '',
+            store: (itemDetails?.store || 'OTHER').toUpperCase(),
+            proposed_price: newPrice,
+            proposed_currency: currency.toUpperCase(),
+            extracted_price: capturedPrice,
+            extracted_currency: capturedPrice ? currency.toUpperCase() : null,
+            extraction_source: capturedPrice ? 'structured' : 'manual',
+            extraction_confidence: capturedPrice ? 0.8 : null,
+            status: 'PENDING',
+          })
+          .select('id')
+          .single();
+        
+        if (pcError) {
+          console.error('[mobile-update-cart-item] Failed to create price_confirmations:', pcError);
+        } else {
+          console.log('[mobile-update-cart-item] Created price_confirmations:', priceConfirmation.id);
+          updateData.price_confirmation_id = priceConfirmation.id;
+        }
+        
         // Create admin notification for price review
         const { error: notifError } = await supabase
           .from('admin_notifications')
@@ -144,6 +177,7 @@ serve(async (req) => {
               captured_price: capturedPrice,
               user_price: newPrice,
               currency,
+              price_confirmation_id: priceConfirmation?.id,
             },
           });
         

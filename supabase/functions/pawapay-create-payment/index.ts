@@ -188,10 +188,9 @@ serve(async (req) => {
 
     log.log('Payment created successfully', { reference });
 
-    // Build redirect URL for mobile app polling
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const projectHost = supabaseUrl.replace('https://', '').replace('.supabase.co', '');
-    const redirectUrl = `https://afri-shop.com/payment-callback?orderId=${orderId}&provider=pawapay`;
+    // Build redirect URL for mobile app polling using environment variable
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afri-shop.com';
+    const redirectUrl = `${frontendBaseUrl}/payment-callback?orderId=${orderId}&provider=pawapay`;
 
     // Return response compatible with existing mobile app
     return jsonResponse({

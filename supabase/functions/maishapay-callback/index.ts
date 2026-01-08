@@ -284,7 +284,7 @@ const handler = async (req: Request): Promise<Response> => {
     // ============================================
     // P0 FIX: Use finalize_paid_order RPC for atomicity
     // ============================================
-    if (normalizedStatus === 'paid') {
+    if (normalizedStatus === 'succeeded') {
       console.log('[MaishaPay Callback] Payment SUCCESS - calling finalize_paid_order RPC');
       
       const { data: rpcResult, error: rpcError } = await supabaseClient.rpc('finalize_paid_order', {
@@ -347,7 +347,7 @@ const handler = async (req: Request): Promise<Response> => {
       const failUrl = Deno.env.get('MAISHAPAY_FRONTEND_FAIL_URL') || `${frontendBaseUrl}/payment/fail`;
       
       let redirectUrl: string;
-      if (normalizedStatus === 'paid') {
+      if (normalizedStatus === 'succeeded') {
         redirectUrl = `${successUrl}?order_id=${orderId}&status=success&reference=${reference}`;
       } else if (normalizedStatus === 'failed' || normalizedStatus === 'cancelled') {
         redirectUrl = `${failUrl}?order_id=${orderId}&status=${normalizedStatus}&reference=${reference}`;

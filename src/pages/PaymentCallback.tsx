@@ -1,15 +1,62 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, CheckCircle, XCircle, Smartphone } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Smartphone, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 type PaymentStatus = "pending" | "succeeded" | "failed" | "timeout";
+
+const translations = {
+  en: {
+    confirmingPayment: "Confirming Payment",
+    paymentSuccessful: "Payment Successful!",
+    paymentFailed: "Payment Failed",
+    paymentPending: "Payment Pending",
+    confirmOnPhone: "Please confirm the payment on your phone.",
+    checkingStatus: "Checking status...",
+    paymentConfirmed: "Your payment has been confirmed.",
+    confirmationCode: "Confirmation Code",
+    viewMyOrders: "View My Orders",
+    tryAgain: "Try Again",
+    viewOrders: "View Orders",
+    paymentProcessing: "Payment is still being processed. Please check your orders page for the latest status.",
+    checkOrderStatus: "Check Order Status",
+    reference: "Reference",
+    invalidParams: "Invalid payment callback parameters",
+    paymentNotCompleted: "Payment was not completed",
+    connectionError: "Connection error. Please try again.",
+    retry: "Retry",
+  },
+  fr: {
+    confirmingPayment: "Confirmation du paiement",
+    paymentSuccessful: "Paiement réussi !",
+    paymentFailed: "Échec du paiement",
+    paymentPending: "Paiement en attente",
+    confirmOnPhone: "Veuillez confirmer le paiement sur votre téléphone.",
+    checkingStatus: "Vérification du statut...",
+    paymentConfirmed: "Votre paiement a été confirmé.",
+    confirmationCode: "Code de confirmation",
+    viewMyOrders: "Voir mes commandes",
+    tryAgain: "Réessayer",
+    viewOrders: "Voir les commandes",
+    paymentProcessing: "Le paiement est toujours en cours de traitement. Veuillez vérifier la page de vos commandes pour le dernier statut.",
+    checkOrderStatus: "Vérifier le statut",
+    reference: "Référence",
+    invalidParams: "Paramètres de rappel de paiement invalides",
+    paymentNotCompleted: "Le paiement n'a pas été effectué",
+    connectionError: "Erreur de connexion. Veuillez réessayer.",
+    retry: "Réessayer",
+  },
+};
 
 export default function PaymentCallback() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { language } = useLanguage();
+  
+  const t = translations[language as keyof typeof translations] || translations.en;
   
   const orderId = searchParams.get("orderId");
   const provider = searchParams.get("provider");
@@ -18,80 +65,99 @@ export default function PaymentCallback() {
 
   const [status, setStatus] = useState<PaymentStatus>("pending");
   const [confirmationCode, setConfirmationCode] = useState<string | null>(null);
-  const [pollCount, setPollCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [networkError, setNetworkError] = useState(false);
+  
+  // Use refs to avoid pollCount triggering re-renders
+  const pollCountRef = useRef(0);
+  const [displayPollCount, setDisplayPollCount] = useState(0);
 
   const MAX_POLLS = 60; // 5 minutes at 5s intervals
   const POLL_INTERVAL = 5000;
 
+  const pollStatus = useCallback(async (abortSignal: AbortSignal): Promise<boolean> => {
+    if (abortSignal.aborted) return false;
+
+    try {
+      setNetworkError(false);
+      
+      const { data, error: fnError } = await supabase.functions.invoke("mobile-verify-payment", {
+        body: { orderId, depositId },
+      });
+
+      if (abortSignal.aborted) return false;
+
+      if (fnError) {
+        console.error("Verify payment error:", fnError);
+        pollCountRef.current += 1;
+        setDisplayPollCount(pollCountRef.current);
+        return pollCountRef.current < MAX_POLLS; // continue polling if under limit
+      }
+
+      const paymentStatus = data?.status || data?.payment_status;
+      
+      if (paymentStatus === "succeeded" || paymentStatus === "PAID") {
+        setStatus("succeeded");
+        setConfirmationCode(data?.confirmation_code || reference);
+        return false; // stop polling
+      }
+
+      if (paymentStatus === "failed" || paymentStatus === "FAILED") {
+        setStatus("failed");
+        setError(data?.error || t.paymentNotCompleted);
+        return false; // stop polling
+      }
+
+      // Still pending, continue polling
+      pollCountRef.current += 1;
+      setDisplayPollCount(pollCountRef.current);
+      
+      if (pollCountRef.current >= MAX_POLLS) {
+        setStatus("timeout");
+        return false; // stop polling
+      }
+      
+      return true; // continue polling
+    } catch (err) {
+      console.error("Poll error:", err);
+      setNetworkError(true);
+      return false; // stop on network error, allow manual retry
+    }
+  }, [orderId, depositId, reference, t.paymentNotCompleted]);
+
   useEffect(() => {
     if (!orderId || provider !== "pawapay") {
-      setError("Invalid payment callback parameters");
+      setError(t.invalidParams);
       setStatus("failed");
       return;
     }
 
+    const abortController = new AbortController();
     let timeoutId: NodeJS.Timeout;
-    let isMounted = true;
-
-    const pollStatus = async () => {
-      if (!isMounted) return;
-
-      try {
-        const { data, error: fnError } = await supabase.functions.invoke("mobile-verify-payment", {
-          body: { orderId, depositId },
-        });
-
-        if (!isMounted) return;
-
-        if (fnError) {
-          console.error("Verify payment error:", fnError);
-          // Don't fail immediately, keep polling
-          setPollCount((c) => c + 1);
-          return;
+    
+    const startPolling = async () => {
+      // Initial delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      if (abortController.signal.aborted) return;
+      
+      const poll = async () => {
+        const shouldContinue = await pollStatus(abortController.signal);
+        if (shouldContinue && !abortController.signal.aborted) {
+          timeoutId = setTimeout(poll, POLL_INTERVAL);
         }
-
-        const paymentStatus = data?.status || data?.payment_status;
-        
-        if (paymentStatus === "succeeded" || paymentStatus === "PAID") {
-          setStatus("succeeded");
-          setConfirmationCode(data?.confirmation_code || reference);
-          return;
-        }
-
-        if (paymentStatus === "failed" || paymentStatus === "FAILED") {
-          setStatus("failed");
-          setError(data?.error || "Payment was not completed");
-          return;
-        }
-
-        // Still pending, continue polling
-        setPollCount((c) => {
-          const newCount = c + 1;
-          if (newCount >= MAX_POLLS) {
-            setStatus("timeout");
-            return newCount;
-          }
-          timeoutId = setTimeout(pollStatus, POLL_INTERVAL);
-          return newCount;
-        });
-      } catch (err) {
-        console.error("Poll error:", err);
-        setPollCount((c) => c + 1);
-        if (pollCount < MAX_POLLS) {
-          timeoutId = setTimeout(pollStatus, POLL_INTERVAL);
-        }
-      }
+      };
+      
+      poll();
     };
 
-    // Start polling after a short delay
-    timeoutId = setTimeout(pollStatus, 2000);
+    startPolling();
 
     return () => {
-      isMounted = false;
+      abortController.abort();
       clearTimeout(timeoutId);
     };
-  }, [orderId, provider, depositId, reference, pollCount]);
+  }, [orderId, provider, t.invalidParams, pollStatus]);
 
   const handleGoToOrders = () => {
     navigate("/orders");
@@ -101,19 +167,36 @@ export default function PaymentCallback() {
     navigate(`/orders/${orderId}`);
   };
 
+  const handleRetryPolling = () => {
+    setNetworkError(false);
+    pollCountRef.current = 0;
+    setDisplayPollCount(0);
+    setStatus("pending");
+    
+    // Restart polling
+    const abortController = new AbortController();
+    const poll = async () => {
+      const shouldContinue = await pollStatus(abortController.signal);
+      if (shouldContinue && !abortController.signal.aborted) {
+        setTimeout(poll, POLL_INTERVAL);
+      }
+    };
+    poll();
+  };
+
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle>
-            {status === "pending" && "Confirming Payment"}
-            {status === "succeeded" && "Payment Successful!"}
-            {status === "failed" && "Payment Failed"}
-            {status === "timeout" && "Payment Pending"}
+            {status === "pending" && t.confirmingPayment}
+            {status === "succeeded" && t.paymentSuccessful}
+            {status === "failed" && t.paymentFailed}
+            {status === "timeout" && t.paymentPending}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {status === "pending" && (
+          {status === "pending" && !networkError && (
             <div className="text-center space-y-4">
               <div className="flex justify-center">
                 <div className="relative">
@@ -122,11 +205,24 @@ export default function PaymentCallback() {
                 </div>
               </div>
               <p className="text-muted-foreground">
-                Please confirm the payment on your phone.
+                {t.confirmOnPhone}
               </p>
               <p className="text-sm text-muted-foreground">
-                Checking status... ({pollCount}/{MAX_POLLS})
+                {t.checkingStatus} ({displayPollCount}/{MAX_POLLS})
               </p>
+            </div>
+          )}
+
+          {networkError && (
+            <div className="text-center space-y-4">
+              <XCircle className="h-16 w-16 text-orange-500 mx-auto" />
+              <p className="text-muted-foreground">
+                {t.connectionError}
+              </p>
+              <Button onClick={handleRetryPolling} className="w-full">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {t.retry}
+              </Button>
             </div>
           )}
 
@@ -134,16 +230,16 @@ export default function PaymentCallback() {
             <div className="text-center space-y-4">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
               <p className="text-muted-foreground">
-                Your payment has been confirmed.
+                {t.paymentConfirmed}
               </p>
               {confirmationCode && (
                 <div className="bg-muted p-4 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Confirmation Code</p>
+                  <p className="text-sm text-muted-foreground">{t.confirmationCode}</p>
                   <p className="text-2xl font-mono font-bold">{confirmationCode}</p>
                 </div>
               )}
               <Button onClick={handleGoToOrders} className="w-full">
-                View My Orders
+                {t.viewMyOrders}
               </Button>
             </div>
           )}
@@ -152,14 +248,14 @@ export default function PaymentCallback() {
             <div className="text-center space-y-4">
               <XCircle className="h-16 w-16 text-destructive mx-auto" />
               <p className="text-muted-foreground">
-                {error || "The payment could not be completed."}
+                {error || t.paymentNotCompleted}
               </p>
               <div className="space-y-2">
                 <Button onClick={handleRetry} className="w-full">
-                  Try Again
+                  {t.tryAgain}
                 </Button>
                 <Button variant="outline" onClick={handleGoToOrders} className="w-full">
-                  View Orders
+                  {t.viewOrders}
                 </Button>
               </div>
             </div>
@@ -169,17 +265,17 @@ export default function PaymentCallback() {
             <div className="text-center space-y-4">
               <Loader2 className="h-16 w-16 text-muted-foreground mx-auto" />
               <p className="text-muted-foreground">
-                Payment is still being processed. Please check your orders page for the latest status.
+                {t.paymentProcessing}
               </p>
               <Button onClick={handleGoToOrders} className="w-full">
-                Check Order Status
+                {t.checkOrderStatus}
               </Button>
             </div>
           )}
 
           {reference && (
             <p className="text-xs text-center text-muted-foreground">
-              Reference: {reference}
+              {t.reference}: {reference}
             </p>
           )}
         </CardContent>

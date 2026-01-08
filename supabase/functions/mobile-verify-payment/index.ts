@@ -289,7 +289,7 @@ serve(async (req) => {
     });
 
     // Update order if status changed using atomic RPC
-    if (verifyResult.success && verifyResult.status === 'paid') {
+    if (verifyResult.success && verifyResult.status === 'succeeded') {
       // Use the atomic finalize_paid_order RPC
       const { data: finalizeResult, error: finalizeError } = await supabase.rpc(
         'finalize_paid_order',

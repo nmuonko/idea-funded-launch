@@ -292,13 +292,10 @@ export default function PriceConfirmations() {
     }
 
     try {
-      // Fetch price confirmations with user email from profiles
+      // Fetch price confirmations (no FK relationship to profiles)
       let query = supabase
         .from("price_confirmations")
-        .select(`
-          *,
-          profiles!price_confirmations_user_id_fkey(email)
-        `)
+        .select("*")
         .order("created_at", { ascending: false });
 
       if (statusFilter !== "ALL") {
@@ -309,10 +306,26 @@ export default function PriceConfirmations() {
 
       if (error) throw error;
 
+      // Fetch user emails separately for the user_ids we have
+      const userIds = [...new Set((data || []).map(item => item.user_id))];
+      let emailMap: Record<string, string> = {};
+      
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, email")
+          .in("user_id", userIds);
+        
+        emailMap = (profiles || []).reduce((acc, p) => {
+          if (p.email) acc[p.user_id] = p.email;
+          return acc;
+        }, {} as Record<string, string>);
+      }
+
       // Map to include user_email at top level
       const mappedData = (data || []).map(item => ({
         ...item,
-        user_email: (item.profiles as any)?.email || null,
+        user_email: emailMap[item.user_id] || null,
       }));
 
       setConfirmations(mappedData);

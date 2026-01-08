@@ -104,9 +104,9 @@ function isUserEditedPrice(body: any): boolean {
     body?.manual_price === true ||
     String(body?.manual_price ?? "").toLowerCase() === "true";
   
-  // Check price_source (case-insensitive)
+  // Check price_source (case-insensitive) - accept both "manual" and "manual_user"
   const priceSource = String(body?.price_source ?? "").toLowerCase();
-  const isManualSource = priceSource === "manual_user";
+  const isManualSource = priceSource === "manual_user" || priceSource === "manual";
   
   return priceEditedFlag || isManualSource;
 }

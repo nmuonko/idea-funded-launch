@@ -677,6 +677,45 @@ export type Database = {
         }
         Relationships: []
       }
+      faq_kb: {
+        Row: {
+          answer: string
+          created_at: string
+          id: string
+          is_active: boolean
+          language: string
+          priority: number
+          question: string
+          tags: string[]
+          trigger_phrases: string[]
+          updated_at: string
+        }
+        Insert: {
+          answer: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          priority?: number
+          question: string
+          tags?: string[]
+          trigger_phrases?: string[]
+          updated_at?: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          language?: string
+          priority?: number
+          question?: string
+          tags?: string[]
+          trigger_phrases?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category: string
@@ -2189,6 +2228,30 @@ export type Database = {
           },
         ]
       }
+      support_threads: {
+        Row: {
+          created_at: string
+          id: string
+          last_message_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_message_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       support_tickets: {
         Row: {
           ai_analyzed_at: string | null
@@ -2304,6 +2367,54 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: []
+      }
+      thread_messages: {
+        Row: {
+          created_at: string
+          faq_id: string | null
+          id: string
+          message: string
+          sender_id: string | null
+          sender_type: string
+          source: string
+          thread_id: string
+        }
+        Insert: {
+          created_at?: string
+          faq_id?: string | null
+          id?: string
+          message: string
+          sender_id?: string | null
+          sender_type: string
+          source?: string
+          thread_id: string
+        }
+        Update: {
+          created_at?: string
+          faq_id?: string | null
+          id?: string
+          message?: string
+          sender_id?: string | null
+          sender_type?: string
+          source?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "thread_messages_faq_id_fkey"
+            columns: ["faq_id"]
+            isOneToOne: false
+            referencedRelation: "faq_kb"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thread_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "support_threads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ticket_messages: {
         Row: {
@@ -2576,6 +2687,17 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       is_admin_cached: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      match_faq: {
+        Args: { lang?: string; user_text: string }
+        Returns: {
+          answer: string
+          id: string
+          priority: number
+          question: string
+          tags: string[]
+          trigger_phrases: string[]
+        }[]
+      }
       merge_draft_orders: {
         Args: { p_primary_id: string; p_secondary_ids: string[] }
         Returns: Json

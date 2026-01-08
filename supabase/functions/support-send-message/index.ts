@@ -10,15 +10,6 @@ interface SendMessageRequest {
   thread_id?: string;
 }
 
-interface FaqMatch {
-  id: string;
-  question: string;
-  answer: string;
-  tags: string[];
-  trigger_phrases: string[];
-  priority: number;
-}
-
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -58,10 +49,10 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Find or create an open conversation for this user (using support_conversations table)
+    // Find or create an open conversation for this user
     let conversationId: string;
 
-    // If thread_id provided, try to find it - but don't fail if not found
+    // If thread_id provided, try to find it
     if (providedThreadId) {
       const { data: verifiedConv } = await supabase
         .from("support_conversations")
@@ -74,21 +65,19 @@ Deno.serve(async (req) => {
         conversationId = verifiedConv.id;
         console.log("support-send-message: Using provided conversation:", conversationId);
       } else {
-        // Provided ID not found in support_conversations - fall through to find/create
-        console.log("support-send-message: Provided thread_id not found in support_conversations, will find/create new");
+        console.log("support-send-message: Provided thread_id not found, will find/create new");
       }
     }
     
     // If no valid conversation yet, find existing or create new
     if (!conversationId) {
-      // Find existing open conversation or create new
       console.log("support-send-message: Looking for existing conversation for user:", user.id);
       
       const { data: existingConv, error: findError } = await supabase
         .from("support_conversations")
         .select("id, status")
         .eq("user_id", user.id)
-        .in("status", ["bot", "waiting_agent", "assigned"])
+        .in("status", ["waiting_agent", "assigned"])
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -99,11 +88,11 @@ Deno.serve(async (req) => {
         conversationId = existingConv.id;
         console.log("support-send-message: Using existing conversation:", conversationId);
       } else {
-        // Create new conversation
+        // Create new conversation - status is waiting_agent so admins see it immediately
         console.log("support-send-message: Creating new conversation");
         const { data: newConv, error: convError } = await supabase
           .from("support_conversations")
-          .insert({ user_id: user.id, status: "bot", language })
+          .insert({ user_id: user.id, status: "waiting_agent", language })
           .select("id")
           .single();
 
@@ -137,53 +126,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Try to match FAQ
-    const { data: faqMatch, error: faqError } = await supabase
-      .rpc("match_faq", { user_text: message, lang: language }) as { data: FaqMatch[] | null; error: unknown };
-
-    let aiMessage: string;
-    let aiSource: string;
-    let faqId: string | null = null;
-    let newStatus: string;
-
-    if (faqMatch && faqMatch.length > 0) {
-      // Found a FAQ match
-      const match = faqMatch[0];
-      aiMessage = match.answer;
-      aiSource = "faq_kb";
-      faqId = match.id;
-      newStatus = "bot"; // Keep in bot status, user might have more questions
-    } else {
-      // No match found - fallback message
-      aiMessage = language === "en"
-        ? "I couldn't find an instant answer for your question. Please leave your message and an agent will respond shortly."
-        : "Je n'ai pas trouvé une réponse instantanée. Laissez votre message et un agent vous répondra prochainement.";
-      aiSource = "fallback";
-      newStatus = "waiting_agent"; // Switch to waiting_agent for admin to see
-    }
-
-    // Insert bot/AI response (using 'bot' as sender_type per DB constraint)
-    const { error: aiMsgError } = await supabase
-      .from("support_messages")
-      .insert({
-        conversation_id: conversationId,
-        sender_type: "bot",
-        content: aiMessage,
-        meta: { source: aiSource, faq_id: faqId },
-      });
-
-    if (aiMsgError) {
-      console.error("Failed to insert AI message:", aiMsgError);
-      // Continue anyway, user message was saved
-    }
-
-    // Update conversation status and last_message_at
+    // Update conversation last_message_at
     const { error: updateError } = await supabase
       .from("support_conversations")
-      .update({
-        status: newStatus,
-        last_message_at: new Date().toISOString(),
-      })
+      .update({ last_message_at: new Date().toISOString() })
       .eq("id", conversationId);
 
     if (updateError) {
@@ -201,8 +147,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         thread_id: conversationId,
-        status: newStatus,
-        faq_matched: faqId !== null,
+        status: "waiting_agent",
         messages: messages || [],
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

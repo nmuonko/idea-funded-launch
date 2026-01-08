@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders, handleCorsPreflightRequest } from "../_shared/http.ts";
+import { handleCors, getCorsHeaders } from "../_shared/http.ts";
 import { verifyAndGetUser } from "../_shared/auth.ts";
+
+const corsHeaders = getCorsHeaders();
 
 interface SendMessageRequest {
   message: string;
@@ -20,7 +22,7 @@ interface FaqMatch {
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return handleCorsPreflightRequest();
+    return handleCors();
   }
 
   try {

@@ -668,9 +668,43 @@ serve(async (req) => {
 
     console.log('[ADD_CART_DEBUG] Read-back confirmed:', { itemId: readBackItem.id, orderId: readBackItem.order_id });
 
-    // CRITICAL: If user edited price, create admin notification for review
+    // CRITICAL: If user edited price, create price_confirmations record AND admin notification
     if (userEdited) {
-      console.log('[mobile-add-cart-item] User edited price - creating admin notification');
+      console.log('[mobile-add-cart-item] User edited price - creating price_confirmations record');
+      
+      // Create price_confirmations record (this is what admin panel queries)
+      const { data: priceConfirmation, error: pcError } = await supabase
+        .from('price_confirmations')
+        .insert({
+          user_id: user.id,
+          cart_item_id: data.id,
+          product_url: productUrl,
+          store: store.toUpperCase(),
+          proposed_price: productPrice,
+          proposed_currency: currency.toUpperCase(),
+          extracted_price: capturedPrice,
+          extracted_currency: capturedPrice ? currency.toUpperCase() : null,
+          extraction_source: capturedPrice ? 'structured' : 'manual',
+          extraction_confidence: capturedPrice ? 0.8 : null,
+          status: 'PENDING',
+        })
+        .select('id')
+        .single();
+      
+      if (pcError) {
+        console.error('[mobile-add-cart-item] Failed to create price_confirmations:', pcError);
+        // Don't fail - just log
+      } else {
+        console.log('[mobile-add-cart-item] Created price_confirmations:', priceConfirmation.id);
+        
+        // Update order_item with the price_confirmation_id
+        await supabase
+          .from('order_items')
+          .update({ price_confirmation_id: priceConfirmation.id })
+          .eq('id', data.id);
+      }
+      
+      // Create admin notification for review
       const { error: notifError } = await supabase
         .from('admin_notifications')
         .insert({
@@ -685,6 +719,7 @@ serve(async (req) => {
             captured_price: capturedPrice,
             user_price: productPrice,
             currency,
+            price_confirmation_id: priceConfirmation?.id,
           },
         });
       

@@ -26,18 +26,25 @@ Deno.serve(async (req) => {
   }
 
   try {
+    console.log("support-send-message: Request received");
+    
     // Verify user authentication
     const { user, errorResponse } = await verifyAndGetUser(req);
     if (errorResponse || !user) {
+      console.log("support-send-message: Auth failed");
       return errorResponse || new Response(
         JSON.stringify({ error: "Unauthorized" }),
         { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    
+    console.log("support-send-message: User authenticated:", user.id);
 
     // Parse request body
     const body: SendMessageRequest = await req.json();
     const { message, language = "fr", thread_id: providedThreadId } = body;
+    
+    console.log("support-send-message: Body parsed:", { message: message?.substring(0, 50), language, providedThreadId });
 
     if (!message || message.trim().length === 0) {
       return new Response(
@@ -73,19 +80,25 @@ Deno.serve(async (req) => {
       }
     } else {
       // Find existing open conversation or create new
-      const { data: existingConv } = await supabase
+      console.log("support-send-message: Looking for existing conversation for user:", user.id);
+      
+      const { data: existingConv, error: findError } = await supabase
         .from("support_conversations")
-        .select("id")
+        .select("id, status")
         .eq("user_id", user.id)
         .in("status", ["bot", "waiting_agent", "assigned"])
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
 
+      console.log("support-send-message: Find result:", { existingConv, findError: findError?.message });
+
       if (existingConv) {
         conversationId = existingConv.id;
+        console.log("support-send-message: Using existing conversation:", conversationId);
       } else {
         // Create new conversation
+        console.log("support-send-message: Creating new conversation");
         const { data: newConv, error: convError } = await supabase
           .from("support_conversations")
           .insert({ user_id: user.id, status: "bot", language })
@@ -100,6 +113,7 @@ Deno.serve(async (req) => {
           );
         }
         conversationId = newConv.id;
+        console.log("support-send-message: Created new conversation:", conversationId);
       }
     }
 

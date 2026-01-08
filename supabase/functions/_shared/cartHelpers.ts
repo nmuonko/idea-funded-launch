@@ -3,8 +3,8 @@
 
 import { getCachedSettings, round2 } from "./settings-cache.ts";
 
-// Heavy item threshold for manual quote requirement
-export const HEAVY_THRESHOLD_KG = 9;
+// NOTE: HEAVY_THRESHOLD_KG removed - heavy items no longer require manual quote
+// Only vehicle items (is_vehicle=true) require shipping quotes
 
 // Calculate pricing for an item
 // For vehicles, pass vehicleMarkupPercent instead of general markupPercent

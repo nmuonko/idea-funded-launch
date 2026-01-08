@@ -56,8 +56,8 @@ serve(async (req) => {
     const body = await req.json();
     const { cartId, cart_item_ids, payment_method, phone, email, country } = body;
 
-    // Determine the active payment provider
-    const provider = await getActiveProvider(supabase, country || 'COD', payment_method || 'MOBILE_MONEY');
+    // Determine the active payment provider (use 'CD' for DRC - ISO 3166-1 alpha-2)
+    const provider = await getActiveProvider(supabase, country || 'CD', payment_method || 'MOBILE_MONEY');
     
     console.log('[mobile-create-payment] Active provider:', provider?.provider_key || 'none');
 
@@ -278,11 +278,11 @@ serve(async (req) => {
       }, 400);
     }
 
-    // STEP 5: Create checkout order (ONLY after all validation passes)
-    const { data: checkoutOrder, error: createOrderError } = await supabase
+    // STEP 5: Update the existing DRAFT order to PENDING_PAYMENT (NO NEW ORDER CREATION)
+    // This fixes the orphaned DRAFT order bug - we reuse the user's DRAFT instead of creating a new order
+    const { data: checkoutOrder, error: updateOrderError } = await supabase
       .from('orders')
-      .insert({
-        user_id: user.id,
+      .update({
         status: 'PENDING_PAYMENT',
         item_total_usd: round2(totalItemsUsd),
         service_fee_usd: round2(totalMarginUsd),
@@ -292,26 +292,16 @@ serve(async (req) => {
         exchange_rate_used: exchangeRate,
         maisha_payment_status: 'PENDING',
       })
+      .eq('id', draftOrderId)
       .select()
       .single();
 
-    if (createOrderError) {
-      console.error('[mobile-create-payment] Error creating order:', createOrderError);
-      return jsonResponse({ success: false, error: 'ORDER_CREATE_ERROR', message: 'Failed to create order. Please try again.' }, 500);
+    if (updateOrderError) {
+      console.error('[mobile-create-payment] Error updating order:', updateOrderError);
+      return jsonResponse({ success: false, error: 'ORDER_UPDATE_ERROR', message: 'Failed to update order. Please try again.' }, 500);
     }
 
-    // STEP 6: Move items to new order
-    const { error: moveItemsError } = await supabase
-      .from('order_items')
-      .update({ order_id: checkoutOrder.id })
-      .in('id', itemIdsToCheckout);
-
-    if (moveItemsError) {
-      console.error('[mobile-create-payment] Error moving items:', moveItemsError);
-      // Rollback: delete the empty checkout order
-      await supabase.from('orders').delete().eq('id', checkoutOrder.id);
-      return jsonResponse({ success: false, error: 'CHECKOUT_ERROR', message: 'Failed to process checkout. Please try again.' }, 500);
-    }
+    // NOTE: Items are already on this order - no need to move them
 
     // Get user profile for customer info
     const { data: profile } = await supabase

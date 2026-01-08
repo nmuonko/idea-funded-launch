@@ -103,15 +103,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Insert user message into support_messages
+    // Insert user message into support_messages (uses 'content' and 'conversation_id' columns)
     const { error: userMsgError } = await supabase
       .from("support_messages")
       .insert({
-        thread_id: threadId,
+        conversation_id: threadId,
         sender_type: "user",
-        sender_id: user.id,
-        message: message.trim(),
-        source: "user",
+        content: message.trim(),
+        meta: { user_id: user.id },
       });
 
     if (userMsgError) {
@@ -151,12 +150,10 @@ Deno.serve(async (req) => {
     const { error: aiMsgError } = await supabase
       .from("support_messages")
       .insert({
-        thread_id: threadId,
+        conversation_id: threadId,
         sender_type: "ai",
-        sender_id: null,
-        message: aiMessage,
-        source: aiSource,
-        faq_id: faqId,
+        content: aiMessage,
+        meta: { source: aiSource, faq_id: faqId },
       });
 
     if (aiMsgError) {
@@ -180,8 +177,8 @@ Deno.serve(async (req) => {
     // Fetch latest messages for the thread
     const { data: messages } = await supabase
       .from("support_messages")
-      .select("id, sender_type, sender_id, message, source, faq_id, created_at")
-      .eq("thread_id", threadId)
+      .select("id, sender_type, content, meta, created_at")
+      .eq("conversation_id", threadId)
       .order("created_at", { ascending: true });
 
     return new Response(

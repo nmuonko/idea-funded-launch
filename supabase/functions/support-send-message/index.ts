@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
     // Find or create an open conversation for this user (using support_conversations table)
     let conversationId: string;
 
-    // If thread_id provided, verify it belongs to user
+    // If thread_id provided, try to find it - but don't fail if not found
     if (providedThreadId) {
       const { data: verifiedConv } = await supabase
         .from("support_conversations")
@@ -72,13 +72,15 @@ Deno.serve(async (req) => {
 
       if (verifiedConv) {
         conversationId = verifiedConv.id;
+        console.log("support-send-message: Using provided conversation:", conversationId);
       } else {
-        return new Response(
-          JSON.stringify({ error: "Conversation not found or access denied" }),
-          { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        // Provided ID not found in support_conversations - fall through to find/create
+        console.log("support-send-message: Provided thread_id not found in support_conversations, will find/create new");
       }
-    } else {
+    }
+    
+    // If no valid conversation yet, find existing or create new
+    if (!conversationId) {
       // Find existing open conversation or create new
       console.log("support-send-message: Looking for existing conversation for user:", user.id);
       

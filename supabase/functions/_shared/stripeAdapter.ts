@@ -66,7 +66,7 @@ export interface CreatePaymentIntentResult {
 
 export interface VerifyPaymentIntentResult {
   success: boolean;
-  status: 'pending' | 'succeeded' | 'failed' | 'cancelled';
+  status: 'pending' | 'processing' | 'succeeded' | 'failed' | 'cancelled';
   provider_transaction_id?: string;
   paid_at?: string;
   error?: string;

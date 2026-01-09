@@ -257,13 +257,13 @@ export async function verifyPaymentIntent(
 }
 
 /**
- * Verify Stripe webhook signature
+ * Verify Stripe webhook signature using HMAC-SHA256
  */
-export function verifyWebhookSignature(
+export async function verifyWebhookSignature(
   payload: string,
   signature: string,
   webhookSecret: string
-): boolean {
+): Promise<boolean> {
   // Parse the signature header
   const parts = signature.split(',');
   let timestamp = '';
@@ -284,21 +284,59 @@ export function verifyWebhookSignature(
   const timestampInt = parseInt(timestamp, 10);
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - timestampInt) > 300) {
-    console.warn('[Stripe] Webhook timestamp too old');
+    console.warn('[Stripe] Webhook timestamp too old:', { timestamp: timestampInt, now });
     return false;
   }
 
-  // Compute expected signature
+  // Compute expected signature using HMAC-SHA256
   const signedPayload = `${timestamp}.${payload}`;
   
-  // Use Web Crypto API for HMAC
-  // For now, we'll do a simple check - in production you'd use proper HMAC
-  // This is a simplified check that should be replaced with proper crypto
-  console.log('[Stripe] Webhook signature verification (simplified)');
-  
-  // For development, we'll trust the signature if the format is correct
-  // In production, implement proper HMAC-SHA256 verification
-  return sig.length === 64; // Stripe signatures are 64 hex chars
+  try {
+    // Import the secret as a CryptoKey
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(webhookSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    // Sign the payload
+    const signatureBytes = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(signedPayload)
+    );
+
+    // Convert to hex string
+    const expectedSig = Array.from(new Uint8Array(signatureBytes))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Constant-time comparison
+    if (expectedSig.length !== sig.length) {
+      console.warn('[Stripe] Signature length mismatch');
+      return false;
+    }
+
+    let result = 0;
+    for (let i = 0; i < expectedSig.length; i++) {
+      result |= expectedSig.charCodeAt(i) ^ sig.charCodeAt(i);
+    }
+
+    if (result !== 0) {
+      console.warn('[Stripe] Signature mismatch');
+      return false;
+    }
+
+    console.log('[Stripe] Webhook signature verified successfully');
+    return true;
+
+  } catch (error: any) {
+    console.error('[Stripe] Signature verification error:', error.message);
+    return false;
+  }
 }
 
 /**

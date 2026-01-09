@@ -1428,6 +1428,7 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          client_secret: string | null
           country: string | null
           created_at: string | null
           currency: string
@@ -1446,6 +1447,7 @@ export type Database = {
         }
         Insert: {
           amount: number
+          client_secret?: string | null
           country?: string | null
           created_at?: string | null
           currency: string
@@ -1464,6 +1466,7 @@ export type Database = {
         }
         Update: {
           amount?: number
+          client_secret?: string | null
           country?: string | null
           created_at?: string | null
           currency?: string

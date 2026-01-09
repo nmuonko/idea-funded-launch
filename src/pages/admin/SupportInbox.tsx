@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import {
   MessageCircle,
@@ -18,13 +19,15 @@ import {
   XCircle,
   RefreshCw,
   Hand,
+  Archive,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
 interface Message {
   id: string;
-  sender_type: 'user' | 'bot' | 'agent';
+  sender_type: 'user' | 'bot' | 'agent' | 'system';
   content: string;
   created_at: string;
   meta?: { agent_name?: string };
@@ -43,6 +46,8 @@ interface Conversation {
   agent_name?: string;
 }
 
+type TabValue = 'active' | 'closed';
+
 export default function SupportInbox() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -54,6 +59,7 @@ export default function SupportInbox() {
   const [sending, setSending] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [currentAgentName, setCurrentAgentName] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<TabValue>('active');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -78,13 +84,18 @@ export default function SupportInbox() {
     fetchAgentName();
   }, [user]);
 
-  // Load conversations
-  const loadConversations = async () => {
+  // Load conversations based on active tab
+  const loadConversations = async (tab: TabValue = activeTab) => {
     try {
+      setLoading(true);
+      const statuses = tab === 'active' 
+        ? ['waiting_agent', 'assigned'] 
+        : ['closed'];
+      
       const { data, error } = await supabase
         .from('support_conversations')
         .select('*')
-        .in('status', ['waiting_agent', 'assigned'])
+        .in('status', statuses)
         .order('last_message_at', { ascending: false });
 
       if (error) throw error;
@@ -127,7 +138,7 @@ export default function SupportInbox() {
   };
 
   useEffect(() => {
-    loadConversations();
+    loadConversations(activeTab);
 
     // Subscribe to conversation changes
     const channel = supabase
@@ -140,7 +151,7 @@ export default function SupportInbox() {
           table: 'support_conversations',
         },
         () => {
-          loadConversations();
+          loadConversations(activeTab);
         }
       )
       .subscribe();
@@ -148,7 +159,7 @@ export default function SupportInbox() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [activeTab]);
 
   // Load messages for selected conversation
   useEffect(() => {
@@ -284,6 +295,15 @@ export default function SupportInbox() {
     if (!selectedConv) return;
 
     try {
+      // Insert system message before closing
+      await supabase.from('support_messages').insert({
+        conversation_id: selectedConv.id,
+        sender_type: 'system',
+        content: 'This conversation has been resolved. Send a new message if you need further help.',
+        meta: { closed_by: currentAgentName },
+      });
+
+      // Update conversation status
       await supabase
         .from('support_conversations')
         .update({ status: 'closed' })
@@ -307,10 +327,19 @@ export default function SupportInbox() {
             {agentName || 'Assigned'}
           </Badge>
         );
+      case 'closed':
+        return <Badge variant="secondary">Closed</Badge>;
       default:
         return <Badge variant="secondary">{status}</Badge>;
     }
   };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value as TabValue);
+    setSelectedConv(null);
+  };
+
+  const isClosed = selectedConv?.status === 'closed';
 
   const isMyConversation = selectedConv?.assigned_agent_id === user?.id;
   const canClaim = selectedConv?.status === 'waiting_agent';
@@ -319,28 +348,49 @@ export default function SupportInbox() {
   return (
     <div className="flex h-[calc(100vh-120px)]">
       {/* Conversations List */}
-      <div className="w-80 border-r">
+      <div className="w-80 border-r flex flex-col">
         <div className="p-4 border-b">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold flex items-center gap-2">
               <MessageCircle className="h-5 w-5" />
               Support Inbox
             </h2>
-            <Button variant="ghost" size="icon" onClick={loadConversations}>
+            <Button variant="ghost" size="icon" onClick={() => loadConversations()}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </div>
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="w-full">
+              <TabsTrigger value="active" className="flex-1 gap-1">
+                <Headphones className="h-3 w-3" />
+                Active
+              </TabsTrigger>
+              <TabsTrigger value="closed" className="flex-1 gap-1">
+                <Archive className="h-3 w-3" />
+                Closed
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
-        <ScrollArea className="h-[calc(100%-65px)]">
+        <ScrollArea className="flex-1">
           {loading ? (
             <div className="flex items-center justify-center p-8">
               <Loader2 className="h-6 w-6 animate-spin" />
             </div>
           ) : conversations.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
-              <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No pending conversations</p>
+              {activeTab === 'active' ? (
+                <>
+                  <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No active conversations</p>
+                </>
+              ) : (
+                <>
+                  <Archive className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No closed conversations</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="divide-y">
@@ -359,7 +409,7 @@ export default function SupportInbox() {
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Clock className="h-3 w-3" />
-                    {format(new Date(conv.last_message_at), 'HH:mm')}
+                    {format(new Date(conv.last_message_at), 'MMM d, HH:mm')}
                     <Badge variant="outline" className="text-xs">
                       {conv.language.toUpperCase()}
                     </Badge>
@@ -414,6 +464,19 @@ export default function SupportInbox() {
               <div className="space-y-3">
                 {messages.map((msg) => {
                   const agentName = msg.meta?.agent_name;
+                  
+                  // System messages render differently
+                  if (msg.sender_type === 'system') {
+                    return (
+                      <div key={msg.id} className="flex justify-center my-4">
+                        <div className="flex items-center gap-2 bg-muted/50 text-muted-foreground px-4 py-2 rounded-full text-sm">
+                          <Info className="h-4 w-4" />
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  }
+                  
                   return (
                     <div
                       key={msg.id}
@@ -467,32 +530,40 @@ export default function SupportInbox() {
 
             {/* Input */}
             <div className="p-4 border-t">
-              {!canReply && !canClaim && (
-                <p className="text-sm text-muted-foreground text-center mb-2">
-                  This conversation is handled by {selectedConv.agent_name}
+              {isClosed ? (
+                <p className="text-sm text-muted-foreground text-center py-2">
+                  This conversation is closed. It will reopen if the customer sends a new message.
                 </p>
-              )}
-              {canClaim && (
-                <p className="text-sm text-muted-foreground text-center mb-2">
-                  Claim this conversation to start replying
-                </p>
-              )}
-              <div className="flex gap-2">
-                <Input
-                  placeholder={canReply ? "Type your reply..." : "Claim to reply..."}
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                  disabled={sending || !canReply}
-                />
-                <Button onClick={sendMessage} disabled={sending || !inputValue.trim() || !canReply}>
-                  {sending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
+              ) : (
+                <>
+                  {!canReply && !canClaim && (
+                    <p className="text-sm text-muted-foreground text-center mb-2">
+                      This conversation is handled by {selectedConv.agent_name}
+                    </p>
                   )}
-                </Button>
-              </div>
+                  {canClaim && (
+                    <p className="text-sm text-muted-foreground text-center mb-2">
+                      Claim this conversation to start replying
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder={canReply ? "Type your reply..." : "Claim to reply..."}
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+                      disabled={sending || !canReply}
+                    />
+                    <Button onClick={sendMessage} disabled={sending || !inputValue.trim() || !canReply}>
+                      {sending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Send className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </>
         ) : (

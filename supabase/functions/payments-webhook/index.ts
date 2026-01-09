@@ -12,7 +12,9 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/http.ts";
+import { getCorsHeaders } from "../_shared/http.ts";
+
+const corsHeaders = getCorsHeaders();
 import {
   getPaymentByDepositId,
   updatePaymentStatus,

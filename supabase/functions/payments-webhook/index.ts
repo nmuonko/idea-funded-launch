@@ -127,8 +127,8 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     );
   }
 
-  // Verify signature (simplified - in production use proper HMAC)
-  const isValid = verifyWebhookSignature(body, signature, webhookSecret);
+  // Verify signature using proper HMAC-SHA256
+  const isValid = await verifyWebhookSignature(body, signature, webhookSecret);
   if (!isValid) {
     console.error('[payments-webhook/stripe] Invalid signature');
     return new Response(
@@ -139,6 +139,16 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
 
   const event = JSON.parse(body);
   
+  // Only handle specific events
+  const allowedEvents = ['payment_intent.succeeded', 'payment_intent.payment_failed'];
+  if (!allowedEvents.includes(event.type)) {
+    console.log('[payments-webhook/stripe] Ignoring event type:', event.type);
+    return new Response(
+      JSON.stringify({ success: true, received: true, ignored: true }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   // Log event first
   await logPaymentEvent(supabase, {
     provider_key: 'stripe',
@@ -165,43 +175,64 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     );
   }
 
-  // Update payment record if we have intent_id
-  if (result.intent_id) {
-    const updated = await updatePaymentStatus(supabase, result.intent_id, result.status, {
-      provider_transaction_id: result.payment_intent_id,
-      paid_at: result.status === 'succeeded' ? new Date().toISOString() : undefined,
-    });
+  // Map Stripe status to internal payment status
+  const internalStatus = mapStripeStatusToInternal(result.status);
 
-    if (updated && result.status === 'succeeded' && result.order_id) {
-      // Update order status
-      await supabase
+  // Find the payment record by provider_deposit_id (PaymentIntent ID)
+  if (result.payment_intent_id) {
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('provider_key', 'stripe')
+      .eq('provider_deposit_id', result.payment_intent_id)
+      .single();
+
+    if (paymentError || !payment) {
+      console.warn('[payments-webhook/stripe] Payment not found for PaymentIntent:', result.payment_intent_id);
+      // Still return 200 to acknowledge receipt
+      return new Response(
+        JSON.stringify({ success: true, warning: 'Payment record not found' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Update payment record with status, paid_at, and raw_events
+    const updateData: any = {
+      status: internalStatus,
+      updated_at: new Date().toISOString(),
+      raw_events: [...(payment.raw_events || []), event],
+    };
+
+    if (internalStatus === 'succeeded') {
+      updateData.paid_at = new Date().toISOString();
+      updateData.provider_transaction_id = result.payment_intent_id;
+    }
+
+    const { error: updateError } = await supabase
+      .from('payments')
+      .update(updateData)
+      .eq('id', payment.id);
+
+    if (updateError) {
+      console.error('[payments-webhook/stripe] Failed to update payment:', updateError);
+    } else {
+      console.log('[payments-webhook/stripe] Payment updated:', payment.id, internalStatus);
+    }
+
+    // Update order status on success
+    if (internalStatus === 'succeeded' && payment.order_id) {
+      const { error: orderError } = await supabase
         .from('orders')
         .update({ 
           status: 'PAID',
           payment_verified_at: new Date().toISOString(),
         })
-        .eq('id', result.order_id);
+        .eq('id', payment.order_id);
 
-      console.log('[payments-webhook/stripe] Order marked as PAID:', result.order_id);
-    }
-  } else if (result.order_id && result.payment_intent_id) {
-    // Fallback: find payment by order_id and update
-    const payment = await getPaymentByDepositId(supabase, 'stripe', result.payment_intent_id);
-    
-    if (payment) {
-      await updatePaymentStatus(supabase, payment.id, result.status, {
-        provider_transaction_id: result.payment_intent_id,
-        paid_at: result.status === 'succeeded' ? new Date().toISOString() : undefined,
-      });
-
-      if (result.status === 'succeeded') {
-        await supabase
-          .from('orders')
-          .update({ 
-            status: 'PAID',
-            payment_verified_at: new Date().toISOString(),
-          })
-          .eq('id', result.order_id);
+      if (orderError) {
+        console.error('[payments-webhook/stripe] Failed to update order:', orderError);
+      } else {
+        console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
       }
     }
   }
@@ -210,6 +241,22 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     JSON.stringify({ success: true, received: true }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
+}
+
+/**
+ * Map Stripe webhook status to internal payment status
+ */
+function mapStripeStatusToInternal(stripeStatus: string): string {
+  switch (stripeStatus) {
+    case 'succeeded':
+      return 'succeeded';
+    case 'failed':
+      return 'failed';
+    case 'cancelled':
+      return 'cancelled';
+    default:
+      return 'pending';
+  }
 }
 
 // ==================== pawaPay Handler ====================

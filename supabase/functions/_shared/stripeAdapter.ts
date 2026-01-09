@@ -90,7 +90,8 @@ export interface WebhookResult {
 export function getStripeConfig(provider: PaymentProvider): StripeConfig {
   const secretKey = getSecretValue(provider.secret_refs.secret_key || 'STRIPE_SECRET_KEY');
   const webhookSecret = getSecretValue(provider.secret_refs.webhook_secret || 'STRIPE_WEBHOOK_SECRET');
-  const mode = provider.config_public?.mode || 'sandbox';
+  const modeRaw = provider.config_public?.mode || 'sandbox';
+  const mode: 'sandbox' | 'live' = modeRaw === 'live' ? 'live' : 'sandbox';
 
   if (!secretKey) {
     throw new Error('STRIPE_SECRET_KEY not configured');

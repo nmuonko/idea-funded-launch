@@ -9,8 +9,19 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
-import { CreditCard, Star, Settings, Check, X, AlertCircle, Loader2, TestTube, Clock } from "lucide-react";
+import { CreditCard, Star, Settings, Check, X, AlertCircle, Loader2, TestTube, Clock, DollarSign, ArrowRight } from "lucide-react";
+
+interface CurrencyLimit {
+  min: number;
+  max: number | null;
+}
+
+interface ProviderLimits {
+  USD?: CurrencyLimit;
+  CDF?: CurrencyLimit;
+}
 
 interface PaymentProvider {
   id: string;
@@ -21,7 +32,12 @@ interface PaymentProvider {
   supported_countries: string[];
   supported_methods: string[];
   priority: number;
-  config_public: Record<string, any>;
+  config_public: {
+    mode?: string;
+    status?: string;
+    limits?: ProviderLimits;
+    [key: string]: any;
+  };
   secret_refs: Record<string, { ref: string; configured: boolean }>;
   secrets_configured: boolean;
   missing_secrets: string[];
@@ -35,6 +51,10 @@ export default function PaymentProviders() {
   const [editForm, setEditForm] = useState({
     priority: 100,
     mode: 'sandbox',
+    usdMin: 0,
+    usdMax: '',
+    cdfMin: 0,
+    cdfMax: '',
   });
 
   // Fetch providers
@@ -169,21 +189,49 @@ export default function PaymentProviders() {
 
   const handleSaveEdit = () => {
     if (!editingProvider) return;
+    
+    // Build limits object
+    const limits: ProviderLimits = {};
+    
+    if (editingProvider.provider_key === 'stripe') {
+      // Stripe only supports USD
+      limits.USD = {
+        min: editForm.usdMin || 0,
+        max: editForm.usdMax === '' ? null : parseFloat(editForm.usdMax) || null,
+      };
+    } else {
+      // pawaPay supports USD and CDF
+      limits.USD = {
+        min: editForm.usdMin || 0,
+        max: editForm.usdMax === '' ? null : parseFloat(editForm.usdMax) || null,
+      };
+      limits.CDF = {
+        min: editForm.cdfMin || 0,
+        max: editForm.cdfMax === '' ? null : parseFloat(editForm.cdfMax) || null,
+      };
+    }
+    
     updateMutation.mutate({
       provider_key: editingProvider.provider_key,
       priority: editForm.priority,
       config_public: {
         ...editingProvider.config_public,
         mode: editForm.mode,
+        limits,
       },
     });
   };
 
   const openEditDialog = (provider: PaymentProvider) => {
     setEditingProvider(provider);
+    const limits = provider.config_public?.limits || {};
     setEditForm({
       priority: provider.priority,
       mode: provider.config_public?.mode || 'sandbox',
+      usdMin: limits.USD?.min || 0,
+      usdMax: limits.USD?.max === null || limits.USD?.max === undefined ? '' : String(limits.USD.max),
+      cdfMin: limits.CDF?.min || 0,
+      cdfMax: limits.CDF?.max === null || limits.CDF?.max === undefined ? '' : String(limits.CDF.max),
     });
     setEditDialogOpen(true);
   };
@@ -191,14 +239,23 @@ export default function PaymentProviders() {
   const isComingSoon = (provider: PaymentProvider) => 
     provider.config_public?.status === 'coming_soon';
 
+  const formatLimit = (limit?: CurrencyLimit | null, currency: string = 'USD') => {
+    if (!limit) return 'Not set';
+    const symbol = currency === 'CDF' ? 'CDF' : '$';
+    const min = currency === 'CDF' ? limit.min.toLocaleString() : limit.min.toFixed(2);
+    const max = limit.max === null ? '∞' : (currency === 'CDF' ? limit.max.toLocaleString() : limit.max.toFixed(2));
+    return `${symbol}${min} – ${symbol === '$' ? '' : ' '}${max}`;
+  };
+
   const providers = providersData?.providers || [];
+  const enabledProviders = providers.filter(p => p.is_enabled).sort((a, b) => a.priority - b.priority);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Payment Providers</h1>
         <p className="text-muted-foreground">
-          Manage payment gateways. Vehicle orders and high-value orders (≥$10,000) automatically use Stripe.
+          Manage payment gateways and configure routing limits.
         </p>
       </div>
 
@@ -213,6 +270,53 @@ export default function PaymentProviders() {
           <CardContent className="flex items-center gap-3 py-4">
             <AlertCircle className="h-5 w-5 text-destructive" />
             <p className="text-destructive">{(error as Error).message}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Routing Rules Summary */}
+      {enabledProviders.length > 0 && (
+        <Card className="bg-muted/30">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Current Routing Rules
+            </CardTitle>
+            <CardDescription>
+              Payments are routed by priority (lower = higher priority) and amount limits
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {enabledProviders.map((provider, idx) => (
+              <div key={provider.id} className="flex items-center gap-2 text-sm">
+                <Badge variant="outline" className="w-8 justify-center">
+                  {provider.priority}
+                </Badge>
+                <span className="font-medium">{provider.display_name}</span>
+                <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                <div className="flex flex-wrap gap-2">
+                  {provider.config_public?.limits?.USD && (
+                    <Badge variant="secondary">
+                      USD: {formatLimit(provider.config_public.limits.USD, 'USD')}
+                    </Badge>
+                  )}
+                  {provider.config_public?.limits?.CDF && (
+                    <Badge variant="secondary">
+                      CDF: {formatLimit(provider.config_public.limits.CDF, 'CDF')}
+                    </Badge>
+                  )}
+                  {!provider.config_public?.limits?.USD && !provider.config_public?.limits?.CDF && (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      No limits set (accepts all)
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+            <Separator className="my-2" />
+            <p className="text-xs text-muted-foreground">
+              <strong>Vehicle orders</strong> are always routed to Stripe (USD) regardless of limits.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -267,6 +371,19 @@ export default function PaymentProviders() {
                   Priority: {provider.priority}
                 </Badge>
               </div>
+
+              {/* Limits display */}
+              {provider.is_enabled && provider.config_public?.limits && (
+                <div className="rounded-lg border p-3 bg-muted/50 text-sm space-y-1">
+                  <p className="font-medium text-xs text-muted-foreground uppercase">Amount Limits</p>
+                  {provider.config_public.limits.USD && (
+                    <p>USD: {formatLimit(provider.config_public.limits.USD, 'USD')}</p>
+                  )}
+                  {provider.config_public.limits.CDF && (
+                    <p>CDF: {formatLimit(provider.config_public.limits.CDF, 'CDF')}</p>
+                  )}
+                </div>
+              )}
 
               {/* Secrets status */}
               <div className="flex items-center gap-2 text-sm">
@@ -344,7 +461,7 @@ export default function PaymentProviders() {
         </Card>
       )}
 
-      {/* Info card */}
+      {/* Webhook Info card */}
       <Card className="bg-muted/30">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Webhook URLs</CardTitle>
@@ -373,37 +490,94 @@ export default function PaymentProviders() {
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Configure {editingProvider?.display_name}</DialogTitle>
             <DialogDescription>
-              Update provider settings. Secret values cannot be changed here.
+              Set priority, mode, and amount limits for routing.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Priority (lower = higher priority)</Label>
-              <Input
-                type="number"
-                value={editForm.priority}
-                onChange={(e) => setEditForm({ ...editForm, priority: parseInt(e.target.value) || 100 })}
-              />
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Priority (lower = higher)</Label>
+                <Input
+                  type="number"
+                  value={editForm.priority}
+                  onChange={(e) => setEditForm({ ...editForm, priority: parseInt(e.target.value) || 100 })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Mode</Label>
+                <Select
+                  value={editForm.mode}
+                  onValueChange={(value) => setEditForm({ ...editForm, mode: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sandbox">Sandbox</SelectItem>
+                    <SelectItem value="live">Live</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Mode</Label>
-              <Select
-                value={editForm.mode}
-                onValueChange={(value) => setEditForm({ ...editForm, mode: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sandbox">Sandbox</SelectItem>
-                  <SelectItem value="live">Live</SelectItem>
-                </SelectContent>
-              </Select>
+
+            <Separator />
+
+            {/* USD Limits */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">USD Limits</Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Min ($)</Label>
+                  <Input
+                    type="number"
+                    value={editForm.usdMin}
+                    onChange={(e) => setEditForm({ ...editForm, usdMin: parseFloat(e.target.value) || 0 })}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Max ($ or blank = unlimited)</Label>
+                  <Input
+                    type="number"
+                    value={editForm.usdMax}
+                    onChange={(e) => setEditForm({ ...editForm, usdMax: e.target.value })}
+                    placeholder="Unlimited"
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* CDF Limits (only for pawaPay) */}
+            {editingProvider?.provider_key !== 'stripe' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">CDF Limits</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Min (CDF)</Label>
+                    <Input
+                      type="number"
+                      value={editForm.cdfMin}
+                      onChange={(e) => setEditForm({ ...editForm, cdfMin: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Max (CDF or blank = unlimited)</Label>
+                    <Input
+                      type="number"
+                      value={editForm.cdfMax}
+                      onChange={(e) => setEditForm({ ...editForm, cdfMax: e.target.value })}
+                      placeholder="Unlimited"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {editingProvider && (
               <div className="rounded-lg border p-3 bg-muted/50">
                 <p className="text-sm font-medium mb-2">Secret References</p>

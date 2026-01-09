@@ -150,7 +150,8 @@ export function formatPhoneE164(phoneNumber: string): string {
  */
 export function getPawaPayConfig(provider: PaymentProvider): PawaPayConfig {
   const apiToken = getSecretValue(provider.secret_refs.api_token || 'PAWAPAY_API_TOKEN');
-  const mode = provider.config_public.mode || 'sandbox';
+  const modeRaw = provider.config_public?.mode || 'sandbox';
+  const mode: 'sandbox' | 'live' = modeRaw === 'live' ? 'live' : 'sandbox';
   const apiBase = mode === 'live' 
     ? 'https://api.pawapay.io' 
     : (provider.config_public.api_base || 'https://api.sandbox.pawapay.io');

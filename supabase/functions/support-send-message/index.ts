@@ -73,6 +73,7 @@ Deno.serve(async (req) => {
     if (!conversationId) {
       console.log("support-send-message: Looking for existing conversation for user:", user.id);
       
+      // First check for open conversations
       const { data: existingConv, error: findError } = await supabase
         .from("support_conversations")
         .select("id, status")
@@ -88,23 +89,48 @@ Deno.serve(async (req) => {
         conversationId = existingConv.id;
         console.log("support-send-message: Using existing conversation:", conversationId);
       } else {
-        // Create new conversation - status is waiting_agent so admins see it immediately
-        console.log("support-send-message: Creating new conversation");
-        const { data: newConv, error: convError } = await supabase
+        // Check for closed conversation to reopen
+        const { data: closedConv } = await supabase
           .from("support_conversations")
-          .insert({ user_id: user.id, status: "waiting_agent", language })
           .select("id")
+          .eq("user_id", user.id)
+          .eq("status", "closed")
+          .order("updated_at", { ascending: false })
+          .limit(1)
           .single();
 
-        if (convError || !newConv) {
-          console.error("Failed to create conversation:", convError);
-          return new Response(
-            JSON.stringify({ error: "Failed to create support conversation" }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+        if (closedConv) {
+          // Reopen the closed conversation
+          console.log("support-send-message: Reopening closed conversation:", closedConv.id);
+          await supabase
+            .from("support_conversations")
+            .update({ 
+              status: "waiting_agent", 
+              assigned_agent_id: null,
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", closedConv.id);
+          
+          conversationId = closedConv.id;
+        } else {
+          // Create new conversation - status is waiting_agent so admins see it immediately
+          console.log("support-send-message: Creating new conversation");
+          const { data: newConv, error: convError } = await supabase
+            .from("support_conversations")
+            .insert({ user_id: user.id, status: "waiting_agent", language })
+            .select("id")
+            .single();
+
+          if (convError || !newConv) {
+            console.error("Failed to create conversation:", convError);
+            return new Response(
+              JSON.stringify({ error: "Failed to create support conversation" }),
+              { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+          conversationId = newConv.id;
+          console.log("support-send-message: Created new conversation:", conversationId);
         }
-        conversationId = newConv.id;
-        console.log("support-send-message: Created new conversation:", conversationId);
       }
     }
 

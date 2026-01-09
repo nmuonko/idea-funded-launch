@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { CreditCard, Star, Settings, Check, X, AlertCircle, Loader2 } from "lucide-react";
+import { CreditCard, Star, Settings, Check, X, AlertCircle, Loader2, TestTube, Clock } from "lucide-react";
 
 interface PaymentProvider {
   id: string;
@@ -31,6 +31,7 @@ export default function PaymentProviders() {
   const queryClient = useQueryClient();
   const [editingProvider, setEditingProvider] = useState<PaymentProvider | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     priority: 100,
     mode: 'sandbox',
@@ -84,9 +85,68 @@ export default function PaymentProviders() {
     },
   });
 
+  // Set active provider mutation
+  const setActiveMutation = useMutation({
+    mutationFn: async (provider_code: string) => {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.access_token) throw new Error('Not authenticated');
+
+      const response = await supabase.functions.invoke('admin-set-active-provider', {
+        body: { provider_code },
+        headers: { Authorization: `Bearer ${session.session.access_token}` },
+      });
+
+      if (response.error) throw new Error(response.error.message || 'Failed to set active provider');
+      if (!response.data.success) throw new Error(response.data.error || 'Update failed');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['payment-providers'] });
+      toast.success(data.message || 'Provider set as active');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  // Test provider mutation
+  const testMutation = useMutation({
+    mutationFn: async (provider_code: string) => {
+      setTestingProvider(provider_code);
+      const { data: session } = await supabase.auth.getSession();
+      if (!session?.session?.access_token) throw new Error('Not authenticated');
+
+      const response = await supabase.functions.invoke('admin-test-provider', {
+        body: { provider_code },
+        headers: { Authorization: `Bearer ${session.session.access_token}` },
+      });
+
+      if (response.error) throw new Error(response.error.message || 'Failed to test provider');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setTestingProvider(null);
+      if (data.success && data.status === 'configured') {
+        toast.success(`${data.provider}: ${data.message}`);
+      } else if (data.status === 'not_implemented') {
+        toast.info(`${data.provider}: Coming soon`);
+      } else {
+        toast.error(`${data.provider}: ${data.message}`);
+      }
+    },
+    onError: (error: Error) => {
+      setTestingProvider(null);
+      toast.error(error.message);
+    },
+  });
+
   const handleToggleEnabled = (provider: PaymentProvider) => {
     if (!provider.is_enabled && !provider.secrets_configured) {
       toast.error(`Cannot enable ${provider.display_name}: Missing secrets (${provider.missing_secrets.join(', ')})`);
+      return;
+    }
+    if (provider.config_public?.status === 'coming_soon') {
+      toast.error(`${provider.display_name} is coming soon and cannot be enabled yet`);
       return;
     }
     updateMutation.mutate({
@@ -100,10 +160,11 @@ export default function PaymentProviders() {
       toast.error('Cannot set disabled provider as default');
       return;
     }
-    updateMutation.mutate({
-      provider_key: provider.provider_key,
-      is_default: true,
-    });
+    setActiveMutation.mutate(provider.provider_key);
+  };
+
+  const handleTestProvider = (provider: PaymentProvider) => {
+    testMutation.mutate(provider.provider_key);
   };
 
   const handleSaveEdit = () => {
@@ -127,6 +188,9 @@ export default function PaymentProviders() {
     setEditDialogOpen(true);
   };
 
+  const isComingSoon = (provider: PaymentProvider) => 
+    provider.config_public?.status === 'coming_soon';
+
   const providers = providersData?.providers || [];
 
   return (
@@ -134,7 +198,7 @@ export default function PaymentProviders() {
       <div>
         <h1 className="text-2xl font-bold">Payment Providers</h1>
         <p className="text-muted-foreground">
-          Manage payment gateways for your store. Enable/disable providers and set the default.
+          Manage payment gateways. Vehicle orders and high-value orders (≥$10,000) automatically use Stripe.
         </p>
       </div>
 
@@ -155,7 +219,7 @@ export default function PaymentProviders() {
 
       <div className="grid gap-4 md:grid-cols-2">
         {providers.map((provider) => (
-          <Card key={provider.id} className={provider.is_default ? 'ring-2 ring-primary' : ''}>
+          <Card key={provider.id} className={`${provider.is_default ? 'ring-2 ring-primary' : ''} ${isComingSoon(provider) ? 'opacity-60' : ''}`}>
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
@@ -171,6 +235,12 @@ export default function PaymentProviders() {
                           Default
                         </Badge>
                       )}
+                      {isComingSoon(provider) && (
+                        <Badge variant="outline" className="gap-1">
+                          <Clock className="h-3 w-3" />
+                          Coming Soon
+                        </Badge>
+                      )}
                     </CardTitle>
                     <CardDescription className="font-mono text-xs">
                       {provider.provider_key}
@@ -180,7 +250,7 @@ export default function PaymentProviders() {
                 <Switch
                   checked={provider.is_enabled}
                   onCheckedChange={() => handleToggleEnabled(provider)}
-                  disabled={updateMutation.isPending}
+                  disabled={updateMutation.isPending || isComingSoon(provider)}
                 />
               </div>
             </CardHeader>
@@ -222,13 +292,13 @@ export default function PaymentProviders() {
               </div>
 
               {/* Actions */}
-              <div className="flex gap-2 pt-2">
-                {!provider.is_default && provider.is_enabled && (
+              <div className="flex gap-2 pt-2 flex-wrap">
+                {!provider.is_default && provider.is_enabled && !isComingSoon(provider) && (
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleSetDefault(provider)}
-                    disabled={updateMutation.isPending}
+                    disabled={setActiveMutation.isPending}
                   >
                     <Star className="h-4 w-4 mr-1" />
                     Set as Default
@@ -237,7 +307,21 @@ export default function PaymentProviders() {
                 <Button
                   variant="outline"
                   size="sm"
+                  onClick={() => handleTestProvider(provider)}
+                  disabled={testMutation.isPending || isComingSoon(provider)}
+                >
+                  {testingProvider === provider.provider_key ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <TestTube className="h-4 w-4 mr-1" />
+                  )}
+                  Test Config
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => openEditDialog(provider)}
+                  disabled={isComingSoon(provider)}
                 >
                   <Settings className="h-4 w-4 mr-1" />
                   Configure
@@ -263,17 +347,23 @@ export default function PaymentProviders() {
       {/* Info card */}
       <Card className="bg-muted/30">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Callback URLs</CardTitle>
+          <CardTitle className="text-base">Webhook URLs</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div>
-            <span className="font-medium">pawaPay Callback:</span>
+            <span className="font-medium">Stripe:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/pawapay-callback
+              https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/stripe
             </code>
           </div>
           <div>
-            <span className="font-medium">MaishaPay Callback:</span>
+            <span className="font-medium">pawaPay:</span>
+            <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
+              https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/pawapay
+            </code>
+          </div>
+          <div>
+            <span className="font-medium">MaishaPay (legacy):</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
               https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/maishapay-callback
             </code>

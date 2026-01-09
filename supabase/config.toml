@@ -323,3 +323,18 @@ verify_jwt = true
 
 [functions.update-payment-provider]
 verify_jwt = true
+
+[functions.payments-create-intent]
+verify_jwt = true
+
+[functions.payments-check-intent]
+verify_jwt = true
+
+[functions.payments-webhook]
+verify_jwt = false
+
+[functions.admin-set-active-provider]
+verify_jwt = true
+
+[functions.admin-test-provider]
+verify_jwt = true

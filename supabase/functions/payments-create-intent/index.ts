@@ -1,9 +1,15 @@
 /**
  * Unified Payment Intent Creation Endpoint
  * 
- * Automatically selects the appropriate payment provider and currency based on:
- * - Vehicle orders OR amount >= CAR_THRESHOLD_USD → Stripe (USD, card)
- * - Regular orders → pawaPay (auto USD/CDF based on amount)
+ * Uses per-provider limits from config_public.limits to automatically select
+ * the appropriate payment provider and currency.
+ * 
+ * Routing algorithm:
+ * 1. Load enabled providers (is_enabled=true)
+ * 2. Filter by currency support (Stripe=USD only, pawaPay=USD/CDF)
+ * 3. Filter by limits: min <= amount <= max (null max = unlimited)
+ * 4. Choose provider with lowest priority value
+ * 5. If none qualify: return error with limit details
  * 
  * Input: { order_id, phone? }
  * Frontend doesn't need to specify method or currency.
@@ -14,9 +20,9 @@ import { getCorsHeaders } from "../_shared/http.ts";
 
 const corsHeaders = getCorsHeaders();
 import {
-  getProviderByKey,
   createPaymentRecord,
   generatePaymentReference,
+  selectProviderByLimits,
 } from "../_shared/paymentProviders.ts";
 import { detectVehicleOrder } from "../_shared/vehiclePaymentGuard.ts";
 import {
@@ -29,10 +35,6 @@ import {
   getStripeConfig,
   StripeConfig,
 } from "../_shared/stripeAdapter.ts";
-
-// Constants
-const DEFAULT_CAR_THRESHOLD_USD = 10000;
-const PAWAPAY_USD_THRESHOLD = 5000; // Above this, use CDF for pawaPay
 
 interface RequestBody {
   order_id: string;
@@ -148,61 +150,54 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch CAR_THRESHOLD_USD from settings
-    let carThresholdUsd = DEFAULT_CAR_THRESHOLD_USD;
-    const { data: thresholdSetting } = await supabaseAdmin
-      .from('admin_settings')
-      .select('value')
-      .eq('key', 'car_threshold_usd')
-      .single();
-    
-    if (thresholdSetting?.value) {
-      carThresholdUsd = parseFloat(thresholdSetting.value) || DEFAULT_CAR_THRESHOLD_USD;
-    }
-
     // Detect vehicle status
     const vehicleDetection = await detectVehicleOrder(supabaseAdmin, order_id);
     const isVehicle = vehicleDetection.isVehicle || order.contains_vehicle === true;
     const totalUsd = order.total_usd || 0;
     const totalCdf = order.total_cdf || 0;
     const exchangeRate = order.exchange_rate_used || 2800;
+    
+    // Ensure CDF amount is calculated if not present
+    const effectiveCdf = totalCdf > 0 ? totalCdf : Math.round(totalUsd * exchangeRate);
 
     console.log('[payments-create-intent] Order analysis:', {
       totalUsd,
-      totalCdf,
+      totalCdf: effectiveCdf,
       isVehicle,
       vehicleReasons: vehicleDetection.reasons,
-      carThresholdUsd,
     });
 
     // ==================== Provider Selection Logic ====================
-    let selectedProvider: string;
-    let selectedCurrency: 'USD' | 'CDF';
-    let payableAmount: number;
+    // Use per-provider limits to select the best provider
+    const selectionResult = await selectProviderByLimits(
+      supabaseAdmin,
+      totalUsd,
+      effectiveCdf,
+      isVehicle
+    );
 
-    if (isVehicle || totalUsd >= carThresholdUsd) {
-      // High-value or vehicle order → Stripe (USD, card)
-      selectedProvider = 'stripe';
-      selectedCurrency = 'USD';
-      payableAmount = totalUsd;
-      
-      console.log('[payments-create-intent] Selected Stripe for vehicle/high-value order');
-    } else {
-      // Regular order → pawaPay with auto currency selection
-      selectedProvider = 'pawapay';
-      
-      if (totalUsd <= PAWAPAY_USD_THRESHOLD) {
-        // Small amounts → USD
-        selectedCurrency = 'USD';
-        payableAmount = totalUsd;
-      } else {
-        // Larger amounts → CDF (to avoid provider USD limits)
-        selectedCurrency = 'CDF';
-        payableAmount = totalCdf > 0 ? totalCdf : Math.round(totalUsd * exchangeRate);
-      }
-      
-      console.log('[payments-create-intent] Selected pawaPay:', { selectedCurrency, payableAmount });
+    if (!selectionResult.success || !selectionResult.provider || !selectionResult.currency) {
+      console.error('[payments-create-intent] No provider found:', selectionResult.error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: selectionResult.error || 'No payment provider available for this amount',
+          error_code: 'AMOUNT_EXCEEDS_LIMITS',
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
+
+    const selectedProviderKey = selectionResult.provider.provider_key;
+    const selectedCurrency = selectionResult.currency;
+    const payableAmount = selectedCurrency === 'USD' ? totalUsd : effectiveCdf;
+
+    console.log('[payments-create-intent] Provider selected:', {
+      provider: selectedProviderKey,
+      currency: selectedCurrency,
+      amount: payableAmount,
+      priority: selectionResult.provider.priority,
+    });
 
     // Get user profile for email
     const { data: profile } = await supabaseAdmin
@@ -220,24 +215,12 @@ Deno.serve(async (req) => {
     // ==================== Execute Payment Based on Provider ====================
     let result: ResponseBody;
 
-    if (selectedProvider === 'stripe') {
+    if (selectedProviderKey === 'stripe') {
       // === STRIPE FLOW ===
-      const stripeProvider = await getProviderByKey(supabaseAdmin, 'stripe');
-      
-      if (!stripeProvider || !stripeProvider.is_enabled) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: 'Card payments are not currently available. Please try mobile money.',
-            error_code: 'STRIPE_NOT_ENABLED'
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
+      // Provider already validated by selectProviderByLimits
       let stripeConfig: StripeConfig;
       try {
-        stripeConfig = getStripeConfig(stripeProvider);
+        stripeConfig = getStripeConfig(selectionResult.provider);
       } catch (err: any) {
         console.error('[payments-create-intent] Stripe config error:', err.message);
         return new Response(
@@ -319,7 +302,7 @@ Deno.serve(async (req) => {
         },
       };
 
-    } else if (selectedProvider === 'pawapay') {
+    } else if (selectedProviderKey === 'pawapay') {
       // === PAWAPAY FLOW ===
       if (!customerPhone) {
         return new Response(
@@ -332,22 +315,10 @@ Deno.serve(async (req) => {
         );
       }
 
-      const pawapayProvider = await getProviderByKey(supabaseAdmin, 'pawapay');
-      
-      if (!pawapayProvider || !pawapayProvider.is_enabled) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: 'Mobile money payments are not currently available',
-            error_code: 'PAWAPAY_NOT_ENABLED'
-          }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
+      // Provider already validated by selectProviderByLimits
       let pawapayConfig: PawaPayConfig;
       try {
-        pawapayConfig = getPawaPayConfig(pawapayProvider);
+        pawapayConfig = getPawaPayConfig(selectionResult.provider);
       } catch (err: any) {
         console.error('[payments-create-intent] pawaPay config error:', err.message);
         return new Response(

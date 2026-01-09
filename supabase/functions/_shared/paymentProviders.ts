@@ -9,6 +9,16 @@ import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-
 
 // ==================== Types ====================
 
+export interface CurrencyLimit {
+  min: number;
+  max: number | null; // null means unlimited
+}
+
+export interface ProviderLimits {
+  USD?: CurrencyLimit;
+  CDF?: CurrencyLimit;
+}
+
 export interface PaymentProvider {
   id: string;
   provider_key: string;
@@ -18,7 +28,12 @@ export interface PaymentProvider {
   supported_countries: string[];
   supported_methods: string[];
   priority: number;
-  config_public: Record<string, any>;
+  config_public: {
+    mode?: string;
+    status?: string;
+    limits?: ProviderLimits;
+    [key: string]: any;
+  };
   secret_refs: Record<string, string>;
 }
 
@@ -110,6 +125,133 @@ export async function getActiveProvider(
   // Fallback to first enabled provider
   console.warn('[PaymentRouter] No matching provider, using fallback:', providers[0].provider_key);
   return providers[0];
+}
+
+/**
+ * Provider selection result with currency
+ */
+export interface ProviderSelectionResult {
+  success: boolean;
+  provider?: PaymentProvider;
+  currency?: 'USD' | 'CDF';
+  error?: string;
+}
+
+/**
+ * Check if a provider supports a given currency and amount
+ */
+function providerSupportsAmount(
+  provider: PaymentProvider,
+  currency: 'USD' | 'CDF',
+  amount: number
+): boolean {
+  const limits = provider.config_public?.limits;
+  if (!limits) {
+    // No limits configured = supports any amount
+    // But check if provider supports the currency
+    if (provider.provider_key === 'stripe') {
+      return currency === 'USD'; // Stripe only supports USD
+    }
+    return true;
+  }
+
+  const currencyLimits = limits[currency];
+  if (!currencyLimits) {
+    // No limits for this currency = doesn't support it
+    // Exception: if provider is stripe, only USD
+    if (provider.provider_key === 'stripe') {
+      return currency === 'USD';
+    }
+    return false;
+  }
+
+  const { min, max } = currencyLimits;
+  if (amount < min) return false;
+  if (max !== null && amount > max) return false;
+  
+  return true;
+}
+
+/**
+ * Select the best provider based on currency, amount, and limits
+ * 
+ * Algorithm:
+ * 1. Load enabled providers
+ * 2. For each currency (prefer USD then CDF), filter by limits
+ * 3. Sort qualified providers by priority (lower = better)
+ * 4. Return the best match or error
+ */
+export async function selectProviderByLimits(
+  supabase: SupabaseClient,
+  amountUsd: number,
+  amountCdf: number,
+  isVehicle: boolean = false
+): Promise<ProviderSelectionResult> {
+  // Fetch all enabled providers sorted by priority
+  const { data: providers, error } = await supabase
+    .from('payment_providers')
+    .select('*')
+    .eq('is_enabled', true)
+    .order('priority', { ascending: true });
+
+  if (error || !providers || providers.length === 0) {
+    console.error('[PaymentRouter] No enabled providers found:', error?.message);
+    return { success: false, error: 'No payment providers available' };
+  }
+
+  console.log('[PaymentRouter] Evaluating providers for:', { amountUsd, amountCdf, isVehicle });
+
+  // For vehicles, prefer Stripe regardless of amount
+  if (isVehicle) {
+    const stripeProvider = providers.find(p => p.provider_key === 'stripe');
+    if (stripeProvider && providerSupportsAmount(stripeProvider, 'USD', amountUsd)) {
+      console.log('[PaymentRouter] Vehicle order - selected Stripe');
+      return { success: true, provider: stripeProvider, currency: 'USD' };
+    }
+  }
+
+  // Try USD first (preferred), then CDF
+  const currenciesToTry: Array<{ currency: 'USD' | 'CDF'; amount: number }> = [
+    { currency: 'USD', amount: amountUsd },
+    { currency: 'CDF', amount: amountCdf },
+  ];
+
+  for (const { currency, amount } of currenciesToTry) {
+    // Find all providers that support this currency + amount
+    const qualifiedProviders = providers.filter(p => 
+      providerSupportsAmount(p, currency, amount)
+    );
+
+    if (qualifiedProviders.length > 0) {
+      // Already sorted by priority, take the first one
+      const selected = qualifiedProviders[0];
+      console.log('[PaymentRouter] Selected provider:', selected.provider_key, {
+        currency,
+        amount,
+        priority: selected.priority,
+        limits: selected.config_public?.limits,
+      });
+      return { success: true, provider: selected, currency };
+    }
+  }
+
+  // No provider found
+  const limitDetails = providers.map(p => ({
+    provider: p.provider_key,
+    limits: p.config_public?.limits,
+    priority: p.priority,
+  }));
+  
+  console.error('[PaymentRouter] No provider supports the requested amount:', {
+    amountUsd,
+    amountCdf,
+    providers: limitDetails,
+  });
+
+  return { 
+    success: false, 
+    error: `No payment provider supports this amount. USD: $${amountUsd.toFixed(2)}, CDF: ${amountCdf.toFixed(0)}. Please contact support.`
+  };
 }
 
 /**

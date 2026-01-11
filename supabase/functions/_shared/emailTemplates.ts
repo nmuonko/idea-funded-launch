@@ -254,7 +254,7 @@ export function buildPaymentFailedEmail(params: {
           <p>Please try again or contact our support team if you need assistance.</p>
           
           <p style="color: #6b7280; font-size: 14px;">
-            If you believe this is an error, please contact us at support@afrishop-usa.com
+            If you believe this is an error, please contact us at nkadimisha@afrishop-usa.com
           </p>
         </div>
         <div style="${footerStyle}">

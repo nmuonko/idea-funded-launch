@@ -259,7 +259,7 @@ function generateReceiptHTML(order: any, items: any[], profile: any, userEmail: 
 
     <div class="footer">
       <p>Thank you for shopping with AfriShop!</p>
-      <p>For support, contact us at support@afrishop-usa.com</p>
+      <p>For support, contact us at nkadimisha@afrishop-usa.com</p>
       <p style="margin-top: 10px; font-size: 10px;">
         This receipt was generated on ${formatDate(new Date().toISOString())}
       </p>

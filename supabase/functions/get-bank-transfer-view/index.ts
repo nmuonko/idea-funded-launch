@@ -131,7 +131,7 @@ serve(async (req: Request): Promise<Response> => {
       instructions_fr: "Mettez la référence dans le libellé du virement.",
       instructions_en: "Put the reference in the transfer description.",
       support_whatsapp: "",
-      support_email: "support@afrishop-usa.com",
+      support_email: "nkadimisha@afrishop-usa.com",
     };
 
     if (bankSettings?.value) {

@@ -120,7 +120,7 @@ serve(async (req) => {
               </p>
             </div>
 
-            <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop.com'}" 
+              <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/cart" 
                style="display: inline-block; padding: 12px 24px; background: #1e40af; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
               Complete Your Order
             </a>

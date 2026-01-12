@@ -62,6 +62,9 @@ import PaymentCallback from "./pages/PaymentCallback";
 import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
 import BankTransferInfo from "./pages/BankTransferInfo";
+import HowItWorks from "./pages/HowItWorks";
+import Privacy from "./pages/Privacy";
+import DownloadPage from "./pages/Download";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -85,6 +88,9 @@ const App = () => {
               <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/download" element={<DownloadPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/auth/reset-password" element={<ResetPassword />} />

@@ -28,8 +28,9 @@ type PaymentMethod = 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
 // Payment flow types - MaishaPay REMOVED
 type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'CHOICE_REQUIRED';
 
-// Payment method preference for large orders
+// Payment method preference for large orders - ONLY VALID VALUES
 type PaymentMethodPreference = 'CARD' | 'BANK_TRANSFER';
+const VALID_PAYMENT_PREFERENCES: readonly string[] = ['CARD', 'BANK_TRANSFER'];
 
 // Payment settings from database
 interface PaymentSettings {
@@ -112,6 +113,7 @@ function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BA
  * 2. NO DEPOSIT LOGIC - ALL orders (including vehicles) pay FULL PRICE
  * 3. NO CAPS/LIMITS - payable_amount = server-computed grand_total
  * 4. MaishaPay REMOVED - Only pawaPay for mobile money, Stripe for cards, Bank Transfer for vehicles
+ * 5. CHECKOUT SESSION LOCKING - Use checkout_session_id to prevent "Cart changed" errors
  */
 
 // ============================================
@@ -357,8 +359,8 @@ function detectBuyerCountry(
 }
 
 serve(async (req) => {
-  // 🔖 VERSION MARKER - P0 FULL PAYMENT (NO MAISHAPAY)
-  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-12-no-maishapay");
+  // 🔖 VERSION MARKER - P0 FULL PAYMENT WITH CHECKOUT SESSION LOCKING
+  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-12-checkout-session-lock");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -378,6 +380,337 @@ serve(async (req) => {
 
     const body = await req.json();
     const { cart_item_ids, notes } = body;
+
+    // ============================================
+    // P0 CRITICAL: Check for existing checkout_session_id
+    // If provided, REUSE the session instead of recomputing
+    // ============================================
+    const providedCheckoutSessionId = body.checkout_session_id || body.checkoutSessionId;
+    
+    if (providedCheckoutSessionId) {
+      console.log('[mobile-checkout] CHECKOUT_SESSION_REUSE_ATTEMPT', { 
+        checkout_session_id: providedCheckoutSessionId 
+      });
+      
+      // Fetch the existing session
+      const { data: existingSession, error: sessionError } = await supabase
+        .from('checkout_sessions')
+        .select('*')
+        .eq('id', providedCheckoutSessionId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      if (sessionError || !existingSession) {
+        console.warn('[mobile-checkout] CHECKOUT_SESSION_NOT_FOUND', { 
+          checkout_session_id: providedCheckoutSessionId,
+          error: sessionError?.message 
+        });
+        return jsonResponse({
+          success: false,
+          code: 'CHECKOUT_SESSION_EXPIRED',
+          message: 'Checkout session expired. Please refresh.',
+          message_fr: 'Session de paiement expirée. Veuillez actualiser.',
+          error: 'Checkout session not found or expired.',
+        }, 410);
+      }
+      
+      // Check if session is still valid (not completed/failed)
+      if (existingSession.status === 'completed' || existingSession.status === 'paid') {
+        console.warn('[mobile-checkout] CHECKOUT_SESSION_ALREADY_COMPLETED', { 
+          checkout_session_id: providedCheckoutSessionId,
+          status: existingSession.status 
+        });
+        return jsonResponse({
+          success: false,
+          code: 'CHECKOUT_SESSION_COMPLETED',
+          message: 'This checkout has already been completed.',
+          message_fr: 'Ce paiement a déjà été effectué.',
+          order_id: existingSession.order_id,
+        }, 400);
+      }
+      
+      // Check expiry (sessions expire after 30 minutes)
+      const sessionCreatedAt = new Date(existingSession.created_at);
+      const now = new Date();
+      const sessionAgeMinutes = (now.getTime() - sessionCreatedAt.getTime()) / (1000 * 60);
+      
+      if (sessionAgeMinutes > 30) {
+        console.warn('[mobile-checkout] CHECKOUT_SESSION_EXPIRED_BY_TIME', { 
+          checkout_session_id: providedCheckoutSessionId,
+          age_minutes: sessionAgeMinutes 
+        });
+        
+        // Mark session as expired
+        await supabase.from('checkout_sessions').update({ status: 'expired' }).eq('id', providedCheckoutSessionId);
+        
+        return jsonResponse({
+          success: false,
+          code: 'CHECKOUT_SESSION_EXPIRED',
+          message: 'Checkout session expired. Please refresh.',
+          message_fr: 'Session de paiement expirée. Veuillez actualiser.',
+          error: 'Checkout session expired after 30 minutes.',
+        }, 410);
+      }
+      
+      // Parse payment_method_preference for this call
+      const paymentMethodPreference = (body.payment_method_preference || '').toUpperCase();
+      
+      // ============================================
+      // VALIDATE payment_method_preference - ONLY CARD or BANK_TRANSFER accepted
+      // ============================================
+      if (paymentMethodPreference && !VALID_PAYMENT_PREFERENCES.includes(paymentMethodPreference)) {
+        console.warn('[mobile-checkout] PAYMENT_METHOD_NOT_SUPPORTED', { 
+          provided: paymentMethodPreference,
+          valid: VALID_PAYMENT_PREFERENCES 
+        });
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_METHOD_NOT_SUPPORTED',
+          message: 'Payment method not supported.',
+          message_fr: 'Mode de paiement non supporté.',
+          error: `Invalid payment_method_preference. Valid values: ${VALID_PAYMENT_PREFERENCES.join(', ')}`,
+        }, 400);
+      }
+      
+      // Session is valid - use stored cart snapshot and totals
+      console.log('[mobile-checkout] CHECKOUT_SESSION_REUSED', {
+        checkout_session_id: providedCheckoutSessionId,
+        order_id: existingSession.order_id,
+        grand_total: existingSession.grand_total,
+        currency: existingSession.currency,
+        payment_method_preference: paymentMethodPreference,
+      });
+      
+      // Use stored totals from the session (NO RECOMPUTATION)
+      const storedTotals = existingSession.totals_breakdown as TotalsBreakdown;
+      const payable_amount = existingSession.grand_total;
+      const payable_currency = existingSession.currency;
+      
+      // Fetch user profile for phone
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('user_id, email, full_name, name, phone, country')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      const profile = userProfile!;
+      
+      // Phone validation
+      const rawPhone = (profile?.phone || '').trim();
+      let normalizedPhone = rawPhone.replace(/[\s\-()]/g, '');
+      if (!normalizedPhone.startsWith('+')) {
+        if (normalizedPhone.startsWith('00')) {
+          normalizedPhone = '+' + normalizedPhone.slice(2);
+        } else if (normalizedPhone.startsWith('243')) {
+          normalizedPhone = '+' + normalizedPhone;
+        } else if (normalizedPhone.startsWith('0')) {
+          normalizedPhone = '+243' + normalizedPhone.slice(1);
+        } else if (/^[1-9]/.test(normalizedPhone)) {
+          normalizedPhone = '+' + normalizedPhone;
+        }
+      }
+      const validatedPhone = normalizedPhone;
+      const { isDRC, isoCode } = detectBuyerCountry(profile || {}, body);
+      
+      // Fetch payment settings
+      const paymentSettings = await getPaymentSettings(supabase);
+      
+      // Update session with the chosen payment method
+      await supabase.from('checkout_sessions').update({ 
+        pay_method: paymentMethodPreference,
+        status: 'processing',
+        updated_at: new Date().toISOString(),
+      }).eq('id', providedCheckoutSessionId);
+      
+      // ============================================
+      // CARD BRANCH: Use Stripe
+      // ============================================
+      if (paymentMethodPreference === 'CARD') {
+        if (!paymentSettings.stripe_enabled) {
+          return jsonResponse({
+            success: false,
+            code: 'PAYMENT_METHOD_DISABLED',
+            message: 'Card payments are currently disabled. Please use Bank Transfer.',
+            error: 'Stripe is not enabled.',
+          }, 400);
+        }
+        
+        // Check if Stripe is available
+        const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
+        
+        if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
+          try {
+            const { createPaymentIntent, getStripeConfig } = await import('../_shared/stripeAdapter.ts');
+            const stripeConfig = getStripeConfig(stripeProvider);
+            
+            const stripeReference = generateProviderRef(existingSession.order_id);
+            
+            const stripeResult = await createPaymentIntent(stripeConfig, {
+              orderId: existingSession.order_id,
+              userId: user.id,
+              intentId: stripeReference,
+              amount: payable_amount,
+              description: `AfriShop Order #${existingSession.order_id.slice(0, 8)}`,
+            });
+            
+            if (stripeResult.success && stripeResult.client_secret) {
+              // Create payment record
+              await createPaymentRecord(supabase, {
+                order_id: existingSession.order_id,
+                provider_key: 'stripe',
+                amount: payable_amount,
+                currency: 'USD',
+                reference: stripeReference,
+                provider_deposit_id: stripeResult.provider_deposit_id,
+                client_secret: stripeResult.client_secret,
+                raw_request: stripeResult.raw_request,
+                status: 'pending',
+              });
+              
+              // Update session status
+              await supabase.from('checkout_sessions').update({ 
+                status: 'stripe_initiated',
+                updated_at: new Date().toISOString(),
+              }).eq('id', providedCheckoutSessionId);
+              
+              console.log('[mobile-checkout] CHECKOUT_STRIPE_SUCCESS (session reuse)', {
+                order_id: existingSession.order_id,
+                checkout_session_id: providedCheckoutSessionId,
+                payment_flow: 'STRIPE',
+                amount: payable_amount,
+                reference: stripeReference,
+              });
+              
+              return jsonResponse({
+                success: true,
+                order_id: existingSession.order_id,
+                checkout_session_id: providedCheckoutSessionId,
+                payment_flow: 'STRIPE' as PaymentFlow,
+                currency: 'USD',
+                amount: payable_amount,
+                provider: 'stripe',
+                clientSecret: stripeResult.client_secret,
+                nextAction: {
+                  type: 'stripe_payment_intent',
+                  clientSecret: stripeResult.client_secret,
+                },
+                confirmationId: existingSession.order_id.substring(0, 8).toUpperCase(),
+                totals_breakdown: storedTotals,
+              });
+            } else {
+              console.error('[mobile-checkout] STRIPE_INIT_FAILED', {
+                order_id: existingSession.order_id,
+                error: stripeResult.error,
+              });
+              return jsonResponse({
+                success: false,
+                code: 'STRIPE_INIT_FAILED',
+                message: 'Unable to initialize card payment.',
+                message_fr: 'Impossible d\'initialiser le paiement par carte.',
+                error: stripeResult.error || 'Failed to create Stripe payment intent.',
+              }, 500);
+            }
+          } catch (stripeError: any) {
+            console.error('[mobile-checkout] STRIPE_EXCEPTION', {
+              order_id: existingSession.order_id,
+              error: stripeError.message,
+            });
+            return jsonResponse({
+              success: false,
+              code: 'STRIPE_INIT_FAILED',
+              message: 'Unable to initialize card payment.',
+              message_fr: 'Impossible d\'initialiser le paiement par carte.',
+              error: stripeError.message,
+            }, 500);
+          }
+        }
+        
+        // No card provider available
+        return jsonResponse({
+          success: false,
+          code: 'CARD_NOT_AVAILABLE',
+          message: 'Card payments are not available. Please use Bank Transfer.',
+          error: 'Card payment provider not configured.',
+        }, 503);
+      }
+      
+      // ============================================
+      // BANK_TRANSFER BRANCH
+      // ============================================
+      if (paymentMethodPreference === 'BANK_TRANSFER') {
+        if (!paymentSettings.bank_transfer_enabled) {
+          return jsonResponse({
+            success: false,
+            code: 'PAYMENT_METHOD_DISABLED',
+            message: 'Bank Transfer is currently disabled. Please use Card payment.',
+            error: 'Bank Transfer is not enabled.',
+          }, 400);
+        }
+        
+        console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER (session reuse)', {
+          order_id: existingSession.order_id,
+          checkout_session_id: providedCheckoutSessionId,
+          payment_flow: 'BANK_TRANSFER',
+          amount: payable_amount,
+          currency: 'USD',
+        });
+        
+        // Fetch bank transfer settings
+        const { data: bankSettings } = await supabase
+          .from('settings')
+          .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr')
+          .limit(1)
+          .maybeSingle();
+        
+        const bankTransferInfo = {
+          bank_name: bankSettings?.bank_name || 'Contact support for bank details',
+          account_holder: bankSettings?.bank_account_holder || '',
+          account_number: bankSettings?.bank_account_number || '',
+          iban: bankSettings?.bank_iban || '',
+          swift_code: bankSettings?.bank_swift || '',
+          bank_address: bankSettings?.bank_address || '',
+          instructions_en: bankSettings?.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference.',
+          instructions_fr: bankSettings?.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence.',
+        };
+        
+        // Update order status to await bank transfer
+        await supabase.from('orders').update({
+          status: 'PENDING_PAYMENT',
+          maisha_payment_status: 'PENDING_BANK_TRANSFER',
+          payment_notes: 'Awaiting bank transfer',
+        }).eq('id', existingSession.order_id);
+        
+        // Update session status
+        await supabase.from('checkout_sessions').update({ 
+          status: 'bank_transfer_initiated',
+          updated_at: new Date().toISOString(),
+        }).eq('id', providedCheckoutSessionId);
+        
+        return jsonResponse({
+          success: true,
+          order_id: existingSession.order_id,
+          checkout_session_id: providedCheckoutSessionId,
+          payment_flow: 'BANK_TRANSFER' as PaymentFlow,
+          currency: 'USD',
+          amount: payable_amount,
+          confirmationId: existingSession.order_id.substring(0, 8).toUpperCase(),
+          bank_transfer: bankTransferInfo,
+          reference: `AFRISHOP-${existingSession.order_id.slice(0, 8).toUpperCase()}`,
+          message: 'Please complete the bank transfer and upload proof of payment.',
+          message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
+          totals_breakdown: storedTotals,
+        });
+      }
+      
+      // No valid preference provided for session reuse
+      return jsonResponse({
+        success: false,
+        code: 'PAYMENT_METHOD_NOT_SUPPORTED',
+        message: 'Payment method not supported.',
+        message_fr: 'Mode de paiement non supporté.',
+        error: 'When reusing checkout_session, payment_method_preference (CARD or BANK_TRANSFER) is required.',
+      }, 400);
+    }
 
     // ============================================
     // P0 CRITICAL: Capture client amounts as DEBUG ONLY
@@ -813,6 +1146,23 @@ serve(async (req) => {
     // Parse payment_method_preference for large orders (new optional field)
     const paymentMethodPreference = (body.payment_method_preference || '').toUpperCase() as '' | 'CARD' | 'BANK_TRANSFER';
     
+    // ============================================
+    // VALIDATE payment_method_preference - ONLY CARD or BANK_TRANSFER accepted
+    // ============================================
+    if (paymentMethodPreference && !VALID_PAYMENT_PREFERENCES.includes(paymentMethodPreference)) {
+      console.warn('[mobile-checkout] PAYMENT_METHOD_NOT_SUPPORTED', { 
+        provided: paymentMethodPreference,
+        valid: VALID_PAYMENT_PREFERENCES 
+      });
+      return jsonResponse({
+        success: false,
+        code: 'PAYMENT_METHOD_NOT_SUPPORTED',
+        message: 'Payment method not supported.',
+        message_fr: 'Mode de paiement non supporté.',
+        error: `Invalid payment_method_preference. Valid values: ${VALID_PAYMENT_PREFERENCES.join(', ')}`,
+      }, 400);
+    }
+    
     // Determine target currency for limit checking
     const targetCurrency: 'USD' | 'CDF' = clientRequestedCurrency === 'CDF' ? 'CDF' : 'USD';
     const amountToCheck = targetCurrency === 'CDF' ? totalsBreakdown.cdf_equivalent : totalsBreakdown.grand_total;
@@ -833,10 +1183,31 @@ serve(async (req) => {
     });
 
     // ============================================
+    // Create cart snapshot EARLY for checkout_session
+    // ============================================
+    const cartSnapshot = deduped.map(d => ({
+      item_id: d.item_id,
+      store: d.store,
+      url: d.url,
+      title: d.title,
+      unit_price: d.unit_price,
+      quantity: d.quantity,
+      type: d.type,
+    }));
+
+    // Generate integrity hash
+    const integrityHash = await generateIntegrityHash({
+      cart_snapshot: cartSnapshot,
+      totals_breakdown: totalsBreakdown,
+      currency: targetCurrency,
+      pay_method: REQUESTED_METHOD,
+    });
+
+    // ============================================
     // LARGE ORDER FLOW: CHOICE_REQUIRED or process preference
     // ============================================
     if (isLargeOrder) {
-      // If no preference provided, return CHOICE_REQUIRED
+      // If no preference provided, return CHOICE_REQUIRED with checkout_session_id
       if (!paymentMethodPreference) {
         const availableOptions = getLargeOrderOptions(paymentSettings);
         
@@ -853,8 +1224,36 @@ serve(async (req) => {
           }, 503);
         }
         
+        // Create checkout_session to lock cart state
+        const { data: choiceSession, error: choiceSessionError } = await supabase
+          .from('checkout_sessions')
+          .insert({
+            user_id: user.id,
+            order_id: existingOrder.id,
+            cart_snapshot: cartSnapshot,
+            totals_breakdown: totalsBreakdown,
+            currency: 'USD', // Large orders always in USD
+            pay_method: 'CHOICE_REQUIRED',
+            grand_total: totalsBreakdown.grand_total,
+            integrity_hash: integrityHash,
+            status: 'choice_required',
+            metadata: {
+              is_large_order: true,
+              reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
+              available_options: availableOptions,
+              cart_item_ids: cart_item_ids,
+            },
+          })
+          .select('id')
+          .single();
+        
+        if (choiceSessionError) {
+          console.error('[mobile-checkout] Failed to create choice checkout_session:', choiceSessionError);
+        }
+        
         console.log('[mobile-checkout] CHECKOUT_CHOICE_REQUIRED', {
           order_id: existingOrder.id,
+          checkout_session_id: choiceSession?.id || null,
           amount: totalsBreakdown.grand_total,
           original_currency: targetCurrency,
           required_currency: 'USD',
@@ -865,6 +1264,7 @@ serve(async (req) => {
         return jsonResponse({
           success: true,
           order_id: existingOrder.id,
+          checkout_session_id: choiceSession?.id || null,
           payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
           amount: totalsBreakdown.grand_total,
           currency: targetCurrency, // Original user choice (informational)
@@ -905,6 +1305,22 @@ serve(async (req) => {
         }, 400);
       }
       
+      // ENFORCE USD for CARD payments
+      if (paymentMethodPreference === 'CARD' && clientRequestedCurrency === 'CDF') {
+        console.log('[mobile-checkout] USD_REQUIRED_FOR_CARD', {
+          requested_currency: 'CDF',
+          required_currency: 'USD',
+        });
+        return jsonResponse({
+          success: false,
+          code: 'USD_REQUIRED_FOR_CARD',
+          message: 'Card payments require USD.',
+          message_fr: 'Les paiements par carte nécessitent USD.',
+          error: 'Card payments must be in USD.',
+          required_currency: 'USD',
+        }, 400);
+      }
+      
       // Check if selected method is enabled
       if (paymentMethodPreference === 'CARD' && !paymentSettings.stripe_enabled) {
         return jsonResponse({
@@ -934,69 +1350,34 @@ serve(async (req) => {
       });
       return jsonResponse({
         success: false,
-        code: 'MOBILE_MONEY_DISABLED',
-        message: 'Mobile money payments are currently disabled. Please use Card or Bank Transfer.',
-        error: 'pawaPay is disabled in settings.',
+        code: 'PAYMENT_NOT_AVAILABLE',
+        message: 'Mobile money payments are currently unavailable. Please try again later.',
+        error: 'pawaPay is disabled.',
       }, 503);
     }
 
     // ============================================
-    // P0 CRITICAL: Determine SINGLE payable amount and currency
-    // NO CAPS, NO LIMITS, NO DEPOSIT - FULL GRAND TOTAL ONLY
+    // DETERMINE FINAL CURRENCY: Based on DRC + method enforcement
     // ============================================
-    let payable_currency: 'USD' | 'CDF';
-    let payable_amount: number;
-    let amountFormatted: string;
-    let displayAmount: string;
-    let currencyReason: string;
+    let payable_currency: 'USD' | 'CDF' = targetCurrency;
+    let currencyReason = 'client_requested';
 
-    // pawaPay supported currencies for DRC
-    const PAWAPAY_SUPPORTED_CURRENCIES = ['USD', 'CDF'];
-    
-    // ALL items pay FULL PRICE upfront - no deposit, no caps, no limits
-    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // Validate currency is supported by pawaPay
-      if (clientRequestedCurrency && !PAWAPAY_SUPPORTED_CURRENCIES.includes(clientRequestedCurrency)) {
-        console.log('[mobile-checkout] CURRENCY_NOT_SUPPORTED', {
-          requested: clientRequestedCurrency,
-          supported: PAWAPAY_SUPPORTED_CURRENCIES,
-        });
-        return jsonResponse({
-          success: false,
-          code: 'CURRENCY_NOT_SUPPORTED',
-          message: 'Selected currency is not supported for this payment method.',
-          error: `Currency ${clientRequestedCurrency} is not supported. Use USD or CDF.`,
-        }, 400);
-      }
-      
-      if (clientRequestedCurrency === 'USD') {
-        payable_currency = 'USD';
-        payable_amount = round2(totalsBreakdown.grand_total);
-        amountFormatted = payable_amount.toFixed(2);
-        displayAmount = `$${amountFormatted} USD`;
-        currencyReason = 'mobile_money_usd_full_payment';
-      } else if (clientRequestedCurrency === 'CDF' || isDRC) {
-        payable_currency = 'CDF';
-        payable_amount = Math.round(totalsBreakdown.cdf_equivalent);
-        amountFormatted = payable_amount.toString();
-        displayAmount = `${payable_amount.toLocaleString('fr-FR')} CDF`;
-        currencyReason = clientRequestedCurrency === 'CDF' ? 'mobile_money_cdf_full_payment' : 'mobile_money_drc_default_full_payment';
-      } else {
-        payable_currency = 'USD';
-        payable_amount = round2(totalsBreakdown.grand_total);
-        amountFormatted = payable_amount.toFixed(2);
-        displayAmount = `$${amountFormatted} USD`;
-        currencyReason = 'mobile_money_usd_default_full_payment';
-      }
-    } else {
-      // CARD: USD only - use SERVER-COMPUTED grand_total
+    // Force USD for large orders or CARD payments
+    if (isLargeOrder || REQUESTED_METHOD === 'CARD' || paymentMethodPreference === 'CARD') {
       payable_currency = 'USD';
-      payable_amount = round2(totalsBreakdown.grand_total);
-      amountFormatted = payable_amount.toFixed(2);
-      displayAmount = `$${amountFormatted} USD`;
-      currencyReason = 'card_usd_full_payment';
+      currencyReason = isLargeOrder ? 'large_order_requires_usd' : 'card_requires_usd';
     }
     
+    // P0: Compute payable_amount = server grand_total (NO CLIENT AMOUNTS)
+    const payable_amount = payable_currency === 'CDF' 
+      ? round2(totalsBreakdown.cdf_equivalent)
+      : round2(totalsBreakdown.grand_total);
+
+    // Display formatting
+    const displayAmount = payable_currency === 'CDF'
+      ? `${payable_amount.toLocaleString('fr-CD')} CDF`
+      : `$${payable_amount.toFixed(2)} USD`;
+
     // ============================================
     // P0 FIX: Validate amount before calling provider
     // ============================================
@@ -1053,27 +1434,6 @@ serve(async (req) => {
     });
 
     // ============================================
-    // Create cart snapshot for checkout_session
-    // ============================================
-    const cartSnapshot = deduped.map(d => ({
-      item_id: d.item_id,
-      store: d.store,
-      url: d.url,
-      title: d.title,
-      unit_price: d.unit_price,
-      quantity: d.quantity,
-      type: d.type,
-    }));
-
-    // Generate integrity hash
-    const integrityHash = await generateIntegrityHash({
-      cart_snapshot: cartSnapshot,
-      totals_breakdown: totalsBreakdown,
-      currency: payable_currency,
-      pay_method: REQUESTED_METHOD,
-    });
-
-    // ============================================
     // Create checkout order
     // ============================================
     const timestamp = Date.now().toString(36);
@@ -1110,7 +1470,7 @@ serve(async (req) => {
       maisha_transaction_id: reference,
     }).eq('id', checkoutOrder.id);
 
-    // Move items to new order (P1: only moves, never deletes)
+    // Move items to new order (P1: only moves, never deletes - cart items stay in DB)
     const { error: moveItemsError } = await supabase
       .from('order_items')
       .update({ order_id: checkoutOrder.id })
@@ -1123,7 +1483,7 @@ serve(async (req) => {
     }
 
     // ============================================
-    // Create checkout_session record
+    // Create checkout_session record (ALWAYS)
     // ============================================
     const { data: checkoutSession, error: sessionError } = await supabase
       .from('checkout_sessions')
@@ -1144,6 +1504,7 @@ serve(async (req) => {
           isDRC,
           isoCode,
           currencyReason,
+          cart_item_ids: cart_item_ids,
           // Store UI amounts for debugging (never used for payment)
           debug_ui_amounts: {
             ui_amount_usd,
@@ -1212,6 +1573,7 @@ serve(async (req) => {
       // SAFE LOGGING: structured checkout init
       console.log('[mobile-checkout] CHECKOUT_PAWAPAY_INIT', { 
         order_id: checkoutOrder.id,
+        checkout_session_id: checkoutSession?.id || null,
         payment_flow: 'PAWAPAY',
         currency: payable_currency,
         amount: payable_amount,
@@ -1248,8 +1610,17 @@ serve(async (req) => {
             status: 'pending',
           });
 
+          // Update checkout_session status
+          if (checkoutSession?.id) {
+            await supabase.from('checkout_sessions').update({ 
+              status: 'pawapay_initiated',
+              updated_at: new Date().toISOString(),
+            }).eq('id', checkoutSession.id);
+          }
+
           console.log('[mobile-checkout] CHECKOUT_PAWAPAY_SUCCESS', {
             order_id: checkoutOrder.id,
+            checkout_session_id: checkoutSession?.id || null,
             payment_flow: 'PAWAPAY',
             currency: payable_currency,
             amount: payable_amount,
@@ -1265,6 +1636,7 @@ serve(async (req) => {
             success: true,
             // === REQUIRED FIELDS (always present) ===
             order_id: checkoutOrder.id,
+            checkout_session_id: checkoutSession?.id || null,
             payment_flow: 'PAWAPAY' as PaymentFlow,
             currency: payable_currency,
             amount: payable_amount,
@@ -1273,7 +1645,6 @@ serve(async (req) => {
             // === LEGACY FIELDS (for backwards compatibility) ===
             checkout_type: 'FULL_PAYMENT',
             orderId: checkoutOrder.id,
-            checkout_session_id: checkoutSession?.id || null,
             confirmationId,
             provider: 'pawapay',
             checkoutUrl: redirectUrl,
@@ -1425,8 +1796,17 @@ serve(async (req) => {
               status: 'pending',
             });
             
+            // Update checkout_session status
+            if (checkoutSession?.id) {
+              await supabase.from('checkout_sessions').update({ 
+                status: 'stripe_initiated',
+                updated_at: new Date().toISOString(),
+              }).eq('id', checkoutSession.id);
+            }
+            
             console.log('[mobile-checkout] CHECKOUT_STRIPE_SUCCESS', {
               order_id: checkoutOrder.id,
+              checkout_session_id: checkoutSession?.id || null,
               payment_flow: 'STRIPE',
               amount: payable_amount,
               reference: stripeReference,
@@ -1435,10 +1815,12 @@ serve(async (req) => {
             return jsonResponse({
               success: true,
               order_id: checkoutOrder.id,
+              checkout_session_id: checkoutSession?.id || null,
               payment_flow: 'STRIPE' as PaymentFlow,
               currency: 'USD',
               amount: payable_amount,
               provider: 'stripe',
+              clientSecret: stripeResult.client_secret,
               nextAction: {
                 type: 'stripe_payment_intent',
                 clientSecret: stripeResult.client_secret,
@@ -1456,14 +1838,15 @@ serve(async (req) => {
               },
             });
           } else {
-            console.error('[mobile-checkout] STRIPE_PAYMENT_FAILED', {
+            console.error('[mobile-checkout] STRIPE_INIT_FAILED', {
               order_id: checkoutOrder.id,
               error: stripeResult.error,
             });
             return jsonResponse({
               success: false,
-              code: 'STRIPE_PAYMENT_FAILED',
-              message: 'Card payment initialization failed. Please try again or use Bank Transfer.',
+              code: 'STRIPE_INIT_FAILED',
+              message: 'Unable to initialize card payment.',
+              message_fr: 'Impossible d\'initialiser le paiement par carte.',
               error: stripeResult.error || 'Failed to create Stripe payment intent.',
             }, 500);
           }
@@ -1474,8 +1857,9 @@ serve(async (req) => {
           });
           return jsonResponse({
             success: false,
-            code: 'STRIPE_ERROR',
-            message: 'Card payment failed. Please try again or use Bank Transfer.',
+            code: 'STRIPE_INIT_FAILED',
+            message: 'Unable to initialize card payment.',
+            message_fr: 'Impossible d\'initialiser le paiement par carte.',
             error: stripeError.message,
           }, 500);
         }
@@ -1496,6 +1880,7 @@ serve(async (req) => {
     if (paymentMethodPreference === 'BANK_TRANSFER') {
       console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER', {
         order_id: checkoutOrder.id,
+        checkout_session_id: checkoutSession?.id || null,
         payment_flow: 'BANK_TRANSFER',
         amount: payable_amount,
         currency: 'USD',
@@ -1526,9 +1911,18 @@ serve(async (req) => {
         payment_notes: 'Awaiting bank transfer',
       }).eq('id', checkoutOrder.id);
       
+      // Update checkout_session status
+      if (checkoutSession?.id) {
+        await supabase.from('checkout_sessions').update({ 
+          status: 'bank_transfer_initiated',
+          updated_at: new Date().toISOString(),
+        }).eq('id', checkoutSession.id);
+      }
+      
       return jsonResponse({
         success: true,
         order_id: checkoutOrder.id,
+        checkout_session_id: checkoutSession?.id || null,
         payment_flow: 'BANK_TRANSFER' as PaymentFlow,
         currency: 'USD',
         amount: payable_amount,
@@ -1561,8 +1955,9 @@ serve(async (req) => {
     
     return jsonResponse({
       success: false,
-      code: 'INVALID_PAYMENT_METHOD',
-      message: 'Invalid payment method. Please use Mobile Money, Card, or Bank Transfer.',
+      code: 'PAYMENT_METHOD_NOT_SUPPORTED',
+      message: 'Payment method not supported.',
+      message_fr: 'Mode de paiement non supporté.',
       error: 'Payment method not supported.',
     }, 400);
 

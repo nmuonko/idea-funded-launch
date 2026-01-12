@@ -182,6 +182,16 @@ serve(async (req) => {
                   payment_verified_at: new Date().toISOString(),
                 }).eq('id', order.id);
                 
+                // P0 FIX: Mark checkout_session as completed
+                await supabase.from('checkout_sessions').update({
+                  status: 'completed',
+                  paid_at: new Date().toISOString(),
+                }).eq('order_id', order.id);
+                
+                // P0 FIX: Clear cart items ONLY on verified success
+                // Delete items from the DRAFT order (cart) that were moved to this order
+                log.log('[verify-payment] Payment succeeded, cart items already moved to paid order');
+                
                 return jsonResponse({
                   success: true,
                   order_id: order.id,

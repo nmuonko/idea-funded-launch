@@ -49,8 +49,7 @@ import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import BankTransferSubmissions from "./pages/admin/BankTransferSubmissions";
-import PaymentProviders from "./pages/admin/PaymentProviders";
-import PaymentLimitsSettings from "./pages/admin/PaymentLimitsSettings";
+import PaymentsSettings from "./pages/admin/PaymentsSettings";
 import ServiceZones from "./pages/admin/ServiceZones";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
@@ -274,14 +273,9 @@ const App = () => {
                   <BankTransferSubmissions />
                 </AdminRouteGuard>
               } />
-              <Route path="payment-providers" element={
+              <Route path="payments-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
-                  <PaymentProviders />
-                </AdminRouteGuard>
-              } />
-              <Route path="payment-limits" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <PaymentLimitsSettings />
+                  <PaymentsSettings />
                 </AdminRouteGuard>
               } />
               <Route path="service-zones" element={

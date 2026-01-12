@@ -43,7 +43,7 @@ interface PaymentProvider {
   missing_secrets: string[];
 }
 
-export default function PaymentProviders() {
+export default function PaymentProvidersContent() {
   const queryClient = useQueryClient();
   const [editingProvider, setEditingProvider] = useState<PaymentProvider | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -252,13 +252,6 @@ export default function PaymentProviders() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Payment Providers</h1>
-        <p className="text-muted-foreground">
-          Manage payment gateways and configure routing limits.
-        </p>
-      </div>
-
       {isLoading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -287,7 +280,7 @@ export default function PaymentProviders() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {enabledProviders.map((provider, idx) => (
+            {enabledProviders.map((provider) => (
               <div key={provider.id} className="flex items-center gap-2 text-sm">
                 <Badge variant="outline" className="w-8 justify-center">
                   {provider.priority}
@@ -477,12 +470,6 @@ export default function PaymentProviders() {
             <span className="font-medium">pawaPay:</span>
             <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
               https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/payments-webhook/pawapay
-            </code>
-          </div>
-          <div>
-            <span className="font-medium">MaishaPay (legacy):</span>
-            <code className="ml-2 px-2 py-1 bg-muted rounded text-xs">
-              https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/maishapay-callback
             </code>
           </div>
         </CardContent>

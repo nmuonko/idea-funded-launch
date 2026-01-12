@@ -479,15 +479,42 @@ serve(async (req) => {
       };
       const missingFieldNames = missingFields.map(f => fieldNames[f] || f).join(', ');
       
+      console.log('[mobile-checkout] PROFILE_INCOMPLETE', { userId: user.id, missingFields });
       return jsonResponse({
         success: false,
         code: 'PROFILE_INCOMPLETE',
+        message: `Please add your ${missingFieldNames} to your profile before checkout.`,
         error: `Please add your ${missingFieldNames} to your profile before checkout.`,
         missingFields,
       }, 400);
     }
 
     const profile = userProfile!;
+
+    // ============================================
+    // P0 FIX: Validate phone from profile (NOT from payload)
+    // ============================================
+    const profilePhone = (profile.phone || '').trim();
+    const phoneRegex = /^\+?[0-9]{7,15}$/;
+    
+    if (!profilePhone || !phoneRegex.test(profilePhone.replace(/[\s\-()]/g, ''))) {
+      console.log('[mobile-checkout] [profile-phone] PHONE_REQUIRED', { 
+        userId: user.id, 
+        hasPhone: !!profilePhone,
+        phoneLength: profilePhone.length,
+      });
+      return jsonResponse({
+        success: false,
+        code: 'PHONE_REQUIRED',
+        message: 'Phone number required in profile',
+        error: 'A valid phone number is required in your profile before checkout.',
+      }, 400);
+    }
+
+    console.log('[mobile-checkout] [profile-phone] Phone validated', { 
+      userId: user.id, 
+      phonePrefix: profilePhone.slice(0, 6) + '***',
+    });
     const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile, body);
 
     // Get user's DRAFT order
@@ -1002,26 +1029,28 @@ serve(async (req) => {
             });
 
             // Return redirectUrl to payment-callback page that polls for status
-            const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
             const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
             const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
 
             return jsonResponse({
               success: true,
+              // === REQUIRED FIELDS (always present) ===
+              order_id: checkoutOrder.id,
+              payment_flow: 'PAWAPAY',
+              currency: payable_currency,
+              amount: payable_amount,
+              // === OPTIONAL FIELDS (based on flow) ===
+              redirectUrl,
+              // === LEGACY FIELDS (for backwards compatibility) ===
               checkout_type: 'FULL_PAYMENT',
               orderId: checkoutOrder.id,
               checkout_session_id: checkoutSession?.id || null,
               confirmationId,
               provider: 'pawapay',
-              payment_flow: 'USSD_PUSH',
-              redirectUrl,
-              checkoutUrl: redirectUrl, // Alias for backwards compat
+              checkoutUrl: redirectUrl,
               message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
-              // P0 CRITICAL: Single payable values
               payable_amount,
               payable_currency,
-              currency: payable_currency,
-              amount: payable_amount,
               totals_breakdown: {
                 subtotal: totalsBreakdown.subtotal_items,
                 shipping: totalsBreakdown.shipping_fee,
@@ -1151,22 +1180,30 @@ serve(async (req) => {
       integrityHash: integrityHash.slice(0, 16) + '...',
     });
 
-    // Return response with payable_amount, payable_currency, totals_breakdown
+    // ============================================
+    // Determine payment_flow for consistent response
+    // ============================================
+    const payment_flow = 'MAISHAPAY';
+
+    // Return response with normalized contract fields
     return jsonResponse({
       success: true,
+      // === REQUIRED FIELDS (always present) ===
+      order_id: checkoutOrder.id,
+      payment_flow,
+      currency: payable_currency,
+      amount: payable_amount,
+      // === OPTIONAL FIELDS (based on flow) ===
+      redirectUrl: checkoutUrl,
+      // === LEGACY FIELDS (for backwards compatibility) ===
       checkout_type: 'FULL_PAYMENT',
       orderId: checkoutOrder.id,
       checkout_session_id: checkoutSession?.id || null,
       confirmationId,
       checkoutUrl,
       html,
-      // P0 CRITICAL: Single payable values
       payable_amount,
       payable_currency,
-      // Legacy fields for backwards compatibility
-      currency: payable_currency,
-      amount: payable_amount,
-      // P0 FIX: Return totals_breakdown for frontend verification
       totals_breakdown: {
         subtotal: totalsBreakdown.subtotal_items,
         shipping: totalsBreakdown.shipping_fee,
@@ -1178,13 +1215,7 @@ serve(async (req) => {
         exchange_rate: totalsBreakdown.exchange_rate,
         vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
       },
-      // P0 FIX: Return integrity_hash for verification
       integrity_hash: integrityHash,
-      // Debug: client-sent amounts (for comparison, never used for payment)
-      debug: {
-        ui_amount_usd,
-        ui_amount_cdf,
-      },
       order: {
         id: checkoutOrder.id,
         confirmationId,

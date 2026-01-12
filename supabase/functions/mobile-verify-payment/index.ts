@@ -21,7 +21,8 @@ serve(async (req) => {
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
-  if (req.method !== 'POST') {
+  // Support both GET and POST for flexibility
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return errorResponse('Method not allowed', 405);
   }
 
@@ -29,10 +30,10 @@ serve(async (req) => {
   const log = createTracedLogger(traceId);
 
   try {
-    log.log('mobile-verify-payment started');
+    log.log('[verify-payment] Started');
 
     const { user, supabase } = await verifyAndGetUser(req);
-    log.log('User authenticated', { userId: user.id });
+    log.log('[verify-payment] User authenticated', { userId: user.id });
 
     // Rate limiting: 30 requests per 10 minutes per user
     const clientIp = getClientIp(req);
@@ -44,7 +45,7 @@ serve(async (req) => {
     );
 
     if (!rateLimitResult.allowed) {
-      log.warn('Rate limit exceeded', { 
+      log.warn('[verify-payment] Rate limit exceeded', { 
         userId: user.id, 
         count: rateLimitResult.count,
         limit: rateLimitResult.limit,
@@ -59,15 +60,33 @@ serve(async (req) => {
       );
     }
 
-    const body = await req.json();
-    const { order_id, maishapay_reference } = body;
+    // Parse order_id from query params (GET) or body (POST)
+    let order_id: string | null = null;
+    let maishapay_reference: string | null = null;
+
+    if (req.method === 'GET') {
+      const url = new URL(req.url);
+      order_id = url.searchParams.get('orderId') || url.searchParams.get('order_id');
+      maishapay_reference = url.searchParams.get('maishapay_reference') || url.searchParams.get('reference');
+    } else {
+      const body = await req.json();
+      order_id = body.order_id || body.orderId;
+      maishapay_reference = body.maishapay_reference || body.reference;
+    }
+
+    log.log('[verify-payment] Params', { order_id, maishapay_reference });
 
     if (!order_id && !maishapay_reference) {
-      return errorResponse('order_id or maishapay_reference is required', 400);
+      return jsonResponse({ 
+        success: false, 
+        code: 'MISSING_PARAM',
+        message: 'order_id or maishapay_reference is required',
+        error: 'order_id or maishapay_reference is required',
+      }, 400);
     }
 
     const config = getMaishaPayConfig();
-    log.log('MaishaPay mode', { mode: config.mode });
+    log.log('[verify-payment] MaishaPay mode', { mode: config.mode });
 
     // Find the order with item count
     let query = supabase.from('orders').select('*, order_items(id)');
@@ -81,7 +100,13 @@ serve(async (req) => {
     const { data: order, error: orderError } = await query.eq('user_id', user.id).single();
 
     if (orderError || !order) {
-      return jsonResponse({ error: 'ORDER_NOT_FOUND', message: 'Order not found' }, 404);
+      log.warn('[verify-payment] Order not found', { order_id, maishapay_reference });
+      return jsonResponse({ 
+        success: false, 
+        code: 'ORDER_NOT_FOUND',
+        message: 'Order not found',
+        error: 'Order not found',
+      }, 404);
     }
 
     // ==================== CHECK UNIFIED PAYMENTS TABLE FIRST ====================
@@ -89,27 +114,15 @@ serve(async (req) => {
     const unifiedPayment = await getPaymentByOrderId(supabase, order.id);
     
     if (unifiedPayment && unifiedPayment.provider_key === 'pawapay') {
-      log.log('Using pawaPay verification', { paymentId: unifiedPayment.id });
+      log.log('[verify-payment] Using pawaPay verification', { paymentId: unifiedPayment.id });
       
       // Check if already completed in DB
       if (unifiedPayment.status === 'succeeded') {
         return jsonResponse({
           success: true,
-          id: order.id,
-          orderId: order.id,
-          order_number: order.id.substring(0, 8).toUpperCase(),
-          orderRef: order.id.substring(0, 8).toUpperCase(),
-          status: 'paid',
-          paymentStatus: 'SUCCESS',
-          orderStatus: 'PAID',
-          totalUsd: order.total_usd || 0,
-          totalCdf: order.total_cdf || 0,
-          currency: unifiedPayment.currency || 'USD',
-          provider: 'pawapay',
-          payment_provider: 'pawapay',
-          confirmationCode: unifiedPayment.provider_transaction_id,
-          message: 'Paiement confirmé',
-          trace_id: traceId,
+          order_id: order.id,
+          status: 'succeeded',
+          paid_at: unifiedPayment.paid_at || order.payment_verified_at,
         });
       }
       
@@ -121,7 +134,7 @@ serve(async (req) => {
             const pawaConfig = getPawaPayConfig(provider);
             const verifyResult = await verifyDeposit(pawaConfig, unifiedPayment.provider_deposit_id);
             
-            log.log('pawaPay verify result', { 
+            log.log('[verify-payment] pawaPay verify result', { 
               status: verifyResult.status,
               success: verifyResult.success,
             });
@@ -141,21 +154,9 @@ serve(async (req) => {
               
               return jsonResponse({
                 success: true,
-                id: order.id,
-                orderId: order.id,
-                order_number: order.id.substring(0, 8).toUpperCase(),
-                orderRef: order.id.substring(0, 8).toUpperCase(),
-                status: 'paid',
-                paymentStatus: 'SUCCESS',
-                orderStatus: 'PAID',
-                totalUsd: order.total_usd || 0,
-                totalCdf: order.total_cdf || 0,
-                currency: unifiedPayment.currency || 'USD',
-                provider: 'pawapay',
-                payment_provider: 'pawapay',
-                confirmationCode: verifyResult.provider_transaction_id,
-                message: 'Paiement confirmé',
-                trace_id: traceId,
+                order_id: order.id,
+                status: 'succeeded',
+                paid_at: verifyResult.paid_at || new Date().toISOString(),
               });
             }
             
@@ -164,40 +165,21 @@ serve(async (req) => {
               
               return jsonResponse({
                 success: true,
-                id: order.id,
-                orderId: order.id,
-                order_number: order.id.substring(0, 8).toUpperCase(),
+                order_id: order.id,
                 status: 'failed',
-                paymentStatus: 'FAILED',
-                orderStatus: order.status,
-                totalUsd: order.total_usd || 0,
-                totalCdf: order.total_cdf || 0,
-                currency: unifiedPayment.currency || 'USD',
-                provider: 'pawapay',
-                message: verifyResult.error || 'Paiement échoué',
-                trace_id: traceId,
+                error: verifyResult.error || 'Payment failed',
               });
             }
             
             // Still pending
             return jsonResponse({
               success: true,
-              id: order.id,
-              orderId: order.id,
-              order_number: order.id.substring(0, 8).toUpperCase(),
+              order_id: order.id,
               status: 'pending',
-              paymentStatus: 'PENDING',
-              orderStatus: order.status,
-              totalUsd: order.total_usd || 0,
-              totalCdf: order.total_cdf || 0,
-              currency: unifiedPayment.currency || 'USD',
-              provider: 'pawapay',
-              message: 'Paiement en attente de confirmation',
-              trace_id: traceId,
             });
           }
         } catch (pawaError: any) {
-          log.error('pawaPay verify error', { error: pawaError.message });
+          log.error('[verify-payment] pawaPay verify error', { error: pawaError.message });
           // Fall through to return pending status
         }
       }
@@ -206,18 +188,9 @@ serve(async (req) => {
       const mappedStatus = normalizePaymentStatus('pawapay', unifiedPayment.status);
       return jsonResponse({
         success: true,
-        id: order.id,
-        orderId: order.id,
-        order_number: order.id.substring(0, 8).toUpperCase(),
-        status: mappedStatus === 'succeeded' ? 'paid' : mappedStatus,
-        paymentStatus: mappedStatus === 'succeeded' ? 'SUCCESS' : 'PENDING',
-        orderStatus: order.status,
-        totalUsd: order.total_usd || 0,
-        totalCdf: order.total_cdf || 0,
-        currency: unifiedPayment.currency || 'USD',
-        provider: 'pawapay',
-        message: 'Paiement en attente de confirmation',
-        trace_id: traceId,
+        order_id: order.id,
+        status: mappedStatus === 'succeeded' ? 'succeeded' : 'pending',
+        paid_at: unifiedPayment.paid_at || undefined,
       });
     }
 
@@ -226,63 +199,28 @@ serve(async (req) => {
     // Get confirmation code and currency from maisha_payments
     const { data: payment } = await supabase
       .from('maisha_payments')
-      .select('confirmation_code, currency, amount_usd, amount_cdf')
+      .select('confirmation_code, currency, amount_usd, amount_cdf, paid_at')
       .eq('order_id', order.id)
       .maybeSingle();
 
-    // Generate short order reference (first 8 chars of UUID)
-    const orderRef = order.id.substring(0, 8).toUpperCase();
-    const itemCount = order.order_items?.length || 0;
-    const confirmationCode = payment?.confirmation_code || null;
-    const paymentCurrency = payment?.currency || order.normalized_currency || 'USD';
-
-    // Build base response data - ensuring id is ALWAYS defined
-    const buildResponse = (status: string, paymentStatus: string, orderStatus: string, message: string) => ({
-      success: true,
-      // Core identifiers - ALWAYS defined
-      id: order.id,
-      orderId: order.id,
-      order_number: orderRef,
-      orderRef,
-      displayRef: orderRef,
-      // Status
-      status,
-      paymentStatus,
-      orderStatus,
-      // Amounts - include both currencies
-      totalUsd: order.total_usd || 0,
-      totalCdf: order.total_cdf || 0,
-      total_amount_usd: order.total_usd || 0,
-      total_amount_cdf: order.total_cdf || 0,
-      itemCount,
-      // Currency information
-      currency: paymentCurrency,
-      currencySelected: order.normalized_currency || paymentCurrency,
-      exchangeRate: order.exchange_rate_used || 2500,
-      // Display amounts based on selected currency
-      displayAmount: paymentCurrency === 'CDF' 
-        ? `${Math.round(order.total_cdf || 0).toLocaleString('fr-FR')} CDF`
-        : `$${(order.total_usd || 0).toFixed(2)} USD`,
-      // Payment details
-      confirmationCode,
-      provider: 'maishapay',
-      payment_provider: 'maishapay',
-      mode: config.mode,
-      message,
-      trace_id: traceId,
-    });
+    log.log('[verify-payment] Checking MaishaPay', { orderId: order.id, hasPaymentRecord: !!payment });
 
     // If already paid, return current status
     if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
-      log.log('Order already paid', { orderId: order.id });
-      return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
+      log.log('[verify-payment] Order already paid', { orderId: order.id });
+      return jsonResponse({
+        success: true,
+        order_id: order.id,
+        status: 'succeeded',
+        paid_at: payment?.paid_at || order.payment_verified_at || order.approved_at,
+      });
     }
 
     // Verify with MaishaPay API
     const reference = order.maisha_transaction_id || `AFRISHOP-${order.id}`;
     const verifyResult = await verifyPaymentStatus(reference);
 
-    log.log('Verify result', { 
+    log.log('[verify-payment] MaishaPay verify result', { 
       orderId: order.id,
       status: verifyResult.status,
       success: verifyResult.success,
@@ -302,32 +240,44 @@ serve(async (req) => {
       );
 
       if (finalizeError) {
-        log.error('Finalize RPC failed', { error: finalizeError.message });
+        log.error('[verify-payment] Finalize RPC failed', { error: finalizeError.message });
       } else {
-        log.log('Order finalized as paid', { result: finalizeResult });
+        log.log('[verify-payment] Order finalized as paid', { result: finalizeResult });
       }
 
-      return jsonResponse(buildResponse('paid', 'SUCCESS', 'PAID', 'Paiement confirmé'));
+      return jsonResponse({
+        success: true,
+        order_id: order.id,
+        status: 'succeeded',
+        paid_at: new Date().toISOString(),
+      });
     }
 
-    return jsonResponse(buildResponse(
-      verifyResult.status || 'pending',
-      'PENDING',
-      order.status,
-      'Paiement en attente de confirmation'
-    ));
+    // Return pending or failed status
+    return jsonResponse({
+      success: true,
+      order_id: order.id,
+      status: verifyResult.status === 'failed' ? 'failed' : 'pending',
+      error: verifyResult.status === 'failed' ? (verifyResult.error || 'Payment failed') : undefined,
+    });
 
   } catch (error: any) {
-    log.error('Error', { message: error.message });
+    log.error('[verify-payment] Error', { message: error.message });
     
     if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
+      return jsonResponse({ 
+        success: false,
+        code: 'AUTH_ERROR',
+        message: error.message,
+        error: error.message,
+      }, error.status);
     }
     
     return jsonResponse({ 
-      error: 'INTERNAL_ERROR', 
-      message: error.message,
-      trace_id: traceId,
+      success: false,
+      code: 'INTERNAL_ERROR', 
+      message: 'An unexpected error occurred',
+      error: error.message,
     }, 500);
   }
 });

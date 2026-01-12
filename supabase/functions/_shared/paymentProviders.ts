@@ -364,6 +364,7 @@ export async function createPaymentRecord(
     customer_phone?: string;
     country?: string;
     provider_deposit_id?: string;
+    client_secret?: string;
     raw_request?: any;
     status?: string;
   }
@@ -379,6 +380,7 @@ export async function createPaymentRecord(
       customer_phone: params.customer_phone || null,
       country: params.country || 'COD',
       provider_deposit_id: params.provider_deposit_id || null,
+      client_secret: params.client_secret || null,
       raw_request: params.raw_request || null,
       status: params.status || 'pending',
     })

@@ -23,10 +23,86 @@ import {
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 
 // Payment method types
-type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
+type PaymentMethod = 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
 
 // Payment flow types - MaishaPay REMOVED
-type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER';
+type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'CHOICE_REQUIRED';
+
+// Payment method preference for large orders
+type PaymentMethodPreference = 'CARD' | 'BANK_TRANSFER';
+
+// Payment settings from database
+interface PaymentSettings {
+  mobile_money_max_usd: number;
+  mobile_money_max_cdf: number;
+  large_order_currency: string;
+  stripe_enabled: boolean;
+  bank_transfer_enabled: boolean;
+  pawapay_enabled: boolean;
+}
+
+// Default payment settings (fallback)
+const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
+  mobile_money_max_usd: 250,
+  mobile_money_max_cdf: 1500000,
+  large_order_currency: 'USD',
+  stripe_enabled: true,
+  bank_transfer_enabled: true,
+  pawapay_enabled: true,
+};
+
+// Fetch payment settings from database
+async function getPaymentSettings(supabase: any): Promise<PaymentSettings> {
+  try {
+    const { data, error } = await supabase
+      .from('payment_settings')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      console.warn('[mobile-checkout] Error fetching payment_settings:', error.message);
+      return DEFAULT_PAYMENT_SETTINGS;
+    }
+    
+    if (!data) {
+      console.warn('[mobile-checkout] No payment_settings found, using defaults');
+      return DEFAULT_PAYMENT_SETTINGS;
+    }
+    
+    return {
+      mobile_money_max_usd: Number(data.mobile_money_max_usd) || DEFAULT_PAYMENT_SETTINGS.mobile_money_max_usd,
+      mobile_money_max_cdf: Number(data.mobile_money_max_cdf) || DEFAULT_PAYMENT_SETTINGS.mobile_money_max_cdf,
+      large_order_currency: data.large_order_currency || 'USD',
+      stripe_enabled: data.stripe_enabled !== false,
+      bank_transfer_enabled: data.bank_transfer_enabled !== false,
+      pawapay_enabled: data.pawapay_enabled !== false,
+    };
+  } catch (e: any) {
+    console.error('[mobile-checkout] Exception fetching payment_settings:', e.message);
+    return DEFAULT_PAYMENT_SETTINGS;
+  }
+}
+
+// Check if amount exceeds mobile money limits
+function isOverMobileMoneyLimit(
+  amount: number,
+  currency: 'USD' | 'CDF',
+  paymentSettings: PaymentSettings
+): boolean {
+  if (currency === 'USD') {
+    return amount > paymentSettings.mobile_money_max_usd;
+  }
+  return amount > paymentSettings.mobile_money_max_cdf;
+}
+
+// Get available payment options for large orders
+function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BANK_TRANSFER')[] {
+  const options: ('STRIPE' | 'BANK_TRANSFER')[] = [];
+  if (paymentSettings.stripe_enabled) options.push('STRIPE');
+  if (paymentSettings.bank_transfer_enabled) options.push('BANK_TRANSFER');
+  return options;
+}
 
 /**
  * Mobile Checkout Edge Function - P0 FULL PAYMENT (2026-01)
@@ -722,38 +798,146 @@ serve(async (req) => {
     }
 
     // ============================================
-    // VEHICLE ORDERS: Require Bank Transfer or Stripe (USD only)
+    // LOAD PAYMENT SETTINGS FOR LIMIT CHECKING
     // ============================================
-    if (containsVehicle) {
-      // Vehicles require USD
-      if (clientRequestedCurrency === 'CDF') {
-        console.log('[mobile-checkout] VEHICLE_USD_ONLY', { 
-          requested: 'CDF', 
-          enforced: 'USD',
-          reason: 'Vehicles require USD payment via Bank Transfer or Card'
-        });
-        return jsonResponse({
-          success: false,
-          code: 'VEHICLE_USD_ONLY',
-          message: 'Vehicle orders must be paid in USD via Bank Transfer or Card.',
-          error: 'Vehicle orders require USD payment.',
-        }, 400);
-      }
+    const paymentSettings = await getPaymentSettings(supabase);
+    
+    console.log('[mobile-checkout] PAYMENT_SETTINGS_LOADED', {
+      mobile_money_max_usd: paymentSettings.mobile_money_max_usd,
+      mobile_money_max_cdf: paymentSettings.mobile_money_max_cdf,
+      stripe_enabled: paymentSettings.stripe_enabled,
+      bank_transfer_enabled: paymentSettings.bank_transfer_enabled,
+      pawapay_enabled: paymentSettings.pawapay_enabled,
+    });
 
-      // For vehicles, prefer bank transfer unless card is explicitly requested
-      if (REQUESTED_METHOD !== 'CARD') {
-        console.log('[mobile-checkout] VEHICLE_BANK_TRANSFER_REQUIRED', {
+    // Parse payment_method_preference for large orders (new optional field)
+    const paymentMethodPreference = (body.payment_method_preference || '').toUpperCase() as '' | 'CARD' | 'BANK_TRANSFER';
+    
+    // Determine target currency for limit checking
+    const targetCurrency: 'USD' | 'CDF' = clientRequestedCurrency === 'CDF' ? 'CDF' : 'USD';
+    const amountToCheck = targetCurrency === 'CDF' ? totalsBreakdown.cdf_equivalent : totalsBreakdown.grand_total;
+    
+    // Check if order exceeds mobile money limits
+    const isOverLimit = isOverMobileMoneyLimit(amountToCheck, targetCurrency, paymentSettings);
+    const isLargeOrder = containsVehicle || isOverLimit;
+    
+    console.log('[mobile-checkout] CHECKOUT_LIMIT_CHECK', {
+      amount: amountToCheck,
+      currency: targetCurrency,
+      limit_usd: paymentSettings.mobile_money_max_usd,
+      limit_cdf: paymentSettings.mobile_money_max_cdf,
+      is_over_limit: isOverLimit,
+      contains_vehicle: containsVehicle,
+      is_large_order: isLargeOrder,
+      payment_method_preference: paymentMethodPreference || 'none',
+    });
+
+    // ============================================
+    // LARGE ORDER FLOW: CHOICE_REQUIRED or process preference
+    // ============================================
+    if (isLargeOrder) {
+      // If no preference provided, return CHOICE_REQUIRED
+      if (!paymentMethodPreference) {
+        const availableOptions = getLargeOrderOptions(paymentSettings);
+        
+        if (availableOptions.length === 0) {
+          console.error('[mobile-checkout] NO_LARGE_ORDER_OPTIONS', {
+            stripe_enabled: paymentSettings.stripe_enabled,
+            bank_transfer_enabled: paymentSettings.bank_transfer_enabled,
+          });
+          return jsonResponse({
+            success: false,
+            code: 'NO_PAYMENT_OPTIONS',
+            message: 'No payment methods available for large orders. Please contact support.',
+            error: 'Large order payment methods are disabled.',
+          }, 503);
+        }
+        
+        console.log('[mobile-checkout] CHECKOUT_CHOICE_REQUIRED', {
           order_id: existingOrder.id,
-          contains_vehicle: true,
-          payment_method: REQUESTED_METHOD,
+          amount: totalsBreakdown.grand_total,
+          original_currency: targetCurrency,
+          required_currency: 'USD',
+          options: availableOptions,
+          reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
+        });
+        
+        return jsonResponse({
+          success: true,
+          order_id: existingOrder.id,
+          payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
+          amount: totalsBreakdown.grand_total,
+          currency: targetCurrency, // Original user choice (informational)
+          required_currency: 'USD', // Required for large orders
+          cdf_equivalent: totalsBreakdown.cdf_equivalent,
+          options: availableOptions,
+          reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
+          message: 'This order requires Card or Bank Transfer payment in USD.',
+          message_fr: 'Cette commande nécessite un paiement par carte ou virement bancaire en USD.',
+          totals_breakdown: {
+            subtotal: totalsBreakdown.subtotal_items,
+            shipping: totalsBreakdown.shipping_fee,
+            markup: totalsBreakdown.markup_fee,
+            taxes: totalsBreakdown.taxes_fee,
+            grand_total: totalsBreakdown.grand_total,
+            currency: 'USD',
+            cdf_equivalent: totalsBreakdown.cdf_equivalent,
+            exchange_rate: totalsBreakdown.exchange_rate,
+          },
+        });
+      }
+      
+      // Preference provided - validate and process
+      
+      // ENFORCE USD ONLY for large orders
+      if (clientRequestedCurrency === 'CDF') {
+        console.log('[mobile-checkout] USD_REQUIRED_FOR_LARGE_ORDER', {
+          requested_currency: 'CDF',
+          required_currency: 'USD',
+          payment_method_preference: paymentMethodPreference,
         });
         return jsonResponse({
           success: false,
-          code: 'VEHICLE_BANK_TRANSFER_REQUIRED',
-          message: 'Vehicle orders require Bank Transfer or Card payment.',
-          error: 'Please use Bank Transfer or Card payment for vehicle orders.',
+          code: 'USD_REQUIRED_FOR_LARGE_ORDER',
+          message: 'Card/Bank transfer requires USD.',
+          error: 'Large order payments must be in USD.',
+          required_currency: 'USD',
         }, 400);
       }
+      
+      // Check if selected method is enabled
+      if (paymentMethodPreference === 'CARD' && !paymentSettings.stripe_enabled) {
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_METHOD_DISABLED',
+          message: 'Card payments are currently disabled. Please use Bank Transfer.',
+          error: 'Stripe is not enabled.',
+        }, 400);
+      }
+      
+      if (paymentMethodPreference === 'BANK_TRANSFER' && !paymentSettings.bank_transfer_enabled) {
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_METHOD_DISABLED',
+          message: 'Bank Transfer is currently disabled. Please use Card payment.',
+          error: 'Bank Transfer is not enabled.',
+        }, 400);
+      }
+    }
+
+    // ============================================
+    // Check if pawaPay is enabled for standard orders
+    // ============================================
+    if (!isLargeOrder && !paymentSettings.pawapay_enabled) {
+      console.log('[mobile-checkout] PAWAPAY_DISABLED', {
+        grand_total: totalsBreakdown.grand_total,
+      });
+      return jsonResponse({
+        success: false,
+        code: 'MOBILE_MONEY_DISABLED',
+        message: 'Mobile money payments are currently disabled. Please use Card or Bank Transfer.',
+        error: 'pawaPay is disabled in settings.',
+      }, 503);
     }
 
     // ============================================
@@ -1205,27 +1389,96 @@ serve(async (req) => {
     }
 
     // ============================================
-    // CARD BRANCH: Use Stripe (if configured)
+    // CARD BRANCH: Use Stripe (for large orders with CARD preference)
     // ============================================
-    if (REQUESTED_METHOD === 'CARD') {
+    if (REQUESTED_METHOD === 'CARD' || paymentMethodPreference === 'CARD') {
       // Check if Stripe is available
       const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
       
       if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
-        // TODO: Implement Stripe payment flow
-        console.log('[mobile-checkout] STRIPE_PAYMENT_REQUESTED', {
-          orderId: checkoutOrder.id,
-          amount: payable_amount,
-          currency: payable_currency,
-        });
-        
-        // For now, return that Stripe is not yet implemented
-        return jsonResponse({
-          success: false,
-          code: 'STRIPE_NOT_IMPLEMENTED',
-          message: 'Card payments are coming soon. Please use Mobile Money or Bank Transfer.',
-          error: 'Card payments not yet available.',
-        }, 501);
+        try {
+          // Import Stripe adapter dynamically
+          const { createPaymentIntent, getStripeConfig } = await import('../_shared/stripeAdapter.ts');
+          const stripeConfig = getStripeConfig(stripeProvider);
+          
+          const stripeReference = generateProviderRef(checkoutOrder.id);
+          
+          const stripeResult = await createPaymentIntent(stripeConfig, {
+            orderId: checkoutOrder.id,
+            userId: user.id,
+            intentId: stripeReference,
+            amount: payable_amount,
+            description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
+          });
+          
+          if (stripeResult.success && stripeResult.client_secret) {
+            // Create payment record
+            await createPaymentRecord(supabase, {
+              order_id: checkoutOrder.id,
+              provider_key: 'stripe',
+              amount: payable_amount,
+              currency: 'USD',
+              reference: stripeReference,
+              provider_deposit_id: stripeResult.provider_deposit_id,
+              client_secret: stripeResult.client_secret,
+              raw_request: stripeResult.raw_request,
+              status: 'pending',
+            });
+            
+            console.log('[mobile-checkout] CHECKOUT_STRIPE_SUCCESS', {
+              order_id: checkoutOrder.id,
+              payment_flow: 'STRIPE',
+              amount: payable_amount,
+              reference: stripeReference,
+            });
+            
+            return jsonResponse({
+              success: true,
+              order_id: checkoutOrder.id,
+              payment_flow: 'STRIPE' as PaymentFlow,
+              currency: 'USD',
+              amount: payable_amount,
+              provider: 'stripe',
+              nextAction: {
+                type: 'stripe_payment_intent',
+                clientSecret: stripeResult.client_secret,
+              },
+              confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+              totals_breakdown: {
+                subtotal: totalsBreakdown.subtotal_items,
+                shipping: totalsBreakdown.shipping_fee,
+                markup: totalsBreakdown.markup_fee,
+                taxes: totalsBreakdown.taxes_fee,
+                grand_total: totalsBreakdown.grand_total,
+                currency: 'USD',
+                cdf_equivalent: totalsBreakdown.cdf_equivalent,
+                exchange_rate: totalsBreakdown.exchange_rate,
+              },
+            });
+          } else {
+            console.error('[mobile-checkout] STRIPE_PAYMENT_FAILED', {
+              order_id: checkoutOrder.id,
+              error: stripeResult.error,
+            });
+            return jsonResponse({
+              success: false,
+              code: 'STRIPE_PAYMENT_FAILED',
+              message: 'Card payment initialization failed. Please try again or use Bank Transfer.',
+              error: stripeResult.error || 'Failed to create Stripe payment intent.',
+            }, 500);
+          }
+        } catch (stripeError: any) {
+          console.error('[mobile-checkout] STRIPE_EXCEPTION', {
+            order_id: checkoutOrder.id,
+            error: stripeError.message,
+          });
+          return jsonResponse({
+            success: false,
+            code: 'STRIPE_ERROR',
+            message: 'Card payment failed. Please try again or use Bank Transfer.',
+            error: stripeError.message,
+          }, 500);
+        }
       }
       
       // No card provider available
@@ -1238,17 +1491,78 @@ serve(async (req) => {
     }
 
     // ============================================
+    // BANK_TRANSFER BRANCH: For large orders with BANK_TRANSFER preference
+    // ============================================
+    if (paymentMethodPreference === 'BANK_TRANSFER') {
+      console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER', {
+        order_id: checkoutOrder.id,
+        payment_flow: 'BANK_TRANSFER',
+        amount: payable_amount,
+        currency: 'USD',
+      });
+      
+      // Fetch bank transfer settings
+      const { data: bankSettings } = await supabase
+        .from('settings')
+        .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr')
+        .limit(1)
+        .maybeSingle();
+      
+      const bankTransferInfo = {
+        bank_name: bankSettings?.bank_name || 'Contact support for bank details',
+        account_holder: bankSettings?.bank_account_holder || '',
+        account_number: bankSettings?.bank_account_number || '',
+        iban: bankSettings?.bank_iban || '',
+        swift_code: bankSettings?.bank_swift || '',
+        bank_address: bankSettings?.bank_address || '',
+        instructions_en: bankSettings?.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference.',
+        instructions_fr: bankSettings?.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence.',
+      };
+      
+      // Update order status to await bank transfer
+      await supabase.from('orders').update({
+        status: 'PENDING_PAYMENT',
+        maisha_payment_status: 'PENDING_BANK_TRANSFER',
+        payment_notes: 'Awaiting bank transfer',
+      }).eq('id', checkoutOrder.id);
+      
+      return jsonResponse({
+        success: true,
+        order_id: checkoutOrder.id,
+        payment_flow: 'BANK_TRANSFER' as PaymentFlow,
+        currency: 'USD',
+        amount: payable_amount,
+        confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+        bank_transfer: bankTransferInfo,
+        reference: `AFRISHOP-${checkoutOrder.id.slice(0, 8).toUpperCase()}`,
+        message: 'Please complete the bank transfer and upload proof of payment.',
+        message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
+        totals_breakdown: {
+          subtotal: totalsBreakdown.subtotal_items,
+          shipping: totalsBreakdown.shipping_fee,
+          markup: totalsBreakdown.markup_fee,
+          taxes: totalsBreakdown.taxes_fee,
+          grand_total: totalsBreakdown.grand_total,
+          currency: 'USD',
+          cdf_equivalent: totalsBreakdown.cdf_equivalent,
+          exchange_rate: totalsBreakdown.exchange_rate,
+        },
+      });
+    }
+
+    // ============================================
     // FALLBACK: No valid payment method
     // ============================================
     console.error('[mobile-checkout] NO_VALID_PAYMENT_METHOD', {
       orderId: checkoutOrder.id,
       requested_method: REQUESTED_METHOD,
+      payment_method_preference: paymentMethodPreference,
     });
     
     return jsonResponse({
       success: false,
       code: 'INVALID_PAYMENT_METHOD',
-      message: 'Invalid payment method. Please use Mobile Money or Bank Transfer.',
+      message: 'Invalid payment method. Please use Mobile Money, Card, or Bank Transfer.',
       error: 'Payment method not supported.',
     }, 400);
 

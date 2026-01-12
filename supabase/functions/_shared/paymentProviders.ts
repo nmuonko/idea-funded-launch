@@ -1,8 +1,10 @@
 /**
  * Payment Provider System - Provider-Agnostic Payment Gateway
  * 
- * Supports multiple payment providers (MaishaPay, pawaPay, etc.)
+ * Supports multiple payment providers (pawaPay, Stripe, Bank Transfer)
  * with automatic routing based on enabled providers, countries, and methods.
+ * 
+ * MaishaPay REMOVED - 2026-01
  */
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -85,6 +87,8 @@ export interface CallbackResult {
 /**
  * Get the active payment provider based on country and method
  * Falls back by priority if default is not suitable
+ * 
+ * MaishaPay is EXCLUDED from selection
  */
 export async function getActiveProvider(
   supabase: SupabaseClient,
@@ -92,15 +96,17 @@ export async function getActiveProvider(
   method: string = 'MOBILE_MONEY'
 ): Promise<PaymentProvider | null> {
   // First try to get default enabled provider that matches criteria
+  // EXCLUDE maishapay from results
   const { data: providers, error } = await supabase
     .from('payment_providers')
     .select('*')
     .eq('is_enabled', true)
+    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('is_default', { ascending: false })
     .order('priority', { ascending: true });
 
   if (error || !providers || providers.length === 0) {
-    console.error('[PaymentRouter] No enabled providers found:', error?.message);
+    console.error('[PaymentRouter] No enabled providers found (excluding maishapay):', error?.message);
     return null;
   }
 
@@ -122,7 +128,7 @@ export async function getActiveProvider(
     }
   }
 
-  // Fallback to first enabled provider
+  // Fallback to first enabled provider (excluding maishapay)
   console.warn('[PaymentRouter] No matching provider, using fallback:', providers[0].provider_key);
   return providers[0];
 }
@@ -175,10 +181,9 @@ function providerSupportsAmount(
 /**
  * Select the best provider based on currency, amount, and order type
  * 
- * UPDATED RULES (2026-01):
+ * UPDATED RULES (2026-01) - MaishaPay REMOVED:
  * 1. Vehicles → Stripe (USD) or Bank Transfer
- * 2. Regular orders → Mobile Money (pawaPay/MaishaPay) in requested currency (USD or CDF)
- * 3. No limit-based currency switching for mobile money
+ * 2. Regular orders → pawaPay mobile money in requested currency (USD or CDF)
  */
 export async function selectProviderByLimits(
   supabase: SupabaseClient,
@@ -187,11 +192,12 @@ export async function selectProviderByLimits(
   isVehicle: boolean = false,
   requestedCurrency: 'USD' | 'CDF' = 'USD'
 ): Promise<ProviderSelectionResult> {
-  // Fetch all enabled providers sorted by priority
+  // Fetch all enabled providers sorted by priority, EXCLUDING maishapay
   const { data: providers, error } = await supabase
     .from('payment_providers')
     .select('*')
     .eq('is_enabled', true)
+    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('priority', { ascending: true });
 
   if (error || !providers || providers.length === 0) {
@@ -203,7 +209,8 @@ export async function selectProviderByLimits(
     amountUsd, 
     amountCdf, 
     isVehicle, 
-    requestedCurrency 
+    requestedCurrency,
+    availableProviders: providers.map(p => p.provider_key),
   });
 
   // RULE 1: Vehicles require Stripe (card) or Bank Transfer
@@ -218,42 +225,50 @@ export async function selectProviderByLimits(
     return { success: false, error: 'VEHICLE_BANK_TRANSFER_REQUIRED' };
   }
 
-  // RULE 2: Regular orders use mobile money provider in requested currency
-  // Find pawaPay or MaishaPay provider
-  const mobileMoneyProvider = providers.find(p => 
-    p.provider_key === 'pawapay' || p.provider_key === 'maishapay'
-  );
+  // RULE 2: Regular orders use pawaPay mobile money
+  const pawaPayProvider = providers.find(p => p.provider_key === 'pawapay');
 
-  if (mobileMoneyProvider) {
+  if (pawaPayProvider) {
     const currency = requestedCurrency;
     const amount = currency === 'USD' ? amountUsd : amountCdf;
     
-    console.log('[PaymentRouter] Regular order - selected mobile money:', {
-      provider: mobileMoneyProvider.provider_key,
+    console.log('[PaymentRouter] Regular order - selected pawaPay:', {
+      provider: pawaPayProvider.provider_key,
       currency,
       amount,
     });
     
-    return { success: true, provider: mobileMoneyProvider, currency };
+    return { success: true, provider: pawaPayProvider, currency };
   }
 
-  // Fallback: try any available provider
+  // Fallback: try any available provider (but not maishapay)
   const fallbackProvider = providers[0];
-  console.log('[PaymentRouter] Using fallback provider:', fallbackProvider.provider_key);
-  return { 
-    success: true, 
-    provider: fallbackProvider, 
-    currency: requestedCurrency 
-  };
+  if (fallbackProvider) {
+    console.log('[PaymentRouter] Using fallback provider:', fallbackProvider.provider_key);
+    return { 
+      success: true, 
+      provider: fallbackProvider, 
+      currency: requestedCurrency 
+    };
+  }
+
+  return { success: false, error: 'No suitable payment provider available' };
 }
 
 /**
  * Get a specific provider by key
+ * Returns null for maishapay (disabled)
  */
 export async function getProviderByKey(
   supabase: SupabaseClient,
   providerKey: string
 ): Promise<PaymentProvider | null> {
+  // Block maishapay lookups
+  if (providerKey === 'maishapay') {
+    console.warn('[PaymentRouter] MaishaPay is disabled, returning null');
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('payment_providers')
     .select('*')
@@ -269,12 +284,13 @@ export async function getProviderByKey(
 }
 
 /**
- * Get all providers (for admin)
+ * Get all providers (for admin) - excludes maishapay
  */
 export async function getAllProviders(supabase: SupabaseClient): Promise<PaymentProvider[]> {
   const { data, error } = await supabase
     .from('payment_providers')
     .select('*')
+    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('priority', { ascending: true });
 
   if (error) {
@@ -429,6 +445,7 @@ export async function getPaymentByOrderId(
     .from('payments')
     .select('*')
     .eq('order_id', orderId)
+    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay records
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -452,6 +469,7 @@ export async function getPaymentByReference(
     .from('payments')
     .select('*')
     .eq('reference', reference)
+    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay records
     .maybeSingle();
 
   if (error) {
@@ -470,6 +488,11 @@ export async function getPaymentByDepositId(
   providerKey: string,
   depositId: string
 ): Promise<any | null> {
+  // Block maishapay lookups
+  if (providerKey === 'maishapay') {
+    return null;
+  }
+
   const { data, error } = await supabase
     .from('payments')
     .select('*')
@@ -498,6 +521,12 @@ export async function logPaymentEvent(
     payload: any;
   }
 ): Promise<{ inserted: boolean; duplicate: boolean }> {
+  // Block maishapay events
+  if (params.provider_key === 'maishapay') {
+    console.warn('[PaymentRouter] Ignoring MaishaPay event');
+    return { inserted: false, duplicate: false };
+  }
+
   // If event_id provided, check for duplicate first
   if (params.event_id) {
     const { data: existing } = await supabase
@@ -539,6 +568,7 @@ export async function logPaymentEvent(
 
 /**
  * Map provider-specific status to our standard status
+ * MaishaPay mapping REMOVED
  */
 export function normalizePaymentStatus(
   providerKey: string,
@@ -554,11 +584,12 @@ export function normalizePaymentStatus(
     if (status === 'accepted' || status === 'submitted') return 'pending';
   }
 
-  if (providerKey === 'maishapay') {
-    // MaishaPay uses numeric codes: 200/202 = success
-    if (['200', '202', 'success', 'paid', 'accepted'].includes(status)) return 'succeeded';
-    if (['203', 'cancelled', 'canceled'].includes(status)) return 'cancelled';
-    if (['204', '400', '500', 'failed', 'error', 'rejected'].includes(status)) return 'failed';
+  if (providerKey === 'stripe') {
+    // Stripe statuses
+    if (status === 'succeeded' || status === 'paid') return 'succeeded';
+    if (status === 'failed' || status === 'payment_failed') return 'failed';
+    if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+    if (status === 'processing' || status === 'requires_action' || status === 'requires_confirmation') return 'pending';
   }
 
   // Default: unknown status = pending

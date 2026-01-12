@@ -5,11 +5,6 @@ import {
   errorResponse, 
   jsonResponse 
 } from "../_shared/auth.ts";
-import {
-  createPaymentSession,
-  getMaishaPayConfig,
-  validateConfig,
-} from "../_shared/maishapay.ts";
 import { 
   getActiveProvider, 
   createPaymentRecord,
@@ -163,115 +158,21 @@ serve(async (req) => {
             console.warn('[mobile-retry-payment] pawaPay deposit failed, falling back to MaishaPay:', depositResult.error);
           }
         } catch (pawaError: any) {
-          console.error('[mobile-retry-payment] pawaPay error, falling back to MaishaPay:', pawaError.message);
+          console.error('[mobile-retry-payment] pawaPay error:', pawaError.message);
+          return jsonResponse({ 
+            error: 'PAYMENT_ERROR', 
+            message: 'Payment processing error. Please try again.' 
+          }, 500);
         }
       }
     }
 
-    // ==================== MAISHAPAY FALLBACK ====================
-
-    // Validate MaishaPay configuration
-    const maishaConfig = getMaishaPayConfig();
-    const configValidation = validateConfig(maishaConfig);
-    if (!configValidation.valid) {
-      console.error('[mobile-retry-payment] Config error:', configValidation.error);
-      return jsonResponse({ 
-        error: 'PAYMENT_CONFIG_ERROR', 
-        message: 'Payment gateway not configured' 
-      }, 500);
-    }
-
-    // Create new payment session with retry suffix
-    const retryOrderId = `${order_id}-R${Date.now().toString(36)}`;
-    
-    const paymentResult = await createPaymentSession({
-      amountUsd: order.total_usd,
-      currency: 'USD',
-      customerEmail,
-      customerPhone,
-      customerName,
-      orderId: retryOrderId,
-      description: `AfriShop Order #${order_id.slice(0, 8)} (Retry)`,
-    });
-
-    if (!paymentResult.success) {
-      console.error('[mobile-retry-payment] MaishaPay error:', paymentResult.error);
-      return jsonResponse({ 
-        error: 'PAYMENT_INIT_FAILED', 
-        message: 'Failed to initialize payment' 
-      }, 500);
-    }
-
-    // Create new payment record
-    const { error: paymentRecordError } = await supabase
-      .from('maisha_payments')
-      .insert({
-        order_id: order_id,
-        maisha_reference: paymentResult.reference,
-        amount_usd: order.total_usd,
-        amount_cdf: order.total_cdf,
-        currency: 'USD',
-        status: 'pending',
-        raw_request: {
-          retry: true,
-          amount: order.total_usd,
-          email: customerEmail,
-          phone: customerPhone,
-          mode: maishaConfig.mode,
-          original_reference: order.maisha_transaction_id,
-        },
-      });
-
-    if (paymentRecordError) {
-      console.error('[mobile-retry-payment] Payment record error:', paymentRecordError);
-    }
-
-    // Update order with new reference
-    await supabase.from('orders').update({
-      maisha_transaction_id: paymentResult.reference,
-      maisha_payment_status: 'PENDING',
-      status: 'PENDING_PAYMENT',
-      updated_at: new Date().toISOString(),
-    }).eq('id', order_id);
-
-    console.log('[mobile-retry-payment] MaishaPay retry created:', {
-      orderId: order_id,
-      reference: paymentResult.reference,
-      mode: maishaConfig.mode,
-    });
-
-    // Get checkout form fields
-    const formFields = {
-      publicApiKey: maishaConfig.publicKey,
-      gatewayMode: maishaConfig.mode === 'live' ? '1' : '0',
-      montant: order.total_usd.toString(),
-      devise: 'USD',
-      callbackUrl: maishaConfig.callbackUrl,
-      reference: paymentResult.reference,
-      email_client: customerEmail,
-      nom_client: customerName,
-      telephone_client: customerPhone,
-    };
-
-    return jsonResponse({
-      success: true,
-      order_id: order_id,
-      maishapay_transaction_id: paymentResult.reference,
-      maishapay_reference: paymentResult.reference,
-      payment_url: paymentResult.checkoutUrl,
-      provider: 'maishapay',
-      payment_flow: 'HTML_CHECKOUT',
-      payment_mode: maishaConfig.mode,
-      checkout_fields: formFields,
-      is_retry: true,
-      order: {
-        id: order_id,
-        status: 'PENDING_PAYMENT',
-        totalUsd: order.total_usd,
-        totalCdf: order.total_cdf,
-      },
-      message: `Retry payment created (${maishaConfig.mode} mode). Open payment_url in WebView.`,
-    });
+    // No valid provider available
+    console.error('[mobile-retry-payment] No payment provider available');
+    return jsonResponse({ 
+      error: 'NO_PROVIDER_AVAILABLE', 
+      message: 'No payment provider is currently available. Please contact support.' 
+    }, 500);
 
   } catch (error: any) {
     console.error('[mobile-retry-payment] Error:', error.message);

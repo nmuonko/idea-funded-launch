@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
-import { normalizePaymentStatus as normalizeMaishaStatus } from "../_shared/maishapay.ts";
 import { normalizePaymentStatus as normalizeProviderStatus } from "../_shared/paymentProviders.ts";
 import { generateTraceId, logAudit } from "../_shared/auditLog.ts";
 
@@ -184,18 +183,10 @@ serve(async (req) => {
       );
     }
 
-    // Detect provider from order reference - check for pawaPay patterns
-    const isPawaPay = order.maisha_transaction_id?.includes('PAWA') || false;
-    
-    // Normalize status using provider-specific logic
-    let normalizedStatus: string;
-    if (isPawaPay) {
-      const pawaStatus = normalizeProviderStatus('pawapay', String(status));
-      normalizedStatus = pawaStatus === 'succeeded' ? 'paid' : pawaStatus;
-    } else {
-      normalizedStatus = normalizeMaishaStatus(status);
-    }
-    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus, isPawaPay });
+    // Normalize status using provider-specific logic (pawaPay or generic)
+    const pawaStatus = normalizeProviderStatus('pawapay', String(status));
+    const normalizedStatus = pawaStatus === 'succeeded' ? 'paid' : pawaStatus;
+    console.log('[verify-payment] Status:', { raw: status, normalized: normalizedStatus });
 
     // Log to audit
     await logAudit(supabase, {

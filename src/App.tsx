@@ -37,8 +37,7 @@ import AdminSupportInbox from "./pages/admin/SupportInbox";
 import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
-import AdminCarts from "./pages/admin/Carts";
-import AdminSavedCarts from "./pages/admin/SavedCarts";
+import CartsManagement from "./pages/admin/CartsManagement";
 import ABTestResults from "./pages/admin/ABTestResults";
 import ThemeSettings from "./pages/admin/ThemeSettings";
 import AdminAccessDenied from "./pages/admin/AccessDenied";
@@ -165,12 +164,7 @@ const App = () => {
               } />
               <Route path="carts" element={
                 <AdminRouteGuard requiredPermission="can_view_active_carts">
-                  <AdminCarts />
-                </AdminRouteGuard>
-              } />
-              <Route path="saved-carts" element={
-                <AdminRouteGuard requiredPermission="can_view_saved_carts">
-                  <AdminSavedCarts />
+                  <CartsManagement />
                 </AdminRouteGuard>
               } />
               <Route path="ab-tests" element={

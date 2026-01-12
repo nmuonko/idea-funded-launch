@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -37,7 +37,7 @@ interface SavedItem {
   lastReminderAt: string | null;
 }
 
-export default function AdminSavedCarts() {
+export default function SavedCartsContent() {
   const [savedCarts, setSavedCarts] = useState<SavedCartUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,7 +56,6 @@ export default function AdminSavedCarts() {
     try {
       setLoading(true);
 
-      // Get all saved items with order and profile info
       const { data: items, error } = await supabase
         .from('order_items')
         .select(`
@@ -80,7 +79,6 @@ export default function AdminSavedCarts() {
 
       if (error) throw error;
 
-      // Get profiles for users with saved items
       const userIds = [...new Set(items?.map(i => (i.orders as any).user_id) || [])];
       
       const { data: profiles } = await supabase
@@ -90,7 +88,6 @@ export default function AdminSavedCarts() {
 
       const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
 
-      // Group by user
       const userMap = new Map<string, SavedCartUser>();
       
       (items || []).forEach(item => {
@@ -101,7 +98,7 @@ export default function AdminSavedCarts() {
           userMap.set(userId, {
             userId,
             userName: profile?.full_name || profile?.name || null,
-            userEmail: null, // Can't get email without admin API
+            userEmail: null,
             savedItemCount: 0,
             earliestSavedAt: null,
             latestSavedAt: null,
@@ -200,32 +197,21 @@ export default function AdminSavedCarts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Bookmark className="h-8 w-8" />
-            {t.savedCarts.title}
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            {t.savedCarts.subtitle}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={triggerReminders}>
-            <Bell className="h-4 w-4 mr-2" />
-            {t.savedCarts.sendReminders}
+      <div className="flex items-center justify-end gap-2">
+        <Button onClick={triggerReminders}>
+          <Bell className="h-4 w-4 mr-2" />
+          {t.savedCarts.sendReminders}
+        </Button>
+        {permissions?.isSuperAdmin && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={() => setResetDialogOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            {t.common.reset}
           </Button>
-          {permissions?.isSuperAdmin && (
-            <Button 
-              variant="destructive" 
-              size="sm"
-              onClick={() => setResetDialogOpen(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {t.common.reset}
-            </Button>
-          )}
-        </div>
+        )}
       </div>
 
       <ResetSectionDialog

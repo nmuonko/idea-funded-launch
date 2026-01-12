@@ -48,7 +48,7 @@ interface Cart {
   items: CartItem[];
 }
 
-export default function AdminCarts() {
+export default function ActiveCartsContent() {
   const [carts, setCarts] = useState<Cart[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCart, setSelectedCart] = useState<Cart | null>(null);
@@ -83,15 +83,12 @@ export default function AdminCarts() {
     return <Badge variant={variants[status] || 'default'}>{getStatusTranslation(status, language)}</Badge>;
   };
 
-  // Translation helpers for this page
   const cartsText = {
-    title: language === 'fr' ? 'Paniers actifs et commandes non finalisées' : 'Active Carts & Non-finalized Orders',
-    subtitle: language === 'fr' ? 'Voir les paniers clients non finalisés' : 'View customer carts that haven\'t been finalized yet',
     activeCarts: language === 'fr' ? 'Paniers actifs' : 'Active Carts',
     noActiveCarts: language === 'fr' ? 'Aucun panier actif trouvé' : 'No active carts found',
     cartDetails: language === 'fr' ? 'Détails du panier' : 'Cart Details',
     cartItems: language === 'fr' ? 'Articles du panier' : 'Cart Items',
-    resetCarts: language === 'fr' ? 'Réinitialiser les paniers' : 'Reset Carts',
+    resetCarts: language === 'fr' ? 'Réinitialiser' : 'Reset',
     loading: language === 'fr' ? 'Chargement...' : 'Loading carts...',
     user: language === 'fr' ? 'Utilisateur' : 'User',
     status: language === 'fr' ? 'Statut' : 'Status',
@@ -117,14 +114,7 @@ export default function AdminCarts() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
-            <ShoppingCart className="h-8 w-8" />
-            {cartsText.title}
-          </h1>
-          <p className="text-muted-foreground">{cartsText.subtitle}</p>
-        </div>
+      <div className="flex items-center justify-end">
         {permissions?.isSuperAdmin && (
           <Button 
             variant="destructive" 

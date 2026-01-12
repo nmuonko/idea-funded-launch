@@ -7,6 +7,7 @@ import afrishopLogo from "@/assets/afrishop-logo.png";
 
 const navLinks = [
   { to: "/", label: "How It Works" },
+  { to: "/coverage", label: "Coverage" },
   { to: "/privacy", label: "Privacy" },
   { to: "/terms", label: "Terms" },
   { to: "/payments-compliance", label: "Payments" },

@@ -13,8 +13,8 @@ const HowItWorks = () => {
     },
     {
       number: "2",
-      title: "Submit a Product Link",
-      description: "Select or submit a product link from a supported international retailer."
+      title: "Add Products to Cart",
+      description: "Browse supported U.S. stores or paste a product link to add items to your cart."
     },
     {
       number: "3",

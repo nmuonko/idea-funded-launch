@@ -1,46 +1,28 @@
-import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Smartphone, XCircle, HelpCircle, LogIn } from "lucide-react";
+import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Smartphone, XCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import afrishopLogo from "@/assets/afrishop-logo.png";
+import { motion } from "framer-motion";
+import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+
+const fadeInUp = {
+  initial: { opacity: 0, y: 30 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.6 }
+};
+
+const staggerContainer = {
+  animate: { transition: { staggerChildren: 0.1 } }
+};
 
 const HowItWorks = () => {
   const steps = [
-    {
-      number: "1",
-      title: "Download the App",
-      description: "Get the AfriShop mobile app from your device's app store."
-    },
-    {
-      number: "2",
-      title: "Add Products to Cart",
-      description: "Browse supported U.S. stores or paste a product link to add items to your cart."
-    },
-    {
-      number: "3",
-      title: "Review Cost Estimate",
-      description: "AfriShop calculates estimated costs including product price, shipping, customs, and service fees."
-    },
-    {
-      number: "4",
-      title: "Confirm Your Order",
-      description: "Review and confirm your order within the app."
-    },
-    {
-      number: "5",
-      title: "Complete Payment",
-      description: "Payment is completed securely inside the app using licensed payment providers."
-    },
-    {
-      number: "6",
-      title: "We Coordinate Delivery",
-      description: "AfriShop coordinates product purchasing and delivery to your location."
-    },
-    {
-      number: "7",
-      title: "Track & Receive",
-      description: "Receive order updates and tracking until delivery."
-    }
+    { number: "01", title: "Download the App", description: "Get the AfriShop mobile app from your device's app store." },
+    { number: "02", title: "Add Products to Cart", description: "Browse supported U.S. stores or paste a product link to add items to your cart." },
+    { number: "03", title: "Review Cost Estimate", description: "AfriShop calculates estimated costs including product price, shipping, customs, and service fees." },
+    { number: "04", title: "Confirm Your Order", description: "Review and confirm your order within the app." },
+    { number: "05", title: "Complete Payment", description: "Payment is completed securely inside the app using licensed payment providers." },
+    { number: "06", title: "We Coordinate Delivery", description: "AfriShop coordinates product purchasing and delivery to your location." },
+    { number: "07", title: "Track & Receive", description: "Receive order updates and tracking until delivery." }
   ];
 
   const services = [
@@ -59,195 +41,262 @@ const HowItWorks = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center">
-            <img src={afrishopLogo} alt="AfriShop" className="h-10 md:h-12 drop-shadow-md" />
-          </Link>
-          <nav className="hidden md:flex items-center gap-4 text-sm">
-            <Link to="/" className="font-medium text-primary">How It Works</Link>
-            <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
-            <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
-            <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
-            <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link to="/download" className="hidden sm:inline-flex">
-              <Button size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Get App
-              </Button>
-            </Link>
-            <Link to="/auth?mode=admin">
-              <Button size="sm" variant="ghost">
-                <LogIn className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Admin</span>
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-black text-white">
+      <PublicHeader />
 
       {/* Hero Section */}
-      <section className="py-16 md:py-24 bg-gradient-to-b from-primary/5 to-background">
-        <div className="container mx-auto px-4 text-center">
-          <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-6">
-            How AfriShop Works
-          </h1>
-          <p className="text-lg text-muted-foreground max-w-3xl mx-auto">
-            Ordering assistance and logistics facilitation for international purchases.
-          </p>
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
+        {/* Background gradient */}
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 via-black to-cyan-900/20" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl" />
+        
+        <div className="container mx-auto px-4 relative z-10">
+          <motion.div 
+            className="max-w-4xl mx-auto text-center"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 mb-8"
+            >
+              <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-sm text-white/70">Now serving Central Africa</span>
+            </motion.div>
+            
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 leading-tight">
+              <span className="bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">
+                Shop the U.S.
+              </span>
+              <br />
+              <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+                Delivered to Africa
+              </span>
+            </h1>
+            
+            <p className="text-lg md:text-xl text-white/60 max-w-2xl mx-auto mb-10">
+              Order from Amazon, Walmart, eBay and more. We handle shipping, customs, and delivery right to your door.
+            </p>
+            
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <Link to="/download">
+                <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white border-0 rounded-full px-8 h-14 text-lg">
+                  <Download className="h-5 w-5 mr-2" />
+                  Download App
+                </Button>
+              </Link>
+              <a href="#how-it-works">
+                <Button size="lg" variant="outline" className="border-white/20 text-white hover:bg-white/10 rounded-full px-8 h-14 text-lg">
+                  Learn More
+                  <ArrowRight className="h-5 w-5 ml-2" />
+                </Button>
+              </a>
+            </div>
+          </motion.div>
         </div>
+
+        {/* Scroll indicator */}
+        <motion.div 
+          className="absolute bottom-10 left-1/2 -translate-x-1/2"
+          animate={{ y: [0, 10, 0] }}
+          transition={{ repeat: Infinity, duration: 2 }}
+        >
+          <div className="w-6 h-10 rounded-full border-2 border-white/30 flex items-start justify-center p-2">
+            <motion.div 
+              className="w-1.5 h-1.5 rounded-full bg-white/50"
+              animate={{ y: [0, 16, 0] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+            />
+          </div>
+        </motion.div>
       </section>
 
       {/* What Is AfriShop */}
-      <section className="py-16 bg-background">
+      <section className="py-24 relative" id="how-it-works">
         <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-6 text-center">
-              What Is AfriShop?
-            </h2>
-            <div className="bg-muted/30 rounded-2xl p-6 md:p-8 border border-border/50">
-              <p className="text-muted-foreground leading-relaxed text-center">
+          <motion.div 
+            className="max-w-4xl mx-auto"
+            initial="initial"
+            whileInView="animate"
+            viewport={{ once: true }}
+            variants={staggerContainer}
+          >
+            <motion.h2 
+              variants={fadeInUp}
+              className="text-3xl md:text-5xl font-bold mb-8 text-center"
+            >
+              What Is <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">AfriShop</span>?
+            </motion.h2>
+            <motion.div 
+              variants={fadeInUp}
+              className="bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-xl rounded-3xl p-8 md:p-12 border border-white/10"
+            >
+              <p className="text-lg text-white/70 leading-relaxed text-center">
                 AfriShop is a mobile application that assists users in Africa with purchasing products 
                 from international online retailers that may not ship directly to their country.
               </p>
-              <p className="text-muted-foreground leading-relaxed mt-4 text-center">
-                AfriShop provides ordering assistance, international shipping coordination, customs 
+              <p className="text-lg text-white/70 leading-relaxed mt-4 text-center">
+                We provide ordering assistance, international shipping coordination, customs 
                 facilitation, and last-mile delivery through trusted partners.
               </p>
-              <p className="text-muted-foreground leading-relaxed mt-4 text-center font-medium">
+              <p className="text-white/90 leading-relaxed mt-6 text-center font-medium">
                 AfriShop does not manufacture, own, or directly sell third-party products.
               </p>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       </section>
 
-      {/* Step by Step */}
-      <section className="py-16 bg-muted/20">
-        <div className="container mx-auto px-4">
-          <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-12 text-center">
-            How the Service Works
-          </h2>
-          <div className="max-w-4xl mx-auto">
-            <div className="relative">
-              <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border hidden md:block" />
-              <div className="space-y-6">
-                {steps.map((step, index) => (
-                  <div key={index} className="flex gap-4 md:gap-6 items-start">
-                    <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg z-10">
-                      {step.number}
-                    </div>
-                    <div className="flex-1 pt-2">
-                      <h3 className="font-semibold text-foreground mb-1">{step.title}</h3>
-                      <p className="text-muted-foreground">{step.description}</p>
-                    </div>
+      {/* Steps */}
+      <section className="py-24 relative">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-900/10 to-transparent" />
+        <div className="container mx-auto px-4 relative z-10">
+          <motion.h2 
+            className="text-3xl md:text-5xl font-bold mb-16 text-center"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            How It <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">Works</span>
+          </motion.h2>
+          
+          <div className="max-w-4xl mx-auto space-y-6">
+            {steps.map((step, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, x: index % 2 === 0 ? -30 : 30 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: index * 0.1 }}
+                className="group relative"
+              >
+                <div className="flex items-start gap-6 p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300">
+                  <div className="flex-shrink-0 w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+                    <span className="text-xl font-bold text-white">{step.number}</span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* What AfriShop Handles */}
-      <section className="py-16 bg-background">
-        <div className="container mx-auto px-4">
-          <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-12 text-center">
-            What AfriShop Handles
-          </h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {services.map((service, index) => (
-              <Card key={index} className="border-border/50 bg-card/50">
-                <CardContent className="p-6">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                    <service.icon className="h-6 w-6 text-primary" />
+                  <div className="flex-1 pt-1">
+                    <h3 className="text-xl font-semibold text-white mb-2">{step.title}</h3>
+                    <p className="text-white/60">{step.description}</p>
                   </div>
-                  <h3 className="font-semibold text-foreground mb-2">{service.title}</h3>
-                  <p className="text-sm text-muted-foreground">{service.description}</p>
-                </CardContent>
-              </Card>
+                </div>
+              </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* What AfriShop Does Not Do */}
-      <section className="py-16 bg-muted/20">
+      {/* Services */}
+      <section className="py-24">
         <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto">
+          <motion.h2 
+            className="text-3xl md:text-5xl font-bold mb-16 text-center"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            What We <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">Handle</span>
+          </motion.h2>
+          
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {services.map((service, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: index * 0.1 }}
+                className="group p-8 rounded-3xl bg-gradient-to-br from-white/5 to-transparent border border-white/10 hover:border-white/20 transition-all duration-300"
+              >
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                  <service.icon className="h-7 w-7 text-cyan-400" />
+                </div>
+                <h3 className="text-xl font-semibold text-white mb-3">{service.title}</h3>
+                <p className="text-white/60">{service.description}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Limitations */}
+      <section className="py-24 relative">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-900/5 to-transparent" />
+        <div className="container mx-auto px-4 relative z-10">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
             <div className="flex items-center justify-center gap-3 mb-8">
-              <XCircle className="h-8 w-8 text-muted-foreground" />
-              <h2 className="text-2xl md:text-3xl font-bold text-foreground">
-                What AfriShop Does Not Do
+              <XCircle className="h-8 w-8 text-white/40" />
+              <h2 className="text-3xl md:text-4xl font-bold text-center">
+                What We <span className="text-white/60">Don't Do</span>
               </h2>
             </div>
             <div className="space-y-3">
               {limitations.map((item, index) => (
-                <div key={index} className="flex items-start gap-3 bg-background rounded-lg p-4 border border-border/50">
-                  <span className="text-muted-foreground mt-0.5">•</span>
-                  <p className="text-muted-foreground">{item}</p>
-                </div>
+                <motion.div 
+                  key={index}
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: index * 0.1 }}
+                  className="flex items-center gap-4 p-5 rounded-2xl bg-white/5 border border-white/10"
+                >
+                  <div className="w-2 h-2 rounded-full bg-white/30" />
+                  <p className="text-white/70">{item}</p>
+                </motion.div>
               ))}
             </div>
-          </div>
+          </motion.div>
         </div>
       </section>
 
       {/* Disclaimer */}
-      <section className="py-12 bg-muted/30 border-y border-border/50">
+      <section className="py-12 border-y border-white/10">
         <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center">
-            <HelpCircle className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
-            <h3 className="font-semibold text-foreground mb-2">Disclaimer</h3>
-            <p className="text-sm text-muted-foreground">
-              All third-party trademarks belong to their respective owners. AfriShop operates independently 
-              and is not affiliated with any third-party retailer or brand mentioned.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-16 md:py-24 bg-primary/5">
-        <div className="container mx-auto px-4 text-center">
-          <Smartphone className="h-16 w-16 text-primary mx-auto mb-6" />
-          <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-            Download the AfriShop App
-          </h2>
-          <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-            Get started with AfriShop by downloading our mobile application.
+          <p className="text-center text-white/40 text-sm max-w-2xl mx-auto">
+            <strong className="text-white/60">Disclaimer:</strong> All third-party trademarks belong to their respective owners. 
+            AfriShop operates independently and is not affiliated with any third-party retailer or brand.
           </p>
-          <Link to="/download">
-            <Button size="lg" className="gap-2">
-              Download the App
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-8 border-t border-border/40 bg-background">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} AfriShop. All rights reserved.
+      {/* CTA */}
+      <section className="py-32 relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/30 via-black to-cyan-900/30" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-500/20 rounded-full blur-3xl" />
+        
+        <div className="container mx-auto px-4 relative z-10 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <Smartphone className="h-20 w-20 text-cyan-400 mx-auto mb-8" />
+            <h2 className="text-3xl md:text-5xl font-bold mb-6">
+              Ready to <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">Get Started</span>?
+            </h2>
+            <p className="text-xl text-white/60 mb-10 max-w-xl mx-auto">
+              Download the AfriShop app and start shopping from U.S. stores today.
             </p>
-          <nav className="flex flex-wrap items-center justify-center gap-4 md:gap-6 text-sm">
-              <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
-              <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
-              <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
-              <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
-              <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
-              <Link to="/download" className="text-muted-foreground hover:text-foreground transition-colors">Download</Link>
-            </nav>
-          </div>
+            <Link to="/download">
+              <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white border-0 rounded-full px-10 h-16 text-lg">
+                <Download className="h-5 w-5 mr-3" />
+                Download the App
+                <ArrowRight className="h-5 w-5 ml-3" />
+              </Button>
+            </Link>
+          </motion.div>
         </div>
-      </footer>
+      </section>
+
+      <PublicFooter />
     </div>
   );
 };

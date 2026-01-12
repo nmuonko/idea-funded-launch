@@ -46,10 +46,10 @@ const HowItWorks = () => {
 
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
-        {/* Background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 via-black to-cyan-900/20" />
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl" />
+        {/* Background gradient - softer, more subtle */}
+        <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 via-black to-slate-800/30" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-slate-600/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-slate-500/10 rounded-full blur-3xl" />
         
         <div className="container mx-auto px-4 relative z-10">
           <motion.div 
@@ -69,11 +69,11 @@ const HowItWorks = () => {
             </motion.div>
             
             <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 leading-tight">
-              <span className="bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">
+              <span className="text-white">
                 Shop the U.S.
               </span>
               <br />
-              <span className="bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-slate-300 via-slate-200 to-white/80 bg-clip-text text-transparent">
                 Delivered to Africa
               </span>
             </h1>
@@ -84,7 +84,7 @@ const HowItWorks = () => {
             
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/download">
-                <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white border-0 rounded-full px-8 h-14 text-lg">
+                <Button size="lg" className="bg-slate-700 hover:bg-slate-600 text-white border-0 rounded-full px-8 h-14 text-lg">
                   <Download className="h-5 w-5 mr-2" />
                   Download App
                 </Button>

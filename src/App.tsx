@@ -50,6 +50,7 @@ import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import BankTransferSubmissions from "./pages/admin/BankTransferSubmissions";
 import PaymentProviders from "./pages/admin/PaymentProviders";
+import ServiceZones from "./pages/admin/ServiceZones";
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
@@ -271,6 +272,11 @@ const App = () => {
               <Route path="payment-providers" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <PaymentProviders />
+                </AdminRouteGuard>
+              } />
+              <Route path="service-zones" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <ServiceZones />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

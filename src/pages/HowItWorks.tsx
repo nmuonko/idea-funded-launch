@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+import { ServiceZoneMap } from "@/components/public/ServiceZoneMap";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -150,6 +151,9 @@ const HowItWorks = () => {
           </motion.div>
         </div>
       </section>
+
+      {/* Service Zone Map */}
+      <ServiceZoneMap />
 
       {/* Steps */}
       <section className="py-24 relative">

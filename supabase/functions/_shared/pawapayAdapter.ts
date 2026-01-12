@@ -238,6 +238,59 @@ export function getPawaPayConfig(_provider?: PaymentProvider): PawaPayConfig {
   };
 }
 
+// ==================== Helpers ====================
+
+/**
+ * Create a valid pawaPay statement description (max 22 chars)
+ * 
+ * pawaPay requires: max 22 chars, alphanumeric + space + hyphen only
+ * 
+ * Examples:
+ *   BEFORE: "AfriShop 550e8400-e29b-41d4-a716-446655440000" (47 chars)
+ *   AFTER:  "AFRISHOP-446655440000" (21 chars)
+ * 
+ *   BEFORE: "Payment for order #123"
+ *   AFTER:  "Payment for order 12" (truncated to 22)
+ */
+function makeStatementDescription(input: string, orderId?: string): string {
+  const MAX_LEN = 22;
+  
+  // Normalize: trim, collapse multiple spaces
+  let normalized = (input || '').trim().replace(/\s+/g, ' ');
+  
+  // Remove non-allowed chars: keep A-Z, a-z, 0-9, space, hyphen
+  normalized = normalized.replace(/[^A-Za-z0-9 \-]/g, '');
+  
+  // If already valid length, return it
+  if (normalized.length > 0 && normalized.length <= MAX_LEN) {
+    console.log('[pawapay] statementDescription="' + normalized + '" length=' + normalized.length);
+    return normalized;
+  }
+  
+  // If too long, try to truncate
+  if (normalized.length > MAX_LEN) {
+    const truncated = normalized.slice(0, MAX_LEN).trim();
+    console.log('[pawapay] statementDescription="' + truncated + '" length=' + truncated.length + ' (truncated from ' + normalized.length + ')');
+    return truncated;
+  }
+  
+  // Empty input - create a safe default using orderId
+  // Format: "AFRISHOP-" + last 12 chars of orderId = 9 + 12 = 21 chars max
+  if (orderId) {
+    // Remove dashes from UUID and take last 12 chars
+    const cleanId = orderId.replace(/[^A-Za-z0-9]/g, '');
+    const suffix = cleanId.slice(-12);
+    const defaultDesc = 'AFRISHOP-' + suffix;
+    console.log('[pawapay] statementDescription="' + defaultDesc + '" length=' + defaultDesc.length + ' (default)');
+    return defaultDesc;
+  }
+  
+  // Ultimate fallback
+  const fallback = 'AFRISHOP-PAYMENT';
+  console.log('[pawapay] statementDescription="' + fallback + '" length=' + fallback.length + ' (fallback)');
+  return fallback;
+}
+
 // ==================== API Methods ====================
 
 /**
@@ -278,7 +331,11 @@ export async function createDeposit(
       },
     },
     customerTimestamp: new Date().toISOString(),
-    statementDescription: params.description || `AfriShop ${params.reference || params.orderId}`,
+    // pawaPay requires statementDescription <= 22 chars, alphanumeric + space + hyphen only
+    statementDescription: makeStatementDescription(
+      params.description || `AfriShop ${params.reference || params.orderId}`,
+      params.orderId
+    ),
   };
 
   // SAFE LOGGING: mask phone, no secrets

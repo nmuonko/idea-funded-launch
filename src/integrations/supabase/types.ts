@@ -1337,6 +1337,13 @@ export type Database = {
             referencedRelation: "payments"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "payment_events_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "safe_user_payments"
+            referencedColumns: ["id"]
+          },
         ]
       }
       payment_links: {
@@ -2554,47 +2561,44 @@ export type Database = {
       }
       safe_user_payments: {
         Row: {
-          amount_cdf: number | null
-          amount_usd: number | null
-          confirmation_code: string | null
+          amount: number | null
           created_at: string | null
           currency: string | null
           id: string | null
-          maisha_reference: string | null
           order_id: string | null
           paid_at: string | null
+          provider_key: string | null
+          reference: string | null
           status: string | null
           updated_at: string | null
         }
         Insert: {
-          amount_cdf?: number | null
-          amount_usd?: number | null
-          confirmation_code?: string | null
+          amount?: number | null
           created_at?: string | null
           currency?: string | null
           id?: string | null
-          maisha_reference?: string | null
           order_id?: string | null
           paid_at?: string | null
+          provider_key?: string | null
+          reference?: string | null
           status?: string | null
           updated_at?: string | null
         }
         Update: {
-          amount_cdf?: number | null
-          amount_usd?: number | null
-          confirmation_code?: string | null
+          amount?: number | null
           created_at?: string | null
           currency?: string | null
           id?: string | null
-          maisha_reference?: string | null
           order_id?: string | null
           paid_at?: string | null
+          provider_key?: string | null
+          reference?: string | null
           status?: string | null
           updated_at?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "maisha_payments_order_id_fkey"
+            foreignKeyName: "payments_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"

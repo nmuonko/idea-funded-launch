@@ -24,7 +24,7 @@ interface PaymentSettings {
   updated_at: string;
 }
 
-export default function PaymentLimitsSettings() {
+export default function PaymentLimitsContent() {
   const [settings, setSettings] = useState<PaymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -139,14 +139,12 @@ export default function PaymentLimitsSettings() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">
-            {language === 'fr' ? 'Limites de Paiement' : 'Payment Limits'}
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            {language === 'fr' 
-              ? 'Configurez les limites Mobile Money et les méthodes de paiement disponibles' 
-              : 'Configure Mobile Money limits and available payment methods'}
-          </p>
+          {settings?.updated_at && (
+            <p className="text-sm text-muted-foreground">
+              {language === 'fr' ? 'Dernière mise à jour: ' : 'Last updated: '}
+              {format(new Date(settings.updated_at), 'PPpp')}
+            </p>
+          )}
         </div>
         <Button onClick={saveSettings} disabled={saving}>
           {saving ? (
@@ -157,13 +155,6 @@ export default function PaymentLimitsSettings() {
           {t.settings.saveChanges}
         </Button>
       </div>
-
-      {settings?.updated_at && (
-        <p className="text-sm text-muted-foreground">
-          {language === 'fr' ? 'Dernière mise à jour: ' : 'Last updated: '}
-          {format(new Date(settings.updated_at), 'PPpp')}
-        </p>
-      )}
 
       {/* Mobile Money Limits */}
       <Card>

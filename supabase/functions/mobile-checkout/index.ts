@@ -390,29 +390,68 @@ serve(async (req) => {
     const profile = userProfile!;
 
     // ============================================
-    // P0 FIX: Validate phone from profile (NOT from payload)
+    // P0 FIX: Phone normalization & validation to E.164
+    // Load from profile ONLY, NOT from payload
     // ============================================
-    const profilePhone = (profile.phone || '').trim();
-    const phoneRegex = /^\+?[0-9]{7,15}$/;
+    const rawPhone = (profile.phone || '').trim();
     
-    if (!profilePhone || !phoneRegex.test(profilePhone.replace(/[\s\-()]/g, ''))) {
-      console.log('[mobile-checkout] [profile-phone] PHONE_REQUIRED', { 
-        userId: user.id, 
-        hasPhone: !!profilePhone,
-        phoneLength: profilePhone.length,
+    // Step 1: Check if phone exists
+    if (!rawPhone) {
+      console.log('[mobile-checkout] [profile-phone]', { 
+        phone_last4: 'N/A',
+        phone_valid: false,
+        reason: 'missing',
       });
       return jsonResponse({
         success: false,
         code: 'PHONE_REQUIRED',
-        message: 'Phone number required in profile',
+        message: 'Phone number missing in profile',
         error: 'A valid phone number is required in your profile before checkout.',
       }, 400);
     }
-
-    console.log('[mobile-checkout] [profile-phone] Phone validated', { 
-      userId: user.id, 
-      phonePrefix: profilePhone.slice(0, 6) + '***',
+    
+    // Step 2: Normalize phone - remove spaces, dashes, parentheses
+    let normalizedPhone = rawPhone.replace(/[\s\-()]/g, '');
+    
+    // Step 3: Ensure starts with + 
+    if (!normalizedPhone.startsWith('+')) {
+      // Try to add + if it looks like international format
+      if (normalizedPhone.startsWith('00')) {
+        normalizedPhone = '+' + normalizedPhone.slice(2);
+      } else if (normalizedPhone.startsWith('243')) {
+        // DRC country code without +
+        normalizedPhone = '+' + normalizedPhone;
+      } else if (normalizedPhone.startsWith('0')) {
+        // Local format - assume DRC
+        normalizedPhone = '+243' + normalizedPhone.slice(1);
+      } else if (/^[1-9]/.test(normalizedPhone)) {
+        // Starts with digit but no prefix - assume needs +
+        normalizedPhone = '+' + normalizedPhone;
+      }
+    }
+    
+    // Step 4: Validate E.164 format: +[country][number] = 10-15 digits after +
+    const e164Regex = /^\+\d{10,15}$/;
+    const phoneValid = e164Regex.test(normalizedPhone);
+    const phoneLast4 = normalizedPhone.slice(-4);
+    
+    console.log('[mobile-checkout] [profile-phone]', { 
+      phone_last4: phoneLast4,
+      phone_valid: phoneValid,
+      phone_length: normalizedPhone.length,
     });
+    
+    if (!phoneValid) {
+      return jsonResponse({
+        success: false,
+        code: 'INVALID_PHONE',
+        message: 'Phone number invalid. Please update your profile phone in international format like +243...',
+        error: 'Phone number must be in international format (e.g., +243812345678).',
+      }, 400);
+    }
+    
+    // Store normalized phone for later use
+    const validatedPhone = normalizedPhone;
     const { isDRC, isoCode, countryCode } = detectBuyerCountry(profile, body);
 
     // Get user's DRAFT order
@@ -727,9 +766,25 @@ serve(async (req) => {
     let displayAmount: string;
     let currencyReason: string;
 
+    // pawaPay supported currencies for DRC
+    const PAWAPAY_SUPPORTED_CURRENCIES = ['USD', 'CDF'];
+    
     // ALL items pay FULL PRICE upfront - no deposit, no caps, no limits
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
       // Validate currency is supported by pawaPay
+      if (clientRequestedCurrency && !PAWAPAY_SUPPORTED_CURRENCIES.includes(clientRequestedCurrency)) {
+        console.log('[mobile-checkout] CURRENCY_NOT_SUPPORTED', {
+          requested: clientRequestedCurrency,
+          supported: PAWAPAY_SUPPORTED_CURRENCIES,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'CURRENCY_NOT_SUPPORTED',
+          message: 'Selected currency is not supported for this payment method.',
+          error: `Currency ${clientRequestedCurrency} is not supported. Use USD or CDF.`,
+        }, 400);
+      }
+      
       if (clientRequestedCurrency === 'USD') {
         payable_currency = 'USD';
         payable_amount = round2(totalsBreakdown.grand_total);
@@ -756,6 +811,49 @@ serve(async (req) => {
       amountFormatted = payable_amount.toFixed(2);
       displayAmount = `$${amountFormatted} USD`;
       currencyReason = 'card_usd_full_payment';
+    }
+    
+    // ============================================
+    // P0 FIX: Validate amount before calling provider
+    // ============================================
+    if (!Number.isFinite(payable_amount) || isNaN(payable_amount) || payable_amount <= 0) {
+      console.error('[mobile-checkout] INVALID_PAYABLE_AMOUNT', {
+        payable_amount,
+        grand_total: totalsBreakdown.grand_total,
+        cdf_equivalent: totalsBreakdown.cdf_equivalent,
+      });
+      return jsonResponse({
+        success: false,
+        code: 'INVALID_AMOUNT',
+        message: 'Payment amount is invalid. Please refresh and try again.',
+        error: 'Computed payment amount is not valid.',
+      }, 400);
+    }
+    
+    // pawaPay minimum amounts (approximate - adjust based on provider docs)
+    const PAWAPAY_MIN_USD = 0.50;
+    const PAWAPAY_MIN_CDF = 500;
+    const PAWAPAY_MAX_USD = 50000;
+    const PAWAPAY_MAX_CDF = 100000000; // 100M CDF
+    
+    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      const minAmount = payable_currency === 'USD' ? PAWAPAY_MIN_USD : PAWAPAY_MIN_CDF;
+      const maxAmount = payable_currency === 'USD' ? PAWAPAY_MAX_USD : PAWAPAY_MAX_CDF;
+      
+      if (payable_amount < minAmount || payable_amount > maxAmount) {
+        console.log('[mobile-checkout] AMOUNT_OUT_OF_RANGE', {
+          payable_amount,
+          payable_currency,
+          min: minAmount,
+          max: maxAmount,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'AMOUNT_OUT_OF_RANGE',
+          message: 'Amount is outside allowed limits for this payment method.',
+          error: `Amount must be between ${minAmount} and ${maxAmount} ${payable_currency}.`,
+        }, 400);
+      }
     }
 
     // ============================================
@@ -927,7 +1025,14 @@ serve(async (req) => {
         }, 503);
       }
 
-      console.log('[mobile-checkout] CHECKOUT_PAWAPAY_INIT', { orderId: checkoutOrder.id });
+      // SAFE LOGGING: structured checkout init
+      console.log('[mobile-checkout] CHECKOUT_PAWAPAY_INIT', { 
+        order_id: checkoutOrder.id,
+        payment_flow: 'PAWAPAY',
+        currency: payable_currency,
+        amount: payable_amount,
+        phone_last4: validatedPhone.slice(-4),
+      });
       
       try {
         const pawaConfig = getPawaPayConfig(provider);
@@ -937,7 +1042,7 @@ serve(async (req) => {
           orderId: checkoutOrder.id,
           amount: payable_amount,
           currency: payable_currency,
-          customerPhone: profile.phone || '',
+          customerPhone: validatedPhone, // Use normalized/validated phone
           customerEmail: profile.email || user.email || '',
           country: isoCode || 'COD',
           reference: pawaReference,
@@ -952,7 +1057,7 @@ serve(async (req) => {
             amount: payable_amount,
             currency: payable_currency,
             reference: pawaReference,
-            customer_phone: profile.phone || '',
+            customer_phone: validatedPhone,
             country: isoCode || 'COD',
             provider_deposit_id: depositResult.provider_deposit_id,
             raw_request: depositResult.raw_request,
@@ -960,7 +1065,10 @@ serve(async (req) => {
           });
 
           console.log('[mobile-checkout] CHECKOUT_PAWAPAY_SUCCESS', {
-            orderId: checkoutOrder.id,
+            order_id: checkoutOrder.id,
+            payment_flow: 'PAWAPAY',
+            currency: payable_currency,
+            amount: payable_amount,
             depositId: depositResult.provider_deposit_id,
             reference: pawaReference,
           });
@@ -1015,27 +1123,54 @@ serve(async (req) => {
             },
           });
         } else {
-          console.error('[mobile-checkout] CHECKOUT_PAWAPAY_FAILED', {
-            orderId: checkoutOrder.id,
-            error: depositResult.error,
+          // ============================================
+          // P0 FIX: Better error mapping from provider
+          // ============================================
+          const errorDetails = depositResult.errorDetails;
+          
+          // SAFE LOGGING: structured provider error (no secrets)
+          console.error('[mobile-checkout] [provider-init] CHECKOUT_PAWAPAY_FAILED', {
+            order_id: checkoutOrder.id,
+            provider: 'pawapay',
+            provider_http_status: errorDetails?.provider_http_status,
+            provider_error_code: errorDetails?.provider_error_code,
+            provider_request_id: errorDetails?.provider_request_id,
+            is_rejection: errorDetails?.is_rejection,
           });
+          
+          // Determine HTTP status based on error type
+          // Provider rejection (4xx-type) = 400, Server error = 500
+          const httpStatus = errorDetails?.is_rejection ? 400 : 500;
+          const errorCode = errorDetails?.is_rejection ? 'PROVIDER_REJECTED' : 'PAYMENT_INIT_FAILED';
+          const errorMessage = errorDetails?.is_rejection 
+            ? 'Payment was rejected by the payment provider.'
+            : 'Failed to initiate payment. Please try again.';
+          
           return jsonResponse({
             success: false,
-            code: 'PAYMENT_INIT_FAILED',
-            message: depositResult.error || 'Failed to initiate mobile money payment. Please try again.',
+            code: errorCode,
+            message: errorMessage,
             error: depositResult.error || 'Payment initiation failed.',
-          }, 500);
+            // Include safe diagnostic fields
+            provider: 'pawapay',
+            provider_http_status: errorDetails?.provider_http_status,
+            provider_error_code: errorDetails?.provider_error_code,
+            provider_request_id: errorDetails?.provider_request_id,
+          }, httpStatus);
         }
       } catch (pawaError: any) {
-        console.error('[mobile-checkout] CHECKOUT_PAWAPAY_ERROR', {
-          orderId: checkoutOrder.id,
-          error: pawaError.message,
+        // True server exception - return 500
+        console.error('[mobile-checkout] [provider-init] CHECKOUT_PAWAPAY_EXCEPTION', {
+          order_id: checkoutOrder.id,
+          error_name: pawaError.name,
+          error_message: pawaError.message?.slice(0, 100),
         });
         return jsonResponse({
           success: false,
           code: 'PAYMENT_ERROR',
           message: 'Mobile money payment failed. Please try again or use Bank Transfer.',
-          error: pawaError.message,
+          error: 'An unexpected error occurred during payment initiation.',
+          provider: 'pawapay',
         }, 500);
       }
     }

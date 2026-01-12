@@ -170,12 +170,26 @@ export function getPawaPayConfig(provider: PaymentProvider): PawaPayConfig {
 // ==================== API Methods ====================
 
 /**
+ * Structured error result for better debugging
+ */
+export interface ProviderErrorDetails {
+  provider: 'pawapay';
+  provider_http_status?: number;
+  provider_error_code?: string;
+  provider_message?: string;
+  provider_request_id?: string;
+  is_rejection: boolean; // true = provider rejected (4xx-type), false = server error
+}
+
+/**
  * Create a deposit (payment request) with pawaPay
+ * 
+ * Returns structured error details for better debugging and error mapping
  */
 export async function createDeposit(
   config: PawaPayConfig,
   params: CreatePaymentParams
-): Promise<CreatePaymentResult> {
+): Promise<CreatePaymentResult & { errorDetails?: ProviderErrorDetails }> {
   const depositId = generateDepositId();
   const correspondent = detectCorrespondent(params.customerPhone || '');
   const phoneE164 = formatPhoneE164(params.customerPhone || '');
@@ -195,12 +209,14 @@ export async function createDeposit(
     statementDescription: params.description || `AfriShop ${params.reference || params.orderId}`,
   };
 
-  console.log('[pawaPay] Creating deposit:', {
+  // SAFE LOGGING: mask phone, no secrets
+  console.log('[pawaPay] [provider-init] Creating deposit:', {
     depositId,
     amount: request.amount,
     currency: request.currency,
     correspondent,
-    phone: phoneE164.slice(0, 6) + '****',
+    phone_last4: phoneE164.slice(-4),
+    order_id: params.orderId,
   });
 
   try {
@@ -213,12 +229,43 @@ export async function createDeposit(
       body: JSON.stringify(request),
     });
 
-    const data: PawaPayDepositResponse = await response.json();
+    const httpStatus = response.status;
+    let data: PawaPayDepositResponse;
     
-    console.log('[pawaPay] Deposit response:', {
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      // Response not JSON - likely server error
+      console.error('[pawaPay] [provider-init] Non-JSON response:', {
+        depositId,
+        http_status: httpStatus,
+        error: 'Response not valid JSON',
+      });
+      return {
+        success: false,
+        provider_key: 'pawapay',
+        reference: params.reference || depositId,
+        provider_deposit_id: depositId,
+        status: 'rejected',
+        error: 'Payment service returned invalid response',
+        raw_request: request,
+        errorDetails: {
+          provider: 'pawapay',
+          provider_http_status: httpStatus,
+          provider_error_code: 'INVALID_RESPONSE',
+          provider_message: 'Non-JSON response from provider',
+          provider_request_id: depositId,
+          is_rejection: false, // server error, not rejection
+        },
+      };
+    }
+    
+    // SAFE LOGGING: structured provider response
+    console.log('[pawaPay] [provider-init] Deposit response:', {
       depositId: data.depositId,
       status: data.status,
-      httpStatus: response.status,
+      http_status: httpStatus,
+      rejection_code: data.rejectionReason?.rejectionCode,
     });
 
     if (data.status === 'ACCEPTED') {
@@ -248,27 +295,58 @@ export async function createDeposit(
       };
     }
 
-    // REJECTED
+    // REJECTED - provider rejected the request (4xx-type)
+    const rejectionCode = data.rejectionReason?.rejectionCode || 'UNKNOWN';
+    const rejectionMessage = data.rejectionReason?.rejectionMessage || 'Payment rejected by provider';
+    
+    console.warn('[pawaPay] [provider-init] Deposit REJECTED:', {
+      depositId,
+      rejection_code: rejectionCode,
+      rejection_message: rejectionMessage,
+      http_status: httpStatus,
+    });
+    
     return {
       success: false,
       provider_key: 'pawapay',
       reference: params.reference || depositId,
       provider_deposit_id: depositId,
       status: 'rejected',
-      error: data.rejectionReason?.rejectionMessage || 'Payment rejected',
+      error: rejectionMessage,
       raw_request: request,
       raw_response: data,
+      errorDetails: {
+        provider: 'pawapay',
+        provider_http_status: httpStatus,
+        provider_error_code: rejectionCode,
+        provider_message: rejectionMessage,
+        provider_request_id: depositId,
+        is_rejection: true, // provider rejected, not server error
+      },
     };
 
   } catch (error: any) {
-    console.error('[pawaPay] API error:', error.message);
+    // Network/timeout error - server exception, NOT provider rejection
+    console.error('[pawaPay] [provider-init] API exception:', {
+      depositId,
+      error_name: error.name,
+      error_message: error.message?.slice(0, 100), // truncate for safety
+    });
     return {
       success: false,
       provider_key: 'pawapay',
       reference: params.reference || depositId,
+      provider_deposit_id: depositId,
       status: 'rejected',
-      error: error.message,
+      error: 'Payment service unavailable',
       raw_request: request,
+      errorDetails: {
+        provider: 'pawapay',
+        provider_error_code: error.name || 'NETWORK_ERROR',
+        provider_message: error.message?.slice(0, 100),
+        provider_request_id: depositId,
+        is_rejection: false, // server/network error, not provider rejection
+      },
     };
   }
 }

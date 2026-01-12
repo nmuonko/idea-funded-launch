@@ -90,13 +90,14 @@ const App = () => {
               <Sonner />
               <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={<HowItWorks />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/payments-compliance" element={<PaymentsCompliance />} />
             <Route path="/refunds" element={<Refunds />} />
             <Route path="/download" element={<DownloadPage />} />
+            <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/auth/reset-password" element={<ResetPassword />} />

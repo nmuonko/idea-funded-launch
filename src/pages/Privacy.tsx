@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Download, Shield, Mail } from "lucide-react";
+import { Download, Shield, Mail, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Privacy = () => {
@@ -12,18 +12,26 @@ const Privacy = () => {
             AfriShop
           </Link>
           <nav className="hidden md:flex items-center gap-4 text-sm">
-            <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
+            <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
             <Link to="/privacy" className="font-medium text-primary">Privacy</Link>
             <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
             <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
             <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
           </nav>
-          <Link to="/download">
-            <Button size="sm">
-              <Download className="h-4 w-4 mr-2" />
-              Get App
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to="/download" className="hidden sm:inline-flex">
+              <Button size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Get App
+              </Button>
+            </Link>
+            <Link to="/auth?mode=admin">
+              <Button size="sm" variant="ghost">
+                <LogIn className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Admin</span>
+              </Button>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -180,7 +188,7 @@ const Privacy = () => {
               © {new Date().getFullYear()} AfriShop. All rights reserved.
             </p>
             <nav className="flex flex-wrap items-center justify-center gap-4 md:gap-6 text-sm">
-              <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
+              <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
               <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
               <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
               <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>

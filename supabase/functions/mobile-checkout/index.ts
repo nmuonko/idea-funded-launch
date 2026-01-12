@@ -24,17 +24,18 @@ import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
 
 // Payment method types
 type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
-type MaishapayFlow = 'MOBILE_MONEY_SESSION' | 'CARD_SESSION';
+
+// Payment flow types - MaishaPay REMOVED
+type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER';
 
 /**
- * Mobile Checkout Edge Function - P0 FULL PAYMENT (2025-12-24)
+ * Mobile Checkout Edge Function - P0 FULL PAYMENT (2026-01)
  * 
  * CRITICAL REQUIREMENTS:
  * 1. Server is SINGLE SOURCE OF TRUTH for totals - client amounts are DEBUG ONLY
  * 2. NO DEPOSIT LOGIC - ALL orders (including vehicles) pay FULL PRICE
  * 3. NO CAPS/LIMITS - payable_amount = server-computed grand_total
- * 4. MaishaPay receives EXACTLY payable_amount and payable_currency
- * 5. Structured logs: CHECKOUT_PAYABLE_COMPUTED, CHECKOUT_MAISHAPAY_AMOUNT_SENT
+ * 4. MaishaPay REMOVED - Only pawaPay for mobile money, Stripe for cards, Bank Transfer for vehicles
  */
 
 // ============================================
@@ -279,112 +280,9 @@ function detectBuyerCountry(
   return { isDRC, isoCode: detectedIso, countryCode: detectedIso };
 }
 
-// Generate checkout HTML that auto-submits to MaishaPay
-function generateCheckoutHtml(params: {
-  publicKey: string;
-  secretKey: string;
-  gatewayMode: string;
-  amount: string;
-  currency: string;
-  displayAmount: string;
-  reference: string;
-  callbackUrl: string;
-  orderId: string;
-  isoCode?: string;
-  countryCode?: string;
-  motif?: string;
-  phone?: string;
-}): string {
-  const checkoutUrl = 'https://marchand.maishapay.online/payment/vers1.0/merchant/checkout';
-  
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paiement AfriShop</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.container{text-align:center;width:100%;max-width:350px}
-.icon{font-size:48px;margin-bottom:16px}
-h1{font-size:20px;margin-bottom:8px}
-.subtitle{opacity:0.7;font-size:14px;margin-bottom:24px}
-.amount-box{background:rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:24px}
-.amount-label{font-size:12px;opacity:0.6;margin-bottom:8px}
-.amount{font-size:28px;font-weight:bold;color:#00d4ff}
-.ref{font-size:11px;opacity:0.5;margin-top:8px}
-.btn{width:100%;padding:16px;background:#00d4ff;color:#1a1a2e;border:none;border-radius:10px;font-size:16px;font-weight:bold;cursor:pointer}
-.secure{margin-top:20px;font-size:11px;opacity:0.4}
-.status{margin-top:16px;font-size:13px;opacity:0.8}
-.spinner{display:inline-block;width:20px;height:20px;border:2px solid rgba(255,255,255,0.3);border-top-color:#00d4ff;border-radius:50%;animation:spin 1s linear infinite;margin-right:8px;vertical-align:middle}
-@keyframes spin{to{transform:rotate(360deg)}}
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="icon">💳</div>
-  <h1>Paiement Sécurisé</h1>
-  <p class="subtitle">AfriShop via MaishaPay</p>
-  
-  <div class="amount-box">
-    <p class="amount-label">Montant à payer</p>
-    <p class="amount">${params.displayAmount}</p>
-    <p class="ref">Réf: ${params.reference}</p>
-  </div>
-  
-  <form id="payForm" action="${checkoutUrl}" method="POST">
-    <input type="hidden" name="gatewayMode" value="${params.gatewayMode}">
-    <input type="hidden" name="publicApiKey" value="${params.publicKey}">
-    <input type="hidden" name="secretApiKey" value="${params.secretKey}">
-    <input type="hidden" name="montant" value="${params.amount}">
-    <input type="hidden" name="devise" value="${params.currency}">
-    <input type="hidden" name="callbackUrl" value="${params.callbackUrl}">
-    <input type="hidden" name="reference" value="${params.reference}">
-    <input type="hidden" name="motif" value="${params.motif || `Paiement AfriShop ${params.reference}`}">
-    ${params.isoCode ? `<input type="hidden" name="isoCode" value="${params.isoCode}">` : ''}
-    ${params.countryCode ? `<input type="hidden" name="countryCode" value="${params.countryCode}">` : ''}
-    ${params.phone ? `<input type="hidden" name="phone" value="${params.phone}">` : ''}
-    
-    <button type="submit" class="btn" id="payBtn">Payer maintenant</button>
-  </form>
-  
-  <p class="status" id="status"></p>
-  <p class="secure">🔒 Paiement sécurisé via MaishaPay</p>
-</div>
-
-<script>
-(function(){
-  var btn = document.getElementById('payBtn');
-  var form = document.getElementById('payForm');
-  var status = document.getElementById('status');
-  var submitted = false;
-  
-  function submit() {
-    if (submitted) return;
-    submitted = true;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Redirection...';
-    status.innerHTML = 'Connexion à MaishaPay...';
-    setTimeout(function() { form.submit(); }, 500);
-  }
-  
-  // Auto-submit after 2 seconds
-  setTimeout(submit, 2000);
-  
-  btn.onclick = function(e) {
-    e.preventDefault();
-    submit();
-  };
-})();
-</script>
-</body>
-</html>`;
-}
-
 serve(async (req) => {
-  // 🔖 VERSION MARKER - P0 FULL PAYMENT (NO DEPOSIT, NO CAPS)
-  console.log("MOBILE_CHECKOUT_VERSION", "v2025-12-24-p0-full-payment-no-caps");
+  // 🔖 VERSION MARKER - P0 FULL PAYMENT (NO MAISHAPAY)
+  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-12-no-maishapay");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -397,7 +295,7 @@ serve(async (req) => {
     // ============================================
     // CHECKOUT_INIT: Log entry point
     // ============================================
-    console.log('CHECKOUT_INIT', { timestamp: new Date().toISOString() });
+    console.log('[mobile-checkout] CHECKOUT_INIT', { timestamp: new Date().toISOString() });
 
     const { user, supabase } = await verifyAndGetUser(req);
     console.log('[mobile-checkout] User authenticated:', user.id);
@@ -407,7 +305,7 @@ serve(async (req) => {
 
     // ============================================
     // P0 CRITICAL: Capture client amounts as DEBUG ONLY
-    // These values are NEVER used in calculations or MaishaPay calls
+    // These values are NEVER used in calculations
     // ============================================
     const ui_amount_usd = body.amount_usd !== undefined ? Number(body.amount_usd) : null;
     const ui_amount_cdf = body.amount_cdf !== undefined ? Number(body.amount_cdf) : null;
@@ -419,7 +317,7 @@ serve(async (req) => {
 
     // Log all client-sent amounts (debug only - NEVER used for payment)
     if (ui_amount_usd !== null || ui_amount_cdf !== null || ui_total !== null || ui_amount !== null || ui_grand_total !== null) {
-      console.log('CHECKOUT_CLIENT_AMOUNTS_DEBUG_ONLY', {
+      console.log('[mobile-checkout] CHECKOUT_CLIENT_AMOUNTS_DEBUG_ONLY', {
         ui_amount_usd,
         ui_amount_cdf,
         ui_total,
@@ -435,14 +333,14 @@ serve(async (req) => {
     
     // P0 FIX: Validate currency (card = USD only)
     if (REQUESTED_METHOD === 'CARD' && clientRequestedCurrency === 'CDF') {
-      console.log('CHECKOUT_CURRENCY_OVERRIDE', {
+      console.log('[mobile-checkout] CHECKOUT_CURRENCY_OVERRIDE', {
         requested: 'CDF',
         enforced: 'USD',
         reason: 'Card payments only support USD',
       });
     }
 
-    console.log('CHECKOUT_INIT', {
+    console.log('[mobile-checkout] CHECKOUT_INIT', {
       user_id: user.id,
       cart_item_ids_count: cart_item_ids?.length || 0,
       pay_method: REQUESTED_METHOD,
@@ -451,7 +349,7 @@ serve(async (req) => {
 
     // P0 FIX: Validate cart_items is not empty
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
-      console.log('CHECKOUT_ERROR', { code: 'EMPTY_CART', cart_item_ids });
+      console.log('[mobile-checkout] CHECKOUT_ERROR', { code: 'EMPTY_CART', cart_item_ids });
       return jsonResponse({ 
         success: false, 
         code: 'EMPTY_CART',
@@ -573,7 +471,7 @@ serve(async (req) => {
 
     // P1 FIX: Cart version check - ensures cart consistency
     if (clientCartVersion !== null && existingOrder.cart_version !== clientCartVersion) {
-      console.warn('CHECKOUT_CART_VERSION_MISMATCH', {
+      console.warn('[mobile-checkout] CHECKOUT_CART_VERSION_MISMATCH', {
         client_version: clientCartVersion,
         server_version: existingOrder.cart_version,
         order_id: existingOrder.id,
@@ -617,7 +515,7 @@ serve(async (req) => {
     const missingItemIds = cart_item_ids.filter((id: string) => !foundItemIds.has(id));
     
     if (!dbItems || dbItems.length !== cart_item_ids.length) {
-      console.warn('CHECKOUT_CART_DESYNC', {
+      console.warn('[mobile-checkout] CHECKOUT_CART_DESYNC', {
         requested: cart_item_ids.length,
         found: dbItems?.length || 0,
         missing: missingItemIds,
@@ -658,7 +556,7 @@ serve(async (req) => {
     });
 
     if (pendingPriceItems.length > 0) {
-      console.log('CHECKOUT_PRICE_CONFIRMATION_REQUIRED', {
+      console.log('[mobile-checkout] CHECKOUT_PRICE_CONFIRMATION_REQUIRED', {
         pending_count: pendingPriceItems.length,
         pending_item_ids: pendingPriceItems.map(i => i.id),
       });
@@ -681,7 +579,7 @@ serve(async (req) => {
     // CHECKOUT_DEDUPED: Deduplicate cart items
     // ============================================
     const { deduped, duplicatesRemoved, dedupeLog } = deduplicateCartItems(dbItems);
-    console.log('CHECKOUT_DEDUPED', {
+    console.log('[mobile-checkout] CHECKOUT_DEDUPED', {
       original_count: dbItems.length,
       deduped_count: deduped.length,
       duplicates_removed: duplicatesRemoved,
@@ -694,7 +592,7 @@ serve(async (req) => {
     );
     
     if (vehiclesWithPendingQuotes.length > 0) {
-      console.log('CHECKOUT_QUOTE_REQUIRED', {
+      console.log('[mobile-checkout] CHECKOUT_QUOTE_REQUIRED', {
         vehicle_count: vehiclesWithPendingQuotes.length,
         vehicle_ids: vehiclesWithPendingQuotes.map(v => v.id),
       });
@@ -734,7 +632,7 @@ serve(async (req) => {
       vehicleQuoteValidation = await fetchAndValidateVehicleQuotes(supabase, vehicleQuoteItems);
       
       if (!vehicleQuoteValidation.valid) {
-        console.error('CHECKOUT_VEHICLE_QUOTE_INVALID', {
+        console.error('[mobile-checkout] CHECKOUT_VEHICLE_QUOTE_INVALID', {
           orderId: existingOrder.id,
           vehicleItemIds: vehicleQuoteItems.map(v => v.id),
           error: vehicleQuoteValidation.error,
@@ -754,7 +652,7 @@ serve(async (req) => {
     // ============================================
     const totalsBreakdown = await recomputeTotalsServerSide(dbItems, settings, vehicleQuoteValidation);
     
-    console.log('CHECKOUT_TOTALS_RECOMPUTED', {
+    console.log('[mobile-checkout] CHECKOUT_TOTALS_RECOMPUTED', {
       subtotal_items: totalsBreakdown.subtotal_items,
       shipping_fee: totalsBreakdown.shipping_fee,
       markup_fee: totalsBreakdown.markup_fee,
@@ -768,12 +666,12 @@ serve(async (req) => {
 
     // Log each markup rule used
     for (const rule of totalsBreakdown.markup_rules_used) {
-      console.log('CHECKOUT_MARKUP_RULE_USED', rule);
+      console.log('[mobile-checkout] CHECKOUT_MARKUP_RULE_USED', rule);
     }
 
     // Validate grand total
     if (!Number.isFinite(totalsBreakdown.grand_total) || totalsBreakdown.grand_total <= 0) {
-      console.error('CHECKOUT_INVALID_TOTAL', { 
+      console.error('[mobile-checkout] CHECKOUT_INVALID_TOTAL', { 
         grand_total: totalsBreakdown.grand_total, 
         item_count: totalsBreakdown.item_count 
       });
@@ -785,6 +683,41 @@ serve(async (req) => {
     }
 
     // ============================================
+    // VEHICLE ORDERS: Require Bank Transfer or Stripe (USD only)
+    // ============================================
+    if (containsVehicle) {
+      // Vehicles require USD
+      if (clientRequestedCurrency === 'CDF') {
+        console.log('[mobile-checkout] VEHICLE_USD_ONLY', { 
+          requested: 'CDF', 
+          enforced: 'USD',
+          reason: 'Vehicles require USD payment via Bank Transfer or Card'
+        });
+        return jsonResponse({
+          success: false,
+          code: 'VEHICLE_USD_ONLY',
+          message: 'Vehicle orders must be paid in USD via Bank Transfer or Card.',
+          error: 'Vehicle orders require USD payment.',
+        }, 400);
+      }
+
+      // For vehicles, prefer bank transfer unless card is explicitly requested
+      if (REQUESTED_METHOD !== 'CARD') {
+        console.log('[mobile-checkout] VEHICLE_BANK_TRANSFER_REQUIRED', {
+          order_id: existingOrder.id,
+          contains_vehicle: true,
+          payment_method: REQUESTED_METHOD,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'VEHICLE_BANK_TRANSFER_REQUIRED',
+          message: 'Vehicle orders require Bank Transfer or Card payment.',
+          error: 'Please use Bank Transfer or Card payment for vehicle orders.',
+        }, 400);
+      }
+    }
+
+    // ============================================
     // P0 CRITICAL: Determine SINGLE payable amount and currency
     // NO CAPS, NO LIMITS, NO DEPOSIT - FULL GRAND TOTAL ONLY
     // ============================================
@@ -792,11 +725,11 @@ serve(async (req) => {
     let payable_amount: number;
     let amountFormatted: string;
     let displayAmount: string;
-    let maishapayFlowUsed: MaishapayFlow;
     let currencyReason: string;
 
     // ALL items pay FULL PRICE upfront - no deposit, no caps, no limits
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      // Validate currency is supported by pawaPay
       if (clientRequestedCurrency === 'USD') {
         payable_currency = 'USD';
         payable_amount = round2(totalsBreakdown.grand_total);
@@ -816,21 +749,19 @@ serve(async (req) => {
         displayAmount = `$${amountFormatted} USD`;
         currencyReason = 'mobile_money_usd_default_full_payment';
       }
-      maishapayFlowUsed = 'MOBILE_MONEY_SESSION';
     } else {
       // CARD: USD only - use SERVER-COMPUTED grand_total
       payable_currency = 'USD';
       payable_amount = round2(totalsBreakdown.grand_total);
       amountFormatted = payable_amount.toFixed(2);
       displayAmount = `$${amountFormatted} USD`;
-      maishapayFlowUsed = 'CARD_SESSION';
       currencyReason = 'card_usd_full_payment';
     }
 
     // ============================================
-    // CHECKOUT_PAYABLE_COMPUTED: Required structured log #1
+    // CHECKOUT_PAYABLE_COMPUTED: Required structured log
     // ============================================
-    console.log('CHECKOUT_PAYABLE_COMPUTED', {
+    console.log('[mobile-checkout] CHECKOUT_PAYABLE_COMPUTED', {
       payable_amount,
       payable_currency,
       server_grand_total: totalsBreakdown.grand_total,
@@ -910,7 +841,7 @@ serve(async (req) => {
     }
 
     // ============================================
-    // Create checkout_session record (P0 FIX)
+    // Create checkout_session record
     // ============================================
     const { data: checkoutSession, error: sessionError } = await supabase
       .from('checkout_sessions')
@@ -948,293 +879,214 @@ serve(async (req) => {
       console.warn('[mobile-checkout] Failed to create checkout_session (non-fatal):', sessionError);
     }
 
-    // Create payment record - uses payable_amount (server-computed)
-    await supabase
-      .from('maisha_payments')
-      .insert({
-        order_id: checkoutOrder.id,
-        maisha_reference: reference,
-        amount_usd: totalsBreakdown.grand_total,
-        amount_cdf: totalsBreakdown.cdf_equivalent,
-        currency: payable_currency,
-        status: 'pending',
-        user_id: user.id,
-        raw_request: {
-          amount: payable_amount,
-          currency: payable_currency,
-          email: profile.email || user.email,
-          phone: profile.phone,
-          customerName: profile.full_name,
-        },
-      });
-
-    // Generate confirmationId early for use in both provider branches
+    // Generate confirmationId early for use in response
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
 
     // ============================================
     // PROVIDER ROUTING: Check for active provider
+    // Only pawaPay for mobile money (MaishaPay REMOVED)
     // ============================================
     const provider = await getActiveProvider(supabase, isoCode || 'COD', REQUESTED_METHOD);
     
-    console.log('CHECKOUT_PROVIDER_SELECTED', {
-      provider: provider?.provider_key || 'maishapay',
+    console.log('[mobile-checkout] CHECKOUT_PROVIDER_SELECTED', {
+      provider: provider?.provider_key || 'none',
       is_enabled: provider?.is_enabled || false,
       country: isoCode,
       method: REQUESTED_METHOD,
     });
 
     // ============================================
-    // PAWAPAY BRANCH: If pawaPay is active, use USSD push
+    // PAWAPAY BRANCH: Mobile Money via pawaPay (only option)
     // ============================================
-    if (provider && provider.provider_key === 'pawapay' && provider.is_enabled) {
+    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
+      // pawaPay is required for mobile money
+      if (!provider || provider.provider_key !== 'pawapay' || !provider.is_enabled) {
+        console.error('[mobile-checkout] PAWAPAY_NOT_AVAILABLE', {
+          provider: provider?.provider_key,
+          is_enabled: provider?.is_enabled,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'PROVIDER_NOT_AVAILABLE',
+          message: 'Mobile money payments are temporarily unavailable. Please try Bank Transfer.',
+          error: 'Payment provider not available.',
+        }, 503);
+      }
+
       const secretsValid = validateProviderSecrets(provider);
       
-      if (secretsValid.valid) {
-        console.log('CHECKOUT_PAWAPAY_INIT', { orderId: checkoutOrder.id });
+      if (!secretsValid.valid) {
+        console.error('[mobile-checkout] PAWAPAY_SECRETS_MISSING', {
+          missing: secretsValid.missing,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'PROVIDER_CONFIG_ERROR',
+          message: 'Mobile money payments are temporarily unavailable. Please try Bank Transfer.',
+          error: 'Payment provider not configured.',
+        }, 503);
+      }
+
+      console.log('[mobile-checkout] CHECKOUT_PAWAPAY_INIT', { orderId: checkoutOrder.id });
+      
+      try {
+        const pawaConfig = getPawaPayConfig(provider);
+        const pawaReference = generateProviderRef(checkoutOrder.id);
         
-        try {
-          const pawaConfig = getPawaPayConfig(provider);
-          const pawaReference = generateProviderRef(checkoutOrder.id);
-          
-          const depositResult = await createDeposit(pawaConfig, {
-            orderId: checkoutOrder.id,
+        const depositResult = await createDeposit(pawaConfig, {
+          orderId: checkoutOrder.id,
+          amount: payable_amount,
+          currency: payable_currency,
+          customerPhone: profile.phone || '',
+          customerEmail: profile.email || user.email || '',
+          country: isoCode || 'COD',
+          reference: pawaReference,
+          description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
+        });
+
+        if (depositResult.success) {
+          // Create payment record in unified payments table
+          await createPaymentRecord(supabase, {
+            order_id: checkoutOrder.id,
+            provider_key: 'pawapay',
             amount: payable_amount,
             currency: payable_currency,
-            customerPhone: profile.phone || '',
-            customerEmail: profile.email || user.email || '',
-            country: isoCode || 'COD',
             reference: pawaReference,
-            description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
+            customer_phone: profile.phone || '',
+            country: isoCode || 'COD',
+            provider_deposit_id: depositResult.provider_deposit_id,
+            raw_request: depositResult.raw_request,
+            status: 'pending',
           });
 
-          if (depositResult.success) {
-            // Create payment record in unified payments table
-            await createPaymentRecord(supabase, {
-              order_id: checkoutOrder.id,
-              provider_key: 'pawapay',
-              amount: payable_amount,
-              currency: payable_currency,
-              reference: pawaReference,
-              customer_phone: profile.phone || '',
-              country: isoCode || 'COD',
-              provider_deposit_id: depositResult.provider_deposit_id,
-              raw_request: depositResult.raw_request,
-              status: 'pending',
-            });
-
-            console.log('CHECKOUT_PAWAPAY_SUCCESS', {
-              orderId: checkoutOrder.id,
-              depositId: depositResult.provider_deposit_id,
-              reference: pawaReference,
-            });
-
-            // Return redirectUrl to payment-callback page that polls for status
-            const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
-            const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
-
-            return jsonResponse({
-              success: true,
-              // === REQUIRED FIELDS (always present) ===
-              order_id: checkoutOrder.id,
-              payment_flow: 'PAWAPAY',
-              currency: payable_currency,
-              amount: payable_amount,
-              // === OPTIONAL FIELDS (based on flow) ===
-              redirectUrl,
-              // === LEGACY FIELDS (for backwards compatibility) ===
-              checkout_type: 'FULL_PAYMENT',
-              orderId: checkoutOrder.id,
-              checkout_session_id: checkoutSession?.id || null,
-              confirmationId,
-              provider: 'pawapay',
-              checkoutUrl: redirectUrl,
-              message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
-              payable_amount,
-              payable_currency,
-              totals_breakdown: {
-                subtotal: totalsBreakdown.subtotal_items,
-                shipping: totalsBreakdown.shipping_fee,
-                markup: totalsBreakdown.markup_fee,
-                taxes: totalsBreakdown.taxes_fee,
-                grand_total: totalsBreakdown.grand_total,
-                currency: payable_currency,
-                cdf_equivalent: totalsBreakdown.cdf_equivalent,
-                exchange_rate: totalsBreakdown.exchange_rate,
-                vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
-              },
-              integrity_hash: integrityHash,
-              order: {
-                id: checkoutOrder.id,
-                confirmationId,
-                status: 'PENDING_PAYMENT',
-                itemCount: totalsBreakdown.item_count,
-                totalUsd: totalsBreakdown.grand_total,
-                totalCdf: totalsBreakdown.cdf_equivalent,
-              },
-              paymentDetails: {
-                currency: payable_currency,
-                amount: payable_amount,
-                displayAmount,
-              },
-            });
-          } else {
-            console.warn('CHECKOUT_PAWAPAY_FAILED', {
-              orderId: checkoutOrder.id,
-              error: depositResult.error,
-              fallback: 'maishapay',
-            });
-            // Fall through to MaishaPay
-          }
-        } catch (pawaError: any) {
-          console.error('CHECKOUT_PAWAPAY_ERROR', {
+          console.log('[mobile-checkout] CHECKOUT_PAWAPAY_SUCCESS', {
             orderId: checkoutOrder.id,
-            error: pawaError.message,
-            fallback: 'maishapay',
+            depositId: depositResult.provider_deposit_id,
+            reference: pawaReference,
           });
-          // Fall through to MaishaPay
+
+          // Return redirectUrl to payment-callback page that polls for status
+          const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
+          const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
+
+          return jsonResponse({
+            success: true,
+            // === REQUIRED FIELDS (always present) ===
+            order_id: checkoutOrder.id,
+            payment_flow: 'PAWAPAY' as PaymentFlow,
+            currency: payable_currency,
+            amount: payable_amount,
+            // === OPTIONAL FIELDS (based on flow) ===
+            redirectUrl,
+            // === LEGACY FIELDS (for backwards compatibility) ===
+            checkout_type: 'FULL_PAYMENT',
+            orderId: checkoutOrder.id,
+            checkout_session_id: checkoutSession?.id || null,
+            confirmationId,
+            provider: 'pawapay',
+            checkoutUrl: redirectUrl,
+            message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
+            payable_amount,
+            payable_currency,
+            totals_breakdown: {
+              subtotal: totalsBreakdown.subtotal_items,
+              shipping: totalsBreakdown.shipping_fee,
+              markup: totalsBreakdown.markup_fee,
+              taxes: totalsBreakdown.taxes_fee,
+              grand_total: totalsBreakdown.grand_total,
+              currency: payable_currency,
+              cdf_equivalent: totalsBreakdown.cdf_equivalent,
+              exchange_rate: totalsBreakdown.exchange_rate,
+              vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
+            },
+            integrity_hash: integrityHash,
+            order: {
+              id: checkoutOrder.id,
+              confirmationId,
+              status: 'PENDING_PAYMENT',
+              itemCount: totalsBreakdown.item_count,
+              totalUsd: totalsBreakdown.grand_total,
+              totalCdf: totalsBreakdown.cdf_equivalent,
+            },
+            paymentDetails: {
+              currency: payable_currency,
+              amount: payable_amount,
+              displayAmount,
+            },
+          });
+        } else {
+          console.error('[mobile-checkout] CHECKOUT_PAWAPAY_FAILED', {
+            orderId: checkoutOrder.id,
+            error: depositResult.error,
+          });
+          return jsonResponse({
+            success: false,
+            code: 'PAYMENT_INIT_FAILED',
+            message: depositResult.error || 'Failed to initiate mobile money payment. Please try again.',
+            error: depositResult.error || 'Payment initiation failed.',
+          }, 500);
         }
-      } else {
-        console.warn('CHECKOUT_PAWAPAY_SECRETS_MISSING', {
-          missing: secretsValid.missing,
-          fallback: 'maishapay',
+      } catch (pawaError: any) {
+        console.error('[mobile-checkout] CHECKOUT_PAWAPAY_ERROR', {
+          orderId: checkoutOrder.id,
+          error: pawaError.message,
         });
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_ERROR',
+          message: 'Mobile money payment failed. Please try again or use Bank Transfer.',
+          error: pawaError.message,
+        }, 500);
       }
     }
 
     // ============================================
-    // MAISHAPAY BRANCH: Default payment provider
+    // CARD BRANCH: Use Stripe (if configured)
     // ============================================
-
-    // Get MaishaPay configuration
-    const gatewayMode = Deno.env.get('MAISHAPAY_GATEWAY_MODE');
-    const legacyMode = Deno.env.get('MAISHAPAY_MODE');
-    const isLiveMode = gatewayMode === '1' || legacyMode === '1' || legacyMode?.toLowerCase() === 'live';
-    
-    const primarySecretKey = Deno.env.get('MAISHAPAY_SECRET_API_KEY');
-    
-    let publicKey: string;
-    let secretKey: string;
-    
-    if (isLiveMode) {
-      publicKey = Deno.env.get('MAISHAPAY_LIVE_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
-      secretKey = primarySecretKey || Deno.env.get('MAISHAPAY_LIVE_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
-    } else {
-      publicKey = Deno.env.get('MAISHAPAY_SANDBOX_PUBLIC_KEY') || Deno.env.get('MAISHAPAY_PUBLIC_KEY') || '';
-      secretKey = primarySecretKey || Deno.env.get('MAISHAPAY_SANDBOX_SECRET_KEY') || Deno.env.get('MAISHAPAY_SECRET_KEY') || '';
-    }
-    
-    if (!publicKey || !secretKey) {
-      console.error('[mobile-checkout] Missing MaishaPay keys');
+    if (REQUESTED_METHOD === 'CARD') {
+      // Check if Stripe is available
+      const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
+      
+      if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
+        // TODO: Implement Stripe payment flow
+        console.log('[mobile-checkout] STRIPE_PAYMENT_REQUESTED', {
+          orderId: checkoutOrder.id,
+          amount: payable_amount,
+          currency: payable_currency,
+        });
+        
+        // For now, return that Stripe is not yet implemented
+        return jsonResponse({
+          success: false,
+          code: 'STRIPE_NOT_IMPLEMENTED',
+          message: 'Card payments are coming soon. Please use Mobile Money or Bank Transfer.',
+          error: 'Card payments not yet available.',
+        }, 501);
+      }
+      
+      // No card provider available
       return jsonResponse({
         success: false,
-        code: 'CHECKOUT_URL_ERROR',
-        error: 'Payment gateway not configured. Please contact support.',
-      }, 500);
+        code: 'CARD_NOT_AVAILABLE',
+        message: 'Card payments are not available. Please use Mobile Money or Bank Transfer.',
+        error: 'Card payment provider not configured.',
+      }, 503);
     }
 
-    const mobileCallbackUrl = Deno.env.get('MAISHAPAY_MOBILE_CALLBACK_URL') || 'https://afri-shop.com/payment-callback';
-    const motif = `Paiement AfriShop - Commande ${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
-
     // ============================================
-    // CHECKOUT_MAISHAPAY_AMOUNT_SENT: Required structured log #2
-    // Proves what we're sending to MaishaPay
+    // FALLBACK: No valid payment method
     // ============================================
-    console.log('CHECKOUT_MAISHAPAY_AMOUNT_SENT', {
-      montant_sent: amountFormatted,
-      devise_sent: payable_currency,
-      payable_amount,
-      payable_currency,
-    });
-
-    // Generate HTML for mobile WebView - uses payable_amount
-    const html = generateCheckoutHtml({
-      publicKey,
-      secretKey,
-      gatewayMode: isLiveMode ? '1' : '0',
-      amount: amountFormatted,          // Derived from payable_amount
-      currency: payable_currency,        // Server-determined
-      displayAmount,                     // Derived from payable_amount
-      reference,
-      callbackUrl: mobileCallbackUrl,
+    console.error('[mobile-checkout] NO_VALID_PAYMENT_METHOD', {
       orderId: checkoutOrder.id,
-      isoCode: isDRC ? isoCode : undefined,
-      countryCode: isDRC ? countryCode : undefined,
-      motif,
-      phone: profile.phone || undefined,
+      requested_method: REQUESTED_METHOD,
     });
-
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const checkoutUrl = `${supabaseUrl}/functions/v1/maishapay-checkout-page?order_id=${checkoutOrder.id}`;
-
-    // ============================================
-    // CHECKOUT_FINAL: Success response
-    // ============================================
-    console.log('CHECKOUT_FINAL', {
-      orderId: checkoutOrder.id,
-      checkout_session_id: checkoutSession?.id || null,
-      confirmationId,
-      reference,
-      grandTotalUsd: totalsBreakdown.grand_total,
-      payable_currency,
-      payable_amount,
-      integrityHash: integrityHash.slice(0, 16) + '...',
-    });
-
-    // ============================================
-    // Determine payment_flow for consistent response
-    // ============================================
-    const payment_flow = 'MAISHAPAY';
-
-    // Return response with normalized contract fields
+    
     return jsonResponse({
-      success: true,
-      // === REQUIRED FIELDS (always present) ===
-      order_id: checkoutOrder.id,
-      payment_flow,
-      currency: payable_currency,
-      amount: payable_amount,
-      // === OPTIONAL FIELDS (based on flow) ===
-      redirectUrl: checkoutUrl,
-      // === LEGACY FIELDS (for backwards compatibility) ===
-      checkout_type: 'FULL_PAYMENT',
-      orderId: checkoutOrder.id,
-      checkout_session_id: checkoutSession?.id || null,
-      confirmationId,
-      checkoutUrl,
-      html,
-      payable_amount,
-      payable_currency,
-      totals_breakdown: {
-        subtotal: totalsBreakdown.subtotal_items,
-        shipping: totalsBreakdown.shipping_fee,
-        markup: totalsBreakdown.markup_fee,
-        taxes: totalsBreakdown.taxes_fee,
-        grand_total: totalsBreakdown.grand_total,
-        currency: payable_currency,
-        cdf_equivalent: totalsBreakdown.cdf_equivalent,
-        exchange_rate: totalsBreakdown.exchange_rate,
-        vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
-      },
-      integrity_hash: integrityHash,
-      order: {
-        id: checkoutOrder.id,
-        confirmationId,
-        status: 'PENDING_PAYMENT',
-        itemCount: totalsBreakdown.item_count,
-        totalUsd: totalsBreakdown.grand_total,
-        totalCdf: totalsBreakdown.cdf_equivalent,
-      },
-      paymentDetails: {
-        currency: payable_currency,
-        amount: payable_amount,
-        displayAmount,
-        alternativeAmount: payable_currency === 'CDF' 
-          ? { currency: 'USD', amount: totalsBreakdown.grand_total, display: `$${totalsBreakdown.grand_total.toFixed(2)} USD` }
-          : { currency: 'CDF', amount: Math.round(totalsBreakdown.cdf_equivalent), display: `${Math.round(totalsBreakdown.cdf_equivalent).toLocaleString('fr-FR')} CDF` },
-        exchangeRate,
-        currencyReason,
-      },
-    });
+      success: false,
+      code: 'INVALID_PAYMENT_METHOD',
+      message: 'Invalid payment method. Please use Mobile Money or Bank Transfer.',
+      error: 'Payment method not supported.',
+    }, 400);
 
   } catch (error: any) {
     console.error('[mobile-checkout] Error:', error.message);

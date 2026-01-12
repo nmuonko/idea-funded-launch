@@ -146,19 +146,55 @@ export function formatPhoneE164(phoneNumber: string): string {
 // ==================== Config ====================
 
 /**
+ * Configuration error class for missing/invalid config
+ */
+export class ConfigMissingError extends Error {
+  code = 'CONFIG_MISSING';
+  provider = 'pawapay';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConfigMissingError';
+  }
+}
+
+/**
  * Get pawaPay configuration from provider config
+ * Uses canonical env var names: PAWAPAY_API_TOKEN, PAWAPAY_BASE_URL
  */
 export function getPawaPayConfig(provider: PaymentProvider): PawaPayConfig {
-  const apiToken = getSecretValue(provider.secret_refs.api_token || 'PAWAPAY_API_TOKEN');
+  // Use canonical env var name: PAWAPAY_API_TOKEN
+  const tokenEnvName = provider.secret_refs?.api_token || 'PAWAPAY_API_TOKEN';
+  const rawToken = getSecretValue(tokenEnvName);
+  
+  // Trim token to handle trailing newlines/whitespace
+  const apiToken = (rawToken || '').trim();
+  
+  // SAFE LOGGING: log presence and length, never the value
+  console.log('[pawapay-auth] token_present=' + (apiToken.length > 0) + ', token_length=' + apiToken.length);
+  
+  if (!apiToken) {
+    throw new ConfigMissingError('Payment provider token is not configured.');
+  }
+  
+  // Determine mode
   const modeRaw = provider.config_public?.mode || 'sandbox';
   const mode: 'sandbox' | 'live' = modeRaw === 'live' ? 'live' : 'sandbox';
-  const apiBase = mode === 'live' 
-    ? 'https://api.pawapay.io' 
-    : (provider.config_public.api_base || 'https://api.sandbox.pawapay.io');
-
-  if (!apiToken) {
-    throw new Error('PAWAPAY_API_TOKEN not configured');
+  
+  // Base URL: use env var PAWAPAY_BASE_URL or derive from mode
+  const envBaseUrl = (Deno.env.get('PAWAPAY_BASE_URL') || '').trim();
+  let apiBase: string;
+  
+  if (envBaseUrl) {
+    apiBase = envBaseUrl;
+  } else if (mode === 'live') {
+    apiBase = 'https://api.pawapay.io';
+  } else {
+    apiBase = provider.config_public?.api_base || 'https://api.sandbox.pawapay.io';
   }
+  
+  // SAFE LOGGING: log domain only, not full URL with any paths/params
+  const baseUrlDomain = new URL(apiBase).hostname;
+  console.log('[pawapay] base_url=' + baseUrlDomain + ', env=' + mode);
 
   return {
     apiToken,
@@ -179,6 +215,7 @@ export interface ProviderErrorDetails {
   provider_message?: string;
   provider_request_id?: string;
   is_rejection: boolean; // true = provider rejected (4xx-type), false = server error
+  is_auth_error?: boolean; // true = 401 Unauthorized, server misconfig
 }
 
 /**
@@ -230,6 +267,33 @@ export async function createDeposit(
     });
 
     const httpStatus = response.status;
+    
+    // Handle 401 Unauthorized specifically - this is a server config issue
+    if (httpStatus === 401) {
+      console.error('[pawaPay] [provider-init] 401 Unauthorized - token invalid or expired:', {
+        depositId,
+        http_status: httpStatus,
+      });
+      return {
+        success: false,
+        provider_key: 'pawapay',
+        reference: params.reference || depositId,
+        provider_deposit_id: depositId,
+        status: 'rejected',
+        error: 'Payment provider authentication failed',
+        raw_request: request,
+        errorDetails: {
+          provider: 'pawapay',
+          provider_http_status: 401,
+          provider_error_code: 'PROVIDER_AUTH_FAILED',
+          provider_message: 'Authentication failed. Check API token.',
+          provider_request_id: depositId,
+          is_rejection: false, // server misconfig, NOT user error
+          is_auth_error: true, // special flag for 401
+        },
+      };
+    }
+    
     let data: PawaPayDepositResponse;
     
     try {

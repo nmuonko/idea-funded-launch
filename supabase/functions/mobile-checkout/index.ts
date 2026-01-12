@@ -20,7 +20,7 @@ import {
   generatePaymentReference as generateProviderRef,
   validateProviderSecrets,
 } from "../_shared/paymentProviders.ts";
-import { createDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
+import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 
 // Payment method types
 type PaymentMethod = 'MOBILE_MONEY' | 'CARD';
@@ -1136,7 +1136,21 @@ serve(async (req) => {
             provider_error_code: errorDetails?.provider_error_code,
             provider_request_id: errorDetails?.provider_request_id,
             is_rejection: errorDetails?.is_rejection,
+            is_auth_error: errorDetails?.is_auth_error,
           });
+          
+          // Special handling for 401 auth errors - this is server misconfig, NOT user error
+          if (errorDetails?.is_auth_error) {
+            return jsonResponse({
+              success: false,
+              code: 'PROVIDER_AUTH_FAILED',
+              message: 'Payment provider authentication failed. Check API token.',
+              error: 'Provider authentication failed.',
+              provider: 'pawapay',
+              provider_http_status: 401,
+              provider_request_id: errorDetails?.provider_request_id,
+            }, 500); // 500 because it's server misconfig, not user error
+          }
           
           // Determine HTTP status based on error type
           // Provider rejection (4xx-type) = 400, Server error = 500
@@ -1159,6 +1173,21 @@ serve(async (req) => {
           }, httpStatus);
         }
       } catch (pawaError: any) {
+        // Handle ConfigMissingError specifically - server misconfig
+        if (pawaError instanceof ConfigMissingError || pawaError.code === 'CONFIG_MISSING') {
+          console.error('[mobile-checkout] [pawapay-auth] CONFIG_MISSING', {
+            order_id: checkoutOrder.id,
+            error: pawaError.message,
+          });
+          return jsonResponse({
+            success: false,
+            code: 'CONFIG_MISSING',
+            message: 'Payment provider token is not configured.',
+            error: pawaError.message,
+            provider: 'pawapay',
+          }, 500);
+        }
+        
         // True server exception - return 500
         console.error('[mobile-checkout] [provider-init] CHECKOUT_PAWAPAY_EXCEPTION', {
           order_id: checkoutOrder.id,

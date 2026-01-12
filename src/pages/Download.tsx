@@ -1,64 +1,60 @@
 import { Link } from "react-router-dom";
-import { Download, Smartphone, ShoppingCart, Truck, CreditCard, Bell, HeadphonesIcon, Globe, ArrowRight } from "lucide-react";
+import { Download, Smartphone, ShoppingCart, Truck, CreditCard, Bell, HeadphonesIcon, Globe, ArrowRight, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 const DownloadPage = () => {
   const features = [
     {
-      icon: ShoppingCart,
-      title: "Shop U.S. Stores",
-      description: "Access products from Amazon, Walmart, eBay, and more"
-    },
-    {
-      icon: Globe,
-      title: "International Shipping",
-      description: "We handle shipping from the U.S. to your location"
-    },
-    {
       icon: CreditCard,
-      title: "Secure Payments",
+      title: "Secure In-App Payments",
       description: "Pay safely using licensed payment providers"
     },
     {
       icon: Truck,
       title: "Order Tracking",
-      description: "Track your order from purchase to delivery"
-    },
-    {
-      icon: Bell,
-      title: "Real-time Updates",
-      description: "Get notifications on your order status"
+      description: "Monitor your order from purchase to delivery"
     },
     {
       icon: HeadphonesIcon,
       title: "Customer Support",
       description: "Access support directly within the app"
+    },
+    {
+      icon: Bell,
+      title: "Delivery Updates",
+      description: "Receive notifications on order status changes"
+    },
+    {
+      icon: Shield,
+      title: "Identity Verification",
+      description: "Secure account verification for your protection"
+    },
+    {
+      icon: Globe,
+      title: "International Access",
+      description: "Shop from retailers that may not ship directly"
     }
   ];
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold text-foreground">
             AfriShop
           </Link>
-          <nav className="hidden md:flex items-center gap-6">
-            <Link to="/how-it-works" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              How It Works
-            </Link>
-            <Link to="/privacy" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Privacy
-            </Link>
-            <Link to="/download" className="text-sm font-medium text-primary">
-              Download App
-            </Link>
+          <nav className="hidden md:flex items-center gap-4 text-sm">
+            <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
+            <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+            <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+            <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
+            <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
           </nav>
           <Button size="sm" variant="outline">
             <Download className="h-4 w-4 mr-2" />
-            Get the App
+            Get App
           </Button>
         </div>
       </header>
@@ -74,8 +70,8 @@ const DownloadPage = () => {
               Download the AfriShop App
             </h1>
             <p className="text-lg text-muted-foreground mb-8">
-              AfriShop operates primarily through its mobile application. Download the app to start 
-              shopping from U.S. stores and receive delivery in Africa.
+              AfriShop operates through its mobile app to ensure secure payments, identity verification, 
+              order tracking, and customer support.
             </p>
             
             {/* Download Buttons */}
@@ -121,14 +117,21 @@ const DownloadPage = () => {
       {/* Why the App */}
       <section className="py-16 bg-muted/20">
         <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center mb-12">
+          <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-              Why Use the AfriShop App?
+              Why the App Is Required
             </h2>
-            <p className="text-muted-foreground">
-              The AfriShop mobile app is required to place orders, make payments, and track deliveries. 
-              All core functionality is available exclusively in the app for security and convenience.
+            <p className="text-muted-foreground mb-8">
+              AfriShop operates through its mobile app to provide a secure, reliable experience. 
+              The app enables secure payment processing, identity verification, real-time order 
+              tracking, and direct access to customer support.
             </p>
+            <div className="bg-background rounded-xl p-6 border border-border/50">
+              <p className="text-muted-foreground text-sm">
+                <strong>Note:</strong> This website is for informational purposes only. 
+                All orders, payments, and account management occur exclusively within the AfriShop mobile application.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -137,7 +140,7 @@ const DownloadPage = () => {
       <section className="py-16 bg-background">
         <div className="container mx-auto px-4">
           <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-12 text-center">
-            Features Available in the App
+            App Features
           </h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {features.map((feature, index) => (
@@ -160,34 +163,43 @@ const DownloadPage = () => {
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto">
             <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-8 text-center">
-              How to Get Started
+              Getting Started
             </h2>
             <div className="space-y-4">
-              <div className="flex items-start gap-4 bg-background rounded-xl p-4 border border-border/50">
+              <div className="flex items-start gap-4 bg-background rounded-xl p-5 border border-border/50">
                 <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold flex-shrink-0">
                   1
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground">Download the App</h3>
-                  <p className="text-sm text-muted-foreground">Get AfriShop from Google Play or the App Store</p>
+                  <p className="text-sm text-muted-foreground mt-1">Get AfriShop from Google Play or the App Store</p>
                 </div>
               </div>
-              <div className="flex items-start gap-4 bg-background rounded-xl p-4 border border-border/50">
+              <div className="flex items-start gap-4 bg-background rounded-xl p-5 border border-border/50">
                 <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold flex-shrink-0">
                   2
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground">Create an Account</h3>
-                  <p className="text-sm text-muted-foreground">Sign up with your email or phone number</p>
+                  <p className="text-sm text-muted-foreground mt-1">Sign up with your phone number or email</p>
                 </div>
               </div>
-              <div className="flex items-start gap-4 bg-background rounded-xl p-4 border border-border/50">
+              <div className="flex items-start gap-4 bg-background rounded-xl p-5 border border-border/50">
                 <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold flex-shrink-0">
                   3
                 </div>
                 <div>
-                  <h3 className="font-semibold text-foreground">Start Shopping</h3>
-                  <p className="text-sm text-muted-foreground">Browse or paste product links from U.S. stores</p>
+                  <h3 className="font-semibold text-foreground">Submit a Product Link</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Select or paste a product link from a supported retailer</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-4 bg-background rounded-xl p-5 border border-border/50">
+                <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold flex-shrink-0">
+                  4
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground">Confirm and Pay</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Review costs and complete payment securely in the app</p>
                 </div>
               </div>
             </div>
@@ -199,10 +211,10 @@ const DownloadPage = () => {
       <section className="py-16 md:py-20 bg-primary/5">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-            Ready to Shop from the U.S.?
+            Ready to Get Started?
           </h2>
           <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-            Download the AfriShop app and start ordering products from your favorite U.S. stores today.
+            Download the AfriShop app to begin using our ordering assistance service.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a href="https://play.google.com/store" target="_blank" rel="noopener noreferrer">
@@ -227,16 +239,13 @@ const DownloadPage = () => {
             <p className="text-sm text-muted-foreground">
               © {new Date().getFullYear()} AfriShop. All rights reserved.
             </p>
-            <nav className="flex items-center gap-6">
-              <Link to="/how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                How It Works
-              </Link>
-              <Link to="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Privacy
-              </Link>
-              <Link to="/download" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Download
-              </Link>
+            <nav className="flex flex-wrap items-center justify-center gap-4 md:gap-6 text-sm">
+              <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
+              <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+              <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+              <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
+              <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
+              <Link to="/download" className="text-muted-foreground hover:text-foreground transition-colors">Download</Link>
             </nav>
           </div>
         </div>

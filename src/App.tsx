@@ -64,6 +64,9 @@ import EmailConfirmed from "./pages/EmailConfirmed";
 import BankTransferInfo from "./pages/BankTransferInfo";
 import HowItWorks from "./pages/HowItWorks";
 import Privacy from "./pages/Privacy";
+import Terms from "./pages/Terms";
+import PaymentsCompliance from "./pages/PaymentsCompliance";
+import Refunds from "./pages/Refunds";
 import DownloadPage from "./pages/Download";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
@@ -90,6 +93,9 @@ const App = () => {
             <Route path="/" element={<Index />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/payments-compliance" element={<PaymentsCompliance />} />
+            <Route path="/refunds" element={<Refunds />} />
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />

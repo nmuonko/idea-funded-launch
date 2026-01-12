@@ -1,4 +1,4 @@
-import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Smartphone, CreditCard, MapPin } from "lucide-react";
+import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Smartphone, XCircle, HelpCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,67 +12,70 @@ const HowItWorks = () => {
     },
     {
       number: "2",
-      title: "Select Your Product",
-      description: "Browse or paste a product link from supported U.S. stores like Amazon, Walmart, or eBay."
+      title: "Submit a Product Link",
+      description: "Select or submit a product link from a supported international retailer."
     },
     {
       number: "3",
-      title: "Review Pricing",
-      description: "AfriShop calculates product cost, shipping, customs, and service fees upfront."
+      title: "Review Cost Estimate",
+      description: "AfriShop calculates estimated costs including product price, shipping, customs, and service fees."
     },
     {
       number: "4",
       title: "Confirm Your Order",
-      description: "Review and confirm your order directly inside the app."
+      description: "Review and confirm your order within the app."
     },
     {
       number: "5",
       title: "Complete Payment",
-      description: "Pay securely using supported payment providers within the app."
+      description: "Payment is completed securely inside the app using licensed payment providers."
     },
     {
       number: "6",
-      title: "We Handle the Rest",
-      description: "AfriShop purchases, receives, and ships your product to your destination."
+      title: "We Coordinate Delivery",
+      description: "AfriShop coordinates product purchasing and delivery to your location."
     },
     {
       number: "7",
       title: "Track & Receive",
-      description: "Monitor your order status and receive delivery updates until arrival."
+      description: "Receive order updates and tracking until delivery."
     }
   ];
 
   const services = [
-    { icon: Package, title: "Product Purchasing Assistance", description: "We help you order from U.S. stores that don't ship internationally." },
-    { icon: Globe, title: "International Shipping Coordination", description: "We coordinate seamless shipping from the U.S. to your country." },
-    { icon: Shield, title: "Customs Clearance Support", description: "We assist with customs documentation and clearance processes." },
-    { icon: Truck, title: "Local Delivery Coordination", description: "We arrange final delivery to your specified address." },
-    { icon: HeadphonesIcon, title: "Customer Support", description: "Our team is available to assist you throughout your order journey." }
+    { icon: Package, title: "Order Facilitation", description: "We assist with placing orders from international retailers." },
+    { icon: Globe, title: "International Shipping", description: "We coordinate shipping logistics from origin to destination." },
+    { icon: Shield, title: "Customs Assistance", description: "We help facilitate customs clearance processes." },
+    { icon: Truck, title: "Local Delivery", description: "We coordinate last-mile delivery through trusted partners." },
+    { icon: HeadphonesIcon, title: "Customer Support", description: "Our team assists with order issues and inquiries." }
+  ];
+
+  const limitations = [
+    "AfriShop is not affiliated with third-party retailers",
+    "AfriShop does not operate an open marketplace",
+    "AfriShop does not store sensitive payment credentials",
+    "AfriShop does not provide financial services"
   ];
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <Link to="/" className="text-xl font-bold text-foreground">
             AfriShop
           </Link>
-          <nav className="hidden md:flex items-center gap-6">
-            <Link to="/how-it-works" className="text-sm font-medium text-primary">
-              How It Works
-            </Link>
-            <Link to="/privacy" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Privacy
-            </Link>
-            <Link to="/download" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-              Download App
-            </Link>
+          <nav className="hidden md:flex items-center gap-4 text-sm">
+            <Link to="/how-it-works" className="font-medium text-primary">How It Works</Link>
+            <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+            <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+            <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
+            <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
           </nav>
           <Link to="/download">
             <Button size="sm">
               <Download className="h-4 w-4 mr-2" />
-              Get the App
+              Get App
             </Button>
           </Link>
         </div>
@@ -84,8 +87,8 @@ const HowItWorks = () => {
           <h1 className="text-3xl md:text-5xl font-bold text-foreground mb-6">
             How AfriShop Works
           </h1>
-          <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto">
-            Shop from U.S. stores and receive delivery in Africa — all through one simple app.
+          <p className="text-lg text-muted-foreground max-w-3xl mx-auto">
+            Ordering assistance and logistics facilitation for international purchases.
           </p>
         </div>
       </section>
@@ -99,12 +102,15 @@ const HowItWorks = () => {
             </h2>
             <div className="bg-muted/30 rounded-2xl p-6 md:p-8 border border-border/50">
               <p className="text-muted-foreground leading-relaxed text-center">
-                AfriShop is a mobile application that enables users in Africa to buy products from U.S. online retailers 
-                such as Amazon, Walmart, eBay, and others — even if those stores do not ship directly to their country.
+                AfriShop is a mobile application that assists users in Africa with purchasing products 
+                from international online retailers that may not ship directly to their country.
               </p>
               <p className="text-muted-foreground leading-relaxed mt-4 text-center">
-                AfriShop acts as an intermediary, handling ordering assistance, international shipping, 
-                customs coordination, and local delivery.
+                AfriShop provides ordering assistance, international shipping coordination, customs 
+                facilitation, and last-mile delivery through trusted partners.
+              </p>
+              <p className="text-muted-foreground leading-relaxed mt-4 text-center font-medium">
+                AfriShop does not manufacture, own, or directly sell third-party products.
               </p>
             </div>
           </div>
@@ -119,9 +125,7 @@ const HowItWorks = () => {
           </h2>
           <div className="max-w-4xl mx-auto">
             <div className="relative">
-              {/* Vertical line connector */}
               <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border hidden md:block" />
-              
               <div className="space-y-6">
                 {steps.map((step, index) => (
                   <div key={index} className="flex gap-4 md:gap-6 items-start">
@@ -159,44 +163,27 @@ const HowItWorks = () => {
               </Card>
             ))}
           </div>
-          <p className="text-center text-muted-foreground mt-8 text-sm">
-            AfriShop does NOT manufacture or own the products sold by third-party stores.
-          </p>
         </div>
       </section>
 
-      {/* Supported Payments */}
+      {/* What AfriShop Does Not Do */}
       <section className="py-16 bg-muted/20">
         <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-              <CreditCard className="h-8 w-8 text-primary" />
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <XCircle className="h-8 w-8 text-muted-foreground" />
+              <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                What AfriShop Does Not Do
+              </h2>
             </div>
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-              Supported Payments
-            </h2>
-            <p className="text-muted-foreground">
-              Payments are processed only inside the AfriShop mobile app using licensed third-party payment providers. 
-              AfriShop does not store card or mobile money credentials on the website.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Supported Countries */}
-      <section className="py-16 bg-background">
-        <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-              <MapPin className="h-8 w-8 text-primary" />
+            <div className="space-y-3">
+              {limitations.map((item, index) => (
+                <div key={index} className="flex items-start gap-3 bg-background rounded-lg p-4 border border-border/50">
+                  <span className="text-muted-foreground mt-0.5">•</span>
+                  <p className="text-muted-foreground">{item}</p>
+                </div>
+              ))}
             </div>
-            <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-              Supported Countries
-            </h2>
-            <p className="text-muted-foreground">
-              AfriShop currently focuses on serving users in Africa, including the Democratic Republic of Congo 
-              and surrounding regions. Availability may vary by location.
-            </p>
           </div>
         </div>
       </section>
@@ -205,10 +192,11 @@ const HowItWorks = () => {
       <section className="py-12 bg-muted/30 border-y border-border/50">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center">
-            <h3 className="font-semibold text-foreground mb-2">Important Disclaimer</h3>
+            <HelpCircle className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+            <h3 className="font-semibold text-foreground mb-2">Disclaimer</h3>
             <p className="text-sm text-muted-foreground">
-              AfriShop is not affiliated with Amazon, Walmart, eBay, or other third-party retailers. 
-              All trademarks belong to their respective owners.
+              All third-party trademarks belong to their respective owners. AfriShop operates independently 
+              and is not affiliated with any third-party retailer or brand mentioned.
             </p>
           </div>
         </div>
@@ -219,14 +207,14 @@ const HowItWorks = () => {
         <div className="container mx-auto px-4 text-center">
           <Smartphone className="h-16 w-16 text-primary mx-auto mb-6" />
           <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-4">
-            Ready to Get Started?
+            Download the AfriShop App
           </h2>
           <p className="text-muted-foreground mb-8 max-w-xl mx-auto">
-            Download the AfriShop app to start shopping from U.S. stores today.
+            Get started with AfriShop by downloading our mobile application.
           </p>
           <Link to="/download">
             <Button size="lg" className="gap-2">
-              Download the AfriShop App
+              Download the App
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
@@ -240,16 +228,13 @@ const HowItWorks = () => {
             <p className="text-sm text-muted-foreground">
               © {new Date().getFullYear()} AfriShop. All rights reserved.
             </p>
-            <nav className="flex items-center gap-6">
-              <Link to="/how-it-works" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                How It Works
-              </Link>
-              <Link to="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Privacy
-              </Link>
-              <Link to="/download" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                Download
-              </Link>
+            <nav className="flex flex-wrap items-center justify-center gap-4 md:gap-6 text-sm">
+              <Link to="/how-it-works" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>
+              <Link to="/privacy" className="text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+              <Link to="/terms" className="text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+              <Link to="/payments-compliance" className="text-muted-foreground hover:text-foreground transition-colors">Payments</Link>
+              <Link to="/refunds" className="text-muted-foreground hover:text-foreground transition-colors">Refunds</Link>
+              <Link to="/download" className="text-muted-foreground hover:text-foreground transition-colors">Download</Link>
             </nav>
           </div>
         </div>

@@ -39,6 +39,7 @@ import {
 interface RequestBody {
   order_id: string;
   phone?: string;
+  currency?: 'USD' | 'CDF'; // Optional: user can request specific currency
 }
 
 interface ResponseBody {
@@ -76,7 +77,7 @@ Deno.serve(async (req) => {
 
     // Parse request
     const body: RequestBody = await req.json();
-    const { order_id, phone } = body;
+    const { order_id, phone, currency: requestedCurrency } = body;
 
     if (!order_id) {
       return new Response(
@@ -85,7 +86,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log('[payments-create-intent] Request:', { order_id, hasPhone: !!phone });
+    // Normalize requested currency (default to USD)
+    const normalizedCurrency: 'USD' | 'CDF' = requestedCurrency?.toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+
+    console.log('[payments-create-intent] Request:', { order_id, hasPhone: !!phone, currency: normalizedCurrency });
 
     // Create Supabase clients
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -168,35 +172,57 @@ Deno.serve(async (req) => {
     });
 
     // ==================== Provider Selection Logic ====================
-    // Use per-provider limits to select the best provider
+    // Use vehicle detection and requested currency (no limit-based switching)
     const selectionResult = await selectProviderByLimits(
       supabaseAdmin,
       totalUsd,
       effectiveCdf,
-      isVehicle
+      isVehicle,
+      normalizedCurrency
     );
 
-    if (!selectionResult.success || !selectionResult.provider || !selectionResult.currency) {
+    // Handle vehicle orders that require bank transfer
+    if (!selectionResult.success) {
+      if (selectionResult.error === 'VEHICLE_BANK_TRANSFER_REQUIRED') {
+        console.log('[payments-create-intent] Vehicle order requires bank transfer');
+        return new Response(
+          JSON.stringify({
+            success: true,
+            provider: 'bank_transfer',
+            status: 'requires_bank_transfer',
+            currency: 'USD',
+            amount: totalUsd,
+            nextAction: {
+              type: 'BANK_TRANSFER',
+            },
+            message: 'Vehicle orders require bank transfer or card payment. Please contact support.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       console.error('[payments-create-intent] No provider found:', selectionResult.error);
       return new Response(
         JSON.stringify({
           success: false,
-          error: selectionResult.error || 'No payment provider available for this amount',
-          error_code: 'AMOUNT_EXCEEDS_LIMITS',
+          error: selectionResult.error || 'No payment provider available',
+          error_code: 'NO_PROVIDER',
         }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const selectedProviderKey = selectionResult.provider.provider_key;
-    const selectedCurrency = selectionResult.currency;
+    // At this point we have a valid provider and currency
+    const selectedProvider = selectionResult.provider!;
+    const selectedCurrency = selectionResult.currency!;
+    const selectedProviderKey = selectedProvider.provider_key;
     const payableAmount = selectedCurrency === 'USD' ? totalUsd : effectiveCdf;
 
     console.log('[payments-create-intent] Provider selected:', {
       provider: selectedProviderKey,
       currency: selectedCurrency,
       amount: payableAmount,
-      priority: selectionResult.provider.priority,
+      priority: selectedProvider.priority,
     });
 
     // Get user profile for email
@@ -220,7 +246,7 @@ Deno.serve(async (req) => {
       // Provider already validated by selectProviderByLimits
       let stripeConfig: StripeConfig;
       try {
-        stripeConfig = getStripeConfig(selectionResult.provider);
+        stripeConfig = getStripeConfig(selectedProvider);
       } catch (err: any) {
         console.error('[payments-create-intent] Stripe config error:', err.message);
         return new Response(
@@ -318,7 +344,7 @@ Deno.serve(async (req) => {
       // Provider already validated by selectProviderByLimits
       let pawapayConfig: PawaPayConfig;
       try {
-        pawapayConfig = getPawaPayConfig(selectionResult.provider);
+        pawapayConfig = getPawaPayConfig(selectedProvider);
       } catch (err: any) {
         console.error('[payments-create-intent] pawaPay config error:', err.message);
         return new Response(

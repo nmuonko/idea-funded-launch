@@ -69,6 +69,7 @@ import Terms from "./pages/Terms";
 import PaymentsCompliance from "./pages/PaymentsCompliance";
 import Refunds from "./pages/Refunds";
 import DownloadPage from "./pages/Download";
+import Coverage from "./pages/Coverage";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -93,6 +94,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<HowItWorks />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/coverage" element={<Coverage />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/payments-compliance" element={<PaymentsCompliance />} />

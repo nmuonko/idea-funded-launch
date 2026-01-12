@@ -75,9 +75,11 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 const queryClient = new QueryClient();
 
 const App = () => {
-  // Skip splash for public pages like email confirmation
+  // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
-    return !window.location.pathname.includes('/email-confirmed');
+    const path = window.location.pathname;
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order'];
+    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment'));
   });
 
   return (

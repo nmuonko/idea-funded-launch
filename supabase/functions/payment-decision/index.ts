@@ -10,14 +10,35 @@ const corsHeaders = {
 /**
  * Payment Flow Types - MaishaPay REMOVED
  * 
- * PAWAPAY: Payment via pawaPay mobile money (USD or CDF)
- * STRIPE: Card payment via Stripe (USD only)
+ * PAWAPAY: Payment via pawaPay mobile money (USD or CDF) - within limits
+ * STRIPE: Card payment via Stripe (USD only) - for large orders
  * BANK_TRANSFER: Manual bank transfer (for vehicles or large amounts)
+ * CHOICE_REQUIRED: Amount exceeds mobile money limits - user must choose STRIPE or BANK_TRANSFER
  */
-type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER';
+type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'CHOICE_REQUIRED';
 
 // Legacy type for backwards compatibility
-type PaymentDecision = 'PAWAPAY' | 'STRIPE' | 'MANUAL_BANK';
+type PaymentDecision = 'PAWAPAY' | 'STRIPE' | 'MANUAL_BANK' | 'CHOICE_REQUIRED';
+
+// Payment settings from database
+interface PaymentSettings {
+  mobile_money_max_usd: number;
+  mobile_money_max_cdf: number;
+  large_order_currency: string;
+  stripe_enabled: boolean;
+  bank_transfer_enabled: boolean;
+  pawapay_enabled: boolean;
+}
+
+// Default payment settings
+const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
+  mobile_money_max_usd: 250,
+  mobile_money_max_cdf: 1500000,
+  large_order_currency: 'USD',
+  stripe_enabled: true,
+  bank_transfer_enabled: true,
+  pawapay_enabled: true,
+};
 
 interface DecisionResponse {
   ok: boolean;
@@ -25,6 +46,8 @@ interface DecisionResponse {
   payment_flow?: PaymentFlow;
   payable_currency?: 'USD' | 'CDF';
   payable_amount?: number;
+  required_currency?: 'USD'; // For CHOICE_REQUIRED
+  options?: ('STRIPE' | 'BANK_TRANSFER')[]; // For CHOICE_REQUIRED
   provider?: {
     key: string;
     name: string;
@@ -53,17 +76,60 @@ interface CartItem {
   quantity?: number;
 }
 
+// Fetch payment settings from database
+async function getPaymentSettings(supabase: any): Promise<PaymentSettings> {
+  try {
+    const { data, error } = await supabase
+      .from('payment_settings')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    
+    if (error) {
+      console.warn('[payment-decision] Error fetching payment_settings:', error.message);
+      return DEFAULT_PAYMENT_SETTINGS;
+    }
+    
+    if (!data) {
+      console.warn('[payment-decision] No payment_settings found, using defaults');
+      return DEFAULT_PAYMENT_SETTINGS;
+    }
+    
+    return {
+      mobile_money_max_usd: Number(data.mobile_money_max_usd) || DEFAULT_PAYMENT_SETTINGS.mobile_money_max_usd,
+      mobile_money_max_cdf: Number(data.mobile_money_max_cdf) || DEFAULT_PAYMENT_SETTINGS.mobile_money_max_cdf,
+      large_order_currency: data.large_order_currency || 'USD',
+      stripe_enabled: data.stripe_enabled !== false,
+      bank_transfer_enabled: data.bank_transfer_enabled !== false,
+      pawapay_enabled: data.pawapay_enabled !== false,
+    };
+  } catch (e: any) {
+    console.error('[payment-decision] Exception fetching payment_settings:', e.message);
+    return DEFAULT_PAYMENT_SETTINGS;
+  }
+}
+
+// Get available payment options for large orders
+function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BANK_TRANSFER')[] {
+  const options: ('STRIPE' | 'BANK_TRANSFER')[] = [];
+  if (paymentSettings.stripe_enabled) options.push('STRIPE');
+  if (paymentSettings.bank_transfer_enabled) options.push('BANK_TRANSFER');
+  return options;
+}
+
 /**
  * Compute payment flow decision
  * 
- * UPDATED RULES (2026-01) - MaishaPay REMOVED:
- * 1. Vehicles require Bank Transfer or Stripe
- * 2. Regular orders use pawaPay mobile money in the requested currency (USD or CDF)
+ * UPDATED RULES (2026-01) - MaishaPay REMOVED, Limit-based routing:
+ * 1. Vehicles require Bank Transfer or Stripe (CHOICE_REQUIRED)
+ * 2. Amount > limit → CHOICE_REQUIRED (must choose STRIPE or BANK_TRANSFER, USD only)
+ * 3. Amount <= limit → PAWAPAY mobile money in requested currency
  */
 function computePaymentFlow(
   totalUsdDollars: number,
+  totalCdf: number,
   fxRate: number,
-  activeProviderKey: string = 'pawapay',
+  paymentSettings: PaymentSettings,
   requestedCurrency: 'USD' | 'CDF' = 'USD',
   isVehicle: boolean = false
 ): { 
@@ -72,39 +138,84 @@ function computePaymentFlow(
   payable_amount: number;
   totalCdf: number; 
   decision: PaymentDecision;
+  required_currency?: 'USD';
+  options?: ('STRIPE' | 'BANK_TRANSFER')[];
   message_fr: string; 
   message_en: string;
 } {
-  // Convert USD to CDF (whole units)
-  const totalCdf = Math.round(totalUsdDollars * fxRate);
-
+  // Check if amount exceeds limits
+  const amountToCheck = requestedCurrency === 'CDF' ? totalCdf : totalUsdDollars;
+  const limit = requestedCurrency === 'CDF' ? paymentSettings.mobile_money_max_cdf : paymentSettings.mobile_money_max_usd;
+  const isOverLimit = amountToCheck > limit;
+  
   // Log the decision inputs for debugging
   console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION', {
     total_usd_dollars: totalUsdDollars,
     total_cdf_units: totalCdf,
     fx_rate: fxRate,
-    active_provider: activeProviderKey,
     requested_currency: requestedCurrency,
+    amount_to_check: amountToCheck,
+    limit,
+    is_over_limit: isOverLimit,
     is_vehicle: isVehicle,
+    pawapay_enabled: paymentSettings.pawapay_enabled,
   });
 
-  // RULE 1: Vehicles require Bank Transfer or Stripe
+  // RULE 1: Vehicles require CHOICE_REQUIRED (Bank Transfer or Stripe)
   if (isVehicle) {
+    const options = getLargeOrderOptions(paymentSettings);
     const result = {
-      payment_flow: 'BANK_TRANSFER' as PaymentFlow,
+      payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
       payable_currency: 'USD' as const,
       payable_amount: Math.round(totalUsdDollars * 100) / 100,
       totalCdf,
-      decision: 'MANUAL_BANK' as PaymentDecision,
-      message_fr: `Commande véhicule - Virement bancaire ou paiement carte requis.`,
-      message_en: `Vehicle order - Bank transfer or card payment required.`,
+      decision: 'CHOICE_REQUIRED' as PaymentDecision,
+      required_currency: 'USD' as const,
+      options,
+      message_fr: `Commande véhicule - Choisissez virement bancaire ou paiement carte (USD uniquement).`,
+      message_en: `Vehicle order - Choose bank transfer or card payment (USD only).`,
     };
     console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'vehicle_order' });
     return result;
   }
 
-  // RULE 2: Regular orders use pawaPay mobile money in requested currency
-  // MaishaPay no longer an option
+  // RULE 2: Amount over limit → CHOICE_REQUIRED
+  if (isOverLimit) {
+    const options = getLargeOrderOptions(paymentSettings);
+    const result = {
+      payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
+      payable_currency: 'USD' as const,
+      payable_amount: Math.round(totalUsdDollars * 100) / 100,
+      totalCdf,
+      decision: 'CHOICE_REQUIRED' as PaymentDecision,
+      required_currency: 'USD' as const,
+      options,
+      message_fr: `Montant dépasse la limite Mobile Money. Choisissez virement bancaire ou carte (USD uniquement).`,
+      message_en: `Amount exceeds Mobile Money limit. Choose bank transfer or card (USD only).`,
+    };
+    console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'over_limit' });
+    return result;
+  }
+
+  // RULE 3: Check if pawaPay is enabled
+  if (!paymentSettings.pawapay_enabled) {
+    const options = getLargeOrderOptions(paymentSettings);
+    const result = {
+      payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
+      payable_currency: 'USD' as const,
+      payable_amount: Math.round(totalUsdDollars * 100) / 100,
+      totalCdf,
+      decision: 'CHOICE_REQUIRED' as PaymentDecision,
+      required_currency: 'USD' as const,
+      options,
+      message_fr: `Mobile Money indisponible. Choisissez virement bancaire ou carte.`,
+      message_en: `Mobile Money unavailable. Choose bank transfer or card.`,
+    };
+    console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'pawapay_disabled' });
+    return result;
+  }
+
+  // RULE 4: Standard order within limit → pawaPay mobile money
   if (requestedCurrency === 'CDF') {
     const result = {
       payment_flow: 'PAWAPAY' as PaymentFlow,
@@ -112,8 +223,8 @@ function computePaymentFlow(
       payable_amount: totalCdf,
       totalCdf,
       decision: 'PAWAPAY' as PaymentDecision,
-      message_fr: `Paiement en CDF via pawaPay (${totalCdf.toLocaleString()} CDF)`,
-      message_en: `Pay in CDF via pawaPay (${totalCdf.toLocaleString()} CDF)`,
+      message_fr: `Paiement en CDF via Mobile Money (${totalCdf.toLocaleString()} CDF)`,
+      message_en: `Pay in CDF via Mobile Money (${totalCdf.toLocaleString()} CDF)`,
     };
     console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'mobile_money_cdf' });
     return result;
@@ -126,8 +237,8 @@ function computePaymentFlow(
     payable_amount: Math.round(totalUsdDollars * 100) / 100,
     totalCdf,
     decision: 'PAWAPAY' as PaymentDecision,
-    message_fr: `Paiement en USD via pawaPay ($${totalUsdDollars.toFixed(2)})`,
-    message_en: `Pay in USD via pawaPay ($${totalUsdDollars.toFixed(2)})`,
+    message_fr: `Paiement en USD via Mobile Money ($${totalUsdDollars.toFixed(2)})`,
+    message_en: `Pay in USD via Mobile Money ($${totalUsdDollars.toFixed(2)})`,
   };
   console.log('[payment-decision] CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'mobile_money_usd' });
   return result;
@@ -261,20 +372,29 @@ serve(async (req) => {
 
     // Get requested currency from payload (default to USD)
     const requestedCurrency: 'USD' | 'CDF' = (body as any).currency?.toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+    
+    // Calculate CDF equivalent
+    const totalCdfCalc = Math.round(totalUsdDollars * fxRate);
 
-    // Compute decision using updated logic (MaishaPay REMOVED)
+    // Fetch payment settings for limit-based routing
+    const paymentSettings = await getPaymentSettings(supabase);
+
+    // Compute decision using updated logic with payment settings
     const { 
       payment_flow, 
       payable_currency, 
       payable_amount, 
       totalCdf, 
-      decision, 
+      decision,
+      required_currency,
+      options,
       message_fr, 
       message_en 
     } = computePaymentFlow(
       totalUsdDollars,
+      totalCdfCalc,
       fxRate,
-      providerKey,
+      paymentSettings,
       requestedCurrency,
       isVehicle
     );
@@ -284,7 +404,7 @@ serve(async (req) => {
     if (payment_flow === 'PAWAPAY') {
       availableProviders.push('pawapay');
     }
-    if (payment_flow === 'STRIPE') {
+    if (payment_flow === 'STRIPE' || payment_flow === 'CHOICE_REQUIRED') {
       availableProviders.push('stripe');
     }
     availableProviders.push('bank_transfer');
@@ -296,7 +416,8 @@ serve(async (req) => {
       payment_flow,
       payable_currency,
       payable_amount,
-      provider: providerKey,
+      required_currency,
+      options,
     });
 
     const response: DecisionResponse = {

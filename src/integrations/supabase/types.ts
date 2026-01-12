@@ -1432,6 +1432,39 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_settings: {
+        Row: {
+          bank_transfer_enabled: boolean
+          id: string
+          large_order_currency: string
+          mobile_money_max_cdf: number
+          mobile_money_max_usd: number
+          pawapay_enabled: boolean
+          stripe_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          bank_transfer_enabled?: boolean
+          id?: string
+          large_order_currency?: string
+          mobile_money_max_cdf?: number
+          mobile_money_max_usd?: number
+          pawapay_enabled?: boolean
+          stripe_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          bank_transfer_enabled?: boolean
+          id?: string
+          large_order_currency?: string
+          mobile_money_max_cdf?: number
+          mobile_money_max_usd?: number
+          pawapay_enabled?: boolean
+          stripe_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           amount: number

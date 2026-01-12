@@ -46,10 +46,17 @@ const HowItWorks = () => {
 
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
-        {/* Background gradient - softer, more subtle */}
+        {/* Background gradient */}
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 via-black to-slate-800/30" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-slate-600/10 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-slate-500/10 rounded-full blur-3xl" />
+        
+        {/* Africa Map Silhouette - clear and visible */}
+        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-[500px] h-[600px] md:w-[600px] md:h-[700px] opacity-20 pointer-events-none">
+          <svg viewBox="0 0 400 500" fill="currentColor" className="w-full h-full text-cyan-400">
+            <path d="M200 20 L220 25 L240 30 L260 28 L280 35 L295 45 L310 55 L320 70 L330 90 L340 110 L345 130 L348 150 L350 170 L348 190 L345 210 L340 230 L335 250 L330 270 L320 290 L310 310 L295 330 L280 350 L265 370 L250 385 L235 395 L220 405 L200 415 L180 420 L160 425 L140 420 L120 410 L100 395 L85 375 L75 355 L65 330 L60 305 L55 280 L52 255 L50 230 L52 205 L55 180 L60 155 L70 130 L85 110 L100 90 L120 70 L140 55 L160 40 L180 28 Z" />
+          </svg>
+        </div>
         
         <div className="container mx-auto px-4 relative z-10">
           <motion.div 
@@ -68,15 +75,28 @@ const HowItWorks = () => {
               <span className="text-sm text-white/70">Now serving Central Africa</span>
             </motion.div>
             
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold mb-6 leading-tight">
-              <span className="text-white">
+            {/* Bold tagline with arrow */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6, delay: 0.3 }}
+              className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6 mb-8"
+            >
+              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-white whitespace-nowrap">
                 Shop the U.S.
-              </span>
-              <br />
-              <span className="bg-gradient-to-r from-slate-300 via-slate-200 to-white/80 bg-clip-text text-transparent">
+              </h1>
+              <motion.div 
+                className="flex items-center"
+                animate={{ x: [0, 10, 0] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+              >
+                <div className="hidden md:block w-16 lg:w-24 h-0.5 bg-gradient-to-r from-cyan-400 to-cyan-500" />
+                <ArrowRight className="h-10 w-10 md:h-12 md:w-12 lg:h-14 lg:w-14 text-cyan-400" />
+              </motion.div>
+              <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold bg-gradient-to-r from-cyan-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
                 Delivered to Africa
-              </span>
-            </h1>
+              </h1>
+            </motion.div>
             
             <p className="text-lg md:text-xl text-white/60 max-w-2xl mx-auto mb-10">
               Order from Amazon, Walmart, eBay and more. We handle shipping, customs, and delivery right to your door.

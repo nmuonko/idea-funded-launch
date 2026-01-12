@@ -81,11 +81,11 @@ export default function TrackOrder() {
     setOrderData(null);
 
     try {
-      // Find payment by confirmation code using safe view (excludes sensitive raw API data)
+      // Find payment by reference code using payments table (pawaPay/Stripe)
       const { data: payment, error: paymentError } = await supabase
-        .from("safe_user_payments")
-        .select("order_id, confirmation_code")
-        .eq("confirmation_code", searchCode)
+        .from("payments")
+        .select("order_id, reference")
+        .eq("reference", searchCode)
         .maybeSingle();
 
       if (paymentError) {
@@ -131,7 +131,7 @@ export default function TrackOrder() {
 
       setOrderData({
         ...order,
-        confirmationCode: payment.confirmation_code,
+        confirmationCode: payment.reference,
       });
     } catch (err: any) {
       console.error("Search error:", err);

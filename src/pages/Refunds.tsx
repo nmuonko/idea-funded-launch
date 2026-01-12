@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Download, RotateCcw, CheckCircle, AlertCircle, MessageCircle, Mail, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import afrishopLogo from "@/assets/afrishop-logo.png";
 
 const Refunds = () => {
   const eligibilityReasons = [
@@ -23,8 +24,8 @@ const Refunds = () => {
       {/* Header */}
       <header className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/" className="text-xl font-bold text-foreground">
-            AfriShop
+          <Link to="/" className="flex items-center">
+            <img src={afrishopLogo} alt="AfriShop" className="h-10 md:h-12 drop-shadow-md" />
           </Link>
           <nav className="hidden md:flex items-center gap-4 text-sm">
             <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">How It Works</Link>

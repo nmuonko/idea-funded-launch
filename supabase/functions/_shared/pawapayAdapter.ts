@@ -15,7 +15,6 @@ import {
   CallbackResult,
   PaymentProvider,
   generateDepositId,
-  getSecretValue,
 } from "./paymentProviders.ts";
 
 // ==================== Types ====================
@@ -158,43 +157,79 @@ export class ConfigMissingError extends Error {
 }
 
 /**
- * Get pawaPay configuration from provider config
- * Uses canonical env var names: PAWAPAY_API_TOKEN, PAWAPAY_BASE_URL
+ * Detect environment mode from base URL hostname
  */
-export function getPawaPayConfig(provider: PaymentProvider): PawaPayConfig {
-  // Use canonical env var name: PAWAPAY_API_TOKEN
-  const tokenEnvName = provider.secret_refs?.api_token || 'PAWAPAY_API_TOKEN';
-  const rawToken = getSecretValue(tokenEnvName);
+function detectEnvFromUrl(baseUrl: string): 'sandbox' | 'production' {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    if (hostname.includes('sandbox')) {
+      return 'sandbox';
+    }
+    return 'production';
+  } catch {
+    return 'sandbox';
+  }
+}
+
+/**
+ * Get pawaPay configuration DIRECTLY from Deno.env.get()
+ * 
+ * CANONICAL ENV VARS (REQUIRED):
+ *   - PAWAPAY_API_TOKEN  : Bearer token from pawaPay dashboard
+ *   - PAWAPAY_BASE_URL   : API base URL (must match token environment)
+ *     - Sandbox: https://api.sandbox.pawapay.io
+ *     - Production: https://api.pawapay.io
+ * 
+ * IMPORTANT: Token and base URL must be from the SAME environment.
+ * Using a sandbox token with production URL (or vice versa) will cause 401.
+ */
+export function getPawaPayConfig(_provider?: PaymentProvider): PawaPayConfig {
+  // Read DIRECTLY from Deno.env.get() - canonical names only
+  const rawToken = Deno.env.get('PAWAPAY_API_TOKEN') ?? '';
+  const rawBaseUrl = Deno.env.get('PAWAPAY_BASE_URL') ?? '';
   
-  // Trim token to handle trailing newlines/whitespace
-  const apiToken = (rawToken || '').trim();
+  // Trim to handle trailing newlines/whitespace
+  const apiToken = rawToken.trim();
+  const apiBase = rawBaseUrl.trim();
   
-  // SAFE LOGGING: log presence and length, never the value
-  console.log('[pawapay-auth] token_present=' + (apiToken.length > 0) + ', token_length=' + apiToken.length);
+  // SAFE LOGGING: log presence, length, domain - NEVER the actual token
+  const tokenPresent = apiToken.length > 0;
+  const baseUrlPresent = apiBase.length > 0;
+  let baseUrlDomain = 'N/A';
+  let envGuess: 'sandbox' | 'production' | 'unknown' = 'unknown';
   
-  if (!apiToken) {
-    throw new ConfigMissingError('Payment provider token is not configured.');
+  if (baseUrlPresent) {
+    try {
+      baseUrlDomain = new URL(apiBase).hostname;
+      envGuess = detectEnvFromUrl(apiBase);
+    } catch {
+      baseUrlDomain = 'INVALID_URL';
+    }
   }
   
-  // Determine mode
-  const modeRaw = provider.config_public?.mode || 'sandbox';
-  const mode: 'sandbox' | 'live' = modeRaw === 'live' ? 'live' : 'sandbox';
+  console.log('[pawapay-auth]', {
+    token_present: tokenPresent,
+    token_length: apiToken.length,
+    base_url_present: baseUrlPresent,
+    base_url_domain: baseUrlDomain,
+    env_guess: envGuess,
+  });
   
-  // Base URL: use env var PAWAPAY_BASE_URL or derive from mode
-  const envBaseUrl = (Deno.env.get('PAWAPAY_BASE_URL') || '').trim();
-  let apiBase: string;
-  
-  if (envBaseUrl) {
-    apiBase = envBaseUrl;
-  } else if (mode === 'live') {
-    apiBase = 'https://api.pawapay.io';
-  } else {
-    apiBase = provider.config_public?.api_base || 'https://api.sandbox.pawapay.io';
+  // HARD GUARD: Both token and base URL are REQUIRED
+  if (!tokenPresent || !baseUrlPresent) {
+    const missing: string[] = [];
+    if (!tokenPresent) missing.push('PAWAPAY_API_TOKEN');
+    if (!baseUrlPresent) missing.push('PAWAPAY_BASE_URL');
+    
+    console.error('[pawapay-auth] CONFIG_MISSING:', { missing });
+    throw new ConfigMissingError(
+      `pawaPay is not configured (missing: ${missing.join(', ')}). ` +
+      `Set PAWAPAY_API_TOKEN and PAWAPAY_BASE_URL in secrets.`
+    );
   }
   
-  // SAFE LOGGING: log domain only, not full URL with any paths/params
-  const baseUrlDomain = new URL(apiBase).hostname;
-  console.log('[pawapay] base_url=' + baseUrlDomain + ', env=' + mode);
+  // Determine mode from base URL
+  const mode: 'sandbox' | 'live' = envGuess === 'production' ? 'live' : 'sandbox';
 
   return {
     apiToken,

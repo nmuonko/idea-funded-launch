@@ -57,17 +57,19 @@ interface CartItem {
 /**
  * Compute payment flow decision
  * 
- * RULES (amounts in DOLLARS/whole CDF):
- * 1. If total_usd <= maxUsd (5000) → MAISHAPAY (pay in USD)
- * 2. If total_usd > maxUsd AND total_cdf <= maxCdf (30M) → MAISHAPAY_CDF_FORCED (pay in CDF)
- * 3. If total_cdf > maxCdf (30M) → BANK_TRANSFER
+ * UPDATED RULES (2026-01):
+ * 1. Mobile Money (pawaPay/MaishaPay) accepts BOTH USD and CDF - no limit-based currency switching
+ * 2. Bank Transfer and Stripe are ONLY for big items like vehicles (detected separately)
+ * 3. For regular orders, use mobile money provider in the requested currency
  */
 function computePaymentFlow(
   totalUsdDollars: number,
   fxRate: number,
-  maxUsdDollars: number,
-  maxCdfUnits: number,
-  activeProviderKey: string = 'maishapay'
+  _maxUsdDollars: number, // kept for backwards compatibility but not used for limits
+  _maxCdfUnits: number, // kept for backwards compatibility but not used for limits
+  activeProviderKey: string = 'maishapay',
+  requestedCurrency: 'USD' | 'CDF' = 'USD',
+  isVehicle: boolean = false
 ): { 
   payment_flow: PaymentFlow;
   payable_currency: 'USD' | 'CDF';
@@ -84,62 +86,58 @@ function computePaymentFlow(
   const providerLabel = activeProviderKey === 'pawapay' ? 'pawaPay' : 'MaishaPay';
 
   // Log the decision inputs for debugging
-  console.log('CHECKOUT_LIMITS_DECISION', {
+  console.log('CHECKOUT_PAYMENT_DECISION', {
     total_usd_dollars: totalUsdDollars,
-    total_usd_cents: Math.round(totalUsdDollars * 100),
     total_cdf_units: totalCdf,
-    usd_limit_dollars: maxUsdDollars,
-    cdf_limit_units: maxCdfUnits,
     fx_rate: fxRate,
-    usd_exceeds_limit: totalUsdDollars > maxUsdDollars,
-    cdf_exceeds_limit: totalCdf > maxCdfUnits,
     active_provider: activeProviderKey,
+    requested_currency: requestedCurrency,
+    is_vehicle: isVehicle,
   });
 
-  // RULE 1: USD within limit → Provider USD
-  if (totalUsdDollars <= maxUsdDollars) {
-    const paymentFlow = activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY';
-    const decision = activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY_USD';
+  // RULE 1: Vehicles require Bank Transfer or Stripe (handled by caller, but fallback here)
+  if (isVehicle) {
     const result = {
-      payment_flow: paymentFlow as PaymentFlow,
+      payment_flow: 'BANK_TRANSFER' as PaymentFlow,
       payable_currency: 'USD' as const,
-      payable_amount: Math.round(totalUsdDollars * 100) / 100, // Round to 2 decimals
+      payable_amount: Math.round(totalUsdDollars * 100) / 100,
       totalCdf,
-      decision: decision as PaymentDecision,
-      message_fr: `Paiement en USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
-      message_en: `Pay in USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
+      decision: 'MANUAL_BANK' as PaymentDecision,
+      message_fr: `Commande véhicule - Virement bancaire ou paiement carte requis.`,
+      message_en: `Vehicle order - Bank transfer or card payment required.`,
     };
-    console.log('CHECKOUT_LIMITS_DECISION_RESULT', { ...result, reason: 'usd_within_limit' });
+    console.log('CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'vehicle_order' });
     return result;
   }
+
+  // RULE 2: Regular orders use mobile money in the requested currency
+  const paymentFlow = activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY';
   
-  // RULE 2: USD exceeds limit but CDF within limit → Provider CDF (forced conversion)
-  // Note: pawaPay may not support CDF, so this only applies to MaishaPay
-  if (totalCdf <= maxCdfUnits && activeProviderKey === 'maishapay') {
+  if (requestedCurrency === 'CDF') {
     const result = {
-      payment_flow: 'MAISHAPAY_CDF_FORCED' as PaymentFlow,
+      payment_flow: paymentFlow as PaymentFlow,
       payable_currency: 'CDF' as const,
       payable_amount: totalCdf,
       totalCdf,
-      decision: 'MAISHAPAY_CDF' as PaymentDecision,
-      message_fr: `Montant supérieur à $${maxUsdDollars}. Paiement en CDF via Mobile Money (${totalCdf.toLocaleString()} CDF)`,
-      message_en: `Amount exceeds $${maxUsdDollars}. Pay in CDF via Mobile Money (${totalCdf.toLocaleString()} CDF)`,
+      decision: (activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY_CDF') as PaymentDecision,
+      message_fr: `Paiement en CDF via ${providerLabel} (${totalCdf.toLocaleString()} CDF)`,
+      message_en: `Pay in CDF via ${providerLabel} (${totalCdf.toLocaleString()} CDF)`,
     };
-    console.log('CHECKOUT_LIMITS_DECISION_RESULT', { ...result, reason: 'cdf_within_limit_after_conversion' });
+    console.log('CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'mobile_money_cdf' });
     return result;
   }
-  
-  // RULE 3: Both limits exceeded → Bank Transfer
+
+  // Default: USD
   const result = {
-    payment_flow: 'BANK_TRANSFER' as PaymentFlow,
-    payable_currency: 'USD' as const, // Bank transfers in USD
+    payment_flow: paymentFlow as PaymentFlow,
+    payable_currency: 'USD' as const,
     payable_amount: Math.round(totalUsdDollars * 100) / 100,
     totalCdf,
-    decision: 'MANUAL_BANK' as PaymentDecision,
-    message_fr: `Montant supérieur à ${maxCdfUnits.toLocaleString()} CDF. Virement bancaire requis.`,
-    message_en: `Amount exceeds ${maxCdfUnits.toLocaleString()} CDF. Bank transfer required.`,
+    decision: (activeProviderKey === 'pawapay' ? 'PAWAPAY' : 'MAISHAPAY_USD') as PaymentDecision,
+    message_fr: `Paiement en USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
+    message_en: `Pay in USD via ${providerLabel} ($${totalUsdDollars.toFixed(2)})`,
   };
-  console.log('CHECKOUT_LIMITS_DECISION_RESULT', { ...result, reason: 'exceeds_all_limits' });
+  console.log('CHECKOUT_PAYMENT_DECISION_RESULT', { ...result, reason: 'mobile_money_usd' });
   return result;
 }
 
@@ -261,7 +259,20 @@ serve(async (req) => {
       console.warn('[payment-decision] Provider lookup failed, using default:', providerErr);
     }
 
-    // Compute decision using standardized logic
+    // Check if order contains vehicles (for routing decision)
+    let isVehicle = false;
+    if (order_id) {
+      const { data: orderItems } = await supabase
+        .from('order_items')
+        .select('is_vehicle')
+        .eq('order_id', order_id);
+      isVehicle = orderItems?.some(item => item.is_vehicle === true) || false;
+    }
+
+    // Get requested currency from payload (default to USD)
+    const requestedCurrency: 'USD' | 'CDF' = (body as any).currency?.toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+
+    // Compute decision using updated logic (no limit-based switching)
     const { 
       payment_flow, 
       payable_currency, 
@@ -275,7 +286,9 @@ serve(async (req) => {
       fxRate,
       maxUsdDollars,
       maxCdfUnits,
-      providerKey
+      providerKey,
+      requestedCurrency,
+      isVehicle
     );
 
     // Build available providers list

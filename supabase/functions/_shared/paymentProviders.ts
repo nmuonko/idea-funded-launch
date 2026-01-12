@@ -173,19 +173,19 @@ function providerSupportsAmount(
 }
 
 /**
- * Select the best provider based on currency, amount, and limits
+ * Select the best provider based on currency, amount, and order type
  * 
- * Algorithm:
- * 1. Load enabled providers
- * 2. For each currency (prefer USD then CDF), filter by limits
- * 3. Sort qualified providers by priority (lower = better)
- * 4. Return the best match or error
+ * UPDATED RULES (2026-01):
+ * 1. Vehicles → Stripe (USD) or Bank Transfer
+ * 2. Regular orders → Mobile Money (pawaPay/MaishaPay) in requested currency (USD or CDF)
+ * 3. No limit-based currency switching for mobile money
  */
 export async function selectProviderByLimits(
   supabase: SupabaseClient,
   amountUsd: number,
   amountCdf: number,
-  isVehicle: boolean = false
+  isVehicle: boolean = false,
+  requestedCurrency: 'USD' | 'CDF' = 'USD'
 ): Promise<ProviderSelectionResult> {
   // Fetch all enabled providers sorted by priority
   const { data: providers, error } = await supabase
@@ -199,58 +199,51 @@ export async function selectProviderByLimits(
     return { success: false, error: 'No payment providers available' };
   }
 
-  console.log('[PaymentRouter] Evaluating providers for:', { amountUsd, amountCdf, isVehicle });
+  console.log('[PaymentRouter] Evaluating providers for:', { 
+    amountUsd, 
+    amountCdf, 
+    isVehicle, 
+    requestedCurrency 
+  });
 
-  // For vehicles, prefer Stripe regardless of amount
+  // RULE 1: Vehicles require Stripe (card) or Bank Transfer
   if (isVehicle) {
     const stripeProvider = providers.find(p => p.provider_key === 'stripe');
-    if (stripeProvider && providerSupportsAmount(stripeProvider, 'USD', amountUsd)) {
+    if (stripeProvider) {
       console.log('[PaymentRouter] Vehicle order - selected Stripe');
       return { success: true, provider: stripeProvider, currency: 'USD' };
     }
+    // Fallback to bank transfer (caller handles this)
+    console.log('[PaymentRouter] Vehicle order - no Stripe, will use bank transfer');
+    return { success: false, error: 'VEHICLE_BANK_TRANSFER_REQUIRED' };
   }
 
-  // Try USD first (preferred), then CDF
-  const currenciesToTry: Array<{ currency: 'USD' | 'CDF'; amount: number }> = [
-    { currency: 'USD', amount: amountUsd },
-    { currency: 'CDF', amount: amountCdf },
-  ];
+  // RULE 2: Regular orders use mobile money provider in requested currency
+  // Find pawaPay or MaishaPay provider
+  const mobileMoneyProvider = providers.find(p => 
+    p.provider_key === 'pawapay' || p.provider_key === 'maishapay'
+  );
 
-  for (const { currency, amount } of currenciesToTry) {
-    // Find all providers that support this currency + amount
-    const qualifiedProviders = providers.filter(p => 
-      providerSupportsAmount(p, currency, amount)
-    );
-
-    if (qualifiedProviders.length > 0) {
-      // Already sorted by priority, take the first one
-      const selected = qualifiedProviders[0];
-      console.log('[PaymentRouter] Selected provider:', selected.provider_key, {
-        currency,
-        amount,
-        priority: selected.priority,
-        limits: selected.config_public?.limits,
-      });
-      return { success: true, provider: selected, currency };
-    }
+  if (mobileMoneyProvider) {
+    const currency = requestedCurrency;
+    const amount = currency === 'USD' ? amountUsd : amountCdf;
+    
+    console.log('[PaymentRouter] Regular order - selected mobile money:', {
+      provider: mobileMoneyProvider.provider_key,
+      currency,
+      amount,
+    });
+    
+    return { success: true, provider: mobileMoneyProvider, currency };
   }
 
-  // No provider found
-  const limitDetails = providers.map(p => ({
-    provider: p.provider_key,
-    limits: p.config_public?.limits,
-    priority: p.priority,
-  }));
-  
-  console.error('[PaymentRouter] No provider supports the requested amount:', {
-    amountUsd,
-    amountCdf,
-    providers: limitDetails,
-  });
-
+  // Fallback: try any available provider
+  const fallbackProvider = providers[0];
+  console.log('[PaymentRouter] Using fallback provider:', fallbackProvider.provider_key);
   return { 
-    success: false, 
-    error: `No payment provider supports this amount. USD: $${amountUsd.toFixed(2)}, CDF: ${amountCdf.toFixed(0)}. Please contact support.`
+    success: true, 
+    provider: fallbackProvider, 
+    currency: requestedCurrency 
   };
 }
 

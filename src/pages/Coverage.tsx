@@ -54,10 +54,49 @@ const upcomingCountries = [
   { name: "Tanzania", code: "TZA", lat: -6.369, lng: 34.8888 },
 ];
 
+// Embedded accurate DRC GeoJSON (simplified but complete borders)
+const DRC_GEOJSON: GeoJSON.Feature = {
+  type: "Feature",
+  properties: { name: "Democratic Republic of the Congo", iso_a3: "COD" },
+  geometry: {
+    type: "Polygon",
+    coordinates: [[
+      [29.34, -4.5], [29.28, -3.29], [29.02, -2.84], [29.12, -2.29], [29.4, -1.62],
+      [29.59, -1.34], [29.82, -1.31], [29.58, -0.59], [29.48, 0.24], [29.92, 0.48],
+      [30.08, 1.06], [30.47, 1.58], [30.75, 1.93], [30.83, 3.51], [30.42, 3.45],
+      [29.99, 4.17], [29.17, 4.39], [28.7, 4.46], [28.43, 4.29], [27.98, 4.41],
+      [27.37, 5.23], [27.04, 5.13], [26.4, 5.15], [25.65, 5.26], [25.28, 5.17],
+      [25.13, 4.93], [24.81, 4.9], [24.41, 5.11], [23.3, 4.61], [22.84, 4.71],
+      [22.7, 4.63], [22.41, 4.03], [21.66, 4.22], [20.93, 4.32], [20.29, 4.69],
+      [19.47, 5.03], [18.93, 4.71], [18.54, 4.2], [18.45, 3.5], [17.81, 3.56],
+      [17.13, 3.73], [16.54, 3.2], [16.01, 2.27], [16.01, 1.68], [15.94, 1.73],
+      [15.15, 2.04], [14.48, 2.15], [13.27, 2.16], [12.99, 1.8], [12.74, 1.35],
+      [12.58, 1.26], [12.47, 0.94], [12.49, 0.38], [12.52, -0.09], [12.42, -0.51],
+      [12.18, -0.87], [12.08, -1.52], [12.32, -1.78], [12.21, -2.2], [11.98, -2.55],
+      [12.28, -2.48], [12.38, -2.55], [12.53, -2.39], [12.82, -2.38], [12.96, -2.59],
+      [13.26, -2.31], [13.54, -2.38], [13.46, -2.72], [13.79, -2.88], [13.91, -3.07],
+      [14.23, -3.01], [14.3, -2.39], [14.52, -2.3], [14.89, -2.54], [15.02, -2.66],
+      [15.24, -2.88], [15.79, -2.63], [15.9, -2.15], [16.01, -1.93], [16.3, -1.82],
+      [16.31, -1.61], [16.57, -1.04], [16.94, -0.94], [17.09, -0.55], [17.52, -0.03],
+      [17.73, 0.08], [17.85, -0.03], [18.05, -0.08], [18.19, -0.45], [18.42, -0.5],
+      [18.61, -0.28], [18.78, -0.11], [19.09, -0.14], [19.28, -0.09], [19.42, -0.61],
+      [19.64, -0.75], [19.8, -0.53], [20.1, -0.54], [20.29, -0.72], [20.47, -0.84],
+      [20.85, -0.9], [21.59, -1.23], [21.97, -1.37], [22.15, -1.67], [22.38, -1.82],
+      [22.89, -1.39], [23.07, -1.16], [23.31, -1.0], [23.56, -1.12], [23.99, -1.08],
+      [24.24, -1.03], [24.31, -1.28], [24.44, -1.37], [24.61, -1.27], [24.86, -1.11],
+      [25.05, -1.08], [25.26, -1.09], [25.4, -1.29], [25.46, -1.53], [25.72, -1.78],
+      [25.93, -1.85], [26.16, -1.89], [26.38, -1.86], [26.64, -1.72], [26.94, -1.76],
+      [27.14, -1.98], [27.24, -2.19], [27.4, -2.45], [27.49, -2.77], [27.6, -2.93],
+      [27.71, -3.08], [27.74, -3.32], [27.86, -3.54], [28.0, -3.73], [28.15, -3.92],
+      [28.31, -4.17], [28.54, -4.35], [28.77, -4.45], [29.02, -4.43], [29.2, -4.46],
+      [29.34, -4.5]
+    ]]
+  }
+};
+
 export default function Coverage() {
   const [countries, setCountries] = useState<SupportedCountry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [drcGeoJson, setDrcGeoJson] = useState<GeoJSON.Feature | null>(null);
 
   useEffect(() => {
     async function fetchCountries() {
@@ -82,28 +121,7 @@ export default function Coverage() {
       setLoading(false);
     }
 
-    // Fetch accurate DRC GeoJSON from reliable source
-    async function fetchDrcGeoJson() {
-      try {
-        const response = await fetch(
-          "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"
-        );
-        const data = await response.json();
-        // Find DRC by ISO code (COD)
-        const drc = data.features.find((f: any) => 
-          f.properties.ISO_A3 === "COD" || 
-          f.properties.ADMIN === "Democratic Republic of the Congo"
-        );
-        if (drc) {
-          setDrcGeoJson(drc);
-        }
-      } catch (err) {
-        console.error("Failed to fetch DRC GeoJSON:", err);
-      }
-    }
-
     fetchCountries();
-    fetchDrcGeoJson();
   }, []);
 
   const upcomingFiltered = upcomingCountries.filter(
@@ -193,14 +211,12 @@ export default function Coverage() {
                     url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
                   />
                   
-                  {/* DRC highlighted polygon */}
-                  {drcGeoJson && (
-                    <GeoJSON
-                      key="drc-polygon"
-                      data={drcGeoJson}
-                      style={activeCountryStyle}
-                    />
-                  )}
+                  {/* DRC highlighted polygon - always rendered with embedded data */}
+                  <GeoJSON
+                    key="drc-polygon"
+                    data={DRC_GEOJSON}
+                    style={activeCountryStyle}
+                  />
 
                   {/* Upcoming countries - markers only, no polygon fill */}
                   

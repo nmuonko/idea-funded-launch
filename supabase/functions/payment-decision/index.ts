@@ -276,6 +276,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     let body: { 
+      action?: string;
       order_id?: string; 
       cart_snapshot?: CartItem[]; 
       total_usd?: number;
@@ -294,9 +295,39 @@ serve(async (req) => {
       }
     }
 
+    // Handle action=get_limits - return just limits without requiring order/cart/total
+    if (body.action === 'get_limits') {
+      console.log('[payment-decision] Handling get_limits action');
+      const paymentSettings = await getPaymentSettings(supabase);
+      const settingsUpdatedAt = paymentSettings.updated_at || new Date().toISOString();
+      const version = new Date(settingsUpdatedAt).getTime();
+      
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          limits: {
+            pawapayMaxUsd: paymentSettings.mobile_money_max_usd,
+            pawapayMaxCdf: paymentSettings.mobile_money_max_cdf,
+            usd_max: paymentSettings.mobile_money_max_usd,
+            cdf_max: paymentSettings.mobile_money_max_cdf,
+          },
+          updated_at: settingsUpdatedAt,
+          version,
+        }),
+        { 
+          status: 200, 
+          headers: { 
+            ...corsHeaders, 
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          } 
+        }
+      );
+    }
+
     const { order_id, cart_snapshot, total_usd: providedTotal, country, method } = body;
 
-    // Validate input - need at least one
+    // Validate input - need at least one (only for non-get_limits requests)
     if (!order_id && !cart_snapshot && providedTotal === undefined) {
       return new Response(
         JSON.stringify({ 

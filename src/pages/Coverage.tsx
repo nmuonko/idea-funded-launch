@@ -140,19 +140,17 @@ export default function Coverage() {
                 <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500"></div>
               </div>
             ) : (
-              <div className="h-[500px] md:h-[600px] w-full [&_.leaflet-tile]:!image-rendering-auto [&_.leaflet-container]:!image-rendering-auto">
+              <div className="h-[500px] md:h-[600px] w-full">
                 <MapContainer
-                  center={[0, 20]}
-                  zoom={4}
+                  center={[5, 20]}
+                  zoom={3}
                   scrollWheelZoom={false}
-                  style={{ height: "100%", width: "100%", background: "#0f172a" }}
+                  style={{ height: "100%", width: "100%", background: "#1a1a2e" }}
                   className="rounded-3xl"
                 >
                   <TileLayer
-                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-                    url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"
-                    tileSize={512}
-                    zoomOffset={-1}
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png"
                   />
                   
                   {/* Active countries */}

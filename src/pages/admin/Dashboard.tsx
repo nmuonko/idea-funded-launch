@@ -58,6 +58,23 @@ export default function AdminDashboard() {
 
       if (periodError) throw periodError;
 
+      // Get paid order IDs for markup calculation
+      const paidOrdersList = periodOrders?.filter(o => o.payment_verified_at) || [];
+      const paidOrderIds = paidOrdersList.map(o => o.id);
+
+      // Get markup fees from order_items for paid orders (this is the actual profit)
+      let totalMarkupProfit = 0;
+      if (paidOrderIds.length > 0) {
+        const { data: orderItems, error: itemsError } = await supabase
+          .from('order_items')
+          .select('order_id, markup_fee_usd')
+          .in('order_id', paidOrderIds);
+
+        if (!itemsError && orderItems) {
+          totalMarkupProfit = orderItems.reduce((sum, item) => sum + Number(item.markup_fee_usd || 0), 0);
+        }
+      }
+
       // Calculate the previous period for trend comparison
       const periodLength = dateRange.to.getTime() - dateRange.from.getTime();
       const previousFrom = new Date(dateRange.from.getTime() - periodLength);
@@ -71,31 +88,40 @@ export default function AdminDashboard() {
 
       if (prevError) throw prevError;
 
+      // Get previous period markup profit
+      const prevPaidOrderIds = previousOrders?.filter(o => o.payment_verified_at).map(o => o.id) || [];
+      let prevMarkupProfit = 0;
+      if (prevPaidOrderIds.length > 0) {
+        const { data: prevItems, error: prevItemsError } = await supabase
+          .from('order_items')
+          .select('order_id, markup_fee_usd')
+          .in('order_id', prevPaidOrderIds);
+
+        if (!prevItemsError && prevItems) {
+          prevMarkupProfit = prevItems.reduce((sum, item) => sum + Number(item.markup_fee_usd || 0), 0);
+        }
+      }
+
       // Current period stats
       const totalOrders = periodOrders?.filter(o => o.status !== 'DRAFT').length || 0;
-      const paidOrdersList = periodOrders?.filter(o => o.payment_verified_at) || [];
       const paidOrders = paidOrdersList.length;
       const pendingPayments = periodOrders?.filter(o => o.status === 'PENDING_PAYMENT').length || 0;
-      const totalRevenue = paidOrdersList.reduce((sum, o) => sum + Number(o.total_usd || 0), 0);
 
       // Previous period stats for trends
       const prevOrderCount = previousOrders?.filter(o => o.status !== 'DRAFT').length || 0;
-      const prevRevenue = previousOrders
-        ?.filter(o => o.payment_verified_at)
-        .reduce((sum, o) => sum + Number(o.total_usd || 0), 0) || 0;
 
       const ordersTrend = prevOrderCount > 0 
         ? Math.round(((totalOrders - prevOrderCount) / prevOrderCount) * 100)
         : 0;
-      const revenueTrend = prevRevenue > 0
-        ? Math.round(((totalRevenue - prevRevenue) / prevRevenue) * 100)
+      const revenueTrend = prevMarkupProfit > 0
+        ? Math.round(((totalMarkupProfit - prevMarkupProfit) / prevMarkupProfit) * 100)
         : 0;
 
       setStats({
         totalOrders,
         paidOrders,
         pendingPayments,
-        totalRevenue,
+        totalRevenue: totalMarkupProfit, // Now showing markup profit instead of gross revenue
         ordersTrend,
         revenueTrend,
       });
@@ -151,10 +177,10 @@ export default function AdminDashboard() {
               isLoading={loading}
             />
             <SummaryCard
-              title={t.dashboard.revenue}
+              title="Markup Profit"
               value={formatUSD(stats.totalRevenue)}
               icon={DollarSign}
-              iconColor="text-primary"
+              iconColor="text-emerald-500"
               trend={stats.revenueTrend}
               trendLabel={t.dashboard.vsPrev}
               isLoading={loading}

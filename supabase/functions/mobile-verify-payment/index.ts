@@ -182,15 +182,54 @@ serve(async (req) => {
                   payment_verified_at: new Date().toISOString(),
                 }).eq('id', order.id);
                 
-                // P0 FIX: Mark checkout_session as completed
-                await supabase.from('checkout_sessions').update({
-                  status: 'completed',
-                  paid_at: new Date().toISOString(),
-                }).eq('order_id', order.id);
+                // P0 FIX: Fetch checkout_session to get original cart item IDs
+                const { data: checkoutSession } = await supabase
+                  .from('checkout_sessions')
+                  .select('id, metadata')
+                  .eq('order_id', order.id)
+                  .maybeSingle();
                 
-                // P0 FIX: Clear cart items ONLY on verified success
-                // Delete items from the DRAFT order (cart) that were moved to this order
-                log.log('[verify-payment] Payment succeeded, cart items already moved to paid order');
+                // P0 FIX: Mark checkout_session as completed
+                if (checkoutSession?.id) {
+                  await supabase.from('checkout_sessions').update({
+                    status: 'completed',
+                    paid_at: new Date().toISOString(),
+                  }).eq('id', checkoutSession.id);
+                }
+                
+                // P0 CRITICAL FIX: Clear cart items ONLY on verified success
+                // Delete original items from the DRAFT order (cart)
+                const metadata = checkoutSession?.metadata as any;
+                const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+                const sourceOrderId = metadata?.source_order_id;
+                
+                if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+                  log.log('[verify-payment] Deleting original cart items from DRAFT order', {
+                    source_order_id: sourceOrderId,
+                    original_cart_item_ids: originalCartItemIds,
+                    count: originalCartItemIds.length,
+                  });
+                  
+                  const { error: deleteError, data: deletedItems } = await supabase
+                    .from('order_items')
+                    .delete()
+                    .in('id', originalCartItemIds)
+                    .select('id');
+                  
+                  if (deleteError) {
+                    log.error('[verify-payment] Failed to delete original cart items', { 
+                      error: deleteError.message,
+                      original_cart_item_ids: originalCartItemIds,
+                    });
+                  } else {
+                    log.log('[verify-payment] Successfully deleted original cart items', {
+                      deleted_count: deletedItems?.length || 0,
+                      deleted_ids: deletedItems?.map(i => i.id),
+                    });
+                  }
+                } else {
+                  log.log('[verify-payment] Payment succeeded, no original cart item IDs found in session');
+                }
                 
                 return jsonResponse({
                   success: true,

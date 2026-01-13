@@ -234,6 +234,28 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       } else {
         console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
       }
+      
+      // P0 FIX: Clear original cart items on verified success
+      const { data: checkoutSession } = await supabase
+        .from('checkout_sessions')
+        .select('id, metadata')
+        .eq('order_id', payment.order_id)
+        .maybeSingle();
+      
+      if (checkoutSession?.id) {
+        await supabase.from('checkout_sessions').update({
+          status: 'completed',
+          paid_at: new Date().toISOString(),
+        }).eq('id', checkoutSession.id);
+        
+        const metadata = checkoutSession.metadata as any;
+        const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+        
+        if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+          console.log('[payments-webhook/stripe] Deleting original cart items:', originalCartItemIds.length);
+          await supabase.from('order_items').delete().in('id', originalCartItemIds);
+        }
+      }
     }
   }
 
@@ -316,6 +338,28 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
       .eq('id', payment.order_id);
 
     console.log('[payments-webhook/pawapay] Order marked as PAID:', payment.order_id);
+    
+    // P0 FIX: Clear original cart items on verified success
+    const { data: checkoutSession } = await supabase
+      .from('checkout_sessions')
+      .select('id, metadata')
+      .eq('order_id', payment.order_id)
+      .maybeSingle();
+    
+    if (checkoutSession?.id) {
+      await supabase.from('checkout_sessions').update({
+        status: 'completed',
+        paid_at: new Date().toISOString(),
+      }).eq('id', checkoutSession.id);
+      
+      const metadata = checkoutSession.metadata as any;
+      const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+      
+      if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+        console.log('[payments-webhook/pawapay] Deleting original cart items:', originalCartItemIds.length);
+        await supabase.from('order_items').delete().in('id', originalCartItemIds);
+      }
+    }
   }
 
   return new Response(

@@ -1434,6 +1434,15 @@ serve(async (req) => {
     });
 
     // ============================================
+    // CART STATE LOGGING (BEFORE CHECKOUT)
+    // ============================================
+    console.log('[checkout] cart_id before/after (should be same)', {
+      cart_id: existingOrder.id,
+      cart_version: existingOrder.cart_version,
+      item_ids_count: cart_item_ids.length,
+    });
+
+    // ============================================
     // Create checkout order
     // ============================================
     const timestamp = Date.now().toString(36);
@@ -1470,17 +1479,74 @@ serve(async (req) => {
       maisha_transaction_id: reference,
     }).eq('id', checkoutOrder.id);
 
-    // Move items to new order (P1: only moves, never deletes - cart items stay in DB)
-    const { error: moveItemsError } = await supabase
+    // ============================================
+    // P0 CRITICAL FIX: COPY items to checkout order (NOT MOVE)
+    // Cart items remain in DRAFT order until payment is verified
+    // This prevents CART_DESYNC when user cancels and retries
+    // ============================================
+    
+    // Fetch full item data to copy
+    const { data: itemsToCopy, error: fetchItemsError } = await supabase
       .from('order_items')
-      .update({ order_id: checkoutOrder.id })
+      .select('*')
       .in('id', cart_item_ids);
-
-    if (moveItemsError) {
-      console.error('[mobile-checkout] Error moving items to checkout order:', moveItemsError);
+    
+    if (fetchItemsError || !itemsToCopy || itemsToCopy.length !== cart_item_ids.length) {
+      console.error('[mobile-checkout] Error fetching items to copy:', fetchItemsError);
       await supabase.from('orders').delete().eq('id', checkoutOrder.id);
       return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
     }
+    
+    // Create new order_items records for checkout order (copy, not move)
+    const copiedItems = itemsToCopy.map(item => ({
+      order_id: checkoutOrder.id,
+      product_url: item.product_url,
+      title: item.title,
+      product_image_url: item.product_image_url,
+      store: item.store,
+      base_price_usd: item.base_price_usd,
+      unit_price_usd: item.unit_price_usd,
+      quantity: item.quantity,
+      subtotal_usd: item.subtotal_usd,
+      markup_fee_usd: item.markup_fee_usd,
+      shipping_fee_usd: item.shipping_fee_usd,
+      total_price_usd: item.total_price_usd,
+      total_price_cdf: item.total_price_cdf,
+      est_weight_kg: item.est_weight_kg,
+      requires_manual_quote: item.requires_manual_quote,
+      is_vehicle: item.is_vehicle,
+      vehicle_quote_applied: item.vehicle_quote_applied,
+      shipping_item_type_id: item.shipping_item_type_id,
+      shipping_status: item.shipping_status,
+      notes: item.notes,
+      price_source: item.price_source,
+      captured_price: item.captured_price,
+      price_confirmation_id: item.price_confirmation_id,
+      price_confirmation_status: item.price_confirmation_status,
+      admin_adjusted_price: item.admin_adjusted_price,
+      is_saved_for_later: false, // Checkout items are never saved for later
+      // Do NOT copy: id (auto-generated), created_at, updated_at, saved_at, last_reminder_at
+    }));
+    
+    const { data: insertedItems, error: copyItemsError } = await supabase
+      .from('order_items')
+      .insert(copiedItems)
+      .select('id');
+
+    if (copyItemsError || !insertedItems) {
+      console.error('[mobile-checkout] Error copying items to checkout order:', copyItemsError);
+      await supabase.from('orders').delete().eq('id', checkoutOrder.id);
+      return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+    }
+    
+    // Log cart state after checkout (DRAFT cart should be unchanged)
+    console.log('[checkout] item ids count before/after (should be same)', {
+      original_cart_id: existingOrder.id,
+      checkout_order_id: checkoutOrder.id,
+      original_item_ids: cart_item_ids,
+      copied_item_ids: insertedItems.map(i => i.id),
+      items_remain_in_cart: true,
+    });
 
     // ============================================
     // Create checkout_session record (ALWAYS)
@@ -1504,7 +1570,10 @@ serve(async (req) => {
           isDRC,
           isoCode,
           currencyReason,
-          cart_item_ids: cart_item_ids,
+          // P0 CRITICAL: Store original cart item IDs and source order for cleanup on success
+          source_order_id: existingOrder.id, // DRAFT order where original items live
+          original_cart_item_ids: cart_item_ids, // Items to delete from DRAFT on payment success
+          cart_item_ids: cart_item_ids, // Legacy field (keep for compatibility)
           // Store UI amounts for debugging (never used for payment)
           debug_ui_amounts: {
             ui_amount_usd,

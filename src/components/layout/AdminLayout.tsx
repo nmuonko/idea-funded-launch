@@ -11,7 +11,8 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, 
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe
+  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
+  ChevronDown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,6 +22,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 export function AdminLayout() {
   const location = useLocation();
@@ -32,6 +38,7 @@ export function AdminLayout() {
   const t = getAdminTranslation(language);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const isSuperAdmin = permissions?.isSuperAdmin;
 
@@ -108,6 +115,19 @@ export function AdminLayout() {
 
   const toggleSidebar = () => setIsCollapsed(!isCollapsed);
   const toggleMobile = () => setIsMobileOpen(!isMobileOpen);
+  const toggleSection = (title: string) => {
+    setOpenSections(prev => ({ ...prev, [title]: !prev[title] }));
+  };
+
+  // Check if any item in a section is active
+  const isSectionActive = (items: typeof filteredSections[0]['items']) => {
+    return items.some(item => {
+      const itemExact = 'exact' in item ? item.exact : false;
+      return itemExact 
+        ? location.pathname === item.to
+        : location.pathname.startsWith(item.to);
+    });
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -152,42 +172,96 @@ export function AdminLayout() {
               <Skeleton key={i} className={cn("h-10 w-full", isCollapsed ? "w-10" : "")} />
             ))
           ) : (
-            filteredSections.map((section) => (
-              <div key={section.title} className="space-y-1">
-                {!isCollapsed && (
-                  <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    {section.title}
-                  </h3>
-                )}
-                {section.items.map((item) => {
-                  const itemExact = 'exact' in item ? item.exact : false;
-                  const isActive = itemExact 
-                    ? location.pathname === item.to
-                    : location.pathname.startsWith(item.to);
-                  
-                  return (
-                    <Link 
-                      key={item.to} 
-                      to={item.to}
-                      onClick={() => setIsMobileOpen(false)}
+            filteredSections.map((section) => {
+              const sectionActive = isSectionActive(section.items);
+              const isOpen = openSections[section.title] ?? sectionActive;
+              
+              return isCollapsed ? (
+                // Collapsed mode - show items directly with tooltips
+                <div key={section.title} className="space-y-1">
+                  {section.items.map((item) => {
+                    const itemExact = 'exact' in item ? item.exact : false;
+                    const isActive = itemExact 
+                      ? location.pathname === item.to
+                      : location.pathname.startsWith(item.to);
+                    
+                    return (
+                      <Tooltip key={item.to}>
+                        <TooltipTrigger asChild>
+                          <Link to={item.to} onClick={() => setIsMobileOpen(false)}>
+                            <Button
+                              variant={isActive ? 'default' : 'ghost'}
+                              className={cn(
+                                'w-full justify-center px-2 transition-all duration-200',
+                                isActive && 'shadow-glow'
+                              )}
+                            >
+                              <item.icon className="h-5 w-5 flex-shrink-0" />
+                            </Button>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{item.label}</TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              ) : (
+                // Expanded mode - collapsible sections
+                <Collapsible
+                  key={section.title}
+                  open={isOpen}
+                  onOpenChange={() => toggleSection(section.title)}
+                  className="space-y-1"
+                >
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-between px-2 text-muted-foreground hover:text-foreground",
+                        sectionActive && "text-primary"
+                      )}
                     >
-                      <Button
-                        variant={isActive ? 'default' : 'ghost'}
+                      <span className="text-xs font-semibold uppercase tracking-wider">
+                        {section.title}
+                      </span>
+                      <ChevronDown 
                         className={cn(
-                          'w-full transition-all duration-200',
-                          isCollapsed ? 'justify-center px-2' : 'justify-start gap-3',
-                          isActive && 'shadow-glow'
-                        )}
-                        title={isCollapsed ? item.label : undefined}
-                      >
-                        <item.icon className="h-5 w-5 flex-shrink-0" />
-                        {!isCollapsed && <span className="truncate">{item.label}</span>}
-                      </Button>
-                    </Link>
-                  );
-                })}
-              </div>
-            ))
+                          "h-4 w-4 transition-transform duration-200",
+                          isOpen && "rotate-180"
+                        )} 
+                      />
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-1">
+                    {section.items.map((item) => {
+                      const itemExact = 'exact' in item ? item.exact : false;
+                      const isActive = itemExact 
+                        ? location.pathname === item.to
+                        : location.pathname.startsWith(item.to);
+                      
+                      return (
+                        <Link 
+                          key={item.to} 
+                          to={item.to}
+                          onClick={() => setIsMobileOpen(false)}
+                        >
+                          <Button
+                            variant={isActive ? 'default' : 'ghost'}
+                            className={cn(
+                              'w-full justify-start gap-3 pl-4 transition-all duration-200',
+                              isActive && 'shadow-glow'
+                            )}
+                          >
+                            <item.icon className="h-4 w-4 flex-shrink-0" />
+                            <span className="truncate">{item.label}</span>
+                          </Button>
+                        </Link>
+                      );
+                    })}
+                  </CollapsibleContent>
+                </Collapsible>
+              );
+            })
           )}
         </nav>
       </ScrollArea>

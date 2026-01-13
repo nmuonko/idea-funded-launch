@@ -104,23 +104,20 @@ export default function AdminHealth() {
       };
     }
 
-    // Check Edge Functions (using a lightweight endpoint)
+    // Check Edge Functions (using the health endpoint)
     const edgeStart = Date.now();
     try {
-      const { data, error } = await supabase.functions.invoke('maishapay-get-config', {
-        body: { ping: true }
-      });
+      const { data, error } = await supabase.functions.invoke('health');
       const latency = Date.now() - edgeStart;
       checks[2] = {
         name: 'Edge Functions',
-        status: error && !error.message.includes('401') ? 'degraded' : 'healthy',
+        status: error ? 'degraded' : 'healthy',
         latency,
         lastChecked: new Date(),
-        details: `Runtime available, ${latency}ms response`
+        details: error ? 'Runtime check failed' : `Runtime available, ${latency}ms response`
       };
     } catch (err: any) {
       const latency = Date.now() - edgeStart;
-      // Edge functions might return errors for auth but still be "up"
       checks[2] = {
         name: 'Edge Functions',
         status: latency < 5000 ? 'healthy' : 'degraded',

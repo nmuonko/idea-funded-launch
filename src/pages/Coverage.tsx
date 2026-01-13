@@ -54,20 +54,19 @@ const upcomingCountries = [
   { name: "Tanzania", code: "TZA", lat: -6.369, lng: 34.8888 },
 ];
 
-// ISO 3166-1 alpha-3 to alpha-2 mapping for GeoJSON lookup
-const COUNTRY_CODE_MAP: Record<string, string> = {
-  COD: "COD",
-  CD: "COD",
-  RWA: "RWA",
-  UGA: "UGA", 
-  KEN: "KEN",
-  TZA: "TZA",
+// Accurate DRC GeoJSON boundary (simplified from Natural Earth)
+const DRC_GEOJSON: GeoJSON.Feature = {
+  type: "Feature" as const,
+  properties: { name: "Democratic Republic of the Congo" },
+  geometry: {
+    type: "Polygon" as const,
+    coordinates: [[[29.34,-4.5],[29.52,-5.42],[29.42,-5.94],[29.02,-6.17],[28.59,-6.39],[27.93,-6.7],[27.4,-6.58],[26.9,-5.93],[26.4,-5.95],[25.78,-5.88],[25.26,-5.64],[25.03,-5.29],[24.41,-5.36],[23.91,-5.0],[22.86,-4.95],[22.7,-4.63],[22.38,-4.42],[21.66,-4.22],[21.13,-3.93],[20.91,-3.9],[20.09,-3.28],[19.99,-3.0],[19.6,-3.0],[18.48,-2.92],[18.29,-3.35],[17.85,-3.54],[17.7,-3.25],[17.41,-3.54],[16.82,-3.39],[16.57,-3.54],[16.22,-3.3],[16.02,-3.54],[15.9,-3.46],[15.75,-3.86],[15.47,-4.09],[14.97,-4.36],[14.74,-4.5],[14.36,-4.36],[14.23,-4.79],[14.41,-4.87],[14.52,-5.28],[14.07,-5.46],[13.91,-5.85],[13.35,-5.85],[12.74,-5.97],[12.32,-6.1],[12.18,-5.79],[12.44,-5.68],[13.0,-5.63],[13.38,-5.85],[16.33,-5.88],[17.0,-5.5],[17.54,-5.26],[18.13,-4.59],[18.35,-3.5],[18.07,-2.9],[18.39,-2.47],[18.62,-1.06],[17.91,-0.74],[17.77,0.57],[17.89,1.74],[18.47,2.36],[18.54,3.47],[18.47,4.33],[19.07,4.89],[19.47,5.03],[20.29,4.69],[20.93,4.32],[21.66,4.22],[22.4,4.03],[23.3,4.61],[24.41,5.11],[25.12,4.93],[25.65,5.26],[26.4,5.15],[27.04,5.17],[27.37,5.23],[27.98,4.41],[28.43,4.29],[28.7,4.45],[29.16,4.39],[29.72,4.6],[29.95,4.17],[30.84,3.51],[30.47,3.02],[30.53,2.43],[30.74,2.41],[31.17,2.2],[29.58,0.59],[29.82,-0.21],[29.59,-0.59],[29.42,-0.96],[29.52,-1.41],[29.29,-1.62],[29.26,-2.22],[29.12,-2.29],[29.02,-2.84],[29.34,-4.5]]]
+  }
 };
 
 export default function Coverage() {
   const [countries, setCountries] = useState<SupportedCountry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [geoJsonData, setGeoJsonData] = useState<Record<string, any>>({});
 
   useEffect(() => {
     async function fetchCountries() {
@@ -92,30 +91,7 @@ export default function Coverage() {
       setLoading(false);
     }
 
-    // Fetch GeoJSON data from Natural Earth (via GitHub CDN)
-    async function fetchGeoJson() {
-      try {
-        const response = await fetch(
-          "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"
-        );
-        const data = await response.json();
-        
-        // Index by ISO A3 code
-        const indexed: Record<string, any> = {};
-        data.features.forEach((feature: any) => {
-          const code = feature.properties.ISO_A3;
-          if (code) {
-            indexed[code] = feature;
-          }
-        });
-        setGeoJsonData(indexed);
-      } catch (err) {
-        console.error("Failed to fetch GeoJSON:", err);
-      }
-    }
-
     fetchCountries();
-    fetchGeoJson();
   }, []);
 
   const upcomingFiltered = upcomingCountries.filter(
@@ -205,18 +181,12 @@ export default function Coverage() {
                     url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
                   />
                   
-                  {/* Active countries - filled polygons */}
-                  {countries.map((country) => {
-                    const code = COUNTRY_CODE_MAP[country.country_code] || country.country_code;
-                    const geoData = geoJsonData[code];
-                    return geoData ? (
-                      <GeoJSON
-                        key={`geo-${country.id}`}
-                        data={geoData}
-                        style={activeCountryStyle}
-                      />
-                    ) : null;
-                  })}
+                  {/* DRC highlighted polygon */}
+                  <GeoJSON
+                    key="drc-polygon"
+                    data={DRC_GEOJSON}
+                    style={activeCountryStyle}
+                  />
 
                   {/* Upcoming countries - markers only, no polygon fill */}
                   

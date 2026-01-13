@@ -218,18 +218,7 @@ export default function Coverage() {
                     ) : null;
                   })}
 
-                  {/* Upcoming countries - dashed polygons */}
-                  {upcomingFiltered.map((country) => {
-                    const code = COUNTRY_CODE_MAP[country.code] || country.code;
-                    const geoData = geoJsonData[code];
-                    return geoData ? (
-                      <GeoJSON
-                        key={`geo-upcoming-${country.code}`}
-                        data={geoData}
-                        style={upcomingCountryStyle}
-                      />
-                    ) : null;
-                  })}
+                  {/* Upcoming countries - markers only, no polygon fill */}
                   
                   {/* Active country markers */}
                   {countries.map((country) => (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, GeoJSON } from "react-leaflet";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Globe, CheckCircle, Clock, ArrowRight, MapPin } from "lucide-react";
@@ -54,6 +54,50 @@ const upcomingCountries = [
   { name: "Tanzania", code: "TZA", lat: -6.369, lng: 34.8888 },
 ];
 
+// Simplified GeoJSON for African countries (boundaries)
+const COUNTRY_GEOJSON: Record<string, any> = {
+  COD: {
+    type: "Feature",
+    properties: { name: "Democratic Republic of the Congo" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[12.18,-5.79],[12.32,-6.1],[13.02,-5.98],[13.38,-5.85],[16.33,-5.88],[17.01,-5.5],[17.54,-5.26],[18.13,-4.59],[18.35,-3.5],[18.07,-2.9],[18.39,-2.47],[18.62,-1.06],[17.91,-0.74],[17.77,0.57],[17.9,1.74],[18.47,2.36],[18.55,3.48],[18.49,4.33],[19.07,4.89],[19.47,5.03],[20.29,4.69],[20.93,4.32],[21.66,4.22],[22.41,4.03],[23.3,4.61],[24.41,5.11],[25.12,4.93],[25.65,5.26],[26.4,5.15],[27.04,5.17],[27.37,5.23],[27.98,4.41],[28.43,4.29],[28.7,4.45],[29.16,4.39],[29.72,4.6],[29.95,4.17],[30.84,3.51],[30.47,3.02],[30.53,2.43],[30.74,2.41],[31.17,2.2],[29.58,0.59],[29.82,-0.21],[29.59,-0.59],[29.42,-0.96],[29.52,-1.41],[29.29,-1.62],[29.26,-2.22],[29.12,-2.29],[29.02,-2.84],[28.85,-2.94],[28.8,-3.3],[29.02,-4.5],[29.34,-4.5],[29.52,-5.42],[29.42,-5.94],[29,-6.17],[28.59,-6.39],[28.51,-6.71],[28.15,-6.82],[27.62,-7],[27.32,-6.7],[27.23,-6.54],[26.88,-6.01],[26.97,-5.86],[26.76,-5.79],[26.21,-5.76],[25.79,-5.87],[25.26,-5.64],[25.03,-5.29],[24.41,-5.36],[23.91,-5],[22.87,-4.95],[22.7,-4.63],[22.38,-4.42],[21.66,-4.21],[21.14,-3.93],[20.91,-3.9],[20.1,-3.28],[19.99,-3.01],[19.6,-3],[18.48,-2.92],[18.28,-3.35],[17.85,-3.54],[17.7,-3.25],[17.41,-3.54],[16.82,-3.39],[16.57,-3.54],[16.22,-3.3],[16.02,-3.54],[15.9,-3.46],[15.75,-3.86],[15.47,-4.09],[14.74,-4.5],[14.36,-4.36],[14.23,-4.79],[14.41,-4.87],[14.52,-5.28],[14.07,-5.46],[13.91,-5.85],[13.35,-5.85],[12.7,-5.97],[12.18,-5.79]]]
+    }
+  },
+  RWA: {
+    type: "Feature",
+    properties: { name: "Rwanda" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[30.42,-1.13],[30.82,-1.47],[30.76,-2.28],[30.47,-2.41],[30.09,-2.33],[29.58,-2.74],[29.02,-2.84],[29.12,-2.29],[29.26,-2.22],[29.29,-1.62],[29.52,-1.41],[29.88,-1.13],[30.42,-1.13]]]
+    }
+  },
+  UGA: {
+    type: "Feature",
+    properties: { name: "Uganda" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[31.86,3.77],[31.17,3.78],[30.77,2.34],[30.47,2.41],[30.47,3.02],[30.53,3.02],[30.84,3.51],[29.95,4.17],[29.72,4.6],[29.16,4.39],[28.7,4.45],[28.43,4.29],[27.98,4.41],[27.37,5.23],[27.21,5.55],[28.19,5.28],[29.59,4.28],[30.27,3.03],[30.47,2.41],[30.76,-0.03],[30.42,-1.13],[29.88,-1.13],[29.58,-0.89],[29.59,-0.59],[29.82,-0.21],[29.58,0.59],[31.17,2.2],[31.86,3.77]]]
+    }
+  },
+  KEN: {
+    type: "Feature",
+    properties: { name: "Kenya" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[40.99,-0.86],[41.58,-1.68],[40.88,-2.08],[40.64,-2.5],[40.26,-2.57],[40.12,-3.28],[39.8,-3.68],[39.6,-4.35],[39.2,-4.68],[37.77,-3.68],[37.7,-3.1],[34.07,-1.06],[33.9,0.11],[34.48,1.17],[34.8,1.44],[35.3,1.64],[35.82,1.64],[35.82,4.78],[35.94,5.51],[36.16,6.22],[36.85,5.27],[38.12,3.6],[39.56,3.42],[40.77,4.26],[41.17,3.92],[40.77,2.14],[40.96,-0.86],[40.99,-0.86]]]
+    }
+  },
+  TZA: {
+    type: "Feature",
+    properties: { name: "Tanzania" },
+    geometry: {
+      type: "Polygon",
+      coordinates: [[[33.9,0.11],[34.07,-1.06],[37.7,-3.1],[37.77,-3.68],[39.2,-4.68],[38.74,-5.91],[38.8,-6.48],[39.44,-6.84],[39.47,-7.1],[39.19,-7.7],[39.25,-8.01],[39.19,-8.49],[39.53,-9.11],[39.28,-10.03],[38.04,-10.96],[37.67,-10.77],[37.46,-11.28],[36.78,-11.59],[36.51,-11.72],[35.31,-11.44],[34.56,-11.52],[34.28,-10.16],[33.94,-9.69],[33.74,-9.42],[32.76,-9.23],[32.19,-8.93],[31.56,-8.76],[31.16,-8.59],[30.74,-8.34],[30.2,-7.08],[29.62,-6.52],[29.42,-5.94],[29.52,-5.42],[29.34,-4.5],[29.02,-4.5],[29.34,-3.29],[29.28,-2.98],[29.02,-2.84],[29.58,-2.74],[30.09,-2.33],[30.47,-2.41],[30.82,-1.47],[30.42,-1.13],[30.76,-0.03],[31.17,2.2],[29.58,0.59],[33.9,0.11]]]
+    }
+  }
+};
+
 export default function Coverage() {
   const [countries, setCountries] = useState<SupportedCountry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +131,23 @@ export default function Coverage() {
   const upcomingFiltered = upcomingCountries.filter(
     u => !countries.some(c => c.country_code === u.code)
   );
+
+  // Style for active country polygons
+  const activeCountryStyle = {
+    fillColor: "#10b981",
+    fillOpacity: 0.5,
+    color: "#34d399",
+    weight: 2,
+  };
+
+  // Style for upcoming country polygons
+  const upcomingCountryStyle = {
+    fillColor: "#f59e0b",
+    fillOpacity: 0.25,
+    color: "#fbbf24",
+    weight: 1,
+    dashArray: "5, 5",
+  };
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -142,67 +203,72 @@ export default function Coverage() {
             ) : (
               <div className="h-[500px] md:h-[600px] w-full">
                 <MapContainer
-                  center={[5, 20]}
+                  center={[2, 20]}
                   zoom={3}
                   scrollWheelZoom={false}
-                  style={{ height: "100%", width: "100%", background: "#1a1a2e" }}
+                  style={{ height: "100%", width: "100%", background: "#0c1322" }}
                   className="rounded-3xl"
                 >
+                  {/* Dark, muted tile layer - easy on the eyes */}
                   <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png"
+                    attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+                    url="https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png"
                   />
                   
-                  {/* Active countries */}
-                  {countries.map((country) => (
-                    <div key={country.id}>
-                      <Circle
-                        center={[country.latitude, country.longitude]}
-                        radius={300000}
-                        pathOptions={{
-                          color: "#10b981",
-                          fillColor: "#10b981",
-                          fillOpacity: 0.3,
-                        }}
+                  {/* Active countries - filled polygons */}
+                  {countries.map((country) => {
+                    const geoData = COUNTRY_GEOJSON[country.country_code];
+                    return geoData ? (
+                      <GeoJSON
+                        key={`geo-${country.id}`}
+                        data={geoData}
+                        style={activeCountryStyle}
                       />
-                      <Marker
-                        position={[country.latitude, country.longitude]}
-                        icon={activeIcon}
-                      >
-                        <Popup>
-                          <div className="text-center">
-                            <strong className="text-emerald-600">{country.country_name}</strong>
-                            <p className="text-sm text-gray-600">✓ Active Service Zone</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    </div>
+                    ) : null;
+                  })}
+
+                  {/* Upcoming countries - dashed polygons */}
+                  {upcomingFiltered.map((country) => {
+                    const geoData = COUNTRY_GEOJSON[country.code];
+                    return geoData ? (
+                      <GeoJSON
+                        key={`geo-upcoming-${country.code}`}
+                        data={geoData}
+                        style={upcomingCountryStyle}
+                      />
+                    ) : null;
+                  })}
+                  
+                  {/* Active country markers */}
+                  {countries.map((country) => (
+                    <Marker
+                      key={country.id}
+                      position={[country.latitude, country.longitude]}
+                      icon={activeIcon}
+                    >
+                      <Popup>
+                        <div className="text-center p-1">
+                          <strong className="text-emerald-600 text-base">{country.country_name}</strong>
+                          <p className="text-sm text-gray-600 mt-1">✓ Active Service Zone</p>
+                        </div>
+                      </Popup>
+                    </Marker>
                   ))}
 
-                  {/* Upcoming countries */}
+                  {/* Upcoming country markers */}
                   {upcomingFiltered.map((country) => (
-                    <div key={country.code}>
-                      <Circle
-                        center={[country.lat, country.lng]}
-                        radius={200000}
-                        pathOptions={{
-                          color: "#f59e0b",
-                          fillColor: "#f59e0b",
-                          fillOpacity: 0.2,
-                        }}
-                      />
-                      <Marker
-                        position={[country.lat, country.lng]}
-                        icon={upcomingIcon}
-                      >
-                        <Popup>
-                          <div className="text-center">
-                            <strong className="text-amber-600">{country.name}</strong>
-                            <p className="text-sm text-gray-600">Coming Soon</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    </div>
+                    <Marker
+                      key={country.code}
+                      position={[country.lat, country.lng]}
+                      icon={upcomingIcon}
+                    >
+                      <Popup>
+                        <div className="text-center p-1">
+                          <strong className="text-amber-600 text-base">{country.name}</strong>
+                          <p className="text-sm text-gray-600 mt-1">Coming Soon</p>
+                        </div>
+                      </Popup>
+                    </Marker>
                   ))}
                 </MapContainer>
               </div>

@@ -32,7 +32,6 @@ import AdminShipping from "./pages/admin/Shipping";
 import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
-import AdminSupportTickets from "./pages/admin/SupportTickets";
 import AdminSupportInbox from "./pages/admin/SupportInbox";
 import TicketAnalytics from "./pages/admin/TicketAnalytics";
 import KnowledgeBase from "./pages/KnowledgeBase";
@@ -47,7 +46,7 @@ import PriceConfirmations from "./pages/admin/PriceConfirmations";
 import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
-import BankTransferSubmissions from "./pages/admin/BankTransferSubmissions";
+
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
 import ServiceZones from "./pages/admin/ServiceZones";
 import Orders from "./pages/Orders";
@@ -177,11 +176,6 @@ const App = () => {
                   <AdminPayments />
                 </AdminRouteGuard>
               } />
-              <Route path="support" element={
-                <AdminRouteGuard requiredPermission="can_view_tickets">
-                  <AdminSupportTickets />
-                </AdminRouteGuard>
-              } />
               <Route path="support-inbox" element={
                 <AdminRouteGuard requiredPermission="can_view_tickets">
                   <AdminSupportInbox />
@@ -260,11 +254,6 @@ const App = () => {
               <Route path="bank-transfer-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <BankTransferSettings />
-                </AdminRouteGuard>
-              } />
-              <Route path="bank-transfer-submissions" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
-                  <BankTransferSubmissions />
                 </AdminRouteGuard>
               } />
               <Route path="payments-settings" element={

@@ -35,38 +35,71 @@ export function AdminLayout() {
 
   const isSuperAdmin = permissions?.isSuperAdmin;
 
-  // Define nav items with permission requirements (using new granular permission keys)
-  const allNavItems = useMemo(() => [
-    { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: 'can_view_dashboard' as const },
-    { to: '/admin/customers', icon: UserCircle, label: t.sidebar.customers || 'Customers', permission: 'can_view_customers' as const },
-    { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
-    { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
-    { to: '/admin/price-confirmations', icon: DollarSign, label: 'Price Confirmations', permission: 'can_view_orders' as const },
-    { to: '/admin/carts', icon: ShoppingCart, label: language === 'fr' ? 'Paniers' : 'Carts', permission: 'can_view_active_carts' as const },
-    { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
-    { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
-    { to: '/admin/payments-settings', icon: CreditCard, label: language === 'fr' ? 'Config. Paiements' : 'Payment Config', permission: 'can_view_payments' as const },
-    { to: '/admin/transfer-proofs', icon: FileCheck, label: t.sidebar.transferProofs || 'Transfer Proofs', permission: 'can_view_payments' as const },
-    { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
-    { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
-    { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
-    { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
-    { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || t.sidebar.userManagement, permission: 'can_manage_users' as const },
-    { to: '/admin/settings', icon: Settings, label: t.sidebar.settings, permission: 'can_view_settings' as const },
-    { to: '/admin/bank-transfer-settings', icon: Building2, label: t.sidebar.bankTransferSettings || 'Bank Transfer', permission: 'can_view_settings' as const },
-    { to: '/admin/service-zones', icon: Globe, label: 'Service Zones', permission: 'can_view_settings' as const },
-    { to: '/admin/theme-settings', icon: Palette, label: t.sidebar.themeSettings, permission: 'can_view_theme_settings' as const },
-    ...(isSuperAdmin ? [
-      { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'System Health', exact: false, permission: 'can_view_dashboard' as const },
-      { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
-    ] : []),
-  ], [t, isSuperAdmin]);
+  // Define nav sections with grouped items
+  const navSections = useMemo(() => [
+    {
+      title: language === 'fr' ? 'Opérations' : 'Operations',
+      items: [
+        { to: '/admin', icon: LayoutDashboard, label: t.sidebar.dashboard, exact: true, permission: 'can_view_dashboard' as const },
+        { to: '/admin/orders', icon: CreditCard, label: t.sidebar.orders, permission: 'can_view_orders' as const },
+        { to: '/admin/customers', icon: UserCircle, label: t.sidebar.customers || 'Customers', permission: 'can_view_customers' as const },
+        { to: '/admin/shipping', icon: Truck, label: t.sidebar.shipping, permission: 'can_view_shipping' as const },
+        { to: '/admin/carts', icon: ShoppingCart, label: language === 'fr' ? 'Paniers' : 'Carts', permission: 'can_view_active_carts' as const },
+      ]
+    },
+    {
+      title: language === 'fr' ? 'Finance' : 'Finance',
+      items: [
+        { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
+        { to: '/admin/transfer-proofs', icon: FileCheck, label: t.sidebar.transferProofs || 'Transfer Proofs', permission: 'can_view_payments' as const },
+        { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
+        { to: '/admin/price-confirmations', icon: DollarSign, label: language === 'fr' ? 'Prix à confirmer' : 'Price Reviews', permission: 'can_view_orders' as const },
+      ]
+    },
+    {
+      title: 'Support',
+      items: [
+        { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
+        { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
+      ]
+    },
+    {
+      title: language === 'fr' ? 'Insights' : 'Insights',
+      items: [
+        { to: '/admin/analytics', icon: BarChart, label: t.sidebar.analytics, permission: 'can_view_analytics' as const },
+        { to: '/admin/ab-tests', icon: TestTube, label: t.sidebar.abTestResults, permission: 'can_view_ab_results' as const },
+      ]
+    },
+    {
+      title: language === 'fr' ? 'Paramètres' : 'Settings',
+      items: [
+        { to: '/admin/settings', icon: Settings, label: language === 'fr' ? 'Frais & Marges' : 'Fees & Markup', permission: 'can_view_settings' as const },
+        { to: '/admin/payments-settings', icon: CreditCard, label: language === 'fr' ? 'Paiements' : 'Payments', permission: 'can_view_payments' as const },
+        { to: '/admin/bank-transfer-settings', icon: Building2, label: language === 'fr' ? 'Virement' : 'Bank Transfer', permission: 'can_view_settings' as const },
+        { to: '/admin/service-zones', icon: Globe, label: language === 'fr' ? 'Zones' : 'Zones', permission: 'can_view_settings' as const },
+        { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || 'Staff', permission: 'can_manage_users' as const },
+        { to: '/admin/theme-settings', icon: Palette, label: language === 'fr' ? 'Thème' : 'Theme', permission: 'can_view_theme_settings' as const },
+      ]
+    },
+    ...(isSuperAdmin ? [{
+      title: language === 'fr' ? 'Système' : 'System',
+      items: [
+        { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
+        { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
+      ]
+    }] : []),
+  ], [t, language, isSuperAdmin]);
 
-  // Filter nav items based on permissions
-  const navItems = useMemo(() => {
+  // Filter sections based on permissions
+  const filteredSections = useMemo(() => {
     if (!permissions) return [];
-    return allNavItems.filter(item => permissions[item.permission]);
-  }, [allNavItems, permissions]);
+    return navSections
+      .map(section => ({
+        ...section,
+        items: section.items.filter(item => permissions[item.permission])
+      }))
+      .filter(section => section.items.length > 0);
+  }, [navSections, permissions]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -112,39 +145,49 @@ export function AdminLayout() {
 
       {/* Navigation */}
       <ScrollArea className="flex-1 px-3 py-4">
-        <nav className="space-y-1">
+        <nav className="space-y-4">
           {permissionsLoading ? (
             // Loading skeleton
             Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className={cn("h-10 w-full", isCollapsed ? "w-10" : "")} />
             ))
           ) : (
-            navItems.map((item) => {
-              const isActive = item.exact 
-                ? location.pathname === item.to
-                : location.pathname.startsWith(item.to);
-              
-              return (
-                <Link 
-                  key={item.to} 
-                  to={item.to}
-                  onClick={() => setIsMobileOpen(false)}
-                >
-                  <Button
-                    variant={isActive ? 'default' : 'ghost'}
-                    className={cn(
-                      'w-full transition-all duration-200',
-                      isCollapsed ? 'justify-center px-2' : 'justify-start gap-3',
-                      isActive && 'shadow-glow'
-                    )}
-                    title={isCollapsed ? item.label : undefined}
-                  >
-                    <item.icon className="h-5 w-5 flex-shrink-0" />
-                    {!isCollapsed && <span className="truncate">{item.label}</span>}
-                  </Button>
-                </Link>
-              );
-            })
+            filteredSections.map((section) => (
+              <div key={section.title} className="space-y-1">
+                {!isCollapsed && (
+                  <h3 className="px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    {section.title}
+                  </h3>
+                )}
+                {section.items.map((item) => {
+                  const itemExact = 'exact' in item ? item.exact : false;
+                  const isActive = itemExact 
+                    ? location.pathname === item.to
+                    : location.pathname.startsWith(item.to);
+                  
+                  return (
+                    <Link 
+                      key={item.to} 
+                      to={item.to}
+                      onClick={() => setIsMobileOpen(false)}
+                    >
+                      <Button
+                        variant={isActive ? 'default' : 'ghost'}
+                        className={cn(
+                          'w-full transition-all duration-200',
+                          isCollapsed ? 'justify-center px-2' : 'justify-start gap-3',
+                          isActive && 'shadow-glow'
+                        )}
+                        title={isCollapsed ? item.label : undefined}
+                      >
+                        <item.icon className="h-5 w-5 flex-shrink-0" />
+                        {!isCollapsed && <span className="truncate">{item.label}</span>}
+                      </Button>
+                    </Link>
+                  );
+                })}
+              </div>
+            ))
           )}
         </nav>
       </ScrollArea>

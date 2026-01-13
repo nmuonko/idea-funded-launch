@@ -338,3 +338,6 @@ verify_jwt = true
 
 [functions.admin-test-provider]
 verify_jwt = true
+
+[functions.mobile-public-config]
+verify_jwt = false

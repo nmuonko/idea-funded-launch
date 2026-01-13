@@ -1147,14 +1147,32 @@ serve(async (req) => {
     });
 
     // Parse payment_method_preference for large orders (new optional field)
-    const paymentMethodPreference = (body.payment_method_preference || '').toUpperCase() as '' | 'CARD' | 'BANK_TRANSFER';
+    // P0 FIX: Support multiple field names from frontend (snake_case and camelCase)
+    const rawPreference = (
+      body.payment_method_preference || 
+      body.paymentMethodPreference || 
+      body.payment_method || 
+      ''
+    ).toString().toUpperCase();
+    
+    // Map 'CARD' to 'CARD', anything else must match exactly
+    const paymentMethodPreference: '' | 'CARD' | 'BANK_TRANSFER' = 
+      rawPreference === 'CARD' ? 'CARD' : 
+      rawPreference === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : '';
+    
+    // Log the preference parsing
+    console.log('[mobile-checkout] PAYMENT_PREFERENCE_PARSED', {
+      raw_preference: rawPreference,
+      parsed_preference: paymentMethodPreference || 'none',
+      body_keys: Object.keys(body).filter(k => k.toLowerCase().includes('payment') || k.toLowerCase().includes('method')),
+    });
     
     // ============================================
     // VALIDATE payment_method_preference - ONLY CARD or BANK_TRANSFER accepted
     // ============================================
-    if (paymentMethodPreference && !VALID_PAYMENT_PREFERENCES.includes(paymentMethodPreference)) {
+    if (rawPreference && !['CARD', 'BANK_TRANSFER', ''].includes(rawPreference)) {
       console.warn('[mobile-checkout] PAYMENT_METHOD_NOT_SUPPORTED', { 
-        provided: paymentMethodPreference,
+        provided: rawPreference,
         valid: VALID_PAYMENT_PREFERENCES 
       });
       return jsonResponse({
@@ -1358,6 +1376,370 @@ serve(async (req) => {
           error: 'Bank Transfer is not enabled.',
         }, 400);
       }
+      
+      // ============================================
+      // P0 CRITICAL FIX: Process large order payment IMMEDIATELY
+      // When preference is provided, do NOT fall through to standard order flow
+      // ============================================
+      console.log('[router] preference=' + paymentMethodPreference + ' -> processing large order payment immediately');
+      
+      // Create checkout order for large order with preference
+      const timestamp = Date.now().toString(36);
+      
+      const { data: largeOrderCheckout, error: largeOrderError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: user.id,
+          status: 'PENDING_PAYMENT',
+          item_total_usd: round2(totalsBreakdown.subtotal_items),
+          service_fee_usd: round2(totalsBreakdown.markup_fee),
+          shipping_fee_usd: round2(totalsBreakdown.shipping_fee),
+          total_usd: totalsBreakdown.grand_total,
+          total_cdf: totalsBreakdown.cdf_equivalent,
+          exchange_rate_used: settings.exchangeRate,
+          maisha_payment_status: 'PENDING',
+          admin_notes: notes || null,
+          shipping_city: mapToShippingCity(profile.city),
+          contains_vehicle: containsVehicle,
+          normalized_currency: 'USD',
+          normalized_amount: totalsBreakdown.grand_total,
+        })
+        .select()
+        .single();
+
+      if (largeOrderError) {
+        console.error('[mobile-checkout] Error creating large order checkout:', largeOrderError);
+        return jsonResponse({ success: false, error: 'Failed to create order. Please try again.' }, 500);
+      }
+
+      const largeOrderReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8)}-${timestamp}`;
+      
+      await supabase.from('orders').update({
+        maisha_transaction_id: largeOrderReference,
+      }).eq('id', largeOrderCheckout.id);
+
+      // Copy items to the checkout order
+      const { data: itemsToCopy, error: fetchItemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('id', cart_item_ids);
+      
+      if (fetchItemsError || !itemsToCopy || itemsToCopy.length !== cart_item_ids.length) {
+        console.error('[mobile-checkout] Error fetching items for large order:', fetchItemsError);
+        await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
+        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+      }
+      
+      // Create copies of items for the checkout order
+      const copiedItems = itemsToCopy.map(item => ({
+        order_id: largeOrderCheckout.id,
+        product_url: item.product_url,
+        title: item.title,
+        product_image_url: item.product_image_url,
+        store: item.store,
+        base_price_usd: item.base_price_usd,
+        unit_price_usd: item.unit_price_usd,
+        quantity: item.quantity,
+        subtotal_usd: item.subtotal_usd,
+        markup_fee_usd: item.markup_fee_usd,
+        shipping_fee_usd: item.shipping_fee_usd,
+        total_price_usd: item.total_price_usd,
+        total_price_cdf: item.total_price_cdf,
+        est_weight_kg: item.est_weight_kg,
+        requires_manual_quote: item.requires_manual_quote,
+        is_vehicle: item.is_vehicle,
+        vehicle_quote_applied: item.vehicle_quote_applied,
+        shipping_item_type_id: item.shipping_item_type_id,
+        shipping_status: item.shipping_status,
+        notes: item.notes,
+        price_source: item.price_source,
+        captured_price: item.captured_price,
+        price_confirmation_id: item.price_confirmation_id,
+        price_confirmation_status: item.price_confirmation_status,
+        admin_adjusted_price: item.admin_adjusted_price,
+        is_saved_for_later: false,
+      }));
+      
+      const { error: copyItemsError } = await supabase
+        .from('order_items')
+        .insert(copiedItems);
+
+      if (copyItemsError) {
+        console.error('[mobile-checkout] Error copying items for large order:', copyItemsError);
+        await supabase.from('orders').delete().eq('id', largeOrderCheckout.id);
+        return jsonResponse({ success: false, error: 'Failed to process checkout. Please try again.' }, 500);
+      }
+
+      // Create checkout session
+      const { data: largeOrderSession, error: sessionError } = await supabase
+        .from('checkout_sessions')
+        .insert({
+          user_id: user.id,
+          order_id: largeOrderCheckout.id,
+          cart_snapshot: cartSnapshot,
+          totals_breakdown: totalsBreakdown,
+          currency: 'USD',
+          pay_method: paymentMethodPreference,
+          grand_total: totalsBreakdown.grand_total,
+          integrity_hash: integrityHash,
+          maisha_reference: largeOrderReference,
+          status: 'processing',
+          metadata: {
+            is_large_order: true,
+            payment_method_preference: paymentMethodPreference,
+            source_order_id: existingOrder.id,
+            original_cart_item_ids: cart_item_ids,
+          },
+        })
+        .select('id')
+        .single();
+
+      if (sessionError) {
+        console.warn('[mobile-checkout] Failed to create checkout session for large order:', sessionError);
+      }
+
+      // ============================================
+      // CARD (STRIPE) BRANCH for large orders with preference
+      // ============================================
+      if (paymentMethodPreference === 'CARD') {
+        console.log('[router] preference=CARD -> flow=STRIPE, initiating payment');
+        
+        const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+        if (!stripeSecretKey) {
+          console.error('[router] preference=CARD -> STRIPE_SECRET_KEY=MISSING');
+          return jsonResponse({
+            success: false,
+            code: 'STRIPE_NOT_CONFIGURED',
+            message: 'Card payment is not configured. Please contact support.',
+            message_fr: 'Le paiement par carte n\'est pas configuré. Veuillez contacter le support.',
+            error: 'STRIPE_SECRET_KEY not configured.',
+          }, 503);
+        }
+        
+        const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
+        
+        if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
+          try {
+            const { createPaymentIntent, getStripeConfig } = await import('../_shared/stripeAdapter.ts');
+            const stripeConfig = getStripeConfig(stripeProvider);
+            
+            const stripeReference = generateProviderRef(largeOrderCheckout.id);
+            
+            const stripeResult = await createPaymentIntent(stripeConfig, {
+              orderId: largeOrderCheckout.id,
+              userId: user.id,
+              intentId: stripeReference,
+              amount: totalsBreakdown.grand_total,
+              description: `AfriShop Order #${largeOrderCheckout.id.slice(0, 8)}`,
+            });
+            
+            if (stripeResult.success && stripeResult.client_secret) {
+              // Create payment record
+              await createPaymentRecord(supabase, {
+                order_id: largeOrderCheckout.id,
+                provider_key: 'stripe',
+                amount: totalsBreakdown.grand_total,
+                currency: 'USD',
+                reference: stripeReference,
+                provider_deposit_id: stripeResult.provider_deposit_id,
+                client_secret: stripeResult.client_secret,
+                raw_request: stripeResult.raw_request,
+                status: 'pending',
+              });
+              
+              // Update session status
+              if (largeOrderSession?.id) {
+                await supabase.from('checkout_sessions').update({ 
+                  status: 'stripe_initiated',
+                  updated_at: new Date().toISOString(),
+                }).eq('id', largeOrderSession.id);
+              }
+              
+              console.log('[router] preference=CARD -> flow=STRIPE, hasClientSecret=true', {
+                order_id: largeOrderCheckout.id,
+                checkout_session_id: largeOrderSession?.id || null,
+                amount: totalsBreakdown.grand_total,
+                reference: stripeReference,
+              });
+              
+              return jsonResponse({
+                success: true,
+                order_id: largeOrderCheckout.id,
+                checkout_session_id: largeOrderSession?.id || null,
+                payment_flow: 'STRIPE' as PaymentFlow,
+                currency: 'USD',
+                amount: totalsBreakdown.grand_total,
+                provider: 'stripe',
+                clientSecret: stripeResult.client_secret,
+                nextAction: {
+                  type: 'stripe_payment_intent',
+                  clientSecret: stripeResult.client_secret,
+                },
+                confirmationId: largeOrderCheckout.id.substring(0, 8).toUpperCase(),
+                reference: stripeReference,
+                totals_breakdown: {
+                  subtotal: totalsBreakdown.subtotal_items,
+                  shipping: totalsBreakdown.shipping_fee,
+                  markup: totalsBreakdown.markup_fee,
+                  taxes: totalsBreakdown.taxes_fee,
+                  grand_total: totalsBreakdown.grand_total,
+                  currency: 'USD',
+                  cdf_equivalent: totalsBreakdown.cdf_equivalent,
+                  exchange_rate: totalsBreakdown.exchange_rate,
+                },
+              });
+            } else {
+              console.error('[router] preference=CARD -> flow=STRIPE, hasClientSecret=false', {
+                order_id: largeOrderCheckout.id,
+                error: stripeResult.error,
+              });
+              return jsonResponse({
+                success: false,
+                code: 'STRIPE_INIT_FAILED',
+                message: 'Unable to initialize card payment. Please try again.',
+                message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
+                error: stripeResult.error || 'Failed to create Stripe payment intent.',
+                order_id: largeOrderCheckout.id,
+              }, 500);
+            }
+          } catch (stripeError: any) {
+            console.error('[router] preference=CARD -> STRIPE_EXCEPTION', {
+              order_id: largeOrderCheckout.id,
+              error: stripeError.message,
+            });
+            return jsonResponse({
+              success: false,
+              code: 'STRIPE_INIT_FAILED',
+              message: 'Unable to initialize card payment. Please try again.',
+              message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
+              error: stripeError.message,
+              order_id: largeOrderCheckout.id,
+            }, 500);
+          }
+        }
+        
+        // No Stripe provider available
+        console.warn('[router] preference=CARD -> flow=STRIPE, provider_available=false');
+        return jsonResponse({
+          success: false,
+          code: 'CARD_NOT_AVAILABLE',
+          message: 'Card payments are not available. Please use Bank Transfer.',
+          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser le virement bancaire.',
+          error: 'Card payment provider not configured.',
+        }, 503);
+      }
+      
+      // ============================================
+      // BANK_TRANSFER BRANCH for large orders with preference
+      // ============================================
+      if (paymentMethodPreference === 'BANK_TRANSFER') {
+        console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, initiating');
+        
+        // Fetch bank transfer settings
+        const { data: bankSettings, error: bankSettingsError } = await supabase
+          .from('settings')
+          .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr, support_email, support_whatsapp')
+          .limit(1)
+          .maybeSingle();
+        
+        if (bankSettingsError) {
+          console.error('[router] preference=BANK_TRANSFER -> settings_fetch_error', {
+            error: bankSettingsError.message,
+          });
+        }
+        
+        // Validate required bank details
+        const hasBankName = !!bankSettings?.bank_name;
+        const hasAccountNumber = !!bankSettings?.bank_account_number || !!bankSettings?.bank_iban;
+        const hasBankDetails = hasBankName && hasAccountNumber;
+        
+        if (!hasBankDetails) {
+          console.error('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=false', {
+            has_bank_name: hasBankName,
+            has_account_number: hasAccountNumber,
+          });
+          return jsonResponse({
+            success: false,
+            code: 'BANK_TRANSFER_NOT_CONFIGURED',
+            message: 'Bank transfer is not configured. Please contact support.',
+            message_fr: 'Le virement bancaire n\'est pas configuré. Veuillez contacter le support.',
+            error: 'Bank transfer settings are incomplete.',
+          }, 503);
+        }
+        
+        // Build bank transfer info
+        const transferReference = `AFRISHOP-${largeOrderCheckout.id.slice(0, 8).toUpperCase()}`;
+        const bankTransferInfo = {
+          bank_name: bankSettings.bank_name,
+          beneficiary_name: bankSettings.bank_account_holder || 'AfriShop USA LLC',
+          account_number_or_iban: bankSettings.bank_account_number || bankSettings.bank_iban || '',
+          iban: bankSettings.bank_iban || null,
+          swift_bic: bankSettings.bank_swift || '',
+          bank_address: bankSettings.bank_address || '',
+          instructions_en: bankSettings.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference. After transfer, upload your proof of payment.',
+          instructions_fr: bankSettings.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence. Après le virement, téléchargez votre preuve de paiement.',
+          reference: transferReference,
+          support_email: bankSettings.support_email || 'nkadimisha@afrishop-usa.com',
+          support_whatsapp: bankSettings.support_whatsapp || null,
+        };
+        
+        console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=true', {
+          order_id: largeOrderCheckout.id,
+          checkout_session_id: largeOrderSession?.id || null,
+          amount: totalsBreakdown.grand_total,
+          reference: transferReference,
+        });
+        
+        // Update order status
+        await supabase.from('orders').update({
+          status: 'PENDING_PAYMENT',
+          maisha_payment_status: 'PENDING_BANK_TRANSFER',
+          payment_notes: `Awaiting bank transfer. Reference: ${transferReference}`,
+        }).eq('id', largeOrderCheckout.id);
+        
+        // Update session status
+        if (largeOrderSession?.id) {
+          await supabase.from('checkout_sessions').update({ 
+            status: 'bank_transfer_initiated',
+            updated_at: new Date().toISOString(),
+          }).eq('id', largeOrderSession.id);
+        }
+        
+        return jsonResponse({
+          success: true,
+          order_id: largeOrderCheckout.id,
+          checkout_session_id: largeOrderSession?.id || null,
+          payment_flow: 'BANK_TRANSFER' as PaymentFlow,
+          currency: 'USD',
+          amount: totalsBreakdown.grand_total,
+          confirmationId: largeOrderCheckout.id.substring(0, 8).toUpperCase(),
+          reference: transferReference,
+          bank_transfer: bankTransferInfo,
+          message: 'Please complete the bank transfer and upload proof of payment.',
+          message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
+          totals_breakdown: {
+            subtotal: totalsBreakdown.subtotal_items,
+            shipping: totalsBreakdown.shipping_fee,
+            markup: totalsBreakdown.markup_fee,
+            taxes: totalsBreakdown.taxes_fee,
+            grand_total: totalsBreakdown.grand_total,
+            currency: 'USD',
+            cdf_equivalent: totalsBreakdown.cdf_equivalent,
+            exchange_rate: totalsBreakdown.exchange_rate,
+          },
+        });
+      }
+      
+      // Should never reach here - preference was validated above
+      console.error('[mobile-checkout] UNEXPECTED_STATE: isLargeOrder with preference but no matching branch', {
+        paymentMethodPreference,
+      });
+      return jsonResponse({
+        success: false,
+        code: 'UNEXPECTED_STATE',
+        message: 'An unexpected error occurred. Please try again.',
+        error: 'Invalid state in large order processing.',
+      }, 500);
     }
 
     // ============================================

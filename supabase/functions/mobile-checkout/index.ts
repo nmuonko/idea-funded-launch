@@ -1135,6 +1135,9 @@ serve(async (req) => {
     // ============================================
     const paymentSettings = await getPaymentSettings(supabase);
     
+    // P0 CRITICAL: Log limits for debugging (safe - no secrets)
+    console.log('[limits] mobile_money_max_usd=' + paymentSettings.mobile_money_max_usd + ', mobile_money_max_cdf=' + paymentSettings.mobile_money_max_cdf);
+    
     console.log('[mobile-checkout] PAYMENT_SETTINGS_LOADED', {
       mobile_money_max_usd: paymentSettings.mobile_money_max_usd,
       mobile_money_max_cdf: paymentSettings.mobile_money_max_cdf,
@@ -1164,18 +1167,34 @@ serve(async (req) => {
     }
     
     // Determine target currency for limit checking
+    // P0 CRITICAL: Use grand_total in USD as the canonical amount for limit comparison
     const targetCurrency: 'USD' | 'CDF' = clientRequestedCurrency === 'CDF' ? 'CDF' : 'USD';
-    const amountToCheck = targetCurrency === 'CDF' ? totalsBreakdown.cdf_equivalent : totalsBreakdown.grand_total;
     
-    // Check if order exceeds mobile money limits
-    const isOverLimit = isOverMobileMoneyLimit(amountToCheck, targetCurrency, paymentSettings);
+    // P0 FIX: Compute canonical amount for routing decision
+    // Always compare USD grand_total against USD limit, CDF equivalent against CDF limit
+    const amountForLimitCheck_USD = totalsBreakdown.grand_total;
+    const amountForLimitCheck_CDF = totalsBreakdown.cdf_equivalent;
+    
+    // P0 FIX: Check BOTH limits - if either is exceeded, it's a large order
+    const isOverUsdLimit = amountForLimitCheck_USD > paymentSettings.mobile_money_max_usd;
+    const isOverCdfLimit = amountForLimitCheck_CDF > paymentSettings.mobile_money_max_cdf;
+    const isOverLimit = targetCurrency === 'CDF' ? isOverCdfLimit : isOverUsdLimit;
+    
+    // Large order = vehicle OR over mobile money limit (either currency)
     const isLargeOrder = containsVehicle || isOverLimit;
     
+    // P0 CRITICAL: Log routing decision for debugging
+    console.log('[router] currency=' + targetCurrency + ' amount=' + (targetCurrency === 'CDF' ? amountForLimitCheck_CDF : amountForLimitCheck_USD) + ' limit_usd=' + paymentSettings.mobile_money_max_usd + ' limit_cdf=' + paymentSettings.mobile_money_max_cdf);
+    console.log('[router] decision=' + (isLargeOrder ? 'CHOICE_REQUIRED' : 'PAWAPAY'));
+    
     console.log('[mobile-checkout] CHECKOUT_LIMIT_CHECK', {
-      amount: amountToCheck,
-      currency: targetCurrency,
+      amount_usd: amountForLimitCheck_USD,
+      amount_cdf: amountForLimitCheck_CDF,
+      target_currency: targetCurrency,
       limit_usd: paymentSettings.mobile_money_max_usd,
       limit_cdf: paymentSettings.mobile_money_max_cdf,
+      is_over_usd_limit: isOverUsdLimit,
+      is_over_cdf_limit: isOverCdfLimit,
       is_over_limit: isOverLimit,
       contains_vehicle: containsVehicle,
       is_large_order: isLargeOrder,
@@ -1609,9 +1628,51 @@ serve(async (req) => {
 
     // ============================================
     // PAWAPAY BRANCH: Mobile Money via pawaPay (only option)
+    // P0 CRITICAL: Large orders must NOT use pawaPay - enforce limit
     // ============================================
     if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // pawaPay is required for mobile money
+      // P0 CRITICAL FIX: Block pawaPay for large orders BEFORE any provider calls
+      // This is the primary enforcement point - amount exceeds mobile money limits
+      if (isLargeOrder) {
+        const availableOptions = getLargeOrderOptions(paymentSettings);
+        
+        console.log('[mobile-checkout] PAWAPAY_BLOCKED_LARGE_ORDER', {
+          order_id: checkoutOrder.id,
+          amount_usd: totalsBreakdown.grand_total,
+          limit_usd: paymentSettings.mobile_money_max_usd,
+          contains_vehicle: containsVehicle,
+          reason: 'Amount exceeds mobile money limit or contains vehicle',
+          available_options: availableOptions,
+        });
+        
+        // Return CHOICE_REQUIRED - this order cannot use mobile money
+        return jsonResponse({
+          success: true,
+          order_id: checkoutOrder.id,
+          checkout_session_id: checkoutSession?.id || null,
+          payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
+          amount: totalsBreakdown.grand_total,
+          currency: 'USD',
+          required_currency: 'USD',
+          cdf_equivalent: totalsBreakdown.cdf_equivalent,
+          options: availableOptions,
+          reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
+          message: 'This order exceeds mobile money limits. Please choose Card or Bank Transfer.',
+          message_fr: 'Cette commande dépasse les limites de paiement mobile. Veuillez choisir Carte ou Virement bancaire.',
+          totals_breakdown: {
+            subtotal: totalsBreakdown.subtotal_items,
+            shipping: totalsBreakdown.shipping_fee,
+            markup: totalsBreakdown.markup_fee,
+            taxes: totalsBreakdown.taxes_fee,
+            grand_total: totalsBreakdown.grand_total,
+            currency: 'USD',
+            cdf_equivalent: totalsBreakdown.cdf_equivalent,
+            exchange_rate: totalsBreakdown.exchange_rate,
+          },
+        });
+      }
+      
+      // Standard order - proceed with pawaPay
       if (!provider || provider.provider_key !== 'pawapay' || !provider.is_enabled) {
         console.error('[mobile-checkout] PAWAPAY_NOT_AVAILABLE', {
           provider: provider?.provider_key,

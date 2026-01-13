@@ -1893,7 +1893,35 @@ serve(async (req) => {
     // CARD BRANCH: Use Stripe (for large orders with CARD preference)
     // ============================================
     if (REQUESTED_METHOD === 'CARD' || paymentMethodPreference === 'CARD') {
-      // Check if Stripe is available
+      // Enhanced logging for router decision
+      console.log('[router] preference=CARD -> checking Stripe configuration');
+      
+      // Check if Stripe is enabled in payment settings first
+      if (!paymentSettings.stripe_enabled) {
+        console.warn('[router] preference=CARD -> flow=STRIPE, stripe_enabled=false');
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_METHOD_DISABLED',
+          message: 'Card payments are currently disabled.',
+          message_fr: 'Les paiements par carte sont actuellement désactivés.',
+          error: 'Stripe is disabled in payment settings.',
+        }, 503);
+      }
+      
+      // Check if STRIPE_SECRET_KEY is configured
+      const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+      if (!stripeSecretKey) {
+        console.error('[router] preference=CARD -> flow=STRIPE, STRIPE_SECRET_KEY=MISSING');
+        return jsonResponse({
+          success: false,
+          code: 'STRIPE_NOT_CONFIGURED',
+          message: 'Card payment is not configured. Please contact support.',
+          message_fr: 'Le paiement par carte n\'est pas configuré. Veuillez contacter le support.',
+          error: 'STRIPE_SECRET_KEY not configured in environment.',
+        }, 503);
+      }
+      
+      // Check if Stripe is available via provider system
       const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
       
       if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
@@ -1903,6 +1931,13 @@ serve(async (req) => {
           const stripeConfig = getStripeConfig(stripeProvider);
           
           const stripeReference = generateProviderRef(checkoutOrder.id);
+          
+          console.log('[router] preference=CARD -> initiating Stripe PaymentIntent', {
+            order_id: checkoutOrder.id,
+            amount: payable_amount,
+            currency: 'USD',
+            reference: stripeReference,
+          });
           
           const stripeResult = await createPaymentIntent(stripeConfig, {
             orderId: checkoutOrder.id,
@@ -1934,12 +1969,12 @@ serve(async (req) => {
               }).eq('id', checkoutSession.id);
             }
             
-            console.log('[mobile-checkout] CHECKOUT_STRIPE_SUCCESS', {
+            console.log('[router] preference=CARD -> flow=STRIPE, hasClientSecret=true', {
               order_id: checkoutOrder.id,
               checkout_session_id: checkoutSession?.id || null,
-              payment_flow: 'STRIPE',
               amount: payable_amount,
               reference: stripeReference,
+              payment_intent_id: stripeResult.provider_deposit_id,
             });
             
             return jsonResponse({
@@ -1956,6 +1991,7 @@ serve(async (req) => {
                 clientSecret: stripeResult.client_secret,
               },
               confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+              reference: stripeReference,
               totals_breakdown: {
                 subtotal: totalsBreakdown.subtotal_items,
                 shipping: totalsBreakdown.shipping_fee,
@@ -1968,39 +2004,47 @@ serve(async (req) => {
               },
             });
           } else {
-            console.error('[mobile-checkout] STRIPE_INIT_FAILED', {
+            // Log Stripe error details (safe - no secrets)
+            console.error('[router] preference=CARD -> flow=STRIPE, hasClientSecret=false', {
               order_id: checkoutOrder.id,
               error: stripeResult.error,
+              stripe_error_code: stripeResult.error?.includes('authentication') ? 'AUTH_ERROR' : 'INIT_ERROR',
             });
             return jsonResponse({
               success: false,
               code: 'STRIPE_INIT_FAILED',
-              message: 'Unable to initialize card payment.',
-              message_fr: 'Impossible d\'initialiser le paiement par carte.',
+              message: 'Unable to initialize card payment. Please try again.',
+              message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
               error: stripeResult.error || 'Failed to create Stripe payment intent.',
+              order_id: checkoutOrder.id,
             }, 500);
           }
         } catch (stripeError: any) {
-          console.error('[mobile-checkout] STRIPE_EXCEPTION', {
+          console.error('[router] preference=CARD -> STRIPE_EXCEPTION', {
             order_id: checkoutOrder.id,
-            error: stripeError.message,
+            error_name: stripeError.name,
+            error_message: stripeError.message?.slice(0, 200),
+            error_code: stripeError.code,
           });
           return jsonResponse({
             success: false,
             code: 'STRIPE_INIT_FAILED',
-            message: 'Unable to initialize card payment.',
-            message_fr: 'Impossible d\'initialiser le paiement par carte.',
+            message: 'Unable to initialize card payment. Please try again.',
+            message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
             error: stripeError.message,
+            order_id: checkoutOrder.id,
           }, 500);
         }
       }
       
-      // No card provider available
+      // No card provider available in database
+      console.warn('[router] preference=CARD -> flow=STRIPE, provider_available=false');
       return jsonResponse({
         success: false,
         code: 'CARD_NOT_AVAILABLE',
         message: 'Card payments are not available. Please use Mobile Money or Bank Transfer.',
-        error: 'Card payment provider not configured.',
+        message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser Mobile Money ou Virement bancaire.',
+        error: 'Card payment provider not configured in database.',
       }, 503);
     }
 
@@ -2008,37 +2052,82 @@ serve(async (req) => {
     // BANK_TRANSFER BRANCH: For large orders with BANK_TRANSFER preference
     // ============================================
     if (paymentMethodPreference === 'BANK_TRANSFER') {
-      console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER', {
-        order_id: checkoutOrder.id,
-        checkout_session_id: checkoutSession?.id || null,
-        payment_flow: 'BANK_TRANSFER',
-        amount: payable_amount,
-        currency: 'USD',
-      });
+      // Enhanced logging for router decision
+      console.log('[router] preference=BANK_TRANSFER -> checking configuration');
+      
+      // Check if Bank Transfer is enabled in payment settings
+      if (!paymentSettings.bank_transfer_enabled) {
+        console.warn('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, bank_transfer_enabled=false');
+        return jsonResponse({
+          success: false,
+          code: 'PAYMENT_METHOD_DISABLED',
+          message: 'Bank transfers are currently disabled.',
+          message_fr: 'Les virements bancaires sont actuellement désactivés.',
+          error: 'Bank transfer is disabled in payment settings.',
+        }, 503);
+      }
       
       // Fetch bank transfer settings
-      const { data: bankSettings } = await supabase
+      const { data: bankSettings, error: bankSettingsError } = await supabase
         .from('settings')
-        .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr')
+        .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr, support_email, support_whatsapp')
         .limit(1)
         .maybeSingle();
       
+      if (bankSettingsError) {
+        console.error('[router] preference=BANK_TRANSFER -> settings_fetch_error', {
+          error: bankSettingsError.message,
+        });
+      }
+      
+      // Validate required bank details are present
+      const hasBankName = !!bankSettings?.bank_name;
+      const hasAccountNumber = !!bankSettings?.bank_account_number || !!bankSettings?.bank_iban;
+      const hasBankDetails = hasBankName && hasAccountNumber;
+      
+      if (!hasBankDetails) {
+        console.error('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=false', {
+          has_bank_name: hasBankName,
+          has_account_number: hasAccountNumber,
+        });
+        return jsonResponse({
+          success: false,
+          code: 'BANK_TRANSFER_NOT_CONFIGURED',
+          message: 'Bank transfer is not configured. Please contact support.',
+          message_fr: 'Le virement bancaire n\'est pas configuré. Veuillez contacter le support.',
+          error: 'Bank transfer settings are incomplete.',
+        }, 503);
+      }
+      
+      // Build complete bank transfer info with required fields
+      const transferReference = `AFRISHOP-${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
       const bankTransferInfo = {
-        bank_name: bankSettings?.bank_name || 'Contact support for bank details',
-        account_holder: bankSettings?.bank_account_holder || '',
-        account_number: bankSettings?.bank_account_number || '',
-        iban: bankSettings?.bank_iban || '',
-        swift_code: bankSettings?.bank_swift || '',
-        bank_address: bankSettings?.bank_address || '',
-        instructions_en: bankSettings?.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference.',
-        instructions_fr: bankSettings?.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence.',
+        bank_name: bankSettings.bank_name,
+        beneficiary_name: bankSettings.bank_account_holder || 'AfriShop USA LLC',
+        account_number_or_iban: bankSettings.bank_account_number || bankSettings.bank_iban || '',
+        iban: bankSettings.bank_iban || null,
+        swift_bic: bankSettings.bank_swift || '',
+        bank_address: bankSettings.bank_address || '',
+        instructions_en: bankSettings.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference. After transfer, upload your proof of payment.',
+        instructions_fr: bankSettings.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence. Après le virement, téléchargez votre preuve de paiement.',
+        reference: transferReference,
+        support_email: bankSettings.support_email || 'nkadimisha@afrishop-usa.com',
+        support_whatsapp: bankSettings.support_whatsapp || null,
       };
+      
+      console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=true', {
+        order_id: checkoutOrder.id,
+        checkout_session_id: checkoutSession?.id || null,
+        amount: payable_amount,
+        reference: transferReference,
+        bank_name: bankSettings.bank_name,
+      });
       
       // Update order status to await bank transfer
       await supabase.from('orders').update({
         status: 'PENDING_PAYMENT',
         maisha_payment_status: 'PENDING_BANK_TRANSFER',
-        payment_notes: 'Awaiting bank transfer',
+        payment_notes: `Awaiting bank transfer. Reference: ${transferReference}`,
       }).eq('id', checkoutOrder.id);
       
       // Update checkout_session status
@@ -2057,8 +2146,8 @@ serve(async (req) => {
         currency: 'USD',
         amount: payable_amount,
         confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+        reference: transferReference,
         bank_transfer: bankTransferInfo,
-        reference: `AFRISHOP-${checkoutOrder.id.slice(0, 8).toUpperCase()}`,
         message: 'Please complete the bank transfer and upload proof of payment.',
         message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
         totals_breakdown: {

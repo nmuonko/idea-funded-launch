@@ -78,18 +78,26 @@ export default function ServiceZones() {
   }, []);
 
   async function fetchCountries() {
-    const { data, error } = await supabase
-      .from("supported_countries")
-      .select("*")
-      .order("country_name");
+    try {
+      const { data, error } = await supabase
+        .from("supported_countries")
+        .select("*")
+        .order("country_name");
 
-    if (error) {
+      if (error) {
+        console.error("Error loading countries:", error);
+        toast.error(`Failed to load countries: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      setCountries(data || []);
+    } catch (err) {
+      console.error("Unexpected error:", err);
       toast.error("Failed to load countries");
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setCountries(data || []);
-    setLoading(false);
   }
 
   async function addCountry() {

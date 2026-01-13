@@ -28,6 +28,7 @@ interface PaymentSettings {
   stripe_enabled: boolean;
   bank_transfer_enabled: boolean;
   pawapay_enabled: boolean;
+  updated_at?: string;
 }
 
 // Default payment settings
@@ -54,15 +55,22 @@ interface DecisionResponse {
     supportedMethods?: string[];
     initiateUrl?: string;
   };
+  // Explicit limit fields for mobile UI
+  limits?: {
+    pawapayMaxUsd: number;
+    pawapayMaxCdf: number;
+    // Legacy aliases
+    usd_max: number;
+    cdf_max: number;
+  };
+  // Versioning fields
+  updated_at?: string;
+  version?: number;
   // Legacy fields for backwards compatibility
   decision?: PaymentDecision;
   total_usd?: number;
   fx_rate?: number;
   total_cdf?: number;
-  limits?: {
-    usd_max: number;
-    cdf_max: number;
-  };
   available_providers?: string[];
   message_fr?: string;
   message_en?: string;
@@ -102,6 +110,7 @@ async function getPaymentSettings(supabase: any): Promise<PaymentSettings> {
       stripe_enabled: data.stripe_enabled !== false,
       bank_transfer_enabled: data.bank_transfer_enabled !== false,
       pawapay_enabled: data.pawapay_enabled !== false,
+      updated_at: data.updated_at || new Date().toISOString(),
     };
   } catch (e: any) {
     console.error('[payment-decision] Exception fetching payment_settings:', e.message);
@@ -420,6 +429,10 @@ serve(async (req) => {
       options,
     });
 
+    // Build versioning fields
+    const settingsUpdatedAt = paymentSettings.updated_at || new Date().toISOString();
+    const version = new Date(settingsUpdatedAt).getTime();
+
     const response: DecisionResponse = {
       ok: true,
       // New standardized fields
@@ -436,6 +449,17 @@ serve(async (req) => {
         name: 'pawaPay',
         initiateUrl: `/functions/v1/pawapay-create-payment`,
       },
+      // Explicit limits for mobile UI
+      limits: {
+        pawapayMaxUsd: paymentSettings.mobile_money_max_usd,
+        pawapayMaxCdf: paymentSettings.mobile_money_max_cdf,
+        // Legacy aliases
+        usd_max: paymentSettings.mobile_money_max_usd,
+        cdf_max: paymentSettings.mobile_money_max_cdf,
+      },
+      // Versioning fields
+      updated_at: settingsUpdatedAt,
+      version,
       // Legacy fields for backwards compatibility
       decision,
       total_usd: totalUsdDollars,
@@ -448,7 +472,14 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify(response),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        } 
+      }
     );
 
   } catch (error: unknown) {

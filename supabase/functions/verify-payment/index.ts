@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { normalizePaymentStatus as normalizeProviderStatus } from "../_shared/paymentProviders.ts";
 import { generateTraceId, logAudit } from "../_shared/auditLog.ts";

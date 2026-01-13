@@ -4,8 +4,9 @@
  * Uses compact payloads - no full cart snapshots
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-
+// Use 'any' type for SupabaseClient to avoid version mismatches between edge functions
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseClientAny = any;
 /**
  * Generates a unique trace ID for request tracking
  * Format: traceId-timestamp-random
@@ -71,7 +72,7 @@ export interface AuditPayload {
  * Uses service role client to bypass RLS
  */
 export async function logAuditEvent(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   traceId: string,
   eventType: AuditEventType,
   options: {
@@ -175,7 +176,7 @@ export function createTracedLogger(traceId: string) {
  * Usage: await logAudit(supabase, { traceId, eventType, userId?, orderId?, payload? })
  */
 export async function logAudit(
-  supabase: SupabaseClient,
+  supabase: SupabaseClientAny,
   params: {
     traceId: string;
     eventType: string;

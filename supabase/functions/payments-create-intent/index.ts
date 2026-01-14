@@ -62,6 +62,8 @@ type ErrorCode =
   | 'PAWAPAY_NOT_CONFIGURED'
   | 'PAWAPAY_AUTH_FAILED'
   | 'PAWAPAY_UNAVAILABLE'
+  | 'PAWAPAY_PROVIDER_ERROR'
+  | 'PAWAPAY_VALIDATION'
   | 'PAWAPAY_ERROR'
   | 'DB_ERROR'
   | 'INTERNAL_ERROR';
@@ -600,28 +602,134 @@ Deno.serve(async (req) => {
 
     } else if (selectedProviderKey === 'pawapay') {
       // === PAWAPAY FLOW ===
-      if (!customerPhone) {
+      
+      // ==================== Phone Normalization & Validation ====================
+      // Step 1: Check if phone is provided
+      if (!customerPhone || customerPhone.trim().length === 0) {
+        console.log('[PAWAPAY_VALIDATION_FAIL]', { reason: 'phone_missing', orderId: order_id });
         return new Response(
           JSON.stringify({ 
             success: false, 
             error: 'Phone number is required for mobile money payments',
-            error_code: 'PHONE_REQUIRED'
+            error_code: 'PHONE_REQUIRED',
+            request_id: crypto.randomUUID(),
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
-      // Provider already validated
+      // Step 2: Normalize phone - remove +, spaces, hyphens, keep digits only
+      const normalizedPhone = customerPhone.trim().replace(/[\s\-\+\(\)]/g, '');
+      
+      // Step 3: Validate phone length and format
+      if (normalizedPhone.length < 9) {
+        console.log('[PAWAPAY_VALIDATION_FAIL]', { 
+          reason: 'phone_too_short', 
+          orderId: order_id,
+          phoneLast4: normalizedPhone.slice(-4),
+          length: normalizedPhone.length 
+        });
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Invalid phone number (too short)',
+            error_code: 'PAWAPAY_VALIDATION',
+            details: { reason: 'phone_too_short', length: normalizedPhone.length, required: 9 },
+            request_id: crypto.randomUUID(),
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (normalizedPhone.length > 15) {
+        console.log('[PAWAPAY_VALIDATION_FAIL]', { 
+          reason: 'phone_too_long', 
+          orderId: order_id,
+          phoneLast4: normalizedPhone.slice(-4),
+          length: normalizedPhone.length 
+        });
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Invalid phone number (too long)',
+            error_code: 'PAWAPAY_VALIDATION',
+            details: { reason: 'phone_too_long', length: normalizedPhone.length, max: 15 },
+            request_id: crypto.randomUUID(),
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Step 4: Validate DRC phone format (should start with 243, 0, or be 9 digits)
+      let phoneE164 = normalizedPhone;
+      if (normalizedPhone.startsWith('243')) {
+        // Already has country code
+        if (normalizedPhone.length !== 12) {
+          console.log('[PAWAPAY_VALIDATION_FAIL]', { 
+            reason: 'drc_phone_invalid_length', 
+            orderId: order_id,
+            phoneLast4: normalizedPhone.slice(-4),
+            length: normalizedPhone.length 
+          });
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Invalid DRC phone number (should be 12 digits with 243 prefix)',
+              error_code: 'PAWAPAY_VALIDATION',
+              details: { reason: 'drc_phone_invalid_length', length: normalizedPhone.length, expected: 12 },
+              request_id: crypto.randomUUID(),
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        phoneE164 = normalizedPhone;
+      } else if (normalizedPhone.startsWith('0')) {
+        // Local format - convert to E.164
+        phoneE164 = '243' + normalizedPhone.slice(1);
+      } else {
+        // Assume missing country code
+        phoneE164 = '243' + normalizedPhone;
+      }
+
+      // Step 5: Validate currency for pawaPay (must be USD or CDF)
+      if (selectedCurrency !== 'USD' && selectedCurrency !== 'CDF') {
+        console.log('[PAWAPAY_VALIDATION_FAIL]', { 
+          reason: 'unsupported_currency', 
+          orderId: order_id,
+          currency: selectedCurrency 
+        });
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Unsupported currency for Mobile Money',
+            error_code: 'PAWAPAY_VALIDATION',
+            details: { currency: selectedCurrency, supported: ['USD', 'CDF'] },
+            request_id: crypto.randomUUID(),
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Provider config check
       let pawapayConfig: PawaPayConfig;
+      let pawapayBaseUrlMode: 'sandbox' | 'production' = 'sandbox';
       try {
         pawapayConfig = getPawaPayConfig(providerRecord);
+        // Detect mode from base URL
+        const baseUrl = pawapayConfig.apiBase || '';
+        pawapayBaseUrlMode = baseUrl.includes('sandbox') ? 'sandbox' : 'production';
       } catch (err: any) {
-        console.error('[payments-create-intent] pawaPay config error:', err.message);
+        console.error('[PAWAPAY_NOT_CONFIGURED]', { 
+          orderId: order_id, 
+          error: err.message,
+          errorCode: err.code,
+        });
         return new Response(
           JSON.stringify({ 
             success: false, 
             error: 'Mobile money service is not configured',
-            error_code: 'PAWAPAY_NOT_CONFIGURED'
+            error_code: 'PAWAPAY_NOT_CONFIGURED',
+            request_id: crypto.randomUUID(),
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -634,7 +742,7 @@ Deno.serve(async (req) => {
         amount: payableAmount,
         currency: selectedCurrency,
         reference,
-        customer_phone: customerPhone,
+        customer_phone: phoneE164, // Use normalized phone
         country: 'COD',
         status: 'pending',
       });
@@ -646,58 +754,102 @@ Deno.serve(async (req) => {
         );
       }
 
+      // ==================== PAWAPAY_REQ_PROOF - Deep Logging ====================
+      const requestId = crypto.randomUUID();
       console.log('[PAWAPAY_REQ_PROOF]', {
-        orderId: order_id,
-        paymentRecordId: paymentRecord.id,
+        request_id: requestId,
+        order_id,
+        payment_record_id: paymentRecord.id,
         amount: payableAmount,
         currency: selectedCurrency,
-        phoneLast4: customerPhone.slice(-4),
+        msisdn_masked: '*'.repeat(phoneE164.length - 4) + phoneE164.slice(-4),
+        base_url_mode: pawapayBaseUrlMode,
+        provider_selection: providerSelection,
+        requested_provider: requestedProvider || 'auto',
       });
 
-      // Create pawaPay deposit (reusing existing adapter)
+      // Create pawaPay deposit
       const depositResult = await createDeposit(pawapayConfig, {
         orderId: order_id,
         amount: payableAmount,
         currency: selectedCurrency,
-        customerPhone,
+        customerPhone: phoneE164, // Use normalized phone
         customerEmail,
         reference,
         description: `AfriShop ${order_id.slice(0, 8)}`,
       });
 
       if (!depositResult.success) {
+        // ==================== PAWAPAY_FAIL_PROOF - Deep Error Logging ====================
+        const errorDetails = depositResult.errorDetails;
+        const providerHttpStatus = errorDetails?.provider_http_status;
+        const providerErrorCode = errorDetails?.provider_error_code;
+        const providerMessage = errorDetails?.provider_message;
+        const isAuthError = errorDetails?.is_auth_error;
+        const isRejection = errorDetails?.is_rejection;
+        
+        // Extract first 800 chars of raw response for debugging (no secrets)
+        const rawResponseStr = depositResult.raw_response 
+          ? JSON.stringify(depositResult.raw_response).slice(0, 800)
+          : null;
+        
         console.error('[PAWAPAY_FAIL_PROOF]', {
-          orderId: order_id,
-          error: depositResult.error,
-          errorDetails: depositResult.errorDetails,
+          request_id: requestId,
+          order_id,
+          deposit_id: depositResult.provider_deposit_id,
+          status: providerHttpStatus,
+          provider_error_code: providerErrorCode,
+          provider_message: providerMessage,
+          is_auth_error: isAuthError,
+          is_rejection: isRejection,
+          response_body_first_800: rawResponseStr,
         });
         
-        // Provide more specific error codes based on error type
+        // Determine structured error code
         let errorCode: ErrorCode = 'PAWAPAY_ERROR';
         let errorMessage = depositResult.error || 'Failed to initiate mobile money payment';
+        let httpStatus = 500;
         
-        if (depositResult.errorDetails?.is_auth_error) {
-          errorCode = 'PAWAPAY_NOT_CONFIGURED';
-          errorMessage = 'Mobile money service configuration error';
-        } else if (!depositResult.errorDetails?.is_rejection) {
+        if (isAuthError) {
+          errorCode = 'PAWAPAY_AUTH_FAILED';
+          errorMessage = 'Mobile money service authentication failed';
+          httpStatus = 502;
+        } else if (!isRejection) {
           // Server/network error - provider unavailable
+          errorCode = 'PAWAPAY_UNAVAILABLE';
           errorMessage = 'Mobile money temporarily unavailable. Please try again.';
+          httpStatus = 502;
+        } else {
+          // Provider rejected the request
+          errorCode = 'PAWAPAY_PROVIDER_ERROR';
+          httpStatus = 502;
         }
         
+        // Return STRUCTURED error response
         return new Response(
           JSON.stringify({ 
             success: false, 
             error: errorMessage,
-            error_code: errorCode
+            error_code: errorCode,
+            provider_status: providerHttpStatus,
+            provider_error_code: providerErrorCode,
+            provider_body: rawResponseStr,
+            request_id: requestId,
+            // Echo fields for debugging
+            requestedProvider: requestedProvider || undefined,
+            providerSelection,
           }),
-          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: httpStatus, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
+      // ==================== PAWAPAY_RES_PROOF - Success Logging ====================
       console.log('[PAWAPAY_RES_PROOF]', {
-        orderId: order_id,
-        depositId: depositResult.provider_deposit_id,
+        request_id: requestId,
+        order_id,
+        deposit_id: depositResult.provider_deposit_id,
         status: depositResult.status,
+        provider_selection: providerSelection,
       });
 
       // Update payment record with deposit ID

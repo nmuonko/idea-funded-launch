@@ -108,7 +108,7 @@ serve(async (req) => {
                     <li><strong>Email:</strong> ${profile?.email || 'N/A'}</li>
                     <li><strong>Language:</strong> ${conversation.language}</li>
                   </ul>
-                  <p><a href="${Deno.env.get("FRONTEND_BASE_URL") || 'https://afrishop.com'}/admin/support">Open Support Inbox</a></p>
+                  <p><a href="${Deno.env.get("FRONTEND_BASE_URL") || 'https://afrishop-usa.com'}/admin/support-inbox">Open Support Inbox</a></p>
                 `,
               }),
             });

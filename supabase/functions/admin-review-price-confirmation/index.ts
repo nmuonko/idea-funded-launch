@@ -18,13 +18,17 @@ function buildPriceApprovalEmail(params: {
   itemTitle: string;
   approvedPrice: number;
   currency: string;
+  orderId?: string;
   appUrl?: string;
 }): { subject: string; html: string } {
-  const { customerName, itemTitle, approvedPrice, currency, appUrl = 'https://afrishop-usa.com' } = params;
+  const { customerName, itemTitle, approvedPrice, currency, orderId, appUrl = 'https://afrishop-usa.com' } = params;
   
   const formattedPrice = currency === 'USD' 
     ? `$${approvedPrice.toFixed(2)}` 
     : `${approvedPrice.toLocaleString()} CDF`;
+  
+  // Link to orders page or specific order if orderId provided
+  const orderUrl = orderId ? `${appUrl}/orders/${orderId}` : `${appUrl}/orders`;
 
   return {
     subject: "Prix confirmé — Finalisez votre commande / Price approved — Complete your order",
@@ -46,12 +50,12 @@ function buildPriceApprovalEmail(params: {
             <p style="margin: 5px 0;"><strong>Prix confirmé / Confirmed price:</strong> ${formattedPrice}</p>
           </div>
 
-          <p>Vous pouvez maintenant finaliser votre commande.</p>
-          <p>You can now complete your order.</p>
+          <p>Vous pouvez maintenant finaliser votre commande dans l'application mobile AfriShop.</p>
+          <p>You can now complete your order in the AfriShop mobile app.</p>
           
           <p style="margin-top: 20px; text-align: center;">
-            <a href="${appUrl}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
-              Finaliser la commande / Complete Order
+            <a href="${orderUrl}" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+              📱 Voir ma commande / View My Order
             </a>
           </p>
           

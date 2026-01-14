@@ -221,7 +221,7 @@ serve(async (req) => {
           <h2>🚗 New Quote Request</h2>
           <p>A customer has requested a quote for the following item(s):</p>
           <ul>${itemsList}</ul>
-          <p><a href="https://afrishop-usa.com/admin/quote-requests">View in Admin Panel</a></p>
+          <p><a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/admin/quote-requests">View in Admin Panel</a></p>
         `;
 
         await notifyAdmin(

@@ -41,6 +41,7 @@ interface RequestBody {
   phone?: string;
   currency?: 'USD' | 'CDF'; // Optional: user can request specific currency
   provider?: 'pawapay' | 'stripe' | 'bank_transfer'; // Optional: explicit provider selection
+  payment_method_preference?: 'CARD' | 'MOBILE_MONEY' | 'BANK_TRANSFER'; // Alternative explicit selection
 }
 
 // Structured error codes for client handling
@@ -69,6 +70,8 @@ interface ResponseBody {
   success: boolean;
   intentId?: string;
   provider?: string;
+  requestedProvider?: string; // Echo what was requested
+  providerSelection?: 'explicit' | 'auto'; // How provider was chosen
   status?: string;
   currency?: string;
   amount?: number;
@@ -81,6 +84,7 @@ interface ResponseBody {
   };
   error?: string;
   error_code?: ErrorCode;
+  allowed_methods?: string[]; // Returned when PROVIDER_NOT_ALLOWED
 }
 
 Deno.serve(async (req) => {
@@ -101,7 +105,7 @@ Deno.serve(async (req) => {
 
     // Parse request
     const body: RequestBody = await req.json();
-    const { order_id, phone, currency: requestedCurrency, provider: requestedProvider } = body;
+    const { order_id, phone, currency: requestedCurrency, provider: bodyProvider, payment_method_preference } = body;
 
     if (!order_id) {
       return new Response(
@@ -110,8 +114,25 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Normalize explicit provider request from either field
+    // payment_method_preference: CARD -> stripe, MOBILE_MONEY -> pawapay, BANK_TRANSFER -> bank_transfer
+    let requestedProvider: 'pawapay' | 'stripe' | 'bank_transfer' | undefined = bodyProvider;
+    if (!requestedProvider && payment_method_preference) {
+      if (payment_method_preference === 'CARD') requestedProvider = 'stripe';
+      else if (payment_method_preference === 'MOBILE_MONEY') requestedProvider = 'pawapay';
+      else if (payment_method_preference === 'BANK_TRANSFER') requestedProvider = 'bank_transfer';
+    }
+
     // Normalize requested currency (default to USD)
     const normalizedCurrency: 'USD' | 'CDF' = requestedCurrency?.toUpperCase() === 'CDF' ? 'CDF' : 'USD';
+
+    // Log provider request for diagnostics
+    console.log('[CREATE_INTENT_PROVIDER_REQ]', { 
+      order_id, 
+      requestedProvider: requestedProvider || null,
+      payment_method_preference: payment_method_preference || null,
+      currency: normalizedCurrency,
+    });
 
     console.log('[payments-create-intent] Request:', { 
       order_id, 
@@ -241,8 +262,20 @@ Deno.serve(async (req) => {
     const pawapayEnabled = paymentSettings?.pawapay_enabled !== false;
     const bankTransferEnabled = paymentSettings?.bank_transfer_enabled !== false;
 
-    // ==================== Provider Validation for Explicit Selection ====================
+    // Build allowed methods list for error responses
+    const allowedMethods: string[] = [];
+    if (stripeEnabled) allowedMethods.push('CARD');
+    if (pawapayEnabled && totalUsd <= pawapayMaxUsd && !isVehicle) allowedMethods.push('MOBILE_MONEY');
+    if (bankTransferEnabled) allowedMethods.push('BANK_TRANSFER');
+
+    // ==================== Provider Selection Logic ====================
+    // Track whether we're using explicit or auto selection
+    let providerSelection: 'explicit' | 'auto' = 'auto';
+    let selectedProviderKey: 'stripe' | 'pawapay' | 'bank_transfer';
+    let selectedCurrency: 'USD' | 'CDF' = normalizedCurrency;
+
     if (requestedProvider) {
+      // ========== EXPLICIT PROVIDER SELECTION ==========
       console.log('[payments-create-intent] Validating explicit provider:', requestedProvider);
       
       if (requestedProvider === 'pawapay') {
@@ -251,7 +284,9 @@ Deno.serve(async (req) => {
             JSON.stringify({ 
               success: false, 
               error: 'Mobile money is currently disabled',
-              error_code: 'PROVIDER_NOT_ALLOWED'
+              error_code: 'PROVIDER_NOT_ALLOWED',
+              requested_provider: 'pawapay',
+              allowed_methods: allowedMethods,
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -261,7 +296,9 @@ Deno.serve(async (req) => {
             JSON.stringify({ 
               success: false, 
               error: `Mobile money maximum is $${pawapayMaxUsd.toLocaleString()}. Please choose Card or Bank Transfer.`,
-              error_code: 'PROVIDER_NOT_ALLOWED'
+              error_code: 'PROVIDER_NOT_ALLOWED',
+              requested_provider: 'pawapay',
+              allowed_methods: allowedMethods.filter(m => m !== 'MOBILE_MONEY'),
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
@@ -271,35 +308,56 @@ Deno.serve(async (req) => {
             JSON.stringify({ 
               success: false, 
               error: 'Mobile money is not available for vehicle purchases',
-              error_code: 'PROVIDER_NOT_ALLOWED'
+              error_code: 'PROVIDER_NOT_ALLOWED',
+              requested_provider: 'pawapay',
+              allowed_methods: allowedMethods.filter(m => m !== 'MOBILE_MONEY'),
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
+        // EXPLICIT pawapay allowed - FORCE it
+        selectedProviderKey = 'pawapay';
+        providerSelection = 'explicit';
+        
       } else if (requestedProvider === 'stripe') {
         if (!stripeEnabled) {
           return new Response(
             JSON.stringify({ 
               success: false, 
               error: 'Card payments are currently disabled',
-              error_code: 'PROVIDER_NOT_ALLOWED'
+              error_code: 'PROVIDER_NOT_ALLOWED',
+              requested_provider: 'stripe',
+              allowed_methods: allowedMethods.filter(m => m !== 'CARD'),
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
+        // EXPLICIT stripe allowed - FORCE it (Stripe only supports USD)
+        selectedProviderKey = 'stripe';
+        selectedCurrency = 'USD';
+        providerSelection = 'explicit';
+        
       } else if (requestedProvider === 'bank_transfer') {
         if (!bankTransferEnabled) {
           return new Response(
             JSON.stringify({ 
               success: false, 
               error: 'Bank transfers are currently disabled',
-              error_code: 'PROVIDER_NOT_ALLOWED'
+              error_code: 'PROVIDER_NOT_ALLOWED',
+              requested_provider: 'bank_transfer',
+              allowed_methods: allowedMethods.filter(m => m !== 'BANK_TRANSFER'),
             }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
         // Bank transfer: return success with BANK_TRANSFER nextAction
-        console.log('[payments-create-intent] Bank transfer selected');
+        console.log('[CREATE_INTENT_PROVIDER_DECISION]', {
+          finalProvider: 'bank_transfer',
+          reason: 'explicit',
+          amount: totalUsd,
+          currency: 'USD',
+          requestedProvider: 'bank_transfer',
+        });
         
         // Update order to PENDING_PAYMENT
         await supabaseAdmin
@@ -311,6 +369,8 @@ Deno.serve(async (req) => {
           JSON.stringify({
             success: true,
             provider: 'bank_transfer',
+            requestedProvider: 'bank_transfer',
+            providerSelection: 'explicit',
             status: 'awaiting_transfer',
             currency: 'USD',
             amount: totalUsd,
@@ -321,63 +381,98 @@ Deno.serve(async (req) => {
           }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
-      }
-    }
-
-    // ==================== Provider Selection Logic ====================
-    // Use vehicle detection and requested currency (no limit-based switching)
-    // Note: If requestedProvider was explicitly validated above, we still use selectProviderByLimits
-    // for automatic selection when no explicit provider is specified
-    const selectionResult = await selectProviderByLimits(
-      supabaseAdmin,
-      totalUsd,
-      effectiveCdf,
-      isVehicle,
-      normalizedCurrency
-    );
-
-    // Handle vehicle orders that require bank transfer
-    if (!selectionResult.success) {
-      if (selectionResult.error === 'VEHICLE_BANK_TRANSFER_REQUIRED') {
-        console.log('[payments-create-intent] Vehicle order requires bank transfer');
+      } else {
+        // Unknown provider requested
         return new Response(
-          JSON.stringify({
-            success: true,
-            provider: 'bank_transfer',
-            status: 'requires_bank_transfer',
-            currency: 'USD',
-            amount: totalUsd,
-            nextAction: {
-              type: 'BANK_TRANSFER',
-            },
-            message: 'Vehicle orders require bank transfer or card payment. Please contact support.',
+          JSON.stringify({ 
+            success: false, 
+            error: `Unknown provider: ${requestedProvider}`,
+            error_code: 'PROVIDER_NOT_ALLOWED',
+            requested_provider: requestedProvider,
+            allowed_methods: allowedMethods,
           }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
-      console.error('[payments-create-intent] No provider found:', selectionResult.error);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: selectionResult.error || 'No payment provider available',
-          error_code: 'NO_PROVIDER',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    } else {
+      // ========== AUTO PROVIDER SELECTION ==========
+      const selectionResult = await selectProviderByLimits(
+        supabaseAdmin,
+        totalUsd,
+        effectiveCdf,
+        isVehicle,
+        normalizedCurrency
       );
+
+      // Handle vehicle orders that require bank transfer
+      if (!selectionResult.success) {
+        if (selectionResult.error === 'VEHICLE_BANK_TRANSFER_REQUIRED') {
+          console.log('[CREATE_INTENT_PROVIDER_DECISION]', {
+            finalProvider: 'bank_transfer',
+            reason: 'auto_vehicle',
+            amount: totalUsd,
+            currency: 'USD',
+          });
+          return new Response(
+            JSON.stringify({
+              success: true,
+              provider: 'bank_transfer',
+              providerSelection: 'auto',
+              status: 'requires_bank_transfer',
+              currency: 'USD',
+              amount: totalUsd,
+              nextAction: {
+                type: 'BANK_TRANSFER',
+              },
+              message: 'Vehicle orders require bank transfer or card payment. Please contact support.',
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        console.error('[payments-create-intent] No provider found:', selectionResult.error);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: selectionResult.error || 'No payment provider available',
+            error_code: 'NO_PROVIDER',
+            allowed_methods: allowedMethods,
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Use auto-selected provider
+      selectedProviderKey = selectionResult.provider!.provider_key as 'stripe' | 'pawapay';
+      selectedCurrency = selectionResult.currency!;
+      providerSelection = 'auto';
     }
 
-    // At this point we have a valid provider and currency
-    const selectedProvider = selectionResult.provider!;
-    const selectedCurrency = selectionResult.currency!;
-    const selectedProviderKey = selectedProvider.provider_key;
+    // Calculate payable amount based on currency
     const payableAmount = selectedCurrency === 'USD' ? totalUsd : effectiveCdf;
+
+    // Fetch the provider record for config extraction
+    const { data: providerRecord } = await supabaseAdmin
+      .from('payment_providers')
+      .select('*')
+      .eq('provider_key', selectedProviderKey)
+      .eq('is_enabled', true)
+      .single();
+
+    // Log the final provider decision
+    console.log('[CREATE_INTENT_PROVIDER_DECISION]', {
+      finalProvider: selectedProviderKey,
+      reason: providerSelection,
+      amount: payableAmount,
+      currency: selectedCurrency,
+      requestedProvider: requestedProvider || null,
+    });
 
     console.log('[payments-create-intent] Provider selected:', {
       provider: selectedProviderKey,
       currency: selectedCurrency,
       amount: payableAmount,
-      priority: selectedProvider.priority,
+      providerSelection,
     });
 
     // Get user profile for email
@@ -401,7 +496,7 @@ Deno.serve(async (req) => {
       // Provider already validated by selectProviderByLimits
       let stripeConfig: StripeConfig;
       try {
-        stripeConfig = getStripeConfig(selectedProvider);
+        stripeConfig = getStripeConfig(providerRecord);
       } catch (err: any) {
         console.error('[payments-create-intent] Stripe config error:', err.message);
         return new Response(
@@ -491,6 +586,8 @@ Deno.serve(async (req) => {
         success: true,
         intentId: paymentRecord.id,
         provider: 'stripe',
+        requestedProvider: requestedProvider || undefined,
+        providerSelection,
         status: 'processing',
         currency: selectedCurrency,
         amount: payableAmount,
@@ -514,10 +611,10 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Provider already validated by selectProviderByLimits
+      // Provider already validated
       let pawapayConfig: PawaPayConfig;
       try {
-        pawapayConfig = getPawaPayConfig(selectedProvider);
+        pawapayConfig = getPawaPayConfig(providerRecord);
       } catch (err: any) {
         console.error('[payments-create-intent] pawaPay config error:', err.message);
         return new Response(
@@ -624,6 +721,8 @@ Deno.serve(async (req) => {
         success: true,
         intentId: paymentRecord.id,
         provider: 'pawapay',
+        requestedProvider: requestedProvider || undefined,
+        providerSelection,
         status: 'processing',
         currency: selectedCurrency,
         amount: payableAmount,

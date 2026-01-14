@@ -47,31 +47,31 @@ const BankTransferSettings = () => {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
+        // Fetch from dedicated bank_transfer_settings table (singleton)
         const { data, error } = await supabase
-          .from("admin_settings")
-          .select("value")
-          .eq("key", "bank_transfer_details")
-          .single();
+          .from("bank_transfer_settings")
+          .select("*")
+          .eq("is_active", true)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-        if (error && error.code !== "PGRST116") {
+        if (error) {
           console.error("Error fetching bank settings:", error);
           toast.error("Failed to load settings");
           return;
         }
 
-        if (data?.value) {
-          const parsed = typeof data.value === "string" 
-            ? JSON.parse(data.value) 
-            : data.value;
+        if (data) {
           form.reset({
-            beneficiary_name: parsed.beneficiary_name || "",
-            bank_name: parsed.bank_name || "",
-            account_number_or_iban: parsed.account_number_or_iban || "",
-            swift_bic: parsed.swift_bic || "",
-            instructions_fr: parsed.instructions_fr || "",
-            instructions_en: parsed.instructions_en || "",
-            support_whatsapp: parsed.support_whatsapp || "",
-            support_email: parsed.support_email || "",
+            beneficiary_name: data.beneficiary_name || "",
+            bank_name: data.bank_name || "",
+            account_number_or_iban: data.account_number_or_iban || "",
+            swift_bic: data.swift_bic || "",
+            instructions_fr: data.instructions_fr || "",
+            instructions_en: data.instructions_en || "",
+            support_whatsapp: data.support_whatsapp || "",
+            support_email: data.support_email || "",
           });
         }
       } catch (err) {
@@ -87,15 +87,35 @@ const BankTransferSettings = () => {
   const onSubmit = async (values: BankDetailsForm) => {
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("admin_settings")
-        .upsert({
-          key: "bank_transfer_details",
-          value: JSON.stringify(values),
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: "key",
-        });
+      // First check if an active row exists
+      const { data: existing } = await supabase
+        .from("bank_transfer_settings")
+        .select("id")
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
+      let error;
+      if (existing?.id) {
+        // Update existing row
+        const result = await supabase
+          .from("bank_transfer_settings")
+          .update({
+            ...values,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+        error = result.error;
+      } else {
+        // Insert new row
+        const result = await supabase
+          .from("bank_transfer_settings")
+          .insert({
+            ...values,
+            is_active: true,
+          });
+        error = result.error;
+      }
 
       if (error) {
         console.error("Error saving bank settings:", error);

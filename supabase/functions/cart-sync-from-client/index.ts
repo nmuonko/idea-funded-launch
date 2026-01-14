@@ -71,7 +71,7 @@ serve(async (req) => {
     const parseResult = syncCartSchema.safeParse(body);
     
     if (!parseResult.success) {
-      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      const errorMessage = (parseResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
       console.log('[cart-sync-from-client] Validation error:', errorMessage);
       return errorResponse(errorMessage, 400);
     }

@@ -163,7 +163,7 @@ serve(async (req) => {
     // Validate input with zod schema
     const parseResult = addCartItemSchema.safeParse(body);
     if (!parseResult.success) {
-      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      const errorMessage = (parseResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
       console.log('[mobile-add-cart-item] Validation error:', errorMessage);
       return errorResponse(errorMessage, 400);
     }

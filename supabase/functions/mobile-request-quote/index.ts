@@ -151,7 +151,7 @@ serve(async (req) => {
     const existingQuoteResponses: any[] = [];
 
     for (const item of vehicleItems) {
-      const existingQuote = existingQuoteMap.get(item.id);
+      const existingQuote = existingQuoteMap.get(item.id) as any;
       
       if (existingQuote) {
         // Update existing quote with latest request info

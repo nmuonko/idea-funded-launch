@@ -900,7 +900,7 @@ serve(async (req) => {
     // Validate input with zod schema (SSRF prevention)
     const parseResult = productInfoSchema.safeParse({ productUrl: inputUrl });
     if (!parseResult.success) {
-      const errorMessage = parseResult.error.errors.map(e => e.message).join(', ');
+      const errorMessage = (parseResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
       const duration = Date.now() - requestStart;
       console.log(JSON.stringify({ endpoint: 'get-product-info', duration, status: 400, error: 'validation_failed' }));
       return new Response(

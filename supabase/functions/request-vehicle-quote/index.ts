@@ -216,7 +216,7 @@ serve(async (req) => {
         title: item.title,
         product_url: item.product_url,
         store_name: item.store,
-        status: existingQuote?.status || 'PENDING', // Preserve existing status
+        status: (existingQuote as any)?.status || 'PENDING', // Preserve existing status
         locale: userLocale,
         customer_email: userEmail,
         updated_at: new Date().toISOString(),

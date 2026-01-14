@@ -121,7 +121,7 @@ serve(async (req) => {
     }
 
     const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
-    const authUserMap = new Map(authUsers?.users?.map(u => [u.id, u]) || []);
+    const authUserMap = new Map((authUsers?.users || []).map((u: any) => [u.id, u] as [string, any]));
 
     let emailSentCount = 0;
     let pushSentCount = 0;
@@ -131,7 +131,7 @@ serve(async (req) => {
     // Send emails and push notifications to each user
     for (const [userId, items] of userItemsMap) {
       const profile = profileMap.get(userId);
-      const authUser = authUserMap.get(userId);
+      const authUser = authUserMap.get(userId) as any;
       
       if (!authUser?.email) {
         console.log('[saved-cart-reminders] Skipping user without email:', userId);

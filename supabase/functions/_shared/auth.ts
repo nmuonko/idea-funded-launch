@@ -1,4 +1,8 @@
-import { createClient, SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+// Use 'any' for SupabaseClient type to prevent version mismatches across functions
+type SupabaseClient = any;
+type User = any;
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

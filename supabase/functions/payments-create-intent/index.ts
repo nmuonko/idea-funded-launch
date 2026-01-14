@@ -56,8 +56,11 @@ type ErrorCode =
   | 'NO_PROVIDER'
   | 'PHONE_REQUIRED'
   | 'STRIPE_NOT_CONFIGURED'
+  | 'STRIPE_AUTH_FAILED'
   | 'STRIPE_ERROR'
   | 'PAWAPAY_NOT_CONFIGURED'
+  | 'PAWAPAY_AUTH_FAILED'
+  | 'PAWAPAY_UNAVAILABLE'
   | 'PAWAPAY_ERROR'
   | 'DB_ERROR'
   | 'INTERNAL_ERROR';
@@ -69,8 +72,9 @@ interface ResponseBody {
   status?: string;
   currency?: string;
   amount?: number;
+  clientSecret?: string; // Top-level for mobile SDK compatibility
   nextAction?: {
-    type: 'STRIPE' | 'POLL' | 'REDIRECT' | 'BANK_TRANSFER';
+    type: 'PAYMENT_SHEET' | 'POLL' | 'REDIRECT' | 'BANK_TRANSFER'; // PAYMENT_SHEET for mobile SDK
     clientSecret?: string;
     depositId?: string;
     redirectUrl?: string;
@@ -428,6 +432,13 @@ Deno.serve(async (req) => {
         );
       }
 
+      console.log('[STRIPE_PI_CREATE_REQ]', {
+        orderId: order_id,
+        intentId: paymentRecord.id,
+        amountUsd: payableAmount,
+        currency: selectedCurrency,
+      });
+
       // Create Stripe PaymentIntent
       const stripeResult = await createPaymentIntent(stripeConfig, {
         orderId: order_id,
@@ -438,7 +449,11 @@ Deno.serve(async (req) => {
       });
 
       if (!stripeResult.success || !stripeResult.client_secret) {
-        console.error('[payments-create-intent] Stripe error:', stripeResult.error);
+        console.error('[STRIPE_PI_CREATE_FAIL]', {
+          orderId: order_id,
+          error: stripeResult.error,
+          rawResponse: stripeResult.raw_response,
+        });
         return new Response(
           JSON.stringify({ 
             success: false, 
@@ -466,6 +481,12 @@ Deno.serve(async (req) => {
         .update({ status: 'PENDING_PAYMENT' })
         .eq('id', order_id);
 
+      console.log('[STRIPE_PI_CREATE_RES]', {
+        intentId: paymentRecord.id,
+        stripePaymentIntentId: stripeResult.provider_deposit_id,
+        clientSecretPreview: stripeResult.client_secret?.slice(0, 20) + '...',
+      });
+
       result = {
         success: true,
         intentId: paymentRecord.id,
@@ -473,8 +494,9 @@ Deno.serve(async (req) => {
         status: 'processing',
         currency: selectedCurrency,
         amount: payableAmount,
+        clientSecret: stripeResult.client_secret, // Top-level for mobile SDK
         nextAction: {
-          type: 'STRIPE',
+          type: 'PAYMENT_SHEET', // Mobile SDK expects PAYMENT_SHEET
           clientSecret: stripeResult.client_secret,
         },
       };
@@ -527,6 +549,14 @@ Deno.serve(async (req) => {
         );
       }
 
+      console.log('[PAWAPAY_REQ_PROOF]', {
+        orderId: order_id,
+        paymentRecordId: paymentRecord.id,
+        amount: payableAmount,
+        currency: selectedCurrency,
+        phoneLast4: customerPhone.slice(-4),
+      });
+
       // Create pawaPay deposit (reusing existing adapter)
       const depositResult = await createDeposit(pawapayConfig, {
         orderId: order_id,
@@ -539,16 +569,39 @@ Deno.serve(async (req) => {
       });
 
       if (!depositResult.success) {
-        console.error('[payments-create-intent] pawaPay error:', depositResult.error);
+        console.error('[PAWAPAY_FAIL_PROOF]', {
+          orderId: order_id,
+          error: depositResult.error,
+          errorDetails: depositResult.errorDetails,
+        });
+        
+        // Provide more specific error codes based on error type
+        let errorCode: ErrorCode = 'PAWAPAY_ERROR';
+        let errorMessage = depositResult.error || 'Failed to initiate mobile money payment';
+        
+        if (depositResult.errorDetails?.is_auth_error) {
+          errorCode = 'PAWAPAY_NOT_CONFIGURED';
+          errorMessage = 'Mobile money service configuration error';
+        } else if (!depositResult.errorDetails?.is_rejection) {
+          // Server/network error - provider unavailable
+          errorMessage = 'Mobile money temporarily unavailable. Please try again.';
+        }
+        
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: depositResult.error || 'Failed to initiate mobile money payment',
-            error_code: 'PAWAPAY_ERROR'
+            error: errorMessage,
+            error_code: errorCode
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
+
+      console.log('[PAWAPAY_RES_PROOF]', {
+        orderId: order_id,
+        depositId: depositResult.provider_deposit_id,
+        status: depositResult.status,
+      });
 
       // Update payment record with deposit ID
       await supabaseAdmin

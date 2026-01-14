@@ -41,6 +41,13 @@ const DEFAULT_PAYMENT_SETTINGS: PaymentSettings = {
   pawapay_enabled: true,
 };
 
+// Available payment method with enable/disable status
+interface AvailableMethod {
+  method: 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
+  enabled: boolean;
+  disabledReason: string | null;
+}
+
 interface DecisionResponse {
   ok: boolean;
   // New standardized fields
@@ -55,6 +62,8 @@ interface DecisionResponse {
     supportedMethods?: string[];
     initiateUrl?: string;
   };
+  // Explicit available methods for frontend choice display
+  available_methods?: AvailableMethod[];
   // Explicit limit fields for mobile UI
   limits?: {
     pawapayMaxUsd: number;
@@ -124,6 +133,67 @@ function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BA
   if (paymentSettings.stripe_enabled) options.push('STRIPE');
   if (paymentSettings.bank_transfer_enabled) options.push('BANK_TRANSFER');
   return options;
+}
+
+/**
+ * Build available methods array with enable/disable status and reasons
+ * This allows the frontend to display all options and explain why some are disabled
+ */
+function buildAvailableMethods(
+  paymentSettings: PaymentSettings,
+  totalUsdDollars: number,
+  isVehicle: boolean
+): AvailableMethod[] {
+  const methods: AvailableMethod[] = [];
+  const isOverLimit = totalUsdDollars > paymentSettings.mobile_money_max_usd;
+  const isLargeOrder = isOverLimit || isVehicle;
+
+  // MOBILE_MONEY (pawaPay)
+  if (paymentSettings.pawapay_enabled) {
+    if (isVehicle) {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: false,
+        disabledReason: 'Not available for vehicle purchases',
+      });
+    } else if (isOverLimit) {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: false,
+        disabledReason: `Maximum $${paymentSettings.mobile_money_max_usd.toLocaleString()} per transaction`,
+      });
+    } else {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: true,
+        disabledReason: null,
+      });
+    }
+  }
+
+  // CARD (Stripe) - always available if enabled
+  if (paymentSettings.stripe_enabled) {
+    methods.push({
+      method: 'CARD',
+      enabled: true,
+      disabledReason: null,
+    });
+  }
+
+  // BANK_TRANSFER - only show for large orders or when explicitly available
+  if (paymentSettings.bank_transfer_enabled) {
+    if (isLargeOrder) {
+      // Show as enabled for large orders
+      methods.push({
+        method: 'BANK_TRANSFER',
+        enabled: true,
+        disabledReason: null,
+      });
+    }
+    // For small orders, don't include bank transfer at all (cleaner UI)
+  }
+
+  return methods;
 }
 
 /**
@@ -449,6 +519,10 @@ serve(async (req) => {
     }
     availableProviders.push('bank_transfer');
 
+    // Build explicit available_methods for frontend choice display
+    const availableMethods = buildAvailableMethods(paymentSettings, totalUsdDollars, isVehicle);
+    const enabledMethodsCount = availableMethods.filter(m => m.enabled).length;
+
     console.log('[payment-decision] Final decision:', {
       input: order_id ? 'order_id' : cart_snapshot ? 'cart_snapshot' : 'total_usd',
       total_usd_dollars: totalUsdDollars,
@@ -458,6 +532,8 @@ serve(async (req) => {
       payable_amount,
       required_currency,
       options,
+      available_methods: availableMethods,
+      enabled_methods_count: enabledMethodsCount,
     });
 
     // Build versioning fields
@@ -480,6 +556,8 @@ serve(async (req) => {
         name: 'pawaPay',
         initiateUrl: `/functions/v1/pawapay-create-payment`,
       },
+      // Explicit available methods for frontend choice display
+      available_methods: availableMethods,
       // Explicit limits for mobile UI
       limits: {
         pawapayMaxUsd: paymentSettings.mobile_money_max_usd,

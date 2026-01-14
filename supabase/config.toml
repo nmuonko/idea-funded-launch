@@ -341,3 +341,9 @@ verify_jwt = true
 
 [functions.mobile-public-config]
 verify_jwt = false
+
+[functions.stripe-health]
+verify_jwt = false
+
+[functions.pawapay-health]
+verify_jwt = false

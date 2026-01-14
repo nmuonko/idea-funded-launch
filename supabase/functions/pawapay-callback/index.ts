@@ -332,8 +332,6 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    console.log(`[${traceId}] Callback payload:`, JSON.stringify(payload, null, 2));
-
     // Extract key fields
     const depositId = payload.depositId;
     const status = payload.status; // COMPLETED | FAILED
@@ -341,6 +339,14 @@ serve(async (req) => {
     const currency = payload.currency;
     const failureReason = payload.failureReason;
     const correspondentIds = payload.correspondentIds;
+
+    console.log(`[${traceId}] [PAWAPAY_CALLBACK_HIT]`, {
+      depositId,
+      status,
+      amount,
+      currency,
+      clientIp,
+    });
 
     if (!depositId) {
       console.error(`[${traceId}] Missing depositId in callback`);

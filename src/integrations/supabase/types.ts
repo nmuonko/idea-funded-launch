@@ -2707,6 +2707,17 @@ export type Database = {
         Args: { product_key_input: string; store_input: string }
         Returns: Json
       }
+      get_public_config: {
+        Args: never
+        Returns: {
+          exchange_rate: number
+          maishapay_max_cdf: number
+          maishapay_max_usd: number
+          markup_percent: number
+          shipping_base_fee: number
+          shipping_percent: number
+        }[]
+      }
       get_public_exchange_rate: { Args: never; Returns: number }
       get_public_session_info: {
         Args: never

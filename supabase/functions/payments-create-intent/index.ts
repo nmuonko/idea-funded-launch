@@ -70,6 +70,7 @@ type ErrorCode =
 
 interface ResponseBody {
   success: boolean;
+  requestId: string; // Always include for tracing
   intentId?: string;
   provider?: string;
   requestedProvider?: string; // Echo what was requested
@@ -95,12 +96,24 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Generate requestId at the very top of request handling
+  const requestId = crypto.randomUUID();
+
   try {
-    // Auth check
+    // Log entry point for AAB debugging
     const authHeader = req.headers.get('Authorization');
+    console.log('[PAYMENT_INTENT_ENTRY]', {
+      requestId,
+      method: req.method,
+      hasAuth: !!authHeader,
+      userAgent: req.headers.get('user-agent')?.slice(0, 100),
+      timestamp: new Date().toISOString(),
+    });
+
+    // Auth check
     if (!authHeader) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
+        JSON.stringify({ success: false, requestId, error: 'Authorization required', error_code: 'AUTH_REQUIRED' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -111,7 +124,7 @@ Deno.serve(async (req) => {
 
     if (!order_id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'order_id is required', error_code: 'MISSING_ORDER_ID' }),
+        JSON.stringify({ success: false, requestId, error: 'order_id is required', error_code: 'MISSING_ORDER_ID' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -158,7 +171,7 @@ Deno.serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
     if (userError || !user) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
+        JSON.stringify({ success: false, requestId, error: 'Invalid authentication', error_code: 'INVALID_AUTH' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -179,9 +192,9 @@ Deno.serve(async (req) => {
       .single();
 
     if (orderError || !order) {
-      console.error('[payments-create-intent] Order not found:', orderError?.message);
+      console.error('[payments-create-intent] Order not found:', { requestId, error: orderError?.message });
       return new Response(
-        JSON.stringify({ success: false, error: 'Order not found', error_code: 'ORDER_NOT_FOUND' }),
+        JSON.stringify({ success: false, requestId, error: 'Order not found', error_code: 'ORDER_NOT_FOUND' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -189,7 +202,7 @@ Deno.serve(async (req) => {
     // Verify ownership
     if (order.user_id !== user.id) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Not authorized to pay for this order', error_code: 'NOT_AUTHORIZED' }),
+        JSON.stringify({ success: false, requestId, error: 'Not authorized to pay for this order', error_code: 'NOT_AUTHORIZED' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -199,6 +212,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
+          requestId,
           error: `Order is in ${order.status} status, cannot process payment`,
           error_code: 'INVALID_ORDER_STATUS'
         }),
@@ -214,18 +228,19 @@ Deno.serve(async (req) => {
       .eq('is_saved_for_later', false);
 
     if (itemsError) {
-      console.error('[payments-create-intent] Error fetching order items:', itemsError.message);
+      console.error('[payments-create-intent] Error fetching order items:', { requestId, error: itemsError.message });
       return new Response(
-        JSON.stringify({ success: false, error: 'Failed to fetch order items', error_code: 'DB_ERROR' }),
+        JSON.stringify({ success: false, requestId, error: 'Failed to fetch order items', error_code: 'DB_ERROR' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     if (!orderItems || orderItems.length === 0) {
-      console.error('[payments-create-intent] Order has no active items:', order_id);
+      console.error('[payments-create-intent] Order has no active items:', { requestId, order_id });
       return new Response(
         JSON.stringify({ 
           success: false, 
+          requestId,
           error: 'Cart not found or no longer active. Please add items before paying.',
           error_code: 'CART_NOT_FOUND'
         }),
@@ -285,6 +300,7 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               success: false, 
+              requestId,
               error: 'Mobile money is currently disabled',
               error_code: 'PROVIDER_NOT_ALLOWED',
               requested_provider: 'pawapay',
@@ -297,6 +313,7 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               success: false, 
+              requestId,
               error: `Mobile money maximum is $${pawapayMaxUsd.toLocaleString()}. Please choose Card or Bank Transfer.`,
               error_code: 'PROVIDER_NOT_ALLOWED',
               requested_provider: 'pawapay',
@@ -309,6 +326,7 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               success: false, 
+              requestId,
               error: 'Mobile money is not available for vehicle purchases',
               error_code: 'PROVIDER_NOT_ALLOWED',
               requested_provider: 'pawapay',
@@ -326,6 +344,7 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               success: false, 
+              requestId,
               error: 'Card payments are currently disabled',
               error_code: 'PROVIDER_NOT_ALLOWED',
               requested_provider: 'stripe',
@@ -344,6 +363,7 @@ Deno.serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               success: false, 
+              requestId,
               error: 'Bank transfers are currently disabled',
               error_code: 'PROVIDER_NOT_ALLOWED',
               requested_provider: 'bank_transfer',
@@ -370,6 +390,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: true,
+            requestId,
             provider: 'bank_transfer',
             requestedProvider: 'bank_transfer',
             providerSelection: 'explicit',
@@ -388,6 +409,7 @@ Deno.serve(async (req) => {
         return new Response(
           JSON.stringify({ 
             success: false, 
+            requestId,
             error: `Unknown provider: ${requestedProvider}`,
             error_code: 'PROVIDER_NOT_ALLOWED',
             requested_provider: requestedProvider,
@@ -586,6 +608,7 @@ Deno.serve(async (req) => {
 
       result = {
         success: true,
+        requestId,
         intentId: paymentRecord.id,
         provider: 'stripe',
         requestedProvider: requestedProvider || undefined,
@@ -871,6 +894,7 @@ Deno.serve(async (req) => {
 
       result = {
         success: true,
+        requestId,
         intentId: paymentRecord.id,
         provider: 'pawapay',
         requestedProvider: requestedProvider || undefined,
@@ -905,9 +929,9 @@ Deno.serve(async (req) => {
     );
 
   } catch (error: any) {
-    console.error('[payments-create-intent] Unexpected error:', error);
+    console.error('[payments-create-intent] Unexpected error:', { requestId, error: error.message });
     return new Response(
-      JSON.stringify({ success: false, error: error.message || 'Internal server error', error_code: 'INTERNAL_ERROR' }),
+      JSON.stringify({ success: false, requestId, error: error.message || 'Internal server error', error_code: 'INTERNAL_ERROR' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

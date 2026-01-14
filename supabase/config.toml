@@ -350,3 +350,6 @@ verify_jwt = false
 
 [functions.pawapay-diagnostics]
 verify_jwt = false
+
+[functions.payment-health]
+verify_jwt = false

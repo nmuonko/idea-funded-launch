@@ -316,6 +316,51 @@ export type Database = {
           },
         ]
       }
+      bank_transfer_settings: {
+        Row: {
+          account_number_or_iban: string
+          bank_name: string
+          beneficiary_name: string
+          created_at: string
+          id: string
+          instructions_en: string | null
+          instructions_fr: string | null
+          is_active: boolean
+          support_email: string | null
+          support_whatsapp: string | null
+          swift_bic: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_number_or_iban?: string
+          bank_name?: string
+          beneficiary_name?: string
+          created_at?: string
+          id?: string
+          instructions_en?: string | null
+          instructions_fr?: string | null
+          is_active?: boolean
+          support_email?: string | null
+          support_whatsapp?: string | null
+          swift_bic?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_number_or_iban?: string
+          bank_name?: string
+          beneficiary_name?: string
+          created_at?: string
+          id?: string
+          instructions_en?: string | null
+          instructions_fr?: string | null
+          is_active?: boolean
+          support_email?: string | null
+          support_whatsapp?: string | null
+          swift_bic?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bank_transfer_submissions: {
         Row: {
           contact: string | null

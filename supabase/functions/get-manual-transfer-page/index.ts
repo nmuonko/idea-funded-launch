@@ -78,12 +78,14 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Get bank settings from settings table
-    const { data: settings } = await supabase
-      .from("settings")
-      .select("bank_name, bank_account_holder, bank_account_number, bank_instructions_en, bank_instructions_fr, support_whatsapp, support_email")
+    // Get bank settings from dedicated bank_transfer_settings singleton table
+    const { data: bankSettings } = await supabase
+      .from("bank_transfer_settings")
+      .select("*")
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     // Check if proof already submitted
     const { data: proofs } = await supabase
@@ -106,14 +108,15 @@ serve(async (req: Request): Promise<Response> => {
         has_proof: hasProofs,
         proof_status: latestProofStatus,
         bank: {
-          account_name: settings?.bank_account_holder || "AfriShop USA LLC",
-          bank_name: settings?.bank_name || "Equity BCDC",
-          account_number: settings?.bank_account_number || "",
+          account_name: bankSettings?.beneficiary_name || "AfriShop USA LLC",
+          bank_name: bankSettings?.bank_name || "Equity BCDC",
+          account_number: bankSettings?.account_number_or_iban || "",
+          swift_bic: bankSettings?.swift_bic || "",
           currency: "USD",
-          instructions_fr: settings?.bank_instructions_fr || "Veuillez effectuer le virement bancaire en utilisant la référence indiquée.",
-          instructions_en: settings?.bank_instructions_en || "Please make the bank transfer using the reference indicated.",
-          support_whatsapp: settings?.support_whatsapp || "",
-          support_email: settings?.support_email || "",
+          instructions_fr: bankSettings?.instructions_fr || "Veuillez effectuer le virement bancaire en utilisant la référence indiquée.",
+          instructions_en: bankSettings?.instructions_en || "Please make the bank transfer using the reference indicated.",
+          support_whatsapp: bankSettings?.support_whatsapp || "",
+          support_email: bankSettings?.support_email || "",
         },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

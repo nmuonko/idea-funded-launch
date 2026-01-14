@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,14 +39,16 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Fetch bank transfer settings from admin_settings
+    // Fetch from dedicated bank_transfer_settings singleton table
     const { data, error } = await supabase
-      .from('admin_settings')
-      .select('value, updated_at')
-      .eq('key', 'bank_transfer_details')
-      .single();
+      .from('bank_transfer_settings')
+      .select('*')
+      .eq('is_active', true)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       console.error(`[${requestId}] Database error:`, error.message);
       return new Response(
         JSON.stringify({ success: false, code: 'DB_ERROR', message: 'Failed to fetch settings' }),
@@ -70,9 +72,9 @@ serve(async (req) => {
       });
     }
 
-    // If no settings found, return empty but valid response
+    // If no active settings found, return configured: false (NOT 500)
     if (!data) {
-      console.log(`[${requestId}] No bank transfer settings configured`);
+      console.log(`[${requestId}] No active bank transfer settings configured`);
       return new Response(
         JSON.stringify({
           success: true,
@@ -93,36 +95,31 @@ serve(async (req) => {
       );
     }
 
-    // Parse the value (stored as JSON string)
-    let settings;
-    try {
-      settings = typeof data.value === 'string' ? JSON.parse(data.value) : data.value;
-    } catch (parseErr) {
-      console.error(`[${requestId}] Failed to parse settings JSON:`, parseErr);
-      return new Response(
-        JSON.stringify({ success: false, code: 'PARSE_ERROR', message: 'Invalid settings format' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Check if settings are actually configured (required fields present)
+    const isConfigured = !!(
+      data.beneficiary_name && 
+      data.bank_name && 
+      data.account_number_or_iban
+    );
 
     // Generate a version number from updated_at for simple cache busting
     const version = data.updated_at ? new Date(data.updated_at).getTime() : 0;
 
-    console.log(`[${requestId}] Returning bank transfer settings, updated_at:`, data.updated_at, 'version:', version);
+    console.log(`[${requestId}] Returning bank transfer settings, configured:`, isConfigured, 'version:', version);
 
     return new Response(
       JSON.stringify({
         success: true,
-        configured: true,
+        configured: isConfigured,
         settings: {
-          beneficiary_name: settings.beneficiary_name || '',
-          bank_name: settings.bank_name || '',
-          account_number_or_iban: settings.account_number_or_iban || '',
-          swift_bic: settings.swift_bic || '',
-          instructions_fr: settings.instructions_fr || '',
-          instructions_en: settings.instructions_en || '',
-          support_whatsapp: settings.support_whatsapp || '',
-          support_email: settings.support_email || '',
+          beneficiary_name: data.beneficiary_name || '',
+          bank_name: data.bank_name || '',
+          account_number_or_iban: data.account_number_or_iban || '',
+          swift_bic: data.swift_bic || '',
+          instructions_fr: data.instructions_fr || '',
+          instructions_en: data.instructions_en || '',
+          support_whatsapp: data.support_whatsapp || '',
+          support_email: data.support_email || '',
         },
         updated_at: data.updated_at,
         version: version,

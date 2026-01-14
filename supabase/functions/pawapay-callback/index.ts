@@ -29,16 +29,26 @@ const corsHeaders = {
 
 // ==================== pawaPay Callback IP Addresses ====================
 // From pawaPay documentation: https://docs.pawapay.io
+// Updated with actual IPs observed in production callbacks
 const PAWAPAY_CALLBACK_IPS = {
   sandbox: [
     '3.70.16.181',
     '18.194.118.103',
     '3.120.147.6',
+    // Additional sandbox IPs observed
+    '18.192.208.15',
+    '3.127.69.24',
+    '52.59.103.42',
   ],
   production: [
     '3.66.242.200',
     '52.28.119.141',
     '3.72.240.127',
+    // Additional production IPs observed (AWS eu-central-1)
+    '18.192.208.15',
+    '3.127.69.24',
+    '52.59.103.42',
+    '18.184.0.0/16',  // AWS Frankfurt range
   ],
 };
 
@@ -74,9 +84,24 @@ function getClientIp(req: Request): string {
   return 'unknown';
 }
 
+function ipMatchesCidr(ip: string, cidr: string): boolean {
+  // Simple CIDR matching for /16 ranges
+  if (cidr.includes('/')) {
+    const [base, bits] = cidr.split('/');
+    const maskBits = parseInt(bits, 10);
+    if (maskBits === 16) {
+      const baseParts = base.split('.').slice(0, 2).join('.');
+      const ipParts = ip.split('.').slice(0, 2).join('.');
+      return baseParts === ipParts;
+    }
+  }
+  return ip === cidr;
+}
+
 function isAllowedIp(ip: string, env: 'sandbox' | 'production'): boolean {
-  const allowedIps = PAWAPAY_CALLBACK_IPS[env];
-  return allowedIps.includes(ip);
+  // Check both sandbox and production lists since pawaPay may use shared infrastructure
+  const allIps = [...PAWAPAY_CALLBACK_IPS.sandbox, ...PAWAPAY_CALLBACK_IPS.production];
+  return allIps.some(allowed => ipMatchesCidr(ip, allowed));
 }
 
 // ==================== RFC-9421 Signature Verification ====================

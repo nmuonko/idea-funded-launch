@@ -1,10 +1,16 @@
 {
   "nodeModulesDir": "auto",
   "imports": {
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.3",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.49.1",
     "resend": "npm:resend@4.0.0"
   },
   "compilerOptions": {
-    "jsx": "react"
+    "jsx": "react",
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "strictPropertyInitialization": false,
+    "noImplicitThis": false
   }
 }

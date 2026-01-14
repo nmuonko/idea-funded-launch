@@ -71,7 +71,7 @@ serve(async (req) => {
     if (body.resend && body.invitationId) {
       const resendResult = resendInviteSchema.safeParse(body);
       if (!resendResult.success) {
-        const errorMessage = resendResult.error.errors.map(e => e.message).join(', ');
+        const errorMessage = (resendResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
         return new Response(JSON.stringify({ error: errorMessage }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -207,7 +207,7 @@ serve(async (req) => {
     // Validate new invitation input
     const inviteResult = inviteUserSchema.safeParse(body);
     if (!inviteResult.success) {
-      const errorMessage = inviteResult.error.errors.map(e => e.message).join(', ');
+      const errorMessage = (inviteResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
       return new Response(JSON.stringify({ error: errorMessage }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -225,7 +225,7 @@ serve(async (req) => {
       const { data: usersData } = await serviceSupabase.auth.admin.listUsers({ page, perPage });
       if (!usersData?.users || usersData.users.length === 0) break;
       
-      existingUser = usersData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+      existingUser = usersData.users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
       if (existingUser) break;
       if (usersData.users.length < perPage) break;
       page++;

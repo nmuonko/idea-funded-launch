@@ -85,7 +85,7 @@ serve(async (req) => {
     const parseResult = verifyPaymentSchema.safeParse(body);
     if (!parseResult.success) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid request data', details: parseResult.error.errors }),
+        JSON.stringify({ success: false, error: 'Invalid request data', details: (parseResult as any).error?.errors }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

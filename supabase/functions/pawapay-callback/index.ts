@@ -27,28 +27,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, signature, signature-input, content-digest',
 };
 
-// ==================== pawaPay Callback IP Addresses ====================
-// From pawaPay documentation: https://docs.pawapay.io
-// Updated with actual IPs observed in production callbacks
+// ==================== OFFICIAL pawaPay Callback IP Addresses ====================
+// Source: pawaPay documentation - https://docs.pawapay.io
+// ONLY official IPs - no broad ranges or observed IPs
 const PAWAPAY_CALLBACK_IPS = {
   sandbox: [
-    '3.70.16.181',
-    '18.194.118.103',
-    '3.120.147.6',
-    // Additional sandbox IPs observed
-    '18.192.208.15',
-    '3.127.69.24',
-    '52.59.103.42',
+    '3.64.89.224/32',
   ],
   production: [
-    '3.66.242.200',
-    '52.28.119.141',
-    '3.72.240.127',
-    // Additional production IPs observed (AWS eu-central-1)
-    '18.192.208.15',
-    '3.127.69.24',
-    '52.59.103.42',
-    '18.184.0.0/16',  // AWS Frankfurt range
+    '18.192.208.15/32',
+    '18.195.113.136/32',
+    '3.72.212.107/32',
+    '54.73.125.42/32',
+    '54.155.38.214/32',
+    '54.73.130.113/32',
   ],
 };
 
@@ -68,40 +60,124 @@ function getSecurityConfig(): CallbackSecurityConfig {
   return { env, verifySignatures, allowUnsignedWithIpCheck };
 }
 
+// ==================== IPv4 CIDR Matching ====================
+
+/**
+ * Convert IPv4 address string to 32-bit integer
+ */
+function ipv4ToInt(ip: string): number {
+  // Normalize IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  const normalized = ip.replace(/^::ffff:/i, '');
+  
+  const parts = normalized.split('.');
+  if (parts.length !== 4) {
+    return -1; // Invalid IPv4
+  }
+  
+  let result = 0;
+  for (let i = 0; i < 4; i++) {
+    const octet = parseInt(parts[i], 10);
+    if (isNaN(octet) || octet < 0 || octet > 255) {
+      return -1; // Invalid octet
+    }
+    result = (result << 8) | octet;
+  }
+  
+  // JavaScript bitwise ops return signed 32-bit, convert to unsigned
+  return result >>> 0;
+}
+
+/**
+ * Check if an IP matches a CIDR range (supports /32 to /0)
+ */
+function ipMatchesCidr(ip: string, cidr: string): boolean {
+  // Parse CIDR notation
+  let baseIp: string;
+  let prefixBits: number;
+  
+  if (cidr.includes('/')) {
+    const [base, bits] = cidr.split('/');
+    baseIp = base;
+    prefixBits = parseInt(bits, 10);
+    
+    if (isNaN(prefixBits) || prefixBits < 0 || prefixBits > 32) {
+      console.warn('[pawapay-callback] Invalid CIDR prefix:', cidr);
+      return false;
+    }
+  } else {
+    // No prefix means /32 (exact match)
+    baseIp = cidr;
+    prefixBits = 32;
+  }
+  
+  const ipInt = ipv4ToInt(ip);
+  const baseInt = ipv4ToInt(baseIp);
+  
+  if (ipInt === -1 || baseInt === -1) {
+    return false;
+  }
+  
+  // Create netmask: for /24 -> 0xFFFFFF00
+  // For /32 -> 0xFFFFFFFF
+  // For /0 -> 0x00000000
+  const mask = prefixBits === 0 ? 0 : (~0 << (32 - prefixBits)) >>> 0;
+  
+  // Compare masked values
+  return (ipInt & mask) === (baseInt & mask);
+}
+
 // ==================== IP Verification ====================
 
+/**
+ * Extract client IP from request headers
+ * Priority: x-forwarded-for (first IP), cf-connecting-ip, x-real-ip
+ */
 function getClientIp(req: Request): string {
-  // Check common proxy headers
-  const cfConnectingIp = req.headers.get('cf-connecting-ip');
-  if (cfConnectingIp) return cfConnectingIp;
-  
-  const xRealIp = req.headers.get('x-real-ip');
-  if (xRealIp) return xRealIp;
-  
+  // x-forwarded-for takes priority - use FIRST IP (original client)
   const xForwardedFor = req.headers.get('x-forwarded-for');
-  if (xForwardedFor) return xForwardedFor.split(',')[0].trim();
+  if (xForwardedFor) {
+    const firstIp = xForwardedFor.split(',')[0].trim();
+    // Normalize IPv4-mapped IPv6
+    return firstIp.replace(/^::ffff:/i, '');
+  }
+  
+  // Cloudflare connecting IP
+  const cfConnectingIp = req.headers.get('cf-connecting-ip');
+  if (cfConnectingIp) {
+    return cfConnectingIp.replace(/^::ffff:/i, '');
+  }
+  
+  // nginx/reverse proxy real IP
+  const xRealIp = req.headers.get('x-real-ip');
+  if (xRealIp) {
+    return xRealIp.replace(/^::ffff:/i, '');
+  }
   
   return 'unknown';
 }
 
-function ipMatchesCidr(ip: string, cidr: string): boolean {
-  // Simple CIDR matching for /16 ranges
-  if (cidr.includes('/')) {
-    const [base, bits] = cidr.split('/');
-    const maskBits = parseInt(bits, 10);
-    if (maskBits === 16) {
-      const baseParts = base.split('.').slice(0, 2).join('.');
-      const ipParts = ip.split('.').slice(0, 2).join('.');
-      return baseParts === ipParts;
-    }
+/**
+ * Check if IP is in official pawaPay allowlist
+ * Checks BOTH sandbox and production lists (pawaPay may use shared infra)
+ */
+function isAllowedIp(ip: string, _env: 'sandbox' | 'production'): boolean {
+  // Combine all official IPs
+  const allCidrs = [
+    ...PAWAPAY_CALLBACK_IPS.sandbox,
+    ...PAWAPAY_CALLBACK_IPS.production,
+  ];
+  
+  const isAllowed = allCidrs.some(cidr => ipMatchesCidr(ip, cidr));
+  
+  if (!isAllowed) {
+    console.warn('[pawapay-callback] IP_REJECTED:', {
+      receivedIp: ip,
+      allowedCidrs: allCidrs,
+      reason: 'ip_not_in_official_allowlist',
+    });
   }
-  return ip === cidr;
-}
-
-function isAllowedIp(ip: string, env: 'sandbox' | 'production'): boolean {
-  // Check both sandbox and production lists since pawaPay may use shared infrastructure
-  const allIps = [...PAWAPAY_CALLBACK_IPS.sandbox, ...PAWAPAY_CALLBACK_IPS.production];
-  return allIps.some(allowed => ipMatchesCidr(ip, allowed));
+  
+  return isAllowed;
 }
 
 // ==================== RFC-9421 Signature Verification ====================
@@ -303,13 +379,16 @@ serve(async (req) => {
           if (isAllowedIp(clientIp, config.env)) {
             console.log(`[${traceId}] Unsigned request from allowed IP:`, clientIp);
           } else {
-            console.warn(`[${traceId}] REJECTED: Unsigned request from unknown IP:`, clientIp);
-            // Still return 200 to prevent retries, but log rejection
+            console.error(`[${traceId}] IP_REJECTED: Unsigned request from non-allowlisted IP`, {
+              receivedIp: clientIp,
+              reason: 'ip_not_allowlisted',
+            });
             return new Response(JSON.stringify({ 
-              status: 'rejected', 
-              message: 'Request not authorized' 
+              success: false, 
+              error: 'ip_not_allowlisted',
+              receivedIp: clientIp,
             }), {
-              status: 200,
+              status: 403,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
@@ -337,12 +416,16 @@ serve(async (req) => {
     } else {
       // Signature verification disabled - use IP check only
       if (config.allowUnsignedWithIpCheck && !isAllowedIp(clientIp, config.env)) {
-        console.warn(`[${traceId}] REJECTED: Request from unknown IP:`, clientIp);
+        console.error(`[${traceId}] IP_REJECTED: Request from non-allowlisted IP`, {
+          receivedIp: clientIp,
+          reason: 'ip_not_allowlisted',
+        });
         return new Response(JSON.stringify({ 
-          status: 'rejected', 
-          message: 'Request not authorized' 
+          success: false, 
+          error: 'ip_not_allowlisted',
+          receivedIp: clientIp,
         }), {
-          status: 200,
+          status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

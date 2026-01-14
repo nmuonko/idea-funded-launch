@@ -189,7 +189,7 @@ serve(async (req) => {
     log.log('Payment created successfully', { reference });
 
     // Build redirect URL for mobile app polling using environment variable
-    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afri-shop.com';
+    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
     const redirectUrl = `${frontendBaseUrl}/payment-callback?orderId=${orderId}&provider=pawapay`;
 
     // Return response compatible with existing mobile app

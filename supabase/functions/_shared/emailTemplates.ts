@@ -186,8 +186,9 @@ export function buildPaymentSuccessEmail(params: {
   amountCdf?: number;
   transactionId?: string;
   orderId: string;
+  frontendBaseUrl?: string;
 }): EmailTemplate {
-  const { customerName, confirmationCode, amountUsd, amountCdf, transactionId, orderId } = params;
+  const { customerName, confirmationCode, amountUsd, amountCdf, transactionId, orderId, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
 
   return {
     subject: `Payment Received - ${confirmationCode} | AfriShop`,
@@ -211,7 +212,7 @@ export function buildPaymentSuccessEmail(params: {
           <p>Your order is now being processed. We'll send you a shipping update soon!</p>
           
           <p style="margin-top: 20px;">
-            <a href="https://afrishop-usa.com/track-order?code=${confirmationCode}" style="${buttonStyle}">
+            <a href="${frontendBaseUrl}/track-order?code=${confirmationCode}" style="${buttonStyle}">
               Track Your Order
             </a>
           </p>

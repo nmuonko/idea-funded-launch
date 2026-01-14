@@ -176,7 +176,7 @@ serve(async (req) => {
       // Update expiration
       const newExpires = new Date();
       newExpires.setDate(newExpires.getDate() + 7);
-      const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://igmkhxffnyzoogcqvdab.lovableproject.com';
+      const frontendUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
       const inviteUrl = `${frontendUrl}/accept-invite?token=${invitation.token}`;
 
       // Send email

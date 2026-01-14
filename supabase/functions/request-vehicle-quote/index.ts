@@ -263,7 +263,7 @@ serve(async (req) => {
           <p>A customer has requested a quote for the following vehicle(s):</p>
           <ul>${itemsList}</ul>
           <p>Customer Email: ${userEmail}</p>
-          <p><a href="https://afrishop-usa.com/admin/quote-requests">View in Admin Panel</a></p>
+          <p><a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/admin/quote-requests">View in Admin Panel</a></p>
         `;
 
         await notifyAdmin(

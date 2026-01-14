@@ -144,10 +144,10 @@ serve(async (req) => {
                 <p style="margin: 5px 0 0 0; color: #666;">
                   (${cart.total_cdf?.toFixed(0) || '0'} FC)
                 </p>
-                ${segment === 'high_value' ? '<p style="margin: 10px 0 0 0; color: #92400e; font-weight: bold;">✨ Priority processing for high-value orders!</p>' : ''}
+              ${segment === 'high_value' ? '<p style="margin: 10px 0 0 0; color: #92400e; font-weight: bold;">✨ Priority processing for high-value orders!</p>' : ''}
               </div>
 
-              <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/cart" 
+              <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/orders" 
                  style="display: inline-block; padding: 12px 24px; background: #1e40af; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
                 Complete Your Order
               </a>

@@ -40,7 +40,27 @@ interface RequestBody {
   order_id: string;
   phone?: string;
   currency?: 'USD' | 'CDF'; // Optional: user can request specific currency
+  provider?: 'pawapay' | 'stripe' | 'bank_transfer'; // Optional: explicit provider selection
 }
+
+// Structured error codes for client handling
+type ErrorCode = 
+  | 'AUTH_REQUIRED'
+  | 'INVALID_AUTH'
+  | 'MISSING_ORDER_ID'
+  | 'ORDER_NOT_FOUND'
+  | 'NOT_AUTHORIZED'
+  | 'INVALID_ORDER_STATUS'
+  | 'CART_NOT_FOUND'
+  | 'PROVIDER_NOT_ALLOWED'
+  | 'NO_PROVIDER'
+  | 'PHONE_REQUIRED'
+  | 'STRIPE_NOT_CONFIGURED'
+  | 'STRIPE_ERROR'
+  | 'PAWAPAY_NOT_CONFIGURED'
+  | 'PAWAPAY_ERROR'
+  | 'DB_ERROR'
+  | 'INTERNAL_ERROR';
 
 interface ResponseBody {
   success: boolean;
@@ -50,13 +70,13 @@ interface ResponseBody {
   currency?: string;
   amount?: number;
   nextAction?: {
-    type: 'STRIPE' | 'POLL' | 'REDIRECT';
+    type: 'STRIPE' | 'POLL' | 'REDIRECT' | 'BANK_TRANSFER';
     clientSecret?: string;
     depositId?: string;
     redirectUrl?: string;
   };
   error?: string;
-  error_code?: string;
+  error_code?: ErrorCode;
 }
 
 Deno.serve(async (req) => {
@@ -77,7 +97,7 @@ Deno.serve(async (req) => {
 
     // Parse request
     const body: RequestBody = await req.json();
-    const { order_id, phone, currency: requestedCurrency } = body;
+    const { order_id, phone, currency: requestedCurrency, provider: requestedProvider } = body;
 
     if (!order_id) {
       return new Response(
@@ -89,7 +109,12 @@ Deno.serve(async (req) => {
     // Normalize requested currency (default to USD)
     const normalizedCurrency: 'USD' | 'CDF' = requestedCurrency?.toUpperCase() === 'CDF' ? 'CDF' : 'USD';
 
-    console.log('[payments-create-intent] Request:', { order_id, hasPhone: !!phone, currency: normalizedCurrency });
+    console.log('[payments-create-intent] Request:', { 
+      order_id, 
+      hasPhone: !!phone, 
+      currency: normalizedCurrency,
+      requestedProvider: requestedProvider || 'auto'
+    });
 
     // Create Supabase clients
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -154,6 +179,35 @@ Deno.serve(async (req) => {
       );
     }
 
+    // STEP: Verify order has items (this is the "cart" for this order)
+    const { data: orderItems, error: itemsError } = await supabaseAdmin
+      .from('order_items')
+      .select('id, is_saved_for_later, total_price_usd, is_vehicle')
+      .eq('order_id', order_id)
+      .eq('is_saved_for_later', false);
+
+    if (itemsError) {
+      console.error('[payments-create-intent] Error fetching order items:', itemsError.message);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to fetch order items', error_code: 'DB_ERROR' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!orderItems || orderItems.length === 0) {
+      console.error('[payments-create-intent] Order has no active items:', order_id);
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Cart not found or no longer active. Please add items before paying.',
+          error_code: 'CART_NOT_FOUND'
+        }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    console.log('[payments-create-intent] Order has', orderItems.length, 'active items');
+
     // Detect vehicle status
     const vehicleDetection = await detectVehicleOrder(supabaseAdmin, order_id);
     const isVehicle = vehicleDetection.isVehicle || order.contains_vehicle === true;
@@ -169,10 +223,107 @@ Deno.serve(async (req) => {
       totalCdf: effectiveCdf,
       isVehicle,
       vehicleReasons: vehicleDetection.reasons,
+      itemCount: orderItems.length,
     });
+
+    // ==================== Fetch payment limits for validation ====================
+    const { data: paymentSettings } = await supabaseAdmin
+      .from('payment_settings')
+      .select('mobile_money_max_usd, mobile_money_max_cdf, pawapay_enabled, stripe_enabled, bank_transfer_enabled')
+      .single();
+
+    const pawapayMaxUsd = paymentSettings?.mobile_money_max_usd || 5000;
+    const stripeEnabled = paymentSettings?.stripe_enabled !== false;
+    const pawapayEnabled = paymentSettings?.pawapay_enabled !== false;
+    const bankTransferEnabled = paymentSettings?.bank_transfer_enabled !== false;
+
+    // ==================== Provider Validation for Explicit Selection ====================
+    if (requestedProvider) {
+      console.log('[payments-create-intent] Validating explicit provider:', requestedProvider);
+      
+      if (requestedProvider === 'pawapay') {
+        if (!pawapayEnabled) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Mobile money is currently disabled',
+              error_code: 'PROVIDER_NOT_ALLOWED'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (totalUsd > pawapayMaxUsd) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: `Mobile money maximum is $${pawapayMaxUsd.toLocaleString()}. Please choose Card or Bank Transfer.`,
+              error_code: 'PROVIDER_NOT_ALLOWED'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        if (isVehicle) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Mobile money is not available for vehicle purchases',
+              error_code: 'PROVIDER_NOT_ALLOWED'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      } else if (requestedProvider === 'stripe') {
+        if (!stripeEnabled) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Card payments are currently disabled',
+              error_code: 'PROVIDER_NOT_ALLOWED'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+      } else if (requestedProvider === 'bank_transfer') {
+        if (!bankTransferEnabled) {
+          return new Response(
+            JSON.stringify({ 
+              success: false, 
+              error: 'Bank transfers are currently disabled',
+              error_code: 'PROVIDER_NOT_ALLOWED'
+            }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        // Bank transfer: return success with BANK_TRANSFER nextAction
+        console.log('[payments-create-intent] Bank transfer selected');
+        
+        // Update order to PENDING_PAYMENT
+        await supabaseAdmin
+          .from('orders')
+          .update({ status: 'PENDING_PAYMENT' })
+          .eq('id', order_id);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            provider: 'bank_transfer',
+            status: 'awaiting_transfer',
+            currency: 'USD',
+            amount: totalUsd,
+            nextAction: {
+              type: 'BANK_TRANSFER',
+            },
+            message: 'Please complete bank transfer using the provided details.',
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
 
     // ==================== Provider Selection Logic ====================
     // Use vehicle detection and requested currency (no limit-based switching)
+    // Note: If requestedProvider was explicitly validated above, we still use selectProviderByLimits
+    // for automatic selection when no explicit provider is specified
     const selectionResult = await selectProviderByLimits(
       supabaseAdmin,
       totalUsd,

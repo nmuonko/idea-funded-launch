@@ -79,6 +79,10 @@ interface ResponseBody {
   currency?: string;
   amount?: number;
   clientSecret?: string; // Top-level for mobile SDK compatibility
+  depositId?: string; // P0: Top-level for mobile app pawaPay compatibility
+  payment_flow?: 'STRIPE' | 'PAWAPAY' | 'BANK_TRANSFER'; // P0: Payment flow type
+  message?: string; // User-facing message (English)
+  message_fr?: string; // User-facing message (French)
   nextAction?: {
     type: 'PAYMENT_SHEET' | 'POLL' | 'REDIRECT' | 'BANK_TRANSFER'; // PAYMENT_SHEET for mobile SDK
     clientSecret?: string;
@@ -902,6 +906,11 @@ Deno.serve(async (req) => {
         status: 'processing',
         currency: selectedCurrency,
         amount: payableAmount,
+        // P0: depositId at TOP LEVEL for mobile app compatibility
+        depositId: depositResult.provider_deposit_id,
+        payment_flow: 'PAWAPAY',
+        message: 'Payment request sent to your phone. Please confirm on your device.',
+        message_fr: 'Demande de paiement envoyée à votre téléphone. Veuillez confirmer sur votre appareil.',
         nextAction: {
           type: 'POLL',
           depositId: depositResult.provider_deposit_id,

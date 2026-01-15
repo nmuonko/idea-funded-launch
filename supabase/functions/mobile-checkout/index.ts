@@ -2144,8 +2144,11 @@ serve(async (req) => {
           const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
           const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
 
-          return jsonResponse({
+          // P0: Add depositId at TOP LEVEL for mobile app compatibility
+          const responsePayload = {
             success: true,
+            // === CRITICAL: depositId at top level for mobile app ===
+            depositId: depositResult.provider_deposit_id,
             // === REQUIRED FIELDS (always present) ===
             order_id: checkoutOrder.id,
             checkout_session_id: checkoutSession?.id || null,
@@ -2161,6 +2164,7 @@ serve(async (req) => {
             provider: 'pawapay',
             checkoutUrl: redirectUrl,
             message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
+            message_fr: 'Demande de paiement envoyée à votre téléphone. Veuillez confirmer sur votre appareil.',
             payable_amount,
             payable_currency,
             totals_breakdown: {
@@ -2188,7 +2192,18 @@ serve(async (req) => {
               amount: payable_amount,
               displayAmount,
             },
+          };
+          
+          // P0: Log full response for mobile app debugging
+          console.log('[mobile-checkout] PAWAPAY_RESPONSE_PAYLOAD', {
+            success: responsePayload.success,
+            payment_flow: responsePayload.payment_flow,
+            depositId: responsePayload.depositId,
+            order_id: responsePayload.order_id,
+            has_redirectUrl: !!responsePayload.redirectUrl,
           });
+          
+          return jsonResponse(responsePayload);
         } else {
           // ============================================
           // P0 FIX: Better error mapping from provider

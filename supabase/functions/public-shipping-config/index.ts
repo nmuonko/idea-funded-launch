@@ -1,28 +1,105 @@
+// Public Shipping Config - OPTIMIZED FOR 10K+ USERS
+// Returns public pricing fields for cart calculations with aggressive caching
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { coalesce, CACHE_TTL } from "../_shared/responseCache.ts";
+import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, if-none-match',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-  'Pragma': 'no-cache',
+  'Cache-Control': 'public, max-age=900, stale-while-revalidate=300',
 };
 
-// Generate ETag from updated_at timestamp
+// Cache key for shipping config (singleton)
+const CACHE_KEY = "public-shipping-config";
+
+interface ShippingConfig {
+  markup_percent: number;
+  markup_percent_display: number;
+  shipping_base_fee_usd: number;
+  shipping_percent: number;
+  shipping_percent_display: number;
+  service_fee_percent: number;
+  service_fee_percent_display: number;
+  min_service_fee_usd: number;
+  exchange_rate_usd_to_cdf: number;
+}
+
+interface CachedResponse {
+  config: ShippingConfig;
+  updated_at: string;
+  version: number;
+  etag: string;
+}
+
 function generateETag(updatedAt: string | null): string {
   if (!updatedAt) return '"v0"';
   const hash = btoa(updatedAt).replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
   return `"${hash}"`;
 }
 
+async function fetchShippingConfig(): Promise<CachedResponse> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  const { data, error } = await supabase
+    .from('settings')
+    .select('markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, exchange_rate_usd_to_cdf, updated_at')
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error('[public-shipping-config] Database error:', error.message);
+    throw new Error(`DB_ERROR: ${error.message}`);
+  }
+
+  if (!data) {
+    throw new Error('NOT_CONFIGURED: Pricing settings not configured');
+  }
+
+  // Normalize percentages
+  const shippingPercent = data.shipping_percent > 1 
+    ? data.shipping_percent / 100 
+    : data.shipping_percent;
+
+  const markupPercent = data.markup_percent > 1 
+    ? data.markup_percent / 100 
+    : data.markup_percent;
+
+  const serviceFeePercent = data.service_fee_percent > 1 
+    ? data.service_fee_percent / 100 
+    : data.service_fee_percent;
+
+  const version = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+  const etag = generateETag(data.updated_at);
+
+  return {
+    config: {
+      markup_percent: markupPercent,
+      markup_percent_display: data.markup_percent,
+      shipping_base_fee_usd: Number(data.shipping_base_fee_usd) || 0,
+      shipping_percent: shippingPercent,
+      shipping_percent_display: data.shipping_percent,
+      service_fee_percent: serviceFeePercent,
+      service_fee_percent_display: data.service_fee_percent,
+      min_service_fee_usd: Number(data.min_service_fee_usd) || 0,
+      exchange_rate_usd_to_cdf: Number(data.exchange_rate_usd_to_cdf) || 2500,
+    },
+    updated_at: data.updated_at,
+    version,
+    etag,
+  };
+}
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  // Only allow GET
   if (req.method !== 'GET') {
     return new Response(
       JSON.stringify({ success: false, code: 'METHOD_NOT_ALLOWED', message: 'Only GET is allowed' }),
@@ -31,104 +108,32 @@ serve(async (req) => {
   }
 
   const requestId = crypto.randomUUID();
-  console.log(`[${requestId}] public-shipping-config: Start`);
+  const priority = getEndpointPriority("public-shipping-config");
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const cached = await withLoadShedding(priority, async () => {
+      // Use request coalescing + caching (15 min TTL)
+      return coalesce(CACHE_KEY, fetchShippingConfig, CACHE_TTL.SHIPPING_CONFIG);
+    });
 
-    if (!supabaseUrl || !serviceRoleKey) {
-      console.error(`[${requestId}] Missing environment variables`);
-      return new Response(
-        JSON.stringify({ success: false, code: 'CONFIG_ERROR', message: 'Server configuration error' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Use service role to read settings (single source of truth)
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-    // Fetch ONLY the public pricing fields needed for cart calculations
-    const { data, error } = await supabase
-      .from('settings')
-      .select('markup_percent, shipping_base_fee_usd, shipping_percent, service_fee_percent, min_service_fee_usd, exchange_rate_usd_to_cdf, updated_at')
-      .limit(1)
-      .single();
-
-    if (error) {
-      console.error(`[${requestId}] Database error:`, error.message);
-      return new Response(
-        JSON.stringify({ success: false, code: 'DB_ERROR', message: 'Failed to fetch settings' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (!data) {
-      console.log(`[${requestId}] No settings found`);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'NOT_CONFIGURED',
-          message: 'Pricing settings not configured',
-        }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Generate ETag for cache validation
-    const etag = generateETag(data.updated_at);
+    // Check ETag for 304 response
     const clientEtag = req.headers.get('If-None-Match');
-
-    // If client has same version, return 304 Not Modified
-    if (clientEtag && clientEtag === etag) {
+    if (clientEtag && clientEtag === cached.etag) {
       console.log(`[${requestId}] ETag match - returning 304`);
       return new Response(null, {
         status: 304,
-        headers: {
-          ...corsHeaders,
-          'ETag': etag,
-        }
+        headers: { ...corsHeaders, 'ETag': cached.etag }
       });
     }
 
-    // Compute version from updated_at for simple cache busting
-    const version = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+    console.log(`[${requestId}] Returning shipping config, version: ${cached.version}`);
 
-    // Normalize shipping_percent: values > 1 are percentages, <= 1 are fractions
-    const shippingPercent = data.shipping_percent > 1 
-      ? data.shipping_percent / 100 
-      : data.shipping_percent;
-
-    // Normalize markup_percent the same way
-    const markupPercent = data.markup_percent > 1 
-      ? data.markup_percent / 100 
-      : data.markup_percent;
-
-    // Normalize service_fee_percent
-    const serviceFeePercent = data.service_fee_percent > 1 
-      ? data.service_fee_percent / 100 
-      : data.service_fee_percent;
-
-    console.log(`[${requestId}] Returning public shipping config, version: ${version}`);
-
-    // Return ONLY the fields needed for cart total calculations
-    // Do NOT include bank info, admin-only fields, or sensitive data
     return new Response(
       JSON.stringify({
         success: true,
-        config: {
-          markup_percent: markupPercent,
-          markup_percent_display: data.markup_percent, // Original value for display
-          shipping_base_fee_usd: Number(data.shipping_base_fee_usd) || 0,
-          shipping_percent: shippingPercent,
-          shipping_percent_display: data.shipping_percent, // Original value for display
-          service_fee_percent: serviceFeePercent,
-          service_fee_percent_display: data.service_fee_percent, // Original value for display
-          min_service_fee_usd: Number(data.min_service_fee_usd) || 0,
-          exchange_rate_usd_to_cdf: Number(data.exchange_rate_usd_to_cdf) || 2500,
-        },
-        updated_at: data.updated_at,
-        version: version,
+        config: cached.config,
+        updated_at: cached.updated_at,
+        version: cached.version,
         requestId,
       }),
       {
@@ -136,21 +141,28 @@ serve(async (req) => {
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/json',
-          'ETag': etag,
+          'ETag': cached.etag,
         }
       }
     );
 
   } catch (error: any) {
-    console.error(`[${requestId}] Unexpected error:`, error?.message || error);
+    if (error instanceof LoadSheddingError) {
+      return loadSheddingResponse(error, corsHeaders);
+    }
+
+    console.error(`[${requestId}] Error:`, error?.message || error);
+    
+    const isNotConfigured = error?.message?.includes('NOT_CONFIGURED');
+    
     return new Response(
       JSON.stringify({
         success: false,
-        code: 'INTERNAL_ERROR',
-        message: 'An unexpected error occurred',
+        code: isNotConfigured ? 'NOT_CONFIGURED' : 'INTERNAL_ERROR',
+        message: isNotConfigured ? 'Pricing settings not configured' : 'An unexpected error occurred',
         requestId,
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: isNotConfigured ? 404 : 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

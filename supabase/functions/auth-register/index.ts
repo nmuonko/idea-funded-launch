@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Resend } from "https://esm.sh/resend@4.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -173,9 +174,9 @@ serve(async (req) => {
       },
     });
 
-    // Send verification email using magiclink type (doesn't require password)
+    // Send verification email using magiclink type
     if (authData?.user) {
-      const { error: emailError } = await supabaseAdmin.auth.admin.generateLink({
+      const { data: linkData, error: emailError } = await supabaseAdmin.auth.admin.generateLink({
         type: 'magiclink',
         email: email.trim(),
         options: {
@@ -184,9 +185,69 @@ serve(async (req) => {
       });
       
       if (emailError) {
-        console.warn('[auth-register] Failed to send verification email:', emailError.message);
-      } else {
-        console.log('[auth-register] Verification email link generated for:', email);
+        console.warn('[auth-register] Failed to generate verification link:', emailError.message);
+      } else if (linkData?.properties?.action_link) {
+        // Send the verification email via Resend
+        try {
+          const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
+          const verificationLink = linkData.properties.action_link;
+          const isFrench = req.headers.get('Accept-Language')?.includes('fr');
+
+          const subject = isFrench 
+            ? 'Vérifiez votre compte AfriShop USA' 
+            : 'Verify your AfriShop USA account';
+          
+          const htmlContent = isFrench
+            ? `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h1 style="color: #2563eb;">Bienvenue chez AfriShop USA!</h1>
+                <p>Bonjour ${fullName.trim()},</p>
+                <p>Merci d'avoir créé un compte. Veuillez vérifier votre adresse e-mail en cliquant sur le bouton ci-dessous :</p>
+                <a href="${verificationLink}"
+                   style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">
+                  Vérifier l'adresse e-mail
+                </a>
+                <p style="color: #6b7280; font-size: 14px;">
+                  Si le bouton ne fonctionne pas, copiez et collez ce lien dans votre navigateur :<br/>
+                  <a href="${verificationLink}" style="color: #2563eb;">${verificationLink}</a>
+                </p>
+                <p>Ce lien expirera dans 24 heures.</p>
+                <p>Cordialement,<br/>L'équipe AfriShop USA</p>
+              </div>
+            `
+            : `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h1 style="color: #2563eb;">Welcome to AfriShop USA!</h1>
+                <p>Hello ${fullName.trim()},</p>
+                <p>Thank you for creating an account. Please verify your email address by clicking the button below:</p>
+                <a href="${verificationLink}"
+                   style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0;">
+                  Verify Email Address
+                </a>
+                <p style="color: #6b7280; font-size: 14px;">
+                  If the button doesn't work, copy and paste this link into your browser:<br/>
+                  <a href="${verificationLink}" style="color: #2563eb;">${verificationLink}</a>
+                </p>
+                <p>This link will expire in 24 hours.</p>
+                <p>Best regards,<br/>The AfriShop USA Team</p>
+              </div>
+            `;
+
+          const { error: resendError } = await resend.emails.send({
+            from: 'AfriShop USA <nkadimisha@afrishop-usa.com>',
+            to: [email.trim()],
+            subject: subject,
+            html: htmlContent,
+          });
+
+          if (resendError) {
+            console.error('[auth-register] Resend email error:', resendError);
+          } else {
+            console.log('[auth-register] Verification email sent to:', email);
+          }
+        } catch (resendErr: any) {
+          console.error('[auth-register] Failed to send verification email:', resendErr.message);
+        }
       }
     }
 

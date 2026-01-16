@@ -58,19 +58,19 @@ serve(async (req) => {
   }
 
   try {
-    const body: RegisterRequest = await req.json();
-    const {
-      email,
-      password,
-      fullName,
-      phoneNumber,
-      addressLine1,
-      addressLine2,
-      city,
-      stateOrProvince,
-      postalCode,
-      country,
-    } = body;
+    const body = await req.json();
+    
+    // Support both phoneNumber and phone field names for mobile compatibility
+    const email = body.email;
+    const password = body.password;
+    const fullName = body.fullName || body.full_name || body.name;
+    const phoneNumber = body.phoneNumber || body.phone || body.phone_number;
+    const addressLine1 = body.addressLine1 || body.address_line1 || body.address;
+    const addressLine2 = body.addressLine2 || body.address_line2;
+    const city = body.city;
+    const stateOrProvince = body.stateOrProvince || body.state_province || body.province;
+    const postalCode = body.postalCode || body.postal_code;
+    const country = body.country;
 
     console.log('[auth-register] Registration attempt for:', email);
 

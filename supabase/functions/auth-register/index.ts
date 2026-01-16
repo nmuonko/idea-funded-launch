@@ -10,21 +10,22 @@ const corsHeaders = {
 /**
  * Auth Register Edge Function
  * 
- * Registers a new user with full profile information required for checkout.
+ * Registers a new user with profile information.
+ * Simplified for African markets where detailed addresses are uncommon.
  * 
  * Required fields:
  * - email
  * - password
  * - fullName
  * - phoneNumber
- * - addressLine1
- * - city
- * - stateOrProvince
  * - country
  * 
- * Optional fields:
+ * Optional fields (for African addresses):
+ * - addressLine1 (optional - reduces friction)
  * - addressLine2
- * - postalCode (not required for African countries)
+ * - city (optional - reduces friction for African markets)
+ * - stateOrProvince (optional)
+ * - postalCode (not used in most African countries)
  */
 
 interface RegisterRequest {
@@ -73,17 +74,16 @@ serve(async (req) => {
 
     console.log('[auth-register] Registration attempt for:', email);
 
-    // Validate required fields
+    // Validate required fields - simplified for African markets
+    // Only email, password, fullName, phoneNumber, and country are strictly required
+    // addressLine1, city, stateOrProvince are optional to reduce signup friction
     const missingFields: string[] = [];
     
     if (!email || email.trim() === '') missingFields.push('email');
     if (!password || password.trim() === '') missingFields.push('password');
     if (!fullName || fullName.trim() === '') missingFields.push('fullName');
     if (!phoneNumber || phoneNumber.trim() === '') missingFields.push('phoneNumber');
-    if (!addressLine1 || addressLine1.trim() === '') missingFields.push('addressLine1');
-    if (!city || city.trim() === '') missingFields.push('city');
-    if (!stateOrProvince || stateOrProvince.trim() === '') missingFields.push('stateOrProvince');
-    // postalCode is NOT required - most African countries don't use them
+    // addressLine1, city, stateOrProvince are now OPTIONAL for African addresses
     if (!country || country.trim() === '') missingFields.push('country');
 
     if (missingFields.length > 0) {
@@ -138,7 +138,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    if (addressLine1.trim().length > 200) {
+    if (addressLine1 && addressLine1.trim().length > 200) {
       return new Response(
         JSON.stringify({ ok: false, message: 'Address line 1 must be less than 200 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -150,7 +150,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    if (city.trim().length > 100) {
+    if (city && city.trim().length > 100) {
       return new Response(
         JSON.stringify({ ok: false, message: 'City must be less than 100 characters' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -287,10 +287,10 @@ serve(async (req) => {
       full_name: fullName.trim(),
       name: fullName.trim(),
       phone: phoneNumber.trim(),
-      address_line1: addressLine1.trim(),
+      address_line1: addressLine1?.trim() || null,
       address_line2: addressLine2?.trim() || null,
-      city: city.trim(),
-      state_province: stateOrProvince.trim(),
+      city: city?.trim() || null,
+      state_province: stateOrProvince?.trim() || null,
       postal_code: postalCode?.trim() || null,
       country: country.trim(),
     };

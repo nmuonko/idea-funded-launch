@@ -29,6 +29,44 @@ serve(async (req) => {
 
     const { orderId, action, customPrompt } = await req.json();
 
+    // Input validation
+    const MAX_CUSTOM_PROMPT_LENGTH = 1000;
+    const VALID_ACTIONS = ['SUMMARIZE', 'FRAUD_CHECK', 'DRAFT_EMAIL', 'GENERATE_LABEL'];
+    
+    if (!orderId || typeof orderId !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'orderId is required and must be a string' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (!action || !VALID_ACTIONS.includes(action)) {
+      return new Response(
+        JSON.stringify({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (customPrompt !== undefined) {
+      if (typeof customPrompt !== 'string') {
+        return new Response(
+          JSON.stringify({ error: 'customPrompt must be a string' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      if (customPrompt.length > MAX_CUSTOM_PROMPT_LENGTH) {
+        return new Response(
+          JSON.stringify({ error: `customPrompt exceeds maximum length of ${MAX_CUSTOM_PROMPT_LENGTH} characters` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    
+    // Sanitize customPrompt
+    const sanitizedCustomPrompt = customPrompt 
+      ? customPrompt.replace(/\x00/g, '').trim()
+      : undefined;
+
     console.log('[AI Assistant]', { orderId, action, user: user.email });
 
     // Get order details
@@ -85,8 +123,8 @@ Created: ${new Date(order.created_at).toLocaleString()}
 
       case 'DRAFT_EMAIL':
         systemPrompt = 'You are a customer service representative. Draft professional, friendly emails.';
-        userPrompt = customPrompt 
-          ? `Draft an email to the customer about: ${customPrompt}\n\nOrder Context:\n${orderContext}`
+        userPrompt = sanitizedCustomPrompt 
+          ? `Draft an email to the customer about: ${sanitizedCustomPrompt}\n\nOrder Context:\n${orderContext}`
           : `Draft a professional email to the customer about their order status:\n\n${orderContext}`;
         break;
 

@@ -13,6 +13,11 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   support: ['support', 'orders'],
 };
 
+// Input validation constants
+const MAX_QUERY_LENGTH = 1500;
+const MAX_HISTORY_LENGTH = 10;
+const MAX_MESSAGE_LENGTH = 1500;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -48,6 +53,47 @@ serve(async (req) => {
     const adminRole = roleData.admin_role || 'support';
     const permissions = ROLE_PERMISSIONS[adminRole] || [];
     const { query, conversationHistory } = await req.json();
+
+    // Input validation for query
+    if (!query || typeof query !== 'string') {
+      return new Response(JSON.stringify({ error: 'query is required and must be a string' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    if (query.length > MAX_QUERY_LENGTH) {
+      return new Response(JSON.stringify({ error: `query exceeds maximum length of ${MAX_QUERY_LENGTH} characters` }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    // Sanitize query - remove null bytes
+    const sanitizedQuery = query.replace(/\x00/g, '').trim();
+    
+    // Validate conversation history structure
+    let validatedHistory: Array<{role: string; content: string}> = [];
+    if (conversationHistory !== undefined) {
+      if (!Array.isArray(conversationHistory)) {
+        return new Response(JSON.stringify({ error: 'conversationHistory must be an array' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // Limit history length and validate each message
+      validatedHistory = conversationHistory
+        .slice(-MAX_HISTORY_LENGTH)
+        .filter((msg: any) => 
+          msg && 
+          typeof msg === 'object' && 
+          typeof msg.role === 'string' && 
+          ['user', 'assistant', 'system'].includes(msg.role) &&
+          typeof msg.content === 'string' &&
+          msg.content.length <= MAX_MESSAGE_LENGTH
+        )
+        .map((msg: any) => ({
+          role: msg.role,
+          content: msg.content.replace(/\x00/g, '').trim().slice(0, MAX_MESSAGE_LENGTH)
+        }));
+    }
 
     let dataContext = '';
 
@@ -85,14 +131,15 @@ serve(async (req) => {
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: `You are an AfriShop admin assistant. Role: ${adminRole}. ${dataContext}` },
-          ...(conversationHistory || []).slice(-5),
-          { role: 'user', content: query }
+          ...validatedHistory,
+          { role: 'user', content: sanitizedQuery }
         ],
       }),
     });
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      if (aiResponse.status === 402) return new Response(JSON.stringify({ error: 'Payment required - please add funds' }), { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       throw new Error(`AI API error: ${aiResponse.status}`);
     }
 

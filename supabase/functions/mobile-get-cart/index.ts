@@ -150,15 +150,13 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   // CRITICAL FIX: Regular products NEVER require manual quote
   // Only vehicles with is_vehicle === true require quotes (handled above)
   const itemRequiresQuote = false; // Regular products never require quote
-  const expectedBaseTotal = round2(basePriceUsd * quantity);
-  const expectedMargin = round2(expectedBaseTotal * (markupPercent / 100));
-  const expectedSubtotal = round2(expectedBaseTotal + expectedMargin);
-  const expectedSubtotalCdf = round2(expectedSubtotal * exchangeRate);
-
-  const itemBaseTotalUsd = Number(item.subtotal_usd) > 0 ? Number(item.subtotal_usd) : expectedBaseTotal;
-  const itemMarginUsd = Number(item.markup_fee_usd) > 0 ? Number(item.markup_fee_usd) : expectedMargin;
-  const itemSubtotalUsd = Number(item.total_price_usd) > 0 ? Number(item.total_price_usd) : expectedSubtotal;
-  const itemSubtotalCdf = Number(item.total_price_cdf) > 0 ? Number(item.total_price_cdf) : expectedSubtotalCdf;
+  
+  // ALWAYS calculate from fresh settings - never use stored markup_fee_usd
+  // This ensures admin markup changes reflect instantly in cart
+  const itemBaseTotalUsd = round2(basePriceUsd * quantity);
+  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
+  const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
+  const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
 
   return {
     ...baseFields,

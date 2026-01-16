@@ -68,6 +68,7 @@ import PaymentsCompliance from "./pages/PaymentsCompliance";
 import Refunds from "./pages/Refunds";
 import DownloadPage from "./pages/Download";
 import Coverage from "./pages/Coverage";
+import DeleteAccount from "./pages/DeleteAccount";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 const queryClient = new QueryClient();
@@ -76,7 +77,7 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order'];
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account'];
     return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment'));
   });
 
@@ -99,6 +100,7 @@ const App = () => {
             <Route path="/terms" element={<Terms />} />
             <Route path="/payments-compliance" element={<PaymentsCompliance />} />
             <Route path="/refunds" element={<Refunds />} />
+            <Route path="/delete-account" element={<DeleteAccount />} />
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />

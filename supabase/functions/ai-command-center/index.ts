@@ -56,6 +56,27 @@ serve(async (req) => {
     const userEmail = user.email;
     const { command } = await req.json();
 
+    // Input validation - prevent prompt injection and excessive API usage
+    const MAX_COMMAND_LENGTH = 2000;
+    if (!command || typeof command !== 'string') {
+      return new Response(
+        JSON.stringify({ error: 'Command is required and must be a string' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    if (command.length > MAX_COMMAND_LENGTH) {
+      return new Response(
+        JSON.stringify({ error: `Command exceeds maximum length of ${MAX_COMMAND_LENGTH} characters` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Sanitize command - remove potential injection patterns
+    const sanitizedCommand = command
+      .replace(/\x00/g, '') // Remove null bytes
+      .trim();
+
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     
     if (!OPENAI_API_KEY) {
@@ -129,7 +150,7 @@ Support both English and French commands (e.g., "Fermer les candidatures" = "Clo
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: command }
+          { role: 'user', content: sanitizedCommand }
         ],
         response_format: { type: "json_object" },
         temperature: 0.3,

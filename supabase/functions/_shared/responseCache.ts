@@ -28,13 +28,14 @@ const MAX_CACHE_SIZE = 1000;
 const COALESCE_TIMEOUT_MS = 30_000; // 30 seconds max for in-flight
 
 // Default TTLs for different endpoint types
+// REDUCED for better admin responsiveness - settings changes reflect faster
 export const CACHE_TTL = {
-  PUBLIC_CONFIG: 5 * 60 * 1000,      // 5 minutes - rarely changes
-  SHIPPING_TYPES: 15 * 60 * 1000,    // 15 minutes - rarely changes
-  SHIPPING_CONFIG: 15 * 60 * 1000,   // 15 minutes - rarely changes
+  PUBLIC_CONFIG: 30 * 1000,          // 30 seconds - admin may change frequently
+  SHIPPING_TYPES: 5 * 60 * 1000,     // 5 minutes - rarely changes
+  SHIPPING_CONFIG: 5 * 60 * 1000,    // 5 minutes - rarely changes
   USER_CART: 30 * 1000,              // 30 seconds - frequently changes
   PRODUCT_INFO: 60 * 1000,           // 1 minute - moderate
-  SETTINGS: 15 * 60 * 1000,          // 15 minutes - from settings-cache.ts
+  SETTINGS: 60 * 1000,               // 1 minute - admin may change
 } as const;
 
 /**

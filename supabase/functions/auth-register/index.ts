@@ -339,12 +339,15 @@ serve(async (req) => {
       console.warn('[auth-register] Sign in after registration failed:', signInError?.message || 'No session returned');
       
       // Registration successful, but requires manual sign-in
+      // Include both field names for mobile app compatibility
       return new Response(
         JSON.stringify({
           ok: true,
+          success: true, // Mobile app compatibility
           userId,
           requiresEmailConfirmation: true,
-          message: 'Account created successfully. Please sign in.',
+          needsEmailConfirmation: true, // Mobile app compatibility
+          message: 'Account created successfully. Please check your email to verify your account.',
           user: {
             id: userId,
             email: email.trim(),
@@ -360,8 +363,10 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true,
+        success: true, // Mobile app compatibility
         userId: sessionData.user.id,
         requiresEmailConfirmation: true,
+        needsEmailConfirmation: true, // Mobile app compatibility
         user: {
           id: sessionData.user.id,
           email: sessionData.user.email,

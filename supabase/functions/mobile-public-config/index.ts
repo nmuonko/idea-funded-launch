@@ -107,23 +107,35 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     };
   }
 
-  // Parse values
+  // Parse values - Handle both decimal (0.15) and percentage (15) formats
+  // Rule: values <= 1 are treated as decimals, values > 1 are treated as percentages
   const markupRaw = settings.markup_percent ?? settings.global_markup_percent ?? 15;
-  const markupPercent = markupRaw < 1 ? markupRaw * 100 : markupRaw;
+  // If stored as decimal (e.g., 0.15), convert to percentage (15)
+  // If stored as percentage (e.g., 15 or 50), keep as-is
+  const markupPercent = markupRaw <= 1 ? markupRaw * 100 : markupRaw;
 
   const categoryMarkups = (settings.category_markups || {}) as Record<string, number>;
   const vehicleMarkupRaw = categoryMarkups.vehicles ?? markupPercent;
-  const vehicleMarkupPercent = vehicleMarkupRaw < 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
+  const vehicleMarkupPercent = vehicleMarkupRaw <= 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
 
-  const shippingPercent = settings.shipping_percent ?? 0.10;
-  const shippingPercentValue = shippingPercent < 1 ? shippingPercent * 100 : shippingPercent;
+  // Shipping percent: stored as decimal (0.10) or percentage (10)
+  const shippingPercentRaw = settings.shipping_percent ?? 0.10;
+  const shippingPercentValue = shippingPercentRaw <= 1 ? shippingPercentRaw * 100 : shippingPercentRaw;
   const shippingBaseFee = settings.shipping_base_fee_usd ?? 20;
 
-  const serviceFeePercent = settings.service_fee_percent ?? 0.12;
-  const serviceFeePercentValue = serviceFeePercent < 1 ? serviceFeePercent * 100 : serviceFeePercent;
+  // Service fee percent: stored as decimal (0.1199) or percentage (11.99)
+  const serviceFeeRaw = settings.service_fee_percent ?? 0.12;
+  const serviceFeePercentValue = serviceFeeRaw <= 1 ? serviceFeeRaw * 100 : serviceFeeRaw;
 
   const updatedAt = settings.updated_at || new Date().toISOString();
   const version = new Date(updatedAt).getTime();
+
+  console.log("[mobile-public-config] Parsed config:", {
+    markupRaw, markupPercent,
+    vehicleMarkupRaw, vehicleMarkupPercent,
+    shippingPercentRaw, shippingPercentValue, shippingBaseFee,
+    serviceFeeRaw, serviceFeePercentValue,
+  });
 
   return {
     success: true,

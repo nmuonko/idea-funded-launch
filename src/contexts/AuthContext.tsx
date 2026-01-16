@@ -430,75 +430,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   ) => {
     try {
-      // Use correct production domain for email verification redirect
-      const redirectUrl = `${window.location.origin}/email-confirmed`;
+      console.log('[Auth] Registering user via auth-register edge function');
       
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            full_name: fullName,
-            display_name: fullName,
-            phone: phone || '',
-          },
+      // Call the auth-register edge function which handles:
+      // 1. User creation with email_confirm: false
+      // 2. Verification email via Resend
+      // 3. Profile creation
+      const response = await supabase.functions.invoke('auth-register', {
+        body: {
+          email,
+          password,
+          fullName,
+          phoneNumber: phone || '',
+          addressLine1: profileData?.address_line1 || 'Not provided',
+          addressLine2: profileData?.address_line2 || '',
+          city: profileData?.city || 'Not provided',
+          stateOrProvince: profileData?.province || 'Not provided',
+          postalCode: profileData?.postal_code || '',
+          country: profileData?.country || 'Not provided',
         },
       });
-      
-      if (error) {
+
+      if (response.error) {
+        console.error('[Auth] Registration edge function error:', response.error);
         toast({
           title: 'Error',
-          description: error.message,
+          description: response.error.message || 'Registration failed. Please try again.',
           variant: 'destructive',
         });
-        return { error };
+        return { error: response.error };
       }
 
-      // Create profile immediately after signup with all provided data
-      if (data.user) {
-        console.log('[Auth] Creating profile for new user:', data.user.id);
+      const result = response.data;
+      
+      if (!result.ok) {
+        console.error('[Auth] Registration failed:', result.message);
+        toast({
+          title: 'Error',
+          description: result.message || 'Registration failed. Please try again.',
+          variant: 'destructive',
+        });
+        return { error: new Error(result.message) };
+      }
+
+      console.log('[Auth] Registration successful, user ID:', result.userId);
+
+      // If we got session tokens, set the session
+      if (result.token && result.refreshToken) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: result.token,
+          refresh_token: result.refreshToken,
+        });
         
-        const fullProfileData = {
-          user_id: data.user.id,
-          email: email.toLowerCase(),
-          full_name: fullName,
-          name: fullName,
-          phone: phone || null,
-          country: profileData?.country || null,
-          city: profileData?.city || null,
-          province: profileData?.province || null,
-          address_line1: profileData?.address_line1 || null,
-          address_line2: profileData?.address_line2 || null,
-          postal_code: profileData?.postal_code || null,
-        };
-
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert(fullProfileData, {
-            onConflict: 'user_id',
-          });
-
-        if (profileError) {
-          console.error('[Auth] Error creating profile:', profileError);
-          // Don't fail signup if profile creation fails - it can be created later
+        if (sessionError) {
+          console.warn('[Auth] Failed to set session after registration:', sessionError);
         } else {
-          console.log('[Auth] Profile created successfully');
+          console.log('[Auth] Session set successfully after registration');
           // Load the profile into state
-          await loadProfile(data.user.id);
+          if (result.userId) {
+            await loadProfile(result.userId);
+          }
         }
       }
       
       toast({
         title: 'Success',
-        description: 'Account created! Please check your email to verify.',
+        description: 'Account created! Please check your email to verify your account.',
       });
       
       return { error: null };
     } catch (error: any) {
+      console.error('[Auth] Unexpected registration error:', error);
       toast({
         title: 'Error',
-        description: error.message,
+        description: error.message || 'Registration failed. Please try again.',
         variant: 'destructive',
       });
       return { error };

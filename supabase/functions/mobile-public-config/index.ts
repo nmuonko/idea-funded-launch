@@ -107,25 +107,33 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     };
   }
 
-  // Parse values - Handle both decimal (0.15) and percentage (15) formats
-  // Rule: values <= 1 are treated as decimals, values > 1 are treated as percentages
+  // UNIFIED PARSING LOGIC for all percentage values
+  // Rule: values > 1 are treated as percentages (use as-is)
+  //       values <= 1 are treated as decimals (multiply by 100)
+  // This handles both storage formats: 0.29 (29%) or 29 (29%)
+  const normalizePercent = (val: number | null | undefined, fallback: number): number => {
+    const raw = val ?? fallback;
+    return raw > 1 ? raw : raw * 100;
+  };
+
+  // Markup: use markup_percent first, fallback to global_markup_percent
   const markupRaw = settings.markup_percent ?? settings.global_markup_percent ?? 15;
-  // If stored as decimal (e.g., 0.15), convert to percentage (15)
-  // If stored as percentage (e.g., 15 or 50), keep as-is
-  const markupPercent = markupRaw <= 1 ? markupRaw * 100 : markupRaw;
+  const markupPercent = normalizePercent(markupRaw, 15);
 
   const categoryMarkups = (settings.category_markups || {}) as Record<string, number>;
-  const vehicleMarkupRaw = categoryMarkups.vehicles ?? markupPercent;
-  const vehicleMarkupPercent = vehicleMarkupRaw <= 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
+  const vehicleMarkupRaw = categoryMarkups.vehicles;
+  const vehicleMarkupPercent = vehicleMarkupRaw !== undefined 
+    ? normalizePercent(vehicleMarkupRaw, markupPercent)
+    : markupPercent;
 
-  // Shipping percent: stored as decimal (0.10) or percentage (10)
+  // Shipping percent
   const shippingPercentRaw = settings.shipping_percent ?? 0.10;
-  const shippingPercentValue = shippingPercentRaw <= 1 ? shippingPercentRaw * 100 : shippingPercentRaw;
+  const shippingPercentValue = normalizePercent(shippingPercentRaw, 10);
   const shippingBaseFee = settings.shipping_base_fee_usd ?? 20;
 
-  // Service fee percent: stored as decimal (0.1199) or percentage (11.99)
+  // Service fee percent
   const serviceFeeRaw = settings.service_fee_percent ?? 0.12;
-  const serviceFeePercentValue = serviceFeeRaw <= 1 ? serviceFeeRaw * 100 : serviceFeeRaw;
+  const serviceFeePercentValue = normalizePercent(serviceFeeRaw, 12);
 
   const updatedAt = settings.updated_at || new Date().toISOString();
   const version = new Date(updatedAt).getTime();

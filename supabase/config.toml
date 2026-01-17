@@ -353,3 +353,9 @@ verify_jwt = false
 
 [functions.payment-health]
 verify_jwt = false
+
+[functions.auth-resend-verification]
+verify_jwt = false
+
+[functions.auth-check-verified]
+verify_jwt = false

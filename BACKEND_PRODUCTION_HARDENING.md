@@ -4,6 +4,7 @@
 
 This document describes the backend hardening changes for production readiness:
 - Email verification enforcement for checkout
+- Guest cart merge to user cart (silent, idempotent)
 - Store visit frequency tracking (per user/device)
 - Recently viewed items (per user/device, never global)
 - Favorites deprecation (no favorites tables existed)
@@ -49,7 +50,122 @@ When a checkout/order/payment attempt fails due to unverified email:
 
 ---
 
-## B) Store Visit Tracking
+## B) Guest Cart Merge
+
+### Overview
+
+When a guest user browses and adds items to cart, those items are stored locally on the mobile device. When they sign up, verify email, and log in, the cart should seamlessly merge.
+
+### Endpoint: `POST /functions/v1/cart-guest-snapshot`
+
+Saves guest cart state to the server for later merge.
+
+**Request:**
+```json
+{
+  "device_id": "device-uuid",
+  "cart": [
+    {
+      "productUrl": "https://amazon.com/dp/B123...",
+      "title": "Product Name",
+      "imageUrl": "https://...",
+      "store": "amazon",
+      "unitPrice": 29.99,
+      "quantity": 2,
+      "currency": "USD"
+    }
+  ]
+}
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "message": "Cart snapshot saved",
+  "item_count": 1
+}
+```
+
+### Endpoint: `POST /functions/v1/merge-guest-cart`
+
+Merges guest cart items into the authenticated user's cart. **Requires authentication.**
+
+**Request:**
+```json
+{
+  "guest_device_id": "device-uuid",
+  "guest_items": [
+    {
+      "productUrl": "https://amazon.com/dp/B123...",
+      "title": "Product Name",
+      "imageUrl": "https://...",
+      "store": "amazon",
+      "unitPrice": 29.99,
+      "quantity": 2,
+      "currency": "USD"
+    }
+  ],
+  "idempotency_key": "unique-key-for-request"
+}
+```
+
+**Headers:**
+```
+Authorization: Bearer <user-jwt>
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "merged_count": 1,
+  "skipped_count": 0,
+  "cart_id": "uuid",
+  "totals": {
+    "item_total_usd": 29.99,
+    "shipping_fee_usd": 15.00,
+    "total_usd": 64.98,
+    "total_cdf": 162450,
+    "requires_manual_quote": false
+  },
+  "message": "Successfully merged 1 item(s) into your cart"
+}
+```
+
+**Response (idempotent - already processed):**
+```json
+{
+  "success": true,
+  "idempotent": true,
+  "merged_count": 0,
+  "message": "Request already processed (idempotent)"
+}
+```
+
+### Table: `guest_cart_snapshots`
+
+| Column | Type | Description |
+|--------|------|-------------|
+| device_id | text | Primary key, device identifier |
+| cart_json | jsonb | Cart items as JSON array |
+| created_at | timestamptz | Record creation time |
+| updated_at | timestamptz | Last update time |
+
+**RLS Policy:** No direct client access (service role only via edge functions).
+
+### Flow
+
+1. Guest browses and adds items to local cart
+2. Mobile app periodically calls `cart-guest-snapshot` to backup cart
+3. User signs up and verifies email
+4. On login, mobile app calls `merge-guest-cart` with local cart items
+5. Items are merged into user's DRAFT order (idempotent - safe to retry)
+6. Guest snapshot can be cleared after successful merge
+
+---
+
+## C) Store Visit Tracking
 
 ### Endpoint: `POST /functions/v1/track-store-visit`
 
@@ -103,7 +219,7 @@ Authorization: Bearer <user-jwt>
 
 ---
 
-## C) Recently Viewed Items
+## D) Recently Viewed Items
 
 ### Endpoint: `POST /functions/v1/recently-viewed-upsert`
 
@@ -192,7 +308,7 @@ Authorization: Bearer <user-jwt>
 
 ---
 
-## D) Favorites Deprecation
+## E) Favorites Deprecation
 
 **Status:** No favorites tables existed in the database. No action needed.
 
@@ -208,9 +324,12 @@ If favorites tables are added in the future, they can be safely locked down by:
 | Code | HTTP Status | Description |
 |------|-------------|-------------|
 | `EMAIL_NOT_VERIFIED` | 403 | User must verify email before checkout |
+| `AUTH_REQUIRED` | 401 | Authentication required for merge |
+| `INVALID_TOKEN` | 401 | Invalid or expired session |
 | `INVALID_DEVICE_ID` | 400 | device_id is missing or empty |
 | `INVALID_STORE_ID` | 400 | store_id is missing or empty |
 | `INVALID_PRODUCT_URL` | 400 | product_url is missing or empty |
+| `INVALID_CART` | 400 | cart must be an array |
 | `METHOD_NOT_ALLOWED` | 405 | Wrong HTTP method used |
 | `DB_ERROR` | 500 | Database operation failed |
 | `INTERNAL_ERROR` | 500 | Unexpected server error |
@@ -222,8 +341,16 @@ If favorites tables are added in the future, they can be safely locked down by:
 ### Email Verification
 - [ ] Unverified user cannot insert into `orders` (RLS blocks)
 - [ ] Unverified user cannot insert into `checkout_sessions` (RLS blocks)
+- [ ] Unverified user cannot insert into `payment_attempts` (RLS blocks)
 - [ ] Verified user can insert into `orders` and `checkout_sessions`
 - [ ] `is_email_verified()` returns correct boolean
+
+### Guest Cart Merge
+- [ ] Guest can save cart snapshot
+- [ ] Authenticated user can merge guest cart
+- [ ] Merge is idempotent (repeat calls return same result)
+- [ ] Items deduplicated by normalized URL
+- [ ] Cart totals recalculated after merge
 
 ### Store Visit Tracking
 - [ ] Guest can track visits (user_id = null)
@@ -239,6 +366,21 @@ If favorites tables are added in the future, they can be safely locked down by:
 - [ ] Title/image_url updated when provided
 
 ### Curl Examples
+
+**Save Guest Cart Snapshot:**
+```bash
+curl -X POST https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/cart-guest-snapshot \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"device-123","cart":[{"productUrl":"https://amazon.com/dp/B123","title":"Test","unitPrice":29.99,"quantity":1}]}'
+```
+
+**Merge Guest Cart (authenticated):**
+```bash
+curl -X POST https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/merge-guest-cart \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <user-jwt>" \
+  -d '{"guest_device_id":"device-123","guest_items":[{"productUrl":"https://amazon.com/dp/B123","title":"Test","unitPrice":29.99,"quantity":1}],"idempotency_key":"unique-key"}'
+```
 
 **Track Store Visit (guest):**
 ```bash
@@ -266,7 +408,8 @@ curl "https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/recently-viewed-list
 
 ✅ Stripe logic: **UNCHANGED**  
 ✅ pawaPay logic: **UNCHANGED**  
-✅ Email verification: **ENFORCED at DB level**  
+✅ Email verification: **ENFORCED at DB level** (orders, checkout_sessions, payment_attempts)  
+✅ Guest cart merge: **Idempotent merge with deduplication**  
 ✅ Recently viewed: **Per-user/device, never global**  
 ✅ Store visits: **Per-user/device tracking**  
 ✅ Favorites: **No tables exist, nothing to deprecate**

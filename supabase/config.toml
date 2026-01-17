@@ -371,3 +371,6 @@ verify_jwt = false
 
 [functions.recently-viewed-list]
 verify_jwt = false
+
+[functions.cart-guest-snapshot]
+verify_jwt = false

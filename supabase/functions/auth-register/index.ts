@@ -67,6 +67,17 @@ function validatePhone(phone: string): boolean {
   return digitsOnly.length >= 8 && digitsOnly.length <= 15;
 }
 
+function isJustCountryCode(phone: string): boolean {
+  // Check if phone is just a country calling code (1-4 digits with optional +)
+  const trimmed = phone.trim();
+  const digitsOnly = trimmed.startsWith('+') 
+    ? trimmed.substring(1).replace(/\D/g, '')
+    : trimmed.replace(/\D/g, '');
+  
+  // Country codes are 1-4 digits, real phone numbers are 8+ digits total
+  return digitsOnly.length >= 1 && digitsOnly.length <= 4;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -119,16 +130,24 @@ serve(async (req) => {
 
     console.log('[auth-register] Registration attempt for:', email, 'Phone:', phoneNumber);
 
+    // Check if phone is just a country code (mobile app bug workaround)
+    const phoneIsOnlyCountryCode = phoneNumber && isJustCountryCode(phoneNumber);
+    if (phoneIsOnlyCountryCode) {
+      console.log('[auth-register] Phone appears to be just a country code, treating as empty:', phoneNumber);
+      // Clear it so we don't store an incomplete phone number
+      phoneNumber = null;
+    }
+
     // Validate required fields - simplified for African markets
-    // Only email, password, fullName, phoneNumber, and country are strictly required
-    // addressLine1, city, stateOrProvince are optional to reduce signup friction
+    // Phone is now OPTIONAL to work around mobile app bug where only country code is sent
+    // Users can add their full phone number in their profile later
     const missingFields: string[] = [];
     
     if (!email || email.trim() === '') missingFields.push('email');
     if (!password || password.trim() === '') missingFields.push('password');
     if (!fullName || fullName.trim() === '') missingFields.push('fullName');
-    if (!phoneNumber || phoneNumber.trim() === '') missingFields.push('phoneNumber');
-    // addressLine1, city, stateOrProvince are now OPTIONAL for African addresses
+    // phoneNumber is now OPTIONAL - mobile app has a bug sending only country code
+    // addressLine1, city, stateOrProvince are also OPTIONAL for African addresses
     if (!country || country.trim() === '') missingFields.push('country');
 
     if (missingFields.length > 0) {
@@ -154,8 +173,8 @@ serve(async (req) => {
       );
     }
 
-    // Validate phone format
-    if (!validatePhone(phoneNumber.trim())) {
+    // Validate phone format ONLY if a full phone was provided (not just country code)
+    if (phoneNumber && !validatePhone(phoneNumber.trim())) {
       return new Response(
         JSON.stringify({ 
           ok: false,
@@ -215,7 +234,7 @@ serve(async (req) => {
       email_confirm: false, // Triggers email verification
       user_metadata: {
         full_name: fullName.trim(),
-        phone: phoneNumber.trim(),
+        phone: phoneNumber?.trim() || null,
       },
     });
 
@@ -331,7 +350,7 @@ serve(async (req) => {
       email: email.trim().toLowerCase(),
       full_name: fullName.trim(),
       name: fullName.trim(),
-      phone: phoneNumber.trim(),
+      phone: phoneNumber?.trim() || null,
       address_line1: addressLine1?.trim() || null,
       address_line2: addressLine2?.trim() || null,
       city: city?.trim() || null,
@@ -416,11 +435,11 @@ serve(async (req) => {
           id: sessionData.user.id,
           email: sessionData.user.email,
           fullName: fullName.trim(),
-          phoneNumber: phoneNumber.trim(),
-          addressLine1: addressLine1.trim(),
+          phoneNumber: phoneNumber?.trim() || null,
+          addressLine1: addressLine1?.trim() || null,
           addressLine2: addressLine2?.trim() || null,
-          city: city.trim(),
-          stateOrProvince: stateOrProvince.trim(),
+          city: city?.trim() || null,
+          stateOrProvince: stateOrProvince?.trim() || null,
           postalCode: postalCode?.trim() || null,
           country: country.trim(),
         },

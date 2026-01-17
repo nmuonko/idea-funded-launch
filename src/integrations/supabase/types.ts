@@ -1438,9 +1438,9 @@ export type Database = {
           created_at: string | null
           display_name: string
           id: string
-          is_default: boolean | null
-          is_enabled: boolean | null
-          priority: number | null
+          is_default: boolean
+          is_enabled: boolean
+          priority: number
           provider_key: string
           secret_refs: Json | null
           supported_countries: string[] | null
@@ -1452,9 +1452,9 @@ export type Database = {
           created_at?: string | null
           display_name: string
           id?: string
-          is_default?: boolean | null
-          is_enabled?: boolean | null
-          priority?: number | null
+          is_default?: boolean
+          is_enabled?: boolean
+          priority?: number
           provider_key: string
           secret_refs?: Json | null
           supported_countries?: string[] | null
@@ -1466,9 +1466,9 @@ export type Database = {
           created_at?: string | null
           display_name?: string
           id?: string
-          is_default?: boolean | null
-          is_enabled?: boolean | null
-          priority?: number | null
+          is_default?: boolean
+          is_enabled?: boolean
+          priority?: number
           provider_key?: string
           secret_refs?: Json | null
           supported_countries?: string[] | null

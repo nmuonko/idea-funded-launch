@@ -403,22 +403,27 @@ serve(async (req) => {
       console.warn('[auth-register] Sign in after registration failed:', signInError?.message || 'No session returned');
       
       // Registration successful, but requires manual sign-in
-      // Include both field names for mobile app compatibility
+      // Include multiple field names for mobile app compatibility
       return new Response(
         JSON.stringify({
           ok: true,
-          success: true, // Mobile app compatibility
+          success: true,
+          status: 'email_verification_required',
+          action: 'verify_email',
           userId,
           requiresEmailConfirmation: true,
-          needsEmailConfirmation: true, // Mobile app compatibility
+          needsEmailConfirmation: true,
+          emailVerificationRequired: true,
           message: 'Account created successfully. Please check your email to verify your account.',
+          message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
+          email: email.trim(),
           user: {
             id: userId,
             email: email.trim(),
             fullName: fullName.trim(),
           },
         }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -427,10 +432,16 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         ok: true,
-        success: true, // Mobile app compatibility
+        success: true,
+        status: 'email_verification_required',
+        action: 'verify_email',
         userId: sessionData.user.id,
         requiresEmailConfirmation: true,
-        needsEmailConfirmation: true, // Mobile app compatibility
+        needsEmailConfirmation: true,
+        emailVerificationRequired: true,
+        message: 'Account created successfully. Please check your email to verify your account.',
+        message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
+        email: sessionData.user.email,
         user: {
           id: sessionData.user.id,
           email: sessionData.user.email,
@@ -446,7 +457,7 @@ serve(async (req) => {
         token: sessionData.session.access_token,
         refreshToken: sessionData.session.refresh_token,
       }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
     console.error('[auth-register] Unexpected error:', error.message, error.stack);

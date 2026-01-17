@@ -27,6 +27,31 @@ serve(async (req) => {
       );
     }
 
+    // Create service role client for rate limiting
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+
+    // Rate limiting - 50 requests per hour per user
+    const rateLimitKey = `ai-order-assistant:${user.id}`;
+    const { data: rateLimitResult, error: rateLimitError } = await supabaseAdmin
+      .rpc('check_rate_limit', {
+        p_key: rateLimitKey,
+        p_max_requests: 50,
+        p_window_seconds: 3600
+      });
+
+    if (rateLimitError) {
+      console.error('[AI Assistant] Rate limit check error:', rateLimitError);
+    } else if (rateLimitResult && !rateLimitResult.allowed) {
+      console.warn('[AI Assistant] Rate limit exceeded for user:', user.id);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Please try again later (limit: 50 requests/hour).' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { orderId, action, customPrompt } = await req.json();
 
     // Input validation
@@ -62,9 +87,15 @@ serve(async (req) => {
       }
     }
     
-    // Sanitize customPrompt
+    // Enhanced sanitization - remove null bytes, control characters, and suspicious patterns
     const sanitizedCustomPrompt = customPrompt 
-      ? customPrompt.replace(/\x00/g, '').trim()
+      ? customPrompt
+          .replace(/\x00/g, '') // Remove null bytes
+          .replace(/[\x01-\x1F\x7F]/g, '') // Remove control characters
+          .replace(/\bsystem\s*:/gi, '[filtered]:') // Filter system: prefix attempts
+          .replace(/\bassistant\s*:/gi, '[filtered]:') // Filter assistant: prefix attempts
+          .replace(/\bignore\s+(previous|above|all)\s+instructions?\b/gi, '[filtered]') // Filter common injection patterns
+          .trim()
       : undefined;
 
     console.log('[AI Assistant]', { orderId, action, user: user.email });

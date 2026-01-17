@@ -359,3 +359,6 @@ verify_jwt = false
 
 [functions.auth-check-verified]
 verify_jwt = false
+
+[functions.app-bootstrap]
+verify_jwt = false

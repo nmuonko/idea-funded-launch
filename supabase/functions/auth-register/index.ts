@@ -402,18 +402,19 @@ serve(async (req) => {
     if (signInError || !sessionData?.session) {
       console.warn('[auth-register] Sign in after registration failed:', signInError?.message || 'No session returned');
       
-      // Registration successful, but requires manual sign-in
-      // Include multiple field names for mobile app compatibility
+      // Registration successful - MUST return status 200 for mobile app compatibility
+      // Mobile app checks: result.needsEmailConfirmation || result.success
+      console.log('[auth-register] Returning success response for email:', email.trim());
       return new Response(
         JSON.stringify({
-          ok: true,
           success: true,
+          needsEmailConfirmation: true,
+          ok: true,
+          requiresEmailConfirmation: true,
+          emailVerificationRequired: true,
           status: 'email_verification_required',
           action: 'verify_email',
           userId,
-          requiresEmailConfirmation: true,
-          needsEmailConfirmation: true,
-          emailVerificationRequired: true,
           message: 'Account created successfully. Please check your email to verify your account.',
           message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
           email: email.trim(),
@@ -423,22 +424,23 @@ serve(async (req) => {
             fullName: fullName.trim(),
           },
         }),
-        { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('[auth-register] Registration complete for:', email);
+    console.log('[auth-register] Registration complete with session for:', email);
 
+    // Full success with session tokens - MUST return status 200 for mobile app compatibility
     return new Response(
       JSON.stringify({
-        ok: true,
         success: true,
+        needsEmailConfirmation: true,
+        ok: true,
+        requiresEmailConfirmation: true,
+        emailVerificationRequired: true,
         status: 'email_verification_required',
         action: 'verify_email',
         userId: sessionData.user.id,
-        requiresEmailConfirmation: true,
-        needsEmailConfirmation: true,
-        emailVerificationRequired: true,
         message: 'Account created successfully. Please check your email to verify your account.',
         message_fr: 'Compte créé avec succès. Veuillez vérifier votre email pour confirmer votre compte.',
         email: sessionData.user.email,
@@ -457,7 +459,7 @@ serve(async (req) => {
         token: sessionData.session.access_token,
         refreshToken: sessionData.session.refresh_token,
       }),
-      { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
     console.error('[auth-register] Unexpected error:', error.message, error.stack);

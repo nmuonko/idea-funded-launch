@@ -761,6 +761,27 @@ export type Database = {
         }
         Relationships: []
       }
+      guest_cart_snapshots: {
+        Row: {
+          cart_json: Json
+          created_at: string
+          device_id: string
+          updated_at: string
+        }
+        Insert: {
+          cart_json?: Json
+          created_at?: string
+          device_id: string
+          updated_at?: string
+        }
+        Update: {
+          cart_json?: Json
+          created_at?: string
+          device_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category: string
@@ -2770,6 +2791,7 @@ export type Database = {
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
       cleanup_expired_records: { Args: never; Returns: Json }
+      cleanup_guest_cart_snapshots: { Args: never; Returns: Json }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string

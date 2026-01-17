@@ -362,3 +362,12 @@ verify_jwt = false
 
 [functions.app-bootstrap]
 verify_jwt = false
+
+[functions.track-store-visit]
+verify_jwt = false
+
+[functions.recently-viewed-upsert]
+verify_jwt = false
+
+[functions.recently-viewed-list]
+verify_jwt = false

@@ -2060,6 +2060,48 @@ export type Database = {
         }
         Relationships: []
       }
+      recently_viewed_items: {
+        Row: {
+          created_at: string
+          device_id: string
+          id: string
+          image_url: string | null
+          last_viewed_at: string
+          product_url: string
+          store_id: string
+          title: string | null
+          updated_at: string
+          user_id: string | null
+          view_count: number
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          id?: string
+          image_url?: string | null
+          last_viewed_at?: string
+          product_url: string
+          store_id: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string | null
+          view_count?: number
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          id?: string
+          image_url?: string | null
+          last_viewed_at?: string
+          product_url?: string
+          store_id?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string | null
+          view_count?: number
+        }
+        Relationships: []
+      }
       recommendation_clicks: {
         Row: {
           clicked_at: string | null
@@ -2212,6 +2254,39 @@ export type Database = {
           label?: string
           requires_manual_quote?: boolean
           updated_at?: string
+        }
+        Relationships: []
+      }
+      store_visit_counts: {
+        Row: {
+          created_at: string
+          device_id: string
+          id: string
+          last_visited_at: string
+          store_id: string
+          updated_at: string
+          user_id: string | null
+          visit_count: number
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          id?: string
+          last_visited_at?: string
+          store_id: string
+          updated_at?: string
+          user_id?: string | null
+          visit_count?: number
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          id?: string
+          last_visited_at?: string
+          store_id?: string
+          updated_at?: string
+          user_id?: string | null
+          visit_count?: number
         }
         Relationships: []
       }
@@ -2784,6 +2859,18 @@ export type Database = {
           waitlist_count: number
         }[]
       }
+      get_recently_viewed: {
+        Args: { p_device_id: string; p_limit?: number; p_user_id: string }
+        Returns: {
+          id: string
+          image_url: string
+          last_viewed_at: string
+          product_url: string
+          store_id: string
+          title: string
+          view_count: number
+        }[]
+      }
       get_session_progress: {
         Args: { session_uuid: string }
         Returns: {
@@ -2815,6 +2902,7 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_admin_cached: { Args: never; Returns: boolean }
+      is_email_verified: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
       match_faq: {
         Args: { lang?: string; user_text: string }
@@ -2854,6 +2942,21 @@ export type Database = {
           title_input: string
           ttl_minutes: number
         }
+        Returns: Json
+      }
+      upsert_recently_viewed: {
+        Args: {
+          p_device_id: string
+          p_image_url?: string
+          p_product_url: string
+          p_store_id: string
+          p_title?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      upsert_store_visit: {
+        Args: { p_device_id: string; p_store_id: string; p_user_id: string }
         Returns: Json
       }
     }

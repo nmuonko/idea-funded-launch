@@ -52,6 +52,25 @@ serve(async (req) => {
       );
     }
 
+    // Rate limiting - 50 requests per hour per admin user
+    const rateLimitKey = `ai-command-center:${user.id}`;
+    const { data: rateLimitResult, error: rateLimitError } = await supabase
+      .rpc('check_rate_limit', {
+        p_key: rateLimitKey,
+        p_max_requests: 50,
+        p_window_seconds: 3600
+      });
+
+    if (rateLimitError) {
+      console.error('[ai-command-center] Rate limit check error:', rateLimitError);
+    } else if (rateLimitResult && !rateLimitResult.allowed) {
+      console.warn('[ai-command-center] Rate limit exceeded for user:', user.id);
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Please try again later (limit: 50 requests/hour).' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Get user email from authenticated user, not from request body
     const userEmail = user.email;
     const { command } = await req.json();
@@ -72,9 +91,13 @@ serve(async (req) => {
       );
     }
 
-    // Sanitize command - remove potential injection patterns
+    // Enhanced sanitization - remove null bytes, control characters, and suspicious patterns
     const sanitizedCommand = command
       .replace(/\x00/g, '') // Remove null bytes
+      .replace(/[\x01-\x1F\x7F]/g, '') // Remove control characters
+      .replace(/\bsystem\s*:/gi, '[filtered]:') // Filter system: prefix attempts
+      .replace(/\bassistant\s*:/gi, '[filtered]:') // Filter assistant: prefix attempts
+      .replace(/\bignore\s+(previous|above|all)\s+instructions?\b/gi, '[filtered]') // Filter common injection patterns
       .trim();
 
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');

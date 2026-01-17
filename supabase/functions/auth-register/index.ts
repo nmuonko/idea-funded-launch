@@ -47,8 +47,23 @@ function validateEmail(email: string): boolean {
 }
 
 function validatePhone(phone: string): boolean {
-  // Allow various phone formats, minimum 8 digits
-  const digitsOnly = phone.replace(/\D/g, '');
+  // Allow various phone formats including international with + prefix
+  // E.164 format: +[country code][number] - total 8-15 digits after removing +
+  const trimmed = phone.trim();
+  
+  // Remove + prefix if present, then remove any remaining non-digits
+  const digitsOnly = trimmed.startsWith('+') 
+    ? trimmed.substring(1).replace(/\D/g, '')
+    : trimmed.replace(/\D/g, '');
+  
+  console.log('[auth-register] Phone validation:', { 
+    original: phone, 
+    trimmed, 
+    digitsOnly, 
+    length: digitsOnly.length 
+  });
+  
+  // Valid if between 8 and 15 digits (E.164 standard)
   return digitsOnly.length >= 8 && digitsOnly.length <= 15;
 }
 

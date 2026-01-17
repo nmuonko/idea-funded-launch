@@ -75,19 +75,49 @@ serve(async (req) => {
   try {
     const body = await req.json();
     
+    // Log the full request body for debugging phone issues
+    console.log('[auth-register] Full request body:', JSON.stringify({
+      hasEmail: !!body.email,
+      hasPassword: !!body.password,
+      fullName: body.fullName || body.full_name || body.name,
+      phoneNumber: body.phoneNumber,
+      phone: body.phone,
+      phone_number: body.phone_number,
+      countryCode: body.countryCode,
+      country: body.country,
+      city: body.city,
+    }));
+    
     // Support both phoneNumber and phone field names for mobile compatibility
     const email = body.email;
     const password = body.password;
     const fullName = body.fullName || body.full_name || body.name;
-    const phoneNumber = body.phoneNumber || body.phone || body.phone_number;
+    let phoneNumber = body.phoneNumber || body.phone || body.phone_number;
     const addressLine1 = body.addressLine1 || body.address_line1 || body.address;
     const addressLine2 = body.addressLine2 || body.address_line2;
     const city = body.city;
     const stateOrProvince = body.stateOrProvince || body.state_province || body.province;
     const postalCode = body.postalCode || body.postal_code;
     const country = body.country;
+    
+    // Also capture nationalPhoneNumber if mobile sends it separately
+    const nationalPhoneNumber = body.nationalPhoneNumber || body.national_phone_number || body.localPhoneNumber;
+    
+    // If phoneNumber looks like just a country code (short) and we have nationalPhoneNumber, combine them
+    if (phoneNumber && nationalPhoneNumber) {
+      const phoneDigits = phoneNumber.replace(/\D/g, '');
+      if (phoneDigits.length <= 4 && nationalPhoneNumber.length >= 6) {
+        console.log('[auth-register] Combining country code with national number:', {
+          countryCodePart: phoneNumber,
+          nationalPart: nationalPhoneNumber,
+        });
+        phoneNumber = phoneNumber.startsWith('+') 
+          ? `${phoneNumber}${nationalPhoneNumber.replace(/\D/g, '')}`
+          : `+${phoneNumber}${nationalPhoneNumber.replace(/\D/g, '')}`;
+      }
+    }
 
-    console.log('[auth-register] Registration attempt for:', email);
+    console.log('[auth-register] Registration attempt for:', email, 'Phone:', phoneNumber);
 
     // Validate required fields - simplified for African markets
     // Only email, password, fullName, phoneNumber, and country are strictly required

@@ -62,7 +62,8 @@ interface PriceConfirmation {
   id: string;
   created_at: string;
   updated_at: string;
-  user_id: string;
+  user_id: string | null;
+  device_id: string | null;
   cart_item_id: string | null;
   product_url: string;
   store: string;
@@ -562,7 +563,13 @@ export default function PriceConfirmations() {
                     <TableRow key={confirmation.id}>
                       <TableCell>{getStatusBadge(confirmation.status)}</TableCell>
                       <TableCell className="font-medium">
-                        {confirmation.user_email || confirmation.user_id.slice(0, 8)}
+                        {confirmation.user_email 
+                          ? confirmation.user_email 
+                          : confirmation.user_id 
+                            ? confirmation.user_id.slice(0, 8) 
+                            : confirmation.device_id 
+                              ? `Guest (${confirmation.device_id.slice(0, 8)}...)` 
+                              : "Unknown"}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{confirmation.store}</Badge>
@@ -678,7 +685,20 @@ export default function PriceConfirmations() {
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.customer}</Label>
-                  <p className="font-medium">{selectedConfirmation.user_email || selectedConfirmation.user_id.slice(0, 8)}</p>
+                  <p className="font-medium">
+                    {selectedConfirmation.user_email 
+                      ? selectedConfirmation.user_email 
+                      : selectedConfirmation.user_id 
+                        ? selectedConfirmation.user_id.slice(0, 8) 
+                        : selectedConfirmation.device_id 
+                          ? `Guest (${selectedConfirmation.device_id.slice(0, 8)}...)` 
+                          : "Unknown"}
+                  </p>
+                  {selectedConfirmation.device_id && !selectedConfirmation.user_id && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Device ID: {selectedConfirmation.device_id}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.proposedPrice}</Label>

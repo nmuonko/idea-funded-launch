@@ -146,12 +146,16 @@ serve(async (req) => {
         // Get item details for the price_confirmations record
         const { data: itemDetails } = await supabase
           .from('order_items')
-          .select('product_url, store, title')
+          .select('product_url, store, title, device_id')
           .eq('id', itemId)
           .single();
         
+        // Extract device_id from request body (accept both naming conventions)
+        const deviceId = body.deviceId ?? body.device_id ?? itemDetails?.device_id ?? null;
+        
         const priceConfirmPayload = {
           user_id: user.id,
+          device_id: deviceId, // Include device_id for linkage
           cart_item_id: itemId,
           product_url: itemDetails?.product_url || '',
           store: (itemDetails?.store || 'OTHER').toUpperCase(),

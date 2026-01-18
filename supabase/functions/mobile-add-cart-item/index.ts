@@ -693,43 +693,78 @@ serve(async (req) => {
 
     console.log('[ADD_CART_DEBUG] Read-back confirmed:', { itemId: readBackItem.id, orderId: readBackItem.order_id });
 
-    // CRITICAL: If user edited price, create price_confirmations record AND admin notification
+    // CRITICAL: If user edited price, UPSERT into price_confirmations - NO SILENT FAILURES
+    let priceConfirmationId: string | null = null;
+    
     if (userEdited) {
-      console.log('[mobile-add-cart-item] User edited price - creating price_confirmations record');
+      const priceConfirmPayload = {
+        user_id: user.id,
+        cart_item_id: data.id,
+        product_url: productUrl,
+        store: store.toUpperCase(),
+        proposed_price: productPrice,
+        proposed_currency: currency.toUpperCase(),
+        extracted_price: capturedPrice,
+        extracted_currency: capturedPrice ? currency.toUpperCase() : null,
+        extraction_source: capturedPrice ? 'structured' : 'manual',
+        extraction_confidence: capturedPrice ? 0.8 : null,
+        status: 'PENDING',
+        updated_at: new Date().toISOString(),
+      };
       
-      // Create price_confirmations record (this is what admin panel queries)
+      // UPSERT using cart_item_id as unique key
       const { data: priceConfirmation, error: pcError } = await supabase
         .from('price_confirmations')
-        .insert({
-          user_id: user.id,
-          cart_item_id: data.id,
-          product_url: productUrl,
-          store: store.toUpperCase(),
-          proposed_price: productPrice,
-          proposed_currency: currency.toUpperCase(),
-          extracted_price: capturedPrice,
-          extracted_currency: capturedPrice ? currency.toUpperCase() : null,
-          extraction_source: capturedPrice ? 'structured' : 'manual',
-          extraction_confidence: capturedPrice ? 0.8 : null,
-          status: 'PENDING',
+        .upsert(priceConfirmPayload, { 
+          onConflict: 'cart_item_id',
+          ignoreDuplicates: false 
         })
         .select('id')
         .single();
       
+      // Structured log for debugging
+      console.log('[PRICE_CONFIRM]', JSON.stringify({
+        fn: 'mobile-add-cart-item',
+        orderItemId: data.id,
+        isManualPrice: true,
+        price_source: 'manual_user',
+        capturedPrice,
+        proposedPrice: productPrice,
+        upsertOk: !pcError,
+        errorMsg: pcError?.message || null,
+      }));
+      
       if (pcError) {
-        console.error('[mobile-add-cart-item] Failed to create price_confirmations:', pcError);
-        // Don't fail - just log
-      } else {
-        console.log('[mobile-add-cart-item] Created price_confirmations:', priceConfirmation.id);
+        console.error('[mobile-add-cart-item] CRITICAL: price_confirmations upsert failed:', pcError);
         
-        // Update order_item with the price_confirmation_id
+        // ROLLBACK: Reset order_item to scraped state since we can't track the pending confirmation
         await supabase
           .from('order_items')
-          .update({ price_confirmation_id: priceConfirmation.id })
+          .update({ 
+            price_confirmation_status: null,
+            price_source: 'scraped',
+            price_confirmation_id: null,
+          })
           .eq('id', data.id);
+        
+        return jsonResponse({
+          ok: false,
+          code: 'PRICE_CONFIRMATION_INSERT_FAILED',
+          error: pcError.message,
+          message: 'Price confirmation record could not be created. Item was not marked as pending.',
+        }, 500);
       }
       
-      // Create admin notification for review
+      priceConfirmationId = priceConfirmation.id;
+      console.log('[mobile-add-cart-item] price_confirmations upserted:', priceConfirmationId);
+      
+      // Update order_item with the price_confirmation_id
+      await supabase
+        .from('order_items')
+        .update({ price_confirmation_id: priceConfirmationId })
+        .eq('id', data.id);
+      
+      // Create admin notification for review (non-blocking)
       const { error: notifError } = await supabase
         .from('admin_notifications')
         .insert({
@@ -744,15 +779,13 @@ serve(async (req) => {
             captured_price: capturedPrice,
             user_price: productPrice,
             currency,
-            price_confirmation_id: priceConfirmation?.id,
+            price_confirmation_id: priceConfirmationId,
           },
         });
       
       if (notifError) {
         console.error('[mobile-add-cart-item] Failed to create admin notification:', notifError);
-        // Don't fail the operation, just log
-      } else {
-        console.log('[mobile-add-cart-item] Admin notification created for price review');
+        // Don't fail - notification is non-critical
       }
     }
 

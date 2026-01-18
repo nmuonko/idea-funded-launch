@@ -293,7 +293,7 @@ export default function PriceConfirmations() {
     }
 
     try {
-      // Fetch price confirmations (no FK relationship to profiles)
+      // Fetch price confirmations (now includes user_email column directly)
       let query = supabase
         .from("price_confirmations")
         .select("*")
@@ -307,15 +307,19 @@ export default function PriceConfirmations() {
 
       if (error) throw error;
 
-      // Fetch user emails separately for the user_ids we have
-      const userIds = [...new Set((data || []).map(item => item.user_id))];
+      // Map to ensure user_email at top level (use stored user_email or fallback to profile lookup)
+      const userIdsWithoutEmail = [...new Set((data || [])
+        .filter(item => item.user_id && !item.user_email)
+        .map(item => item.user_id))];
+      
       let emailMap: Record<string, string> = {};
       
-      if (userIds.length > 0) {
+      // Only fetch from profiles if we have user_ids without stored emails
+      if (userIdsWithoutEmail.length > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
           .select("user_id, email")
-          .in("user_id", userIds);
+          .in("user_id", userIdsWithoutEmail);
         
         emailMap = (profiles || []).reduce((acc, p) => {
           if (p.email) acc[p.user_id] = p.email;
@@ -323,10 +327,10 @@ export default function PriceConfirmations() {
         }, {} as Record<string, string>);
       }
 
-      // Map to include user_email at top level
+      // Map to include user_email (prefer stored, fallback to profile lookup)
       const mappedData = (data || []).map(item => ({
         ...item,
-        user_email: emailMap[item.user_id] || null,
+        user_email: item.user_email || (item.user_id ? emailMap[item.user_id] : null) || null,
       }));
 
       setConfirmations(mappedData);

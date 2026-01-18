@@ -155,6 +155,7 @@ serve(async (req) => {
         
         const priceConfirmPayload = {
           user_id: user.id,
+          user_email: user.email || null, // Store email for admin convenience
           device_id: deviceId, // Include device_id for linkage
           cart_item_id: itemId,
           product_url: itemDetails?.product_url || '',

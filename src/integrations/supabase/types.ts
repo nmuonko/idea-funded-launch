@@ -1746,6 +1746,7 @@ export type Database = {
           status: string
           store: string
           updated_at: string
+          user_email: string | null
           user_id: string | null
         }
         Insert: {
@@ -1768,6 +1769,7 @@ export type Database = {
           status?: string
           store: string
           updated_at?: string
+          user_email?: string | null
           user_id?: string | null
         }
         Update: {
@@ -1790,6 +1792,7 @@ export type Database = {
           status?: string
           store?: string
           updated_at?: string
+          user_email?: string | null
           user_id?: string | null
         }
         Relationships: []

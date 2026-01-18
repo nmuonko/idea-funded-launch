@@ -9,8 +9,8 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateItemPricing, updateOrderTotals } from "../_shared/cartHelpers.ts";
 
 /**
- * CRITICAL: Detect if price was USER edited using ONLY explicit signals
- * NEVER mark PENDING due to scraped price mismatch
+ * CRITICAL: Detect if price was USER edited using explicit signals
+ * Supports BOTH mobile app (snake_case) AND web (camelCase) naming conventions
  */
 function isUserEditedPrice(body: any): boolean {
   // Check explicit boolean flags (handle string "true" too)
@@ -21,10 +21,23 @@ function isUserEditedPrice(body: any): boolean {
     String(body?.manual_price ?? "").toLowerCase() === "true";
   
   // Check price_source (case-insensitive) - accept both "manual" and "manual_user"
-  const priceSource = String(body?.price_source ?? "").toLowerCase();
+  const priceSource = String(body?.price_source ?? body?.priceSource ?? "").toLowerCase();
   const isManualSource = priceSource === "manual_user" || priceSource === "manual";
   
-  return priceEditedFlag || isManualSource;
+  // Check if frontend explicitly set price_confirmation_status to 'pending'
+  const confirmStatus = String(
+    body?.price_confirmation_status ?? body?.priceConfirmationStatus ?? ""
+  ).toLowerCase();
+  const isPendingFromFrontend = confirmStatus === "pending";
+  
+  // Check for price difference between proposed and captured
+  const capturedPrice = body?.capturedPrice ?? body?.captured_price ?? 
+                        body?.capturedPriceUsd ?? body?.captured_price_usd ?? null;
+  const productPrice = body?.productPrice ?? body?.price ?? body?.base_price_usd ?? null;
+  const hasPriceDifference = capturedPrice !== null && productPrice !== null &&
+    Math.abs(Number(productPrice) - Number(capturedPrice)) > 0.01;
+  
+  return priceEditedFlag || isManualSource || isPendingFromFrontend || hasPriceDifference;
 }
 
 serve(async (req) => {

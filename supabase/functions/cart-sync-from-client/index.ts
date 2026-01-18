@@ -28,7 +28,18 @@ const syncCartSchema = z.object({
     unitPrice: z.number().positive().max(1000000),
     quantity: z.number().int().positive().max(100).default(1),
     currency: z.string().max(10).optional().default('USD'),
-    // Meta fields for price confirmation detection
+    // Top-level price confirmation fields (mobile app format)
+    price_source: z.string().optional(),
+    priceSource: z.string().optional(),
+    price_confirmation_status: z.string().optional(),
+    priceConfirmationStatus: z.string().optional(),
+    proposed_price_usd: z.number().optional(),
+    proposedPriceUsd: z.number().optional(),
+    captured_price_usd: z.number().optional(),
+    capturedPriceUsd: z.number().optional(),
+    priceEdited: z.union([z.boolean(), z.string()]).optional(),
+    manual_price: z.union([z.boolean(), z.string()]).optional(),
+    // Meta fields for price confirmation detection (nested format)
     meta: z.object({
       priceEdited: z.boolean().optional(),
       capturedPrice: z.number().optional(),
@@ -37,6 +48,7 @@ const syncCartSchema = z.object({
       price_confirmation_status: z.string().optional(),
       priceConfirmationStatus: z.string().optional(),
       price_source: z.string().optional(),
+      priceSource: z.string().optional(),
     }).optional(),
   })).max(50), // Max 50 items per sync
 });
@@ -127,19 +139,59 @@ serve(async (req) => {
       const isVehicle = isVehicleItem(item.productUrl, store);
       
       // Detect if price was edited by user (requires admin confirmation)
+      // Support BOTH top-level fields (mobile app) AND nested meta fields (web)
       const meta = item.meta || {};
-      // Check meta.price_source for "manual" or "manual_user"
-      const priceSource = String(meta.price_source ?? "").toLowerCase();
-      const isManualSource = priceSource === "manual_user" || priceSource === "manual";
+      
+      // Check all possible price_source locations (case-insensitive)
+      const priceSourceTop = String(item.price_source ?? item.priceSource ?? "").toLowerCase();
+      const priceSourceMeta = String(meta.price_source ?? meta.priceSource ?? "").toLowerCase();
+      const isManualSource = 
+        priceSourceTop === "manual_user" || priceSourceTop === "manual" ||
+        priceSourceMeta === "manual_user" || priceSourceMeta === "manual";
+      
+      // Check price_confirmation_status (if explicitly set to 'pending' by frontend)
+      const confirmStatus = String(
+        item.price_confirmation_status ?? item.priceConfirmationStatus ??
+        meta.price_confirmation_status ?? meta.priceConfirmationStatus ?? ""
+      ).toLowerCase();
+      const isPendingFromFrontend = confirmStatus === "pending";
+      
+      // Check explicit boolean flags (top-level and meta)
+      const priceEditedFlag = 
+        item.priceEdited === true ||
+        String(item.priceEdited ?? "").toLowerCase() === "true" ||
+        item.manual_price === true ||
+        String(item.manual_price ?? "").toLowerCase() === "true" ||
+        meta.priceEdited === true;
+      
+      // Get captured price from ALL possible locations
+      const capturedPrice = 
+        item.captured_price_usd ?? item.capturedPriceUsd ??
+        meta.capturedPrice ?? meta.capturedPriceUsd ?? null;
+      
+      // Price difference detection (only if capturedPrice exists)
+      const hasPriceDifference = capturedPrice !== null && 
+        Math.abs(item.unitPrice - Number(capturedPrice)) > 0.01;
       
       const priceEdited = 
         isManualSource ||
-        meta.priceEdited === true ||
+        isPendingFromFrontend ||
+        priceEditedFlag ||
         meta.originalPriceUsd !== undefined ||
-        (meta.capturedPrice !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPrice)) > 0.01) ||
-        (meta.capturedPriceUsd !== undefined && Math.abs(item.unitPrice - Number(meta.capturedPriceUsd)) > 0.01);
+        hasPriceDifference;
       
-      console.log('[PRICE_CONFIRM] edited=', priceEdited, 'price=', item.unitPrice, 'captured=', meta.capturedPrice || meta.capturedPriceUsd);
+      console.log('[PRICE_CONFIRM] sync item detection:', {
+        priceEdited,
+        isManualSource,
+        isPendingFromFrontend,
+        priceEditedFlag,
+        hasPriceDifference,
+        unitPrice: item.unitPrice,
+        capturedPrice,
+        priceSourceTop,
+        priceSourceMeta,
+        confirmStatus,
+      });
       
       // Use vehicle markup for vehicles, general markup for everything else
       const pricing = calculateItemPricing(

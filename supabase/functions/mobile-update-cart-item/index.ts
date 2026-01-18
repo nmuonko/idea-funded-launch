@@ -142,7 +142,6 @@ serve(async (req) => {
         if (capturedPrice !== null) {
           updateData.captured_price = capturedPrice;
         }
-        console.log('[mobile-update-cart-item] Price edited by user - setting price_confirmation_status=PENDING');
         
         // Get item details for the price_confirmations record
         const { data: itemDetails } = await supabase
@@ -151,33 +150,59 @@ serve(async (req) => {
           .eq('id', itemId)
           .single();
         
-        // Create price_confirmations record (this is what admin panel queries)
+        const priceConfirmPayload = {
+          user_id: user.id,
+          cart_item_id: itemId,
+          product_url: itemDetails?.product_url || '',
+          store: (itemDetails?.store || 'OTHER').toUpperCase(),
+          proposed_price: newPrice,
+          proposed_currency: currency.toUpperCase(),
+          extracted_price: capturedPrice,
+          extracted_currency: capturedPrice ? currency.toUpperCase() : null,
+          extraction_source: capturedPrice ? 'structured' : 'manual',
+          extraction_confidence: capturedPrice ? 0.8 : null,
+          status: 'PENDING',
+          updated_at: new Date().toISOString(),
+        };
+        
+        // UPSERT using cart_item_id as unique key - NO SILENT FAILURES
         const { data: priceConfirmation, error: pcError } = await supabase
           .from('price_confirmations')
-          .insert({
-            user_id: user.id,
-            cart_item_id: itemId,
-            product_url: itemDetails?.product_url || '',
-            store: (itemDetails?.store || 'OTHER').toUpperCase(),
-            proposed_price: newPrice,
-            proposed_currency: currency.toUpperCase(),
-            extracted_price: capturedPrice,
-            extracted_currency: capturedPrice ? currency.toUpperCase() : null,
-            extraction_source: capturedPrice ? 'structured' : 'manual',
-            extraction_confidence: capturedPrice ? 0.8 : null,
-            status: 'PENDING',
+          .upsert(priceConfirmPayload, { 
+            onConflict: 'cart_item_id',
+            ignoreDuplicates: false 
           })
           .select('id')
           .single();
         
+        // Structured log for debugging
+        console.log('[PRICE_CONFIRM]', JSON.stringify({
+          fn: 'mobile-update-cart-item',
+          orderItemId: itemId,
+          isManualPrice: true,
+          price_source: 'manual_user',
+          capturedPrice,
+          proposedPrice: newPrice,
+          upsertOk: !pcError,
+          errorMsg: pcError?.message || null,
+        }));
+        
         if (pcError) {
-          console.error('[mobile-update-cart-item] Failed to create price_confirmations:', pcError);
-        } else {
-          console.log('[mobile-update-cart-item] Created price_confirmations:', priceConfirmation.id);
-          updateData.price_confirmation_id = priceConfirmation.id;
+          console.error('[mobile-update-cart-item] CRITICAL: price_confirmations upsert failed:', pcError);
+          
+          // FAIL the request - don't leave item in PENDING state without a tracking record
+          return jsonResponse({
+            ok: false,
+            code: 'PRICE_CONFIRMATION_INSERT_FAILED',
+            error: pcError.message,
+            message: 'Price confirmation record could not be created. Update was not applied.',
+          }, 500);
         }
         
-        // Create admin notification for price review
+        console.log('[mobile-update-cart-item] price_confirmations upserted:', priceConfirmation.id);
+        updateData.price_confirmation_id = priceConfirmation.id;
+        
+        // Create admin notification for price review (non-blocking)
         const { error: notifError } = await supabase
           .from('admin_notifications')
           .insert({
@@ -190,15 +215,13 @@ serve(async (req) => {
               captured_price: capturedPrice,
               user_price: newPrice,
               currency,
-              price_confirmation_id: priceConfirmation?.id,
+              price_confirmation_id: priceConfirmation.id,
             },
           });
         
         if (notifError) {
           console.error('[mobile-update-cart-item] Failed to create admin notification:', notifError);
-          // Don't fail the operation
-        } else {
-          console.log('[mobile-update-cart-item] Admin notification created for price review');
+          // Don't fail - notification is non-critical
         }
       }
     }

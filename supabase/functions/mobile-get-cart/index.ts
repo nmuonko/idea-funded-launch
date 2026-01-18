@@ -82,6 +82,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     priceSource,
     capturedPrice,
     hasPendingPriceConfirmation,
+    // Device ID for guest tracking
+    deviceId: item.device_id || null,
   };
   
   // VEHICLE WITH APPLIED QUOTE - use STORED values
@@ -276,7 +278,7 @@ serve(async (req) => {
         id, product_url, title, product_image_url, store, base_price_usd, unit_price_usd, quantity,
         subtotal_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, total_price_cdf, 
         est_weight_kg, requires_manual_quote, is_saved_for_later, saved_at, updated_at,
-        is_vehicle, vehicle_quote_applied,
+        is_vehicle, vehicle_quote_applied, device_id,
         price_confirmation_status, admin_adjusted_price, price_confirmation_id, price_source, captured_price,
         shipping_item_types(key, label),
         quote_requests(status, quoted_shipping_usd, quoted_total_usd)

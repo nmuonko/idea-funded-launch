@@ -19,6 +19,9 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 // CRITICAL: Import shared updateOrderTotals to ensure vehicle handling is consistent
 import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHelpers.ts";
 
+// Constants for rate limiting
+const GUEST_PENDING_LIMIT_PER_24H = 30;
+
 // Input validation schema
 const addCartItemSchema = z.object({
   productUrl: z.string()
@@ -60,6 +63,9 @@ const addCartItemSchema = z.object({
   shippingItemTypeId: z.string().uuid().optional(),
   productTitle: z.string().max(500).optional(),
   productImageUrl: z.string().url().max(2048).optional(),
+  // CRITICAL: device_id for guest tracking
+  deviceId: z.string().min(10).max(128).optional(),
+  device_id: z.string().min(10).max(128).optional(),
   // Explicit user-edited price signals (support multiple naming conventions)
   priceEdited: z.union([z.boolean(), z.string()]).optional(),
   manual_price: z.union([z.boolean(), z.string()]).optional(),
@@ -189,8 +195,11 @@ serve(async (req) => {
     }
 
     const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
+    
+    // CRITICAL: Extract device_id (required for guests with manual prices)
+    const deviceId = body.deviceId ?? body.device_id ?? null;
 
-    console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest });
+    console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest, deviceId: deviceId ? deviceId.substring(0, 8) + '...' : null });
 
     // CRITICAL: Detect if price was USER edited using explicit signals
     const userEdited = isUserEditedPrice(body);
@@ -206,8 +215,19 @@ serve(async (req) => {
       price_confirmation_status: body.price_confirmation_status || body.priceConfirmationStatus,
       productPrice,
       capturedPrice,
+      deviceId: deviceId ? deviceId.substring(0, 8) + '...' : null,
       hasDifference: capturedPrice !== null ? Math.abs(productPrice - Number(capturedPrice)) > 0.01 : false,
     });
+    
+    // VALIDATION: Proposed price must be positive
+    if (productPrice <= 0) {
+      return errorResponse('Proposed price must be positive', 400);
+    }
+    
+    // VALIDATION: If manual price and guest, require device_id
+    if (userEdited && isGuest && !deviceId) {
+      return errorResponse('device_id is required for guest price submissions', 400);
+    }
 
     // Load shipping type if provided
     let estWeightKg = 1; // default 1kg
@@ -416,15 +436,156 @@ serve(async (req) => {
       }
     }
 
-    // ========== GUEST MODE: Return price data only, no DB writes ==========
+    // ========== GUEST MODE: Price calculation + optional manual price submission ==========
     if (isGuest) {
-      console.log('[mobile-add-cart-item] Guest mode - returning price data without DB write');
+      console.log('[mobile-add-cart-item] Guest mode - checking for manual price submission');
       
       // Calculate estimated shipping for guest display
       const estimatedShippingFee = itemRequiresManualQuote ? 0 : round2(shippingBaseFeeUsd + (pricing.itemBaseTotalUsd * shippingPercent));
       const estimatedTotalUsd = round2(pricing.itemSubtotalUsd + estimatedShippingFee);
       const estimatedTotalCdf = round2(estimatedTotalUsd * exchangeRate);
       
+      // If user edited price, create a price_confirmation record for guest
+      if (userEdited && deviceId) {
+        console.log('[PRICE_CONFIRM] Guest manual price detected, creating confirmation');
+        
+        // RATE LIMITING: Check guest pending confirmations in last 24h
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: pendingCount, error: countError } = await supabase
+          .from('price_confirmations')
+          .select('id', { count: 'exact', head: true })
+          .eq('device_id', deviceId)
+          .eq('status', 'PENDING')
+          .gte('created_at', twentyFourHoursAgo);
+        
+        if (countError) {
+          console.error('[mobile-add-cart-item] Failed to count pending confirmations:', countError);
+        }
+        
+        const currentPendingCount = pendingCount ?? 0;
+        console.log('[PRICE_CONFIRM] Guest rate limit check:', { deviceId: deviceId.substring(0, 8) + '...', pendingCount: currentPendingCount, limit: GUEST_PENDING_LIMIT_PER_24H });
+        
+        if (currentPendingCount >= GUEST_PENDING_LIMIT_PER_24H) {
+          return jsonResponse({
+            ok: false,
+            code: 'RATE_LIMIT',
+            error: `Too many pending price confirmations. Maximum ${GUEST_PENDING_LIMIT_PER_24H} per 24 hours.`,
+            pendingCount: currentPendingCount,
+          }, 429);
+        }
+        
+        // Create price_confirmation for guest (no order_item_id, just product info)
+        const guestConfirmPayload = {
+          user_id: null, // Guest - no user
+          device_id: deviceId,
+          cart_item_id: null, // No cart item for guests yet
+          product_url: productUrl,
+          store: store.toUpperCase(),
+          proposed_price: productPrice,
+          proposed_currency: currency.toUpperCase(),
+          extracted_price: capturedPrice,
+          extracted_currency: capturedPrice ? currency.toUpperCase() : null,
+          extraction_source: capturedPrice ? 'structured' : 'manual',
+          extraction_confidence: capturedPrice ? 0.8 : null,
+          status: 'PENDING',
+          updated_at: new Date().toISOString(),
+        };
+        
+        const { data: guestConfirmation, error: gcError } = await supabase
+          .from('price_confirmations')
+          .insert(guestConfirmPayload)
+          .select('id')
+          .single();
+        
+        console.log('[PRICE_CONFIRM]', JSON.stringify({
+          fn: 'mobile-add-cart-item',
+          mode: 'GUEST',
+          deviceId: deviceId.substring(0, 8) + '...',
+          isManualPrice: true,
+          price_source: 'manual_user',
+          capturedPrice,
+          proposedPrice: productPrice,
+          insertOk: !gcError,
+          errorMsg: gcError?.message || null,
+        }));
+        
+        if (gcError) {
+          console.error('[mobile-add-cart-item] CRITICAL: guest price_confirmations insert failed:', gcError);
+          return jsonResponse({
+            ok: false,
+            code: 'PRICE_CONFIRMATION_INSERT_FAILED',
+            error: gcError.message,
+            message: 'Price confirmation record could not be created for guest.',
+          }, 500);
+        }
+        
+        console.log('[mobile-add-cart-item] Guest price confirmation created:', guestConfirmation.id);
+        
+        // Create admin notification for guest price review (non-blocking)
+        await supabase
+          .from('admin_notifications')
+          .insert({
+            type: 'PRICE_REVIEW',
+            title: 'Guest price confirmation needed',
+            body: `Guest submitted price for ${productTitle || store} item. Review required.`,
+            payload: {
+              device_id: deviceId,
+              store,
+              product_url: productUrl,
+              captured_price: capturedPrice,
+              user_price: productPrice,
+              currency,
+              price_confirmation_id: guestConfirmation.id,
+              is_guest: true,
+            },
+          });
+        
+        return jsonResponse({
+          success: true,
+          isGuest: true,
+          priceConfirmationSubmitted: true,
+          priceConfirmationId: guestConfirmation.id,
+          priceConfirmationStatus: 'PENDING',
+          item: {
+            id: null, // No DB record for guests
+            productUrl,
+            productTitle,
+            productImageUrl,
+            image_url: productImageUrl,
+            store,
+            basePriceUsd: pricing.basePriceUsd,
+            quantity: pricing.quantity,
+            unitPriceUsd: pricing.basePriceUsd,
+            itemBaseTotalUsd: pricing.itemBaseTotalUsd,
+            itemMarginUsd: pricing.itemMarginUsd,
+            itemSubtotalUsd: pricing.itemSubtotalUsd,
+            itemSubtotalCdf: pricing.itemSubtotalCdf,
+            estWeightKg,
+            requiresManualQuote: itemRequiresManualQuote,
+            shippingItemTypeId: finalShippingTypeId,
+            shippingCategory: autoDetectedCategory,
+            isShippingCategoryEstimated,
+            isVehicle,
+            isQuoteRequired: isVehicle && vehicleRequiresQuote,
+            quoteStatus: null,
+            estimatedShippingFee,
+            estimatedTotalUsd,
+            estimatedTotalCdf,
+          },
+          summary: {
+            itemTotalUsd: pricing.itemBaseTotalUsd,
+            serviceFeeUsd: pricing.itemMarginUsd,
+            shippingFeeUsd: estimatedShippingFee,
+            totalUsd: estimatedTotalUsd,
+            totalCdf: estimatedTotalCdf,
+            exchangeRate,
+            requiresManualQuote: itemRequiresManualQuote,
+          },
+          message: 'Price submitted for admin confirmation. Login to save to cart and checkout.',
+        });
+      }
+      
+      // Non-manual guest price - just return calculation
       return jsonResponse({
         success: true,
         isGuest: true,
@@ -450,7 +611,6 @@ serve(async (req) => {
           isVehicle,
           isQuoteRequired: isVehicle && vehicleRequiresQuote,
           quoteStatus: null,
-          // Estimated shipping for guest display
           estimatedShippingFee,
           estimatedTotalUsd,
           estimatedTotalCdf,
@@ -664,6 +824,8 @@ serve(async (req) => {
         price_confirmation_status: priceConfirmationStatus,
         price_source: priceSource,
         captured_price: capturedPrice,
+        // Device ID for linkage (always store if provided)
+        device_id: deviceId,
       })
       .select()
       .single();
@@ -699,6 +861,7 @@ serve(async (req) => {
     if (userEdited) {
       const priceConfirmPayload = {
         user_id: user.id,
+        device_id: deviceId, // Include device_id for later claim linkage
         cart_item_id: data.id,
         product_url: productUrl,
         store: store.toUpperCase(),

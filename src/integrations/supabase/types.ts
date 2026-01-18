@@ -1040,6 +1040,7 @@ export type Database = {
           base_price_usd: number | null
           captured_price: number | null
           created_at: string
+          device_id: string | null
           est_weight_kg: number | null
           id: string
           is_saved_for_later: boolean
@@ -1073,6 +1074,7 @@ export type Database = {
           base_price_usd?: number | null
           captured_price?: number | null
           created_at?: string
+          device_id?: string | null
           est_weight_kg?: number | null
           id?: string
           is_saved_for_later?: boolean
@@ -1106,6 +1108,7 @@ export type Database = {
           base_price_usd?: number | null
           captured_price?: number | null
           created_at?: string
+          device_id?: string | null
           est_weight_kg?: number | null
           id?: string
           is_saved_for_later?: boolean
@@ -1729,6 +1732,7 @@ export type Database = {
           admin_price: number | null
           cart_item_id: string | null
           created_at: string
+          device_id: string | null
           extracted_currency: string | null
           extracted_price: number | null
           extraction_confidence: number | null
@@ -1742,7 +1746,7 @@ export type Database = {
           status: string
           store: string
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           admin_currency?: string | null
@@ -1750,6 +1754,7 @@ export type Database = {
           admin_price?: number | null
           cart_item_id?: string | null
           created_at?: string
+          device_id?: string | null
           extracted_currency?: string | null
           extracted_price?: number | null
           extraction_confidence?: number | null
@@ -1763,7 +1768,7 @@ export type Database = {
           status?: string
           store: string
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           admin_currency?: string | null
@@ -1771,6 +1776,7 @@ export type Database = {
           admin_price?: number | null
           cart_item_id?: string | null
           created_at?: string
+          device_id?: string | null
           extracted_currency?: string | null
           extracted_price?: number | null
           extraction_confidence?: number | null
@@ -1784,7 +1790,7 @@ export type Database = {
           status?: string
           store?: string
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: []
       }

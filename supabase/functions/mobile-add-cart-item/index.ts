@@ -374,21 +374,23 @@ serve(async (req) => {
           
           clearTimeout(scrapeTimeout);
           
-          if (scrapeResponse.ok) {
-            const scrapeData = await scrapeResponse.json();
-            const scrapeDuration = Date.now() - scrapeStart;
-            console.log(`[mobile-add-cart-item] Scraped product data (${scrapeDuration}ms):`, JSON.stringify(scrapeData).substring(0, 200));
-            
-            // get-product-info returns imageUrl (camelCase), not image_url
-            if (!productImageUrl && scrapeData.imageUrl) {
-              productImageUrl = scrapeData.imageUrl;
-              console.log('[mobile-add-cart-item] Got image URL from scrape');
-            }
-            if (!productTitle && scrapeData.productTitle) {
-              productTitle = scrapeData.productTitle;
-            }
-          } else {
-            console.warn(`[mobile-add-cart-item] Scrape response not ok: ${scrapeResponse.status} (${Date.now() - scrapeStart}ms)`);
+          // Always try to extract image/title from response body, even on 404 (price not found still returns image)
+          const scrapeData = await scrapeResponse.json().catch(() => ({}));
+          const scrapeDuration = Date.now() - scrapeStart;
+          console.log(`[mobile-add-cart-item] Scraped product data (${scrapeDuration}ms, status: ${scrapeResponse.status}):`, JSON.stringify(scrapeData).substring(0, 200));
+          
+          // get-product-info returns imageUrl (camelCase), not image_url
+          // Extract image and title regardless of HTTP status - scraper may return image even when price fails
+          if (!productImageUrl && scrapeData.imageUrl) {
+            productImageUrl = scrapeData.imageUrl;
+            console.log('[mobile-add-cart-item] Got image URL from scrape');
+          }
+          if (!productTitle && scrapeData.productTitle) {
+            productTitle = scrapeData.productTitle;
+          }
+          
+          if (!scrapeResponse.ok) {
+            console.warn(`[mobile-add-cart-item] Scrape response not ok: ${scrapeResponse.status}, but extracted image: ${!!productImageUrl}`);
           }
         } finally {
           clearTimeout(scrapeTimeout);

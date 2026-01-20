@@ -61,8 +61,14 @@ const addCartItemSchema = z.object({
     .max(1000000, "Price exceeds maximum"),
   quantity: z.number().int().positive().max(100).optional().default(1),
   shippingItemTypeId: z.string().uuid().optional(),
-  productTitle: z.string().max(500).optional(),
-  productImageUrl: z.string().url().max(2048).optional(),
+  productTitle: z.string().max(500).optional().nullable()
+    .transform(val => (!val || val === '') ? undefined : val),
+  productImageUrl: z.string().max(2048).optional().nullable()
+    .transform(val => {
+      if (!val || val === '') return undefined;
+      // Only validate URL if non-empty
+      try { new URL(val); return val; } catch { return undefined; }
+    }),
   // CRITICAL: device_id for guest tracking
   deviceId: z.string().min(10).max(128).optional(),
   device_id: z.string().min(10).max(128).optional(),

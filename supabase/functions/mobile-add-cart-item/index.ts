@@ -22,36 +22,53 @@ import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHel
 // Constants for rate limiting
 const GUEST_PENDING_LIMIT_PER_24H = 30;
 
-// Input validation schema
+// Allowed domains for product URLs
+const ALLOWED_DOMAINS = [
+  'amazon.com', 'www.amazon.com',
+  'ebay.com', 'www.ebay.com',
+  'walmart.com', 'www.walmart.com',
+  'bestbuy.com', 'www.bestbuy.com',
+  'carvana.com', 'www.carvana.com',
+  'cargurus.com', 'www.cargurus.com',
+  'tesla.com', 'www.tesla.com',
+  'edmunds.com', 'www.edmunds.com',
+  'target.com', 'www.target.com',
+  'homedepot.com', 'www.homedepot.com',
+  'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
+  'macys.com', 'www.macys.com', 'm.macys.com',
+  'mercari.com', 'www.mercari.com',
+  'wayfair.com', 'www.wayfair.com',
+];
+
+// Helper to validate and normalize a product URL
+function normalizeProductUrl(val: string): string | null {
+  if (!val || typeof val !== 'string') return null;
+  let url = val.trim();
+  if (!url) return null;
+  // Add protocol if missing
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  // Validate URL format
+  try {
+    new URL(url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+// Input validation schema with resilient URL handling
 const addCartItemSchema = z.object({
   productUrl: z.string()
     .min(1, "Product URL is required")
     .max(2048, "URL too long")
-    .url("Invalid URL format")
+    .transform(val => normalizeProductUrl(val))
+    .refine((url): url is string => url !== null, "Invalid URL format")
     .refine((url) => {
       try {
         const parsed = new URL(url);
-        const allowedDomains = [
-          'amazon.com', 'www.amazon.com',
-          'ebay.com', 'www.ebay.com',
-          'walmart.com', 'www.walmart.com',
-          'bestbuy.com', 'www.bestbuy.com',
-          // Car marketplaces (deprecated - kept for historical compatibility)
-          'carvana.com', 'www.carvana.com',
-          'cargurus.com', 'www.cargurus.com',
-          // NEW: Active car marketplaces
-          'tesla.com', 'www.tesla.com',
-          'edmunds.com', 'www.edmunds.com',
-          // Other retailers
-          'target.com', 'www.target.com',
-          'homedepot.com', 'www.homedepot.com',
-          'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
-          'macys.com', 'www.macys.com', 'm.macys.com',
-          // Mercari and Wayfair
-          'mercari.com', 'www.mercari.com',
-          'wayfair.com', 'www.wayfair.com',
-        ];
-        return allowedDomains.some(d => parsed.hostname.endsWith(d));
+        return ALLOWED_DOMAINS.some(d => parsed.hostname.endsWith(d));
       } catch {
         return false;
       }
@@ -66,7 +83,6 @@ const addCartItemSchema = z.object({
   productImageUrl: z.string().max(2048).optional().nullable()
     .transform(val => {
       if (!val || val === '') return undefined;
-      // Only validate URL if non-empty
       try { new URL(val); return val; } catch { return undefined; }
     }),
   // CRITICAL: device_id for guest tracking
@@ -192,11 +208,16 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    // DEBUG: Log raw payload BEFORE validation to diagnose iOS issues
+    console.log('[DEBUG_RAW_PAYLOAD] productUrl type:', typeof body.productUrl, 'value:', String(body.productUrl ?? '').substring(0, 100));
+    console.log('[DEBUG_RAW_PAYLOAD] productImageUrl type:', typeof body.productImageUrl, 'value:', String(body.productImageUrl ?? '').substring(0, 80));
+    console.log('[DEBUG_RAW_PAYLOAD] keys:', Object.keys(body).join(', '));
+
     // Validate input with zod schema
     const parseResult = addCartItemSchema.safeParse(body);
     if (!parseResult.success) {
       const errorMessage = (parseResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
-      console.log('[mobile-add-cart-item] Validation error:', errorMessage);
+      console.log('[mobile-add-cart-item] Validation error:', errorMessage, 'raw productUrl:', String(body.productUrl ?? '').substring(0, 100));
       return errorResponse(errorMessage, 400);
     }
 
@@ -380,6 +401,28 @@ serve(async (req) => {
           console.error(`[mobile-add-cart-item] Failed to scrape product info (${scrapeDuration}ms):`, scrapeError.message);
         }
         // Continue without image - it's not critical
+      }
+    }
+
+    // FALLBACK: If still no image, try to get from price_capture_cache or product_cache
+    if (!productImageUrl) {
+      try {
+        // Try price_capture_cache first (has canonical_url matching)
+        const { data: cachedProduct } = await supabase
+          .from('product_cache')
+          .select('image_url, title')
+          .eq('product_url', productUrl)
+          .maybeSingle();
+        
+        if (cachedProduct?.image_url) {
+          productImageUrl = cachedProduct.image_url;
+          console.log('[mobile-add-cart-item] Got image from product_cache');
+        }
+        if (!productTitle && cachedProduct?.title) {
+          productTitle = cachedProduct.title;
+        }
+      } catch (cacheError: any) {
+        console.warn('[mobile-add-cart-item] Cache lookup failed:', cacheError.message);
       }
     }
 

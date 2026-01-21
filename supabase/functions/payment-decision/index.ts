@@ -62,10 +62,6 @@ interface DecisionResponse {
     supportedMethods?: string[];
     initiateUrl?: string;
   };
-  // Phone confirmation for Mobile Money payments
-  phone_confirm_required?: boolean;
-  phone_masked?: string; // e.g., "****0740"
-  phone_last4?: string;  // e.g., "0740"
   // Explicit available methods for frontend choice display
   available_methods?: AvailableMethod[];
   // Explicit limit fields for mobile UI
@@ -401,65 +397,6 @@ serve(async (req) => {
 
     const { order_id, cart_snapshot, total_usd: providedTotal, country, method } = body;
 
-    // ============================================
-    // PHONE CONFIRMATION: Try to get user's phone if authenticated
-    // ============================================
-    let phoneConfirmRequired = false;
-    let phoneMasked: string | null = null;
-    let phoneLast4: string | null = null;
-    
-    // Try to get user from Authorization header (optional - endpoint works without auth)
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.replace('Bearer ', '');
-        const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-        const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-          global: { headers: { Authorization: `Bearer ${token}` } }
-        });
-        
-        const { data: { user } } = await userClient.auth.getUser();
-        
-        if (user) {
-          // Fetch user's phone from profile
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('phone')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          
-          if (profile?.phone) {
-            const rawPhone = profile.phone.trim().replace(/[\s\-()]/g, '');
-            // Normalize to E.164
-            let normalizedPhone = rawPhone;
-            if (!normalizedPhone.startsWith('+')) {
-              if (normalizedPhone.startsWith('00')) {
-                normalizedPhone = '+' + normalizedPhone.slice(2);
-              } else if (normalizedPhone.startsWith('243')) {
-                normalizedPhone = '+' + normalizedPhone;
-              } else if (normalizedPhone.startsWith('0')) {
-                normalizedPhone = '+243' + normalizedPhone.slice(1);
-              } else if (/^[1-9]/.test(normalizedPhone)) {
-                normalizedPhone = '+' + normalizedPhone;
-              }
-            }
-            
-            phoneLast4 = normalizedPhone.slice(-4);
-            phoneMasked = '*'.repeat(Math.max(0, normalizedPhone.length - 4)) + phoneLast4;
-            phoneConfirmRequired = true;
-            
-            console.log('[payment-decision] Phone for confirmation:', { 
-              phone_last4: phoneLast4, 
-              phone_masked: phoneMasked 
-            });
-          }
-        }
-      } catch (authErr) {
-        // Auth is optional - continue without phone confirmation
-        console.log('[payment-decision] Auth optional, proceeding without phone:', authErr);
-      }
-    }
-
     // Validate input - need at least one (only for non-get_limits requests)
     if (!order_id && !cart_snapshot && providedTotal === undefined) {
       return new Response(
@@ -619,10 +556,6 @@ serve(async (req) => {
         name: 'pawaPay',
         initiateUrl: `/functions/v1/pawapay-create-payment`,
       },
-      // Phone confirmation for Mobile Money payments (when authenticated and payment_flow is PAWAPAY)
-      phone_confirm_required: payment_flow === 'PAWAPAY' && phoneConfirmRequired,
-      phone_masked: payment_flow === 'PAWAPAY' ? phoneMasked || undefined : undefined,
-      phone_last4: payment_flow === 'PAWAPAY' ? phoneLast4 || undefined : undefined,
       // Explicit available methods for frontend choice display
       available_methods: availableMethods,
       // Explicit limits for mobile UI

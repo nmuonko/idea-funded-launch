@@ -156,9 +156,6 @@ export async function createPaymentIntent(
     'metadata[intent_id]': params.intentId,
   });
 
-  // Enable redirect-based payment methods (3DS, bank redirects, etc.)
-  body.append('automatic_payment_methods[allow_redirects]', 'always');
-
   if (params.description) {
     body.append('description', params.description);
   }

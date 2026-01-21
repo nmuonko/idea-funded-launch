@@ -610,6 +610,14 @@ Deno.serve(async (req) => {
         clientSecretPreview: stripeResult.client_secret?.slice(0, 20) + '...',
       });
 
+      console.log('[STRIPE_INTENT_SUMMARY]', {
+        requestId,
+        orderId: order_id,
+        amountCents: Math.round(payableAmount * 100),
+        currency: selectedCurrency,
+        hasClientSecret: !!stripeResult.client_secret,
+      });
+
       result = {
         success: true,
         requestId,

@@ -2159,9 +2159,6 @@ serve(async (req) => {
             payment_flow: 'PAWAPAY' as PaymentFlow,
             currency: payable_currency,
             amount: payable_amount,
-            // === PHONE NUMBER FOR MOBILE APP CONFIRMATION DISPLAY ===
-            customer_phone: validatedPhone,
-            phone_last4: validatedPhone.slice(-4),
             // === OPTIONAL FIELDS (based on flow) ===
             redirectUrl,
             // === LEGACY FIELDS (for backwards compatibility) ===

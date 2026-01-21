@@ -15,6 +15,7 @@ import {
   updatePaymentStatus,
 } from "../_shared/paymentProviders.ts";
 import { verifyDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
+import { verifyPaymentIntent, getStripeConfig } from "../_shared/stripeAdapter.ts";
 
 /**
  * mobile-verify-payment Edge Function
@@ -287,8 +288,100 @@ serve(async (req) => {
           });
         }
         
-        // For Stripe, status should be updated via webhook
-        // Return current DB status
+        // If still pending/processing and we have Stripe PI ID, verify with Stripe API
+        if (unifiedPayment.provider_deposit_id && 
+            ['pending', 'processing', 'requires_action'].includes(unifiedPayment.status || '')) {
+          try {
+            const stripeProvider = await getProviderByKey(supabase, 'stripe');
+            if (stripeProvider) {
+              const stripeConfig = getStripeConfig(stripeProvider);
+              const stripeResult = await verifyPaymentIntent(stripeConfig, unifiedPayment.provider_deposit_id);
+              
+              // Diagnostic log line
+              log.log('[STRIPE_RECONCILE]', {
+                orderId: order.id,
+                paymentId: unifiedPayment.id,
+                stripePaymentIntentId: unifiedPayment.provider_deposit_id,
+                dbStatus: unifiedPayment.status,
+                stripeStatus: stripeResult.status,
+              });
+              
+              // Handle succeeded
+              if (stripeResult.status === 'succeeded') {
+                // Update payment status
+                await updatePaymentStatus(supabase, unifiedPayment.id, 'succeeded', {
+                  provider_transaction_id: stripeResult.provider_transaction_id,
+                  paid_at: stripeResult.paid_at,
+                });
+                
+                // Update order status
+                await supabase.from('orders').update({
+                  status: 'PAID',
+                  maisha_payment_status: 'SUCCESS',
+                  payment_verified_at: new Date().toISOString(),
+                }).eq('id', order.id);
+                
+                // Clear cart items (same logic as pawaPay)
+                const { data: checkoutSession } = await supabase
+                  .from('checkout_sessions')
+                  .select('id, metadata')
+                  .eq('order_id', order.id)
+                  .maybeSingle();
+                
+                if (checkoutSession?.id) {
+                  await supabase.from('checkout_sessions').update({
+                    status: 'completed',
+                    paid_at: new Date().toISOString(),
+                  }).eq('id', checkoutSession.id);
+                }
+                
+                const metadata = checkoutSession?.metadata as any;
+                const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+                
+                if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+                  log.log('[verify-payment] Stripe: Deleting original cart items', {
+                    count: originalCartItemIds.length,
+                  });
+                  await supabase.from('order_items').delete().in('id', originalCartItemIds);
+                }
+                
+                return jsonResponse({
+                  success: true,
+                  order_id: order.id,
+                  status: 'succeeded',
+                  stripeStatus: 'succeeded',
+                  paid_at: stripeResult.paid_at || new Date().toISOString(),
+                });
+              }
+              
+              // Handle failed/canceled
+              if (stripeResult.status === 'failed') {
+                await updatePaymentStatus(supabase, unifiedPayment.id, 'failed');
+                
+                return jsonResponse({
+                  success: true,
+                  order_id: order.id,
+                  status: 'failed',
+                  stripeStatus: stripeResult.status,
+                  error: 'requires_payment_method',
+                });
+              }
+              
+              // Still processing/pending
+              return jsonResponse({
+                success: true,
+                order_id: order.id,
+                status: 'processing',
+                stripeStatus: stripeResult.status,
+              });
+            }
+          } catch (stripeError: any) {
+            log.error('[verify-payment] Stripe verify error', { error: stripeError.message });
+            // Fall through to return current DB status
+          }
+        }
+        
+        // Fallback: return current DB status
         const mappedStatus = unifiedPayment.status === 'succeeded' ? 'succeeded' : 
                             unifiedPayment.status === 'failed' ? 'failed' : 'pending';
         return jsonResponse({

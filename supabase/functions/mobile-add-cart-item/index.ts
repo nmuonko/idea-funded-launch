@@ -459,6 +459,11 @@ serve(async (req) => {
       }
     }
 
+    // SINGLE DEBUG LOG: Track image source for debugging
+    const imageSource = coalescedImageUrl ? 'client' : 
+                        (productImageUrl && !coalescedImageUrl ? (productImageUrl.includes('amazon') || productImageUrl.includes('ebay') ? 'scrape' : 'cache') : 'none');
+    console.log(`[IMAGE_FILL] source=${imageSource} urlPreview=${(productImageUrl || '').substring(0, 60)}`);
+
     // AUTO-DETECT SHIPPING CATEGORY - ALWAYS applied, no manual selection needed
     let finalShippingTypeId = shippingItemTypeId || null;
     let autoDetectedCategory: ShippingCategoryKey | null = null;

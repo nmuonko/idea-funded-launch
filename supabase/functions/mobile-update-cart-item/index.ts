@@ -56,6 +56,37 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
+    // Priority: productImageUrl > image_url > imageUrl > product_image_url
+    const rawImageUrl = 
+      body.productImageUrl ?? 
+      body.image_url ?? 
+      body.imageUrl ?? 
+      body.product_image_url ?? 
+      null;
+    
+    // Normalize: treat null/"" as missing, validate URL format
+    let coalescedImageUrl: string | undefined = undefined;
+    if (rawImageUrl && typeof rawImageUrl === 'string' && rawImageUrl.trim() !== '') {
+      try {
+        new URL(rawImageUrl.trim());
+        coalescedImageUrl = rawImageUrl.trim();
+      } catch {
+        // Invalid URL - ignore
+      }
+    }
+    
+    console.log('[mobile-update-cart-item] Image coalesce:', {
+      productImageUrl: !!body.productImageUrl,
+      image_url: !!body.image_url,
+      imageUrl: !!body.imageUrl,
+      product_image_url: !!body.product_image_url,
+      resolved: !!coalescedImageUrl,
+    });
+
+    // Store coalesced image for potential use in update
+    body.productImageUrl = coalescedImageUrl;
+
     // Verify item belongs to user and is in a DRAFT order - select only needed columns
     const { data: item, error: itemError } = await supabase
       .from('order_items')

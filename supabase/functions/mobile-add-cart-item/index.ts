@@ -208,6 +208,37 @@ serve(async (req) => {
 
     const body = await req.json();
 
+    // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
+    // Priority: productImageUrl > image_url > imageUrl > product_image_url
+    const rawImageUrl = 
+      body.productImageUrl ?? 
+      body.image_url ?? 
+      body.imageUrl ?? 
+      body.product_image_url ?? 
+      null;
+    
+    // Normalize: treat null/"" as missing, validate URL format
+    let coalescedImageUrl: string | undefined = undefined;
+    if (rawImageUrl && typeof rawImageUrl === 'string' && rawImageUrl.trim() !== '') {
+      try {
+        new URL(rawImageUrl.trim());
+        coalescedImageUrl = rawImageUrl.trim();
+      } catch {
+        // Invalid URL - ignore
+      }
+    }
+    
+    console.log('[mobile-add-cart-item] Image coalesce:', {
+      productImageUrl: !!body.productImageUrl,
+      image_url: !!body.image_url,
+      imageUrl: !!body.imageUrl,
+      product_image_url: !!body.product_image_url,
+      resolved: !!coalescedImageUrl,
+    });
+
+    // Inject coalesced image back into body for Zod validation
+    body.productImageUrl = coalescedImageUrl;
+
     // DEBUG: Log raw payload BEFORE validation to diagnose iOS issues
     console.log('[DEBUG_RAW_PAYLOAD] productUrl type:', typeof body.productUrl, 'value:', String(body.productUrl ?? '').substring(0, 100));
     console.log('[DEBUG_RAW_PAYLOAD] productImageUrl type:', typeof body.productImageUrl, 'value:', String(body.productImageUrl ?? '').substring(0, 80));
@@ -909,6 +940,28 @@ serve(async (req) => {
 
     // UPDATE ORDER TOTALS after adding new item - use settings values
     const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
+
+    // CACHE UPSERT: Store image/title in product_cache for future requests
+    // This allows future add-cart calls for same product to find image even if app sends none
+    if (productImageUrl || productTitle) {
+      const cacheUpsertStart = Date.now();
+      const { error: cacheError } = await supabase
+        .from('product_cache')
+        .upsert({
+          product_url: productUrl,
+          image_url: productImageUrl || null,
+          title: productTitle || null,
+          store: store.toLowerCase(),
+          source: 'cart_item',
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24h TTL
+        }, { onConflict: 'product_url' });
+      
+      if (cacheError) {
+        console.warn('[mobile-add-cart-item] product_cache upsert failed (non-blocking):', cacheError.message);
+      } else {
+        console.log(`[mobile-add-cart-item] product_cache upserted in ${Date.now() - cacheUpsertStart}ms`);
+      }
+    }
 
     // Get item count for the response
     const { count: itemCount } = await supabase

@@ -691,12 +691,102 @@ function extractFromSelectors(html: string, domain: string): Partial<ProductInfo
   return result;
 }
 
+/**
+ * Extract OG-image and title via a proxy reader (fallback for blocked domains like Tesla)
+ * This is a last-resort method when direct scraping fails with 403/bot detection
+ */
+async function extractOgImageViaProxy(url: string): Promise<{ imageUrl: string | null; title: string | null }> {
+  try {
+    // Use r.jina.ai as a simple reader/proxy that returns readable text content
+    // It extracts and preserves metadata like og:image
+    const proxyUrl = `https://r.jina.ai/${url}`;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    
+    try {
+      console.log('[get-product-info] Trying proxy OG extraction for:', url.substring(0, 80));
+      const response = await fetch(proxyUrl, {
+        headers: {
+          'Accept': 'text/plain',
+        },
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        console.log('[get-product-info] Proxy fetch failed:', response.status);
+        return { imageUrl: null, title: null };
+      }
+      
+      const text = await response.text();
+      
+      // r.jina.ai returns structured text with Title: and Image: prefixes
+      const titleMatch = text.match(/Title:\s*(.+)/i);
+      
+      // Look for image URL patterns in the response
+      // r.jina.ai typically includes image URLs in the text
+      const imagePatterns = [
+        /!\[.*?\]\((https?:\/\/[^\s)]+)\)/i, // Markdown image
+        /(https?:\/\/[^\s]+\.(?:jpg|jpeg|png|webp|gif))/i, // Direct image URL
+        /og:image[:\s]+["']?([^"'\s\n]+)/i, // og:image format
+      ];
+      
+      let imageUrl: string | null = null;
+      for (const pattern of imagePatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          imageUrl = match[1];
+          break;
+        }
+      }
+      
+      console.log('[get-product-info] Proxy extraction result:', { 
+        hasImage: !!imageUrl, 
+        hasTitle: !!titleMatch?.[1],
+        textLength: text.length,
+      });
+      
+      return {
+        imageUrl,
+        title: titleMatch?.[1]?.trim() || null,
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      console.log('[get-product-info] Proxy OG extraction timed out');
+    } else {
+      console.warn('[get-product-info] Proxy OG extraction failed:', err.message);
+    }
+    return { imageUrl: null, title: null };
+  }
+}
+
 async function scrapeProduct(url: string): Promise<ProductInfo> {
   const startTime = Date.now();
   console.log('[get-product-info] Scraping:', url);
   const domain = extractDomain(url);
   const timeout = getStoreTimeout(domain);
   console.log('[get-product-info] Domain:', domain, '| Timeout:', timeout, 'ms');
+
+  // Enhanced browser-like headers for retry attempts
+  const browserHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"macOS"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+  };
 
   try {
     // Create AbortController for timeout enforcement
@@ -707,6 +797,10 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     }, timeout);
 
     let response: Response;
+    let html: string = '';
+    let fetchSucceeded = false;
+    let wasBotBlocked = false;
+
     try {
       response = await fetch(url, {
         headers: {
@@ -716,27 +810,90 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
         },
         signal: controller.signal,
       });
+
+      if (response.ok) {
+        const contentLength = response.headers.get('content-length');
+        if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+          console.warn('[get-product-info] Response too large:', contentLength, 'bytes');
+          clearTimeout(timeoutId);
+          return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
+        }
+
+        html = await response.text();
+        
+        // Check for bot detection / captcha pages
+        if (!detectBotBlock(html)) {
+          fetchSucceeded = true;
+        } else {
+          console.log('[get-product-info] Bot detection on first attempt, will retry with enhanced headers');
+          wasBotBlocked = true;
+        }
+      } else {
+        console.log('[get-product-info] HTTP error on first attempt:', response.status);
+      }
     } finally {
       clearTimeout(timeoutId);
     }
 
-    if (!response.ok) {
-      console.log('[get-product-info] HTTP error:', response.status, '| Duration:', Date.now() - startTime, 'ms');
-      throw new Error(`HTTP ${response.status}`);
+    // RETRY with enhanced browser-like headers if first attempt failed
+    if (!fetchSucceeded) {
+      console.log('[get-product-info] Retrying with enhanced browser headers...');
+      const retryController = new AbortController();
+      const retryTimeoutId = setTimeout(() => retryController.abort(), 3000);
+
+      try {
+        const retryResponse = await fetch(url, {
+          headers: browserHeaders,
+          signal: retryController.signal,
+        });
+
+        if (retryResponse.ok) {
+          html = await retryResponse.text();
+          
+          if (!detectBotBlock(html)) {
+            fetchSucceeded = true;
+            console.log('[get-product-info] Enhanced headers succeeded');
+          } else {
+            wasBotBlocked = true;
+            console.log('[get-product-info] Still blocked after retry');
+          }
+        } else {
+          console.log('[get-product-info] Retry also failed:', retryResponse.status);
+        }
+      } catch (retryErr: any) {
+        if (retryErr.name !== 'AbortError') {
+          console.log('[get-product-info] Retry fetch error:', retryErr.message);
+        }
+      } finally {
+        clearTimeout(retryTimeoutId);
+      }
     }
 
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
-      console.warn('[get-product-info] Response too large:', contentLength, 'bytes');
-      return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
+    // LAST RESORT: Try proxy OG-image extraction for blocked domains
+    if (!fetchSucceeded || wasBotBlocked) {
+      console.log('[get-product-info] Attempting proxy OG-image extraction as last resort');
+      const proxyResult = await extractOgImageViaProxy(url);
+      
+      if (proxyResult.imageUrl || proxyResult.title) {
+        console.log('[get-product-info] Proxy extraction succeeded:', { hasImage: !!proxyResult.imageUrl, hasTitle: !!proxyResult.title });
+        return {
+          title: proxyResult.title,
+          imageUrl: proxyResult.imageUrl,
+          price: null, // Price requires WebView - we only extract image/title via proxy
+          currency: 'USD',
+          source: 'bot_blocked', // Still mark as blocked for price
+        };
+      }
+      
+      // If all fallbacks failed, return bot_blocked
+      if (!fetchSucceeded) {
+        console.log('[get-product-info] All fallbacks failed | Duration:', Date.now() - startTime, 'ms');
+        return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'bot_blocked' };
+      }
     }
 
-    const html = await response.text();
-    
-    // Check for bot detection / captcha pages
-    if (detectBotBlock(html)) {
-      console.log('[get-product-info] Bot detection triggered | Duration:', Date.now() - startTime, 'ms');
-      // Return with bot_blocked source so caller knows to suggest WebView
+    // If we got HTML but it's a bot block page, we've already tried proxy above
+    if (wasBotBlocked && !fetchSucceeded) {
       return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'bot_blocked' };
     }
     

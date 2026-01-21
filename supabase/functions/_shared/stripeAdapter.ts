@@ -156,6 +156,10 @@ export async function createPaymentIntent(
     'metadata[intent_id]': params.intentId,
   });
 
+  // iOS 3DS redirect fix - required for SFSafariViewController to return properly
+  body.append('automatic_payment_methods[allow_redirects]', 'always');
+  body.append('return_url', 'afrishop://stripe-redirect');
+
   if (params.description) {
     body.append('description', params.description);
   }

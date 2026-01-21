@@ -255,7 +255,9 @@ async function recomputeTotalsServerSide(
       });
     } else {
       // Regular item - calculate markup
-      const basePrice = Number(item.base_price_usd || item.subtotal_usd || 0);
+      // CRITICAL FIX: Use unit price × quantity for correct subtotal
+      const unitPrice = Number(item.base_price_usd || item.unit_price_usd || 0);
+      const basePrice = round2(unitPrice * qty);
       const effectiveMarkup = isVehicle ? vehicleMarkupPercent : markupPercent;
       const marginAmount = round2(basePrice * (effectiveMarkup / 100));
       
@@ -265,6 +267,8 @@ async function recomputeTotalsServerSide(
         item_id: item.id,
         rule: isVehicle ? 'vehicle_pending_quote' : 'standard_markup',
         markup_percent: effectiveMarkup,
+        unit_price: unitPrice,
+        quantity: qty,
         base_price: basePrice,
         margin: marginAmount,
       });

@@ -362,9 +362,26 @@ function detectBuyerCountry(
   return { isDRC, isoCode: detectedIso, countryCode: detectedIso };
 }
 
+// ============================================
+// PERF: Timing utility for performance diagnostics
+// ============================================
+function createPerfTimer() {
+  const start = Date.now();
+  const checkpoints: { step: string; elapsed_ms: number }[] = [];
+  return {
+    mark(step: string) {
+      const elapsed_ms = Date.now() - start;
+      checkpoints.push({ step, elapsed_ms });
+      console.log(`[PERF] step=${step} elapsed_ms=${elapsed_ms}`);
+    },
+    total() { return Date.now() - start; },
+    checkpoints() { return checkpoints; },
+  };
+}
+
 serve(async (req) => {
-  // 🔖 VERSION MARKER - P0 FULL PAYMENT WITH CHECKOUT SESSION LOCKING
-  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-12-checkout-session-lock");
+  // 🔖 VERSION MARKER - P0 FULL PAYMENT WITH CHECKOUT SESSION LOCKING + PERF TIMING
+  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-22-perf-timing");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
@@ -373,17 +390,37 @@ serve(async (req) => {
     return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
   }
 
+  // Start performance timer
+  const perf = createPerfTimer();
+
   try {
     // ============================================
     // CHECKOUT_INIT: Log entry point
     // ============================================
-    console.log('[mobile-checkout] CHECKOUT_INIT', { timestamp: new Date().toISOString() });
+    perf.mark('init');
 
     const { user, supabase } = await verifyAndGetUser(req);
+    perf.mark('auth');
     console.log('[mobile-checkout] User authenticated:', user.id);
 
     const body = await req.json();
+    perf.mark('body_parsed');
     const { cart_item_ids, notes } = body;
+
+    // ============================================
+    // PERF: Clean up stale checkout sessions (older than 30 min) to prevent constraint violations
+    // This is a background cleanup, we don't wait for it to complete
+    // ============================================
+    supabase
+      .from('checkout_sessions')
+      .update({ status: 'expired' })
+      .eq('user_id', user.id)
+      .in('status', ['pending', 'processing'])
+      .lt('created_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+      .then(({ error }) => {
+        if (error) console.warn('[mobile-checkout] STALE_SESSION_CLEANUP_ERROR', error.message);
+        else console.log('[mobile-checkout] STALE_SESSION_CLEANUP_DONE');
+      });
 
     // ============================================
     // P0 CRITICAL: Check for existing checkout_session_id
@@ -951,12 +988,16 @@ serve(async (req) => {
       }, 409);
     }
 
+    perf.mark('order_fetched');
+
     // Fetch requested items from DB (server-side source of truth)
     const { data: dbItems, error: itemsError } = await supabase
       .from('order_items')
       .select('*')
       .in('id', cart_item_ids)
       .eq('order_id', existingOrder.id);
+    
+    perf.mark('items_fetched');
 
     if (itemsError) {
       console.error('[mobile-checkout] Error fetching items:', itemsError);
@@ -1068,6 +1109,7 @@ serve(async (req) => {
 
     // Get pricing settings
     const settings = await getCachedSettings(supabase);
+    perf.mark('settings_fetched');
     const { exchangeRate, markupPercent, vehicleMarkupPercent, shippingBaseFeeUsd, shippingPercent } = settings;
 
     // Vehicle detection and quote validation
@@ -1103,6 +1145,7 @@ serve(async (req) => {
     // CHECKOUT_TOTALS_RECOMPUTED: Server computes totals
     // ============================================
     const totalsBreakdown = await recomputeTotalsServerSide(dbItems, settings, vehicleQuoteValidation);
+    perf.mark('totals_computed');
     
     console.log('[mobile-checkout] CHECKOUT_TOTALS_RECOMPUTED', {
       subtotal_items: totalsBreakdown.subtotal_items,
@@ -1138,6 +1181,7 @@ serve(async (req) => {
     // LOAD PAYMENT SETTINGS FOR LIMIT CHECKING
     // ============================================
     const paymentSettings = await getPaymentSettings(supabase);
+    perf.mark('payment_settings_loaded');
     
     // P0 CRITICAL: Log limits for debugging (safe - no secrets)
     console.log('[limits] mobile_money_max_usd=' + paymentSettings.mobile_money_max_usd + ', mobile_money_max_cdf=' + paymentSettings.mobile_money_max_cdf);
@@ -1288,6 +1332,8 @@ serve(async (req) => {
           .select('id')
           .single();
         
+        perf.mark('choice_session_created');
+        
         if (choiceSessionError) {
           console.error('[mobile-checkout] Failed to create choice checkout_session:', choiceSessionError);
         }
@@ -1300,6 +1346,7 @@ serve(async (req) => {
           required_currency: 'USD',
           options: availableOptions,
           reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
+          total_ms: perf.total(),
         });
         
         return jsonResponse({
@@ -2582,7 +2629,7 @@ serve(async (req) => {
     }, 400);
 
   } catch (error: any) {
-    console.error('[mobile-checkout] Error:', error.message);
+    console.error('[mobile-checkout] Error:', error.message, 'elapsed_ms=' + (typeof perf !== 'undefined' ? perf.total() : 'N/A'));
     const debugId = `err-${Date.now().toString(36)}`;
     
     if (error.name === 'AuthError') {

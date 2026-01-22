@@ -210,6 +210,17 @@ serve(async (req) => {
 
     // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
     // Priority: productImageUrl > image_url > imageUrl > product_image_url > thumbnail > photo > picture > productImage > image
+    const incomingImageKeys: string[] = [];
+    if (body.productImageUrl) incomingImageKeys.push('productImageUrl');
+    if (body.image_url) incomingImageKeys.push('image_url');
+    if (body.imageUrl) incomingImageKeys.push('imageUrl');
+    if (body.product_image_url) incomingImageKeys.push('product_image_url');
+    if (body.thumbnail) incomingImageKeys.push('thumbnail');
+    if (body.photo) incomingImageKeys.push('photo');
+    if (body.picture) incomingImageKeys.push('picture');
+    if (body.productImage) incomingImageKeys.push('productImage');
+    if (body.image) incomingImageKeys.push('image');
+    
     const rawImageUrl = 
       body.productImageUrl ?? 
       body.image_url ?? 
@@ -222,29 +233,21 @@ serve(async (req) => {
       body.image ??
       null;
     
-    // Normalize: treat null/"" as missing, validate URL format
+    // Normalize: treat null/"" as missing, validate URL format, must start with http
     let coalescedImageUrl: string | undefined = undefined;
-    if (rawImageUrl && typeof rawImageUrl === 'string' && rawImageUrl.trim() !== '') {
-      try {
-        new URL(rawImageUrl.trim());
-        coalescedImageUrl = rawImageUrl.trim();
-      } catch {
-        // Invalid URL - ignore
+    if (rawImageUrl && typeof rawImageUrl === 'string') {
+      const trimmed = rawImageUrl.trim();
+      if (trimmed !== '' && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+        try {
+          new URL(trimmed);
+          coalescedImageUrl = trimmed;
+        } catch {
+          // Invalid URL - ignore
+        }
       }
     }
     
-    console.log('[mobile-add-cart-item] Image coalesce:', {
-      productImageUrl: !!body.productImageUrl,
-      image_url: !!body.image_url,
-      imageUrl: !!body.imageUrl,
-      product_image_url: !!body.product_image_url,
-      thumbnail: !!body.thumbnail,
-      photo: !!body.photo,
-      picture: !!body.picture,
-      productImage: !!body.productImage,
-      image: !!body.image,
-      resolved: !!coalescedImageUrl,
-    });
+    console.log('[CART_IMAGE] add incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
 
     // Inject coalesced image back into body for Zod validation
     body.productImageUrl = coalescedImageUrl;
@@ -715,11 +718,9 @@ serve(async (req) => {
       const mergeImageUrl = productImageUrl || existingItem.product_image_url || null;
       const mergeTitle = productTitle || existingItem.title || null;
       
-      console.log('[mobile-add-cart-item] Merge image decision:', {
-        incoming: !!productImageUrl,
-        existing: !!existingItem.product_image_url,
-        final: !!mergeImageUrl,
-      });
+      console.log('[CART_IMAGE] merge incoming=' + (productImageUrl ? productImageUrl.substring(0, 50) : 'null') + 
+                  ' existing=' + (existingItem.product_image_url ? 'yes' : 'null') +
+                  ' savedTo=product_image_url final=' + (mergeImageUrl ? mergeImageUrl.substring(0, 50) : 'null'));
 
       const { data: updatedItem, error: updateError } = await supabase
         .from('order_items')

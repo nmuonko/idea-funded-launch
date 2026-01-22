@@ -18,6 +18,53 @@ import {
 } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
+/**
+ * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
+ * Handles:
+ * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
+ * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
+ * - Whitespace trimming
+ * - Validation via URL constructor
+ */
+function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Ignore non-web URIs
+  if (s.startsWith("data:") || s.startsWith("blob:")) return null;
+
+  // Protocol-relative → https
+  if (s.startsWith("//")) {
+    s = "https:" + s;
+    console.log("[IMAGE_NORMALIZE] protocol-relative fixed:", s.substring(0, 60));
+  }
+
+  // Relative path → resolve against product URL origin (if available)
+  if (s.startsWith("/") || (!s.startsWith("http://") && !s.startsWith("https://"))) {
+    if (productUrl) {
+      try {
+        const base = new URL(productUrl);
+        s = new URL(s, base.origin).toString();
+        console.log("[IMAGE_NORMALIZE] relative path resolved:", s.substring(0, 60));
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  // Final validation
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 // COMPATIBILITY: Helper to coalesce multiple possible image field names
 function coalesceImageUrl(item: any): { imageUrl: string | null; incomingKeys: string[] } {
   const incomingKeys: string[] = [];
@@ -43,21 +90,11 @@ function coalesceImageUrl(item: any): { imageUrl: string | null; incomingKeys: s
     item.image ??
     null;
   
-  if (!rawImageUrl || typeof rawImageUrl !== 'string') {
-    return { imageUrl: null, incomingKeys };
-  }
+  // CRITICAL: Use normalizeImageUrl for protocol-relative and relative URLs
+  const productUrl = item.productUrl ?? item.product_url ?? null;
+  const normalizedUrl = normalizeImageUrl(rawImageUrl, productUrl);
   
-  const trimmed = rawImageUrl.trim();
-  if (trimmed === '' || (!trimmed.startsWith('http://') && !trimmed.startsWith('https://'))) {
-    return { imageUrl: null, incomingKeys };
-  }
-  
-  try {
-    new URL(trimmed);
-    return { imageUrl: trimmed, incomingKeys };
-  } catch {
-    return { imageUrl: null, incomingKeys };
-  }
+  return { imageUrl: normalizedUrl, incomingKeys };
 }
 
 const syncCartSchema = z.object({

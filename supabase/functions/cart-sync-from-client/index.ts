@@ -18,12 +18,47 @@ import {
 } from "../_shared/cartHelpers.ts";
 
 // Input validation schema
+// COMPATIBILITY: Helper to coalesce multiple possible image field names
+function coalesceImageUrl(item: any): string | null {
+  const rawImageUrl = 
+    item.productImageUrl ?? 
+    item.image_url ?? 
+    item.imageUrl ?? 
+    item.product_image_url ??
+    item.thumbnail ??
+    item.photo ??
+    item.picture ??
+    item.productImage ??
+    item.image ??
+    null;
+  
+  if (!rawImageUrl || typeof rawImageUrl !== 'string' || rawImageUrl.trim() === '') {
+    return null;
+  }
+  
+  try {
+    new URL(rawImageUrl.trim());
+    return rawImageUrl.trim();
+  } catch {
+    return null;
+  }
+}
+
 const syncCartSchema = z.object({
   items: z.array(z.object({
     id: z.string().optional(), // Local item ID (ignored)
     productUrl: z.string().url().max(2048),
     title: z.string().max(500).optional(),
-    imageUrl: z.string().url().max(2048).optional().nullable(),
+    // Accept all possible image field names (validated later via coalesceImageUrl)
+    imageUrl: z.string().max(2048).optional().nullable(),
+    image_url: z.string().max(2048).optional().nullable(),
+    productImageUrl: z.string().max(2048).optional().nullable(),
+    product_image_url: z.string().max(2048).optional().nullable(),
+    thumbnail: z.string().max(2048).optional().nullable(),
+    photo: z.string().max(2048).optional().nullable(),
+    picture: z.string().max(2048).optional().nullable(),
+    productImage: z.string().max(2048).optional().nullable(),
+    image: z.string().max(2048).optional().nullable(),
     store: z.string().max(50).optional(),
     unitPrice: z.number().positive().max(1000000),
     quantity: z.number().int().positive().max(100).default(1),
@@ -51,7 +86,7 @@ const syncCartSchema = z.object({
       priceSource: z.string().optional(),
     }).optional(),
   })).max(50), // Max 50 items per sync
-});
+}).passthrough();
 
 serve(async (req) => {
   // Handle CORS preflight
@@ -211,11 +246,22 @@ serve(async (req) => {
         });
       }
       
+      // COMPATIBILITY: Coalesce all possible image field names
+      const resolvedImageUrl = coalesceImageUrl(item);
+      
+      console.log('[cart-sync-from-client] Image coalesce:', {
+        hasImage: !!resolvedImageUrl,
+        imageUrl: !!item.imageUrl,
+        image_url: !!item.image_url,
+        productImageUrl: !!item.productImageUrl,
+        thumbnail: !!item.thumbnail,
+      });
+      
       const itemData: Record<string, any> = {
         order_id: cartId,
         product_url: item.productUrl,
         title: item.title || null,
-        product_image_url: item.imageUrl || null,
+        product_image_url: resolvedImageUrl,
         store: store,
         base_price_usd: pricing.basePriceUsd,
         unit_price_usd: pricing.basePriceUsd,

@@ -57,12 +57,17 @@ serve(async (req) => {
     const body = await req.json();
 
     // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
-    // Priority: productImageUrl > image_url > imageUrl > product_image_url
+    // Priority: productImageUrl > image_url > imageUrl > product_image_url > thumbnail > photo > picture > productImage > image
     const rawImageUrl = 
       body.productImageUrl ?? 
       body.image_url ?? 
       body.imageUrl ?? 
       body.product_image_url ?? 
+      body.thumbnail ??
+      body.photo ??
+      body.picture ??
+      body.productImage ??
+      body.image ??
       null;
     
     // Normalize: treat null/"" as missing, validate URL format
@@ -81,6 +86,9 @@ serve(async (req) => {
       image_url: !!body.image_url,
       imageUrl: !!body.imageUrl,
       product_image_url: !!body.product_image_url,
+      thumbnail: !!body.thumbnail,
+      photo: !!body.photo,
+      picture: !!body.picture,
       resolved: !!coalescedImageUrl,
     });
 

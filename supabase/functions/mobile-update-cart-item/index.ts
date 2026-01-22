@@ -58,6 +58,17 @@ serve(async (req) => {
 
     // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
     // Priority: productImageUrl > image_url > imageUrl > product_image_url > thumbnail > photo > picture > productImage > image
+    const incomingImageKeys: string[] = [];
+    if (body.productImageUrl) incomingImageKeys.push('productImageUrl');
+    if (body.image_url) incomingImageKeys.push('image_url');
+    if (body.imageUrl) incomingImageKeys.push('imageUrl');
+    if (body.product_image_url) incomingImageKeys.push('product_image_url');
+    if (body.thumbnail) incomingImageKeys.push('thumbnail');
+    if (body.photo) incomingImageKeys.push('photo');
+    if (body.picture) incomingImageKeys.push('picture');
+    if (body.productImage) incomingImageKeys.push('productImage');
+    if (body.image) incomingImageKeys.push('image');
+    
     const rawImageUrl = 
       body.productImageUrl ?? 
       body.image_url ?? 
@@ -70,35 +81,27 @@ serve(async (req) => {
       body.image ??
       null;
     
-    // Normalize: treat null/"" as missing, validate URL format
-    let coalescedImageUrl: string | undefined = undefined;
-    if (rawImageUrl && typeof rawImageUrl === 'string' && rawImageUrl.trim() !== '') {
-      try {
-        new URL(rawImageUrl.trim());
-        coalescedImageUrl = rawImageUrl.trim();
-      } catch {
-        // Invalid URL - ignore
+    // Normalize: treat null/"" as missing, validate URL format, must start with http
+    let coalescedImageUrl: string | null = null;
+    if (rawImageUrl && typeof rawImageUrl === 'string') {
+      const trimmed = rawImageUrl.trim();
+      if (trimmed !== '' && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+        try {
+          new URL(trimmed);
+          coalescedImageUrl = trimmed;
+        } catch {
+          // Invalid URL - ignore
+        }
       }
     }
     
-    console.log('[mobile-update-cart-item] Image coalesce:', {
-      productImageUrl: !!body.productImageUrl,
-      image_url: !!body.image_url,
-      imageUrl: !!body.imageUrl,
-      product_image_url: !!body.product_image_url,
-      thumbnail: !!body.thumbnail,
-      photo: !!body.photo,
-      picture: !!body.picture,
-      resolved: !!coalescedImageUrl,
-    });
-
-    // Store coalesced image for potential use in update
-    body.productImageUrl = coalescedImageUrl;
+    console.log('[CART_IMAGE] update incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
 
     // Verify item belongs to user and is in a DRAFT order - select only needed columns
+    // CRITICAL: Include product_image_url so we can preserve it if no new image provided
     const { data: item, error: itemError } = await supabase
       .from('order_items')
-      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, captured_price, orders!inner(user_id, status, id)')
+      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, captured_price, product_image_url, title, orders!inner(user_id, status, id)')
       .eq('id', itemId)
       .single();
 
@@ -125,6 +128,18 @@ serve(async (req) => {
 
     // Build update object
     const updateData: Record<string, any> = {};
+
+    // CRITICAL: Handle image update - NEVER overwrite existing non-null with null
+    if (coalescedImageUrl) {
+      updateData.product_image_url = coalescedImageUrl;
+      console.log('[CART_IMAGE] savedTo=product_image_url value=' + coalescedImageUrl.substring(0, 60));
+    }
+    
+    // Handle title update if provided
+    const newTitle = body.productTitle ?? body.title ?? body.product_title ?? null;
+    if (newTitle && typeof newTitle === 'string' && newTitle.trim() !== '') {
+      updateData.title = newTitle.trim();
+    }
 
     // Handle is_saved_for_later toggle - accept both camelCase and snake_case
     const savedForLaterValue = body.isSavedForLater ?? body.is_saved_for_later;

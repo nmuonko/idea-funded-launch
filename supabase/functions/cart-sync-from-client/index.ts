@@ -19,7 +19,18 @@ import {
 
 // Input validation schema
 // COMPATIBILITY: Helper to coalesce multiple possible image field names
-function coalesceImageUrl(item: any): string | null {
+function coalesceImageUrl(item: any): { imageUrl: string | null; incomingKeys: string[] } {
+  const incomingKeys: string[] = [];
+  if (item.productImageUrl) incomingKeys.push('productImageUrl');
+  if (item.image_url) incomingKeys.push('image_url');
+  if (item.imageUrl) incomingKeys.push('imageUrl');
+  if (item.product_image_url) incomingKeys.push('product_image_url');
+  if (item.thumbnail) incomingKeys.push('thumbnail');
+  if (item.photo) incomingKeys.push('photo');
+  if (item.picture) incomingKeys.push('picture');
+  if (item.productImage) incomingKeys.push('productImage');
+  if (item.image) incomingKeys.push('image');
+  
   const rawImageUrl = 
     item.productImageUrl ?? 
     item.image_url ?? 
@@ -32,15 +43,20 @@ function coalesceImageUrl(item: any): string | null {
     item.image ??
     null;
   
-  if (!rawImageUrl || typeof rawImageUrl !== 'string' || rawImageUrl.trim() === '') {
-    return null;
+  if (!rawImageUrl || typeof rawImageUrl !== 'string') {
+    return { imageUrl: null, incomingKeys };
+  }
+  
+  const trimmed = rawImageUrl.trim();
+  if (trimmed === '' || (!trimmed.startsWith('http://') && !trimmed.startsWith('https://'))) {
+    return { imageUrl: null, incomingKeys };
   }
   
   try {
-    new URL(rawImageUrl.trim());
-    return rawImageUrl.trim();
+    new URL(trimmed);
+    return { imageUrl: trimmed, incomingKeys };
   } catch {
-    return null;
+    return { imageUrl: null, incomingKeys };
   }
 }
 
@@ -246,16 +262,10 @@ serve(async (req) => {
         });
       }
       
-      // COMPATIBILITY: Coalesce all possible image field names
-      const resolvedImageUrl = coalesceImageUrl(item);
+      // COMPATIBILITY: Coalesce all possible image field names with logging
+      const { imageUrl: resolvedImageUrl, incomingKeys } = coalesceImageUrl(item);
       
-      console.log('[cart-sync-from-client] Image coalesce:', {
-        hasImage: !!resolvedImageUrl,
-        imageUrl: !!item.imageUrl,
-        image_url: !!item.image_url,
-        productImageUrl: !!item.productImageUrl,
-        thumbnail: !!item.thumbnail,
-      });
+      console.log('[CART_IMAGE] sync incomingKeys=' + incomingKeys.join(',') + ' chosen=' + (resolvedImageUrl ? resolvedImageUrl.substring(0, 60) + '...' : 'null'));
       
       const itemData: Record<string, any> = {
         order_id: cartId,

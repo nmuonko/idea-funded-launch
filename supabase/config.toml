@@ -374,3 +374,9 @@ verify_jwt = false
 
 [functions.cart-guest-snapshot]
 verify_jwt = false
+
+[functions.stripe-create-checkout-session]
+verify_jwt = true
+
+[functions.stripe-verify-checkout-session]
+verify_jwt = true

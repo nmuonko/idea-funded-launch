@@ -711,6 +711,16 @@ serve(async (req) => {
         exchangeRate
       );
 
+      // CRITICAL: Never overwrite existing non-null image with null
+      const mergeImageUrl = productImageUrl || existingItem.product_image_url || null;
+      const mergeTitle = productTitle || existingItem.title || null;
+      
+      console.log('[mobile-add-cart-item] Merge image decision:', {
+        incoming: !!productImageUrl,
+        existing: !!existingItem.product_image_url,
+        final: !!mergeImageUrl,
+      });
+
       const { data: updatedItem, error: updateError } = await supabase
         .from('order_items')
         .update({ 
@@ -719,6 +729,9 @@ serve(async (req) => {
           markup_fee_usd: mergedPricing.itemMarginUsd,
           total_price_usd: mergedPricing.itemSubtotalUsd,
           total_price_cdf: mergedPricing.itemSubtotalCdf,
+          // CRITICAL: Update image/title, never overwrite with null
+          product_image_url: mergeImageUrl,
+          title: mergeTitle,
           // Update shipping fields if provided or auto-detected
           ...(finalShippingTypeId && {
             shipping_item_type_id: finalShippingTypeId,

@@ -150,7 +150,7 @@ export async function createPaymentIntent(
   const body = new URLSearchParams({
     amount: amountCents.toString(),
     currency: 'usd',
-    'payment_method_types[]': 'card',
+    'automatic_payment_methods[enabled]': 'true',
     'metadata[order_id]': params.orderId,
     'metadata[user_id]': params.userId,
     'metadata[intent_id]': params.intentId,
@@ -470,10 +470,11 @@ function mapStripeStatus(stripeStatus: string): 'pending' | 'processing' | 'succ
       return 'succeeded';
     case 'processing':
     case 'requires_action':
+    case 'requires_payment_method':
     case 'requires_confirmation':
       return 'pending';
-    case 'requires_payment_method':
     case 'canceled':
+    case 'requires_capture':
       return 'failed';
     default:
       return 'pending';

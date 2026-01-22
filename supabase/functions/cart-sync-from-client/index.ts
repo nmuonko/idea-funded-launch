@@ -265,7 +265,7 @@ serve(async (req) => {
       // COMPATIBILITY: Coalesce all possible image field names with logging
       const { imageUrl: resolvedImageUrl, incomingKeys } = coalesceImageUrl(item);
       
-      console.log('[CART_IMAGE] sync incomingKeys=' + incomingKeys.join(',') + ' chosen=' + (resolvedImageUrl ? resolvedImageUrl.substring(0, 60) + '...' : 'null'));
+      console.log('[CART_IMAGE] fn=cart-sync-from-client incomingKeys=' + incomingKeys.join(',') + ' chosen=' + (resolvedImageUrl ? resolvedImageUrl.substring(0, 60) + '...' : 'null') + ' saved=' + (resolvedImageUrl ? 'true' : 'false'));
       
       const itemData: Record<string, any> = {
         order_id: cartId,

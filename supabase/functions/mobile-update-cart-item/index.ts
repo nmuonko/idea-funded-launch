@@ -95,7 +95,7 @@ serve(async (req) => {
       }
     }
     
-    console.log('[CART_IMAGE] update incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
+    console.log('[CART_IMAGE] fn=mobile-update-cart-item incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null') + ' saved=' + (coalescedImageUrl ? 'true' : 'false'));
 
     // Verify item belongs to user and is in a DRAFT order - select only needed columns
     // CRITICAL: Include product_image_url so we can preserve it if no new image provided

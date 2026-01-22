@@ -28,6 +28,51 @@ function calculateItemShipping(
 }
 
 /**
+ * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
+ * Handles:
+ * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
+ * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
+ * - Whitespace trimming
+ * - Validation via URL constructor
+ */
+function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Ignore non-web URIs
+  if (s.startsWith("data:") || s.startsWith("blob:")) return null;
+
+  // Protocol-relative → https
+  if (s.startsWith("//")) {
+    s = "https:" + s;
+  }
+
+  // Relative path → resolve against product URL origin (if available)
+  if (s.startsWith("/") || (!s.startsWith("http://") && !s.startsWith("https://"))) {
+    if (productUrl) {
+      try {
+        const base = new URL(productUrl);
+        s = new URL(s, base.origin).toString();
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  // Final validation
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Format item for response - STABLE SCHEMA for all item types
  * Every item has: id, type, title, price fields, quote_status, shipping_cost, updated_at
  */
@@ -54,6 +99,10 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   // SIMPLE check: is the item PENDING based on DB column only
   const hasPendingPriceConfirmation = String(priceConfirmationStatus || '').toUpperCase().trim() === 'PENDING';
   
+  // CRITICAL: Normalize image URL to handle protocol-relative (//...) and relative (/...) URLs
+  // This is essential for React Native which requires absolute https URLs
+  const safeImageUrl = normalizeImageUrl(item.product_image_url, item.product_url);
+  
   // STABLE BASE FIELDS for all items
   const baseFields = {
     id: item.id,
@@ -61,8 +110,8 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     productUrl: item.product_url,
     productTitle: item.title || null,
     title: item.title || null,  // Alias for consistency
-    productImageUrl: item.product_image_url || null,
-    image_url: item.product_image_url || null,
+    productImageUrl: safeImageUrl,
+    image_url: safeImageUrl,
     store: item.store,
     quantity: isVehicle ? 1 : quantity,
     estWeightKg,

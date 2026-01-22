@@ -9,6 +9,52 @@ import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { calculateItemPricing, updateOrderTotals } from "../_shared/cartHelpers.ts";
 
 /**
+ * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
+ * Handles:
+ * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
+ * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
+ * - Whitespace trimming
+ * - Validation via URL constructor
+ */
+function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Ignore non-web URIs
+  if (s.startsWith("data:") || s.startsWith("blob:")) return null;
+
+  // Protocol-relative → https
+  if (s.startsWith("//")) {
+    s = "https:" + s;
+    console.log("[IMAGE_NORMALIZE] protocol-relative fixed:", s.substring(0, 60));
+  }
+
+  // Relative path → resolve against product URL origin (if available)
+  if (s.startsWith("/") || (!s.startsWith("http://") && !s.startsWith("https://"))) {
+    if (productUrl) {
+      try {
+        const base = new URL(productUrl);
+        s = new URL(s, base.origin).toString();
+        console.log("[IMAGE_NORMALIZE] relative path resolved:", s.substring(0, 60));
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  // Final validation
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+/**
  * CRITICAL: Detect if price was USER edited using explicit signals
  * Supports BOTH mobile app (snake_case) AND web (camelCase) naming conventions
  */
@@ -81,27 +127,21 @@ serve(async (req) => {
       body.image ??
       null;
     
-    // Normalize: treat null/"" as missing, validate URL format, must start with http
-    let coalescedImageUrl: string | null = null;
-    if (rawImageUrl && typeof rawImageUrl === 'string') {
-      const trimmed = rawImageUrl.trim();
-      if (trimmed !== '' && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
-        try {
-          new URL(trimmed);
-          coalescedImageUrl = trimmed;
-        } catch {
-          // Invalid URL - ignore
-        }
-      }
-    }
+    // We need product_url for normalizing relative image URLs - will get from DB
+    // For now, try to use client-provided productUrl if available
+    const clientProductUrl = body.productUrl ?? body.product_url ?? null;
     
-    console.log('[CART_IMAGE] fn=mobile-update-cart-item incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null') + ' saved=' + (coalescedImageUrl ? 'true' : 'false'));
+    // CRITICAL: Use normalizeImageUrl to handle protocol-relative (//...) and relative (/...) URLs
+    // This is essential for React Native which requires absolute https URLs
+    const coalescedImageUrl = normalizeImageUrl(rawImageUrl, clientProductUrl);
+    
+    console.log('[CART_IMAGE] fn=mobile-update-cart-item incomingKeys=' + incomingImageKeys.join(',') + ' rawInput=' + (rawImageUrl ? String(rawImageUrl).substring(0, 40) : 'null') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null') + ' saved=' + (coalescedImageUrl ? 'true' : 'false'));
 
     // Verify item belongs to user and is in a DRAFT order - select only needed columns
-    // CRITICAL: Include product_image_url so we can preserve it if no new image provided
+    // CRITICAL: Include product_image_url and product_url so we can preserve/normalize them
     const { data: item, error: itemError } = await supabase
       .from('order_items')
-      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, captured_price, product_image_url, title, orders!inner(user_id, status, id)')
+      .select('id, base_price_usd, quantity, saved_at, price_confirmation_status, captured_price, product_image_url, product_url, title, orders!inner(user_id, status, id)')
       .eq('id', itemId)
       .single();
 

@@ -58,6 +58,53 @@ function normalizeProductUrl(val: string): string | null {
   }
 }
 
+/**
+ * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
+ * Handles:
+ * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
+ * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
+ * - Whitespace trimming
+ * - Validation via URL constructor
+ */
+function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // Ignore non-web URIs
+  if (s.startsWith("data:") || s.startsWith("blob:")) return null;
+
+  // Protocol-relative → https
+  if (s.startsWith("//")) {
+    s = "https:" + s;
+    console.log("[IMAGE_NORMALIZE] protocol-relative fixed:", s.substring(0, 60));
+  }
+
+  // Relative path → resolve against product URL origin (if available)
+  if (s.startsWith("/") || (!s.startsWith("http://") && !s.startsWith("https://"))) {
+    if (productUrl) {
+      try {
+        const base = new URL(productUrl);
+        s = new URL(s, base.origin).toString();
+        console.log("[IMAGE_NORMALIZE] relative path resolved:", s.substring(0, 60));
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  // Final validation
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 // Input validation schema with resilient URL handling
 const addCartItemSchema = z.object({
   productUrl: z.string()
@@ -233,21 +280,11 @@ serve(async (req) => {
       body.image ??
       null;
     
-    // Normalize: treat null/"" as missing, validate URL format, must start with http
-    let coalescedImageUrl: string | undefined = undefined;
-    if (rawImageUrl && typeof rawImageUrl === 'string') {
-      const trimmed = rawImageUrl.trim();
-      if (trimmed !== '' && (trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
-        try {
-          new URL(trimmed);
-          coalescedImageUrl = trimmed;
-        } catch {
-          // Invalid URL - ignore
-        }
-      }
-    }
+    // CRITICAL: Use normalizeImageUrl to handle protocol-relative (//...) and relative (/...) URLs
+    // This is essential for React Native which requires absolute https URLs
+    const coalescedImageUrl = normalizeImageUrl(rawImageUrl, body.productUrl) ?? undefined;
     
-    console.log('[CART_IMAGE] add incomingKeys=' + incomingImageKeys.join(',') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
+    console.log('[CART_IMAGE] fn=mobile-add-cart-item incomingKeys=' + incomingImageKeys.join(',') + ' rawInput=' + (rawImageUrl ? String(rawImageUrl).substring(0, 40) : 'null') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
 
     // Inject coalesced image back into body for Zod validation
     body.productImageUrl = coalescedImageUrl;
@@ -426,8 +463,14 @@ serve(async (req) => {
           // get-product-info returns imageUrl (camelCase), not image_url
           // Extract image and title regardless of HTTP status - scraper may return image even when price fails
           if (!productImageUrl && scrapeData.imageUrl) {
-            productImageUrl = scrapeData.imageUrl;
-            console.log('[mobile-add-cart-item] Got image URL from scrape');
+            // CRITICAL: Normalize scraped image URL - may be protocol-relative (//...)
+            const normalizedScrapeImg = normalizeImageUrl(scrapeData.imageUrl, productUrl);
+            if (normalizedScrapeImg) {
+              productImageUrl = normalizedScrapeImg;
+              console.log('[mobile-add-cart-item] Got normalized image URL from scrape:', productImageUrl.substring(0, 60));
+            } else {
+              console.warn('[mobile-add-cart-item] Scraper returned invalid image URL:', String(scrapeData.imageUrl).substring(0, 60));
+            }
           }
           if (!productTitle && scrapeData.productTitle) {
             productTitle = scrapeData.productTitle;
@@ -461,8 +504,14 @@ serve(async (req) => {
           .maybeSingle();
         
         if (cachedProduct?.image_url) {
-          productImageUrl = cachedProduct.image_url;
-          console.log('[mobile-add-cart-item] Got image from product_cache');
+          // CRITICAL: Normalize cached image URL - may be protocol-relative (//...)
+          const normalizedCacheImg = normalizeImageUrl(cachedProduct.image_url, productUrl);
+          if (normalizedCacheImg) {
+            productImageUrl = normalizedCacheImg;
+            console.log('[mobile-add-cart-item] Got normalized image from product_cache:', productImageUrl.substring(0, 60));
+          } else {
+            console.warn('[mobile-add-cart-item] Cache contained invalid image URL:', String(cachedProduct.image_url).substring(0, 60));
+          }
         }
         if (!productTitle && cachedProduct?.title) {
           productTitle = cachedProduct.title;

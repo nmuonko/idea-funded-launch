@@ -64,7 +64,7 @@ const DownloadPage = () => {
             
             {/* Download Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <a href="https://play.google.com/store" target="_blank" rel="noopener noreferrer">
+              <a href="https://play.google.com/store/apps/details?id=com.afrishop.usadrc&pcampaignid=web_share" target="_blank" rel="noopener noreferrer">
                 <motion.div
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.98 }}
@@ -213,7 +213,7 @@ const DownloadPage = () => {
               Download the AfriShop app to begin using our ordering assistance service.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <a href="https://play.google.com/store" target="_blank" rel="noopener noreferrer">
+              <a href="https://play.google.com/store/apps/details?id=com.afrishop.usadrc&pcampaignid=web_share" target="_blank" rel="noopener noreferrer">
                 <Button size="lg" className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white border-0 rounded-full px-10 h-16 text-lg">
                   <Download className="h-5 w-5 mr-3" />
                   Download Now

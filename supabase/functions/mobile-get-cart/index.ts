@@ -6,6 +6,7 @@ import {
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
+import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
 // Heavy threshold for manual quote requirement (non-vehicles)
 const HEAVY_THRESHOLD_KG = 9;
@@ -29,9 +30,11 @@ function calculateItemShipping(
 
 /**
  * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
+ * Also checks against blocklist to filter out generic logos.
  * Handles:
  * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
  * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
+ * - Blocklist filtering for generic logos (Amazon logo, placeholders, etc.)
  * - Whitespace trimming
  * - Validation via URL constructor
  */
@@ -66,7 +69,16 @@ function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
   try {
     const u = new URL(s);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    return u.toString();
+    
+    const validatedUrl = u.toString();
+    
+    // CRITICAL: Check against blocklist to filter out generic logos
+    if (isBlockedImageUrl(validatedUrl)) {
+      console.log('[mobile-get-cart] Blocked generic image:', validatedUrl.substring(0, 60));
+      return null;
+    }
+    
+    return validatedUrl;
   } catch {
     return null;
   }

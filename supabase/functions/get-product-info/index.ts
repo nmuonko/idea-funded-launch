@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -567,43 +568,20 @@ function extractFromEmbeddedJson(html: string): Partial<ProductInfo> {
   return result;
 }
 
-// Extract image URL with priority: og:image > twitter:image > JSON-LD > product image selectors
+// Extract image URL with priority: domain-specific selectors > og:image > twitter:image
+// CRITICAL: For Amazon and other sites, prioritize product-specific selectors BEFORE og:image
+// because og:image often returns generic site logos instead of product images
 function extractImageUrl(html: string, domain: string): string | null {
-  // 1. Priority: Open Graph image (most reliable for product pages)
-  const ogImagePatterns = [
-    /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i,
-    /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i,
-    /<meta\s+name=["']og:image["']\s+content=["']([^"']+)["']/i,
-  ];
-  
-  for (const pattern of ogImagePatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      console.log('[get-product-info] Found og:image');
-      return match[1];
-    }
-  }
-
-  // 2. Twitter card image
-  const twitterImagePatterns = [
-    /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i,
-    /<meta\s+content=["']([^"']+)["']\s+name=["']twitter:image["']/i,
-  ];
-  
-  for (const pattern of twitterImagePatterns) {
-    const match = html.match(pattern);
-    if (match && match[1]) {
-      console.log('[get-product-info] Found twitter:image');
-      return match[1];
-    }
-  }
-
-  // 3. Domain-specific image selectors
+  // Domain-specific image selectors - CHECK FIRST for sites with unreliable og:image
   const domainImageSelectors: Record<string, RegExp[]> = {
     'amazon.com': [
+      // Amazon product images - these are the actual product photos
       /<img[^>]*id=["']landingImage["'][^>]*src=["']([^"']+)["']/i,
       /<img[^>]*class=["'][^"']*a-dynamic-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
       /<img[^>]*data-old-hires=["']([^"']+)["']/i,
+      /<img[^>]*data-a-dynamic-image=["']\{[^}]*"([^"]+)"/i,  // JSON format dynamic image
+      // High-res product image from data attributes
+      /<img[^>]*data-zoom-hires=["']([^"']+)["']/i,
     ],
     'walmart.com': [
       /<img[^>]*class=["'][^"']*product-image[^"']*["'][^>]*src=["']([^"']+)["']/i,
@@ -631,16 +609,61 @@ function extractImageUrl(html: string, domain: string): string | null {
     ],
   };
 
+  // 1. PRIORITY FOR AMAZON: Try domain-specific selectors FIRST
+  // Amazon's og:image often returns the Amazon logo instead of product image
+  if (domain === 'amazon.com' || domain.includes('amazon')) {
+    const amazonSelectors = domainImageSelectors['amazon.com'] || [];
+    for (const regex of amazonSelectors) {
+      const match = html.match(regex);
+      if (match && match[1] && !isBlockedImageUrl(match[1])) {
+        console.log('[get-product-info] Found Amazon product image (domain selector)');
+        return match[1];
+      }
+    }
+  }
+
+  // 2. Open Graph image - with blocklist check
+  const ogImagePatterns = [
+    /<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+property=["']og:image["']/i,
+    /<meta\s+name=["']og:image["']\s+content=["']([^"']+)["']/i,
+  ];
+  
+  for (const pattern of ogImagePatterns) {
+    const match = html.match(pattern);
+    if (match && match[1] && !isBlockedImageUrl(match[1])) {
+      console.log('[get-product-info] Found valid og:image');
+      return match[1];
+    } else if (match && match[1] && isBlockedImageUrl(match[1])) {
+      console.log('[get-product-info] Rejected blocked og:image:', match[1].substring(0, 60));
+    }
+  }
+
+  // 3. Twitter card image - with blocklist check
+  const twitterImagePatterns = [
+    /<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i,
+    /<meta\s+content=["']([^"']+)["']\s+name=["']twitter:image["']/i,
+  ];
+  
+  for (const pattern of twitterImagePatterns) {
+    const match = html.match(pattern);
+    if (match && match[1] && !isBlockedImageUrl(match[1])) {
+      console.log('[get-product-info] Found valid twitter:image');
+      return match[1];
+    }
+  }
+
+  // 4. Domain-specific selectors (for non-Amazon sites)
   const selectors = domainImageSelectors[domain] || [];
   for (const regex of selectors) {
     const match = html.match(regex);
-    if (match && match[1]) {
+    if (match && match[1] && !isBlockedImageUrl(match[1])) {
       console.log('[get-product-info] Found domain-specific image');
       return match[1];
     }
   }
 
-  // 4. Generic product image patterns
+  // 5. Generic product image patterns - with blocklist check
   const genericPatterns = [
     /<img[^>]*(?:id|class)=["'][^"']*(?:main|product|hero|primary)[^"']*["'][^>]*src=["']([^"']+)["']/i,
     /<img[^>]*src=["']([^"']+)["'][^>]*(?:id|class)=["'][^"']*(?:main|product|hero|primary)[^"']*["']/i,
@@ -648,7 +671,7 @@ function extractImageUrl(html: string, domain: string): string | null {
   
   for (const pattern of genericPatterns) {
     const match = html.match(pattern);
-    if (match && match[1]) {
+    if (match && match[1] && !isBlockedImageUrl(match[1])) {
       console.log('[get-product-info] Found generic product image');
       return match[1];
     }

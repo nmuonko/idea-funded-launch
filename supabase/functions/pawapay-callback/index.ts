@@ -381,6 +381,59 @@ async function verifySignature(
   return { valid: true, reason: 'signature_verified' };
 }
 
+// ==================== Helper Functions ====================
+
+/**
+ * Send payment confirmation email if not already sent (idempotent)
+ */
+async function sendPaymentConfirmationEmailIfNeeded(
+  supabase: any,
+  orderId: string,
+  traceId: string
+): Promise<void> {
+  try {
+    // Check if email already sent
+    const { data: orderCheck } = await supabase
+      .from('orders')
+      .select('payment_confirmation_email_sent_at')
+      .eq('id', orderId)
+      .single();
+    
+    if (orderCheck?.payment_confirmation_email_sent_at) {
+      console.log(`[${traceId}] [PAYMENT_EMAIL] Email already sent, skipping`, { orderId });
+      return;
+    }
+    
+    // Mark as sent first (optimistic lock)
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ payment_confirmation_email_sent_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .is('payment_confirmation_email_sent_at', null); // Only update if still null
+    
+    if (updateError) {
+      console.warn(`[${traceId}] [PAYMENT_EMAIL] Failed to mark email as sent`, { orderId, error: updateError.message });
+      return;
+    }
+    
+    // Send email via edge function
+    console.log(`[${traceId}] [PAYMENT_EMAIL] Sending confirmation email`, { orderId });
+    
+    const { error: invokeError } = await supabase.functions.invoke('send-payment-confirmation', {
+      body: { orderId },
+    });
+    
+    if (invokeError) {
+      console.error(`[${traceId}] [PAYMENT_EMAIL] Send failed`, { orderId, error: invokeError.message });
+    } else {
+      console.log(`[${traceId}] [PAYMENT_EMAIL] Sent successfully`, { orderId });
+    }
+    
+  } catch (error: any) {
+    console.error(`[${traceId}] [PAYMENT_EMAIL] Error`, { orderId, error: error.message });
+  }
+}
+
 // ==================== Main Handler ====================
 
 serve(async (req) => {
@@ -581,7 +634,7 @@ serve(async (req) => {
 
     // Update order status
     if (normalizedStatus === 'succeeded') {
-      console.log(`[${traceId}] Payment SUCCESS - updating order to PAID`);
+      console.log(`[${traceId}] [PAYMENT_VERIFY] Payment SUCCESS - updating order to PAID`);
 
       // Use atomic RPC if available
       const { data: rpcResult, error: rpcError } = await supabase.rpc('finalize_paid_order', {
@@ -604,13 +657,11 @@ serve(async (req) => {
         console.log(`[${traceId}] Order finalized:`, rpcResult);
       }
 
-      // Send confirmation notifications (fire-and-forget)
-      supabase.functions.invoke('send-payment-confirmation', {
-        body: { orderId: payment.order_id, provider: 'pawapay' },
-      }).catch(err => console.error(`[${traceId}] Notification error:`, err));
+      // Send confirmation email (idempotent)
+      await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, traceId);
 
     } else if (normalizedStatus === 'failed') {
-      console.log(`[${traceId}] Payment FAILED - order stays PENDING_PAYMENT`);
+      console.log(`[${traceId}] [PAYMENT_VERIFY] Payment FAILED - order stays PENDING_PAYMENT`);
 
       await supabase.from('orders').update({
         payment_notes: failureReason?.failureMessage || 'Payment failed',

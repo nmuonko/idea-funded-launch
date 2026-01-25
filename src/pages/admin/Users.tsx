@@ -187,15 +187,25 @@ export default function AdminUsers() {
 
   const loadInvitations = async () => {
     try {
+      console.log('[Users] Loading invitations...');
       const { data, error } = await supabase
         .from('admin_invitations')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('[Users] Error loading invitations:', error);
+        throw error;
+      }
+      console.log('[Users] Loaded invitations:', data?.length || 0, data);
       setInvitations(data || []);
     } catch (error: any) {
-      console.error('Error loading invitations:', error);
+      console.error('[Users] Error loading invitations:', error);
+      toast({
+        title: 'Error loading invitations',
+        description: error.message,
+        variant: 'destructive',
+      });
     }
   };
 
@@ -222,15 +232,30 @@ export default function AdminUsers() {
         },
       });
 
-      // Handle edge function errors - check data for error field first (non-2xx responses)
+      // Handle edge function errors - extract error from response body or error object
+      if (error) {
+        // Check if the error message contains JSON with a more specific error
+        let errorMessage = error.message;
+        try {
+          // Sometimes the error body is embedded in the message
+          if (error.context?.body) {
+            const bodyError = JSON.parse(error.context.body);
+            errorMessage = bodyError.error || errorMessage;
+          }
+        } catch (e) {
+          // Ignore parse errors, use original message
+        }
+        throw new Error(errorMessage);
+      }
+      
+      // Check if data contains an error field (from non-2xx responses that still return data)
       if (data?.error) {
         throw new Error(data.error);
       }
-      if (error) throw error;
 
       toast({
         title: 'Success',
-        description: data.message,
+        description: data?.message || 'Invitation sent successfully',
       });
 
       setInviteDialogOpen(false);
@@ -240,9 +265,17 @@ export default function AdminUsers() {
       setInvitePermissions(ROLE_DEFAULT_PERMISSIONS.operations);
       await loadData();
     } catch (error: any) {
+      // Provide more specific error messages for known errors
+      let errorDesc = error.message || 'Unknown error occurred';
+      if (errorDesc.includes('already an admin')) {
+        errorDesc = 'This user is already an administrator';
+      } else if (errorDesc.includes('non-2xx')) {
+        errorDesc = 'Server error - please check if this user already exists';
+      }
+      
       toast({
         title: 'Error sending invitation',
-        description: error.message,
+        description: errorDesc,
         variant: 'destructive',
       });
     } finally {

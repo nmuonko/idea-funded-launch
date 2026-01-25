@@ -35,8 +35,7 @@ export function PendingActionsSidebar() {
   const [stats, setStats] = useState({
     unverifiedPayments: 0,
     unfulfilledOrders: 0,
-    urgentTickets: 0,
-    refundRequests: 0,
+    refundIssued: 0,
   });
 
   useEffect(() => {
@@ -49,11 +48,11 @@ export function PendingActionsSidebar() {
     try {
       setLoading(true);
 
-      // Unverified payments - count from maisha_payments table for consistency
+      // Unverified payments - count orders pending payment
       const { count: unverifiedCount } = await supabase
-        .from('maisha_payments')
+        .from('orders')
         .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
+        .eq('status', 'PENDING_PAYMENT');
 
       // Unfulfilled orders
       const { count: unfulfilledCount } = await supabase
@@ -61,18 +60,16 @@ export function PendingActionsSidebar() {
         .select('*', { count: 'exact', head: true })
         .in('status', ['PAID', 'PROCESSING']);
 
-      // Urgent tickets
-      const { count: urgentCount } = await supabase
-        .from('support_tickets')
+      // Refund issued orders
+      const { count: refundCount } = await supabase
+        .from('orders')
         .select('*', { count: 'exact', head: true })
-        .in('priority', ['high', 'urgent'])
-        .in('status', ['open', 'in_progress']);
+        .not('refund_issued_at', 'is', null);
 
       setStats({
         unverifiedPayments: unverifiedCount || 0,
         unfulfilledOrders: unfulfilledCount || 0,
-        urgentTickets: urgentCount || 0,
-        refundRequests: 0, // Placeholder for future implementation
+        refundIssued: refundCount || 0,
       });
     } catch (error) {
       console.error('Error loading pending actions:', error);
@@ -101,22 +98,13 @@ export function PendingActionsSidebar() {
       route: '/admin/orders',
     },
     {
-      icon: MessageSquare,
-      label: t.dashboard.urgentTickets,
-      description: t.dashboard.highPrioritySupport,
-      count: stats.urgentTickets,
-      color: 'text-purple-500',
-      bgColor: 'bg-purple-500/10',
-      route: '/admin/support',
-    },
-    {
       icon: RefreshCcw,
-      label: t.dashboard.refundRequests,
-      description: t.dashboard.pendingReview,
-      count: stats.refundRequests,
+      label: 'Refunds Issued',
+      description: 'Orders with refunds',
+      count: stats.refundIssued,
       color: 'text-yellow-500',
       bgColor: 'bg-yellow-500/10',
-      route: '/admin/payments',
+      route: '/admin/orders?status=refunded',
     },
   ];
 

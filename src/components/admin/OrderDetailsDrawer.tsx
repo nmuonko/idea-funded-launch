@@ -7,10 +7,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { formatUSD, formatCDF } from '@/lib/formatCurrency';
+import { formatOrderId } from '@/lib/formatOrderId';
 import { 
-  CheckCircle, 
-  XCircle, 
-  MessageSquare, 
   Loader2, 
   Package, 
   MapPin, 
@@ -18,13 +16,15 @@ import {
   Calendar,
   User,
   ExternalLink,
-  Mail
+  Mail,
+  RefreshCcw
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
 import { AIAssistantPanel } from './AIAssistantPanel';
 import { ProfitCalculator } from './ProfitCalculator';
 import { SendOrderEmailDialog } from './SendOrderEmailDialog';
+import { IssueRefundDialog } from './IssueRefundDialog';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;
@@ -39,6 +39,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -152,7 +153,7 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
             <SheetHeader>
               <SheetTitle>Order Details</SheetTitle>
               <SheetDescription>
-                Order ID: {order.id}
+                {formatOrderId(order.id, order.profiles?.name || order.profiles?.full_name)}
               </SheetDescription>
             </SheetHeader>
 
@@ -299,8 +300,8 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
 
               <Separator />
 
-              {/* Admin Actions */}
-              {order.status !== 'CANCELLED' && order.status !== 'COMPLETED' && (
+              {/* Admin Actions - simplified */}
+              {order.status !== 'CANCELLED' && (
                 <div>
                   <h3 className="text-sm font-semibold mb-3">Admin Actions</h3>
                   <div className="space-y-3">
@@ -311,50 +312,6 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                       className="min-h-[80px]"
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        onClick={() => performAction('APPROVED')}
-                        disabled={actionLoading}
-                        className="w-full"
-                      >
-                        {actionLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            Approve
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        onClick={() => performAction('REJECTED')}
-                        disabled={actionLoading}
-                        variant="destructive"
-                        className="w-full"
-                      >
-                        {actionLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <XCircle className="h-4 w-4 mr-2" />
-                            Reject
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        onClick={() => performAction('INFO_REQUESTED')}
-                        disabled={actionLoading}
-                        variant="outline"
-                        className="w-full"
-                      >
-                        {actionLoading ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            Request Info
-                          </>
-                        )}
-                      </Button>
                       <Button
                         onClick={() => performAction('NOTE_ADDED')}
                         disabled={actionLoading || !actionMessage}
@@ -371,20 +328,56 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                         <Mail className="h-4 w-4 mr-2" />
                         Send Email
                       </Button>
+                      {order.status !== 'COMPLETED' && (
+                        <Button
+                          onClick={() => setRefundDialogOpen(true)}
+                          variant="destructive"
+                          className="w-full col-span-2"
+                        >
+                          <RefreshCcw className="h-4 w-4 mr-2" />
+                          Issue Refund
+                        </Button>
+                      )}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Refund Info Display */}
+              {order.refund_issued_at && (
+                <div className="bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900 rounded-lg p-4">
+                  <h4 className="font-semibold text-yellow-800 dark:text-yellow-200 flex items-center gap-2 mb-2">
+                    <RefreshCcw className="h-4 w-4" />
+                    Refund Issued
+                  </h4>
+                  <div className="text-sm space-y-1 text-yellow-700 dark:text-yellow-300">
+                    <p><span className="font-medium">Amount:</span> ${Number(order.refund_amount_usd || 0).toFixed(2)}</p>
+                    <p><span className="font-medium">Date:</span> {new Date(order.refund_issued_at).toLocaleString()}</p>
+                    <p><span className="font-medium">Reason:</span> {order.refund_reason || 'N/A'}</p>
                   </div>
                 </div>
               )}
             </div>
 
             {order && (
-              <SendOrderEmailDialog
-                orderId={order.id}
-                customerEmail={order.profiles?.email || ''}
-                customerName={order.profiles?.name || order.profiles?.full_name || `User ${order.user_id.slice(0, 8)}`}
-                open={emailDialogOpen}
-                onClose={() => setEmailDialogOpen(false)}
-              />
+              <>
+                <SendOrderEmailDialog
+                  orderId={order.id}
+                  customerEmail={order.profiles?.email || ''}
+                  customerName={order.profiles?.name || order.profiles?.full_name || `User ${order.user_id.slice(0, 8)}`}
+                  open={emailDialogOpen}
+                  onClose={() => setEmailDialogOpen(false)}
+                />
+                <IssueRefundDialog
+                  order={order}
+                  open={refundDialogOpen}
+                  onOpenChange={setRefundDialogOpen}
+                  onSuccess={() => {
+                    loadOrderDetails();
+                    onUpdate();
+                  }}
+                />
+              </>
             )}
           </>
         ) : null}

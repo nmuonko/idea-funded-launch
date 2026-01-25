@@ -1055,6 +1055,7 @@ export type Database = {
           product_image_url: string | null
           product_url: string
           quantity: number
+          reminder_count: number | null
           requires_manual_quote: boolean | null
           saved_at: string | null
           shipping_fee_usd: number | null
@@ -1089,6 +1090,7 @@ export type Database = {
           product_image_url?: string | null
           product_url: string
           quantity?: number
+          reminder_count?: number | null
           requires_manual_quote?: boolean | null
           saved_at?: string | null
           shipping_fee_usd?: number | null
@@ -1123,6 +1125,7 @@ export type Database = {
           product_image_url?: string | null
           product_url?: string
           quantity?: number
+          reminder_count?: number | null
           requires_manual_quote?: boolean | null
           saved_at?: string | null
           shipping_fee_usd?: number | null
@@ -1188,6 +1191,10 @@ export type Database = {
           payment_verification_method: string | null
           payment_verified_at: string | null
           payment_verified_by: string | null
+          refund_amount_usd: number | null
+          refund_issued_at: string | null
+          refund_issued_by: string | null
+          refund_reason: string | null
           rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
@@ -1229,6 +1236,10 @@ export type Database = {
           payment_verification_method?: string | null
           payment_verified_at?: string | null
           payment_verified_by?: string | null
+          refund_amount_usd?: number | null
+          refund_issued_at?: string | null
+          refund_issued_by?: string | null
+          refund_reason?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -1270,6 +1281,10 @@ export type Database = {
           payment_verification_method?: string | null
           payment_verified_at?: string | null
           payment_verified_by?: string | null
+          refund_amount_usd?: number | null
+          refund_issued_at?: string | null
+          refund_issued_by?: string | null
+          refund_reason?: string | null
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null

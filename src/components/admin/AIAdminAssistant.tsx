@@ -78,9 +78,9 @@ export function AIAdminAssistant({ floating = false }: AIAdminAssistantProps) {
 
   const suggestedQueries = [
     "What's my revenue this month?",
-    "How many urgent tickets are open?",
     "Show me abandoned carts over $500",
     "What orders are pending?",
+    "List recent refunds issued",
   ];
 
   const AssistantContent = () => (

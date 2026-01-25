@@ -20,6 +20,7 @@ import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation, getStatusTranslation } from '@/lib/i18n/translations';
+import { formatOrderId } from '@/lib/formatOrderId';
 
 export default function AdminOrders() {
   const navigate = useNavigate();
@@ -87,7 +88,7 @@ export default function AdminOrders() {
         .select(`
           *,
           profiles(user_id, name, full_name, email, phone),
-          order_items(id, title, product_url, product_image_url, quantity)
+          order_items(id, title, product_url, product_image_url, quantity, created_at)
         `)
         .order('created_at', { ascending: false });
 
@@ -791,7 +792,7 @@ export default function AdminOrders() {
                     />
                   </TableCell>
                   <TableCell className="font-mono text-xs">
-                    {order.id.slice(0, 8)}...
+                    {formatOrderId(order.id, order.profiles?.name || order.profiles?.full_name)}
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">{order.profiles?.name || order.profiles?.full_name || 'N/A'}</div>
@@ -801,40 +802,57 @@ export default function AdminOrders() {
                   </TableCell>
                   <TableCell>{order.shipping_city || 'N/A'}</TableCell>
                   <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <div className="text-xs font-medium">
-                        {order.order_items?.length || 0} item(s)
-                      </div>
-                      {order.order_items && order.order_items.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {order.order_items.slice(0, 2).map((item: any) => (
-                            item.product_url ? (
-                              <a
-                                key={item.id}
-                                href={item.product_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-primary hover:underline flex items-center gap-1"
-                                title={item.title || 'View product'}
-                              >
-                                {item.product_image_url && (
-                                  <img 
-                                    src={item.product_image_url} 
-                                    alt="" 
-                                    className="h-4 w-4 object-cover rounded"
-                                    onError={(e) => e.currentTarget.style.display = 'none'}
-                                  />
+                    {(() => {
+                      const items = order.order_items || [];
+                      // Group items by date
+                      const dateGroups = new Map<string, any[]>();
+                      items.forEach((item: any) => {
+                        const date = new Date(item.created_at).toLocaleDateString();
+                        if (!dateGroups.has(date)) dateGroups.set(date, []);
+                        dateGroups.get(date)!.push(item);
+                      });
+                      
+                      const groupEntries = Array.from(dateGroups.entries());
+                      
+                      return (
+                        <div className="flex flex-col gap-2">
+                          {groupEntries.map(([date, groupItems], idx) => (
+                            <div key={date} className={cn("flex flex-col gap-1", idx > 0 && "border-t pt-1")}>
+                              <span className="text-xs text-muted-foreground font-medium">
+                                {date} ({groupItems.length} item{groupItems.length > 1 ? 's' : ''})
+                              </span>
+                              <div className="flex flex-wrap gap-1">
+                                {groupItems.slice(0, 2).map((item: any) => (
+                                  item.product_url ? (
+                                    <a
+                                      key={item.id}
+                                      href={item.product_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                                      title={item.title || 'View product'}
+                                    >
+                                      {item.product_image_url && (
+                                        <img 
+                                          src={item.product_image_url} 
+                                          alt="" 
+                                          className="h-4 w-4 object-cover rounded"
+                                          onError={(e) => e.currentTarget.style.display = 'none'}
+                                        />
+                                      )}
+                                      <span className="line-clamp-1">{item.title?.slice(0, 15) || 'Product'}</span>
+                                    </a>
+                                  ) : null
+                                ))}
+                                {groupItems.length > 2 && (
+                                  <span className="text-xs text-muted-foreground">+{groupItems.length - 2} more</span>
                                 )}
-                                <span className="line-clamp-1">{item.title?.slice(0, 20) || 'Product'}</span>
-                              </a>
-                            ) : null
+                              </div>
+                            </div>
                           ))}
-                          {order.order_items.length > 2 && (
-                            <span className="text-xs text-muted-foreground">+{order.order_items.length - 2} more</span>
-                          )}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="font-semibold">${Number(order.total_usd || 0).toFixed(2)}</TableCell>
                   <TableCell>{getPaymentBadge(order)}</TableCell>

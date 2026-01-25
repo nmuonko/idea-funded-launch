@@ -14,6 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { generateTraceId, logAudit } from "../_shared/auditLog.ts";
 import {
   getPaymentByDepositId,
@@ -21,6 +22,53 @@ import {
   logPaymentEvent,
   normalizePaymentStatus,
 } from "../_shared/paymentProviders.ts";
+
+// ==================== Zod Schemas for Input Validation ====================
+
+/**
+ * Schema for pawaPay callback failure reason
+ */
+const failureReasonSchema = z.object({
+  failureCode: z.string().optional(),
+  failureMessage: z.string().optional(),
+}).optional().nullable();
+
+/**
+ * Schema for pawaPay correspondent IDs
+ */
+const correspondentIdsSchema = z.object({
+  operatorId: z.string().optional(),
+}).optional().nullable();
+
+/**
+ * Schema for pawaPay deposit callback payload
+ * Based on pawaPay API documentation
+ */
+const pawaPayCallbackSchema = z.object({
+  depositId: z.string().uuid({ message: 'Invalid depositId format' }),
+  status: z.enum(['ACCEPTED', 'COMPLETED', 'FAILED', 'SUBMITTED', 'ENQUEUED'], {
+    errorMap: () => ({ message: 'Invalid status value' }),
+  }),
+  amount: z.string().or(z.number()).optional(),
+  currency: z.string().length(3).optional(),
+  country: z.string().length(2).optional(),
+  correspondent: z.string().optional(),
+  payer: z.object({
+    type: z.string().optional(),
+    address: z.object({
+      value: z.string().optional(),
+    }).optional(),
+  }).optional(),
+  customerTimestamp: z.string().optional(),
+  created: z.string().optional(),
+  receivedByRecipient: z.string().optional(),
+  correspondentIds: correspondentIdsSchema,
+  failureReason: failureReasonSchema,
+  metadata: z.array(z.object({
+    fieldName: z.string(),
+    fieldValue: z.string(),
+  })).optional(),
+}).passthrough(); // Allow additional fields for forward compatibility
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -432,6 +480,32 @@ serve(async (req) => {
       console.log(`[${traceId}] Signature verification disabled, proceeding`);
     }
 
+    // ==================== Validate Callback Payload with Zod ====================
+    
+    const parseResult = pawaPayCallbackSchema.safeParse(payload);
+    
+    if (!parseResult.success) {
+      // Type guard ensures parseResult is SafeParseError here
+      const errorResult = parseResult as { success: false; error: z.ZodError };
+      const errors = errorResult.error.errors.map((e: z.ZodIssue) => ({
+        path: e.path.join('.'),
+        message: e.message,
+      }));
+      console.error(`[${traceId}] Payload validation failed:`, errors);
+      
+      // Return 200 to prevent retries but log the validation error
+      return new Response(JSON.stringify({ 
+        status: 'error', 
+        message: 'Invalid payload structure',
+        validation_errors: errors,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    const validatedPayload = parseResult.data;
+    
     // ==================== Process Callback ====================
     
     // Initialize admin client
@@ -440,13 +514,13 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Extract key fields
-    const depositId = payload.depositId;
-    const status = payload.status; // COMPLETED | FAILED
-    const amount = payload.amount;
-    const currency = payload.currency;
-    const failureReason = payload.failureReason;
-    const correspondentIds = payload.correspondentIds;
+    // Extract validated fields
+    const depositId = validatedPayload.depositId;
+    const status = validatedPayload.status;
+    const amount = validatedPayload.amount;
+    const currency = validatedPayload.currency;
+    const failureReason = validatedPayload.failureReason;
+    const correspondentIds = validatedPayload.correspondentIds;
 
     console.log(`[${traceId}] [PAWAPAY_CALLBACK_HIT]`, {
       depositId,
@@ -454,15 +528,8 @@ serve(async (req) => {
       amount,
       currency,
       clientIp,
+      validated: true,
     });
-
-    if (!depositId) {
-      console.error(`[${traceId}] Missing depositId in callback`);
-      return new Response(JSON.stringify({ status: 'error', message: 'Missing depositId' }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     // Check for duplicate callback (idempotency)
     const eventResult = await logPaymentEvent(supabase, {

@@ -2144,6 +2144,105 @@ serve(async (req) => {
       });
       
       try {
+        // ============================================
+        // P0 IDEMPOTENCY CHECK: Prevent duplicate pawaPay deposits
+        // If a pending payment exists for this order within 5 minutes, reuse it
+        // ============================================
+        const IDEMPOTENCY_WINDOW_MINUTES = 5;
+        const { data: existingPayment, error: existingPaymentError } = await supabase
+          .from('payments')
+          .select('id, provider_deposit_id, reference, status, created_at, amount, currency')
+          .eq('order_id', checkoutOrder.id)
+          .eq('provider_key', 'pawapay')
+          .eq('status', 'pending')
+          .gt('created_at', new Date(Date.now() - IDEMPOTENCY_WINDOW_MINUTES * 60 * 1000).toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (existingPaymentError) {
+          console.warn('[mobile-checkout] IDEMPOTENCY_CHECK_ERROR', existingPaymentError.message);
+          // Continue with new payment creation if check fails
+        }
+        
+        if (existingPayment && existingPayment.provider_deposit_id) {
+          // Reuse existing pending payment - return the same depositId
+          console.log('[mobile-checkout] IDEMPOTENCY_HIT - REUSING_EXISTING_PAYMENT', {
+            order_id: checkoutOrder.id,
+            existing_payment_id: existingPayment.id,
+            existing_deposit_id: existingPayment.provider_deposit_id,
+            existing_reference: existingPayment.reference,
+            created_at: existingPayment.created_at,
+            age_seconds: Math.round((Date.now() - new Date(existingPayment.created_at).getTime()) / 1000),
+          });
+          
+          // Update checkout_session status
+          if (checkoutSession?.id) {
+            await supabase.from('checkout_sessions').update({ 
+              status: 'pawapay_initiated',
+              updated_at: new Date().toISOString(),
+            }).eq('id', checkoutSession.id);
+          }
+          
+          // Return the existing payment details (idempotent response)
+          const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
+          const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(existingPayment.provider_deposit_id)}&reference=${encodeURIComponent(existingPayment.reference)}`;
+          
+          return jsonResponse({
+            success: true,
+            depositId: existingPayment.provider_deposit_id,
+            order_id: checkoutOrder.id,
+            checkout_session_id: checkoutSession?.id || null,
+            payment_flow: 'PAWAPAY' as PaymentFlow,
+            currency: existingPayment.currency,
+            amount: Number(existingPayment.amount),
+            redirectUrl,
+            checkout_type: 'FULL_PAYMENT',
+            orderId: checkoutOrder.id,
+            confirmationId,
+            provider: 'pawapay',
+            checkoutUrl: redirectUrl,
+            message: 'Payment request already sent. Please check your phone.',
+            message_fr: 'Demande de paiement déjà envoyée. Vérifiez votre téléphone.',
+            idempotent: true, // Flag indicating this is a reused payment
+            payable_amount: Number(existingPayment.amount),
+            payable_currency: existingPayment.currency,
+            totals_breakdown: {
+              subtotal: totalsBreakdown.subtotal_items,
+              shipping: totalsBreakdown.shipping_fee,
+              markup: totalsBreakdown.markup_fee,
+              taxes: totalsBreakdown.taxes_fee,
+              grand_total: totalsBreakdown.grand_total,
+              currency: payable_currency,
+              cdf_equivalent: totalsBreakdown.cdf_equivalent,
+              exchange_rate: totalsBreakdown.exchange_rate,
+              vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
+            },
+            integrity_hash: integrityHash,
+            order: {
+              id: checkoutOrder.id,
+              confirmationId,
+              status: 'PENDING_PAYMENT',
+              itemCount: totalsBreakdown.item_count,
+              totalUsd: totalsBreakdown.grand_total,
+              totalCdf: totalsBreakdown.cdf_equivalent,
+            },
+            paymentDetails: {
+              currency: existingPayment.currency,
+              amount: Number(existingPayment.amount),
+              displayAmount: existingPayment.currency === 'CDF' 
+                ? `${Number(existingPayment.amount).toLocaleString('fr-FR')} FC`
+                : `$${Number(existingPayment.amount).toFixed(2)}`,
+            },
+          });
+        }
+        
+        // No existing pending payment - create new one
+        console.log('[mobile-checkout] IDEMPOTENCY_MISS - CREATING_NEW_PAYMENT', {
+          order_id: checkoutOrder.id,
+          existing_pending_found: false,
+        });
+        
         const pawaConfig = getPawaPayConfig(provider);
         const pawaReference = generateProviderRef(checkoutOrder.id);
         

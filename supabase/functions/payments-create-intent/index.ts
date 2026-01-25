@@ -770,6 +770,61 @@ Deno.serve(async (req) => {
         );
       }
 
+      // ============================================
+      // P0 IDEMPOTENCY CHECK: Prevent duplicate pawaPay deposits
+      // If a pending payment exists for this order within 5 minutes, reuse it
+      // ============================================
+      const IDEMPOTENCY_WINDOW_MINUTES = 5;
+      const { data: existingPayment, error: existingPaymentError } = await supabaseAdmin
+        .from('payments')
+        .select('id, provider_deposit_id, reference, status, created_at, amount, currency')
+        .eq('order_id', order_id)
+        .eq('provider_key', 'pawapay')
+        .eq('status', 'pending')
+        .gt('created_at', new Date(Date.now() - IDEMPOTENCY_WINDOW_MINUTES * 60 * 1000).toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (existingPaymentError) {
+        console.warn('[payments-create-intent] IDEMPOTENCY_CHECK_ERROR', existingPaymentError.message);
+        // Continue with new payment creation if check fails
+      }
+      
+      if (existingPayment && existingPayment.provider_deposit_id) {
+        // Reuse existing pending payment - return the same depositId
+        console.log('[payments-create-intent] IDEMPOTENCY_HIT - REUSING_EXISTING_PAYMENT', {
+          order_id,
+          existing_payment_id: existingPayment.id,
+          existing_deposit_id: existingPayment.provider_deposit_id,
+          existing_reference: existingPayment.reference,
+          created_at: existingPayment.created_at,
+          age_seconds: Math.round((Date.now() - new Date(existingPayment.created_at).getTime()) / 1000),
+        });
+        
+        return new Response(
+          JSON.stringify({
+            success: true,
+            depositId: existingPayment.provider_deposit_id,
+            payment_flow: 'PAWAPAY',
+            provider: 'pawapay',
+            reference: existingPayment.reference,
+            amount: Number(existingPayment.amount),
+            currency: existingPayment.currency,
+            message: 'Payment request already sent. Please check your phone.',
+            message_fr: 'Demande de paiement déjà envoyée. Vérifiez votre téléphone.',
+            idempotent: true,
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // No existing pending payment - create new one
+      console.log('[payments-create-intent] IDEMPOTENCY_MISS - CREATING_NEW_PAYMENT', {
+        order_id,
+        existing_pending_found: false,
+      });
+
       // Create payment record first
       const paymentRecord = await createPaymentRecord(supabaseAdmin, {
         order_id,

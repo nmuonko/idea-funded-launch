@@ -108,12 +108,11 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
   }
 
   // UNIFIED PARSING LOGIC for all percentage values
-  // Rule: values > 1 are treated as percentages (use as-is)
-  //       values <= 1 are treated as decimals (multiply by 100)
-  // This handles both storage formats: 0.29 (29%) or 29 (29%)
+  // All percentages are stored as whole numbers: 1 = 1%, 15 = 15%, 100 = 100%
+  // DO NOT convert values ≤1 - that breaks 1% and below
   const normalizePercent = (val: number | null | undefined, fallback: number): number => {
     const raw = val ?? fallback;
-    return raw > 1 ? raw : raw * 100;
+    return raw; // Return as-is, no conversion needed
   };
 
   // Markup: use markup_percent first, fallback to global_markup_percent

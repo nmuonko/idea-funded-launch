@@ -74,15 +74,15 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
     }
   }
 
-  // Parse values with defaults - shipping_percent stored as decimal (0.10 = 10%)
+  // Parse values with defaults - all percentages stored as whole numbers (10 = 10%)
+  // DO NOT convert values ≤1 - that incorrectly changes 1% to 100%
   const markupVal = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
-  // If markup is stored as decimal (e.g., 0.15), convert to percentage
-  const markupPercent = markupVal < 1 ? markupVal * 100 : markupVal;
+  const markupPercent = markupVal; // Use as-is, 1 = 1%
   
   // Vehicle markup from category_markups.vehicles (default to general markup)
   const categoryMarkups = (settings?.category_markups || {}) as Record<string, number>;
   const vehicleMarkupRaw = categoryMarkups.vehicles ?? markupPercent;
-  const vehicleMarkupPercent = vehicleMarkupRaw < 1 ? vehicleMarkupRaw * 100 : vehicleMarkupRaw;
+  const vehicleMarkupPercent = vehicleMarkupRaw; // Use as-is, 1 = 1%
   
   // shipping_percent is stored as decimal (0.10 = 10%), keep as decimal for calculations
   const shippingPercent = settings?.shipping_percent ?? 0.10;

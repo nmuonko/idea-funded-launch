@@ -508,44 +508,126 @@ export async function createDeposit(
 }
 
 /**
- * Response from GET /deposits/{depositId}
- * pawaPay wraps the deposit data in a nested structure
+ * Deposit data structure from pawaPay API
  */
-interface PawaPayGetDepositResponse {
-  status: 'FOUND' | 'NOT_FOUND';
-  data?: {
-    depositId: string;
-    status: 'ACCEPTED' | 'SUBMITTED' | 'COMPLETED' | 'FAILED';
-    amount: string;
-    currency: string;
-    correspondent: string;
-    payer: {
-      type: string;
-      address: {
-        value: string;
-      };
-    };
-    customerTimestamp: string;
-    created: string;
-    respondedByPayer?: string;
-    correspondentIds?: {
-      recipientId?: string;
-      operatorId?: string;
-    };
-    failureReason?: {
-      failureCode: string;
-      failureMessage: string;
+interface PawaPayDepositData {
+  depositId: string;
+  status: 'ACCEPTED' | 'SUBMITTED' | 'COMPLETED' | 'FAILED';
+  amount?: string;
+  currency?: string;
+  correspondent?: string;
+  payer?: {
+    type: string;
+    address?: {
+      value: string;
     };
   };
+  customerTimestamp?: string;
+  created?: string;
+  respondedByPayer?: string;
+  correspondentIds?: {
+    recipientId?: string;
+    operatorId?: string;
+  };
+  providerTransactionId?: string;
+  failureReason?: {
+    failureCode: string;
+    failureMessage: string;
+  };
+}
+
+/**
+ * Response from GET /deposits/{depositId}
+ * pawaPay API can return data in different formats:
+ * 1. Wrapped: { status: 'FOUND', data: { depositId, status, ... } }
+ * 2. Array wrapped: { status: 'FOUND', data: [{ depositId, status, ... }] }
+ * 3. Direct: { depositId, status, ... }
+ */
+interface PawaPayGetDepositResponse {
+  // Wrapper status (if using wrapped format)
+  status?: 'FOUND' | 'NOT_FOUND' | 'ACCEPTED' | 'SUBMITTED' | 'COMPLETED' | 'FAILED';
+  // Nested data (if using wrapped format)
+  data?: PawaPayDepositData | PawaPayDepositData[];
+  // Direct fields (if returning deposit directly)
+  depositId?: string;
+  amount?: string;
+  currency?: string;
+  correspondent?: string;
+  payer?: any;
+  respondedByPayer?: string;
+  correspondentIds?: any;
+  providerTransactionId?: string;
+  failureReason?: any;
+}
+
+/**
+ * Extract deposit data from various pawaPay response formats
+ */
+function extractDepositFromResponse(responseData: any, depositId: string): PawaPayDepositData | null {
+  // Log raw structure for debugging
+  console.log('[pawaPay] Raw response structure:', {
+    type: typeof responseData,
+    isArray: Array.isArray(responseData),
+    hasStatus: 'status' in responseData,
+    hasData: 'data' in responseData,
+    hasDepositId: 'depositId' in responseData,
+    keys: Object.keys(responseData).slice(0, 10),
+  });
+
+  // Format 1: Wrapped with data array
+  if (Array.isArray(responseData.data)) {
+    const deposit = responseData.data.find((d: any) => d.depositId === depositId);
+    if (deposit) {
+      console.log('[pawaPay] Found deposit in data array');
+      return deposit as PawaPayDepositData;
+    }
+  }
+
+  // Format 2: Wrapped with single data object
+  if (responseData.data && typeof responseData.data === 'object' && !Array.isArray(responseData.data)) {
+    if (responseData.data.depositId) {
+      console.log('[pawaPay] Found deposit in nested data object');
+      return responseData.data as PawaPayDepositData;
+    }
+  }
+
+  // Format 3: Direct deposit object (no wrapper)
+  if (responseData.depositId && responseData.depositId === depositId) {
+    console.log('[pawaPay] Found deposit as direct response');
+    return {
+      depositId: responseData.depositId,
+      status: responseData.status as any,
+      amount: responseData.amount,
+      currency: responseData.currency,
+      correspondent: responseData.correspondent,
+      payer: responseData.payer,
+      respondedByPayer: responseData.respondedByPayer,
+      correspondentIds: responseData.correspondentIds,
+      providerTransactionId: responseData.providerTransactionId,
+      failureReason: responseData.failureReason,
+    };
+  }
+
+  // Format 4: Array at root level
+  if (Array.isArray(responseData)) {
+    const deposit = responseData.find((d: any) => d.depositId === depositId);
+    if (deposit) {
+      console.log('[pawaPay] Found deposit in root array');
+      return deposit as PawaPayDepositData;
+    }
+  }
+
+  console.log('[pawaPay] Could not extract deposit from response');
+  return null;
 }
 
 /**
  * Verify deposit status with pawaPay API
  * 
- * IMPORTANT: pawaPay GET /deposits/{id} returns a WRAPPED response:
- * { status: "FOUND", data: { depositId, status, ... } }
- * 
- * The actual deposit status is in data.data.status, NOT data.status
+ * Handles multiple response formats from pawaPay API:
+ * - Wrapped: { status: 'FOUND', data: { ... } }
+ * - Direct: { depositId, status, ... }
+ * - Array: [{ depositId, status, ... }]
  */
 export async function verifyDeposit(
   config: PawaPayConfig,
@@ -562,7 +644,10 @@ export async function verifyDeposit(
       },
     });
 
-    if (response.status === 404) {
+    const httpStatus = response.status;
+    console.log('[pawaPay] Verify HTTP status:', httpStatus);
+
+    if (httpStatus === 404) {
       console.log('[pawaPay] Deposit not found (404):', depositId);
       return {
         success: false,
@@ -571,17 +656,23 @@ export async function verifyDeposit(
       };
     }
 
-    const responseData: PawaPayGetDepositResponse = await response.json();
-    
-    console.log('[pawaPay] Verify raw response:', {
-      wrapper_status: responseData.status,
-      has_data: !!responseData.data,
-      deposit_status: responseData.data?.status,
-      deposit_id: responseData.data?.depositId,
-    });
+    if (!response.ok) {
+      console.error('[pawaPay] Verify request failed:', { httpStatus, depositId });
+      return {
+        success: false,
+        status: 'pending',
+        error: `API error: ${httpStatus}`,
+      };
+    }
 
-    // Handle NOT_FOUND wrapper status
-    if (responseData.status === 'NOT_FOUND' || !responseData.data) {
+    const responseData = await response.json();
+    
+    // Log full response for debugging (truncated)
+    console.log('[pawaPay] Verify response body (first 500 chars):', 
+      JSON.stringify(responseData).slice(0, 500));
+
+    // Check for NOT_FOUND wrapper status
+    if (responseData.status === 'NOT_FOUND') {
       console.log('[pawaPay] Deposit not found (wrapper status):', depositId);
       return {
         success: false,
@@ -590,22 +681,35 @@ export async function verifyDeposit(
       };
     }
 
-    // Extract the actual deposit data from the nested structure
-    const deposit = responseData.data;
+    // Extract deposit from various formats
+    const deposit = extractDepositFromResponse(responseData, depositId);
     
-    console.log('[pawaPay] Verify deposit status:', {
+    if (!deposit) {
+      console.warn('[pawaPay] Could not parse deposit from response:', depositId);
+      return {
+        success: false,
+        status: 'pending',
+        error: 'Could not parse deposit status',
+      };
+    }
+
+    console.log('[pawaPay] Extracted deposit:', {
       depositId: deposit.depositId,
       status: deposit.status,
       respondedByPayer: deposit.respondedByPayer,
       operatorId: deposit.correspondentIds?.operatorId,
+      providerTransactionId: deposit.providerTransactionId,
     });
 
+    // Check deposit status
     if (deposit.status === 'COMPLETED') {
       console.log('[pawaPay] Payment COMPLETED:', depositId);
       return {
         success: true,
         status: 'succeeded',
-        provider_transaction_id: deposit.correspondentIds?.operatorId || depositId,
+        provider_transaction_id: deposit.providerTransactionId || 
+                                  deposit.correspondentIds?.operatorId || 
+                                  depositId,
         paid_at: deposit.respondedByPayer || new Date().toISOString(),
       };
     }

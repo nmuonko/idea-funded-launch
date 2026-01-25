@@ -2145,17 +2145,16 @@ serve(async (req) => {
       
       try {
         // ============================================
-        // P0 IDEMPOTENCY CHECK: Prevent duplicate pawaPay deposits
-        // If a pending payment exists for this order within 5 minutes, reuse it
+        // SMART IDEMPOTENCY: Prevent duplicate pawaPay deposits
+        // If ANY pending payment exists for this order, reuse it (no time window)
+        // This prevents duplicates even if user waits and clicks again
         // ============================================
-        const IDEMPOTENCY_WINDOW_MINUTES = 5;
         const { data: existingPayment, error: existingPaymentError } = await supabase
           .from('payments')
           .select('id, provider_deposit_id, reference, status, created_at, amount, currency')
           .eq('order_id', checkoutOrder.id)
           .eq('provider_key', 'pawapay')
           .eq('status', 'pending')
-          .gt('created_at', new Date(Date.now() - IDEMPOTENCY_WINDOW_MINUTES * 60 * 1000).toISOString())
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();

@@ -38,17 +38,43 @@ export const BLOCKED_IMAGE_PATTERNS: RegExp[] = [
   // eBay generic images
   /ebay.*logo/i,
   /ebaystatic.*logo/i,
+  /ebaystatic\.com\/cr\/v\/c1\/.*logo/i,
+  /i\.ebayimg\.com\/.*thumbs\/images\/g\/logo/i,
   
   // Walmart generic images
   /walmart.*spark.*logo/i,
   /i5\.walmartimages\.com.*logo/i,
+  /walmart\.com\/static\/.*logo/i,
   
   // Target generic images
   /target.*bullseye/i,
   /target.*logo/i,
+  /target\.scene7\.com\/.*logo/i,
   
   // Best Buy generic images
   /bestbuy.*logo/i,
+  /pisces\.bbystatic\.com.*logo/i,
+  
+  // SHEIN generic images
+  /shein.*logo/i,
+  /sheinsz\.ltwebstatic\.com.*logo/i,
+  /img\.ltwebstatic\.com.*logo/i,
+  
+  // Macy's generic images
+  /macys.*logo/i,
+  /slimages\.macysassets\.com.*logo/i,
+  
+  // Home Depot generic images
+  /homedepot.*logo/i,
+  /images\.homedepot-static\.com.*logo/i,
+  
+  // Mercari generic images
+  /mercari.*logo/i,
+  /static\.mercdn\.net.*logo/i,
+  
+  // Wayfair generic images
+  /wayfair.*logo/i,
+  /secure\.img1-fg\.wfcdn\.com.*logo/i,
   
   // AfriShop logo (our own app logo showing up incorrectly)
   /afrishop.*logo/i,

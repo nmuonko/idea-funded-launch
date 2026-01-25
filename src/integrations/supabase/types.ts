@@ -548,7 +548,9 @@ export type Database = {
           order_id: string | null
           paid_at: string | null
           pay_method: string
+          provider_triggered_at: string | null
           redirect_url: string | null
+          selected_provider: string | null
           status: string
           totals_breakdown: Json
           updated_at: string
@@ -566,7 +568,9 @@ export type Database = {
           order_id?: string | null
           paid_at?: string | null
           pay_method?: string
+          provider_triggered_at?: string | null
           redirect_url?: string | null
+          selected_provider?: string | null
           status?: string
           totals_breakdown?: Json
           updated_at?: string
@@ -584,7 +588,9 @@ export type Database = {
           order_id?: string | null
           paid_at?: string | null
           pay_method?: string
+          provider_triggered_at?: string | null
           redirect_url?: string | null
+          selected_provider?: string | null
           status?: string
           totals_breakdown?: Json
           updated_at?: string

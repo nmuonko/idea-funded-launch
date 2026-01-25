@@ -383,3 +383,6 @@ verify_jwt = true
 
 [functions.backfill-cart-images]
 verify_jwt = false
+
+[functions.select-payment-provider]
+verify_jwt = true

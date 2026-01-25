@@ -2007,7 +2007,8 @@ serve(async (req) => {
     });
 
     // ============================================
-    // Create checkout_session record (ALWAYS)
+    // PAYMENT STATE MACHINE FIX: Create checkout_session with awaiting_provider_selection
+    // NO PROVIDER API CALLS HERE - provider is selected in select-payment-provider endpoint
     // ============================================
     const { data: checkoutSession, error: sessionError } = await supabase
       .from('checkout_sessions')
@@ -2021,7 +2022,8 @@ serve(async (req) => {
         grand_total: payable_amount,
         integrity_hash: integrityHash,
         maisha_reference: reference,
-        status: 'initiated',
+        status: 'awaiting_provider_selection', // CRITICAL: No provider called yet
+        selected_provider: null, // Set by select-payment-provider
         metadata: {
           client_cart_version: clientCartVersion,
           server_cart_version: existingOrder.cart_version,
@@ -2032,6 +2034,7 @@ serve(async (req) => {
           source_order_id: existingOrder.id, // DRAFT order where original items live
           original_cart_item_ids: cart_item_ids, // Items to delete from DRAFT on payment success
           cart_item_ids: cart_item_ids, // Legacy field (keep for compatibility)
+          requested_method: REQUESTED_METHOD,
           // Store UI amounts for debugging (never used for payment)
           debug_ui_amounts: {
             ui_amount_usd,
@@ -2048,6 +2051,17 @@ serve(async (req) => {
     if (sessionError) {
       console.warn('[mobile-checkout] Failed to create checkout_session (non-fatal):', sessionError);
     }
+
+    console.log('[PAYMENT_FLOW] CHECKOUT_SESSION_CREATED', {
+      checkout_session_id: checkoutSession?.id || null,
+      order_id: checkoutOrder.id,
+      user_id: user.id.slice(0, 8) + '***',
+      amount: payable_amount,
+      currency: payable_currency,
+      status: 'awaiting_provider_selection',
+      provider_called: 'NONE', // CRITICAL: No provider touched yet
+      endpoint: 'mobile-checkout',
+    });
 
     // Generate confirmationId early for use in response
     const confirmationId = checkoutOrder.id.substring(0, 8).toUpperCase();
@@ -2066,671 +2080,90 @@ serve(async (req) => {
     });
 
     // ============================================
-    // PAWAPAY BRANCH: Mobile Money via pawaPay (only option)
-    // P0 CRITICAL: Large orders must NOT use pawaPay - enforce limit
+    // PAYMENT STATE MACHINE FIX: Return awaiting_provider_selection for ALL methods
+    // NO PROVIDER API CALLS - user must explicitly select provider via select-payment-provider
     // ============================================
-    if (REQUESTED_METHOD === 'MOBILE_MONEY') {
-      // P0 CRITICAL FIX: Block pawaPay for large orders BEFORE any provider calls
-      // This is the primary enforcement point - amount exceeds mobile money limits
-      if (isLargeOrder) {
-        const availableOptions = getLargeOrderOptions(paymentSettings);
-        
-        console.log('[mobile-checkout] PAWAPAY_BLOCKED_LARGE_ORDER', {
-          order_id: checkoutOrder.id,
-          amount_usd: totalsBreakdown.grand_total,
-          limit_usd: paymentSettings.mobile_money_max_usd,
-          contains_vehicle: containsVehicle,
-          reason: 'Amount exceeds mobile money limit or contains vehicle',
-          available_options: availableOptions,
-        });
-        
-        // Return CHOICE_REQUIRED - this order cannot use mobile money
-        return jsonResponse({
-          success: true,
-          order_id: checkoutOrder.id,
-          checkout_session_id: checkoutSession?.id || null,
-          payment_flow: 'CHOICE_REQUIRED' as PaymentFlow,
-          amount: totalsBreakdown.grand_total,
-          currency: 'USD',
-          required_currency: 'USD',
-          cdf_equivalent: totalsBreakdown.cdf_equivalent,
-          options: availableOptions,
-          reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
-          message: 'This order exceeds mobile money limits. Please choose Card or Bank Transfer.',
-          message_fr: 'Cette commande dépasse les limites de paiement mobile. Veuillez choisir Carte ou Virement bancaire.',
-          totals_breakdown: {
-            subtotal: totalsBreakdown.subtotal_items,
-            shipping: totalsBreakdown.shipping_fee,
-            markup: totalsBreakdown.markup_fee,
-            taxes: totalsBreakdown.taxes_fee,
-            grand_total: totalsBreakdown.grand_total,
-            currency: 'USD',
-            cdf_equivalent: totalsBreakdown.cdf_equivalent,
-            exchange_rate: totalsBreakdown.exchange_rate,
-          },
-        });
-      }
-      
-      // Standard order - proceed with pawaPay
-      if (!provider || provider.provider_key !== 'pawapay' || !provider.is_enabled) {
-        console.error('[mobile-checkout] PAWAPAY_NOT_AVAILABLE', {
-          provider: provider?.provider_key,
-          is_enabled: provider?.is_enabled,
-        });
-        return jsonResponse({
-          success: false,
-          code: 'PROVIDER_NOT_AVAILABLE',
-          message: 'Mobile money payments are temporarily unavailable. Please try Bank Transfer.',
-          error: 'Payment provider not available.',
-        }, 503);
-      }
-
-      const secretsValid = validateProviderSecrets(provider);
-      
-      if (!secretsValid.valid) {
-        console.error('[mobile-checkout] PAWAPAY_SECRETS_MISSING', {
-          missing: secretsValid.missing,
-        });
-        return jsonResponse({
-          success: false,
-          code: 'PROVIDER_CONFIG_ERROR',
-          message: 'Mobile money payments are temporarily unavailable. Please try Bank Transfer.',
-          error: 'Payment provider not configured.',
-        }, 503);
-      }
-
-      // SAFE LOGGING: structured checkout init
-      console.log('[mobile-checkout] CHECKOUT_PAWAPAY_INIT', { 
-        order_id: checkoutOrder.id,
-        checkout_session_id: checkoutSession?.id || null,
-        payment_flow: 'PAWAPAY',
-        currency: payable_currency,
-        amount: payable_amount,
-        phone_last4: validatedPhone.slice(-4),
-      });
-      
-      try {
-        // ============================================
-        // SMART IDEMPOTENCY: Prevent duplicate pawaPay deposits
-        // If ANY pending payment exists for this order, reuse it (no time window)
-        // This prevents duplicates even if user waits and clicks again
-        // ============================================
-        const { data: existingPayment, error: existingPaymentError } = await supabase
-          .from('payments')
-          .select('id, provider_deposit_id, reference, status, created_at, amount, currency')
-          .eq('order_id', checkoutOrder.id)
-          .eq('provider_key', 'pawapay')
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        
-        if (existingPaymentError) {
-          console.warn('[mobile-checkout] IDEMPOTENCY_CHECK_ERROR', existingPaymentError.message);
-          // Continue with new payment creation if check fails
-        }
-        
-        if (existingPayment && existingPayment.provider_deposit_id) {
-          // Reuse existing pending payment - return the same depositId
-          console.log('[mobile-checkout] IDEMPOTENCY_HIT - REUSING_EXISTING_PAYMENT', {
-            order_id: checkoutOrder.id,
-            existing_payment_id: existingPayment.id,
-            existing_deposit_id: existingPayment.provider_deposit_id,
-            existing_reference: existingPayment.reference,
-            created_at: existingPayment.created_at,
-            age_seconds: Math.round((Date.now() - new Date(existingPayment.created_at).getTime()) / 1000),
-          });
-          
-          // Update checkout_session status
-          if (checkoutSession?.id) {
-            await supabase.from('checkout_sessions').update({ 
-              status: 'pawapay_initiated',
-              updated_at: new Date().toISOString(),
-            }).eq('id', checkoutSession.id);
-          }
-          
-          // Return the existing payment details (idempotent response)
-          const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
-          const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(existingPayment.provider_deposit_id)}&reference=${encodeURIComponent(existingPayment.reference)}`;
-          
-          return jsonResponse({
-            success: true,
-            depositId: existingPayment.provider_deposit_id,
-            order_id: checkoutOrder.id,
-            checkout_session_id: checkoutSession?.id || null,
-            payment_flow: 'PAWAPAY' as PaymentFlow,
-            currency: existingPayment.currency,
-            amount: Number(existingPayment.amount),
-            redirectUrl,
-            checkout_type: 'FULL_PAYMENT',
-            orderId: checkoutOrder.id,
-            confirmationId,
-            provider: 'pawapay',
-            checkoutUrl: redirectUrl,
-            message: 'Payment request already sent. Please check your phone.',
-            message_fr: 'Demande de paiement déjà envoyée. Vérifiez votre téléphone.',
-            idempotent: true, // Flag indicating this is a reused payment
-            payable_amount: Number(existingPayment.amount),
-            payable_currency: existingPayment.currency,
-            totals_breakdown: {
-              subtotal: totalsBreakdown.subtotal_items,
-              shipping: totalsBreakdown.shipping_fee,
-              markup: totalsBreakdown.markup_fee,
-              taxes: totalsBreakdown.taxes_fee,
-              grand_total: totalsBreakdown.grand_total,
-              currency: payable_currency,
-              cdf_equivalent: totalsBreakdown.cdf_equivalent,
-              exchange_rate: totalsBreakdown.exchange_rate,
-              vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
-            },
-            integrity_hash: integrityHash,
-            order: {
-              id: checkoutOrder.id,
-              confirmationId,
-              status: 'PENDING_PAYMENT',
-              itemCount: totalsBreakdown.item_count,
-              totalUsd: totalsBreakdown.grand_total,
-              totalCdf: totalsBreakdown.cdf_equivalent,
-            },
-            paymentDetails: {
-              currency: existingPayment.currency,
-              amount: Number(existingPayment.amount),
-              displayAmount: existingPayment.currency === 'CDF' 
-                ? `${Number(existingPayment.amount).toLocaleString('fr-FR')} FC`
-                : `$${Number(existingPayment.amount).toFixed(2)}`,
-            },
-          });
-        }
-        
-        // No existing pending payment - create new one
-        console.log('[mobile-checkout] IDEMPOTENCY_MISS - CREATING_NEW_PAYMENT', {
-          order_id: checkoutOrder.id,
-          existing_pending_found: false,
-        });
-        
-        const pawaConfig = getPawaPayConfig(provider);
-        const pawaReference = generateProviderRef(checkoutOrder.id);
-        
-        const depositResult = await createDeposit(pawaConfig, {
-          orderId: checkoutOrder.id,
-          amount: payable_amount,
-          currency: payable_currency,
-          customerPhone: validatedPhone, // Use normalized/validated phone
-          customerEmail: profile.email || user.email || '',
-          country: isoCode || 'COD',
-          reference: pawaReference,
-          description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
-        });
-
-        if (depositResult.success) {
-          // Create payment record in unified payments table
-          await createPaymentRecord(supabase, {
-            order_id: checkoutOrder.id,
-            provider_key: 'pawapay',
-            amount: payable_amount,
-            currency: payable_currency,
-            reference: pawaReference,
-            customer_phone: validatedPhone,
-            country: isoCode || 'COD',
-            provider_deposit_id: depositResult.provider_deposit_id,
-            raw_request: depositResult.raw_request,
-            status: 'pending',
-          });
-
-          // Update checkout_session status
-          if (checkoutSession?.id) {
-            await supabase.from('checkout_sessions').update({ 
-              status: 'pawapay_initiated',
-              updated_at: new Date().toISOString(),
-            }).eq('id', checkoutSession.id);
-          }
-
-          console.log('[mobile-checkout] CHECKOUT_PAWAPAY_SUCCESS', {
-            order_id: checkoutOrder.id,
-            checkout_session_id: checkoutSession?.id || null,
-            payment_flow: 'PAWAPAY',
-            currency: payable_currency,
-            amount: payable_amount,
-            depositId: depositResult.provider_deposit_id,
-            reference: pawaReference,
-          });
-
-          // Return redirectUrl to payment-callback page that polls for status
-          const frontendUrl = Deno.env.get('FRONTEND_URL') || 'https://afri-shop.com';
-          const redirectUrl = `${frontendUrl}/payment-callback?orderId=${encodeURIComponent(checkoutOrder.id)}&provider=pawapay&depositId=${encodeURIComponent(depositResult.provider_deposit_id || '')}&reference=${encodeURIComponent(pawaReference)}`;
-
-          // P0: Add depositId at TOP LEVEL for mobile app compatibility
-          const responsePayload = {
-            success: true,
-            // === CRITICAL: depositId at top level for mobile app ===
-            depositId: depositResult.provider_deposit_id,
-            // === REQUIRED FIELDS (always present) ===
-            order_id: checkoutOrder.id,
-            checkout_session_id: checkoutSession?.id || null,
-            payment_flow: 'PAWAPAY' as PaymentFlow,
-            currency: payable_currency,
-            amount: payable_amount,
-            // === OPTIONAL FIELDS (based on flow) ===
-            redirectUrl,
-            // === LEGACY FIELDS (for backwards compatibility) ===
-            checkout_type: 'FULL_PAYMENT',
-            orderId: checkoutOrder.id,
-            confirmationId,
-            provider: 'pawapay',
-            checkoutUrl: redirectUrl,
-            message: depositResult.message || 'Payment request sent to your phone. Please confirm on your device.',
-            message_fr: 'Demande de paiement envoyée à votre téléphone. Veuillez confirmer sur votre appareil.',
-            payable_amount,
-            payable_currency,
-            totals_breakdown: {
-              subtotal: totalsBreakdown.subtotal_items,
-              shipping: totalsBreakdown.shipping_fee,
-              markup: totalsBreakdown.markup_fee,
-              taxes: totalsBreakdown.taxes_fee,
-              grand_total: totalsBreakdown.grand_total,
-              currency: payable_currency,
-              cdf_equivalent: totalsBreakdown.cdf_equivalent,
-              exchange_rate: totalsBreakdown.exchange_rate,
-              vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
-            },
-            integrity_hash: integrityHash,
-            order: {
-              id: checkoutOrder.id,
-              confirmationId,
-              status: 'PENDING_PAYMENT',
-              itemCount: totalsBreakdown.item_count,
-              totalUsd: totalsBreakdown.grand_total,
-              totalCdf: totalsBreakdown.cdf_equivalent,
-            },
-            paymentDetails: {
-              currency: payable_currency,
-              amount: payable_amount,
-              displayAmount,
-            },
-          };
-          
-          // P0: Log full response for mobile app debugging
-          console.log('[mobile-checkout] PAWAPAY_RESPONSE_PAYLOAD', {
-            success: responsePayload.success,
-            payment_flow: responsePayload.payment_flow,
-            depositId: responsePayload.depositId,
-            order_id: responsePayload.order_id,
-            has_redirectUrl: !!responsePayload.redirectUrl,
-          });
-          
-          return jsonResponse(responsePayload);
-        } else {
-          // ============================================
-          // P0 FIX: Better error mapping from provider
-          // ============================================
-          const errorDetails = depositResult.errorDetails;
-          
-          // SAFE LOGGING: structured provider error (no secrets)
-          console.error('[mobile-checkout] [provider-init] CHECKOUT_PAWAPAY_FAILED', {
-            order_id: checkoutOrder.id,
-            provider: 'pawapay',
-            provider_http_status: errorDetails?.provider_http_status,
-            provider_error_code: errorDetails?.provider_error_code,
-            provider_request_id: errorDetails?.provider_request_id,
-            is_rejection: errorDetails?.is_rejection,
-            is_auth_error: errorDetails?.is_auth_error,
-          });
-          
-          // Special handling for 401 auth errors - this is server misconfig, NOT user error
-          if (errorDetails?.is_auth_error) {
-            return jsonResponse({
-              success: false,
-              code: 'PROVIDER_AUTH_FAILED',
-              message: 'Payment provider authentication failed. Check API token.',
-              error: 'Provider authentication failed.',
-              provider: 'pawapay',
-              provider_http_status: 401,
-              provider_request_id: errorDetails?.provider_request_id,
-            }, 500); // 500 because it's server misconfig, not user error
-          }
-          
-          // Determine HTTP status based on error type
-          // Provider rejection (4xx-type) = 400, Server error = 500
-          const httpStatus = errorDetails?.is_rejection ? 400 : 500;
-          const errorCode = errorDetails?.is_rejection ? 'PROVIDER_REJECTED' : 'PAYMENT_INIT_FAILED';
-          const errorMessage = errorDetails?.is_rejection 
-            ? 'Payment was rejected by the payment provider.'
-            : 'Failed to initiate payment. Please try again.';
-          
-          return jsonResponse({
-            success: false,
-            code: errorCode,
-            message: errorMessage,
-            error: depositResult.error || 'Payment initiation failed.',
-            // Include safe diagnostic fields
-            provider: 'pawapay',
-            provider_http_status: errorDetails?.provider_http_status,
-            provider_error_code: errorDetails?.provider_error_code,
-            provider_request_id: errorDetails?.provider_request_id,
-          }, httpStatus);
-        }
-      } catch (pawaError: any) {
-        // Handle ConfigMissingError specifically - server misconfig
-        if (pawaError instanceof ConfigMissingError || pawaError.code === 'CONFIG_MISSING') {
-          console.error('[mobile-checkout] [pawapay-auth] CONFIG_MISSING', {
-            order_id: checkoutOrder.id,
-            error: pawaError.message,
-          });
-          return jsonResponse({
-            success: false,
-            code: 'CONFIG_MISSING',
-            message: 'Payment provider token is not configured.',
-            error: pawaError.message,
-            provider: 'pawapay',
-          }, 500);
-        }
-        
-        // True server exception - return 500
-        console.error('[mobile-checkout] [provider-init] CHECKOUT_PAWAPAY_EXCEPTION', {
-          order_id: checkoutOrder.id,
-          error_name: pawaError.name,
-          error_message: pawaError.message?.slice(0, 100),
-        });
-        return jsonResponse({
-          success: false,
-          code: 'PAYMENT_ERROR',
-          message: 'Mobile money payment failed. Please try again or use Bank Transfer.',
-          error: 'An unexpected error occurred during payment initiation.',
-          provider: 'pawapay',
-        }, 500);
-      }
-    }
-
-    // ============================================
-    // CARD BRANCH: Use Stripe (for large orders with CARD preference)
-    // ============================================
-    if (REQUESTED_METHOD === 'CARD' || paymentMethodPreference === 'CARD') {
-      // Enhanced logging for router decision
-      console.log('[router] preference=CARD -> checking Stripe configuration');
-      
-      // Check if Stripe is enabled in payment settings first
-      if (!paymentSettings.stripe_enabled) {
-        console.warn('[router] preference=CARD -> flow=STRIPE, stripe_enabled=false');
-        return jsonResponse({
-          success: false,
-          code: 'PAYMENT_METHOD_DISABLED',
-          message: 'Card payments are currently disabled.',
-          message_fr: 'Les paiements par carte sont actuellement désactivés.',
-          error: 'Stripe is disabled in payment settings.',
-        }, 503);
-      }
-      
-      // Check if STRIPE_SECRET_KEY is configured
-      const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
-      if (!stripeSecretKey) {
-        console.error('[router] preference=CARD -> flow=STRIPE, STRIPE_SECRET_KEY=MISSING');
-        return jsonResponse({
-          success: false,
-          code: 'STRIPE_NOT_CONFIGURED',
-          message: 'Card payment is not configured. Please contact support.',
-          message_fr: 'Le paiement par carte n\'est pas configuré. Veuillez contacter le support.',
-          error: 'STRIPE_SECRET_KEY not configured in environment.',
-        }, 503);
-      }
-      
-      // Check if Stripe is available via provider system
-      const stripeProvider = await getActiveProvider(supabase, isoCode || 'COD', 'CARD');
-      
-      if (stripeProvider && stripeProvider.provider_key === 'stripe' && stripeProvider.is_enabled) {
-        try {
-          // Import Stripe adapter dynamically
-          const { createPaymentIntent, getStripeConfig } = await import('../_shared/stripeAdapter.ts');
-          const stripeConfig = getStripeConfig(stripeProvider);
-          
-          const stripeReference = generateProviderRef(checkoutOrder.id);
-          
-          console.log('[router] preference=CARD -> initiating Stripe PaymentIntent', {
-            order_id: checkoutOrder.id,
-            amount: payable_amount,
-            currency: 'USD',
-            reference: stripeReference,
-          });
-          
-          const stripeResult = await createPaymentIntent(stripeConfig, {
-            orderId: checkoutOrder.id,
-            userId: user.id,
-            intentId: stripeReference,
-            amount: payable_amount,
-            description: `AfriShop Order #${checkoutOrder.id.slice(0, 8)}`,
-          });
-          
-          if (stripeResult.success && stripeResult.client_secret) {
-            // Create payment record
-            await createPaymentRecord(supabase, {
-              order_id: checkoutOrder.id,
-              provider_key: 'stripe',
-              amount: payable_amount,
-              currency: 'USD',
-              reference: stripeReference,
-              provider_deposit_id: stripeResult.provider_deposit_id,
-              client_secret: stripeResult.client_secret,
-              raw_request: stripeResult.raw_request,
-              status: 'pending',
-            });
-            
-            // Update checkout_session status
-            if (checkoutSession?.id) {
-              await supabase.from('checkout_sessions').update({ 
-                status: 'stripe_initiated',
-                updated_at: new Date().toISOString(),
-              }).eq('id', checkoutSession.id);
-            }
-            
-            console.log('[router] preference=CARD -> flow=STRIPE, hasClientSecret=true', {
-              order_id: checkoutOrder.id,
-              checkout_session_id: checkoutSession?.id || null,
-              amount: payable_amount,
-              reference: stripeReference,
-              payment_intent_id: stripeResult.provider_deposit_id,
-            });
-            
-            return jsonResponse({
-              success: true,
-              order_id: checkoutOrder.id,
-              checkout_session_id: checkoutSession?.id || null,
-              payment_flow: 'STRIPE' as PaymentFlow,
-              currency: 'USD',
-              amount: payable_amount,
-              provider: 'stripe',
-              clientSecret: stripeResult.client_secret,
-              nextAction: {
-                type: 'stripe_payment_intent',
-                clientSecret: stripeResult.client_secret,
-              },
-              confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
-              reference: stripeReference,
-              totals_breakdown: {
-                subtotal: totalsBreakdown.subtotal_items,
-                shipping: totalsBreakdown.shipping_fee,
-                markup: totalsBreakdown.markup_fee,
-                taxes: totalsBreakdown.taxes_fee,
-                grand_total: totalsBreakdown.grand_total,
-                currency: 'USD',
-                cdf_equivalent: totalsBreakdown.cdf_equivalent,
-                exchange_rate: totalsBreakdown.exchange_rate,
-              },
-            });
-          } else {
-            // Log Stripe error details (safe - no secrets)
-            console.error('[router] preference=CARD -> flow=STRIPE, hasClientSecret=false', {
-              order_id: checkoutOrder.id,
-              error: stripeResult.error,
-              stripe_error_code: stripeResult.error?.includes('authentication') ? 'AUTH_ERROR' : 'INIT_ERROR',
-            });
-            return jsonResponse({
-              success: false,
-              code: 'STRIPE_INIT_FAILED',
-              message: 'Unable to initialize card payment. Please try again.',
-              message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
-              error: stripeResult.error || 'Failed to create Stripe payment intent.',
-              order_id: checkoutOrder.id,
-            }, 500);
-          }
-        } catch (stripeError: any) {
-          console.error('[router] preference=CARD -> STRIPE_EXCEPTION', {
-            order_id: checkoutOrder.id,
-            error_name: stripeError.name,
-            error_message: stripeError.message?.slice(0, 200),
-            error_code: stripeError.code,
-          });
-          return jsonResponse({
-            success: false,
-            code: 'STRIPE_INIT_FAILED',
-            message: 'Unable to initialize card payment. Please try again.',
-            message_fr: 'Impossible d\'initialiser le paiement par carte. Veuillez réessayer.',
-            error: stripeError.message,
-            order_id: checkoutOrder.id,
-          }, 500);
-        }
-      }
-      
-      // No card provider available in database
-      console.warn('[router] preference=CARD -> flow=STRIPE, provider_available=false');
-      return jsonResponse({
-        success: false,
-        code: 'CARD_NOT_AVAILABLE',
-        message: 'Card payments are not available. Please use Mobile Money or Bank Transfer.',
-        message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser Mobile Money ou Virement bancaire.',
-        error: 'Card payment provider not configured in database.',
-      }, 503);
-    }
-
-    // ============================================
-    // BANK_TRANSFER BRANCH: For large orders with BANK_TRANSFER preference
-    // ============================================
-    if (paymentMethodPreference === 'BANK_TRANSFER') {
-      // Enhanced logging for router decision
-      console.log('[router] preference=BANK_TRANSFER -> checking configuration');
-      
-      // Check if Bank Transfer is enabled in payment settings
-      if (!paymentSettings.bank_transfer_enabled) {
-        console.warn('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, bank_transfer_enabled=false');
-        return jsonResponse({
-          success: false,
-          code: 'PAYMENT_METHOD_DISABLED',
-          message: 'Bank transfers are currently disabled.',
-          message_fr: 'Les virements bancaires sont actuellement désactivés.',
-          error: 'Bank transfer is disabled in payment settings.',
-        }, 503);
-      }
-      
-      // Fetch bank transfer settings
-      const { data: bankSettings, error: bankSettingsError } = await supabase
-        .from('settings')
-        .select('bank_name, bank_account_holder, bank_account_number, bank_iban, bank_swift, bank_address, bank_instructions_en, bank_instructions_fr, support_email, support_whatsapp')
-        .limit(1)
-        .maybeSingle();
-      
-      if (bankSettingsError) {
-        console.error('[router] preference=BANK_TRANSFER -> settings_fetch_error', {
-          error: bankSettingsError.message,
-        });
-      }
-      
-      // Validate required bank details are present
-      const hasBankName = !!bankSettings?.bank_name;
-      const hasAccountNumber = !!bankSettings?.bank_account_number || !!bankSettings?.bank_iban;
-      const hasBankDetails = hasBankName && hasAccountNumber;
-      
-      if (!hasBankDetails) {
-        console.error('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=false', {
-          has_bank_name: hasBankName,
-          has_account_number: hasAccountNumber,
-        });
-        return jsonResponse({
-          success: false,
-          code: 'BANK_TRANSFER_NOT_CONFIGURED',
-          message: 'Bank transfer is not configured. Please contact support.',
-          message_fr: 'Le virement bancaire n\'est pas configuré. Veuillez contacter le support.',
-          error: 'Bank transfer settings are incomplete.',
-        }, 503);
-      }
-      
-      // Build complete bank transfer info with required fields
-      const transferReference = `AFRISHOP-${checkoutOrder.id.slice(0, 8).toUpperCase()}`;
-      const bankTransferInfo = {
-        bank_name: bankSettings.bank_name,
-        beneficiary_name: bankSettings.bank_account_holder || 'AfriShop USA LLC',
-        account_number_or_iban: bankSettings.bank_account_number || bankSettings.bank_iban || '',
-        iban: bankSettings.bank_iban || null,
-        swift_bic: bankSettings.bank_swift || '',
-        bank_address: bankSettings.bank_address || '',
-        instructions_en: bankSettings.bank_instructions_en || 'Please transfer the exact amount and include your order ID in the reference. After transfer, upload your proof of payment.',
-        instructions_fr: bankSettings.bank_instructions_fr || 'Veuillez transférer le montant exact et inclure votre numéro de commande dans la référence. Après le virement, téléchargez votre preuve de paiement.',
-        reference: transferReference,
-        support_email: bankSettings.support_email || 'nkadimisha@afrishop-usa.com',
-        support_whatsapp: bankSettings.support_whatsapp || null,
-      };
-      
-      console.log('[router] preference=BANK_TRANSFER -> flow=BANK_TRANSFER, hasBankDetails=true', {
-        order_id: checkoutOrder.id,
-        checkout_session_id: checkoutSession?.id || null,
-        amount: payable_amount,
-        reference: transferReference,
-        bank_name: bankSettings.bank_name,
-      });
-      
-      // Update order status to await bank transfer
-      await supabase.from('orders').update({
-        status: 'PENDING_PAYMENT',
-        maisha_payment_status: 'PENDING_BANK_TRANSFER',
-        payment_notes: `Awaiting bank transfer. Reference: ${transferReference}`,
-      }).eq('id', checkoutOrder.id);
-      
-      // Update checkout_session status
-      if (checkoutSession?.id) {
-        await supabase.from('checkout_sessions').update({ 
-          status: 'bank_transfer_initiated',
-          updated_at: new Date().toISOString(),
-        }).eq('id', checkoutSession.id);
-      }
-      
-      return jsonResponse({
-        success: true,
-        order_id: checkoutOrder.id,
-        checkout_session_id: checkoutSession?.id || null,
-        payment_flow: 'BANK_TRANSFER' as PaymentFlow,
-        currency: 'USD',
-        amount: payable_amount,
-        confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
-        reference: transferReference,
-        bank_transfer: bankTransferInfo,
-        message: 'Please complete the bank transfer and upload proof of payment.',
-        message_fr: 'Veuillez effectuer le virement bancaire et télécharger la preuve de paiement.',
-        totals_breakdown: {
-          subtotal: totalsBreakdown.subtotal_items,
-          shipping: totalsBreakdown.shipping_fee,
-          markup: totalsBreakdown.markup_fee,
-          taxes: totalsBreakdown.taxes_fee,
-          grand_total: totalsBreakdown.grand_total,
-          currency: 'USD',
-          cdf_equivalent: totalsBreakdown.cdf_equivalent,
-          exchange_rate: totalsBreakdown.exchange_rate,
-        },
-      });
-    }
-
-    // ============================================
-    // FALLBACK: No valid payment method
-    // ============================================
-    console.error('[mobile-checkout] NO_VALID_PAYMENT_METHOD', {
-      orderId: checkoutOrder.id,
-      requested_method: REQUESTED_METHOD,
-      payment_method_preference: paymentMethodPreference,
-    });
     
+    // Determine available providers based on order characteristics
+    const availableProviders: string[] = [];
+    
+    if (!isLargeOrder && paymentSettings.pawapay_enabled) {
+      availableProviders.push('pawapay');
+    }
+    if (paymentSettings.stripe_enabled) {
+      availableProviders.push('stripe');
+    }
+    if (paymentSettings.bank_transfer_enabled) {
+      availableProviders.push('bank_transfer');
+    }
+    
+    // Log the payment flow decision
+    console.log('[PAYMENT_FLOW] AWAITING_PROVIDER_SELECTION', {
+      order_id: checkoutOrder.id,
+      checkout_session_id: checkoutSession?.id || null,
+      user_id: user.id.slice(0, 8) + '***',
+      amount: payable_amount,
+      currency: payable_currency,
+      is_large_order: isLargeOrder,
+      contains_vehicle: containsVehicle,
+      requested_method: REQUESTED_METHOD,
+      available_providers: availableProviders,
+      provider_called: 'NONE', // CRITICAL: No provider API called
+    });
+
+    // Return session ready for provider selection
+    // Mobile app should call /select-payment-provider with chosen provider
     return jsonResponse({
-      success: false,
-      code: 'PAYMENT_METHOD_NOT_SUPPORTED',
-      message: 'Payment method not supported.',
-      message_fr: 'Mode de paiement non supporté.',
-      error: 'Payment method not supported.',
-    }, 400);
+      success: true,
+      order_id: checkoutOrder.id,
+      checkout_session_id: checkoutSession?.id || null,
+      status: 'awaiting_provider_selection',
+      payment_flow: isLargeOrder ? 'CHOICE_REQUIRED' : 'AWAITING_SELECTION' as any,
+      amount: payable_amount,
+      currency: payable_currency,
+      cdf_equivalent: totalsBreakdown.cdf_equivalent,
+      available_providers: availableProviders,
+      is_large_order: isLargeOrder,
+      reason: isLargeOrder 
+        ? (containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit')
+        : 'standard_order',
+      confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+      message: 'Please select your payment method.',
+      message_fr: 'Veuillez sélectionner votre mode de paiement.',
+      next_step: {
+        endpoint: '/functions/v1/select-payment-provider',
+        method: 'POST',
+        required_fields: {
+          checkout_session_id: checkoutSession?.id || null,
+          provider: 'pawapay | stripe | bank_transfer',
+          phone: 'required for pawapay',
+        },
+      },
+      totals_breakdown: {
+        subtotal: totalsBreakdown.subtotal_items,
+        shipping: totalsBreakdown.shipping_fee,
+        markup: totalsBreakdown.markup_fee,
+        taxes: totalsBreakdown.taxes_fee,
+        grand_total: totalsBreakdown.grand_total,
+        currency: payable_currency,
+        cdf_equivalent: totalsBreakdown.cdf_equivalent,
+        exchange_rate: totalsBreakdown.exchange_rate,
+        vehicle_quote_total: totalsBreakdown.vehicle_quote_total,
+      },
+      integrity_hash: integrityHash,
+      order: {
+        id: checkoutOrder.id,
+        confirmationId: checkoutOrder.id.substring(0, 8).toUpperCase(),
+        status: 'PENDING_PAYMENT',
+        itemCount: totalsBreakdown.item_count,
+        totalUsd: totalsBreakdown.grand_total,
+        totalCdf: totalsBreakdown.cdf_equivalent,
+      },
+    });
+
+    // ============================================
+    // REMOVED: Provider calls moved to select-payment-provider
+    // ============================================
 
   } catch (error: any) {
     console.error('[mobile-checkout] Error:', error.message, 'elapsed_ms=' + (typeof perf !== 'undefined' ? perf.total() : 'N/A'));

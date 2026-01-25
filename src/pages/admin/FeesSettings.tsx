@@ -60,23 +60,26 @@ export default function FeesSettings() {
 
       setSettings(data);
       
-      // Core settings - use markup_percent (stored as decimal like 0.15 or whole number like 15)
-      const markupVal = data.markup_percent || data.global_markup_percent || 0.15;
-      setMarkupPercent(markupVal > 1 ? markupVal : markupVal * 100);
+      // Core settings - markup_percent is always stored as whole number (15 = 15%)
+      // DO NOT convert values ≤1 to percentages - 1 means 1%, not 100%
+      const markupVal = data.markup_percent ?? data.global_markup_percent ?? 15;
+      setMarkupPercent(markupVal);
       
       setExchangeRateUsdToCdf(data.exchange_rate_usd_to_cdf || 2800);
       setShippingBaseFeeUsd(data.shipping_base_fee_usd || 20);
       
-      const shippingVal = data.shipping_percent || 0.10;
-      setShippingPercent(shippingVal > 1 ? shippingVal : shippingVal * 100);
+      // Shipping percent stored as whole number (10 = 10%)
+      const shippingVal = data.shipping_percent ?? 10;
+      setShippingPercent(shippingVal);
       
       // Advanced settings - load category markups including vehicles
       const loadedCategoryMarkups = (data.category_markups || {}) as Record<string, number>;
       setCategoryMarkups(loadedCategoryMarkups);
       
       // Load vehicle markup from category_markups.vehicles or default to general markup
+      // Values are always whole percentages (1 = 1%, not 100%)
       const vehicleVal = loadedCategoryMarkups.vehicles ?? markupVal;
-      setVehicleMarkupPercent(vehicleVal > 1 ? vehicleVal : vehicleVal * 100);
+      setVehicleMarkupPercent(vehicleVal);
       
       setExtraFees((data.extra_fees || []) as any[]);
       setDiscountCodes((data.discount_codes || []) as any[]);

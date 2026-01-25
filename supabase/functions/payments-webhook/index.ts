@@ -29,6 +29,61 @@ import {
   PawaPayCallbackPayload,
 } from "../_shared/pawapayAdapter.ts";
 
+// ==================== Helper Functions ====================
+
+/**
+ * Send payment confirmation email if not already sent (idempotent)
+ */
+async function sendPaymentConfirmationEmailIfNeeded(
+  supabase: any,
+  orderId: string,
+  source: string
+): Promise<void> {
+  try {
+    // Check if email already sent
+    const { data: orderCheck } = await supabase
+      .from('orders')
+      .select('payment_confirmation_email_sent_at')
+      .eq('id', orderId)
+      .single();
+    
+    if (orderCheck?.payment_confirmation_email_sent_at) {
+      console.log(`[${source}] [PAYMENT_EMAIL] Email already sent, skipping`, { orderId });
+      return;
+    }
+    
+    // Mark as sent first (optimistic lock)
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ payment_confirmation_email_sent_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .is('payment_confirmation_email_sent_at', null); // Only update if still null
+    
+    if (updateError) {
+      console.warn(`[${source}] [PAYMENT_EMAIL] Failed to mark email as sent`, { orderId, error: updateError.message });
+      return;
+    }
+    
+    // Send email via edge function
+    console.log(`[${source}] [PAYMENT_EMAIL] Sending confirmation email`, { orderId });
+    
+    const { error: invokeError } = await supabase.functions.invoke('send-payment-confirmation', {
+      body: { orderId },
+    });
+    
+    if (invokeError) {
+      console.error(`[${source}] [PAYMENT_EMAIL] Send failed`, { orderId, error: invokeError.message });
+    } else {
+      console.log(`[${source}] [PAYMENT_EMAIL] Sent successfully`, { orderId });
+    }
+    
+  } catch (error: any) {
+    console.error(`[${source}] [PAYMENT_EMAIL] Error`, { orderId, error: error.message });
+  }
+}
+
+// ==================== Main Handler ====================
+
 Deno.serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -235,7 +290,7 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
         console.log('[payments-webhook/stripe] Order marked as PAID:', payment.order_id);
       }
       
-      // P0 FIX: Clear original cart items on verified success
+      // Clear original cart items
       const { data: checkoutSession } = await supabase
         .from('checkout_sessions')
         .select('id, metadata')
@@ -244,7 +299,7 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
       
       if (checkoutSession?.id) {
         await supabase.from('checkout_sessions').update({
-          status: 'completed',
+          status: 'paid',
           paid_at: new Date().toISOString(),
         }).eq('id', checkoutSession.id);
         
@@ -256,6 +311,9 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
           await supabase.from('order_items').delete().in('id', originalCartItemIds);
         }
       }
+      
+      // Send payment confirmation email (idempotent)
+      await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-webhook');
     }
   }
 
@@ -339,7 +397,7 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
 
     console.log('[payments-webhook/pawapay] Order marked as PAID:', payment.order_id);
     
-    // P0 FIX: Clear original cart items on verified success
+    // Clear original cart items
     const { data: checkoutSession } = await supabase
       .from('checkout_sessions')
       .select('id, metadata')
@@ -348,7 +406,7 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
     
     if (checkoutSession?.id) {
       await supabase.from('checkout_sessions').update({
-        status: 'completed',
+        status: 'paid',
         paid_at: new Date().toISOString(),
       }).eq('id', checkoutSession.id);
       
@@ -360,6 +418,9 @@ async function handlePawaPay(req: Request, supabase: any): Promise<Response> {
         await supabase.from('order_items').delete().in('id', originalCartItemIds);
       }
     }
+    
+    // Send payment confirmation email (idempotent)
+    await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'pawapay-webhook');
   }
 
   return new Response(

@@ -15,19 +15,22 @@ import {
   updatePaymentStatus,
 } from "../_shared/paymentProviders.ts";
 import { verifyDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
+import { verifyPaymentIntent, getStripeConfig } from "../_shared/stripeAdapter.ts";
 
 /**
  * mobile-verify-payment Edge Function
  * 
  * Authoritative source for transaction results.
- * MaishaPay REMOVED - only supports pawaPay verification.
+ * Supports pawaPay and Stripe verification with provider API fallback.
  * 
  * Supports both GET (query params) and POST (JSON body):
  * - orderId: Primary lookup key
  * - reference: Alternative lookup by payment reference
  * 
- * Response schema:
- * { success: true, status: 'pending'|'succeeded'|'failed', order_id: 'uuid', paid_at?: string, error?: string }
+ * Response schema (FRONTEND CONTRACT):
+ * SUCCESS: { success: true, status: 'completed', order_id: 'uuid', amount: number, currency: string }
+ * PENDING: { success: true, status: 'pending' }
+ * FAILED:  { success: true, status: 'failed', message: string }
  */
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -42,10 +45,10 @@ serve(async (req) => {
   const log = createTracedLogger(traceId);
 
   try {
-    log.log('[verify-payment] Started');
+    log.log('[PAYMENT_VERIFY] Started');
 
     const { user, supabase } = await verifyAndGetUser(req);
-    log.log('[verify-payment] User authenticated', { userId: user.id });
+    log.log('[PAYMENT_VERIFY] User authenticated', { userId: user.id.slice(0, 8) + '***' });
 
     // Rate limiting: 30 requests per 10 minutes per user
     const clientIp = getClientIp(req);
@@ -57,8 +60,8 @@ serve(async (req) => {
     );
 
     if (!rateLimitResult.allowed) {
-      log.warn('[verify-payment] Rate limit exceeded', { 
-        userId: user.id, 
+      log.warn('[PAYMENT_VERIFY] Rate limit exceeded', { 
+        userId: user.id.slice(0, 8) + '***', 
         count: rateLimitResult.count,
         limit: rateLimitResult.limit,
       });
@@ -86,14 +89,13 @@ serve(async (req) => {
       reference = body.reference;
     }
 
-    log.log('[verify-payment] Params', { order_id, reference });
+    log.log('[PAYMENT_VERIFY] Params', { order_id, reference });
 
     if (!order_id && !reference) {
       return jsonResponse({ 
         success: false, 
-        code: 'MISSING_PARAM',
+        status: 'failed',
         message: 'order_id or reference is required',
-        error: 'order_id or reference is required',
       }, 400);
     }
 
@@ -109,24 +111,28 @@ serve(async (req) => {
     const { data: order, error: orderError } = await query.eq('user_id', user.id).single();
 
     if (orderError || !order) {
-      log.warn('[verify-payment] Order not found', { order_id, reference });
+      log.warn('[PAYMENT_VERIFY] Order not found', { order_id, reference });
       return jsonResponse({ 
         success: false, 
-        code: 'ORDER_NOT_FOUND',
+        status: 'failed',
         message: 'Order not found',
-        error: 'Order not found',
       }, 404);
     }
 
     // ==================== CHECK IF ALREADY PAID ====================
     
     if (order.status === 'PAID' || order.maisha_payment_status === 'SUCCESS') {
-      log.log('[verify-payment] Order already paid', { orderId: order.id });
+      log.log('[PAYMENT_VERIFY] Order already paid', { orderId: order.id });
+      
+      // Try to send confirmation email if not sent yet
+      await sendPaymentConfirmationEmailIfNeeded(supabase, order.id, log);
+      
       return jsonResponse({
         success: true,
         order_id: order.id,
-        status: 'succeeded',
-        paid_at: order.payment_verified_at || order.approved_at,
+        status: 'completed', // CRITICAL: Frontend expects 'completed', not 'succeeded'
+        amount: order.total_usd || 0,
+        currency: 'USD',
       });
     }
 
@@ -135,7 +141,7 @@ serve(async (req) => {
     const unifiedPayment = await getPaymentByOrderId(supabase, order.id);
     
     if (unifiedPayment) {
-      log.log('[verify-payment] Found payment record', { 
+      log.log('[PAYMENT_VERIFY] Found payment record', { 
         paymentId: unifiedPayment.id,
         provider: unifiedPayment.provider_key,
         status: unifiedPayment.status,
@@ -143,19 +149,22 @@ serve(async (req) => {
 
       // ==================== PAWAPAY VERIFICATION ====================
       if (unifiedPayment.provider_key === 'pawapay') {
-        log.log('[verify-payment] Using pawaPay verification', { paymentId: unifiedPayment.id });
+        log.log('[PAYMENT_VERIFY] Using pawaPay verification', { paymentId: unifiedPayment.id });
         
         // Check if already completed in DB
         if (unifiedPayment.status === 'succeeded') {
+          await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
+          
           return jsonResponse({
             success: true,
             order_id: order.id,
-            status: 'succeeded',
-            paid_at: unifiedPayment.paid_at || order.payment_verified_at,
+            status: 'completed',
+            amount: order.total_usd || 0,
+            currency: 'USD',
           });
         }
         
-        // Verify with pawaPay API if deposit ID exists
+        // Verify with pawaPay API if deposit ID exists (PROVIDER FALLBACK)
         if (unifiedPayment.provider_deposit_id) {
           try {
             const provider = await getProviderByKey(supabase, 'pawapay');
@@ -163,7 +172,8 @@ serve(async (req) => {
               const pawaConfig = getPawaPayConfig(provider);
               const verifyResult = await verifyDeposit(pawaConfig, unifiedPayment.provider_deposit_id);
               
-              log.log('[verify-payment] pawaPay verify result', { 
+              log.log('[PAYMENT_VERIFY] pawaPay API verify result', { 
+                depositId: unifiedPayment.provider_deposit_id,
                 status: verifyResult.status,
                 success: verifyResult.success,
               });
@@ -175,67 +185,14 @@ serve(async (req) => {
                   paid_at: verifyResult.paid_at,
                 });
                 
-                // Update order status
-                await supabase.from('orders').update({
-                  status: 'PAID',
-                  maisha_payment_status: 'SUCCESS',
-                  payment_verified_at: new Date().toISOString(),
-                }).eq('id', order.id);
-                
-                // P0 FIX: Fetch checkout_session to get original cart item IDs
-                const { data: checkoutSession } = await supabase
-                  .from('checkout_sessions')
-                  .select('id, metadata')
-                  .eq('order_id', order.id)
-                  .maybeSingle();
-                
-                // P0 FIX: Mark checkout_session as completed
-                if (checkoutSession?.id) {
-                  await supabase.from('checkout_sessions').update({
-                    status: 'completed',
-                    paid_at: new Date().toISOString(),
-                  }).eq('id', checkoutSession.id);
-                }
-                
-                // P0 CRITICAL FIX: Clear cart items ONLY on verified success
-                // Delete original items from the DRAFT order (cart)
-                const metadata = checkoutSession?.metadata as any;
-                const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
-                const sourceOrderId = metadata?.source_order_id;
-                
-                if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
-                  log.log('[verify-payment] Deleting original cart items from DRAFT order', {
-                    source_order_id: sourceOrderId,
-                    original_cart_item_ids: originalCartItemIds,
-                    count: originalCartItemIds.length,
-                  });
-                  
-                  const { error: deleteError, data: deletedItems } = await supabase
-                    .from('order_items')
-                    .delete()
-                    .in('id', originalCartItemIds)
-                    .select('id');
-                  
-                  if (deleteError) {
-                    log.error('[verify-payment] Failed to delete original cart items', { 
-                      error: deleteError.message,
-                      original_cart_item_ids: originalCartItemIds,
-                    });
-                  } else {
-                    log.log('[verify-payment] Successfully deleted original cart items', {
-                      deleted_count: deletedItems?.length || 0,
-                      deleted_ids: deletedItems?.map(i => i.id),
-                    });
-                  }
-                } else {
-                  log.log('[verify-payment] Payment succeeded, no original cart item IDs found in session');
-                }
+                await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
                 
                 return jsonResponse({
                   success: true,
                   order_id: order.id,
-                  status: 'succeeded',
-                  paid_at: verifyResult.paid_at || new Date().toISOString(),
+                  status: 'completed',
+                  amount: order.total_usd || 0,
+                  currency: 'USD',
                 });
               }
               
@@ -246,7 +203,7 @@ serve(async (req) => {
                   success: true,
                   order_id: order.id,
                   status: 'failed',
-                  error: verifyResult.error || 'Payment failed',
+                  message: verifyResult.error || 'Payment failed',
                 });
               }
               
@@ -258,7 +215,7 @@ serve(async (req) => {
               });
             }
           } catch (pawaError: any) {
-            log.error('[verify-payment] pawaPay verify error', { error: pawaError.message });
+            log.error('[PAYMENT_VERIFY] pawaPay verify error', { error: pawaError.message });
             // Fall through to return pending status
           }
         }
@@ -268,52 +225,106 @@ serve(async (req) => {
         return jsonResponse({
           success: true,
           order_id: order.id,
-          status: mappedStatus === 'succeeded' ? 'succeeded' : mappedStatus === 'failed' ? 'failed' : 'pending',
-          paid_at: unifiedPayment.paid_at || undefined,
+          status: mappedStatus === 'succeeded' ? 'completed' : mappedStatus === 'failed' ? 'failed' : 'pending',
+          amount: order.total_usd || 0,
+          currency: 'USD',
         });
       }
 
       // ==================== STRIPE VERIFICATION ====================
-      if (unifiedPayment.provider_key === 'stripe') {
-        log.log('[verify-payment] Using Stripe verification', { paymentId: unifiedPayment.id });
+      if (unifiedPayment.provider_key === 'stripe' || unifiedPayment.provider_key === 'stripe_checkout') {
+        log.log('[PAYMENT_VERIFY] Using Stripe verification', { paymentId: unifiedPayment.id });
         
         // Check if already completed in DB
         if (unifiedPayment.status === 'succeeded') {
+          await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
+          
           return jsonResponse({
             success: true,
             order_id: order.id,
-            status: 'succeeded',
-            paid_at: unifiedPayment.paid_at || order.payment_verified_at,
+            status: 'completed',
+            amount: order.total_usd || 0,
+            currency: 'USD',
           });
         }
         
-        // For Stripe, status should be updated via webhook
+        // PROVIDER FALLBACK: Verify with Stripe API if PaymentIntent ID exists
+        if (unifiedPayment.provider_deposit_id) {
+          try {
+            const provider = await getProviderByKey(supabase, 'stripe');
+            if (provider) {
+              const stripeConfig = getStripeConfig(provider);
+              const verifyResult = await verifyPaymentIntent(stripeConfig, unifiedPayment.provider_deposit_id);
+              
+              log.log('[PAYMENT_VERIFY] Stripe API verify result', { 
+                paymentIntentId: unifiedPayment.provider_deposit_id,
+                status: verifyResult.status,
+                success: verifyResult.success,
+              });
+              
+              if (verifyResult.status === 'succeeded') {
+                // Update payment and order status
+                await updatePaymentStatus(supabase, unifiedPayment.id, 'succeeded', {
+                  provider_transaction_id: verifyResult.provider_transaction_id,
+                  paid_at: verifyResult.paid_at,
+                });
+                
+                await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
+                
+                return jsonResponse({
+                  success: true,
+                  order_id: order.id,
+                  status: 'completed',
+                  amount: order.total_usd || 0,
+                  currency: 'USD',
+                });
+              }
+              
+              if (verifyResult.status === 'failed') {
+                await updatePaymentStatus(supabase, unifiedPayment.id, 'failed');
+                
+                return jsonResponse({
+                  success: true,
+                  order_id: order.id,
+                  status: 'failed',
+                  message: verifyResult.error || 'Payment failed',
+                });
+              }
+            }
+          } catch (stripeError: any) {
+            log.error('[PAYMENT_VERIFY] Stripe verify error', { error: stripeError.message });
+            // Fall through to return DB status
+          }
+        }
+        
         // Return current DB status
-        const mappedStatus = unifiedPayment.status === 'succeeded' ? 'succeeded' : 
+        const mappedStatus = unifiedPayment.status === 'succeeded' ? 'completed' : 
                             unifiedPayment.status === 'failed' ? 'failed' : 'pending';
         return jsonResponse({
           success: true,
           order_id: order.id,
           status: mappedStatus,
-          paid_at: unifiedPayment.paid_at || undefined,
+          amount: order.total_usd || 0,
+          currency: 'USD',
         });
       }
 
       // ==================== OTHER PROVIDERS ====================
       // Return current status from DB
-      const mappedStatus = unifiedPayment.status === 'succeeded' ? 'succeeded' : 
+      const mappedStatus = unifiedPayment.status === 'succeeded' ? 'completed' : 
                           unifiedPayment.status === 'failed' ? 'failed' : 'pending';
       return jsonResponse({
         success: true,
         order_id: order.id,
         status: mappedStatus,
-        paid_at: unifiedPayment.paid_at || undefined,
+        amount: order.total_usd || 0,
+        currency: 'USD',
       });
     }
 
     // ==================== NO PAYMENT RECORD FOUND ====================
     
-    log.log('[verify-payment] No payment record found, checking order status', { orderId: order.id });
+    log.log('[PAYMENT_VERIFY] No payment record found, checking order status', { orderId: order.id });
     
     // Check order status directly
     if (order.status === 'PENDING_PAYMENT') {
@@ -329,7 +340,7 @@ serve(async (req) => {
         success: true,
         order_id: order.id,
         status: 'failed',
-        error: 'Order was cancelled',
+        message: 'Order was cancelled',
       });
     }
 
@@ -341,22 +352,123 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    log.error('[verify-payment] Error', { message: error.message });
+    log.error('[PAYMENT_VERIFY] Error', { message: error.message });
     
     if (error.name === 'AuthError') {
       return jsonResponse({ 
         success: false,
-        code: 'AUTH_ERROR',
+        status: 'failed',
         message: error.message,
-        error: error.message,
       }, error.status);
     }
     
     return jsonResponse({ 
       success: false,
-      code: 'INTERNAL_ERROR', 
+      status: 'failed', 
       message: 'An unexpected error occurred',
-      error: error.message,
     }, 500);
   }
 });
+
+/**
+ * Mark order as PAID, update checkout session, clear cart, and send email
+ */
+async function markOrderPaidAndNotify(
+  supabase: any, 
+  order: any, 
+  payment: any,
+  log: any
+): Promise<void> {
+  const now = new Date().toISOString();
+  
+  // Update order status
+  await supabase.from('orders').update({
+    status: 'PAID',
+    maisha_payment_status: 'SUCCESS',
+    payment_verified_at: now,
+  }).eq('id', order.id);
+  
+  log.log('[PAYMENT_VERIFY] Order marked as PAID', { orderId: order.id });
+  
+  // Fetch and update checkout_session
+  const { data: checkoutSession } = await supabase
+    .from('checkout_sessions')
+    .select('id, metadata')
+    .eq('order_id', order.id)
+    .maybeSingle();
+  
+  if (checkoutSession?.id) {
+    await supabase.from('checkout_sessions').update({
+      status: 'paid',
+      paid_at: now,
+    }).eq('id', checkoutSession.id);
+    
+    // Clear original cart items
+    const metadata = checkoutSession.metadata as any;
+    const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+    
+    if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+      log.log('[PAYMENT_VERIFY] Deleting original cart items', {
+        count: originalCartItemIds.length,
+      });
+      
+      await supabase.from('order_items').delete().in('id', originalCartItemIds);
+    }
+  }
+  
+  // Send payment confirmation email (idempotent)
+  await sendPaymentConfirmationEmailIfNeeded(supabase, order.id, log);
+}
+
+/**
+ * Send payment confirmation email if not already sent (idempotent)
+ */
+async function sendPaymentConfirmationEmailIfNeeded(
+  supabase: any,
+  orderId: string,
+  log: any
+): Promise<void> {
+  try {
+    // Check if email already sent
+    const { data: orderCheck } = await supabase
+      .from('orders')
+      .select('payment_confirmation_email_sent_at')
+      .eq('id', orderId)
+      .single();
+    
+    if (orderCheck?.payment_confirmation_email_sent_at) {
+      log.log('[PAYMENT_EMAIL] Email already sent, skipping', { orderId });
+      return;
+    }
+    
+    // Mark as sent first (optimistic lock)
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ payment_confirmation_email_sent_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .is('payment_confirmation_email_sent_at', null); // Only update if still null
+    
+    if (updateError) {
+      log.warn('[PAYMENT_EMAIL] Failed to mark email as sent', { orderId, error: updateError.message });
+      return;
+    }
+    
+    // Send email via edge function (fire-and-forget)
+    log.log('[PAYMENT_EMAIL] Sending confirmation email', { orderId });
+    
+    supabase.functions.invoke('send-payment-confirmation', {
+      body: { orderId },
+    }).then((result: any) => {
+      if (result.error) {
+        log.error('[PAYMENT_EMAIL] Send failed', { orderId, error: result.error.message });
+      } else {
+        log.log('[PAYMENT_EMAIL] Sent successfully', { orderId });
+      }
+    }).catch((err: any) => {
+      log.error('[PAYMENT_EMAIL] Invoke error', { orderId, error: err.message });
+    });
+    
+  } catch (error: any) {
+    log.error('[PAYMENT_EMAIL] Error', { orderId, error: error.message });
+  }
+}

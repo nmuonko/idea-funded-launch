@@ -1193,6 +1193,7 @@ export type Database = {
           normalized_amount: number | null
           normalized_currency: string | null
           operator_ref_id: string | null
+          payment_confirmation_email_sent_at: string | null
           payment_notes: string | null
           payment_verification_method: string | null
           payment_verified_at: string | null
@@ -1238,6 +1239,7 @@ export type Database = {
           normalized_amount?: number | null
           normalized_currency?: string | null
           operator_ref_id?: string | null
+          payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null
@@ -1283,6 +1285,7 @@ export type Database = {
           normalized_amount?: number | null
           normalized_currency?: string | null
           operator_ref_id?: string | null
+          payment_confirmation_email_sent_at?: string | null
           payment_notes?: string | null
           payment_verification_method?: string | null
           payment_verified_at?: string | null

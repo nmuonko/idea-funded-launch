@@ -46,13 +46,18 @@ export default function AcceptInvite() {
 
   const validateToken = async () => {
     try {
+      console.log('[AcceptInvite] Validating token:', token?.substring(0, 10) + '...');
+      
       const { data, error: fetchError } = await supabase
         .from('admin_invitations')
         .select('id, email, role, status, expires_at')
         .eq('token', token)
         .single();
 
+      console.log('[AcceptInvite] Query result:', { data, error: fetchError?.message });
+
       if (fetchError || !data) {
+        console.log('[AcceptInvite] Token validation failed:', fetchError?.message || 'No data returned');
         setError('Invalid or expired invitation link');
         setLoading(false);
         return;
@@ -70,9 +75,11 @@ export default function AcceptInvite() {
         return;
       }
 
+      console.log('[AcceptInvite] Token valid for:', data.email, 'role:', data.role);
       setInvitation(data);
       setLoading(false);
     } catch (err) {
+      console.error('[AcceptInvite] Validation error:', err);
       setError('Failed to validate invitation');
       setLoading(false);
     }
@@ -95,71 +102,41 @@ export default function AcceptInvite() {
 
     try {
       setSubmitting(true);
+      console.log('[AcceptInvite] Submitting invitation acceptance for:', invitation.email);
 
-      // Create user account
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
-        email: invitation.email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/admin`,
-          data: {
-            full_name: fullName || invitation.email.split('@')[0],
-            invited_admin: true
-          }
+      // Call the edge function to handle account creation and role assignment
+      // This uses service role to bypass RLS restrictions
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: JSON.stringify({
+            token,
+            password,
+            fullName: fullName || invitation.email.split('@')[0],
+          }),
         }
-      });
+      );
 
-      if (signUpError) {
-        // Check if user already exists
-        if (signUpError.message.includes('already registered')) {
+      const result = await response.json();
+      console.log('[AcceptInvite] Edge function response:', result);
+
+      if (!response.ok) {
+        if (result.redirect) {
           toast({ 
             title: 'Account already exists', 
             description: 'Please login with your existing credentials',
             variant: 'destructive' 
           });
-          navigate('/auth');
+          navigate(result.redirect);
           return;
         }
-        throw signUpError;
+        throw new Error(result.error || 'Failed to accept invitation');
       }
-
-      if (!authData.user) {
-        throw new Error('Failed to create account');
-      }
-
-      // Create profile for new user
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          user_id: authData.user.id,
-          full_name: fullName || invitation.email.split('@')[0],
-        });
-
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
-      }
-
-      // Add admin role
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({ 
-          user_id: authData.user.id, 
-          role: 'admin', 
-          admin_role: invitation.role 
-        });
-
-      if (roleError) {
-        console.error('Role assignment error:', roleError);
-      }
-
-      // Mark invitation as accepted
-      await supabase
-        .from('admin_invitations')
-        .update({ 
-          status: 'accepted', 
-          accepted_at: new Date().toISOString() 
-        })
-        .eq('id', invitation.id);
 
       toast({
         title: 'Account created successfully!',
@@ -170,7 +147,7 @@ export default function AcceptInvite() {
       navigate('/auth?mode=admin');
 
     } catch (err: any) {
-      console.error('Accept invite error:', err);
+      console.error('[AcceptInvite] Error:', err);
       toast({
         title: 'Failed to create account',
         description: err.message,

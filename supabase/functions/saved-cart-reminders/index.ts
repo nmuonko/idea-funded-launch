@@ -1,14 +1,19 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Configuration
-const SAVED_AGE_THRESHOLD_HOURS = 48; // Items saved for at least 48 hours
-const REMINDER_COOLDOWN_DAYS = 5; // Don't send another reminder within 5 days
+// Tiered reminder schedule (in hours since saved_at)
+const REMINDER_TIERS = [
+  { tier: 1, hoursThreshold: 24, subject: "N'oubliez pas vos articles! 🛒", tone: "friendly" },
+  { tier: 2, hoursThreshold: 72, subject: "Vos articles vous attendent toujours 💫", tone: "reminder" },
+  { tier: 3, hoursThreshold: 168, subject: "Toujours intéressé(e)? 🤔", tone: "inquiry" },
+  { tier: 4, hoursThreshold: 336, subject: "Dernière chance avant suppression ⏰", tone: "urgent" },
+  { tier: 5, hoursThreshold: 504, subject: "Dernier rappel - Articles bientôt supprimés 🚨", tone: "final" },
+];
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -16,7 +21,7 @@ serve(async (req) => {
   }
 
   try {
-    console.log('[saved-cart-reminders] Starting reminder job');
+    console.log('[saved-cart-reminders] Starting tiered reminder job');
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -33,19 +38,8 @@ serve(async (req) => {
     }
 
     const now = new Date();
-    const savedAgeThreshold = new Date(now.getTime() - SAVED_AGE_THRESHOLD_HOURS * 60 * 60 * 1000);
-    const reminderCooldown = new Date(now.getTime() - REMINDER_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
 
-    console.log('[saved-cart-reminders] Thresholds:', {
-      savedAgeThreshold: savedAgeThreshold.toISOString(),
-      reminderCooldown: reminderCooldown.toISOString(),
-    });
-
-    // Find users with saved items that need reminders
-    // Items must be:
-    // 1. is_saved_for_later = true
-    // 2. saved_at is at least SAVED_AGE_THRESHOLD_HOURS old
-    // 3. last_reminder_at is null OR older than REMINDER_COOLDOWN_DAYS
+    // Find users with saved items
     const { data: savedItems, error: itemsError } = await supabase
       .from('order_items')
       .select(`
@@ -57,6 +51,7 @@ serve(async (req) => {
         quantity,
         saved_at,
         last_reminder_at,
+        reminder_count,
         orders!inner(
           id,
           user_id,
@@ -65,7 +60,7 @@ serve(async (req) => {
       `)
       .eq('is_saved_for_later', true)
       .eq('orders.status', 'DRAFT')
-      .lt('saved_at', savedAgeThreshold.toISOString());
+      .not('saved_at', 'is', null);
 
     if (itemsError) {
       console.error('[saved-cart-reminders] Error fetching saved items:', itemsError);
@@ -76,49 +71,72 @@ serve(async (req) => {
     }
 
     if (!savedItems || savedItems.length === 0) {
-      console.log('[saved-cart-reminders] No qualifying saved items found');
+      console.log('[saved-cart-reminders] No saved items found');
       return new Response(
         JSON.stringify({ message: 'No reminders to send', sent: 0 }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Filter items that haven't received a reminder recently
-    const qualifyingItems = savedItems.filter(item => {
-      if (!item.last_reminder_at) return true;
-      return new Date(item.last_reminder_at) < reminderCooldown;
-    });
+    // Determine which items need reminders based on tier
+    const itemsNeedingReminder: { item: any; tier: typeof REMINDER_TIERS[0] }[] = [];
 
-    console.log('[saved-cart-reminders] Qualifying items:', qualifyingItems.length);
+    for (const item of savedItems) {
+      const savedAt = new Date(item.saved_at);
+      const hoursSinceSaved = (now.getTime() - savedAt.getTime()) / (1000 * 60 * 60);
+      const currentReminderCount = item.reminder_count || 0;
+
+      // Find the next applicable tier
+      const nextTier = REMINDER_TIERS.find(t => 
+        t.tier === currentReminderCount + 1 && hoursSinceSaved >= t.hoursThreshold
+      );
+
+      if (nextTier) {
+        // Check cooldown - at least 24h since last reminder
+        if (item.last_reminder_at) {
+          const lastReminder = new Date(item.last_reminder_at);
+          const hoursSinceLastReminder = (now.getTime() - lastReminder.getTime()) / (1000 * 60 * 60);
+          if (hoursSinceLastReminder < 24) continue;
+        }
+        
+        itemsNeedingReminder.push({ item, tier: nextTier });
+      }
+    }
+
+    console.log('[saved-cart-reminders] Items needing reminders:', itemsNeedingReminder.length);
+
+    if (itemsNeedingReminder.length === 0) {
+      return new Response(
+        JSON.stringify({ message: 'No reminders due at this time', sent: 0 }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Group items by user
-    const userItemsMap = new Map<string, any[]>();
-    qualifyingItems.forEach(item => {
+    const userItemsMap = new Map<string, { items: any[]; tier: typeof REMINDER_TIERS[0] }>();
+    
+    for (const { item, tier } of itemsNeedingReminder) {
       const userId = (item.orders as any).user_id;
       if (!userItemsMap.has(userId)) {
-        userItemsMap.set(userId, []);
+        userItemsMap.set(userId, { items: [], tier });
       }
-      userItemsMap.get(userId)!.push(item);
-    });
+      userItemsMap.get(userId)!.items.push(item);
+      // Use the highest tier if user has multiple items at different tiers
+      if (tier.tier > userItemsMap.get(userId)!.tier.tier) {
+        userItemsMap.get(userId)!.tier = tier;
+      }
+    }
 
     console.log('[saved-cart-reminders] Users to notify:', userItemsMap.size);
 
     // Get user profiles and emails
     const userIds = Array.from(userItemsMap.keys());
-    const { data: profiles, error: profilesError } = await supabase
+    const { data: profiles } = await supabase
       .from('profiles')
       .select('user_id, full_name, name')
       .in('user_id', userIds);
 
-    if (profilesError) {
-      console.error('[saved-cart-reminders] Error fetching profiles:', profilesError);
-    }
-
-    // Get user emails from auth.users via admin API
-    const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
-    if (authError) {
-      console.error('[saved-cart-reminders] Error fetching auth users:', authError);
-    }
+    const { data: authUsers } = await supabase.auth.admin.listUsers();
 
     const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
     const authUserMap = new Map((authUsers?.users || []).map((u: any) => [u.id, u] as [string, any]));
@@ -126,10 +144,12 @@ serve(async (req) => {
     let emailSentCount = 0;
     let pushSentCount = 0;
     let errorCount = 0;
-    const itemsToUpdate: string[] = [];
+    const itemsToUpdate: { id: string; newCount: number }[] = [];
+
+    const FRONTEND_BASE_URL = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
 
     // Send emails and push notifications to each user
-    for (const [userId, items] of userItemsMap) {
+    for (const [userId, { items, tier }] of userItemsMap) {
       const profile = profileMap.get(userId);
       const authUser = authUserMap.get(userId) as any;
       
@@ -141,7 +161,7 @@ serve(async (req) => {
       const userName = profile?.full_name || profile?.name || 'Valued Customer';
       const userEmail = authUser.email;
 
-      // Build email content
+      // Build email content based on tier
       const itemsHtml = items.map(item => `
         <tr>
           <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">
@@ -159,9 +179,33 @@ serve(async (req) => {
         </tr>
       `).join('');
 
-      const totalValue = items.reduce((sum, item) => 
+      const totalValue = items.reduce((sum: number, item: any) => 
         sum + (Number(item.base_price_usd || 0) * (item.quantity || 1)), 0
       );
+
+      // Tier-specific messaging
+      let urgencyMessage = '';
+      let ctaText = 'Finaliser mon achat';
+      
+      switch (tier.tone) {
+        case 'friendly':
+          urgencyMessage = "Vous avez des articles enregistrés qui vous attendent!";
+          break;
+        case 'reminder':
+          urgencyMessage = "Ça fait quelques jours que vos articles sont en attente.";
+          break;
+        case 'inquiry':
+          urgencyMessage = "Nous avons remarqué que vous n'avez pas finalisé votre achat. Avez-vous des questions?";
+          break;
+        case 'urgent':
+          urgencyMessage = "⚠️ Vos articles seront bientôt supprimés de votre panier.";
+          ctaText = 'Finaliser maintenant';
+          break;
+        case 'final':
+          urgencyMessage = "🚨 DERNIER RAPPEL: Vos articles seront supprimés dans les prochaines 48 heures.";
+          ctaText = 'Acheter immédiatement';
+          break;
+      }
 
       const emailHtml = `
         <!DOCTYPE html>
@@ -179,14 +223,8 @@ serve(async (req) => {
             <div style="padding: 32px;">
               <h2 style="color: #1f2937; margin-top: 0;">Bonjour ${userName}! 👋</h2>
               
-              <p style="color: #4b5563; line-height: 1.6;">
-                Vous avez des articles enregistrés dans votre panier AfriShop depuis un moment. 
-                Nous voulions vous rappeler qu'ils vous attendent toujours!
-              </p>
-              
-              <p style="color: #4b5563; line-height: 1.6;">
-                <strong>You have items saved for later in your AfriShop cart.</strong> 
-                We wanted to remind you they're still waiting for you!
+              <p style="color: #4b5563; line-height: 1.6; font-size: 16px; ${tier.tone === 'urgent' || tier.tone === 'final' ? 'color: #dc2626; font-weight: bold;' : ''}">
+                ${urgencyMessage}
               </p>
               
               <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
@@ -210,11 +248,14 @@ serve(async (req) => {
               </table>
               
               <div style="text-align: center; margin: 32px 0;">
-                <p style="color: #6b7280; font-size: 14px; margin-bottom: 16px;">
-                  Revenez finaliser votre achat dans l'application AfriShop.<br>
-                  <em>Come back to complete your purchase in the AfriShop app.</em>
-                </p>
+                <a href="${FRONTEND_BASE_URL}/orders" style="display: inline-block; background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+                  ${ctaText}
+                </a>
               </div>
+              
+              <p style="color: #6b7280; font-size: 14px; text-align: center;">
+                Rappel ${tier.tier}/5 • Si vous ne souhaitez plus recevoir ces rappels, ignorez cet email.
+              </p>
             </div>
             
             <div style="background-color: #f9fafb; padding: 24px; text-align: center;">
@@ -239,7 +280,7 @@ serve(async (req) => {
           body: JSON.stringify({
             from: Deno.env.get('EMAIL_FROM_ADDRESS') || 'AfriShop <noreply@afrishop.com>',
             to: [userEmail],
-            subject: 'Vous avez des articles enregistrés dans votre panier AfriShop 🛒',
+            subject: tier.subject,
             html: emailHtml,
           }),
         });
@@ -249,9 +290,12 @@ serve(async (req) => {
           console.error('[saved-cart-reminders] Email failed for:', userEmail, errorText);
           errorCount++;
         } else {
-          console.log('[saved-cart-reminders] Email sent to:', userEmail);
+          console.log('[saved-cart-reminders] Tier', tier.tier, 'email sent to:', userEmail);
           emailSentCount++;
-          items.forEach(item => itemsToUpdate.push(item.id));
+          items.forEach((item: any) => itemsToUpdate.push({ 
+            id: item.id, 
+            newCount: (item.reminder_count || 0) + 1 
+          }));
         }
       } catch (err: any) {
         console.error('[saved-cart-reminders] Email error for:', userEmail, err.message);
@@ -270,12 +314,13 @@ serve(async (req) => {
             },
             body: JSON.stringify({
               userId: userId,
-              title: 'Articles enregistrés 🛒',
-              body: `Vous avez ${items.length} article(s) enregistré(s) ($${totalValue.toFixed(2)}). Revenez finaliser votre achat!`,
+              title: tier.subject,
+              body: `${items.length} article(s) enregistré(s) ($${totalValue.toFixed(2)}). ${tier.tone === 'urgent' || tier.tone === 'final' ? 'Achetez maintenant!' : 'Finalisez votre achat!'}`,
               data: {
                 type: 'saved_cart_reminder',
                 itemCount: items.length,
                 totalValue: totalValue.toFixed(2),
+                tier: tier.tier,
               },
             }),
           }
@@ -285,27 +330,25 @@ serve(async (req) => {
           const pushResult = await pushResponse.json();
           if (pushResult.sent > 0) {
             pushSentCount++;
-            console.log('[saved-cart-reminders] Push sent to:', userId, pushResult);
           }
-        } else {
-          console.log('[saved-cart-reminders] Push failed for:', userId);
         }
       } catch (pushErr: any) {
         console.log('[saved-cart-reminders] Push error for:', userId, pushErr.message);
       }
     }
 
-    // Update last_reminder_at for all sent items
-    if (itemsToUpdate.length > 0) {
+    // Update reminder_count and last_reminder_at for all sent items
+    for (const { id, newCount } of itemsToUpdate) {
       const { error: updateError } = await supabase
         .from('order_items')
-        .update({ last_reminder_at: now.toISOString() })
-        .in('id', itemsToUpdate);
+        .update({ 
+          last_reminder_at: now.toISOString(),
+          reminder_count: newCount
+        })
+        .eq('id', id);
 
       if (updateError) {
-        console.error('[saved-cart-reminders] Error updating reminder timestamps:', updateError);
-      } else {
-        console.log('[saved-cart-reminders] Updated reminder timestamps for items:', itemsToUpdate.length);
+        console.error('[saved-cart-reminders] Error updating item:', id, updateError);
       }
     }
 

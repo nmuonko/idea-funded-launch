@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, FileText, Shield, Mail, Tag, Loader2, Copy } from 'lucide-react';
+import { Sparkles, FileText, Shield, Mail, Tag, Loader2, Copy, Send } from 'lucide-react';
 
 interface AIAssistantPanelProps {
   order: any;
@@ -13,6 +13,7 @@ interface AIAssistantPanelProps {
 
 export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
   const [loading, setLoading] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [result, setResult] = useState<string>('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [activeAction, setActiveAction] = useState<string>('');
@@ -48,7 +49,6 @@ export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
       });
     } finally {
       setLoading(false);
-      setActiveAction('');
     }
   };
 
@@ -58,6 +58,58 @@ export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
       title: 'Copied',
       description: 'Result copied to clipboard',
     });
+  };
+
+  const sendDraftEmail = async () => {
+    if (!order.profiles?.email) {
+      toast({
+        title: 'No email address',
+        description: 'Customer email not available',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSendingEmail(true);
+
+      // Parse subject and body from AI result
+      const lines = result.split('\n');
+      let subject = 'Message from AfriShop';
+      let body = result;
+
+      // Try to extract subject from "Subject:" line
+      const subjectLine = lines.find(line => line.toLowerCase().startsWith('subject:'));
+      if (subjectLine) {
+        subject = subjectLine.replace(/^subject:\s*/i, '').trim();
+        body = lines.filter(line => !line.toLowerCase().startsWith('subject:')).join('\n').trim();
+      }
+
+      const { error } = await supabase.functions.invoke('send-customer-email', {
+        body: {
+          customerId: order.user_id,
+          customerEmail: order.profiles.email,
+          customerName: order.profiles.name || order.profiles.full_name || 'Customer',
+          subject,
+          body,
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Email sent',
+        description: `Email sent to ${order.profiles.email}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Failed to send email',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   return (
@@ -157,14 +209,30 @@ export function AIAssistantPanel({ order }: AIAssistantPanelProps) {
                 <Sparkles className="h-3 w-3 mr-1" />
                 AI Generated
               </Badge>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={copyToClipboard}
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={copyToClipboard}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy
+                </Button>
+                {activeAction === 'DRAFT_EMAIL' && order.profiles?.email && (
+                  <Button
+                    size="sm"
+                    onClick={sendDraftEmail}
+                    disabled={sendingEmail}
+                  >
+                    {sendingEmail ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    Send to Customer
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="bg-muted p-4 rounded-lg border">
               <pre className="text-sm whitespace-pre-wrap font-sans">

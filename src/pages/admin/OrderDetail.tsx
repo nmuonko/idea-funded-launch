@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
-import { RefundDialog } from '@/components/admin/RefundDialog';
+import { IssueRefundDialog } from '@/components/admin/IssueRefundDialog';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
@@ -675,8 +675,8 @@ export default function AdminOrderDetail() {
 
       <OrderTimelineComponent orderId={id!} />
 
-      <RefundDialog
-        orderId={id!}
+      <IssueRefundDialog
+        order={order}
         open={refundDialogOpen}
         onOpenChange={setRefundDialogOpen}
         onSuccess={loadOrder}

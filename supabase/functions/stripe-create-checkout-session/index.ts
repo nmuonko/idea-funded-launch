@@ -8,8 +8,13 @@
  * Input: { "order_id": "uuid" }
  */
 
-import { verifyAndGetUser, handleCors, corsHeaders, createAdminClient } from "../_shared/auth.ts";
-import { getStripeConfigFromEnv } from "../_shared/stripeAdapter.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 
@@ -28,10 +33,11 @@ interface CheckoutSessionResponse {
   error_code?: string;
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  const corsResponse = handleCors(req);
-  if (corsResponse) return corsResponse;
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
 
   const requestId = crypto.randomUUID();
   console.log(`[STRIPE_CHECKOUT] Request started`, { requestId });
@@ -45,8 +51,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Authenticate user
-    const { user, supabase } = await verifyAndGetUser(req);
+    // Get auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Verify user
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid token', error_code: 'UNAUTHORIZED' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const userId = user.id;
     console.log(`[STRIPE_CHECKOUT] User authenticated`, { requestId, userId });
 
@@ -103,7 +132,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { data: checkoutSession } = await supabase
       .from('checkout_sessions')
-      .select('id, grand_total, currency, totals_breakdown')
+      .select('id, grand_total, currency, totals_breakdown, metadata')
       .eq('order_id', order_id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
@@ -134,7 +163,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.log(`[STRIPE_CHECKOUT] Amount calculated`, { requestId, orderId: order_id, grandTotal, amountCents, currency });
 
     // Get Stripe config
-    const stripeConfig = getStripeConfigFromEnv();
+    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+    if (!stripeSecretKey) {
+      console.error(`[STRIPE_CHECKOUT] Missing STRIPE_SECRET_KEY`);
+      return new Response(
+        JSON.stringify({ success: false, order_id, error: 'Stripe not configured', error_code: 'CONFIG_ERROR' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Build success/cancel URLs
     const successUrl = `https://afrishop-usa.com/stripe/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order_id}`;
@@ -163,7 +199,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const stripeResponse = await fetch(`${STRIPE_API_BASE}/checkout/sessions`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${stripeConfig.secretKey}`,
+        'Authorization': `Bearer ${stripeSecretKey}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: stripeBody.toString(),

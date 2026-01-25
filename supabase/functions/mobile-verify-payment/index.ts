@@ -24,13 +24,27 @@ import { verifyPaymentIntent, getStripeConfig } from "../_shared/stripeAdapter.t
  * Supports pawaPay and Stripe verification with provider API fallback.
  * 
  * Supports both GET (query params) and POST (JSON body):
- * - orderId: Primary lookup key
+ * - orderId: Primary lookup key (also accepts order_id for compatibility)
  * - reference: Alternative lookup by payment reference
  * 
- * Response schema (FRONTEND CONTRACT):
- * SUCCESS: { success: true, status: 'completed', order_id: 'uuid', amount: number, currency: string }
- * PENDING: { success: true, status: 'pending' }
- * FAILED:  { success: true, status: 'failed', message: string }
+ * RESPONSE CONTRACT (FRONTEND EXPECTS EXACTLY THIS):
+ * 
+ * SUCCESS: 
+ *   { success: true, status: 'succeeded', order_id: 'uuid', paid_at: 'ISO' }
+ *   Frontend also accepts status: 'success' | 'paid' (case-insensitive)
+ * 
+ * PENDING: 
+ *   { success: true, status: 'pending' }
+ *   Frontend also accepts status: 'processing'
+ * 
+ * FAILED:  
+ *   { success: false, status: 'failed', error: 'message', error_code: 'CODE' }
+ *   Frontend also accepts status: 'cancelled' | 'expired'
+ * 
+ * CRITICAL: 
+ * - Do NOT use 'completed' - frontend treats unknown statuses as pending
+ * - success: true/false is required
+ * - paid_at is required for success responses
  */
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -76,6 +90,7 @@ serve(async (req) => {
     }
 
     // Parse order_id from query params (GET) or body (POST)
+    // IMPORTANT: Accept BOTH orderId and order_id for compatibility
     let order_id: string | null = null;
     let reference: string | null = null;
 
@@ -85,7 +100,7 @@ serve(async (req) => {
       reference = url.searchParams.get('reference');
     } else {
       const body = await req.json();
-      order_id = body.order_id || body.orderId;
+      order_id = body.orderId || body.order_id;
       reference = body.reference;
     }
 
@@ -95,7 +110,8 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false, 
         status: 'failed',
-        message: 'order_id or reference is required',
+        error: 'order_id or reference is required',
+        error_code: 'MISSING_PARAMS',
       }, 400);
     }
 
@@ -115,7 +131,8 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false, 
         status: 'failed',
-        message: 'Order not found',
+        error: 'Order not found',
+        error_code: 'ORDER_NOT_FOUND',
       }, 404);
     }
 
@@ -127,12 +144,12 @@ serve(async (req) => {
       // Try to send confirmation email if not sent yet
       await sendPaymentConfirmationEmailIfNeeded(supabase, order.id, log);
       
+      // FRONTEND CONTRACT: success=true, status='succeeded', paid_at required
       return jsonResponse({
         success: true,
+        status: 'succeeded',
         order_id: order.id,
-        status: 'completed', // CRITICAL: Frontend expects 'completed', not 'succeeded'
-        amount: order.total_usd || 0,
-        currency: 'USD',
+        paid_at: order.payment_verified_at || order.updated_at || new Date().toISOString(),
       });
     }
 
@@ -157,10 +174,9 @@ serve(async (req) => {
           
           return jsonResponse({
             success: true,
+            status: 'succeeded',
             order_id: order.id,
-            status: 'completed',
-            amount: order.total_usd || 0,
-            currency: 'USD',
+            paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
         }
         
@@ -176,41 +192,61 @@ serve(async (req) => {
                 depositId: unifiedPayment.provider_deposit_id,
                 status: verifyResult.status,
                 success: verifyResult.success,
+                decision: verifyResult.status,
               });
               
               if (verifyResult.status === 'succeeded') {
-                // Update payment and order status
+                // Update payment and order status (CANONICAL FIELDS)
+                const paidAt = verifyResult.paid_at || new Date().toISOString();
                 await updatePaymentStatus(supabase, unifiedPayment.id, 'succeeded', {
                   provider_transaction_id: verifyResult.provider_transaction_id,
-                  paid_at: verifyResult.paid_at,
+                  paid_at: paidAt,
                 });
                 
                 await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
                 
+                log.log('[PAYMENT_VERIFY] Payment confirmed via provider fallback', {
+                  orderId: order.id,
+                  db_status: unifiedPayment.status,
+                  provider_status: 'succeeded',
+                  decision: 'PAID',
+                });
+                
                 return jsonResponse({
                   success: true,
+                  status: 'succeeded',
                   order_id: order.id,
-                  status: 'completed',
-                  amount: order.total_usd || 0,
-                  currency: 'USD',
+                  paid_at: paidAt,
                 });
               }
               
               if (verifyResult.status === 'failed') {
                 await updatePaymentStatus(supabase, unifiedPayment.id, 'failed');
                 
+                log.log('[PAYMENT_VERIFY] Payment failed via provider', {
+                  orderId: order.id,
+                  provider_status: 'failed',
+                  decision: 'FAILED',
+                });
+                
                 return jsonResponse({
-                  success: true,
-                  order_id: order.id,
+                  success: false,
                   status: 'failed',
-                  message: verifyResult.error || 'Payment failed',
+                  order_id: order.id,
+                  error: verifyResult.error || 'Payment failed',
+                  error_code: 'PAYMENT_FAILED',
                 });
               }
               
               // Still pending
+              log.log('[PAYMENT_VERIFY] Payment still pending', {
+                orderId: order.id,
+                db_status: unifiedPayment.status,
+                provider_status: 'pending',
+              });
+              
               return jsonResponse({
                 success: true,
-                order_id: order.id,
                 status: 'pending',
               });
             }
@@ -220,14 +256,38 @@ serve(async (req) => {
           }
         }
         
-        // Return current status from DB
-        const mappedStatus = normalizePaymentStatus('pawapay', unifiedPayment.status);
+        // Return current status from DB - map to frontend-expected values
+        const dbStatus = unifiedPayment.status?.toLowerCase() || 'pending';
+        let frontendStatus: 'succeeded' | 'failed' | 'pending' = 'pending';
+        
+        if (dbStatus === 'succeeded' || dbStatus === 'completed' || dbStatus === 'paid') {
+          frontendStatus = 'succeeded';
+        } else if (dbStatus === 'failed' || dbStatus === 'cancelled' || dbStatus === 'expired') {
+          frontendStatus = 'failed';
+        }
+        
+        if (frontendStatus === 'succeeded') {
+          return jsonResponse({
+            success: true,
+            status: 'succeeded',
+            order_id: order.id,
+            paid_at: unifiedPayment.paid_at || new Date().toISOString(),
+          });
+        }
+        
+        if (frontendStatus === 'failed') {
+          return jsonResponse({
+            success: false,
+            status: 'failed',
+            order_id: order.id,
+            error: 'Payment failed',
+            error_code: 'PAYMENT_FAILED',
+          });
+        }
+        
         return jsonResponse({
           success: true,
-          order_id: order.id,
-          status: mappedStatus === 'succeeded' ? 'completed' : mappedStatus === 'failed' ? 'failed' : 'pending',
-          amount: order.total_usd || 0,
-          currency: 'USD',
+          status: 'pending',
         });
       }
 
@@ -241,10 +301,9 @@ serve(async (req) => {
           
           return jsonResponse({
             success: true,
+            status: 'succeeded',
             order_id: order.id,
-            status: 'completed',
-            amount: order.total_usd || 0,
-            currency: 'USD',
+            paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
         }
         
@@ -263,20 +322,21 @@ serve(async (req) => {
               });
               
               if (verifyResult.status === 'succeeded') {
+                const paidAt = verifyResult.paid_at || new Date().toISOString();
+                
                 // Update payment and order status
                 await updatePaymentStatus(supabase, unifiedPayment.id, 'succeeded', {
                   provider_transaction_id: verifyResult.provider_transaction_id,
-                  paid_at: verifyResult.paid_at,
+                  paid_at: paidAt,
                 });
                 
                 await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
                 
                 return jsonResponse({
                   success: true,
+                  status: 'succeeded',
                   order_id: order.id,
-                  status: 'completed',
-                  amount: order.total_usd || 0,
-                  currency: 'USD',
+                  paid_at: paidAt,
                 });
               }
               
@@ -284,10 +344,11 @@ serve(async (req) => {
                 await updatePaymentStatus(supabase, unifiedPayment.id, 'failed');
                 
                 return jsonResponse({
-                  success: true,
-                  order_id: order.id,
+                  success: false,
                   status: 'failed',
-                  message: verifyResult.error || 'Payment failed',
+                  order_id: order.id,
+                  error: verifyResult.error || 'Payment failed',
+                  error_code: 'PAYMENT_FAILED',
                 });
               }
             }
@@ -297,28 +358,59 @@ serve(async (req) => {
           }
         }
         
-        // Return current DB status
-        const mappedStatus = unifiedPayment.status === 'succeeded' ? 'completed' : 
-                            unifiedPayment.status === 'failed' ? 'failed' : 'pending';
+        // Return current DB status - map to frontend-expected values
+        const dbStatus = unifiedPayment.status?.toLowerCase() || 'pending';
+        
+        if (dbStatus === 'succeeded') {
+          return jsonResponse({
+            success: true,
+            status: 'succeeded',
+            order_id: order.id,
+            paid_at: unifiedPayment.paid_at || new Date().toISOString(),
+          });
+        }
+        
+        if (dbStatus === 'failed') {
+          return jsonResponse({
+            success: false,
+            status: 'failed',
+            order_id: order.id,
+            error: 'Payment failed',
+            error_code: 'PAYMENT_FAILED',
+          });
+        }
+        
         return jsonResponse({
           success: true,
-          order_id: order.id,
-          status: mappedStatus,
-          amount: order.total_usd || 0,
-          currency: 'USD',
+          status: 'pending',
         });
       }
 
       // ==================== OTHER PROVIDERS ====================
-      // Return current status from DB
-      const mappedStatus = unifiedPayment.status === 'succeeded' ? 'completed' : 
-                          unifiedPayment.status === 'failed' ? 'failed' : 'pending';
+      const dbStatus = unifiedPayment.status?.toLowerCase() || 'pending';
+      
+      if (dbStatus === 'succeeded' || dbStatus === 'completed' || dbStatus === 'paid') {
+        return jsonResponse({
+          success: true,
+          status: 'succeeded',
+          order_id: order.id,
+          paid_at: unifiedPayment.paid_at || new Date().toISOString(),
+        });
+      }
+      
+      if (dbStatus === 'failed' || dbStatus === 'cancelled' || dbStatus === 'expired') {
+        return jsonResponse({
+          success: false,
+          status: 'failed',
+          order_id: order.id,
+          error: 'Payment failed',
+          error_code: 'PAYMENT_FAILED',
+        });
+      }
+      
       return jsonResponse({
         success: true,
-        order_id: order.id,
-        status: mappedStatus,
-        amount: order.total_usd || 0,
-        currency: 'USD',
+        status: 'pending',
       });
     }
 
@@ -330,24 +422,23 @@ serve(async (req) => {
     if (order.status === 'PENDING_PAYMENT') {
       return jsonResponse({
         success: true,
-        order_id: order.id,
         status: 'pending',
       });
     }
     
     if (order.status === 'CANCELLED' || order.status === 'REJECTED') {
       return jsonResponse({
-        success: true,
-        order_id: order.id,
+        success: false,
         status: 'failed',
-        message: 'Order was cancelled',
+        order_id: order.id,
+        error: 'Order was cancelled',
+        error_code: 'ORDER_CANCELLED',
       });
     }
 
     // Default to pending
     return jsonResponse({
       success: true,
-      order_id: order.id,
       status: 'pending',
     });
 
@@ -358,21 +449,24 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false,
         status: 'failed',
-        message: error.message,
+        error: error.message,
+        error_code: 'AUTH_ERROR',
       }, error.status);
     }
     
     return jsonResponse({ 
       success: false,
       status: 'failed', 
-      message: 'An unexpected error occurred',
+      error: 'An unexpected error occurred',
+      error_code: 'INTERNAL_ERROR',
     }, 500);
   }
 });
 
 /**
  * Mark order as PAID, update payments table, checkout session, clear cart, and send email
- * CANONICAL FIELDS:
+ * 
+ * CANONICAL FIELDS (must be updated together):
  * - orders.status = 'PAID'
  * - orders.payment_verified_at = now()
  * - payments.status = 'succeeded'

@@ -172,9 +172,9 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Build success/cancel URLs
-    const successUrl = `https://afrishop-usa.com/stripe/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order_id}`;
-    const cancelUrl = `https://afrishop-usa.com/stripe/cancel?order_id=${order_id}`;
+    // Build success/cancel URLs - MUST use existing routes to avoid 404
+    const successUrl = `https://afrishop-usa.com/payment-success?orderId=${order_id}&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `https://afrishop-usa.com/payment-fail?orderId=${order_id}`;
 
     // Create Stripe Checkout Session
     const stripeBody = new URLSearchParams({

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
@@ -8,9 +8,200 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============== AMAZON-SPECIFIC MOBILE SCRAPING ==============
+// Amazon treats mobile requests differently - less aggressive bot detection
+
+const AMAZON_MOBILE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+};
+
+/**
+ * Convert Amazon desktop URL to mobile URL for better scraping success
+ */
+function getAmazonMobileUrl(url: string): string {
+  return url.replace('www.amazon.com', 'm.amazon.com')
+            .replace('amazon.com', 'm.amazon.com');
+}
+
+/**
+ * Extract Amazon product image from various embedded JSON patterns
+ */
+function extractAmazonImageFromJson(html: string): string | null {
+  // Try colorImages JSON - contains all product image variants
+  const colorImagesMatch = html.match(/'colorImages'\s*:\s*\{[^}]*'initial'\s*:\s*\[([^\]]+)\]/i) ||
+                           html.match(/"colorImages"\s*:\s*\{[^}]*"initial"\s*:\s*\[([^\]]+)\]/i);
+  if (colorImagesMatch) {
+    // Extract hiRes or large image URL from the JSON array
+    const hiResMatch = colorImagesMatch[1].match(/"hiRes"\s*:\s*"([^"]+)"/i) ||
+                       colorImagesMatch[1].match(/"large"\s*:\s*"([^"]+)"/i);
+    if (hiResMatch && hiResMatch[1] && !isBlockedImageUrl(hiResMatch[1])) {
+      console.log('[AMAZON_IMAGE] Found colorImages hiRes/large');
+      return hiResMatch[1];
+    }
+  }
+  
+  // Try imageGalleryData
+  const galleryMatch = html.match(/"imageGalleryData"\s*:\s*\[([^\]]+)\]/i);
+  if (galleryMatch) {
+    const mainUrlMatch = galleryMatch[1].match(/"mainUrl"\s*:\s*"([^"]+)"/i);
+    if (mainUrlMatch && mainUrlMatch[1] && !isBlockedImageUrl(mainUrlMatch[1])) {
+      console.log('[AMAZON_IMAGE] Found imageGalleryData mainUrl');
+      return mainUrlMatch[1];
+    }
+  }
+  
+  // Try standalone hiRes pattern
+  const hiResPattern = html.match(/"hiRes"\s*:\s*"(https:\/\/[^"]+\.(?:jpg|png|webp)[^"]*)"/i);
+  if (hiResPattern && hiResPattern[1] && !isBlockedImageUrl(hiResPattern[1])) {
+    console.log('[AMAZON_IMAGE] Found standalone hiRes');
+    return hiResPattern[1];
+  }
+  
+  // Try mainImage pattern
+  const mainImagePattern = html.match(/"mainImage"\s*:\s*\{[^}]*"url"\s*:\s*"([^"]+)"/i);
+  if (mainImagePattern && mainImagePattern[1] && !isBlockedImageUrl(mainImagePattern[1])) {
+    console.log('[AMAZON_IMAGE] Found mainImage url');
+    return mainImagePattern[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Extract Amazon product title from various sources
+ */
+function extractAmazonTitle(html: string): string | null {
+  // Try productTitle span (most reliable)
+  const productTitleMatch = html.match(/<span[^>]*id=["']productTitle["'][^>]*>([^<]+)</i);
+  if (productTitleMatch && productTitleMatch[1]) {
+    const title = productTitleMatch[1].trim();
+    if (title && title.toLowerCase() !== 'product') {
+      console.log('[AMAZON_TITLE] Found productTitle span');
+      return title;
+    }
+  }
+  
+  // Try title-text class
+  const titleTextMatch = html.match(/<span[^>]*class=["'][^"']*title-text[^"']*["'][^>]*>([^<]+)</i);
+  if (titleTextMatch && titleTextMatch[1]) {
+    const title = titleTextMatch[1].trim();
+    if (title && title.toLowerCase() !== 'product') {
+      console.log('[AMAZON_TITLE] Found title-text class');
+      return title;
+    }
+  }
+  
+  // Try a-size-large title class
+  const largeTitleMatch = html.match(/<span[^>]*class=["'][^"']*a-size-large[^"']*product-title[^"']*["'][^>]*>([^<]+)</i);
+  if (largeTitleMatch && largeTitleMatch[1]) {
+    const title = largeTitleMatch[1].trim();
+    if (title && title.toLowerCase() !== 'product') {
+      console.log('[AMAZON_TITLE] Found a-size-large product-title');
+      return title;
+    }
+  }
+  
+  // Try mobile title pattern
+  const mobileTitleMatch = html.match(/<h1[^>]*class=["'][^"']*title["'][^>]*>([^<]+)</i);
+  if (mobileTitleMatch && mobileTitleMatch[1]) {
+    const title = mobileTitleMatch[1].trim();
+    if (title && title.toLowerCase() !== 'product') {
+      console.log('[AMAZON_TITLE] Found mobile h1 title');
+      return title;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Scrape Amazon product via Firecrawl as a premium fallback
+ */
+async function scrapeAmazonViaFirecrawl(url: string): Promise<{ imageUrl: string | null; title: string | null }> {
+  const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!firecrawlApiKey) {
+    console.log('[FIRECRAWL] No API key configured, skipping');
+    return { imageUrl: null, title: null };
+  }
+  
+  try {
+    console.log('[FIRECRAWL] Attempting Amazon scrape for:', url.substring(0, 60));
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    try {
+      const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${firecrawlApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url,
+          formats: ['markdown', 'html'],
+          onlyMainContent: true,
+          waitFor: 2000, // Wait for dynamic content
+        }),
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        console.log('[FIRECRAWL] Request failed:', response.status);
+        return { imageUrl: null, title: null };
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.log('[FIRECRAWL] Scrape unsuccessful:', data.error);
+        return { imageUrl: null, title: null };
+      }
+      
+      const html = data.data?.html || '';
+      const metadata = data.data?.metadata || {};
+      
+      // Try to extract image from the scraped HTML
+      let imageUrl = extractAmazonImageFromJson(html);
+      if (!imageUrl) {
+        // Try og:image from metadata
+        imageUrl = metadata.ogImage || null;
+        if (imageUrl && isBlockedImageUrl(imageUrl)) {
+          imageUrl = null;
+        }
+      }
+      
+      // Try to extract title
+      let title = extractAmazonTitle(html) || metadata.title || null;
+      if (title && (title.toLowerCase() === 'product' || title.toLowerCase().includes('amazon.com'))) {
+        title = null;
+      }
+      
+      console.log('[FIRECRAWL] Result:', { hasImage: !!imageUrl, hasTitle: !!title });
+      return { imageUrl, title };
+      
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      console.log('[FIRECRAWL] Request timed out');
+    } else {
+      console.warn('[FIRECRAWL] Error:', err.message);
+    }
+    return { imageUrl: null, title: null };
+  }
+}
+
 // Allowed domains for SSRF prevention
 const ALLOWED_DOMAINS = [
-  'amazon.com', 'www.amazon.com',
+  'amazon.com', 'www.amazon.com', 'm.amazon.com',  // Added mobile Amazon
   'ebay.com', 'www.ebay.com',
   'walmart.com', 'www.walmart.com',
   'bestbuy.com', 'www.bestbuy.com',
@@ -609,14 +800,23 @@ function extractImageUrl(html: string, domain: string): string | null {
     ],
   };
 
-  // 1. PRIORITY FOR AMAZON: Try domain-specific selectors FIRST
+  // 1. PRIORITY FOR AMAZON: Try embedded JSON extraction FIRST (most reliable for Amazon)
+  // Then try domain-specific selectors
   // Amazon's og:image often returns the Amazon logo instead of product image
   if (domain === 'amazon.com' || domain.includes('amazon')) {
+    // Try embedded JSON patterns first (colorImages, hiRes, etc.)
+    const jsonImage = extractAmazonImageFromJson(html);
+    if (jsonImage) {
+      console.log('[get-product-info] Found Amazon product image (JSON extraction)');
+      return jsonImage;
+    }
+    
+    // Fall back to DOM selectors
     const amazonSelectors = domainImageSelectors['amazon.com'] || [];
     for (const regex of amazonSelectors) {
       const match = html.match(regex);
       if (match && match[1] && !isBlockedImageUrl(match[1])) {
-        console.log('[get-product-info] Found Amazon product image (domain selector)');
+        console.log('[get-product-info] Found Amazon product image (DOM selector)');
         return match[1];
       }
     }
@@ -683,6 +883,7 @@ function extractImageUrl(html: string, domain: string): string | null {
 function extractFromSelectors(html: string, domain: string): Partial<ProductInfo> {
   const result: Partial<ProductInfo> = {};
   const selectors = PRICE_SELECTORS[domain] || [];
+  const isAmazon = domain.includes('amazon');
 
   // Simple regex-based selector matching (not a full DOM parser)
   for (const selector of selectors) {
@@ -699,10 +900,24 @@ function extractFromSelectors(html: string, domain: string): Partial<ProductInfo
     }
   }
 
-  // Try to extract title from <title> or <h1>
-  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  if (titleMatch) {
-    result.title = titleMatch[1].trim();
+  // Try to extract title - use Amazon-specific extraction for Amazon domains
+  if (isAmazon) {
+    const amazonTitle = extractAmazonTitle(html);
+    if (amazonTitle) {
+      result.title = amazonTitle;
+    }
+  }
+  
+  // Fall back to standard title extraction
+  if (!result.title) {
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    if (titleMatch) {
+      const title = titleMatch[1].trim();
+      // Skip generic Amazon titles
+      if (!isAmazon || (title.toLowerCase() !== 'amazon.com' && !title.toLowerCase().startsWith('amazon.com:'))) {
+        result.title = title;
+      }
+    }
   }
 
   // Use enhanced image extraction
@@ -791,7 +1006,8 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
   console.log('[get-product-info] Scraping:', url);
   const domain = extractDomain(url);
   const timeout = getStoreTimeout(domain);
-  console.log('[get-product-info] Domain:', domain, '| Timeout:', timeout, 'ms');
+  const isAmazon = domain.includes('amazon');
+  console.log('[get-product-info] Domain:', domain, '| Timeout:', timeout, 'ms', '| isAmazon:', isAmazon);
 
   // Enhanced browser-like headers for retry attempts
   const browserHeaders = {
@@ -824,38 +1040,78 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
     let fetchSucceeded = false;
     let wasBotBlocked = false;
 
-    try {
-      response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-        signal: controller.signal,
-      });
-
-      if (response.ok) {
-        const contentLength = response.headers.get('content-length');
-        if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
-          console.warn('[get-product-info] Response too large:', contentLength, 'bytes');
-          clearTimeout(timeoutId);
-          return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
-        }
-
-        html = await response.text();
+    // AMAZON-SPECIFIC: Try mobile URL first with mobile headers
+    if (isAmazon) {
+      const mobileUrl = getAmazonMobileUrl(url);
+      console.log('[AMAZON_SCRAPE] Trying mobile URL:', mobileUrl.substring(0, 80));
+      
+      try {
+        const mobileController = new AbortController();
+        const mobileTimeoutId = setTimeout(() => mobileController.abort(), 4000);
         
-        // Check for bot detection / captcha pages
-        if (!detectBotBlock(html)) {
-          fetchSucceeded = true;
-        } else {
-          console.log('[get-product-info] Bot detection on first attempt, will retry with enhanced headers');
-          wasBotBlocked = true;
+        try {
+          const mobileResponse = await fetch(mobileUrl, {
+            headers: AMAZON_MOBILE_HEADERS,
+            signal: mobileController.signal,
+          });
+          
+          if (mobileResponse.ok) {
+            html = await mobileResponse.text();
+            if (!detectBotBlock(html)) {
+              fetchSucceeded = true;
+              console.log('[AMAZON_SCRAPE] Mobile URL succeeded');
+            } else {
+              console.log('[AMAZON_SCRAPE] Mobile URL blocked');
+              wasBotBlocked = true;
+            }
+          } else {
+            console.log('[AMAZON_SCRAPE] Mobile URL failed:', mobileResponse.status);
+          }
+        } finally {
+          clearTimeout(mobileTimeoutId);
         }
-      } else {
-        console.log('[get-product-info] HTTP error on first attempt:', response.status);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.log('[AMAZON_SCRAPE] Mobile fetch error:', err.message);
+        }
       }
-    } finally {
-      clearTimeout(timeoutId);
+    }
+
+    // Standard fetch if not Amazon or Amazon mobile failed
+    if (!fetchSucceeded) {
+      try {
+        response = await fetch(url, {
+          headers: isAmazon ? AMAZON_MOBILE_HEADERS : {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+          },
+          signal: controller.signal,
+        });
+
+        if (response.ok) {
+          const contentLength = response.headers.get('content-length');
+          if (contentLength && parseInt(contentLength) > MAX_BODY_SIZE) {
+            console.warn('[get-product-info] Response too large:', contentLength, 'bytes');
+            clearTimeout(timeoutId);
+            return { title: null, imageUrl: null, price: null, currency: 'USD', source: 'unknown' };
+          }
+
+          html = await response.text();
+          
+          // Check for bot detection / captcha pages
+          if (!detectBotBlock(html)) {
+            fetchSucceeded = true;
+          } else {
+            console.log('[get-product-info] Bot detection on first attempt, will retry with enhanced headers');
+            wasBotBlocked = true;
+          }
+        } else {
+          console.log('[get-product-info] HTTP error on first attempt:', response.status);
+        }
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
 
     // RETRY with enhanced browser-like headers if first attempt failed
@@ -889,6 +1145,23 @@ async function scrapeProduct(url: string): Promise<ProductInfo> {
         }
       } finally {
         clearTimeout(retryTimeoutId);
+      }
+    }
+
+    // AMAZON-SPECIFIC: Try Firecrawl as premium fallback
+    if (isAmazon && (!fetchSucceeded || wasBotBlocked)) {
+      console.log('[AMAZON_SCRAPE] Trying Firecrawl fallback...');
+      const firecrawlResult = await scrapeAmazonViaFirecrawl(url);
+      
+      if (firecrawlResult.imageUrl || firecrawlResult.title) {
+        console.log('[AMAZON_SCRAPE] Firecrawl succeeded:', { hasImage: !!firecrawlResult.imageUrl, hasTitle: !!firecrawlResult.title });
+        return {
+          title: firecrawlResult.title,
+          imageUrl: firecrawlResult.imageUrl,
+          price: null, // Price still requires WebView for Amazon
+          currency: 'USD',
+          source: 'bot_blocked', // Mark for WebView price extraction
+        };
       }
     }
 

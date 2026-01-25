@@ -48,35 +48,75 @@ export default function AcceptInvite() {
     try {
       console.log('[AcceptInvite] Validating token:', token?.substring(0, 10) + '...');
       
+      // First try to query locally (this will work for pending invitations via RLS)
       const { data, error: fetchError } = await supabase
         .from('admin_invitations')
         .select('id, email, role, status, expires_at')
         .eq('token', token)
-        .single();
+        .maybeSingle();
 
       console.log('[AcceptInvite] Query result:', { data, error: fetchError?.message });
 
-      if (fetchError || !data) {
-        console.log('[AcceptInvite] Token validation failed:', fetchError?.message || 'No data returned');
+      if (data) {
+        // We found the invitation - check its status
+        if (data.status !== 'pending') {
+          setError('This invitation has already been used. Please login with your credentials.');
+          setLoading(false);
+          return;
+        }
+
+        if (new Date(data.expires_at) < new Date()) {
+          setError('This invitation has expired. Please request a new one.');
+          setLoading(false);
+          return;
+        }
+
+        console.log('[AcceptInvite] Token valid for:', data.email, 'role:', data.role);
+        setInvitation(data);
+        setLoading(false);
+        return;
+      }
+
+      // If no data returned, it could be:
+      // 1. Invalid token
+      // 2. Expired invitation (RLS filters by expires_at > now())
+      // 3. Already accepted (RLS filters by status = 'pending')
+      // 
+      // Try a server-side validation to get a better error message
+      console.log('[AcceptInvite] No local data, trying server validation...');
+      
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/accept-invitation`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+          body: JSON.stringify({
+            token,
+            password: 'validation-check-only', // This will fail but give us the error message
+            fullName: 'validation-check',
+          }),
+        }
+      );
+
+      const result = await response.json();
+      console.log('[AcceptInvite] Server validation result:', result);
+
+      // Check the specific error from the server
+      if (result.error) {
+        if (result.error.includes('already been used')) {
+          setError('This invitation has already been used. Please login with your existing credentials.');
+        } else if (result.error.includes('expired')) {
+          setError('This invitation has expired. Please request a new one.');
+        } else {
+          setError(result.error);
+        }
+      } else {
         setError('Invalid or expired invitation link');
-        setLoading(false);
-        return;
       }
-
-      if (data.status !== 'pending') {
-        setError('This invitation has already been used');
-        setLoading(false);
-        return;
-      }
-
-      if (new Date(data.expires_at) < new Date()) {
-        setError('This invitation has expired. Please request a new one.');
-        setLoading(false);
-        return;
-      }
-
-      console.log('[AcceptInvite] Token valid for:', data.email, 'role:', data.role);
-      setInvitation(data);
+      
       setLoading(false);
     } catch (err) {
       console.error('[AcceptInvite] Validation error:', err);
@@ -167,19 +207,35 @@ export default function AcceptInvite() {
   }
 
   if (error) {
+    const isAlreadyUsed = error.includes('already been used') || error.includes('already exists');
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center text-center space-y-4">
-              <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center">
-                <XCircle className="h-8 w-8 text-destructive" />
+              <div className={`h-16 w-16 rounded-full ${isAlreadyUsed ? 'bg-primary/10' : 'bg-destructive/10'} flex items-center justify-center`}>
+                {isAlreadyUsed ? (
+                  <CheckCircle className="h-8 w-8 text-primary" />
+                ) : (
+                  <XCircle className="h-8 w-8 text-destructive" />
+                )}
               </div>
-              <h2 className="text-xl font-semibold">Invalid Invitation</h2>
+              <h2 className="text-xl font-semibold">
+                {isAlreadyUsed ? 'Invitation Already Accepted' : 'Invalid Invitation'}
+              </h2>
               <p className="text-muted-foreground">{error}</p>
-              <Button onClick={() => navigate('/')} variant="outline">
-                Go to Homepage
-              </Button>
+              <div className="flex gap-3">
+                {isAlreadyUsed ? (
+                  <Button onClick={() => navigate('/auth?mode=admin')}>
+                    Login to Admin Portal
+                  </Button>
+                ) : (
+                  <Button onClick={() => navigate('/')} variant="outline">
+                    Go to Homepage
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

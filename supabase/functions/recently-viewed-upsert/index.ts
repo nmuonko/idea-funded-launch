@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,6 +11,56 @@ interface UpsertRecentlyViewedRequest {
   product_url: string;
   title?: string;
   image_url?: string;
+}
+
+/**
+ * Fetch product info from get-product-info edge function
+ */
+async function fetchProductInfo(productUrl: string, supabaseUrl: string, supabaseKey: string): Promise<{ title: string | null; imageUrl: string | null }> {
+  try {
+    console.log('[recently-viewed-upsert] Fetching product info for:', productUrl.substring(0, 60));
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/get-product-info`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({ productUrl }),
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        console.log('[recently-viewed-upsert] Product info fetch failed:', response.status);
+        return { title: null, imageUrl: null };
+      }
+      
+      const data = await response.json();
+      
+      if (data.ok) {
+        console.log('[recently-viewed-upsert] Product info fetched:', { hasTitle: !!data.productTitle, hasImage: !!data.imageUrl });
+        return {
+          title: data.productTitle || null,
+          imageUrl: data.imageUrl || null,
+        };
+      }
+      
+      return { title: null, imageUrl: null };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      console.log('[recently-viewed-upsert] Product info fetch timed out');
+    } else {
+      console.warn('[recently-viewed-upsert] Product info fetch error:', err.message);
+    }
+    return { title: null, imageUrl: null };
+  }
 }
 
 Deno.serve(async (req) => {
@@ -29,7 +79,7 @@ Deno.serve(async (req) => {
     }
 
     const body: UpsertRecentlyViewedRequest = await req.json();
-    const { device_id, store_id, product_url, title, image_url } = body;
+    let { device_id, store_id, product_url, title, image_url } = body;
 
     // Validate required fields
     if (!device_id || typeof device_id !== 'string' || device_id.trim() === '') {
@@ -57,24 +107,40 @@ Deno.serve(async (req) => {
     const sanitizedDeviceId = device_id.trim().substring(0, 255);
     const sanitizedStoreId = store_id.trim().substring(0, 100);
     const sanitizedProductUrl = product_url.trim().substring(0, 2000);
-    const sanitizedTitle = title ? title.trim().substring(0, 500) : null;
-    const sanitizedImageUrl = image_url ? image_url.trim().substring(0, 2000) : null;
+    let sanitizedTitle = title ? title.trim().substring(0, 500) : null;
+    let sanitizedImageUrl = image_url ? image_url.trim().substring(0, 2000) : null;
 
     // Create Supabase client with service role for upsert
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Check if user is authenticated (optional)
     let userId: string | null = null;
     const authHeader = req.headers.get('Authorization');
     if (authHeader) {
-      const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-      const userClient = createClient(supabaseUrl, anonKey, {
+      const userClient = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } }
       });
       const { data: { user } } = await userClient.auth.getUser();
       userId = user?.id || null;
+    }
+
+    // If image or title is missing, try to fetch from get-product-info
+    if (!sanitizedImageUrl || !sanitizedTitle) {
+      console.log('[recently-viewed-upsert] Missing image/title, fetching from get-product-info...');
+      const productInfo = await fetchProductInfo(sanitizedProductUrl, supabaseUrl, supabaseServiceKey);
+      
+      if (!sanitizedTitle && productInfo.title) {
+        sanitizedTitle = productInfo.title.substring(0, 500);
+        console.log('[recently-viewed-upsert] Got title from product info:', sanitizedTitle?.substring(0, 50));
+      }
+      
+      if (!sanitizedImageUrl && productInfo.imageUrl) {
+        sanitizedImageUrl = productInfo.imageUrl.substring(0, 2000);
+        console.log('[recently-viewed-upsert] Got image from product info:', sanitizedImageUrl?.substring(0, 80));
+      }
     }
 
     console.log(`[recently-viewed-upsert] Upserting: store=${sanitizedStoreId}, device=${sanitizedDeviceId}, user=${userId || 'guest'}, url=${sanitizedProductUrl.substring(0, 50)}...`);
@@ -103,7 +169,9 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         view_count: data?.view_count || 1,
-        id: data?.id
+        id: data?.id,
+        title: sanitizedTitle,
+        image_url: sanitizedImageUrl,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

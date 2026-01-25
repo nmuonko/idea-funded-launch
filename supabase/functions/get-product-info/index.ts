@@ -120,6 +120,113 @@ function extractAmazonTitle(html: string): string | null {
   return null;
 }
 
+// ============== STORE-SPECIFIC EXTRACTORS ==============
+
+/**
+ * Extract eBay product image from various sources
+ */
+function extractEbayImage(html: string): string | null {
+  // eBay uses imgTagWrapper for main product images
+  const imgWrapperMatch = html.match(/<div[^>]*id=["']imgTagWrapperId["'][^>]*>.*?<img[^>]*src=["']([^"']+)["']/is);
+  if (imgWrapperMatch && imgWrapperMatch[1]) {
+    console.log('[EBAY_IMAGE] Found imgTagWrapper image');
+    return imgWrapperMatch[1];
+  }
+  
+  // Try icImg (classic eBay image id)
+  const icImgMatch = html.match(/<img[^>]*id=["']icImg["'][^>]*src=["']([^"']+)["']/i);
+  if (icImgMatch && icImgMatch[1]) {
+    console.log('[EBAY_IMAGE] Found icImg');
+    return icImgMatch[1];
+  }
+  
+  // Try ux-image-carousel
+  const carouselMatch = html.match(/<img[^>]*class=["'][^"']*ux-image-carousel[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (carouselMatch && carouselMatch[1]) {
+    console.log('[EBAY_IMAGE] Found ux-image-carousel');
+    return carouselMatch[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Extract Walmart product image
+ */
+function extractWalmartImage(html: string): string | null {
+  // Walmart embeds image data in window.__NEXT_DATA__ or hero-image
+  const heroMatch = html.match(/<img[^>]*data-testid=["']hero-image["'][^>]*src=["']([^"']+)["']/i);
+  if (heroMatch && heroMatch[1]) {
+    console.log('[WALMART_IMAGE] Found hero-image');
+    return heroMatch[1];
+  }
+  
+  // Try product-image class
+  const productImgMatch = html.match(/<img[^>]*class=["'][^"']*product-image[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (productImgMatch && productImgMatch[1]) {
+    console.log('[WALMART_IMAGE] Found product-image class');
+    return productImgMatch[1];
+  }
+  
+  // Try hover-zoom-hero-image
+  const zoomMatch = html.match(/<img[^>]*class=["'][^"']*hover-zoom-hero-image[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (zoomMatch && zoomMatch[1]) {
+    console.log('[WALMART_IMAGE] Found hover-zoom-hero-image');
+    return zoomMatch[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Extract Target product image
+ */
+function extractTargetImage(html: string): string | null {
+  // Target uses data-test="product-image"
+  const productImgMatch = html.match(/<img[^>]*data-test=["']product-image["'][^>]*src=["']([^"']+)["']/i);
+  if (productImgMatch && productImgMatch[1]) {
+    console.log('[TARGET_IMAGE] Found product-image');
+    return productImgMatch[1];
+  }
+  
+  // Try ProductImagesCarousel
+  const carouselMatch = html.match(/<img[^>]*class=["'][^"']*ProductImagesCarousel[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (carouselMatch && carouselMatch[1]) {
+    console.log('[TARGET_IMAGE] Found ProductImagesCarousel');
+    return carouselMatch[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Extract SHEIN product image
+ */
+function extractSheinImage(html: string): string | null {
+  // SHEIN uses crop-image-container
+  const cropMatch = html.match(/<img[^>]*class=["'][^"']*crop-image-container[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (cropMatch && cropMatch[1]) {
+    console.log('[SHEIN_IMAGE] Found crop-image-container');
+    return cropMatch[1];
+  }
+  
+  // Try lazyload with data-src
+  const lazyMatch = html.match(/<img[^>]*class=["'][^"']*lazyload[^"']*["'][^>]*data-src=["']([^"']+)["']/i);
+  if (lazyMatch && lazyMatch[1]) {
+    console.log('[SHEIN_IMAGE] Found lazyload data-src');
+    return lazyMatch[1];
+  }
+  
+  // Try goods-img
+  const goodsMatch = html.match(/<img[^>]*class=["'][^"']*goods-img[^"']*["'][^>]*src=["']([^"']+)["']/i);
+  if (goodsMatch && goodsMatch[1]) {
+    console.log('[SHEIN_IMAGE] Found goods-img');
+    return goodsMatch[1];
+  }
+  
+  return null;
+}
+
 /**
  * Scrape Amazon product via Firecrawl as a premium fallback
  */
@@ -800,11 +907,11 @@ function extractImageUrl(html: string, domain: string): string | null {
     ],
   };
 
-  // 1. PRIORITY FOR AMAZON: Try embedded JSON extraction FIRST (most reliable for Amazon)
-  // Then try domain-specific selectors
-  // Amazon's og:image often returns the Amazon logo instead of product image
+  // 1. PRIORITY FOR SPECIFIC STORES: Try store-specific extractors FIRST
+  // These stores often have unreliable og:image that returns logos instead of products
+  
+  // AMAZON: Try embedded JSON extraction first
   if (domain === 'amazon.com' || domain.includes('amazon')) {
-    // Try embedded JSON patterns first (colorImages, hiRes, etc.)
     const jsonImage = extractAmazonImageFromJson(html);
     if (jsonImage) {
       console.log('[get-product-info] Found Amazon product image (JSON extraction)');
@@ -819,6 +926,42 @@ function extractImageUrl(html: string, domain: string): string | null {
         console.log('[get-product-info] Found Amazon product image (DOM selector)');
         return match[1];
       }
+    }
+  }
+  
+  // EBAY: Try eBay-specific extractors
+  if (domain === 'ebay.com' || domain.includes('ebay')) {
+    const ebayImage = extractEbayImage(html);
+    if (ebayImage && !isBlockedImageUrl(ebayImage)) {
+      console.log('[get-product-info] Found eBay product image');
+      return ebayImage;
+    }
+  }
+  
+  // WALMART: Try Walmart-specific extractors
+  if (domain === 'walmart.com' || domain.includes('walmart')) {
+    const walmartImage = extractWalmartImage(html);
+    if (walmartImage && !isBlockedImageUrl(walmartImage)) {
+      console.log('[get-product-info] Found Walmart product image');
+      return walmartImage;
+    }
+  }
+  
+  // TARGET: Try Target-specific extractors
+  if (domain === 'target.com' || domain.includes('target')) {
+    const targetImage = extractTargetImage(html);
+    if (targetImage && !isBlockedImageUrl(targetImage)) {
+      console.log('[get-product-info] Found Target product image');
+      return targetImage;
+    }
+  }
+  
+  // SHEIN: Try SHEIN-specific extractors
+  if (domain.includes('shein')) {
+    const sheinImage = extractSheinImage(html);
+    if (sheinImage && !isBlockedImageUrl(sheinImage)) {
+      console.log('[get-product-info] Found SHEIN product image');
+      return sheinImage;
     }
   }
 

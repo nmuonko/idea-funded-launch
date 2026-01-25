@@ -9,8 +9,13 @@
  * OR GET with query params: ?order_id=uuid&session_id=cs_...
  */
 
-import { verifyAndGetUser, handleCors, corsHeaders, createAdminClient } from "../_shared/auth.ts";
-import { getStripeConfigFromEnv } from "../_shared/stripeAdapter.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 
@@ -23,25 +28,50 @@ interface VerifyResponse {
   success: boolean;
   order_id: string;
   session_id: string;
-  status: 'paid' | 'unpaid' | 'pending' | 'expired';
+  status: 'succeeded' | 'paid' | 'pending' | 'failed' | 'expired';
   stripe_status?: string;
   payment_status?: string;
   payment_intent?: string;
+  paid_at?: string;
   error?: string;
   error_code?: string;
 }
 
-Deno.serve(async (req: Request): Promise<Response> => {
+serve(async (req: Request): Promise<Response> => {
   // Handle CORS preflight
-  const corsResponse = handleCors(req);
-  if (corsResponse) return corsResponse;
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
 
   const requestId = crypto.randomUUID();
   console.log(`[STRIPE_VERIFY] Request started`, { requestId, method: req.method });
 
   try {
-    // Authenticate user
-    const { user, supabase } = await verifyAndGetUser(req);
+    // Get auth header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized', error_code: 'UNAUTHORIZED' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Create Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Verify user
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid token', error_code: 'UNAUTHORIZED' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const userId = user.id;
     console.log(`[STRIPE_VERIFY] User authenticated`, { requestId, userId });
 
@@ -55,7 +85,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       session_id = body.session_id;
     } else if (req.method === 'GET') {
       const url = new URL(req.url);
-      order_id = url.searchParams.get('order_id') || '';
+      order_id = url.searchParams.get('order_id') || url.searchParams.get('orderId') || '';
       session_id = url.searchParams.get('session_id') || '';
     } else {
       return new Response(
@@ -97,7 +127,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Get Stripe config
-    const stripeConfig = getStripeConfigFromEnv();
+    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+    if (!stripeSecretKey) {
+      console.error(`[STRIPE_VERIFY] Missing STRIPE_SECRET_KEY`);
+      return new Response(
+        JSON.stringify({ success: false, order_id, session_id, status: 'pending', error: 'Stripe not configured', error_code: 'CONFIG_ERROR' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     // Retrieve Checkout Session from Stripe
     console.log(`[STRIPE_VERIFY] Fetching Stripe session`, { requestId, sessionId: session_id });
@@ -105,7 +142,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const stripeResponse = await fetch(`${STRIPE_API_BASE}/checkout/sessions/${session_id}`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${stripeConfig.secretKey}`,
+        'Authorization': `Bearer ${stripeSecretKey}`,
       },
     });
 
@@ -154,26 +191,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
       paymentIntent,
     });
 
-    // Determine our normalized status
-    let normalizedStatus: 'paid' | 'unpaid' | 'pending' | 'expired';
+    // Determine our normalized status - MUST use 'succeeded' for frontend compatibility
+    let normalizedStatus: 'succeeded' | 'pending' | 'failed' | 'expired';
+    const now = new Date().toISOString();
     
     if (paymentStatus === 'paid' || stripeStatus === 'complete') {
-      normalizedStatus = 'paid';
+      normalizedStatus = 'succeeded';  // CRITICAL: Frontend expects 'succeeded', not 'paid'
     } else if (stripeStatus === 'expired') {
       normalizedStatus = 'expired';
     } else if (paymentStatus === 'unpaid') {
-      normalizedStatus = 'unpaid';
+      normalizedStatus = 'pending';
     } else {
       normalizedStatus = 'pending';
     }
 
-    // If paid, update all relevant tables
-    if (normalizedStatus === 'paid') {
-      const now = new Date().toISOString();
-
+    // If paid, update all relevant tables with CANONICAL FIELDS
+    if (normalizedStatus === 'succeeded') {
       console.log(`[STRIPE_VERIFY] Payment confirmed, updating DB`, { requestId, orderId: order_id });
 
-      // Update payments table
+      // Update payments table - CANONICAL: status = 'succeeded', paid_at = now
       const { error: paymentUpdateError } = await supabase
         .from('payments')
         .update({
@@ -191,7 +227,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         console.warn(`[STRIPE_VERIFY] Failed to update payment record`, { requestId, error: paymentUpdateError });
       }
 
-      // Update order status to PAID (only if not already paid)
+      // Update order status to PAID - CANONICAL: status = 'PAID', payment_verified_at = now
       if (order.status !== 'PAID') {
         const { error: orderUpdateError } = await supabase
           .from('orders')
@@ -238,13 +274,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     const response: VerifyResponse = {
-      success: true,
+      success: normalizedStatus === 'succeeded',
       order_id,
       session_id,
       status: normalizedStatus,
       stripe_status: stripeStatus,
       payment_status: paymentStatus,
       payment_intent: paymentIntent || undefined,
+      paid_at: normalizedStatus === 'succeeded' ? now : undefined,
     };
 
     return new Response(

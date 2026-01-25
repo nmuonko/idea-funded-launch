@@ -371,7 +371,12 @@ serve(async (req) => {
 });
 
 /**
- * Mark order as PAID, update checkout session, clear cart, and send email
+ * Mark order as PAID, update payments table, checkout session, clear cart, and send email
+ * CANONICAL FIELDS:
+ * - orders.status = 'PAID'
+ * - orders.payment_verified_at = now()
+ * - payments.status = 'succeeded'
+ * - payments.paid_at = now()
  */
 async function markOrderPaidAndNotify(
   supabase: any, 
@@ -381,14 +386,40 @@ async function markOrderPaidAndNotify(
 ): Promise<void> {
   const now = new Date().toISOString();
   
-  // Update order status
-  await supabase.from('orders').update({
+  // Update order status to PAID (canonical)
+  const { error: orderError } = await supabase.from('orders').update({
     status: 'PAID',
     maisha_payment_status: 'SUCCESS',
     payment_verified_at: now,
+    updated_at: now,
   }).eq('id', order.id);
   
-  log.log('[PAYMENT_VERIFY] Order marked as PAID', { orderId: order.id });
+  if (orderError) {
+    log.error('[PAYMENT_VERIFY] Failed to update order status', { 
+      orderId: order.id, 
+      error: orderError.message 
+    });
+  } else {
+    log.log('[PAYMENT_VERIFY] Order marked as PAID', { orderId: order.id });
+  }
+  
+  // Update payment status to succeeded (canonical)
+  if (payment?.id) {
+    const { error: paymentError } = await supabase.from('payments').update({
+      status: 'succeeded',
+      paid_at: now,
+      updated_at: now,
+    }).eq('id', payment.id);
+    
+    if (paymentError) {
+      log.error('[PAYMENT_VERIFY] Failed to update payment status', { 
+        paymentId: payment.id, 
+        error: paymentError.message 
+      });
+    } else {
+      log.log('[PAYMENT_VERIFY] Payment marked as succeeded', { paymentId: payment.id });
+    }
+  }
   
   // Fetch and update checkout_session
   const { data: checkoutSession } = await supabase
@@ -422,6 +453,7 @@ async function markOrderPaidAndNotify(
 
 /**
  * Send payment confirmation email if not already sent (idempotent)
+ * Uses payment_confirmation_email_sent_at as the idempotency flag
  */
 async function sendPaymentConfirmationEmailIfNeeded(
   supabase: any,
@@ -441,12 +473,19 @@ async function sendPaymentConfirmationEmailIfNeeded(
       return;
     }
     
-    // Mark as sent first (optimistic lock)
-    const { error: updateError } = await supabase
+    // Mark as sent first (optimistic lock) - only update if still null
+    const { data: updateResult, error: updateError } = await supabase
       .from('orders')
       .update({ payment_confirmation_email_sent_at: new Date().toISOString() })
       .eq('id', orderId)
-      .is('payment_confirmation_email_sent_at', null); // Only update if still null
+      .is('payment_confirmation_email_sent_at', null)
+      .select('id');
+    
+    // If no rows updated, another process already claimed it
+    if (!updateResult || updateResult.length === 0) {
+      log.log('[PAYMENT_EMAIL] Another process claimed email send', { orderId });
+      return;
+    }
     
     if (updateError) {
       log.warn('[PAYMENT_EMAIL] Failed to mark email as sent', { orderId, error: updateError.message });

@@ -755,7 +755,13 @@ async function checkCache(supabase: any, url: string): Promise<ProductInfo | nul
   };
 }
 
-async function saveToCache(supabase: any, url: string, info: ProductInfo, domain: string) {
+async function saveToCache(
+  supabase: any, 
+  url: string, 
+  info: ProductInfo, 
+  domain: string,
+  scrapeStatus: 'OK' | 'BLOCKED' | 'TIMEOUT' | 'ERROR' = 'OK'
+) {
   // Use domain-specific TTL for standard cache
   const ttlHours: Record<string, number> = {
     'shein.com': 4,
@@ -773,20 +779,38 @@ async function saveToCache(supabase: any, url: string, info: ProductInfo, domain
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
 
+  // CRITICAL: Fetch existing record to PRESERVE valid image_url if new scrape failed
+  const { data: existing } = await supabase
+    .from('product_cache')
+    .select('image_url, title')
+    .eq('product_url', url)
+    .maybeSingle();
+
+  // Only update image_url if new one is valid, otherwise PRESERVE existing
+  const finalImageUrl = info.imageUrl || existing?.image_url || null;
+  const finalTitle = info.title || existing?.title || null;
+
+  // Log cache preservation behavior
+  if (!info.imageUrl && existing?.image_url) {
+    console.log('[get-product-info] PRESERVING existing cached image (new scrape had no image):', url);
+  }
+
   await supabase
     .from('product_cache')
     .upsert({
       product_url: url,
-      title: info.title,
-      image_url: info.imageUrl,
+      title: finalTitle,
+      image_url: finalImageUrl,
       price: info.price,
       currency: info.currency,
       source: info.source,
       store: domain,
       expires_at: expiresAt.toISOString(),
+      last_scrape_status: scrapeStatus,
+      last_scrape_at: new Date().toISOString(),
     }, { onConflict: 'product_url' });
 
-  console.log('[get-product-info] Saved to STANDARD cache:', url);
+  console.log('[get-product-info] Saved to STANDARD cache:', url, '| status:', scrapeStatus, '| hasImage:', !!finalImageUrl);
 }
 
 function extractFromJsonLd(html: string): Partial<ProductInfo> {

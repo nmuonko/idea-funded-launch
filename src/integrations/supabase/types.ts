@@ -1852,8 +1852,12 @@ export type Database = {
           expires_at: string | null
           id: string
           image_url: string | null
+          last_scrape_at: string | null
+          last_scrape_error: string | null
+          last_scrape_status: string | null
           price: number | null
           product_url: string
+          scrape_attempt_count: number | null
           source: string | null
           store: string | null
           title: string | null
@@ -1864,8 +1868,12 @@ export type Database = {
           expires_at?: string | null
           id?: string
           image_url?: string | null
+          last_scrape_at?: string | null
+          last_scrape_error?: string | null
+          last_scrape_status?: string | null
           price?: number | null
           product_url: string
+          scrape_attempt_count?: number | null
           source?: string | null
           store?: string | null
           title?: string | null
@@ -1876,8 +1884,12 @@ export type Database = {
           expires_at?: string | null
           id?: string
           image_url?: string | null
+          last_scrape_at?: string | null
+          last_scrape_error?: string | null
+          last_scrape_status?: string | null
           price?: number | null
           product_url?: string
+          scrape_attempt_count?: number | null
           source?: string | null
           store?: string | null
           title?: string | null
@@ -2166,6 +2178,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scrape_retry_queue: {
+        Row: {
+          attempt_count: number | null
+          created_at: string | null
+          failure_reason: string | null
+          id: string
+          last_attempt_at: string | null
+          next_retry_at: string | null
+          product_url: string
+          store: string | null
+        }
+        Insert: {
+          attempt_count?: number | null
+          created_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
+          product_url: string
+          store?: string | null
+        }
+        Update: {
+          attempt_count?: number | null
+          created_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          last_attempt_at?: string | null
+          next_retry_at?: string | null
+          product_url?: string
+          store?: string | null
+        }
+        Relationships: []
       }
       settings: {
         Row: {

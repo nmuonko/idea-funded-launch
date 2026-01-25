@@ -8,6 +8,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============== UTILITY HELPERS ==============
+
+/**
+ * Returns trimmed string or null if empty/invalid
+ */
+function nonEmptyString(v: any): string | null {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  return s.length ? s : null;
+}
+
 // ============== AMAZON-SPECIFIC MOBILE SCRAPING ==============
 // Amazon treats mobile requests differently - less aggressive bot detection
 
@@ -701,30 +712,53 @@ async function checkHotCache(supabase: any, url: string): Promise<ProductInfo | 
   }
 }
 
-// Save to HOT CACHE (5-15 min TTL)
+// Save to HOT CACHE (5-15 min TTL) - PRESERVES existing valid images
 async function saveToHotCache(supabase: any, url: string, info: ProductInfo, domain: string) {
   try {
     const ttlMinutes = getHotCacheTtl(domain);
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + ttlMinutes);
 
+    const nextImage = nonEmptyString(info.imageUrl);
+    const nextTitle = nonEmptyString(info.title);
+
+    // CRITICAL: Fetch existing to PRESERVE valid image/title if new scrape failed
+    const { data: existing } = await supabase
+      .from('product_hot_cache')
+      .select('response_json')
+      .eq('url', url)
+      .maybeSingle();
+
+    const existingJson = existing?.response_json ?? {};
+    const existingImage = nonEmptyString(existingJson?.imageUrl);
+    const existingTitle = nonEmptyString(existingJson?.title);
+
+    // Merge: new values take priority, but preserve existing if new is null/empty
+    const merged = {
+      ...existingJson,
+      title: nextTitle ?? existingTitle ?? null,
+      imageUrl: nextImage ?? existingImage ?? null,
+      price: info.price ?? existingJson.price ?? null,
+      currency: info.currency ?? existingJson.currency ?? null,
+      source: info.source ?? existingJson.source ?? null,
+    };
+
+    // Log preservation behavior
+    if (!nextImage && existingImage) {
+      console.log('[get-product-info] HOT CACHE: Preserving existing image (new scrape had no image):', url);
+    }
+
     await supabase
       .from('product_hot_cache')
       .upsert({
         url,
         store: domain,
-        response_json: {
-          title: info.title,
-          imageUrl: info.imageUrl,
-          price: info.price,
-          currency: info.currency,
-          source: info.source,
-        },
+        response_json: merged,
         expires_at: expiresAt.toISOString(),
         hit_count: 1,
       }, { onConflict: 'url' });
 
-    console.log('[get-product-info] Saved to HOT cache:', url);
+    console.log('[get-product-info] Saved to HOT cache:', url, '| hasImage:', !!merged.imageUrl);
   } catch (err: any) {
     console.warn('[get-product-info] Hot cache save failed:', err.message);
   }
@@ -779,38 +813,49 @@ async function saveToCache(
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + hours);
 
-  // CRITICAL: Fetch existing record to PRESERVE valid image_url if new scrape failed
-  const { data: existing } = await supabase
+  const nextImage = nonEmptyString(info.imageUrl);
+  const nextTitle = nonEmptyString(info.title);
+
+  // CRITICAL: Fetch existing record to PRESERVE valid image_url/title if new scrape failed
+  const { data: existing, error: existingErr } = await supabase
     .from('product_cache')
-    .select('image_url, title')
+    .select('image_url, title, price, currency, source')
     .eq('product_url', url)
     .maybeSingle();
 
-  // Only update image_url if new one is valid, otherwise PRESERVE existing
-  const finalImageUrl = info.imageUrl || existing?.image_url || null;
-  const finalTitle = info.title || existing?.title || null;
+  if (existingErr) {
+    console.log('[CACHE] existing fetch error', existingErr);
+  }
+
+  // Only update fields if new value is valid, otherwise PRESERVE existing
+  const finalImageUrl = nextImage ?? nonEmptyString(existing?.image_url);
+  const finalTitle = nextTitle ?? nonEmptyString(existing?.title);
 
   // Log cache preservation behavior
-  if (!info.imageUrl && existing?.image_url) {
+  if (!nextImage && existing?.image_url) {
     console.log('[get-product-info] PRESERVING existing cached image (new scrape had no image):', url);
   }
 
-  await supabase
-    .from('product_cache')
-    .upsert({
-      product_url: url,
-      title: finalTitle,
-      image_url: finalImageUrl,
-      price: info.price,
-      currency: info.currency,
-      source: info.source,
-      store: domain,
-      expires_at: expiresAt.toISOString(),
-      last_scrape_status: scrapeStatus,
-      last_scrape_at: new Date().toISOString(),
-    }, { onConflict: 'product_url' });
+  // Build payload - preserve existing values if new ones are null
+  const payload = {
+    product_url: url,
+    title: finalTitle,
+    image_url: finalImageUrl,
+    price: info.price ?? existing?.price ?? null,
+    currency: info.currency ?? existing?.currency ?? null,
+    source: info.source ?? existing?.source ?? null,
+    store: domain,
+    expires_at: expiresAt.toISOString(),
+    last_scrape_status: scrapeStatus,
+    last_scrape_at: new Date().toISOString(),
+  };
 
-  console.log('[get-product-info] Saved to STANDARD cache:', url, '| status:', scrapeStatus, '| hasImage:', !!finalImageUrl);
+  const { error } = await supabase
+    .from('product_cache')
+    .upsert(payload, { onConflict: 'product_url' });
+
+  if (error) console.log('[CACHE] upsert error', error);
+  else console.log('[get-product-info] Saved to STANDARD cache:', url, '| status:', scrapeStatus, '| hasImage:', !!finalImageUrl);
 }
 
 function extractFromJsonLd(html: string): Partial<ProductInfo> {
@@ -1586,8 +1631,13 @@ serve(async (req) => {
     // Scrape product info with timeout protection
     const info = await scrapeProduct(productUrl);
 
-    // Save to BOTH caches if we got any useful data
-    if (info.price !== null || info.imageUrl !== null || info.title !== null) {
+    // Save to BOTH caches if we got ANY useful data (don't poison with empty)
+    const hasAnything =
+      info.price !== null ||
+      nonEmptyString(info.title) !== null ||
+      nonEmptyString(info.imageUrl) !== null;
+
+    if (hasAnything) {
       // Save to hot cache (5-15 min) for fast repeat access
       saveToHotCache(supabaseClient, productUrl, info, domain).catch(err => {
         console.warn('[get-product-info] Hot cache save failed:', err.message);
@@ -1597,6 +1647,8 @@ serve(async (req) => {
       saveToCache(supabaseClient, productUrl, info, domain).catch(err => {
         console.warn('[get-product-info] Standard cache save failed:', err.message);
       });
+    } else {
+      console.log('[get-product-info] No useful data to cache for:', productUrl);
     }
 
     const duration = Date.now() - requestStart;

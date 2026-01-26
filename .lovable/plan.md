@@ -1,100 +1,152 @@
 
-# Fix: Shipping Percentage Display Bug
 
-## Problem Summary
+# Fix: Shipping Price Display Bug
 
-The admin panel correctly sets shipping to 10%, but the mobile app shows an inflated shipping fee ($108.07 instead of ~$41.24) because of a data format mismatch between the backend API and the mobile frontend.
+## Problem Diagnosis
 
-**Current Flow:**
-1. Admin sets 10% in settings → stored as `10` in database
-2. `mobile-public-config` API returns `{ shipping: { percentValue: 10 } }`
-3. Mobile app (Replit) receives `10` but uses it as a direct multiplier (10× instead of 0.1×)
+After analyzing the codebase, I've identified the root cause:
 
-**Expected calculation:** $40 (base) + ($12.36 × 0.10) = **$41.24**
-**Actual (buggy):** $40 + ($12.36 × some_wrong_factor) = **$108.07**
+| Component | Status |
+|-----------|--------|
+| Admin Settings (DB) | Correct: 10% stored as `10`, base fee $40 |
+| `mobile-public-config` | Now correct: returns `percentValue: 0.1` (decimal) |
+| `mobile-get-cart` backend calc | Correct: calculates shipping properly |
+| Mobile App (Replit) | Bug: not using server-calculated `shippingFeeUsd` |
 
----
-
-## Root Cause
-
-The `mobile-public-config` endpoint returns `percentValue: 10` as a whole number, expecting the mobile app to divide by 100 before using it. However, this creates ambiguity and is inconsistent with how the backend handles it internally (where it normalizes via division).
+**The backend `mobile-get-cart` already returns a correctly calculated `shippingFeeUsd` in the summary.** The mobile app should display this value directly, not recalculate it.
 
 ---
 
-## Solution
+## Current Backend Behavior (Verified Working)
 
-Normalize the percentage to decimal form (0.1 for 10%) in the backend response so the mobile app can use it directly without additional conversion logic.
-
-### Files to Update
-
-**1. `supabase/functions/mobile-public-config/index.ts`**
-
-Change the shipping percentage output from whole number to decimal:
-
-```typescript
-// Before (line ~160):
-percentValue: Number(shippingPercentValue),
-
-// After:
-percentValue: Number(shippingPercentValue) / 100,  // Return as decimal (10 → 0.1)
+```
+mobile-get-cart returns:
+{
+  summary: {
+    itemsTotalUsd: 9.95,        // Base prices only
+    markupFeeUsd: 2.99,         // Margin (30%)
+    shippingFeeUsd: 41.00,      // $40 + ($9.95 × 10%) = $40.995 → $41.00
+    totalUsd: 53.94,            // $9.95 + $2.99 + $41.00
+    shipping_debug: {
+      raw_shippingPercent: 10,
+      normalized_shippingPercent: 0.1,
+      shippingBaseFeeUsd: 40,
+      regularItemsBaseTotal: 9.95,
+      regularShippingTotal: 41.00
+    }
+  }
+}
 ```
 
-Similarly for the service fee if the mobile app uses it:
-```typescript
-// Before:
-percent: Number(serviceFeePercentValue),
+**The formula in `mobile-get-cart` is:**
+```
+shipping = baseFee + (baseItemsTotal × normalizedPercent)
+```
+Where `baseItemsTotal` = sum of `base_price_usd` × `quantity` (before margin).
 
-// After:
-percent: Number(serviceFeePercentValue) / 100, // Return as decimal
+---
+
+## Solution: Two-Part Fix
+
+### Part 1: Verify Backend Calculation (Already Correct)
+
+The backend uses `regularItemsBaseTotal` (base prices BEFORE margin) for shipping calculation. This is correct.
+
+**No backend changes needed for core calculation.**
+
+### Part 2: Add Frontend Utility for Consistency
+
+Create a shared shipping calculation utility that the web frontend (this codebase) uses. The mobile app (Replit) should either:
+- Use the pre-calculated `summary.shippingFeeUsd` from `mobile-get-cart`
+- Or use the same formula with `mobile-public-config` values
+
+**File to create: `src/lib/shippingCalculation.ts`**
+
+```typescript
+/**
+ * Calculate shipping fee for an order
+ * FORMULA: baseFee + (baseItemsTotal × shippingPercent)
+ * 
+ * @param baseItemsTotalUsd - Sum of item BASE prices (before markup)
+ * @param baseFeeUsd - Flat base shipping fee (e.g., $40)
+ * @param shippingPercent - Shipping percentage (decimal: 0.1 for 10%)
+ */
+export function calculateShippingUsd(
+  baseItemsTotalUsd: number,
+  baseFeeUsd: number,
+  shippingPercent: number
+): number {
+  // Guard: normalize if passed as whole number (10) instead of decimal (0.1)
+  const normalizedPercent = shippingPercent > 1 
+    ? shippingPercent / 100 
+    : shippingPercent;
+  
+  const shipping = baseFeeUsd + (baseItemsTotalUsd * normalizedPercent);
+  
+  // Round to 2 decimal places
+  return Math.round(shipping * 100) / 100;
+}
+
+// Example: calculateShippingUsd(12.36, 40, 0.1) → 41.24
 ```
 
-**2. `supabase/functions/mobile-get-cart/index.ts`**
+---
 
-Update the shipping_debug output to show the decimal value for debugging:
+## Critical Issue: Mobile App Must Use Correct Subtotal
 
+The screenshot shows "Prix Total des Articles: $12.36" but this appears to be **base + margin**, not base only.
+
+**The mobile app (Replit) needs to:**
+1. **Option A (Recommended)**: Just display `summary.shippingFeeUsd` from the API response - no recalculation needed
+2. **Option B**: If calculating locally, use `summary.itemsTotalUsd` (base only), NOT the displayed "Prix Total" which includes margin
+
+---
+
+## Files to Update
+
+### 1. Create canonical shipping calculation (for web frontend)
+**New file:** `src/lib/shippingCalculation.ts`
+
+### 2. Add enhanced logging to backend (temporary debug)
+**File:** `supabase/functions/mobile-get-cart/index.ts`
+
+Add additional debug fields to help mobile team verify:
 ```typescript
-// Update debug info to show normalized value
 summary.shipping_debug = {
-  raw_shippingPercent: shippingPercent,
-  normalized_shippingPercent: normalizedShippingPercent, // Already correct (0.1)
-  ...
+  ...existing,
+  formula_explanation: `$${shippingBaseFeeUsd} + ($${regularItemsBaseTotal.toFixed(2)} × ${(normalizedShippingPercent * 100).toFixed(0)}%) = $${regularShippingTotal.toFixed(2)}`,
+  important_note: 'Use itemsTotalUsd (base prices) for shipping calc, NOT the subtotal shown in UI'
 };
 ```
 
----
+### 3. Document the API contract
+**File:** `MOBILE_APP_INTEGRATION.md`
 
-## Alternative Approach (If Mobile Can't Be Updated)
-
-If the mobile app is already deployed and expects a decimal, the backend must return decimals. If it expects whole numbers but processes them correctly, no change is needed.
-
-**Recommended:** Return decimals from API to eliminate ambiguity:
-- `percentValue: 0.10` (not 10)
-- `markup.value: 0.30` (not 30)
-
-This matches how most financial APIs work and prevents client-side interpretation errors.
+Update to clarify:
+- `itemsTotalUsd` = sum of base prices (use this for shipping calculation)
+- `markupFeeUsd` = margin/service fee
+- `shippingFeeUsd` = pre-calculated shipping (recommended: use this directly)
+- UI "Prix Total des Articles" should display `itemsTotalUsd + markupFeeUsd`
 
 ---
 
-## Technical Details
+## Verification After Fix
 
-| Endpoint | Current Output | Proposed Output |
-|----------|----------------|-----------------|
-| `shipping.percentValue` | `10` | `0.1` |
-| `serviceFee.percent` | `0.12` | Keep as-is (already decimal) |
-| `markup.value` | `30` | `0.3` (for consistency) |
+1. Check `mobile-get-cart` response includes correct `shippingFeeUsd`
+2. Verify mobile app displays `summary.shippingFeeUsd` directly
+3. Confirm shipping = $40 + ($base_items_total × 10%) matches expectation
 
 ---
 
-## Edge Functions to Redeploy
+## Summary
 
-After changes:
-1. `mobile-public-config` (primary fix)
-2. No changes needed to `mobile-get-cart` (backend calculation is already correct)
+The backend calculation is already correct. The fix requires:
 
----
+1. **Create** `src/lib/shippingCalculation.ts` - canonical calculation utility for web frontend
+2. **Update** `mobile-get-cart/index.ts` - add clearer debug output explaining the formula
+3. **Update** documentation to clarify which subtotal to use
+4. **Redeploy** `mobile-get-cart` edge function
+5. **Communicate** to mobile team (Replit): use `summary.shippingFeeUsd` directly from API response
 
-## Verification Steps
+The mobile app bug is using the displayed subtotal (base + margin) instead of the base-only subtotal for shipping calculation, or it's not using the pre-calculated value from the API at all.
 
-1. Call `/mobile-public-config` and verify `shipping.percentValue = 0.1`
-2. Add an item to cart on mobile app
-3. Verify shipping = $40 + (items × 0.1) = expected value

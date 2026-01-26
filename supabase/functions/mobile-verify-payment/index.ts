@@ -27,22 +27,21 @@ import { verifyPaymentIntent, verifyCheckoutSession, getStripeConfig } from "../
  * - orderId: Primary lookup key (also accepts order_id for compatibility)
  * - reference: Alternative lookup by payment reference
  * 
- * RESPONSE CONTRACT (FRONTEND EXPECTS EXACTLY THIS):
+ * RESPONSE CONTRACT (MOBILE APP COMPATIBILITY):
  * 
  * SUCCESS: 
- *   { success: true, status: 'succeeded', order_id: 'uuid', paid_at: 'ISO' }
- *   Frontend also accepts status: 'success' | 'paid' (case-insensitive)
+ *   { success: true, status: 'paid', payment_status: 'paid', order_id: 'uuid', paid_at: 'ISO' }
+ *   Returns 'paid' for maximum mobile app compatibility (not 'succeeded')
  * 
  * PENDING: 
- *   { success: true, status: 'pending' }
- *   Frontend also accepts status: 'processing'
+ *   { success: true, status: 'pending', payment_status: 'pending' }
  * 
  * FAILED:  
- *   { success: false, status: 'failed', error: 'message', error_code: 'CODE' }
- *   Frontend also accepts status: 'cancelled' | 'expired'
+ *   { success: false, status: 'failed', payment_status: 'failed', error: 'message', error_code: 'CODE' }
  * 
  * CRITICAL: 
- * - Do NOT use 'completed' - frontend treats unknown statuses as pending
+ * - Returns 'paid' not 'succeeded' for mobile app compatibility
+ * - Both 'status' and 'payment_status' fields are set for backwards compatibility
  * - success: true/false is required
  * - paid_at is required for success responses
  */
@@ -144,10 +143,11 @@ serve(async (req) => {
       // Try to send confirmation email if not sent yet
       await sendPaymentConfirmationEmailIfNeeded(supabase, order.id, log);
       
-      // FRONTEND CONTRACT: success=true, status='succeeded', paid_at required
+      // MOBILE APP CONTRACT: success=true, status='paid', paid_at required
       return jsonResponse({
         success: true,
-        status: 'succeeded',
+        status: 'paid',
+        payment_status: 'paid',
         order_id: order.id,
         paid_at: order.payment_verified_at || order.updated_at || new Date().toISOString(),
       });
@@ -174,7 +174,8 @@ serve(async (req) => {
           
           return jsonResponse({
             success: true,
-            status: 'succeeded',
+            status: 'paid',
+            payment_status: 'paid',
             order_id: order.id,
             paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
@@ -214,7 +215,8 @@ serve(async (req) => {
                 
                 return jsonResponse({
                   success: true,
-                  status: 'succeeded',
+                  status: 'paid',
+                  payment_status: 'paid',
                   order_id: order.id,
                   paid_at: paidAt,
                 });
@@ -232,6 +234,7 @@ serve(async (req) => {
                 return jsonResponse({
                   success: false,
                   status: 'failed',
+                  payment_status: 'failed',
                   order_id: order.id,
                   error: verifyResult.error || 'Payment failed',
                   error_code: 'PAYMENT_FAILED',
@@ -248,6 +251,7 @@ serve(async (req) => {
               return jsonResponse({
                 success: true,
                 status: 'pending',
+                payment_status: 'pending',
               });
             }
           } catch (pawaError: any) {
@@ -256,20 +260,21 @@ serve(async (req) => {
           }
         }
         
-        // Return current status from DB - map to frontend-expected values
+        // Return current status from DB - map to mobile-expected values
         const dbStatus = unifiedPayment.status?.toLowerCase() || 'pending';
-        let frontendStatus: 'succeeded' | 'failed' | 'pending' = 'pending';
+        let frontendStatus: 'paid' | 'failed' | 'pending' = 'pending';
         
         if (dbStatus === 'succeeded' || dbStatus === 'completed' || dbStatus === 'paid') {
-          frontendStatus = 'succeeded';
+          frontendStatus = 'paid';
         } else if (dbStatus === 'failed' || dbStatus === 'cancelled' || dbStatus === 'expired') {
           frontendStatus = 'failed';
         }
         
-        if (frontendStatus === 'succeeded') {
+        if (frontendStatus === 'paid') {
           return jsonResponse({
             success: true,
-            status: 'succeeded',
+            status: 'paid',
+            payment_status: 'paid',
             order_id: order.id,
             paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
@@ -279,6 +284,7 @@ serve(async (req) => {
           return jsonResponse({
             success: false,
             status: 'failed',
+            payment_status: 'failed',
             order_id: order.id,
             error: 'Payment failed',
             error_code: 'PAYMENT_FAILED',
@@ -288,6 +294,7 @@ serve(async (req) => {
         return jsonResponse({
           success: true,
           status: 'pending',
+          payment_status: 'pending',
         });
       }
 
@@ -305,7 +312,8 @@ serve(async (req) => {
           
           return jsonResponse({
             success: true,
-            status: 'succeeded',
+            status: 'paid',
+            payment_status: 'paid',
             order_id: order.id,
             paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
@@ -356,7 +364,8 @@ serve(async (req) => {
                 
                 return jsonResponse({
                   success: true,
-                  status: 'succeeded',
+                  status: 'paid',
+                  payment_status: 'paid',
                   order_id: order.id,
                   paid_at: paidAt,
                 });
@@ -368,6 +377,7 @@ serve(async (req) => {
                 return jsonResponse({
                   success: false,
                   status: 'failed',
+                  payment_status: 'failed',
                   order_id: order.id,
                   error: verifyResult.error || 'Payment failed',
                   error_code: 'PAYMENT_FAILED',
@@ -380,13 +390,14 @@ serve(async (req) => {
           }
         }
         
-        // Return current DB status - map to frontend-expected values
+        // Return current DB status - map to mobile-expected values
         const dbStatus = unifiedPayment.status?.toLowerCase() || 'pending';
         
         if (dbStatus === 'succeeded') {
           return jsonResponse({
             success: true,
-            status: 'succeeded',
+            status: 'paid',
+            payment_status: 'paid',
             order_id: order.id,
             paid_at: unifiedPayment.paid_at || new Date().toISOString(),
           });
@@ -396,6 +407,7 @@ serve(async (req) => {
           return jsonResponse({
             success: false,
             status: 'failed',
+            payment_status: 'failed',
             order_id: order.id,
             error: 'Payment failed',
             error_code: 'PAYMENT_FAILED',
@@ -405,6 +417,7 @@ serve(async (req) => {
         return jsonResponse({
           success: true,
           status: 'pending',
+          payment_status: 'pending',
         });
       }
 
@@ -414,7 +427,8 @@ serve(async (req) => {
       if (dbStatus === 'succeeded' || dbStatus === 'completed' || dbStatus === 'paid') {
         return jsonResponse({
           success: true,
-          status: 'succeeded',
+          status: 'paid',
+          payment_status: 'paid',
           order_id: order.id,
           paid_at: unifiedPayment.paid_at || new Date().toISOString(),
         });
@@ -424,6 +438,7 @@ serve(async (req) => {
         return jsonResponse({
           success: false,
           status: 'failed',
+          payment_status: 'failed',
           order_id: order.id,
           error: 'Payment failed',
           error_code: 'PAYMENT_FAILED',
@@ -433,6 +448,7 @@ serve(async (req) => {
       return jsonResponse({
         success: true,
         status: 'pending',
+        payment_status: 'pending',
       });
     }
 
@@ -445,6 +461,7 @@ serve(async (req) => {
       return jsonResponse({
         success: true,
         status: 'pending',
+        payment_status: 'pending',
       });
     }
     
@@ -452,6 +469,7 @@ serve(async (req) => {
       return jsonResponse({
         success: false,
         status: 'failed',
+        payment_status: 'failed',
         order_id: order.id,
         error: 'Order was cancelled',
         error_code: 'ORDER_CANCELLED',
@@ -462,6 +480,7 @@ serve(async (req) => {
     return jsonResponse({
       success: true,
       status: 'pending',
+      payment_status: 'pending',
     });
 
   } catch (error: any) {
@@ -471,6 +490,7 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false,
         status: 'failed',
+        payment_status: 'failed',
         error: error.message,
         error_code: 'AUTH_ERROR',
       }, error.status);
@@ -478,7 +498,8 @@ serve(async (req) => {
     
     return jsonResponse({ 
       success: false,
-      status: 'failed', 
+      status: 'failed',
+      payment_status: 'failed',
       error: 'An unexpected error occurred',
       error_code: 'INTERNAL_ERROR',
     }, 500);

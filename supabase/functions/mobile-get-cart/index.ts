@@ -502,7 +502,7 @@ serve(async (req) => {
       summary.message = "Un devis de livraison est nécessaire pour votre véhicule.";
     }
     
-    // Add debug info for shipping calculations
+    // Add debug info for shipping calculations - ENHANCED for mobile team
     summary.shipping_debug = {
       raw_shippingPercent: shippingPercent,
       normalized_shippingPercent: normalizedShippingPercent,
@@ -511,6 +511,10 @@ serve(async (req) => {
       regularShippingTotal,
       vehicleShippingTotal,
       mode: shippingPercent > 1 ? 'normalized_from_percent' : 'used_as_decimal',
+      // CRITICAL: Formula explanation for mobile team debugging
+      formula_explanation: `$${shippingBaseFeeUsd.toFixed(2)} + ($${regularItemsBaseTotal.toFixed(2)} × ${(normalizedShippingPercent * 100).toFixed(0)}%) = $${regularShippingTotal.toFixed(2)}`,
+      // IMPORTANT: Clarification for mobile app implementation
+      important_note: 'RECOMMENDED: Use summary.shippingFeeUsd directly. If calculating locally, use itemsTotalUsd (base prices BEFORE margin), NOT the displayed subtotal which includes margin.',
     };
 
     const totalTime = Date.now() - startTime;

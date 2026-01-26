@@ -210,30 +210,65 @@ async function signOut() {
 Returns the user's current cart (DRAFT order) with all items and pricing.
 
 ```typescript
-const { items, summary } = await response.json();
+const { activeItems, savedItems, summary } = await response.json();
+```
 
-// Response:
+#### Summary Fields - IMPORTANT CLARIFICATION
+
+| Field | Description | Use For |
+|-------|-------------|---------|
+| `itemsTotalUsd` | Sum of BASE prices only (BEFORE margin) | Shipping calculation input |
+| `markupFeeUsd` | Total margin/markup fee | Display as "Service Fee" |
+| `shippingFeeUsd` | **PRE-CALCULATED** shipping fee | **USE THIS DIRECTLY** |
+| `totalUsd` | Grand total (items + markup + shipping) | Final price display |
+
+**CRITICAL: Shipping Calculation**
+```
+Formula: shippingFeeUsd = baseFee + (itemsTotalUsd × shippingPercent)
+
+Example:
+  itemsTotalUsd = $9.95 (base prices only)
+  baseFee = $40.00
+  shippingPercent = 10% (0.1)
+  shippingFeeUsd = $40 + ($9.95 × 0.1) = $40.995 → $41.00
+```
+
+**⚠️ COMMON BUG**: Do NOT use the displayed "Prix Total des Articles" (which includes margin) for shipping calculation. Use `itemsTotalUsd` (base prices only) or simply display `summary.shippingFeeUsd` directly.
+
+#### Response Example
+```json
 {
-  items: [{
-    id: "uuid",
-    productUrl: "https://...",
-    productTitle: "Product Name",
-    productImageUrl: "https://...",
-    quantity: 1,
-    basePriceUsd: 100.00,
-    markupFeeUsd: 15.00,
-    shippingFeeUsd: 10.00,
-    lineTotalUsd: 125.00,
-    lineTotalCdf: 350000
+  "ok": true,
+  "activeItems": [{
+    "id": "uuid",
+    "productUrl": "https://...",
+    "productTitle": "Product Name",
+    "productImageUrl": "https://...",
+    "quantity": 1,
+    "basePriceUsd": 9.95,
+    "itemMarginUsd": 2.99,
+    "itemSubtotalUsd": 12.94,
+    "itemTotalUsd": 12.94
   }],
-  summary: {
-    itemCount: 3,
-    itemsTotalUsd: 300.00,
-    markupFeeUsd: 45.00,
-    shippingFeeUsd: 30.00,
-    totalUsd: 375.00,
-    totalCdf: 1050000,
-    exchangeRate: 2800
+  "savedItems": [],
+  "summary": {
+    "cartId": "uuid",
+    "itemCount": 1,
+    "itemsTotalUsd": 9.95,
+    "markupFeeUsd": 2.99,
+    "shippingFeeUsd": 41.00,
+    "totalUsd": 53.94,
+    "totalCdf": 118668,
+    "exchangeRate": 2200,
+    "shipping_debug": {
+      "raw_shippingPercent": 10,
+      "normalized_shippingPercent": 0.1,
+      "shippingBaseFeeUsd": 40,
+      "regularItemsBaseTotal": 9.95,
+      "regularShippingTotal": 41.00,
+      "formula_explanation": "$40.00 + ($9.95 × 10%) = $41.00",
+      "important_note": "Use summary.shippingFeeUsd directly"
+    }
   }
 }
 ```

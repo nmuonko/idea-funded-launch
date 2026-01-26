@@ -518,6 +518,7 @@ serve(async (req) => {
     };
 
     const totalTime = Date.now() - startTime;
+    
     console.log('[CART_DEBUG]', JSON.stringify({ 
       fn: 'get-cart', 
       userId: user.id, 
@@ -528,6 +529,10 @@ serve(async (req) => {
       pendingCount: pendingPriceConfirmations.length, 
       hasPending: hasPendingPriceConfirmation, 
       canCheckout: canProceedToPayment,
+      // Include summary values for debugging
+      markupFeeUsd: totalMarginUsd,
+      shippingFeeUsd: totalShippingUsd,
+      totalUsd: grandTotalUsd,
       totalMs: totalTime
     }));
 

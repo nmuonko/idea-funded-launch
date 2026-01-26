@@ -84,10 +84,10 @@ async function fetchFreshSettings(supabase: any): Promise<CachedSettings> {
   const vehicleMarkupRaw = categoryMarkups.vehicles ?? markupPercent;
   const vehicleMarkupPercent = vehicleMarkupRaw; // Use as-is, 1 = 1%
   
-  // shipping_percent is stored as decimal (0.10 = 10%), keep as decimal for calculations
-  const shippingPercent = settings?.shipping_percent ?? 0.10;
+  // shipping_percent is stored as whole number (10 = 10%), same as markup
+  const shippingPercent = settings?.shipping_percent ?? 10;
   
-  // service_fee_percent stored as decimal (0.12 = 12%)
+  // service_fee_percent stored as whole number (12 = 12%)
   const serviceFeePercent = settings?.service_fee_percent ?? 0.12;
   
   // CRITICAL: Get exchange rate from DB - do NOT use hardcoded fallback

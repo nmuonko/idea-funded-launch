@@ -125,13 +125,13 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     ? normalizePercent(vehicleMarkupRaw, markupPercent)
     : markupPercent;
 
-  // Shipping percent
-  const shippingPercentRaw = settings.shipping_percent ?? 0.10;
+  // Shipping percent - stored as whole number (10 = 10%)
+  const shippingPercentRaw = settings.shipping_percent ?? 10;
   const shippingPercentValue = normalizePercent(shippingPercentRaw, 10);
   const shippingBaseFee = settings.shipping_base_fee_usd ?? 20;
 
-  // Service fee percent
-  const serviceFeeRaw = settings.service_fee_percent ?? 0.12;
+  // Service fee percent - stored as whole number (12 = 12%)
+  const serviceFeeRaw = settings.service_fee_percent ?? 12;
   const serviceFeePercentValue = normalizePercent(serviceFeeRaw, 12);
 
   const updatedAt = settings.updated_at || new Date().toISOString();

@@ -386,3 +386,6 @@ verify_jwt = false
 
 [functions.select-payment-provider]
 verify_jwt = true
+
+[functions.payment-callback]
+verify_jwt = false

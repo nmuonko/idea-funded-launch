@@ -96,13 +96,15 @@ export default function PaymentCallback() {
 
       const paymentStatus = data?.status || data?.payment_status;
       
-      if (paymentStatus === "succeeded" || paymentStatus === "PAID") {
+      // Handle all success variants: 'paid', 'succeeded', 'PAID', 'success'
+      if (paymentStatus === "paid" || paymentStatus === "succeeded" || paymentStatus === "PAID" || paymentStatus === "success") {
         setStatus("succeeded");
         setConfirmationCode(data?.confirmation_code || reference);
         return false; // stop polling
       }
 
-      if (paymentStatus === "failed" || paymentStatus === "FAILED") {
+      // Handle all failure variants
+      if (paymentStatus === "failed" || paymentStatus === "FAILED" || paymentStatus === "cancelled" || paymentStatus === "expired") {
         setStatus("failed");
         setError(data?.error || t.paymentNotCompleted);
         return false; // stop polling

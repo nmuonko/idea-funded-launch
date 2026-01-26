@@ -79,7 +79,7 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "NO_SETTINGS_CONFIGURED",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 0.10 },       // 10% as decimal
+      markup: { type: "percent", value: 10 },       // 10% as whole number (mobile divides by 100)
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
       serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
@@ -97,7 +97,7 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "MISSING_EXCHANGE_RATE",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 0.10 },       // 10% as decimal
+      markup: { type: "percent", value: 10 },       // 10% as whole number (mobile divides by 100)
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
       serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
@@ -144,15 +144,16 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     serviceFeeRaw, serviceFeePercentValue,
   });
 
-  // Normalize all percentages to decimal form for frontend consumption
-  // e.g., 10 (whole number) → 0.1 (decimal multiplier)
-  const markupDecimal = Number(markupPercent) / 100;
-  const vehicleMarkupDecimal = Number(vehicleMarkupPercent) / 100;
-  const shippingPercentDecimal = Number(shippingPercentValue) / 100;
-  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;
+  // CRITICAL: Mobile app expects markup as WHOLE NUMBERS (e.g., 30.2 for 30.2%)
+  // because it divides by 100 internally. DO NOT convert to decimal here.
+  // Shipping already works correctly with decimal (0.1 for 10%).
+  const markupWholeNumber = Number(markupPercent);        // Keep as 30.2 (not 0.302)
+  const vehicleMarkupWholeNumber = Number(vehicleMarkupPercent); // Keep as 10 (not 0.1)
+  const shippingPercentDecimal = Number(shippingPercentValue) / 100; // Convert to 0.1
+  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;    // Convert to 0.12
 
-  console.log("[mobile-public-config] Normalized decimals:", {
-    markupDecimal, vehicleMarkupDecimal, shippingPercentDecimal, serviceFeeDecimal,
+  console.log("[mobile-public-config] Return values:", {
+    markupWholeNumber, vehicleMarkupWholeNumber, shippingPercentDecimal, serviceFeeDecimal,
   });
 
   return {
@@ -161,17 +162,17 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     exchangeRate: Number(exchangeRate),
     markup: {
       type: "percent",
-      value: markupDecimal,           // 15% → 0.15
-      vehicleValue: vehicleMarkupDecimal, // 15% → 0.15
+      value: markupWholeNumber,           // 30.2% → 30.2 (mobile divides by 100)
+      vehicleValue: vehicleMarkupWholeNumber, // 10% → 10 (mobile divides by 100)
     },
     shipping: {
       mode: shippingBaseFee > 0 && shippingPercentValue > 0 ? "combined" : 
             shippingBaseFee > 0 ? "flat" : "percent",
       flatUsd: Number(shippingBaseFee),
-      percentValue: shippingPercentDecimal, // 10% → 0.1
+      percentValue: shippingPercentDecimal, // 10% → 0.1 (mobile uses directly)
     },
     serviceFee: {
-      percent: serviceFeeDecimal,     // 12% → 0.12
+      percent: serviceFeeDecimal,     // 12% → 0.12 (mobile uses directly)
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {

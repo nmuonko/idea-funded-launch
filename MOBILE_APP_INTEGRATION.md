@@ -218,19 +218,25 @@ const { activeItems, savedItems, summary } = await response.json();
 | Field | Description | Use For |
 |-------|-------------|---------|
 | `itemsTotalUsd` | Sum of BASE prices only (BEFORE margin) | Shipping calculation input |
-| `markupFeeUsd` | Total margin/markup fee | Display as "Service Fee" |
+| `markupFeeUsd` | Total margin/markup fee | **USE THIS DIRECTLY for display** |
 | `shippingFeeUsd` | **PRE-CALCULATED** shipping fee | **USE THIS DIRECTLY** |
 | `totalUsd` | Grand total (items + markup + shipping) | Final price display |
 
-**CRITICAL: Shipping Calculation**
-```
-Formula: shippingFeeUsd = baseFee + (itemsTotalUsd × shippingPercent)
+**⚠️ CRITICAL: Use Pre-Calculated Summary Values**
 
-Example:
-  itemsTotalUsd = $9.95 (base prices only)
-  baseFee = $40.00
-  shippingPercent = 10% (0.1)
-  shippingFeeUsd = $40 + ($9.95 × 0.1) = $40.995 → $41.00
+The backend returns `summary.markupFeeUsd` and `summary.shippingFeeUsd` as **pre-calculated values**. 
+Display these directly - do NOT recalculate them in the mobile app.
+
+**If using `mobile-public-config` for local calculations:**
+- `markup.value` = **whole number** (e.g., 30.2 for 30.2%) → divide by 100 before use
+- `shipping.percentValue` = **decimal** (e.g., 0.1 for 10%) → use directly
+
+```
+// Correct margin calculation if doing locally:
+marginUsd = subtotalUsd * (config.markup.value / 100)  // 272.92 * (30.2 / 100) = 82.42
+
+// Correct shipping calculation if doing locally:
+shippingUsd = config.shipping.flatUsd + (subtotalUsd * config.shipping.percentValue)
 ```
 
 **⚠️ COMMON BUG**: Do NOT use the displayed "Prix Total des Articles" (which includes margin) for shipping calculation. Use `itemsTotalUsd` (base prices only) or simply display `summary.shippingFeeUsd` directly.

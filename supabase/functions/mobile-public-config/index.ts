@@ -79,9 +79,9 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "NO_SETTINGS_CONFIGURED",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 10 },
+      markup: { type: "percent", value: 0.10 },       // 10% as decimal
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
-      serviceFee: { percent: 12, minUsd: 5 },
+      serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
@@ -97,9 +97,9 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "MISSING_EXCHANGE_RATE",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 10 },
+      markup: { type: "percent", value: 0.10 },       // 10% as decimal
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
-      serviceFee: { percent: 12, minUsd: 5 },
+      serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
@@ -144,23 +144,34 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     serviceFeeRaw, serviceFeePercentValue,
   });
 
+  // Normalize all percentages to decimal form for frontend consumption
+  // e.g., 10 (whole number) → 0.1 (decimal multiplier)
+  const markupDecimal = Number(markupPercent) / 100;
+  const vehicleMarkupDecimal = Number(vehicleMarkupPercent) / 100;
+  const shippingPercentDecimal = Number(shippingPercentValue) / 100;
+  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;
+
+  console.log("[mobile-public-config] Normalized decimals:", {
+    markupDecimal, vehicleMarkupDecimal, shippingPercentDecimal, serviceFeeDecimal,
+  });
+
   return {
     success: true,
     configValid: true,
     exchangeRate: Number(exchangeRate),
     markup: {
       type: "percent",
-      value: Number(markupPercent),
-      vehicleValue: Number(vehicleMarkupPercent),
+      value: markupDecimal,           // 15% → 0.15
+      vehicleValue: vehicleMarkupDecimal, // 15% → 0.15
     },
     shipping: {
       mode: shippingBaseFee > 0 && shippingPercentValue > 0 ? "combined" : 
             shippingBaseFee > 0 ? "flat" : "percent",
       flatUsd: Number(shippingBaseFee),
-      percentValue: Number(shippingPercentValue),
+      percentValue: shippingPercentDecimal, // 10% → 0.1
     },
     serviceFee: {
-      percent: Number(serviceFeePercentValue),
+      percent: serviceFeeDecimal,     // 12% → 0.12
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {

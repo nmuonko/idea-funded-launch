@@ -110,7 +110,7 @@ export default function FeesSettings() {
           markup_percent: markupPercent,
           global_markup_percent: markupPercent / 100,
           shipping_base_fee_usd: shippingBaseFeeUsd,
-          shipping_percent: shippingPercent / 100,
+          shipping_percent: shippingPercent, // Store as whole number (10 = 10%)
           exchange_rate_usd_to_cdf: exchangeRateUsdToCdf,
           category_markups: updatedCategoryMarkups,
           extra_fees: extraFees,

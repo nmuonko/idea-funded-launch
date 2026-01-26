@@ -15,7 +15,7 @@ import {
   updatePaymentStatus,
 } from "../_shared/paymentProviders.ts";
 import { verifyDeposit, getPawaPayConfig } from "../_shared/pawapayAdapter.ts";
-import { verifyPaymentIntent, getStripeConfig } from "../_shared/stripeAdapter.ts";
+import { verifyPaymentIntent, verifyCheckoutSession, getStripeConfig } from "../_shared/stripeAdapter.ts";
 
 /**
  * mobile-verify-payment Edge Function
@@ -293,7 +293,11 @@ serve(async (req) => {
 
       // ==================== STRIPE VERIFICATION ====================
       if (unifiedPayment.provider_key === 'stripe' || unifiedPayment.provider_key === 'stripe_checkout') {
-        log.log('[PAYMENT_VERIFY] Using Stripe verification', { paymentId: unifiedPayment.id });
+        log.log('[PAYMENT_VERIFY] Using Stripe verification', { 
+          paymentId: unifiedPayment.id,
+          providerKey: unifiedPayment.provider_key,
+          depositId: unifiedPayment.provider_deposit_id,
+        });
         
         // Check if already completed in DB
         if (unifiedPayment.status === 'succeeded') {
@@ -307,16 +311,29 @@ serve(async (req) => {
           });
         }
         
-        // PROVIDER FALLBACK: Verify with Stripe API if PaymentIntent ID exists
+        // PROVIDER FALLBACK: Verify with Stripe API
         if (unifiedPayment.provider_deposit_id) {
           try {
             const provider = await getProviderByKey(supabase, 'stripe');
             if (provider) {
               const stripeConfig = getStripeConfig(provider);
-              const verifyResult = await verifyPaymentIntent(stripeConfig, unifiedPayment.provider_deposit_id);
+              
+              // Use correct verification method based on provider type
+              // stripe_checkout uses Checkout Sessions (cs_* IDs)
+              // stripe uses PaymentIntents (pi_* IDs)
+              let verifyResult;
+              const depositId = unifiedPayment.provider_deposit_id;
+              
+              if (unifiedPayment.provider_key === 'stripe_checkout' || depositId.startsWith('cs_')) {
+                log.log('[PAYMENT_VERIFY] Using Checkout Session verification', { depositId });
+                verifyResult = await verifyCheckoutSession(stripeConfig, depositId);
+              } else {
+                log.log('[PAYMENT_VERIFY] Using PaymentIntent verification', { depositId });
+                verifyResult = await verifyPaymentIntent(stripeConfig, depositId);
+              }
               
               log.log('[PAYMENT_VERIFY] Stripe API verify result', { 
-                paymentIntentId: unifiedPayment.provider_deposit_id,
+                depositId,
                 status: verifyResult.status,
                 success: verifyResult.success,
               });
@@ -331,6 +348,11 @@ serve(async (req) => {
                 });
                 
                 await markOrderPaidAndNotify(supabase, order, unifiedPayment, log);
+                
+                log.log('[PAYMENT_VERIFY] Stripe payment confirmed - returning success', {
+                  orderId: order.id,
+                  paidAt,
+                });
                 
                 return jsonResponse({
                   success: true,

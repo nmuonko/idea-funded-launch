@@ -258,6 +258,70 @@ export async function verifyPaymentIntent(
 }
 
 /**
+ * Verify a Checkout Session status
+ * Used for stripe_checkout provider (cs_* IDs)
+ */
+export async function verifyCheckoutSession(
+  config: StripeConfig,
+  sessionId: string
+): Promise<VerifyPaymentIntentResult> {
+  console.log('[Stripe] Verifying Checkout Session:', sessionId);
+
+  try {
+    const response = await fetch(`${STRIPE_API_BASE}/checkout/sessions/${sessionId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${config.secretKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+
+    if (response.status === 404) {
+      return {
+        success: false,
+        status: 'pending',
+        error: 'Checkout Session not found',
+      };
+    }
+
+    const data = await response.json();
+
+    console.log('[Stripe] Checkout Session verify response:', {
+      id: data.id,
+      status: data.status,
+      payment_status: data.payment_status,
+    });
+
+    // Checkout Session uses payment_status: 'paid', 'unpaid', 'no_payment_required'
+    // and status: 'open', 'complete', 'expired'
+    let mappedStatus: 'pending' | 'processing' | 'succeeded' | 'failed' | 'cancelled' = 'pending';
+    
+    if (data.payment_status === 'paid') {
+      mappedStatus = 'succeeded';
+    } else if (data.status === 'expired') {
+      mappedStatus = 'failed';
+    } else if (data.payment_status === 'unpaid' && data.status === 'open') {
+      mappedStatus = 'pending';
+    }
+
+    return {
+      success: true,
+      status: mappedStatus,
+      provider_transaction_id: data.payment_intent || data.id,
+      paid_at: mappedStatus === 'succeeded' ? new Date().toISOString() : undefined,
+    };
+
+  } catch (error: any) {
+    console.error('[Stripe] Checkout Session verify error:', error.message);
+    return {
+      success: false,
+      status: 'pending',
+      error: error.message,
+    };
+  }
+}
+
+/**
  * Verify Stripe webhook signature using HMAC-SHA256
  */
 export async function verifyWebhookSignature(

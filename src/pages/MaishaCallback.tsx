@@ -115,7 +115,7 @@ export default function MaishaCallback() {
             <Loader2 className="h-16 w-16 text-primary animate-spin mx-auto mb-4" />
             <h1 className="text-2xl font-bold mb-2">Verifying Payment</h1>
             <p className="text-muted-foreground mb-6">
-              Please wait while we confirm your payment with MaishaPay...
+              Please wait while we confirm your payment...
             </p>
           </>
         );

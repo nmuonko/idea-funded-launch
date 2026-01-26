@@ -97,7 +97,7 @@ const handler = async (req: Request): Promise<Response> => {
             <div class="content">
               <p>Dear ${submission.full_name},</p>
               
-              <p>Thank you for your payment of <strong>$${submission.payment_amount} USD</strong> via MaishaPay.</p>
+              <p>Thank you for your payment of <strong>$${submission.payment_amount} USD</strong>.</p>
               
               <p><strong>Your project has been successfully submitted to the AfriFund competition!</strong></p>
               

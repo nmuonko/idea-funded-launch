@@ -118,28 +118,16 @@ export default function PaymentSuccess() {
           )}
 
           <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
+              Your order is being processed. You can safely close this window and return to the app.
+            </p>
             <Button 
-              onClick={() => {
-                // Deep link back to mobile app
-                window.location.href = `afrishop://orders${orderData.orderId ? `?order_id=${orderData.orderId}` : ''}`;
-              }} 
-              className="w-full"
-            >
-              View My Orders
-            </Button>
-            <Button 
-              onClick={() => {
-                // Deep link back to mobile app home
-                window.location.href = 'afrishop://home';
-              }} 
+              onClick={() => window.close()}
               variant="outline" 
               className="w-full"
             >
-              Back to App
+              Close Window
             </Button>
-            <p className="text-xs text-muted-foreground mt-2">
-              You can close this window to return to the app.
-            </p>
           </div>
         </CardContent>
       </Card>

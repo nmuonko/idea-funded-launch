@@ -399,7 +399,7 @@ export default function AdminOrderDetail() {
               <strong>Created:</strong> {new Date(order.created_at).toLocaleString()}
             </div>
             <div>
-              <strong>MaishaPay Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
+              <strong>Payment Transaction:</strong> {order.maisha_transaction_id || 'N/A'}
             </div>
 
             {/* Quick Status Actions with Email Notifications - Always show for any order */}

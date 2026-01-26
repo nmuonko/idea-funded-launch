@@ -92,7 +92,7 @@ export function buildWelcomeEmail(userName: string, userEmail: string): EmailTem
             <li>Shop from top US retailers (Amazon, Walmart, eBay, and more)</li>
             <li>Get products delivered to DRC</li>
             <li>Track your orders in real-time</li>
-            <li>Enjoy secure MaishaPay payments</li>
+            <li>Enjoy secure mobile payments</li>
           </ul>
           <p>Your registered email: <strong>${userEmail}</strong></p>
           <p style="margin-top: 20px;">

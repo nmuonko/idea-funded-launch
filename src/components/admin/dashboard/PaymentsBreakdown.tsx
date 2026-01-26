@@ -141,7 +141,7 @@ export function PaymentsBreakdown({ dateRange, embedded }: PaymentsBreakdownProp
         <div className="flex items-center justify-between p-2 rounded-lg bg-primary/5">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-primary" />
-            <span className="text-sm">MaishaPay</span>
+            <span className="text-sm">Mobile Money</span>
           </div>
           <span className="font-semibold">{formatUSD(data.maishaPayRevenue)}</span>
         </div>

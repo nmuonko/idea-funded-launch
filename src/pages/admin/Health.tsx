@@ -190,7 +190,7 @@ export default function AdminHealth() {
           avgLatency: 450
         },
         {
-          name: 'maishapay-callback',
+          name: 'payment-callback',
           invocations: paymentCount,
           errors: failedPayments,
           errorRate: paymentCount > 0 ? (failedPayments / paymentCount) * 100 : 0,

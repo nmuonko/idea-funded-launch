@@ -15,7 +15,7 @@ const faqKnowledge = {
       { q: ['ville', 'livrer', 'kinshasa', 'lubumbashi'], a: 'Nous livrons dans toutes les grandes villes de RDC, principalement Kinshasa et Lubumbashi. Contactez-nous pour les autres villes.' },
     ],
     payment: [
-      { q: ['paiement', 'payer', 'mobile money', 'mpesa', 'airtel'], a: 'Nous acceptons Mobile Money (M-Pesa, Airtel Money, Orange Money) et les cartes bancaires via MaishaPay.' },
+      { q: ['paiement', 'payer', 'mobile money', 'mpesa', 'airtel'], a: 'Nous acceptons Mobile Money (M-Pesa, Airtel Money, Orange Money) et les virements bancaires.' },
       { q: ['échoué', 'erreur', 'problème', 'refusé'], a: 'Si votre paiement a échoué, vérifiez votre solde et réessayez. Si le problème persiste, un agent peut vous aider.' },
       { q: ['reçu', 'confirmation', 'facture'], a: 'Après un paiement réussi, vous recevez un email de confirmation avec les détails de votre commande.' },
     ],
@@ -37,7 +37,7 @@ const faqKnowledge = {
       { q: ['city', 'deliver', 'kinshasa', 'lubumbashi'], a: 'We deliver to all major cities in DRC, mainly Kinshasa and Lubumbashi. Contact us for other cities.' },
     ],
     payment: [
-      { q: ['payment', 'pay', 'mobile money', 'mpesa', 'airtel'], a: 'We accept Mobile Money (M-Pesa, Airtel Money, Orange Money) and bank cards via MaishaPay.' },
+      { q: ['payment', 'pay', 'mobile money', 'mpesa', 'airtel'], a: 'We accept Mobile Money (M-Pesa, Airtel Money, Orange Money) and bank transfers.' },
       { q: ['failed', 'error', 'problem', 'declined'], a: 'If your payment failed, check your balance and try again. If the problem persists, an agent can help.' },
       { q: ['receipt', 'confirmation', 'invoice'], a: 'After a successful payment, you receive a confirmation email with your order details.' },
     ],

@@ -194,8 +194,8 @@ Deno.serve(async (req) => {
         break;
 
       case 'maishapay':
-        // MaishaPay doesn't have a simple test endpoint, so just check secrets
-        apiTestResult = { success: true, message: 'MaishaPay secrets configured' };
+        // Mobile Money provider - just check secrets
+        apiTestResult = { success: true, message: 'Mobile Money provider secrets configured' };
         break;
 
       case 'avadapay':

@@ -3,9 +3,56 @@
 // Verifies payment with Stripe, updates database, and redirects to app deep link
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+
+// Idempotent email sender - checks if already sent before sending
+async function sendPaymentConfirmationEmailIfNeeded(
+  supabase: SupabaseClient,
+  orderId: string
+): Promise<void> {
+  try {
+    // Check if email already sent
+    const { data: orderCheck } = await supabase
+      .from('orders')
+      .select('payment_confirmation_email_sent_at')
+      .eq('id', orderId)
+      .single();
+
+    if (orderCheck?.payment_confirmation_email_sent_at) {
+      console.log('[payment-callback] [PAYMENT_EMAIL] Email already sent, skipping', { orderId });
+      return;
+    }
+
+    // Mark as sent first (optimistic lock)
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({ payment_confirmation_email_sent_at: new Date().toISOString() })
+      .eq('id', orderId)
+      .is('payment_confirmation_email_sent_at', null);
+
+    if (updateError) {
+      console.warn('[payment-callback] [PAYMENT_EMAIL] Failed to mark email as sent', { orderId, error: updateError.message });
+      return;
+    }
+
+    // Send email via edge function
+    console.log('[payment-callback] [PAYMENT_EMAIL] Sending confirmation email', { orderId });
+
+    const { error: invokeError } = await supabase.functions.invoke('send-payment-confirmation', {
+      body: { orderId },
+    });
+
+    if (invokeError) {
+      console.error('[payment-callback] [PAYMENT_EMAIL] Send failed', { orderId, error: invokeError.message });
+    } else {
+      console.log('[payment-callback] [PAYMENT_EMAIL] Sent successfully', { orderId });
+    }
+  } catch (error) {
+    console.error('[payment-callback] [PAYMENT_EMAIL] Unexpected error', { orderId, error: String(error) });
+  }
+}
 
 serve(async (req: Request): Promise<Response> => {
   const url = new URL(req.url);
@@ -66,7 +113,7 @@ serve(async (req: Request): Promise<Response> => {
       currency: session.currency
     });
 
-    // If paid, update database
+    // If paid, update database and send confirmation email
     if (session.payment_status === 'paid') {
       const supabaseUrl = Deno.env.get('SUPABASE_URL');
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -96,7 +143,7 @@ serve(async (req: Request): Promise<Response> => {
         console.log('[payment-callback] Order updated to PAID', { orderId });
       }
 
-      // Update payments table - try both provider_deposit_id and provider_transaction_id
+      // Update payments table
       const { error: paymentError } = await supabase
         .from('payments')
         .update({
@@ -121,6 +168,9 @@ serve(async (req: Request): Promise<Response> => {
           updated_at: now
         })
         .eq('order_id', orderId);
+
+      // Send payment confirmation email (idempotent - checks if already sent)
+      await sendPaymentConfirmationEmailIfNeeded(supabase, orderId);
 
       console.log('[payment-callback] Redirecting to app with success', { orderId });
       return returnAppRedirect('success', orderId);

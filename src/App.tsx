@@ -133,6 +133,8 @@ const App = () => {
             <Route path="/email-confirmed" element={<EmailConfirmed />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
             <Route path="/payment/fail" element={<PaymentFail />} />
+            <Route path="/payment-success" element={<PaymentSuccess />} />
+            <Route path="/payment-fail" element={<PaymentFail />} />
             <Route path="/payment-callback" element={<PaymentCallback />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />

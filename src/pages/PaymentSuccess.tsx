@@ -117,13 +117,29 @@ export default function PaymentSuccess() {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Button onClick={() => navigate('/orders')} className="flex-1">
+          <div className="flex flex-col gap-3">
+            <Button 
+              onClick={() => {
+                // Deep link back to mobile app
+                window.location.href = `afrishop://orders${orderData.orderId ? `?order_id=${orderData.orderId}` : ''}`;
+              }} 
+              className="w-full"
+            >
               View My Orders
             </Button>
-            <Button onClick={() => navigate('/')} variant="outline" className="flex-1">
-              Back to Home
+            <Button 
+              onClick={() => {
+                // Deep link back to mobile app home
+                window.location.href = 'afrishop://home';
+              }} 
+              variant="outline" 
+              className="w-full"
+            >
+              Back to App
             </Button>
+            <p className="text-xs text-muted-foreground mt-2">
+              You can close this window to return to the app.
+            </p>
           </div>
         </CardContent>
       </Card>

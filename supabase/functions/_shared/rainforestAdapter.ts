@@ -34,12 +34,16 @@ interface RainforestProduct {
   title: string;
   link: string;
   image?: string;
+  main_image?: { link: string };
   images?: { link: string }[];
   price?: {
     value: number;
     currency: string;
     raw?: string;
   };
+  // Additional price fields Rainforest may return
+  current_price?: { value: number; currency: string; raw?: string };
+  rrp?: { value: number; currency: string };
   rating?: number;
   ratings_total?: number;
   reviews_total?: number;
@@ -53,6 +57,8 @@ interface RainforestProduct {
     price?: { value: number; currency: string };
     is_prime?: boolean;
   };
+  // For search results
+  prices?: { value: number; currency: string; raw?: string }[];
 }
 
 interface RainforestSearchResponse {
@@ -587,25 +593,76 @@ export async function fetchProductDetails(
 }
 
 /**
+ * Extract best available price from Rainforest product
+ * Returns null if no valid price found (NEVER returns 0 for missing price)
+ */
+function extractPrice(product: RainforestProduct): { value: number | null; currency: string } {
+  // Try multiple price fields in order of preference
+  const priceFields = [
+    product.buybox_winner?.price,
+    product.price,
+    product.current_price,
+    product.prices?.[0],
+    product.rrp,
+  ];
+
+  for (const priceField of priceFields) {
+    if (priceField && typeof priceField.value === "number" && priceField.value > 0) {
+      return { value: priceField.value, currency: priceField.currency || "USD" };
+    }
+  }
+
+  return { value: null, currency: "USD" };
+}
+
+/**
+ * Extract images array from Rainforest product
+ * Returns array of https URLs
+ */
+function extractImages(product: RainforestProduct): string[] {
+  const images: string[] = [];
+  
+  // From images array
+  if (product.images && Array.isArray(product.images)) {
+    for (const img of product.images) {
+      if (img.link && typeof img.link === "string") {
+        const url = img.link.startsWith("http") ? img.link : `https:${img.link}`;
+        if (!images.includes(url)) images.push(url);
+      }
+    }
+  }
+
+  // From main_image
+  if (product.main_image?.link) {
+    const url = product.main_image.link.startsWith("http") 
+      ? product.main_image.link 
+      : `https:${product.main_image.link}`;
+    if (!images.includes(url)) images.unshift(url); // Main image first
+  }
+
+  // From single image field
+  if (product.image && typeof product.image === "string") {
+    const url = product.image.startsWith("http") ? product.image : `https:${product.image}`;
+    if (!images.includes(url)) images.unshift(url);
+  }
+
+  return images;
+}
+
+/**
  * Normalize Rainforest product to our catalog format
+ * CRITICAL: priceUsd is null (not 0) when price is unavailable
  */
 function normalizeProduct(
   product: RainforestProduct,
   amazonDomain: string
 ): CatalogProduct {
-  // Extract price from various fields
-  const price = product.price?.value 
-    || product.buybox_winner?.price?.value 
-    || 0;
-
-  const currency = product.price?.currency 
-    || product.buybox_winner?.price?.currency 
-    || "USD";
+  // Extract price - null if unavailable, never 0
+  const { value: rawPrice, currency } = extractPrice(product);
 
   // Convert non-USD prices (approximate)
-  let priceUsd = price;
-  if (currency !== "USD") {
-    // Simple conversion for common currencies
+  let priceUsd: number | null = rawPrice;
+  if (rawPrice !== null && currency !== "USD") {
     const conversionRates: Record<string, number> = {
       "GBP": 1.27,
       "EUR": 1.09,
@@ -614,13 +671,17 @@ function normalizeProduct(
       "JPY": 0.0067,
       "INR": 0.012,
     };
-    priceUsd = price * (conversionRates[currency] || 1);
+    priceUsd = rawPrice * (conversionRates[currency] || 1);
   }
 
-  // Extract image URL
-  const imageUrl = product.image 
-    || product.images?.[0]?.link 
-    || undefined;
+  // Round price if present
+  if (priceUsd !== null) {
+    priceUsd = Math.round(priceUsd * 100) / 100;
+  }
+
+  // Extract images
+  const images = extractImages(product);
+  const imageUrl = images[0] || undefined;
 
   // Build product URL
   const productUrl = product.link || `https://www.${amazonDomain}/dp/${product.asin}`;
@@ -639,12 +700,13 @@ function normalizeProduct(
     brand: product.brand,
     description,
     imageUrl,
+    images, // Include images array
     productUrl,
-    priceUsd: Math.round(priceUsd * 100) / 100,
+    priceUsd, // null or positive number, never 0 for missing
     currency: "USD",
     inStock: true, // Rainforest only returns in-stock items by default
     categoryPath: categoryPath.length > 0 ? categoryPath : undefined,
-    rating: product.rating,
+    rating: product.rating || null,
     reviewCount: product.ratings_total || product.reviews_total,
     raw: product as unknown as Record<string, unknown>,
   };
@@ -652,6 +714,7 @@ function normalizeProduct(
 
 /**
  * Format product for mobile API response (stable schema)
+ * CRITICAL: priceUsd is null (not 0) when unavailable
  */
 export function formatCatalogItem(product: CatalogProduct): {
   id: string;
@@ -660,19 +723,26 @@ export function formatCatalogItem(product: CatalogProduct): {
   title: string;
   priceUsd: number | null;
   imageUrl: string | null;
+  images: string[];
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
 } {
+  // Ensure priceUsd is null (not 0) when unavailable
+  const priceUsd = (product.priceUsd !== undefined && product.priceUsd !== null && product.priceUsd > 0) 
+    ? product.priceUsd 
+    : null;
+
   return {
     id: `rainforest:${product.providerProductId}`,
     provider: "rainforest",
     providerProductId: product.providerProductId,
     title: product.title,
-    priceUsd: product.priceUsd || null,
+    priceUsd,
     imageUrl: product.imageUrl || null,
+    images: product.images || [],
     productUrl: product.productUrl || null,
     inStock: product.inStock ?? null,
-    rating: product.rating || null,
+    rating: product.rating ?? null,
   };
 }

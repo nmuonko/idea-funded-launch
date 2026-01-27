@@ -1,7 +1,7 @@
 /**
  * Catalog Home Endpoint
  * Returns featured/trending content for the native catalog home screen
- * GET /catalog-home?env=staging&page=1&pageSize=20&amazon_domain=amazon.com
+ * GET /catalog-home?env=staging&page=1&pageSize=20&category=phones&amazon_domain=amazon.com
  * 
  * IMPORTANT: This endpoint MUST always return HTTP 200 with stable JSON shape.
  * Mobile apps depend on this - never return 404/500.
@@ -10,12 +10,13 @@
  * {
  *   "status": "success" | "error",
  *   "env": "staging",
+ *   "category": "phones" | "computers" | "audio" | "monitors" | "all",
  *   "page": 1,
  *   "pageSize": 20,
  *   "trending": [...CatalogItem],
  *   "itemCount": <trending.length>,
  *   "hasMore": true | false,
- *   "source": "bestsellers-electronics-mix" | "search-fallback" | "cache-fallback",
+ *   "source": "bestsellers-category" | "cache-fallback",
  *   "error": null | "message"
  * }
  */
@@ -35,23 +36,29 @@ const MAX_PAGE_SIZE = 40;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_AMAZON_DOMAIN = "amazon.com";
 
-// Default electronics-focused category URLs
-const DEFAULT_CATEGORY_URLS = [
-  "https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics",
-  "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
-  "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
-  "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
-];
+// Category-specific Amazon Best Sellers URLs
+const CATEGORY_URLS: Record<string, string> = {
+  all: "https://www.amazon.com/Best-Sellers/zgbs",
+  phones: "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
+  computers: "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
+  audio: "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
+  monitors: "https://www.amazon.com/Best-Sellers-Computer-Monitors/zgbs/pc/1292115011",
+};
 
-// Default exclusion keywords to filter out books
+// Valid categories
+const VALID_CATEGORIES = ["all", "phones", "computers", "audio", "monitors"];
+type CategoryType = "all" | "phones" | "computers" | "audio" | "monitors";
+
+// Default exclusion keywords to filter out books (only for 'all' category)
 const DEFAULT_EXCLUDE_KEYWORDS = {
-  title_keywords: ["Kindle", "Audible", "Paperback", "Hardcover", "Audiobook", "Book Set", "Novel", "Edition", "Workbook"],
+  title_keywords: ["Kindle", "Audible", "Paperback", "Hardcover", "Audiobook", "Book Set", "Novel", "Workbook"],
   url_patterns: ["/books/", "/Kindle/", "/Audible/"],
 };
 
 interface CatalogHomeResponse {
   status: "success" | "error";
   env: string;
+  category: string;
   page: number;
   pageSize: number;
   trending: any[];
@@ -72,6 +79,7 @@ interface ExcludeConfig {
 function buildResponse(
   status: "success" | "error",
   env: string,
+  category: string,
   page: number,
   pageSize: number,
   trending: any[],
@@ -82,6 +90,7 @@ function buildResponse(
   return {
     status,
     env,
+    category,
     page,
     pageSize,
     trending,
@@ -93,7 +102,7 @@ function buildResponse(
 }
 
 /**
- * Check if a product should be excluded (e.g., books)
+ * Check if a product should be excluded (e.g., books) - only used for 'all' category
  */
 function shouldExcludeProduct(product: any, excludeConfig: ExcludeConfig): boolean {
   const title = (product.title || "").toLowerCase();
@@ -117,96 +126,76 @@ function shouldExcludeProduct(product: any, excludeConfig: ExcludeConfig): boole
 }
 
 /**
- * Fetch products from multiple category URLs in parallel
+ * Fetch products from a single category URL with deduplication
  */
-async function fetchMultiCategoryProducts(
-  categoryUrls: string[],
+async function fetchCategoryProducts(
+  categoryUrl: string,
   amazonDomain: string,
+  page: number,
   pageSize: number,
+  applyExclusion: boolean,
   excludeConfig: ExcludeConfig
-): Promise<{ products: any[]; categoriesUsed: number; beforeFilter: number; afterFilter: number }> {
-  const allProducts: any[] = [];
-  const seenIds = new Set<string>();
-  let categoriesUsed = 0;
+): Promise<{ products: any[]; beforeDedupe: number; afterDedupe: number; hasMore: boolean }> {
+  // Fetch extra items to have buffer after filtering/deduping
+  const fetchSize = pageSize * 2;
   
-  // Fetch from all categories in parallel
-  const results = await Promise.allSettled(
-    categoryUrls.map(url => 
-      fetchBestsellers(amazonDomain, 1, 30, url) // Fetch 30 per category to have buffer after filtering
-    )
-  );
+  const result = await fetchBestsellers(amazonDomain, page, fetchSize, categoryUrl);
   
-  for (const result of results) {
-    if (result.status === "fulfilled" && !result.value.error && result.value.products.length > 0) {
-      categoriesUsed++;
-      for (const product of result.value.products) {
-        const formatted = formatCatalogItem(product);
-        // Dedupe by id
-        if (!seenIds.has(formatted.id)) {
-          seenIds.add(formatted.id);
-          allProducts.push(formatted);
-        }
-      }
+  if (result.error || !result.products || result.products.length === 0) {
+    return { products: [], beforeDedupe: 0, afterDedupe: 0, hasMore: false };
+  }
+  
+  // Format and dedupe by ASIN
+  const seenIds = new Map<string, any>();
+  
+  for (const product of result.products) {
+    const formatted = formatCatalogItem(product);
+    const id = formatted.id;
+    
+    // Dedupe by id (rainforest:ASIN)
+    if (!seenIds.has(id)) {
+      seenIds.set(id, formatted);
     }
   }
   
-  const beforeFilter = allProducts.length;
+  const beforeDedupe = result.products.length;
+  let deduped = Array.from(seenIds.values());
   
-  // Apply exclusion filter
-  const filteredProducts = allProducts.filter(p => !shouldExcludeProduct(p, excludeConfig));
+  // Apply exclusion filter if needed (for 'all' category)
+  if (applyExclusion) {
+    deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
+  }
   
-  const afterFilter = filteredProducts.length;
+  const afterDedupe = deduped.length;
   
-  return {
-    products: filteredProducts.slice(0, pageSize),
-    categoriesUsed,
-    beforeFilter,
-    afterFilter,
-  };
+  // Slice to requested page size
+  const products = deduped.slice(0, pageSize);
+  const hasMore = afterDedupe > pageSize || result.hasMore;
+  
+  return { products, beforeDedupe, afterDedupe, hasMore };
 }
 
 /**
- * Load config from catalog_config table
+ * Load exclusion config from catalog_config table
  */
-async function loadCatalogConfig(supabase: any): Promise<{
-  categoryUrls: string[];
-  excludeConfig: ExcludeConfig;
-}> {
+async function loadExcludeConfig(supabase: any): Promise<ExcludeConfig> {
   try {
     const { data, error } = await supabase
       .from("catalog_config")
       .select("key, value")
-      .in("key", ["home_category_urls", "home_exclude_keywords"]);
+      .eq("key", "home_exclude_keywords")
+      .single();
     
     if (error || !data) {
-      console.log("[CATALOG_HOME] Using default config (no DB config found)");
-      return {
-        categoryUrls: DEFAULT_CATEGORY_URLS,
-        excludeConfig: DEFAULT_EXCLUDE_KEYWORDS,
-      };
+      return DEFAULT_EXCLUDE_KEYWORDS;
     }
     
-    let categoryUrls = DEFAULT_CATEGORY_URLS;
-    let excludeConfig = DEFAULT_EXCLUDE_KEYWORDS;
-    
-    for (const row of data) {
-      if (row.key === "home_category_urls" && Array.isArray(row.value)) {
-        categoryUrls = row.value;
-      } else if (row.key === "home_exclude_keywords" && row.value) {
-        excludeConfig = {
-          title_keywords: row.value.title_keywords || DEFAULT_EXCLUDE_KEYWORDS.title_keywords,
-          url_patterns: row.value.url_patterns || DEFAULT_EXCLUDE_KEYWORDS.url_patterns,
-        };
-      }
-    }
-    
-    return { categoryUrls, excludeConfig };
-  } catch (err) {
-    console.warn("[CATALOG_HOME] Error loading config:", err);
     return {
-      categoryUrls: DEFAULT_CATEGORY_URLS,
-      excludeConfig: DEFAULT_EXCLUDE_KEYWORDS,
+      title_keywords: data.value?.title_keywords || DEFAULT_EXCLUDE_KEYWORDS.title_keywords,
+      url_patterns: data.value?.url_patterns || DEFAULT_EXCLUDE_KEYWORDS.url_patterns,
     };
+  } catch {
+    return DEFAULT_EXCLUDE_KEYWORDS;
   }
 }
 
@@ -225,19 +214,20 @@ Deno.serve(async (req: Request) => {
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, rawPageSize));
   const amazonDomain = url.searchParams.get("amazon_domain") || DEFAULT_AMAZON_DOMAIN;
   
+  // Parse category (default to 'all')
+  const rawCategory = (url.searchParams.get("category") || "all").toLowerCase();
+  const category: CategoryType = VALID_CATEGORIES.includes(rawCategory) 
+    ? rawCategory as CategoryType 
+    : "all";
+  
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
   
-  console.log("[CATALOG_HOME] Request", JSON.stringify({
-    page,
-    pageSize,
-    amazonDomain,
-    env: envName,
-  }));
+  console.log(`[CATALOG_HOME] category=${category} page=${page} pageSize=${pageSize} env=${envName}`);
 
   // Default error response - always return this shape
   const errorResponse = (message: string, source: string = "error") => 
-    new Response(JSON.stringify(buildResponse("error", envName, page, pageSize, [], false, source, message)), {
+    new Response(JSON.stringify(buildResponse("error", envName, category, page, pageSize, [], false, source, message)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -260,42 +250,49 @@ Deno.serve(async (req: Request) => {
       return errorResponse("Catalog not enabled for this environment");
     }
 
-    // Load category URLs and exclusion config from DB
-    const { categoryUrls, excludeConfig } = await loadCatalogConfig(supabase);
+    // Load exclusion config (only used for 'all' category)
+    const excludeConfig = await loadExcludeConfig(supabase);
+    
+    // Get the URL for the requested category
+    const categoryUrl = CATEGORY_URLS[category] || CATEGORY_URLS.all;
+    const applyExclusion = category === "all"; // Only filter books in 'all' category
     
     let trending: any[] = [];
     let hasMore = false;
-    let source = "bestsellers-electronics-mix";
+    let source = `bestsellers-${category}`;
+    let beforeDedupe = 0;
+    let afterDedupe = 0;
     
-    // For page 1, fetch from multiple electronics categories
-    if (page === 1) {
-      const result = await fetchMultiCategoryProducts(
-        categoryUrls,
-        amazonDomain,
-        pageSize,
-        excludeConfig
-      );
-      
-      trending = result.products;
-      hasMore = trending.length >= pageSize;
-      
-      console.log("[CATALOG_HOME] categoriesUsed=" + result.categoriesUsed + 
-                  " beforeFilter=" + result.beforeFilter + 
-                  " afterFilter=" + result.afterFilter + 
-                  " returned=" + trending.length);
-      
-      // If multi-category fetch worked
-      if (trending.length > 0) {
-        source = "bestsellers-electronics-mix";
-      }
-    }
+    // Fetch from the specific category URL
+    const result = await fetchCategoryProducts(
+      categoryUrl,
+      amazonDomain,
+      page,
+      pageSize,
+      applyExclusion,
+      excludeConfig
+    );
     
-    // FALLBACK 1: If page > 1 or multi-category failed, try search with electronics terms
+    trending = result.products;
+    hasMore = result.hasMore;
+    beforeDedupe = result.beforeDedupe;
+    afterDedupe = result.afterDedupe;
+    
+    console.log(`[CATALOG_HOME] category=${category} page=${page} pageSize=${pageSize} returned=${trending.length} deduped=${beforeDedupe - afterDedupe}`);
+    
+    // FALLBACK 1: If category fetch failed, try search with category-specific terms
     if (trending.length === 0) {
-      console.log("[CATALOG_HOME] Using search fallback");
+      console.log(`[CATALOG_HOME] Using search fallback for category=${category}`);
       
-      const electronicsQueries = ["electronics", "phone", "laptop", "headphones", "tablet"];
-      const searchQuery = electronicsQueries[(page - 1) % electronicsQueries.length] || "electronics";
+      const searchTerms: Record<string, string> = {
+        all: "electronics",
+        phones: "smartphone",
+        computers: "laptop computer",
+        audio: "headphones",
+        monitors: "computer monitor",
+      };
+      
+      const searchQuery = searchTerms[category] || "electronics";
       
       const searchResult = await searchRainforest(
         searchQuery,
@@ -305,19 +302,27 @@ Deno.serve(async (req: Request) => {
       );
       
       if (!searchResult.error && searchResult.products.length > 0) {
-        // Apply exclusion filter to search results
-        const filtered = searchResult.products
-          .map(formatCatalogItem)
-          .filter(p => !shouldExcludeProduct(p, excludeConfig));
+        // Dedupe search results
+        const seenIds = new Map<string, any>();
+        for (const product of searchResult.products) {
+          const formatted = formatCatalogItem(product);
+          if (!seenIds.has(formatted.id)) {
+            seenIds.set(formatted.id, formatted);
+          }
+        }
         
-        trending = filtered.slice(0, pageSize);
+        let deduped = Array.from(seenIds.values());
+        
+        // Apply exclusion filter for 'all' category
+        if (applyExclusion) {
+          deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
+        }
+        
+        trending = deduped.slice(0, pageSize);
         hasMore = searchResult.hasMore;
-        source = "search-fallback";
-        console.log("[CATALOG_HOME] Search fallback successful", { 
-          query: searchQuery, 
-          beforeFilter: searchResult.products.length,
-          afterFilter: trending.length 
-        });
+        source = `search-${category}`;
+        
+        console.log(`[CATALOG_HOME] Search fallback successful: query=${searchQuery} returned=${trending.length}`);
       }
     }
     
@@ -335,21 +340,36 @@ Deno.serve(async (req: Request) => {
         .range(offset, offset + pageSize - 1);
 
       if (cachedProducts && cachedProducts.length > 0) {
-        const formatted = cachedProducts.map((p: any) => ({
-          id: `rainforest:${p.provider_product_id}`,
-          provider: "rainforest",
-          providerProductId: p.provider_product_id,
-          title: p.title || "",
-          priceUsd: (p.price_usd && p.price_usd > 0) ? p.price_usd : null,
-          imageUrl: p.image_url || null,
-          images: p.raw?.images?.map((img: any) => img.link || img) || (p.image_url ? [p.image_url] : []),
-          productUrl: p.product_url || null,
-          inStock: p.in_stock ?? null,
-          rating: p.rating || null,
-        }));
+        // Dedupe cached products
+        const seenIds = new Map<string, any>();
         
-        // Apply exclusion filter
-        trending = formatted.filter((p: any) => !shouldExcludeProduct(p, excludeConfig));
+        for (const p of cachedProducts) {
+          const formatted = {
+            id: `rainforest:${p.provider_product_id}`,
+            provider: "rainforest",
+            providerProductId: p.provider_product_id,
+            title: p.title || "",
+            priceUsd: (p.price_usd && p.price_usd > 0) ? p.price_usd : null,
+            imageUrl: p.image_url || null,
+            images: p.raw?.images?.map((img: any) => img.link || img) || (p.image_url ? [p.image_url] : []),
+            productUrl: p.product_url || null,
+            inStock: p.in_stock ?? null,
+            rating: p.rating || null,
+          };
+          
+          if (!seenIds.has(formatted.id)) {
+            seenIds.set(formatted.id, formatted);
+          }
+        }
+        
+        let deduped = Array.from(seenIds.values());
+        
+        // Apply exclusion filter for 'all' category
+        if (applyExclusion) {
+          deduped = deduped.filter((p: any) => !shouldExcludeProduct(p, excludeConfig));
+        }
+        
+        trending = deduped;
         hasMore = count !== null ? (offset + trending.length) < count : false;
         source = "cache-fallback";
       }
@@ -357,33 +377,17 @@ Deno.serve(async (req: Request) => {
 
     // If still no products and all fallbacks failed, return error status
     if (trending.length === 0) {
-      console.log("[CATALOG_HOME]", JSON.stringify({
-        page,
-        pageSize,
-        env: envName,
-        status: "error",
-        error: "NO_PRODUCTS",
-        durationMs: Date.now() - startTime,
-      }));
-
+      console.log(`[CATALOG_HOME] category=${category} page=${page} status=error error=NO_PRODUCTS durationMs=${Date.now() - startTime}`);
       return errorResponse("Trending products temporarily unavailable", "no-products");
     }
 
     // Log success
-    console.log("[CATALOG_HOME]", JSON.stringify({
-      page,
-      pageSize,
-      env: envName,
-      status: "success",
-      itemCount: trending.length,
-      hasMore,
-      source,
-      durationMs: Date.now() - startTime,
-    }));
+    console.log(`[CATALOG_HOME] category=${category} page=${page} pageSize=${pageSize} returned=${trending.length} source=${source} durationMs=${Date.now() - startTime}`);
 
     return new Response(JSON.stringify(buildResponse(
       "success",
       envName,
+      category,
       page,
       pageSize,
       trending,
@@ -397,14 +401,7 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error("[CATALOG_HOME]", JSON.stringify({
-      page,
-      pageSize,
-      env: envName,
-      status: "error",
-      error: errorMessage,
-      durationMs: Date.now() - startTime,
-    }));
+    console.error(`[CATALOG_HOME] category=${category} page=${page} status=error error=${errorMessage} durationMs=${Date.now() - startTime}`);
     
     // Even on error, return 200 with stable shape
     return errorResponse("Catalog service temporarily unavailable");

@@ -74,6 +74,7 @@ interface RainforestSearchResponse {
     current_page: number;
     total_pages: number;
     total_results: number;
+    has_next_page?: boolean;
   };
   error?: {
     message: string;
@@ -322,8 +323,11 @@ export function createRainforestAdapter(
 
 /**
  * Fetch bestsellers from Rainforest API
- * IMPORTANT: Rainforest requires either 'category_id' OR 'url' for type=bestsellers
- * We use a default category_id if neither is provided
+ * IMPORTANT: Rainforest requires either 'category_id' (node ID) OR 'url' for type=bestsellers
+ * We use the bestsellers URL approach which is more reliable than category_id
+ * 
+ * Amazon Bestsellers URL: https://www.amazon.com/gp/bestsellers
+ * Category-specific: https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics
  */
 export async function fetchBestsellers(
   amazonDomain: string,
@@ -331,49 +335,57 @@ export async function fetchBestsellers(
   pageSize: number = 20,
   bestsellersUrl?: string,
   categoryId?: string
-): Promise<{ products: CatalogProduct[]; total: number; error: string | null }> {
+): Promise<{ products: CatalogProduct[]; total: number; hasMore: boolean; error: string | null }> {
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
   
   if (!apiKey) {
     console.error("[rainforestAdapter] No API key for bestsellers");
-    return { products: [], total: 0, error: "API_KEY_MISSING" };
+    return { products: [], total: 0, hasMore: false, error: "API_KEY_MISSING" };
   }
 
   const startTime = Date.now();
   
-  // Default category: "amazon-devices-accessories" is stable and always has products
-  // Alternative options: "electronics" (node ID varies by region)
-  const DEFAULT_BESTSELLERS_CATEGORY = "bestsellers";
+  // Amazon Bestsellers URLs by domain
+  // Using the main bestsellers page is most reliable
+  const BESTSELLERS_URLS: Record<string, string> = {
+    "amazon.com": "https://www.amazon.com/gp/bestsellers",
+    "amazon.co.uk": "https://www.amazon.co.uk/gp/bestsellers",
+    "amazon.de": "https://www.amazon.de/gp/bestsellers",
+    "amazon.fr": "https://www.amazon.fr/gp/bestsellers",
+    "amazon.ca": "https://www.amazon.ca/gp/bestsellers",
+  };
   
   try {
     const url = new URL(RAINFOREST_BASE_URL);
     url.searchParams.append("api_key", apiKey);
     url.searchParams.append("type", "bestsellers");
-    url.searchParams.append("amazon_domain", amazonDomain);
     
+    // Determine what to use: explicit URL > explicit categoryId > default URL
     if (bestsellersUrl) {
-      // When using URL, it takes precedence
+      // When using URL, don't include amazon_domain (inferred from URL)
       url.searchParams.append("url", bestsellersUrl);
     } else if (categoryId) {
-      // Use provided category ID
+      // Category ID approach - requires amazon_domain
+      url.searchParams.append("amazon_domain", amazonDomain);
       url.searchParams.append("category_id", categoryId);
     } else {
-      // Use default "bestsellers" which is the root bestsellers page
-      // This is the Amazon Bestsellers landing page
-      url.searchParams.append("category_id", DEFAULT_BESTSELLERS_CATEGORY);
+      // Default: use bestsellers URL for the domain
+      const defaultUrl = BESTSELLERS_URLS[amazonDomain] || BESTSELLERS_URLS["amazon.com"];
+      url.searchParams.append("url", defaultUrl);
     }
     
+    // Page param for pagination
     if (page > 1) {
       url.searchParams.append("page", String(page));
     }
 
-    console.log("[CATALOG_HOME]", JSON.stringify({
+    console.log("[CATALOG_BESTSELLERS]", JSON.stringify({
       page,
       pageSize,
-      type: "bestsellers",
       domain: amazonDomain,
-      hasUrl: !!bestsellersUrl,
-      categoryId: categoryId || DEFAULT_BESTSELLERS_CATEGORY,
+      hasExplicitUrl: !!bestsellersUrl,
+      hasExplicitCategory: !!categoryId,
+      usingDefaultUrl: !bestsellersUrl && !categoryId,
     }));
 
     const response = await fetchWithTimeout(
@@ -385,47 +397,81 @@ export async function fetchBestsellers(
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[rainforestAdapter] Bestsellers error:", response.status, errorText);
-      return { products: [], total: 0, error: `HTTP_${response.status}` };
+      return { products: [], total: 0, hasMore: false, error: `HTTP_${response.status}` };
     }
 
     const data: RainforestSearchResponse = await response.json();
 
+    // Debug: log response structure (no secrets)
+    console.log("[CATALOG_BESTSELLERS_DEBUG]", JSON.stringify({
+      hasRequestInfo: !!data.request_info,
+      success: data.request_info?.success,
+      hasBestsellers: !!data.bestsellers,
+      bestsellersLen: data.bestsellers?.length ?? 0,
+      hasSearchResults: !!data.search_results,
+      searchResultsLen: data.search_results?.length ?? 0,
+      hasError: !!data.error,
+      errorMsg: data.error?.message,
+      paginationInfo: data.pagination,
+      // Log top-level keys (not values) to understand structure
+      topKeys: Object.keys(data).filter(k => k !== 'request_info'),
+    }));
+
     if (data.error) {
       console.error("[rainforestAdapter] Bestsellers API error:", data.error);
-      return { products: [], total: 0, error: data.error.code || "API_ERROR" };
+      return { products: [], total: 0, hasMore: false, error: data.error.code || "API_ERROR" };
     }
 
-    // Bestsellers may be in search_results or bestsellers field
-    const rawProducts = data.bestsellers || data.search_results || [];
+    // Bestsellers may be in 'bestsellers' field or variations like 'best_sellers'
+    // deno-lint-ignore no-explicit-any
+    const anyData = data as any;
+    const rawProducts = data.bestsellers || 
+                        anyData.best_sellers || 
+                        anyData.ranking_products ||
+                        data.search_results || 
+                        [];
+    
+    // Check if there are more pages
+    const pagination = data.pagination;
+    const hasNextPage = pagination?.has_next_page === true;
+    const totalResults = pagination?.total_results || rawProducts.length;
     
     const products = rawProducts
       .filter((p: RainforestProduct) => p.asin && p.title)
       .slice(0, pageSize)
       .map((p: RainforestProduct) => normalizeProduct(p, amazonDomain));
 
-    console.log("[CATALOG_HOME]", JSON.stringify({
+    // Compute hasMore: true if Rainforest indicates more pages OR we have exactly pageSize items
+    const hasMore = hasNextPage || products.length >= pageSize;
+
+    console.log("[CATALOG_BESTSELLERS]", JSON.stringify({
       page,
       pageSize,
       status: "success",
+      rawCount: rawProducts.length,
       itemCount: products.length,
+      totalResults,
+      hasNextPage,
+      hasMore,
       durationMs: Date.now() - startTime,
     }));
 
     return {
       products,
-      total: data.pagination?.total_results || products.length,
+      total: totalResults,
+      hasMore,
       error: null,
     };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[CATALOG_HOME]", JSON.stringify({
+    console.error("[CATALOG_BESTSELLERS]", JSON.stringify({
       page,
       pageSize,
       status: "error",
       error: errorMsg,
       durationMs: Date.now() - startTime,
     }));
-    return { products: [], total: 0, error: errorMsg };
+    return { products: [], total: 0, hasMore: false, error: errorMsg };
   }
 }
 
@@ -437,12 +483,12 @@ export async function searchRainforest(
   page: number = 1,
   pageSize: number = 20,
   amazonDomain: string = "amazon.com"
-): Promise<{ products: CatalogProduct[]; total: number; error: string | null }> {
+): Promise<{ products: CatalogProduct[]; total: number; hasMore: boolean; error: string | null }> {
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
   
   if (!apiKey) {
     console.error("[rainforestAdapter] No API key for search");
-    return { products: [], total: 0, error: "API_KEY_MISSING" };
+    return { products: [], total: 0, hasMore: false, error: "API_KEY_MISSING" };
   }
 
   const startTime = Date.now();
@@ -480,14 +526,14 @@ export async function searchRainforest(
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[rainforestAdapter] Search error:", response.status, errorText);
-      return { products: [], total: 0, error: `HTTP_${response.status}` };
+      return { products: [], total: 0, hasMore: false, error: `HTTP_${response.status}` };
     }
 
     const data: RainforestSearchResponse = await response.json();
 
     if (data.error) {
       console.error("[rainforestAdapter] Search API error:", data.error);
-      return { products: [], total: 0, error: data.error.code || "API_ERROR" };
+      return { products: [], total: 0, hasMore: false, error: data.error.code || "API_ERROR" };
     }
 
     const products = (data.search_results || [])
@@ -504,9 +550,14 @@ export async function searchRainforest(
       durationMs: Date.now() - startTime,
     }));
 
+    // Compute hasMore based on pagination
+    const hasNextPage = data.pagination?.has_next_page === true;
+    const hasMore = hasNextPage || products.length >= pageSize;
+
     return {
       products,
       total: data.pagination?.total_results || products.length,
+      hasMore,
       error: null,
     };
   } catch (err) {
@@ -518,7 +569,7 @@ export async function searchRainforest(
       error: errorMsg,
       durationMs: Date.now() - startTime,
     }));
-    return { products: [], total: 0, error: errorMsg };
+    return { products: [], total: 0, hasMore: false, error: errorMsg };
   }
 }
 

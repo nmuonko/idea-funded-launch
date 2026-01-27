@@ -171,29 +171,37 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   }
 
   // UNIFIED PARSING LOGIC for all percentage values
-  const normalizePercent = (val: number | null | undefined, fallback: number): number => {
+  // Database may store as decimal (0.12) or whole number (12)
+  // We normalize to whole numbers: 0.12 → 12, 10 → 10
+  const normalizeToWholePercent = (val: number | null | undefined, fallback: number): number => {
     const raw = val ?? fallback;
-    return raw;
+    // If value is less than 1, it's likely a decimal (0.12 = 12%)
+    // Exception: values between 0.01 and 1 could be tiny percentages like 0.5%
+    // Heuristic: if raw < 1 AND raw > 0, multiply by 100 to get whole number
+    if (raw > 0 && raw < 1) {
+      return raw * 100; // 0.12 → 12, 0.1 → 10
+    }
+    return raw; // Already whole number: 10 → 10, 30.2 → 30.2
   };
 
   // Markup: use markup_percent first, fallback to global_markup_percent
   const markupRaw = settings.markup_percent ?? settings.global_markup_percent ?? 15;
-  const markupPercent = normalizePercent(markupRaw, 15);
+  const markupPercent = normalizeToWholePercent(markupRaw, 15);
 
   const categoryMarkups = (settings.category_markups || {}) as Record<string, number>;
   const vehicleMarkupRaw = categoryMarkups.vehicles;
   const vehicleMarkupPercent = vehicleMarkupRaw !== undefined 
-    ? normalizePercent(vehicleMarkupRaw, markupPercent)
+    ? normalizeToWholePercent(vehicleMarkupRaw, markupPercent)
     : markupPercent;
 
   // Shipping percent - stored as whole number (10 = 10%)
   const shippingPercentRaw = settings.shipping_percent ?? 10;
-  const shippingPercentValue = normalizePercent(shippingPercentRaw, 10);
+  const shippingPercentValue = normalizeToWholePercent(shippingPercentRaw, 10);
   const shippingBaseFee = settings.shipping_base_fee_usd ?? 20;
 
-  // Service fee percent - stored as whole number (12 = 12%)
+  // Service fee percent - may be stored as decimal (0.12) or whole (12)
   const serviceFeeRaw = settings.service_fee_percent ?? 12;
-  const serviceFeePercentValue = normalizePercent(serviceFeeRaw, 12);
+  const serviceFeePercentValue = normalizeToWholePercent(serviceFeeRaw, 12);
 
   const updatedAt = settings.updated_at || new Date().toISOString();
   const version = new Date(updatedAt).getTime();
@@ -208,11 +216,20 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogMode: catalogConfig.mode,
   });
 
-  // CRITICAL: Mobile app expects markup as WHOLE NUMBERS (e.g., 30.2 for 30.2%)
+  // CRITICAL: Mobile app divides by 100, so we return WHOLE NUMBERS
+  // e.g., 10 means 10%, mobile does: subtotal * (10 / 100) = subtotal * 0.1
   const markupWholeNumber = Number(markupPercent);
   const vehicleMarkupWholeNumber = Number(vehicleMarkupPercent);
-  const shippingPercentDecimal = Number(shippingPercentValue) / 100;
-  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;
+  // Return whole numbers - mobile divides by 100
+  const shippingPercentWholeNumber = Number(shippingPercentValue);
+  const serviceFeeWholeNumber = Number(serviceFeePercentValue);
+
+  console.log("[mobile-public-config] Final output values:", {
+    markupWholeNumber,
+    shippingPercentWholeNumber,
+    serviceFeeWholeNumber,
+    note: "All percents as whole numbers (10 = 10%)"
+  });
 
   return {
     success: true,
@@ -232,10 +249,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       mode: shippingBaseFee > 0 && shippingPercentValue > 0 ? "combined" : 
             shippingBaseFee > 0 ? "flat" : "percent",
       flatUsd: Number(shippingBaseFee),
-      percentValue: shippingPercentDecimal,
+      percentValue: shippingPercentWholeNumber, // Whole number: 10 = 10%
     },
     serviceFee: {
-      percent: serviceFeeDecimal,
+      percent: serviceFeeWholeNumber, // Whole number: 12 = 12%
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {

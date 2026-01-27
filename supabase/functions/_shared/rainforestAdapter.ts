@@ -316,6 +316,7 @@ export function createRainforestAdapter(
 
 /**
  * Fetch bestsellers from Rainforest API
+ * IMPORTANT: When using 'url' param, don't include amazon_domain (per Rainforest docs)
  */
 export async function fetchBestsellers(
   amazonDomain: string,
@@ -333,26 +334,29 @@ export async function fetchBestsellers(
   const startTime = Date.now();
   
   try {
-    const params: RainforestSearchParams = {
-      api_key: apiKey,
-      type: "bestsellers",
-      amazon_domain: amazonDomain,
-      page,
-      url: bestsellersUrl || `https://www.${amazonDomain}/Best-Sellers/zgbs`,
-    };
-
+    // Build URL params - note: don't combine amazon_domain with url parameter
     const url = new URL(RAINFOREST_BASE_URL);
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.append(key, String(value));
-      }
-    });
+    url.searchParams.append("api_key", apiKey);
+    url.searchParams.append("type", "bestsellers");
+    
+    if (bestsellersUrl) {
+      // When using URL, the domain is inferred from the URL itself
+      url.searchParams.append("url", bestsellersUrl);
+    } else {
+      // When no URL provided, use domain with a default bestsellers path
+      url.searchParams.append("amazon_domain", amazonDomain);
+    }
+    
+    if (page > 1) {
+      url.searchParams.append("page", String(page));
+    }
 
     console.log("[CATALOG_HOME]", JSON.stringify({
       page,
       pageSize,
       type: "bestsellers",
       domain: amazonDomain,
+      hasUrl: !!bestsellersUrl,
     }));
 
     const response = await fetchWithTimeout(
@@ -503,6 +507,7 @@ export async function searchRainforest(
 
 /**
  * Fetch single product details
+ * Returns detailed product info with images, description, etc.
  */
 export async function fetchProductDetails(
   asin: string,
@@ -515,25 +520,24 @@ export async function fetchProductDetails(
     return { product: null, error: "API_KEY_MISSING" };
   }
 
+  // Validate ASIN format (should be alphanumeric, typically 10 chars)
+  const cleanAsin = asin.trim().toUpperCase();
+  if (!cleanAsin || cleanAsin.length < 5) {
+    console.error("[rainforestAdapter] Invalid ASIN:", asin);
+    return { product: null, error: "INVALID_ASIN" };
+  }
+
   const startTime = Date.now();
 
   try {
-    const params: RainforestSearchParams = {
-      api_key: apiKey,
-      type: "product",
-      amazon_domain: amazonDomain,
-      asin,
-    };
-
     const url = new URL(RAINFOREST_BASE_URL);
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.append(key, String(value));
-      }
-    });
+    url.searchParams.append("api_key", apiKey);
+    url.searchParams.append("type", "product");
+    url.searchParams.append("amazon_domain", amazonDomain);
+    url.searchParams.append("asin", cleanAsin);
 
-    console.log("[CATALOG_PRODUCT]", JSON.stringify({
-      asin,
+    console.log("[CATALOG_PRODUCT] Fetching from Rainforest:", JSON.stringify({
+      asin: cleanAsin,
       domain: amazonDomain,
     }));
 
@@ -544,35 +548,39 @@ export async function fetchProductDetails(
     );
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[rainforestAdapter] Product fetch error:", response.status, errorText.slice(0, 200));
       return { product: null, error: `HTTP_${response.status}` };
     }
 
     const data: RainforestSearchResponse = await response.json();
 
-    if (data.error || !data.product) {
-      console.log("[CATALOG_PRODUCT]", JSON.stringify({
-        asin,
-        status: "not_found",
-        durationMs: Date.now() - startTime,
-      }));
-      return { product: null, error: data.error?.code || "NOT_FOUND" };
+    if (data.error) {
+      console.error("[CATALOG_PRODUCT] Rainforest error:", data.error);
+      return { product: null, error: data.error.code || "RAINFOREST_ERROR" };
+    }
+
+    if (!data.product) {
+      console.log("[CATALOG_PRODUCT] No product in response for:", cleanAsin);
+      return { product: null, error: "PRODUCT_NOT_FOUND" };
     }
 
     const product = normalizeProduct(data.product, amazonDomain);
 
     console.log("[CATALOG_PRODUCT]", JSON.stringify({
-      asin,
+      asin: cleanAsin,
       status: "success",
+      title: product.title?.slice(0, 50),
       durationMs: Date.now() - startTime,
     }));
 
     return { product, error: null };
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    console.error("[CATALOG_PRODUCT]", JSON.stringify({
-      asin,
-      status: "error",
+    console.error("[CATALOG_PRODUCT] Exception:", JSON.stringify({
+      asin: cleanAsin,
       error: errorMsg,
+      durationMs: Date.now() - startTime,
     }));
     return { product: null, error: errorMsg };
   }

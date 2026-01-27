@@ -88,22 +88,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Get bestsellers URL from DB config or use default
-    const { data: catalogConfig } = await supabase
-      .from("admin_settings")
-      .select("value")
-      .eq("key", "catalog_bestsellers_url")
-      .maybeSingle();
-    
-    const bestsellersUrl = catalogConfig?.value || "https://www.amazon.com/Best-Sellers/zgbs";
     const amazonDomain = "amazon.com";
 
-    // Fetch trending products from Rainforest
+    // Fetch trending products from Rainforest (using amazon_domain, not URL)
+    // Don't pass bestsellersUrl to avoid the amazon_domain+url conflict error
     const { products, total, error: rainforestError } = await fetchBestsellers(
       amazonDomain,
       page,
-      pageSize,
-      bestsellersUrl
+      pageSize
+      // No bestsellersUrl - let Rainforest use amazon_domain
     );
 
     // Get categories from DB

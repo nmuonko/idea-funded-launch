@@ -1,15 +1,27 @@
 /**
  * Catalog Home Endpoint
  * Returns featured/trending content for the native catalog home screen
- * GET /catalog-home?env=staging&page=1&pageSize=20
+ * GET /catalog-home?env=staging&page=1&pageSize=20&amazon_domain=amazon.com
  * 
- * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
- * Mobile apps depend on this - never return 404.
+ * IMPORTANT: This endpoint MUST always return HTTP 200 with stable JSON shape.
+ * Mobile apps depend on this - never return 404/500.
+ * 
+ * Response Schema (always HTTP 200):
+ * {
+ *   "status": "success" | "error",
+ *   "env": "staging",
+ *   "page": 1,
+ *   "pageSize": 20,
+ *   "trending": [...CatalogItem],
+ *   "itemCount": <trending.length>,
+ *   "hasMore": true | false,
+ *   "error": null | "message"
+ * }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
-import { fetchBestsellers, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
+import { fetchBestsellers, searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,16 +29,44 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=300",
 };
 
+// Max page size allowed
+const MAX_PAGE_SIZE = 40;
+const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_AMAZON_DOMAIN = "amazon.com";
+
 interface CatalogHomeResponse {
   status: "success" | "error";
   env: string;
-  featured: any[];
-  categories: any[];
-  trending: any[];
-  itemCount: number;
   page: number;
   pageSize: number;
-  error: { code: string; message: string } | null;
+  trending: any[];
+  itemCount: number;
+  hasMore: boolean;
+  error: string | null;
+}
+
+/**
+ * Build stable response - always returns this shape
+ */
+function buildResponse(
+  status: "success" | "error",
+  env: string,
+  page: number,
+  pageSize: number,
+  trending: any[],
+  hasMore: boolean,
+  error: string | null
+): CatalogHomeResponse {
+  return {
+    status,
+    env,
+    page,
+    pageSize,
+    trending,
+    itemCount: trending.length,
+    hasMore,
+    error,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -40,7 +80,9 @@ Deno.serve(async (req: Request) => {
   // Parse query params
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-  const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
+  const rawPageSize = parseInt(url.searchParams.get("pageSize") || String(DEFAULT_PAGE_SIZE), 10);
+  const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, rawPageSize));
+  const amazonDomain = url.searchParams.get("amazon_domain") || DEFAULT_AMAZON_DOMAIN;
   
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
@@ -48,21 +90,16 @@ Deno.serve(async (req: Request) => {
   console.log("[CATALOG_HOME]", JSON.stringify({
     page,
     pageSize,
+    amazonDomain,
     env: envName,
   }));
 
-  // Default response - always return this shape
-  const defaultResponse: CatalogHomeResponse = {
-    status: "success",
-    env: envName,
-    featured: [],
-    categories: [],
-    trending: [],
-    itemCount: 0,
-    page,
-    pageSize,
-    error: null,
-  };
+  // Default error response - always return this shape
+  const errorResponse = (message: string) => 
+    new Response(JSON.stringify(buildResponse("error", envName, page, pageSize, [], false, message)), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -70,54 +107,67 @@ Deno.serve(async (req: Request) => {
     
     if (!supabaseUrl || !supabaseKey) {
       console.warn("[CATALOG_HOME] Missing Supabase credentials");
-      return new Response(JSON.stringify(defaultResponse), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("Backend configuration error");
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const envConfig = await getEnvironmentConfig(supabase, envName);
 
-    // If catalog is not enabled, return empty success (not error)
+    // If catalog is not enabled, return error status with empty trending
     if (!isCatalogEnabled(envConfig)) {
-      console.log(`[CATALOG_HOME] Catalog not enabled for env=${envName}, returning empty`);
-      return new Response(JSON.stringify(defaultResponse), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.log(`[CATALOG_HOME] Catalog not enabled for env=${envName}`);
+      return errorResponse("Catalog not enabled for this environment");
     }
 
-    const amazonDomain = "amazon.com";
-
-    // Fetch trending products from Rainforest (using amazon_domain, not URL)
-    // Don't pass bestsellersUrl to avoid the amazon_domain+url conflict error
-    const { products, total, error: rainforestError } = await fetchBestsellers(
+    // Try fetching bestsellers from Rainforest
+    let { products, total, hasMore: rainforestHasMore, error: rainforestError } = await fetchBestsellers(
       amazonDomain,
       page,
       pageSize
-      // No bestsellersUrl - let Rainforest use amazon_domain
     );
 
-    // Get categories from DB
-    const { data: categories } = await supabase
-      .from("catalog_categories")
-      .select("id, name, icon_url")
-      .eq("enabled", true)
-      .order("priority", { ascending: false })
-      .limit(10);
-
-    // If Rainforest failed, try to return cached products
+    // Format products
     let trending = products.map(formatCatalogItem);
     
+    // Use hasMore from Rainforest, or fallback to length check
+    let hasMore = rainforestHasMore || trending.length >= pageSize;
+    
+    // FALLBACK 1: If bestsellers failed or returned empty, try search with trending terms
+    if (trending.length === 0) {
+      console.log("[CATALOG_HOME] Bestsellers empty, trying search fallback");
+      
+      // Use popular search terms for trending content
+      const trendingQueries = ["electronics", "bestseller", "popular", "deals"];
+      const searchQuery = trendingQueries[page % trendingQueries.length] || "electronics";
+      
+      const searchResult = await searchRainforest(
+        searchQuery,
+        page,
+        pageSize,
+        amazonDomain
+      );
+      
+      if (!searchResult.error && searchResult.products.length > 0) {
+        trending = searchResult.products.map(formatCatalogItem);
+        hasMore = searchResult.hasMore;
+        rainforestError = null; // Clear error since search worked
+        console.log("[CATALOG_HOME] Search fallback successful", { itemCount: trending.length });
+      }
+    }
+    
+    // FALLBACK 2: If Rainforest still failed, try cache fallback
     if (rainforestError && trending.length === 0) {
-      // Try cache fallback
-      const { data: cachedProducts } = await supabase
+      console.log("[CATALOG_HOME] Rainforest failed, trying cache fallback");
+      
+      // Calculate offset for pagination
+      const offset = (page - 1) * pageSize;
+      
+      const { data: cachedProducts, count } = await supabase
         .from("catalog_products")
-        .select("*")
+        .select("*", { count: "exact" })
         .gt("expires_at", new Date().toISOString())
         .order("rating", { ascending: false })
-        .limit(pageSize);
+        .range(offset, offset + pageSize - 1);
 
       if (cachedProducts && cachedProducts.length > 0) {
         trending = cachedProducts.map((p: any) => ({
@@ -127,69 +177,51 @@ Deno.serve(async (req: Request) => {
           title: p.title || "",
           priceUsd: (p.price_usd && p.price_usd > 0) ? p.price_usd : null,
           imageUrl: p.image_url || null,
-          images: p.raw?.images?.map((img: any) => img.link || img) || [],
+          images: p.raw?.images?.map((img: any) => img.link || img) || (p.image_url ? [p.image_url] : []),
           productUrl: p.product_url || null,
           inStock: p.in_stock ?? null,
           rating: p.rating || null,
         }));
+        
+        // Calculate hasMore from cache count
+        hasMore = count !== null ? (offset + trending.length) < count : false;
       }
     }
 
-    // If still no products and Rainforest failed, return error status
-    if (rainforestError && trending.length === 0) {
+    // If still no products and all fallbacks failed, return error status
+    if (trending.length === 0) {
       console.log("[CATALOG_HOME]", JSON.stringify({
         page,
         pageSize,
         env: envName,
         status: "error",
-        error: rainforestError,
+        error: rainforestError || "NO_PRODUCTS",
         durationMs: Date.now() - startTime,
       }));
 
-      return new Response(JSON.stringify({
-        status: "error",
-        env: envName,
-        featured: [],
-        categories: (categories || []).map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          icon: c.icon_url,
-        })),
-        trending: [],
-        itemCount: 0,
-        page,
-        pageSize,
-        error: { code: "RAINFOREST_ERROR", message: "Trending unavailable" },
-      }), {
-        status: 200, // Always 200
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return errorResponse("Trending products temporarily unavailable");
     }
 
+    // Log success
     console.log("[CATALOG_HOME]", JSON.stringify({
       page,
       pageSize,
       env: envName,
       status: "success",
       itemCount: trending.length,
+      hasMore,
       durationMs: Date.now() - startTime,
     }));
 
-    return new Response(JSON.stringify({
-      status: "success",
-      env: envName,
-      featured: [], // Future: featured collections
-      categories: (categories || []).map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        icon: c.icon_url,
-      })),
-      trending,
-      itemCount: trending.length,
+    return new Response(JSON.stringify(buildResponse(
+      "success",
+      envName,
       page,
       pageSize,
-      error: null,
-    }), {
+      trending,
+      hasMore,
+      null
+    )), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -206,19 +238,6 @@ Deno.serve(async (req: Request) => {
     }));
     
     // Even on error, return 200 with stable shape
-    return new Response(JSON.stringify({
-      status: "error",
-      env: envName,
-      featured: [],
-      categories: [],
-      trending: [],
-      itemCount: 0,
-      page,
-      pageSize,
-      error: { code: "INTERNAL_ERROR", message: "Catalog service error" },
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return errorResponse("Catalog service temporarily unavailable");
   }
 });

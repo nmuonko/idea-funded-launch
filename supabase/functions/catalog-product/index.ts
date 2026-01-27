@@ -134,7 +134,33 @@ Deno.serve(async (req: Request) => {
 
     if (cachedProduct) {
       const rawData = cachedProduct.raw as Record<string, any> | null;
-      const images = rawData?.images?.map((i: any) => i.link || i).filter(Boolean) || [];
+      
+      // Extract images from raw data - check multiple sources
+      let images: string[] = [];
+      
+      // Check if we stored processed images array
+      if (rawData?.processedImages && Array.isArray(rawData.processedImages)) {
+        images = rawData.processedImages;
+      } else if (rawData?.images && Array.isArray(rawData.images)) {
+        // Extract from raw Rainforest images array
+        images = rawData.images
+          .map((i: any) => {
+            const url = i?.large || i?.link || (typeof i === "string" ? i : null);
+            if (!url) return null;
+            return url.startsWith("http") ? url : `https:${url}`;
+          })
+          .filter((url: any): url is string => !!url && url.startsWith("https://"))
+          .slice(0, 10);
+      }
+      
+      // Ensure primary image is first
+      if (cachedProduct.image_url && !images.includes(cachedProduct.image_url)) {
+        images.unshift(cachedProduct.image_url);
+      }
+      
+      // Deduplicate
+      images = [...new Set(images)].slice(0, 10);
+      
       const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
 
       console.log("[CATALOG_PRODUCT]", JSON.stringify({
@@ -144,6 +170,7 @@ Deno.serve(async (req: Request) => {
         source: "cache",
         hasPrice: priceUsd !== null,
         priceUsd,
+        imageCount: images.length,
         durationMs: Date.now() - startTime,
       }));
 
@@ -192,6 +219,12 @@ Deno.serve(async (req: Request) => {
         ? product.priceUsd 
         : null;
       
+      // Store processed images array in raw for cache retrieval
+      const rawWithImages = {
+        ...(product.raw || {}),
+        processedImages: product.images || [],
+      };
+      
       // Fire and forget - don't await
       supabase
         .from("catalog_products")
@@ -209,7 +242,7 @@ Deno.serve(async (req: Request) => {
           review_count: product.reviewCount,
           brand: product.brand,
           category_path: product.categoryPath,
-          raw: product.raw,
+          raw: rawWithImages, // Include processedImages for cache
           expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
         }, {
           onConflict: "provider_product_id",
@@ -226,6 +259,7 @@ Deno.serve(async (req: Request) => {
       source: "rainforest",
       hasPrice: priceUsd !== null,
       priceUsd,
+      imageCount: images.length,
       durationMs: Date.now() - startTime,
     }));
 

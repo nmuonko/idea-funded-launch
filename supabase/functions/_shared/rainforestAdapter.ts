@@ -15,7 +15,7 @@ import {
 import { EnvironmentConfig } from "./environmentResolver.ts";
 
 const RAINFOREST_BASE_URL = "https://api.rainforestapi.com/request";
-const DEFAULT_TIMEOUT_MS = 6000; // 6 second timeout for Rainforest API
+const DEFAULT_TIMEOUT_MS = 15000; // 15 second timeout for Rainforest API (product requests can be slow)
 
 interface RainforestSearchParams {
   api_key: string;
@@ -635,36 +635,80 @@ function extractPrice(product: RainforestProduct): { value: number | null; curre
 
 /**
  * Extract images array from Rainforest product
- * Returns array of https URLs
+ * Returns array of https URLs, preferring high-res variants
+ * Max 10 images, deduplicated
  */
 function extractImages(product: RainforestProduct): string[] {
+  const seen = new Set<string>();
   const images: string[] = [];
   
-  // From images array
+  const addImage = (url: string | undefined | null, prepend = false) => {
+    if (!url || typeof url !== "string") return;
+    // Ensure https
+    const cleanUrl = url.startsWith("//") ? `https:${url}` : 
+                     url.startsWith("http") ? url : `https:${url}`;
+    // Skip already seen or invalid
+    if (seen.has(cleanUrl) || !cleanUrl.startsWith("https://")) return;
+    seen.add(cleanUrl);
+    if (prepend) {
+      images.unshift(cleanUrl);
+    } else {
+      images.push(cleanUrl);
+    }
+  };
+
+  // 1) product.images[] - primary source with multiple angles (prefer "large" variant)
   if (product.images && Array.isArray(product.images)) {
     for (const img of product.images) {
-      if (img.link && typeof img.link === "string") {
-        const url = img.link.startsWith("http") ? img.link : `https:${img.link}`;
-        if (!images.includes(url)) images.push(url);
+      // Rainforest may return {link, variant} or just {link}
+      // Prefer large variant for high-res
+      const imgUrl = (img as any).large || (img as any).link || (typeof img === "string" ? img : null);
+      addImage(imgUrl);
+    }
+  }
+
+  // 2) main_image - often the primary hero image
+  if (product.main_image) {
+    const mainImg = (product.main_image as any).link || 
+                    (typeof product.main_image === "string" ? product.main_image : null);
+    addImage(mainImg, true); // prepend to make it first
+  }
+
+  // 3) Single image field fallback
+  if (product.image) {
+    addImage(product.image, true);
+  }
+
+  // 4) Check for image_gallery (some Rainforest responses)
+  const gallery = (product as any).image_gallery;
+  if (gallery && Array.isArray(gallery)) {
+    for (const img of gallery) {
+      const galleryUrl = img?.link || (typeof img === "string" ? img : null);
+      addImage(galleryUrl);
+    }
+  }
+
+  // 5) Check for variants with images
+  const variants = (product as any).variants;
+  if (variants && Array.isArray(variants)) {
+    for (const variant of variants) {
+      if (variant.main_image) {
+        addImage(variant.main_image);
       }
     }
   }
 
-  // From main_image
-  if (product.main_image?.link) {
-    const url = product.main_image.link.startsWith("http") 
-      ? product.main_image.link 
-      : `https:${product.main_image.link}`;
-    if (!images.includes(url)) images.unshift(url); // Main image first
-  }
+  // Log for debugging
+  console.log("[IMAGES_DEBUG]", JSON.stringify({
+    asin: product.asin,
+    imageCount: images.length,
+    hasImagesArray: !!(product.images && product.images.length > 0),
+    hasMainImage: !!product.main_image,
+    hasGallery: !!gallery,
+  }));
 
-  // From single image field
-  if (product.image && typeof product.image === "string") {
-    const url = product.image.startsWith("http") ? product.image : `https:${product.image}`;
-    if (!images.includes(url)) images.unshift(url);
-  }
-
-  return images;
+  // Return max 10 images
+  return images.slice(0, 10);
 }
 
 /**

@@ -15,6 +15,7 @@
  *   "trending": [...CatalogItem],
  *   "itemCount": <trending.length>,
  *   "hasMore": true | false,
+ *   "source": "bestsellers-electronics-mix" | "search-fallback" | "cache-fallback",
  *   "error": null | "message"
  * }
  */
@@ -34,6 +35,20 @@ const MAX_PAGE_SIZE = 40;
 const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_AMAZON_DOMAIN = "amazon.com";
 
+// Default electronics-focused category URLs
+const DEFAULT_CATEGORY_URLS = [
+  "https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics",
+  "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
+  "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
+  "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
+];
+
+// Default exclusion keywords to filter out books
+const DEFAULT_EXCLUDE_KEYWORDS = {
+  title_keywords: ["Kindle", "Audible", "Paperback", "Hardcover", "Audiobook", "Book Set", "Novel", "Edition", "Workbook"],
+  url_patterns: ["/books/", "/Kindle/", "/Audible/"],
+};
+
 interface CatalogHomeResponse {
   status: "success" | "error";
   env: string;
@@ -42,7 +57,13 @@ interface CatalogHomeResponse {
   trending: any[];
   itemCount: number;
   hasMore: boolean;
+  source: string;
   error: string | null;
+}
+
+interface ExcludeConfig {
+  title_keywords: string[];
+  url_patterns: string[];
 }
 
 /**
@@ -55,6 +76,7 @@ function buildResponse(
   pageSize: number,
   trending: any[],
   hasMore: boolean,
+  source: string,
   error: string | null
 ): CatalogHomeResponse {
   return {
@@ -65,8 +87,127 @@ function buildResponse(
     trending,
     itemCount: trending.length,
     hasMore,
+    source,
     error,
   };
+}
+
+/**
+ * Check if a product should be excluded (e.g., books)
+ */
+function shouldExcludeProduct(product: any, excludeConfig: ExcludeConfig): boolean {
+  const title = (product.title || "").toLowerCase();
+  const productUrl = (product.productUrl || product.link || "").toLowerCase();
+  
+  // Check title keywords
+  for (const keyword of excludeConfig.title_keywords) {
+    if (title.includes(keyword.toLowerCase())) {
+      return true;
+    }
+  }
+  
+  // Check URL patterns
+  for (const pattern of excludeConfig.url_patterns) {
+    if (productUrl.includes(pattern.toLowerCase())) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Fetch products from multiple category URLs in parallel
+ */
+async function fetchMultiCategoryProducts(
+  categoryUrls: string[],
+  amazonDomain: string,
+  pageSize: number,
+  excludeConfig: ExcludeConfig
+): Promise<{ products: any[]; categoriesUsed: number; beforeFilter: number; afterFilter: number }> {
+  const allProducts: any[] = [];
+  const seenIds = new Set<string>();
+  let categoriesUsed = 0;
+  
+  // Fetch from all categories in parallel
+  const results = await Promise.allSettled(
+    categoryUrls.map(url => 
+      fetchBestsellers(amazonDomain, 1, 30, url) // Fetch 30 per category to have buffer after filtering
+    )
+  );
+  
+  for (const result of results) {
+    if (result.status === "fulfilled" && !result.value.error && result.value.products.length > 0) {
+      categoriesUsed++;
+      for (const product of result.value.products) {
+        const formatted = formatCatalogItem(product);
+        // Dedupe by id
+        if (!seenIds.has(formatted.id)) {
+          seenIds.add(formatted.id);
+          allProducts.push(formatted);
+        }
+      }
+    }
+  }
+  
+  const beforeFilter = allProducts.length;
+  
+  // Apply exclusion filter
+  const filteredProducts = allProducts.filter(p => !shouldExcludeProduct(p, excludeConfig));
+  
+  const afterFilter = filteredProducts.length;
+  
+  return {
+    products: filteredProducts.slice(0, pageSize),
+    categoriesUsed,
+    beforeFilter,
+    afterFilter,
+  };
+}
+
+/**
+ * Load config from catalog_config table
+ */
+async function loadCatalogConfig(supabase: any): Promise<{
+  categoryUrls: string[];
+  excludeConfig: ExcludeConfig;
+}> {
+  try {
+    const { data, error } = await supabase
+      .from("catalog_config")
+      .select("key, value")
+      .in("key", ["home_category_urls", "home_exclude_keywords"]);
+    
+    if (error || !data) {
+      console.log("[CATALOG_HOME] Using default config (no DB config found)");
+      return {
+        categoryUrls: DEFAULT_CATEGORY_URLS,
+        excludeConfig: DEFAULT_EXCLUDE_KEYWORDS,
+      };
+    }
+    
+    let categoryUrls = DEFAULT_CATEGORY_URLS;
+    let excludeConfig = DEFAULT_EXCLUDE_KEYWORDS;
+    
+    for (const row of data) {
+      if (row.key === "home_category_urls" && Array.isArray(row.value)) {
+        categoryUrls = row.value;
+      } else if (row.key === "home_exclude_keywords" && row.value) {
+        excludeConfig = {
+          title_keywords: row.value.title_keywords || DEFAULT_EXCLUDE_KEYWORDS.title_keywords,
+          url_patterns: row.value.url_patterns || DEFAULT_EXCLUDE_KEYWORDS.url_patterns,
+        };
+      }
+    }
+    
+    return { categoryUrls, excludeConfig };
+  } catch (err) {
+    console.warn("[CATALOG_HOME] Error loading config:", err);
+    return {
+      categoryUrls: DEFAULT_CATEGORY_URLS,
+      excludeConfig: DEFAULT_EXCLUDE_KEYWORDS,
+    };
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -87,7 +228,7 @@ Deno.serve(async (req: Request) => {
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
   
-  console.log("[CATALOG_HOME]", JSON.stringify({
+  console.log("[CATALOG_HOME] Request", JSON.stringify({
     page,
     pageSize,
     amazonDomain,
@@ -95,8 +236,8 @@ Deno.serve(async (req: Request) => {
   }));
 
   // Default error response - always return this shape
-  const errorResponse = (message: string) => 
-    new Response(JSON.stringify(buildResponse("error", envName, page, pageSize, [], false, message)), {
+  const errorResponse = (message: string, source: string = "error") => 
+    new Response(JSON.stringify(buildResponse("error", envName, page, pageSize, [], false, source, message)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -119,26 +260,42 @@ Deno.serve(async (req: Request) => {
       return errorResponse("Catalog not enabled for this environment");
     }
 
-    // Try fetching bestsellers from Rainforest
-    let { products, total, hasMore: rainforestHasMore, error: rainforestError } = await fetchBestsellers(
-      amazonDomain,
-      page,
-      pageSize
-    );
-
-    // Format products
-    let trending = products.map(formatCatalogItem);
+    // Load category URLs and exclusion config from DB
+    const { categoryUrls, excludeConfig } = await loadCatalogConfig(supabase);
     
-    // Use hasMore from Rainforest, or fallback to length check
-    let hasMore = rainforestHasMore || trending.length >= pageSize;
+    let trending: any[] = [];
+    let hasMore = false;
+    let source = "bestsellers-electronics-mix";
     
-    // FALLBACK 1: If bestsellers failed or returned empty, try search with trending terms
-    if (trending.length === 0) {
-      console.log("[CATALOG_HOME] Bestsellers empty, trying search fallback");
+    // For page 1, fetch from multiple electronics categories
+    if (page === 1) {
+      const result = await fetchMultiCategoryProducts(
+        categoryUrls,
+        amazonDomain,
+        pageSize,
+        excludeConfig
+      );
       
-      // Use popular search terms for trending content
-      const trendingQueries = ["electronics", "bestseller", "popular", "deals"];
-      const searchQuery = trendingQueries[page % trendingQueries.length] || "electronics";
+      trending = result.products;
+      hasMore = trending.length >= pageSize;
+      
+      console.log("[CATALOG_HOME] categoriesUsed=" + result.categoriesUsed + 
+                  " beforeFilter=" + result.beforeFilter + 
+                  " afterFilter=" + result.afterFilter + 
+                  " returned=" + trending.length);
+      
+      // If multi-category fetch worked
+      if (trending.length > 0) {
+        source = "bestsellers-electronics-mix";
+      }
+    }
+    
+    // FALLBACK 1: If page > 1 or multi-category failed, try search with electronics terms
+    if (trending.length === 0) {
+      console.log("[CATALOG_HOME] Using search fallback");
+      
+      const electronicsQueries = ["electronics", "phone", "laptop", "headphones", "tablet"];
+      const searchQuery = electronicsQueries[(page - 1) % electronicsQueries.length] || "electronics";
       
       const searchResult = await searchRainforest(
         searchQuery,
@@ -148,18 +305,26 @@ Deno.serve(async (req: Request) => {
       );
       
       if (!searchResult.error && searchResult.products.length > 0) {
-        trending = searchResult.products.map(formatCatalogItem);
+        // Apply exclusion filter to search results
+        const filtered = searchResult.products
+          .map(formatCatalogItem)
+          .filter(p => !shouldExcludeProduct(p, excludeConfig));
+        
+        trending = filtered.slice(0, pageSize);
         hasMore = searchResult.hasMore;
-        rainforestError = null; // Clear error since search worked
-        console.log("[CATALOG_HOME] Search fallback successful", { itemCount: trending.length });
+        source = "search-fallback";
+        console.log("[CATALOG_HOME] Search fallback successful", { 
+          query: searchQuery, 
+          beforeFilter: searchResult.products.length,
+          afterFilter: trending.length 
+        });
       }
     }
     
-    // FALLBACK 2: If Rainforest still failed, try cache fallback
-    if (rainforestError && trending.length === 0) {
-      console.log("[CATALOG_HOME] Rainforest failed, trying cache fallback");
+    // FALLBACK 2: If search also failed, try cache
+    if (trending.length === 0) {
+      console.log("[CATALOG_HOME] Using cache fallback");
       
-      // Calculate offset for pagination
       const offset = (page - 1) * pageSize;
       
       const { data: cachedProducts, count } = await supabase
@@ -170,7 +335,7 @@ Deno.serve(async (req: Request) => {
         .range(offset, offset + pageSize - 1);
 
       if (cachedProducts && cachedProducts.length > 0) {
-        trending = cachedProducts.map((p: any) => ({
+        const formatted = cachedProducts.map((p: any) => ({
           id: `rainforest:${p.provider_product_id}`,
           provider: "rainforest",
           providerProductId: p.provider_product_id,
@@ -183,8 +348,10 @@ Deno.serve(async (req: Request) => {
           rating: p.rating || null,
         }));
         
-        // Calculate hasMore from cache count
+        // Apply exclusion filter
+        trending = formatted.filter((p: any) => !shouldExcludeProduct(p, excludeConfig));
         hasMore = count !== null ? (offset + trending.length) < count : false;
+        source = "cache-fallback";
       }
     }
 
@@ -195,11 +362,11 @@ Deno.serve(async (req: Request) => {
         pageSize,
         env: envName,
         status: "error",
-        error: rainforestError || "NO_PRODUCTS",
+        error: "NO_PRODUCTS",
         durationMs: Date.now() - startTime,
       }));
 
-      return errorResponse("Trending products temporarily unavailable");
+      return errorResponse("Trending products temporarily unavailable", "no-products");
     }
 
     // Log success
@@ -210,6 +377,7 @@ Deno.serve(async (req: Request) => {
       status: "success",
       itemCount: trending.length,
       hasMore,
+      source,
       durationMs: Date.now() - startTime,
     }));
 
@@ -220,6 +388,7 @@ Deno.serve(async (req: Request) => {
       pageSize,
       trending,
       hasMore,
+      source,
       null
     )), {
       status: 200,

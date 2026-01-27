@@ -254,6 +254,7 @@ function normalizeTitle(title: string): string {
 
 /**
  * Get featured content for home screen
+ * Fetches from cache or Rainforest if empty
  */
 export async function getFeaturedContent(
   supabase: any,
@@ -265,6 +266,7 @@ export async function getFeaturedContent(
   categories: { id: string; name: string; icon?: string; children?: any[] }[];
 }> {
   const startTime = Date.now();
+  const envName = envConfig?.name || "production";
   
   // Get categories
   const { data: categories } = await supabase
@@ -276,32 +278,102 @@ export async function getFeaturedContent(
     .limit(10);
 
   // Get some cached products as "trending"
-  const { data: trending } = await supabase
+  let { data: trending } = await supabase
     .from("catalog_products")
     .select("*")
     .gt("expires_at", new Date().toISOString())
     .order("rating", { ascending: false })
-    .limit(10);
+    .limit(12);
+
+  // If cache is empty and we're in staging, fetch from Rainforest
+  if ((!trending || trending.length < 5) && envName === "staging") {
+    console.log("[CATALOG_DEBUG]", JSON.stringify({
+      fn: "getFeaturedContent",
+      env: envName,
+      action: "fetching_from_providers",
+      reason: "cache_empty",
+      cachedCount: trending?.length || 0,
+    }));
+
+    // Get enabled providers
+    const providers = await getEnabledProviders(supabase, envName);
+    
+    console.log("[CATALOG_DEBUG]", JSON.stringify({
+      fn: "getFeaturedContent",
+      providersEnabled: providers.map(p => p.name),
+    }));
+
+    if (providers.length > 0) {
+      // Fetch products using popular search terms
+      const searchTerms = ["smartphone", "laptop", "headphones", "tablet", "smartwatch"];
+      const allProducts: CatalogProduct[] = [];
+
+      for (const provider of providers) {
+        const adapter = getProviderAdapter(provider, envConfig);
+        if (!adapter) continue;
+
+        try {
+          // Search for each term and collect products
+          for (const term of searchTerms.slice(0, 3)) { // Limit to 3 terms to save API credits
+            const result = await adapter.search(term, 1, {});
+            if (result.products.length > 0) {
+              const productsWithProvider = result.products.slice(0, 4).map(p => ({
+                ...p,
+                providerName: provider.name,
+                providerId: provider.id,
+              }));
+              allProducts.push(...productsWithProvider);
+
+              // Cache the products
+              cacheProducts(supabase, provider.id, result.products.slice(0, 10))
+                .catch(err => console.error("[CATALOG_DEBUG] Cache error:", err));
+            }
+          }
+        } catch (err) {
+          console.error(`[getFeaturedContent] Provider ${provider.name} error:`, err);
+        }
+      }
+
+      // Deduplicate and use as trending
+      if (allProducts.length > 0) {
+        const seen = new Set<string>();
+        trending = allProducts.filter(p => {
+          const key = p.providerProductId;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }).slice(0, 12);
+
+        console.log("[CATALOG_DEBUG]", JSON.stringify({
+          fn: "getFeaturedContent",
+          env: envName,
+          action: "fetched_from_providers",
+          productCount: trending.length,
+        }));
+      }
+    }
+  }
 
   console.log("[CATALOG_DEBUG]", JSON.stringify({
     fn: "getFeaturedContent",
-    env: envConfig?.name || "production",
+    env: envName,
     categoriesCount: categories?.length || 0,
     trendingCount: trending?.length || 0,
     durationMs: Date.now() - startTime,
   }));
 
-  return {
-    success: true,
-    featured: (categories || []).map(c => ({
-      type: "category",
-      id: c.id,
-      name: c.name,
-      imageUrl: c.icon_url,
-    })),
-    trending: (trending || []).map(p => ({
+  // Format trending products
+  const formattedTrending = (trending || []).map((p: any) => {
+    // Handle both raw Rainforest products and cached DB products
+    if (p.providerProductId) {
+      // Already formatted CatalogProduct
+      return p;
+    }
+    // From database
+    return {
       id: p.id,
       providerProductId: p.provider_product_id,
+      providerName: p.providerName || "amazon",
       title: p.title || "",
       imageUrl: p.image_url,
       productUrl: p.product_url || "",
@@ -309,8 +381,20 @@ export async function getFeaturedContent(
       currency: p.currency || "USD",
       inStock: p.in_stock ?? true,
       rating: p.rating ? Number(p.rating) : undefined,
+      reviewCount: p.review_count,
+    };
+  });
+
+  return {
+    success: true,
+    featured: (categories || []).map((c: any) => ({
+      type: "category",
+      id: c.id,
+      name: c.name,
+      imageUrl: c.icon_url,
     })),
-    categories: (categories || []).map(c => ({
+    trending: formattedTrending,
+    categories: (categories || []).map((c: any) => ({
       id: c.id,
       name: c.name,
       icon: c.icon_url,

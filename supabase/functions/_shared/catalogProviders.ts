@@ -4,6 +4,7 @@
  */
 
 import { EnvironmentConfig, getEnvSecret } from "./environmentResolver.ts";
+import { createRainforestAdapter } from "./rainforestAdapter.ts";
 
 // ==========================================
 // TYPES
@@ -129,6 +130,13 @@ export function getProviderAdapter(
   }
   return factory(config, env);
 }
+
+// ==========================================
+// REGISTER BUILT-IN ADAPTERS
+// ==========================================
+
+// Register Rainforest/Amazon adapter
+registerProvider("amazon", createRainforestAdapter);
 
 // ==========================================
 // DATABASE HELPERS

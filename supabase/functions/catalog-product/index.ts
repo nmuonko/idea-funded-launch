@@ -142,30 +142,21 @@ Deno.serve(async (req: Request) => {
       }));
 
       const rawData = cachedProduct.raw as Record<string, any> | null;
-      const images = rawData?.images?.map((i: any) => i.link || i) || null;
+      const images = rawData?.images?.map((i: any) => i.link || i).filter(Boolean) || [];
+      const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
 
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
         id: `rainforest:${cachedProduct.provider_product_id}`,
-        provider: "rainforest",
-        providerProductId: cachedProduct.provider_product_id,
-        title: cachedProduct.title || "",
-        priceUsd: cachedProduct.price_usd || null,
-        imageUrl: cachedProduct.image_url || null,
-        productUrl: cachedProduct.product_url || null,
-        inStock: cachedProduct.in_stock ?? null,
-        rating: cachedProduct.rating || null,
-        images: images,
-        description: cachedProduct.description || null,
-        raw: null, // Don't expose raw cache data
         item: {
           id: `rainforest:${cachedProduct.provider_product_id}`,
           provider: "rainforest",
           providerProductId: cachedProduct.provider_product_id,
           title: cachedProduct.title || "",
-          priceUsd: cachedProduct.price_usd || null,
+          priceUsd,
           imageUrl: cachedProduct.image_url || null,
+          images,
           productUrl: cachedProduct.product_url || null,
           inStock: cachedProduct.in_stock ?? null,
           rating: cachedProduct.rating || null,
@@ -218,9 +209,8 @@ Deno.serve(async (req: Request) => {
         });
     }
 
-    const formattedItem = formatCatalogItem(product);
-    const rawData = product.raw as Record<string, any> | undefined;
-    const images = rawData?.images?.map((i: any) => i.link || i) || null;
+    const images = product.images || [];
+    const priceUsd = (product.priceUsd !== null && product.priceUsd > 0) ? product.priceUsd : null;
 
     console.log("[CATALOG_PRODUCT]", JSON.stringify({
       env: envName,
@@ -234,19 +224,17 @@ Deno.serve(async (req: Request) => {
       status: "success",
       env: envName,
       id: `rainforest:${product.providerProductId}`,
-      provider: "rainforest",
-      providerProductId: product.providerProductId,
-      title: product.title || "",
-      priceUsd: product.priceUsd,
-      imageUrl: product.imageUrl,
-      productUrl: product.productUrl,
-      inStock: product.inStock,
-      rating: product.rating,
-      images: images,
-      description: product.description || null,
-      raw: null, // Optionally include trimmed raw if needed
       item: {
-        ...formattedItem,
+        id: `rainforest:${product.providerProductId}`,
+        provider: "rainforest",
+        providerProductId: product.providerProductId,
+        title: product.title || "",
+        priceUsd,
+        imageUrl: product.imageUrl || null,
+        images,
+        productUrl: product.productUrl || null,
+        inStock: product.inStock ?? null,
+        rating: product.rating ?? null,
         description: product.description || null,
         brand: product.brand || null,
       },

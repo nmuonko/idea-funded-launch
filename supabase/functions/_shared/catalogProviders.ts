@@ -19,13 +19,13 @@ export interface CatalogProduct {
   brand?: string;
   description?: string;
   imageUrl?: string;
-  images?: string[];
+  images?: string[];                    // Array of image URLs for gallery
   productUrl: string;
-  priceUsd: number;
+  priceUsd: number | null;              // null when price unavailable (NEVER 0)
   currency: string;
-  inStock: boolean;
+  inStock: boolean | null;              // null when availability unknown
   categoryPath?: string[];
-  rating?: number;
+  rating?: number | null;
   reviewCount?: number;
   specifications?: Record<string, string>;
   raw?: Record<string, unknown>;

@@ -595,24 +595,42 @@ export async function fetchProductDetails(
 /**
  * Extract best available price from Rainforest product
  * Returns null if no valid price found (NEVER returns 0 for missing price)
+ * 
+ * Rainforest returns prices in various fields depending on product type:
+ * - buybox_winner.price - Best price from active seller
+ * - price - Main product price
+ * - current_price - Current discounted price
+ * - prices[] - Array of prices from different sellers
+ * - rrp - Recommended retail price (fallback)
  */
-function extractPrice(product: RainforestProduct): { value: number | null; currency: string } {
+function extractPrice(product: RainforestProduct): { value: number | null; currency: string; source: string } {
   // Try multiple price fields in order of preference
-  const priceFields = [
-    product.buybox_winner?.price,
-    product.price,
-    product.current_price,
-    product.prices?.[0],
-    product.rrp,
+  const priceChecks: Array<{ name: string; field: any }> = [
+    { name: "buybox_winner", field: product.buybox_winner?.price },
+    { name: "price", field: product.price },
+    { name: "current_price", field: product.current_price },
+    { name: "prices[0]", field: product.prices?.[0] },
+    { name: "rrp", field: product.rrp },
   ];
 
-  for (const priceField of priceFields) {
-    if (priceField && typeof priceField.value === "number" && priceField.value > 0) {
-      return { value: priceField.value, currency: priceField.currency || "USD" };
+  for (const { name, field } of priceChecks) {
+    if (field && typeof field.value === "number" && field.value > 0) {
+      console.log(`[PRICE_DEBUG] Found price from ${name}: $${field.value} ${field.currency || "USD"}`);
+      return { value: field.value, currency: field.currency || "USD", source: name };
     }
   }
 
-  return { value: null, currency: "USD" };
+  // Log when no price found for debugging
+  console.log("[PRICE_DEBUG] No price found in product:", JSON.stringify({
+    asin: product.asin,
+    hasBuybox: !!product.buybox_winner,
+    hasPrice: !!product.price,
+    hasCurrentPrice: !!product.current_price,
+    hasPrices: !!(product.prices && product.prices.length > 0),
+    hasRrp: !!product.rrp,
+  }));
+
+  return { value: null, currency: "USD", source: "none" };
 }
 
 /**
@@ -658,7 +676,7 @@ function normalizeProduct(
   amazonDomain: string
 ): CatalogProduct {
   // Extract price - null if unavailable, never 0
-  const { value: rawPrice, currency } = extractPrice(product);
+  const { value: rawPrice, currency, source: priceSource } = extractPrice(product);
 
   // Convert non-USD prices (approximate)
   let priceUsd: number | null = rawPrice;
@@ -678,6 +696,15 @@ function normalizeProduct(
   if (priceUsd !== null) {
     priceUsd = Math.round(priceUsd * 100) / 100;
   }
+
+  // Log final price for debugging
+  console.log("[NORMALIZE_DEBUG]", JSON.stringify({
+    asin: product.asin,
+    priceSource,
+    rawPrice,
+    currency,
+    priceUsd,
+  }));
 
   // Extract images
   const images = extractImages(product);

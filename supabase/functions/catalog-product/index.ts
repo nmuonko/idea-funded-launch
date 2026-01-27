@@ -133,17 +133,19 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (cachedProduct) {
+      const rawData = cachedProduct.raw as Record<string, any> | null;
+      const images = rawData?.images?.map((i: any) => i.link || i).filter(Boolean) || [];
+      const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
+
       console.log("[CATALOG_PRODUCT]", JSON.stringify({
         env: envName,
         id: rawId,
         status: "success",
         source: "cache",
+        hasPrice: priceUsd !== null,
+        priceUsd,
         durationMs: Date.now() - startTime,
       }));
-
-      const rawData = cachedProduct.raw as Record<string, any> | null;
-      const images = rawData?.images?.map((i: any) => i.link || i).filter(Boolean) || [];
-      const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
 
       return new Response(JSON.stringify({
         status: "success",
@@ -185,6 +187,11 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (providerRow?.id) {
+      // Ensure price is null (not 0) when unavailable
+      const priceToCache = (product.priceUsd !== null && product.priceUsd > 0) 
+        ? product.priceUsd 
+        : null;
+      
       // Fire and forget - don't await
       supabase
         .from("catalog_products")
@@ -195,7 +202,7 @@ Deno.serve(async (req: Request) => {
           description: product.description,
           image_url: product.imageUrl,
           product_url: product.productUrl,
-          price_usd: product.priceUsd,
+          price_usd: priceToCache, // null, not 0, when unavailable
           currency: "USD",
           in_stock: product.inStock,
           rating: product.rating,
@@ -217,6 +224,8 @@ Deno.serve(async (req: Request) => {
       id: rawId,
       status: "success",
       source: "rainforest",
+      hasPrice: priceUsd !== null,
+      priceUsd,
       durationMs: Date.now() - startTime,
     }));
 

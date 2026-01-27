@@ -37,12 +37,19 @@ const DEFAULT_PAGE_SIZE = 20;
 const DEFAULT_AMAZON_DOMAIN = "amazon.com";
 
 // Category-specific Amazon Best Sellers URLs
-const CATEGORY_URLS: Record<string, string> = {
-  all: "https://www.amazon.com/Best-Sellers/zgbs",
-  phones: "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
-  computers: "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
-  audio: "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
-  monitors: "https://www.amazon.com/Best-Sellers-Computer-Monitors/zgbs/pc/1292115011",
+// Using /zgbs/<category_path> format which Rainforest API supports
+const CATEGORY_URLS: Record<string, string[]> = {
+  // "all" uses multiple electronics categories merged
+  all: [
+    "https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics",
+    "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
+    "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
+    "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
+  ],
+  phones: ["https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless"],
+  computers: ["https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc"],
+  audio: ["https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011"],
+  monitors: ["https://www.amazon.com/Best-Sellers-Computer-Monitors/zgbs/pc/1292115011"],
 };
 
 // Valid categories
@@ -126,17 +133,69 @@ function shouldExcludeProduct(product: any, excludeConfig: ExcludeConfig): boole
 }
 
 /**
- * Fetch products from a single category URL with deduplication
+ * Fetch products from multiple category URLs in parallel with deduplication
  */
-async function fetchCategoryProducts(
-  categoryUrl: string,
+async function fetchMultiCategoryProducts(
+  categoryUrls: string[],
   amazonDomain: string,
   page: number,
   pageSize: number,
   applyExclusion: boolean,
   excludeConfig: ExcludeConfig
+): Promise<{ products: any[]; beforeDedupe: number; afterDedupe: number; hasMore: boolean; categoriesUsed: number }> {
+  // Fetch from all categories in parallel
+  const results = await Promise.allSettled(
+    categoryUrls.map(url => 
+      fetchBestsellers(amazonDomain, page, pageSize, url)
+    )
+  );
+  
+  // Dedupe by ASIN across all categories
+  const seenIds = new Map<string, any>();
+  let categoriesUsed = 0;
+  
+  for (const result of results) {
+    if (result.status === "fulfilled" && !result.value.error && result.value.products.length > 0) {
+      categoriesUsed++;
+      for (const product of result.value.products) {
+        const formatted = formatCatalogItem(product);
+        const id = formatted.id;
+        
+        // Dedupe by id (rainforest:ASIN)
+        if (!seenIds.has(id)) {
+          seenIds.set(id, formatted);
+        }
+      }
+    }
+  }
+  
+  const beforeDedupe = seenIds.size;
+  let deduped = Array.from(seenIds.values());
+  
+  // Apply exclusion filter if needed (for 'all' category)
+  if (applyExclusion) {
+    deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
+  }
+  
+  const afterDedupe = deduped.length;
+  
+  // Slice to requested page size
+  const products = deduped.slice(0, pageSize);
+  const hasMore = afterDedupe > pageSize;
+  
+  return { products, beforeDedupe, afterDedupe, hasMore, categoriesUsed };
+}
+
+/**
+ * Fetch products from a single category URL with deduplication
+ */
+async function fetchSingleCategoryProducts(
+  categoryUrl: string,
+  amazonDomain: string,
+  page: number,
+  pageSize: number
 ): Promise<{ products: any[]; beforeDedupe: number; afterDedupe: number; hasMore: boolean }> {
-  // Fetch extra items to have buffer after filtering/deduping
+  // Fetch extra items to have buffer after deduping
   const fetchSize = pageSize * 2;
   
   const result = await fetchBestsellers(amazonDomain, page, fetchSize, categoryUrl);
@@ -159,13 +218,7 @@ async function fetchCategoryProducts(
   }
   
   const beforeDedupe = result.products.length;
-  let deduped = Array.from(seenIds.values());
-  
-  // Apply exclusion filter if needed (for 'all' category)
-  if (applyExclusion) {
-    deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
-  }
-  
+  const deduped = Array.from(seenIds.values());
   const afterDedupe = deduped.length;
   
   // Slice to requested page size
@@ -253,8 +306,8 @@ Deno.serve(async (req: Request) => {
     // Load exclusion config (only used for 'all' category)
     const excludeConfig = await loadExcludeConfig(supabase);
     
-    // Get the URL for the requested category
-    const categoryUrl = CATEGORY_URLS[category] || CATEGORY_URLS.all;
+    // Get the URLs for the requested category
+    const categoryUrls = CATEGORY_URLS[category] || CATEGORY_URLS.all;
     const applyExclusion = category === "all"; // Only filter books in 'all' category
     
     let trending: any[] = [];
@@ -262,23 +315,42 @@ Deno.serve(async (req: Request) => {
     let source = `bestsellers-${category}`;
     let beforeDedupe = 0;
     let afterDedupe = 0;
+    let categoriesUsed = 0;
     
-    // Fetch from the specific category URL
-    const result = await fetchCategoryProducts(
-      categoryUrl,
-      amazonDomain,
-      page,
-      pageSize,
-      applyExclusion,
-      excludeConfig
-    );
+    // For multi-URL categories (like 'all') or single URL categories
+    if (categoryUrls.length > 1) {
+      // Multi-category fetch with merge and dedupe
+      const result = await fetchMultiCategoryProducts(
+        categoryUrls,
+        amazonDomain,
+        page,
+        pageSize,
+        applyExclusion,
+        excludeConfig
+      );
+      
+      trending = result.products;
+      hasMore = result.hasMore;
+      beforeDedupe = result.beforeDedupe;
+      afterDedupe = result.afterDedupe;
+      categoriesUsed = result.categoriesUsed;
+    } else {
+      // Single category fetch
+      const result = await fetchSingleCategoryProducts(
+        categoryUrls[0],
+        amazonDomain,
+        page,
+        pageSize
+      );
+      
+      trending = result.products;
+      hasMore = result.hasMore;
+      beforeDedupe = result.beforeDedupe;
+      afterDedupe = result.afterDedupe;
+      categoriesUsed = result.products.length > 0 ? 1 : 0;
+    }
     
-    trending = result.products;
-    hasMore = result.hasMore;
-    beforeDedupe = result.beforeDedupe;
-    afterDedupe = result.afterDedupe;
-    
-    console.log(`[CATALOG_HOME] category=${category} page=${page} pageSize=${pageSize} returned=${trending.length} deduped=${beforeDedupe - afterDedupe}`);
+    console.log(`[CATALOG_HOME] category=${category} page=${page} pageSize=${pageSize} categoriesUsed=${categoriesUsed} returned=${trending.length} deduped=${beforeDedupe - afterDedupe}`);
     
     // FALLBACK 1: If category fetch failed, try search with category-specific terms
     if (trending.length === 0) {

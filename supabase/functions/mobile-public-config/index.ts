@@ -18,6 +18,11 @@ interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
   reason?: string;
+  // TOP-LEVEL env fields for mobile debugging
+  env: "production" | "staging";
+  catalogEnabled: boolean;
+  catalogMode: "webview" | "native" | "hybrid";
+  // Standard config
   exchangeRate: number;
   markup: {
     type: "percent" | "fixed";
@@ -41,7 +46,7 @@ interface PublicConfigResponse {
   updated_at: string;
   version: number;
   
-  // NEW: Catalog configuration
+  // Catalog configuration (detailed)
   catalog: {
     enabled: boolean;
     mode: "webview" | "native" | "hybrid";
@@ -50,8 +55,8 @@ interface PublicConfigResponse {
     refreshIntervalMs: number;
   };
   
-  // NEW: Environment info
-  env: {
+  // Environment details (full info)
+  envDetails: {
     name: "production" | "staging";
     minSupportedAppVersion: string;
     ota: {
@@ -126,6 +131,9 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       success: true,
       configValid: false,
       reason: "NO_SETTINGS_CONFIGURED",
+      env: envName,
+      catalogEnabled: catalogConfig.enabled,
+      catalogMode: catalogConfig.mode,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -135,7 +143,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       updated_at: new Date().toISOString(),
       version: 0,
       catalog: catalogConfig,
-      env: envInfo,
+      envDetails: envInfo,
     };
   }
 
@@ -146,6 +154,9 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       success: true,
       configValid: false,
       reason: "MISSING_EXCHANGE_RATE",
+      env: envName,
+      catalogEnabled: catalogConfig.enabled,
+      catalogMode: catalogConfig.mode,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -155,7 +166,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       updated_at: new Date().toISOString(),
       version: 0,
       catalog: catalogConfig,
-      env: envInfo,
+      envDetails: envInfo,
     };
   }
 
@@ -206,6 +217,11 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   return {
     success: true,
     configValid: true,
+    // TOP-LEVEL env fields for mobile debugging
+    env: envName,
+    catalogEnabled: catalogConfig.enabled,
+    catalogMode: catalogConfig.mode,
+    // Standard config
     exchangeRate: Number(exchangeRate),
     markup: {
       type: "percent",
@@ -230,7 +246,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     updated_at: updatedAt,
     version,
     catalog: catalogConfig,
-    env: envInfo,
+    envDetails: envInfo,
   };
 }
 

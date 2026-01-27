@@ -25,22 +25,39 @@ const CACHE_TTL_MS = 30_000; // 30 seconds
 
 /**
  * Detect environment from request
- * Priority: Header > Query param > Default (production)
+ * Priority: Header (if valid) > Query param (if valid) > Default (production)
+ * Safe fallback chain - always returns valid environment
  */
 export function getEnvironmentFromRequest(req: Request): EnvironmentName {
-  // 1. Check header
-  const header = req.headers.get("X-Afrishop-Environment");
-  if (header === "staging") return "staging";
-  if (header === "production") return "production";
+  try {
+    // 1. Check header first (if it exists and is valid)
+    const header = req.headers.get("X-Afrishop-Environment");
+    if (header) {
+      const normalizedHeader = header.toLowerCase().trim();
+      if (normalizedHeader === "staging") return "staging";
+      if (normalizedHeader === "production") return "production";
+      // Header exists but invalid - fall through to query param
+      console.warn("[environmentResolver] Invalid header value:", header);
+    }
 
-  // 2. Check query param
-  const url = new URL(req.url);
-  const envParam = url.searchParams.get("env");
-  if (envParam === "staging") return "staging";
-  if (envParam === "production") return "production";
+    // 2. Check query param (if it exists and is valid)
+    const url = new URL(req.url);
+    const envParam = url.searchParams.get("env");
+    if (envParam) {
+      const normalizedParam = envParam.toLowerCase().trim();
+      if (normalizedParam === "staging") return "staging";
+      if (normalizedParam === "production") return "production";
+      // Query param exists but invalid - fall through to default
+      console.warn("[environmentResolver] Invalid query param value:", envParam);
+    }
 
-  // 3. Default to production
-  return "production";
+    // 3. Default to production (safe fallback)
+    return "production";
+  } catch (err) {
+    // Any parsing error - default to production
+    console.error("[environmentResolver] Error parsing request:", err);
+    return "production";
+  }
 }
 
 /**

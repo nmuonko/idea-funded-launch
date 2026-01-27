@@ -21,25 +21,58 @@ const corsHeaders = {
 };
 
 /**
+ * Validate ASIN format: 10 alphanumeric characters (Amazon standard)
+ * Returns null if valid, error message if invalid
+ */
+function validateAsin(asin: string): string | null {
+  if (!asin || asin.length === 0) {
+    return "ASIN is required";
+  }
+  if (asin.length !== 10) {
+    return `ASIN must be 10 characters (got ${asin.length})`;
+  }
+  if (!/^[A-Z0-9]+$/.test(asin)) {
+    return "ASIN must be alphanumeric (A-Z, 0-9)";
+  }
+  return null;
+}
+
+/**
  * Parse product ID from query params
  * Supports:
  *   - id=rainforest:B0GCRKG9N1
  *   - provider=rainforest&asin=B0GCRKG9N1
+ * 
+ * Always normalizes ASIN: trim + uppercase
  */
-function parseProductId(url: URL): { provider: string | null; asin: string | null; rawId: string } {
+function parseProductId(url: URL): { provider: string | null; asin: string | null; rawId: string; asinError: string | null } {
+  let provider: string | null = null;
+  let asin: string | null = null;
+
   // Try combined id format first: "rainforest:B0GCRKG9N1"
-  const id = url.searchParams.get("id") || "";
+  const id = (url.searchParams.get("id") || "").trim();
   if (id && id.includes(":")) {
-    const [provider, asin] = id.split(":", 2);
-    return { provider: provider || null, asin: asin || null, rawId: id };
+    const parts = id.split(":", 2);
+    provider = (parts[0] || "").trim().toLowerCase() || null;
+    asin = (parts[1] || "").trim().toUpperCase() || null;
+  } else {
+    // Try separate params
+    provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
+    asin = (url.searchParams.get("asin") || "").trim().toUpperCase() || null;
+    
+    // Fallback: if just id without colon, treat as ASIN
+    if (!asin && id) {
+      asin = id.toUpperCase();
+      provider = "rainforest"; // default
+    }
   }
 
-  // Try separate params
-  const provider = url.searchParams.get("provider") || null;
-  const asin = url.searchParams.get("asin") || null;
   const rawId = provider && asin ? `${provider}:${asin}` : asin || id || "";
+  
+  // Validate ASIN format
+  const asinError = asin ? validateAsin(asin) : "ASIN is required";
 
-  return { provider, asin, rawId };
+  return { provider, asin, rawId, asinError };
 }
 
 Deno.serve(async (req: Request) => {
@@ -51,32 +84,27 @@ Deno.serve(async (req: Request) => {
   const startTime = Date.now();
   const url = new URL(req.url);
   const envName = getEnvironmentFromRequest(req);
+  // Force amazon.com unless explicitly passed
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
 
-  // Parse provider and asin from query
-  const { provider, asin, rawId } = parseProductId(url);
+  // Parse provider and asin from query (with validation)
+  const { provider, asin, rawId, asinError } = parseProductId(url);
 
-  console.log("[CATALOG_PRODUCT]", JSON.stringify({
-    env: envName,
-    id: rawId,
-    provider,
-    asin,
-  }));
-
-  // Helper for consistent error responses
-  const errorResponse = (code: string, message: string) => {
+  // Helper for consistent error responses with detailed logging
+  const errorResponse = (code: string, message: string, httpStatus: number = 200, apiStatus: string = "error") => {
     console.log("[CATALOG_PRODUCT]", JSON.stringify({
-      env: envName,
-      id: rawId,
-      status: "error",
+      asin: asin || "MISSING",
+      http: httpStatus,
+      apiStatus,
       errorCode: code,
+      env: envName,
       durationMs: Date.now() - startTime,
     }));
 
     return new Response(JSON.stringify({
       status: "error",
       env: envName,
-      id: rawId,
+      id: rawId || null,
       provider: provider || null,
       providerProductId: asin || null,
       title: null,
@@ -91,17 +119,27 @@ Deno.serve(async (req: Request) => {
       item: null,
       error: { code, message },
     }), {
-      status: 200,
+      status: 200, // Always 200 for mobile stability
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   };
 
-  // Validate we have an ASIN
-  if (!asin?.trim()) {
-    return errorResponse("MISSING_ASIN", "ASIN parameter is required. Use id=rainforest:ASIN or provider=rainforest&asin=ASIN");
+  // Log initial request
+  console.log("[CATALOG_PRODUCT]", JSON.stringify({
+    asin: asin || "MISSING",
+    http: 200,
+    apiStatus: "pending",
+    env: envName,
+    provider,
+    amazonDomain,
+  }));
+
+  // Validate ASIN format (10 alphanumeric chars)
+  if (asinError) {
+    return errorResponse("INVALID_ASIN", asinError);
   }
 
-  // Validate provider (only rainforest supported for now)
+  // Validate provider (only rainforest supported)
   if (provider && provider !== "rainforest") {
     return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported. Only 'rainforest' is supported.`);
   }
@@ -164,9 +202,9 @@ Deno.serve(async (req: Request) => {
       const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
 
       console.log("[CATALOG_PRODUCT]", JSON.stringify({
-        env: envName,
-        id: rawId,
-        status: "success",
+        asin,
+        http: 200,
+        apiStatus: "success",
         source: "cache",
         hasPrice: priceUsd !== null,
         priceUsd,
@@ -199,11 +237,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Fetch from Rainforest
-    const { product, error: rainforestError } = await fetchProductDetails(asin, amazonDomain);
+    // Fetch from Rainforest (always amazon.com unless explicit)
+    const { product, error: rainforestError } = await fetchProductDetails(asin!, amazonDomain);
 
     if (rainforestError || !product) {
-      return errorResponse(rainforestError || "NOT_FOUND", "Product detail unavailable");
+      return errorResponse(
+        rainforestError || "NOT_FOUND", 
+        `Product not found on ${amazonDomain}`,
+        200,
+        "error"
+      );
     }
 
     // Cache the product for future requests (fire and forget)
@@ -253,9 +296,9 @@ Deno.serve(async (req: Request) => {
     const priceUsd = (product.priceUsd !== null && product.priceUsd > 0) ? product.priceUsd : null;
 
     console.log("[CATALOG_PRODUCT]", JSON.stringify({
-      env: envName,
-      id: rawId,
-      status: "success",
+      asin,
+      http: 200,
+      apiStatus: "success",
       source: "rainforest",
       hasPrice: priceUsd !== null,
       priceUsd,
@@ -289,7 +332,14 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error("[CATALOG_PRODUCT] Exception:", errorMessage);
-    return errorResponse("INTERNAL_ERROR", "Product service error");
+    console.error("[CATALOG_PRODUCT]", JSON.stringify({
+      asin: asin || "UNKNOWN",
+      http: 200,
+      apiStatus: "error",
+      errorCode: "INTERNAL_ERROR",
+      error: errorMessage,
+      durationMs: Date.now() - startTime,
+    }));
+    return errorResponse("INTERNAL_ERROR", "Product service error", 200, "error");
   }
 });

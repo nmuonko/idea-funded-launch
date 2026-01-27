@@ -637,18 +637,37 @@ function extractPrice(product: RainforestProduct): { value: number | null; curre
  * Extract images array from Rainforest product
  * Returns array of https URLs, preferring high-res variants
  * Max 10 images, deduplicated
+ * 
+ * Rainforest API returns images in varying fields depending on product:
+ * - product.images[] - array of {link, variant, large, medium} or strings
+ * - product.image_gallery[] - alternate gallery format
+ * - result.images[] / result.image_gallery[] - sometimes at root level
+ * - product.main_image / product.image - single hero image
+ * - product.hi_res_images[] / product.images_flat[] - rare variants
+ * - product.variants[].main_image - variant images
  */
 function extractImages(product: RainforestProduct): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
+  const rawProduct = product as any; // For accessing non-typed fields
   
+  /**
+   * Add image URL to array, normalizing to https
+   */
   const addImage = (url: string | undefined | null, prepend = false) => {
     if (!url || typeof url !== "string") return;
-    // Ensure https
-    const cleanUrl = url.startsWith("//") ? `https:${url}` : 
-                     url.startsWith("http") ? url : `https:${url}`;
-    // Skip already seen or invalid
-    if (seen.has(cleanUrl) || !cleanUrl.startsWith("https://")) return;
+    let cleanUrl = url.trim();
+    
+    // Normalize to https
+    if (cleanUrl.startsWith("//")) {
+      cleanUrl = `https:${cleanUrl}`;
+    } else if (!cleanUrl.startsWith("http")) {
+      cleanUrl = `https://${cleanUrl}`;
+    }
+    
+    // Skip invalid or already seen
+    if (!cleanUrl.startsWith("https://") || seen.has(cleanUrl)) return;
+    
     seen.add(cleanUrl);
     if (prepend) {
       images.unshift(cleanUrl);
@@ -657,57 +676,109 @@ function extractImages(product: RainforestProduct): string[] {
     }
   };
 
-  // 1) product.images[] - primary source with multiple angles (prefer "large" variant)
-  if (product.images && Array.isArray(product.images)) {
-    for (const img of product.images) {
-      // Rainforest may return {link, variant} or just {link}
-      // Prefer large variant for high-res
-      const imgUrl = (img as any).large || (img as any).link || (typeof img === "string" ? img : null);
-      addImage(imgUrl);
+  /**
+   * Extract URL from an image object or string
+   * Rainforest uses various field names: link, url, src, large, hi_res
+   */
+  const extractUrl = (img: any): string | null => {
+    if (typeof img === "string") return img;
+    if (!img || typeof img !== "object") return null;
+    
+    // Prefer high-res variants
+    return img.large || img.hi_res || img.link || img.url || img.src || img.medium || null;
+  };
+
+  // === Source 1: product.images[] (primary source) ===
+  if (rawProduct.images && Array.isArray(rawProduct.images)) {
+    for (const img of rawProduct.images) {
+      addImage(extractUrl(img));
     }
   }
 
-  // 2) main_image - often the primary hero image
-  if (product.main_image) {
-    const mainImg = (product.main_image as any).link || 
-                    (typeof product.main_image === "string" ? product.main_image : null);
-    addImage(mainImg, true); // prepend to make it first
-  }
-
-  // 3) Single image field fallback
-  if (product.image) {
-    addImage(product.image, true);
-  }
-
-  // 4) Check for image_gallery (some Rainforest responses)
-  const gallery = (product as any).image_gallery;
-  if (gallery && Array.isArray(gallery)) {
-    for (const img of gallery) {
-      const galleryUrl = img?.link || (typeof img === "string" ? img : null);
-      addImage(galleryUrl);
+  // === Source 2: product.image_gallery[] ===
+  if (rawProduct.image_gallery && Array.isArray(rawProduct.image_gallery)) {
+    for (const img of rawProduct.image_gallery) {
+      addImage(extractUrl(img));
     }
   }
 
-  // 5) Check for variants with images
-  const variants = (product as any).variants;
-  if (variants && Array.isArray(variants)) {
-    for (const variant of variants) {
+  // === Source 3: root level images[] (some API responses) ===
+  if (rawProduct.result?.images && Array.isArray(rawProduct.result.images)) {
+    for (const img of rawProduct.result.images) {
+      addImage(extractUrl(img));
+    }
+  }
+
+  // === Source 4: root level image_gallery[] ===
+  if (rawProduct.result?.image_gallery && Array.isArray(rawProduct.result.image_gallery)) {
+    for (const img of rawProduct.result.image_gallery) {
+      addImage(extractUrl(img));
+    }
+  }
+
+  // === Source 5: hi_res_images[] (high resolution variant) ===
+  if (rawProduct.hi_res_images && Array.isArray(rawProduct.hi_res_images)) {
+    for (const img of rawProduct.hi_res_images) {
+      addImage(extractUrl(img));
+    }
+  }
+
+  // === Source 6: images_flat[] (flat list variant) ===
+  if (rawProduct.images_flat && Array.isArray(rawProduct.images_flat)) {
+    for (const img of rawProduct.images_flat) {
+      addImage(extractUrl(img));
+    }
+  }
+
+  // === Source 7: variants with images ===
+  if (rawProduct.variants && Array.isArray(rawProduct.variants)) {
+    for (const variant of rawProduct.variants) {
       if (variant.main_image) {
-        addImage(variant.main_image);
+        addImage(typeof variant.main_image === "string" ? variant.main_image : variant.main_image?.link);
+      }
+      if (variant.images && Array.isArray(variant.images)) {
+        for (const img of variant.images.slice(0, 3)) { // Limit variant images
+          addImage(extractUrl(img));
+        }
       }
     }
   }
 
-  // Log for debugging
-  console.log("[IMAGES_DEBUG]", JSON.stringify({
+  // === Source 8: main_image (prepend as primary) ===
+  if (rawProduct.main_image) {
+    const mainUrl = typeof rawProduct.main_image === "string" 
+      ? rawProduct.main_image 
+      : rawProduct.main_image?.link;
+    addImage(mainUrl, true); // prepend to make it first
+  }
+
+  // === Source 9: Single image field fallback ===
+  if (rawProduct.image && typeof rawProduct.image === "string") {
+    addImage(rawProduct.image, true);
+  }
+
+  // === Source 10: thumbnail / small_image fallback (last resort) ===
+  if (rawProduct.thumbnail) {
+    addImage(typeof rawProduct.thumbnail === "string" ? rawProduct.thumbnail : rawProduct.thumbnail?.link);
+  }
+  if (rawProduct.small_image) {
+    addImage(typeof rawProduct.small_image === "string" ? rawProduct.small_image : rawProduct.small_image?.link);
+  }
+
+  // Log for debugging (structured format requested)
+  console.log("[CATALOG_PRODUCT_IMAGES]", JSON.stringify({
     asin: product.asin,
-    imageCount: images.length,
-    hasImagesArray: !!(product.images && product.images.length > 0),
-    hasMainImage: !!product.main_image,
-    hasGallery: !!gallery,
+    imagesLen: images.length,
+    hasMain: !!rawProduct.main_image,
+    sources: {
+      images: rawProduct.images?.length || 0,
+      gallery: rawProduct.image_gallery?.length || 0,
+      hiRes: rawProduct.hi_res_images?.length || 0,
+      variants: rawProduct.variants?.length || 0,
+    },
   }));
 
-  // Return max 10 images
+  // Return max 10 images (deduplicated)
   return images.slice(0, 10);
 }
 
@@ -765,13 +836,17 @@ function normalizeProduct(
     || product.feature_bullets?.join(" • ") 
     || undefined;
 
+  // IMPORTANT: Never return empty images array if we have any image
+  // Ensure at least imageUrl is in images array
+  const finalImages = images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
+
   return {
     providerProductId: product.asin,
     title: product.title,
     brand: product.brand,
     description,
     imageUrl,
-    images, // Include images array
+    images: finalImages, // Never empty if imageUrl exists
     productUrl,
     priceUsd, // null or positive number, never 0 for missing
     currency: "USD",
@@ -804,6 +879,11 @@ export function formatCatalogItem(product: CatalogProduct): {
     ? product.priceUsd 
     : null;
 
+  // IMPORTANT: Never return empty images array if imageUrl exists
+  const images = (product.images && product.images.length > 0) 
+    ? product.images 
+    : (product.imageUrl ? [product.imageUrl] : []);
+
   return {
     id: `rainforest:${product.providerProductId}`,
     provider: "rainforest",
@@ -811,7 +891,7 @@ export function formatCatalogItem(product: CatalogProduct): {
     title: product.title,
     priceUsd,
     imageUrl: product.imageUrl || null,
-    images: product.images || [],
+    images, // Never empty if imageUrl exists
     productUrl: product.productUrl || null,
     inStock: product.inStock ?? null,
     rating: product.rating ?? null,

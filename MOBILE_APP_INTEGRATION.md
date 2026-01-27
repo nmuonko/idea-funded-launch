@@ -506,3 +506,207 @@ curl -X POST \
 4. **Token Refresh**: Implement automatic token refresh before expiry
 5. **Loading States**: Show loading indicators during API calls
 6. **Offline Mode**: Queue actions when offline, sync when online
+
+---
+
+## Native Product Catalog API
+
+The native catalog system provides product browsing without WebView. It's controlled by feature flags in `/mobile-public-config`.
+
+### Environment Detection
+
+The catalog uses environment-based routing. Include the header to access staging features:
+
+```typescript
+// For staging environment (native catalog enabled)
+headers: {
+  'X-Afrishop-Environment': 'staging'
+}
+
+// For production (default - webview mode)
+// No header needed, defaults to production
+```
+
+### Check Catalog Mode
+
+The `/mobile-public-config` response includes catalog configuration:
+
+```typescript
+interface PublicConfigResponse {
+  // ... existing fields ...
+  
+  catalog: {
+    enabled: boolean;              // Is native catalog enabled?
+    mode: "webview" | "native" | "hybrid";
+    apiBaseUrl: string;            // Base URL for catalog endpoints
+    providers: string[];           // Enabled provider names
+    refreshIntervalMs: number;     // Refresh interval (5 min default)
+  };
+  
+  env: {
+    name: "production" | "staging";
+    minSupportedAppVersion: string;
+    ota: {
+      enabled: boolean;
+      channel: string;
+    };
+  };
+}
+```
+
+### Catalog Endpoints
+
+#### GET /catalog-home
+Returns featured categories and trending products for the home screen.
+
+**Auth**: Public (apikey only)
+
+**Response**:
+```json
+{
+  "success": true,
+  "featured": [
+    { "type": "category", "id": "uuid", "name": "Electronics", "imageUrl": "..." }
+  ],
+  "trending": [
+    { "id": "uuid", "title": "iPhone 15", "priceUsd": 999, "imageUrl": "..." }
+  ],
+  "categories": [
+    { "id": "uuid", "name": "Electronics", "icon": "📱" }
+  ]
+}
+```
+
+#### GET /catalog-search
+Search products across all enabled providers.
+
+**Auth**: Public (apikey only)
+
+**Query Parameters**:
+- `q` (required): Search query
+- `page`: Page number (default: 1)
+- `minPrice`: Minimum price filter
+- `maxPrice`: Maximum price filter
+- `category`: Category filter
+
+**Response**:
+```json
+{
+  "success": true,
+  "query": "iphone",
+  "page": 1,
+  "pageSize": 20,
+  "totalResults": 150,
+  "hasMore": true,
+  "products": [
+    {
+      "id": "uuid",
+      "providerProductId": "B0...",
+      "providerName": "amazon",
+      "title": "Apple iPhone 15 Pro",
+      "priceUsd": 999.00,
+      "imageUrl": "https://...",
+      "productUrl": "https://amazon.com/...",
+      "inStock": true,
+      "rating": 4.5
+    }
+  ],
+  "providers": ["amazon", "walmart"],
+  "cacheHit": true,
+  "durationMs": 120
+}
+```
+
+#### GET /catalog-product
+Get detailed product information.
+
+**Auth**: Public (apikey only)
+
+**Query Parameters**:
+- `id` (required): Product UUID from cache
+- `includeEstimates`: Set to "true" to include price estimates
+
+**Response**:
+```json
+{
+  "success": true,
+  "product": {
+    "id": "uuid",
+    "title": "Apple iPhone 15 Pro",
+    "brand": "Apple",
+    "description": "...",
+    "priceUsd": 999.00,
+    "imageUrl": "https://...",
+    "productUrl": "https://amazon.com/...",
+    "inStock": true,
+    "rating": 4.5,
+    "reviewCount": 1250,
+    "categoryPath": ["Electronics", "Phones", "Smartphones"]
+  },
+  "estimates": {
+    "priceUsd": 999.00,
+    "markupEstimateUsd": 299.70,
+    "shippingEstimateUsd": 139.90,
+    "totalEstimateUsd": 1438.60
+  }
+}
+```
+
+#### GET /catalog-category
+Get products within a specific category.
+
+**Auth**: Public (apikey only)
+
+**Query Parameters**:
+- `id` (required): Category UUID
+- `page`: Page number (default: 1)
+
+**Response**:
+```json
+{
+  "success": true,
+  "category": {
+    "id": "uuid",
+    "name": "Electronics",
+    "iconUrl": "..."
+  },
+  "page": 1,
+  "pageSize": 20,
+  "products": [...],
+  "hasMore": true
+}
+```
+
+### Pricing in Catalog
+
+**Important**: Catalog endpoints return raw `priceUsd` from the provider. The mobile app should calculate the final price using the `markup` and `shipping` values from `/mobile-public-config`:
+
+```typescript
+// Get config
+const config = await fetchPublicConfig();
+
+// Calculate total for a product
+const basePrice = product.priceUsd;
+const markup = basePrice * (config.markup.value / 100);
+const shipping = config.shipping.flatUsd + (basePrice * config.shipping.percentValue);
+const total = basePrice + markup + shipping;
+```
+
+### Adding Catalog Products to Cart
+
+When a user adds a catalog product to their cart, use the existing cart endpoints with the product URL:
+
+```typescript
+// Add catalog product to cart
+await fetch('/mobile-add-cart-item', {
+  method: 'POST',
+  headers: { 'Authorization': `Bearer ${token}` },
+  body: JSON.stringify({
+    productUrl: product.productUrl,  // From catalog product
+    productPrice: product.priceUsd,  // Raw price from catalog
+    quantity: 1,
+    productTitle: product.title,
+    productImageUrl: product.imageUrl
+  })
+});
+```

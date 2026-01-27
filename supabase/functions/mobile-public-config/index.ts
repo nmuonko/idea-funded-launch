@@ -6,10 +6,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
 import { withLoadShedding, getEndpointPriority, LoadSheddingError, loadSheddingResponse } from "../_shared/loadShedding.ts";
+import { getEnvironmentFromRequest, getEnvironmentConfig, EnvironmentConfig } from "../_shared/environmentResolver.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
   "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
 };
 
@@ -39,38 +40,85 @@ interface PublicConfigResponse {
   currency: string;
   updated_at: string;
   version: number;
+  
+  // NEW: Catalog configuration
+  catalog: {
+    enabled: boolean;
+    mode: "webview" | "native" | "hybrid";
+    apiBaseUrl: string;
+    providers: string[];
+    refreshIntervalMs: number;
+  };
+  
+  // NEW: Environment info
+  env: {
+    name: "production" | "staging";
+    minSupportedAppVersion: string;
+    ota: {
+      enabled: boolean;
+      channel: string;
+    };
+  };
 }
 
-// Cache key for public config (singleton - same for all users)
-const CACHE_KEY = "public-config";
-
-async function fetchConfig(): Promise<PublicConfigResponse> {
+async function fetchConfig(envName: "production" | "staging"): Promise<PublicConfigResponse> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const { data: settings, error } = await supabase
-    .from("settings")
-    .select(`
-      exchange_rate_usd_to_cdf,
-      markup_percent,
-      global_markup_percent,
-      category_markups,
-      shipping_base_fee_usd,
-      shipping_percent,
-      service_fee_percent,
-      min_service_fee_usd,
-      maishapay_max_usd,
-      maishapay_max_cdf,
-      updated_at
-    `)
-    .limit(1)
-    .maybeSingle();
+  // Fetch settings and environment config in parallel
+  const [settingsResult, envConfig, providersResult] = await Promise.all([
+    supabase
+      .from("settings")
+      .select(`
+        exchange_rate_usd_to_cdf,
+        markup_percent,
+        global_markup_percent,
+        category_markups,
+        shipping_base_fee_usd,
+        shipping_percent,
+        service_fee_percent,
+        min_service_fee_usd,
+        maishapay_max_usd,
+        maishapay_max_cdf,
+        updated_at
+      `)
+      .limit(1)
+      .maybeSingle(),
+    getEnvironmentConfig(supabase, envName),
+    supabase
+      .from("catalog_providers")
+      .select("name")
+      .eq("enabled", true)
+      .or(`environment.eq.all,environment.eq.${envName}`),
+  ]);
+
+  const { data: settings, error } = settingsResult;
+  const enabledProviders = (providersResult.data || []).map(p => p.name);
 
   if (error) {
     console.error("[mobile-public-config] Database error:", error.message);
     throw new Error(`DATABASE_ERROR: ${error.message}`);
   }
+
+  // Build catalog config from environment
+  const catalogConfig = {
+    enabled: envConfig?.catalog_enabled ?? false,
+    mode: (envConfig?.catalog_mode ?? "webview") as "webview" | "native" | "hybrid",
+    apiBaseUrl: envConfig?.api_base_url ?? "",
+    providers: enabledProviders,
+    refreshIntervalMs: 300000, // 5 minutes
+  };
+
+  // Build env info from environment
+  const envInfo = {
+    name: envName,
+    minSupportedAppVersion: envConfig?.min_app_version ?? "1.0.0",
+    ota: {
+      enabled: envConfig?.ota_enabled ?? true,
+      channel: envConfig?.ota_channel ?? envName,
+    },
+  };
 
   if (!settings) {
     console.warn("[mobile-public-config] No settings found - returning defaults");
@@ -79,13 +127,15 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "NO_SETTINGS_CONFIGURED",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 10 },       // 10% as whole number (mobile divides by 100)
+      markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
-      serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
+      serviceFee: { percent: 0.12, minUsd: 5 },
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
       version: 0,
+      catalog: catalogConfig,
+      env: envInfo,
     };
   }
 
@@ -97,22 +147,22 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
       configValid: false,
       reason: "MISSING_EXCHANGE_RATE",
       exchangeRate: 2500,
-      markup: { type: "percent", value: 10 },       // 10% as whole number (mobile divides by 100)
+      markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
-      serviceFee: { percent: 0.12, minUsd: 5 },       // 12% as decimal
+      serviceFee: { percent: 0.12, minUsd: 5 },
       limits: { maishapayMaxUsd: 5000, maishapayMaxCdf: 30000000 },
       currency: "USD",
       updated_at: new Date().toISOString(),
       version: 0,
+      catalog: catalogConfig,
+      env: envInfo,
     };
   }
 
   // UNIFIED PARSING LOGIC for all percentage values
-  // All percentages are stored as whole numbers: 1 = 1%, 15 = 15%, 100 = 100%
-  // DO NOT convert values ≤1 - that breaks 1% and below
   const normalizePercent = (val: number | null | undefined, fallback: number): number => {
     const raw = val ?? fallback;
-    return raw; // Return as-is, no conversion needed
+    return raw;
   };
 
   // Markup: use markup_percent first, fallback to global_markup_percent
@@ -138,23 +188,20 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
   const version = new Date(updatedAt).getTime();
 
   console.log("[mobile-public-config] Parsed config:", {
+    envName,
     markupRaw, markupPercent,
     vehicleMarkupRaw, vehicleMarkupPercent,
     shippingPercentRaw, shippingPercentValue, shippingBaseFee,
     serviceFeeRaw, serviceFeePercentValue,
+    catalogEnabled: catalogConfig.enabled,
+    catalogMode: catalogConfig.mode,
   });
 
   // CRITICAL: Mobile app expects markup as WHOLE NUMBERS (e.g., 30.2 for 30.2%)
-  // because it divides by 100 internally. DO NOT convert to decimal here.
-  // Shipping already works correctly with decimal (0.1 for 10%).
-  const markupWholeNumber = Number(markupPercent);        // Keep as 30.2 (not 0.302)
-  const vehicleMarkupWholeNumber = Number(vehicleMarkupPercent); // Keep as 10 (not 0.1)
-  const shippingPercentDecimal = Number(shippingPercentValue) / 100; // Convert to 0.1
-  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;    // Convert to 0.12
-
-  console.log("[mobile-public-config] Return values:", {
-    markupWholeNumber, vehicleMarkupWholeNumber, shippingPercentDecimal, serviceFeeDecimal,
-  });
+  const markupWholeNumber = Number(markupPercent);
+  const vehicleMarkupWholeNumber = Number(vehicleMarkupPercent);
+  const shippingPercentDecimal = Number(shippingPercentValue) / 100;
+  const serviceFeeDecimal = Number(serviceFeePercentValue) / 100;
 
   return {
     success: true,
@@ -162,17 +209,17 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     exchangeRate: Number(exchangeRate),
     markup: {
       type: "percent",
-      value: markupWholeNumber,           // 30.2% → 30.2 (mobile divides by 100)
-      vehicleValue: vehicleMarkupWholeNumber, // 10% → 10 (mobile divides by 100)
+      value: markupWholeNumber,
+      vehicleValue: vehicleMarkupWholeNumber,
     },
     shipping: {
       mode: shippingBaseFee > 0 && shippingPercentValue > 0 ? "combined" : 
             shippingBaseFee > 0 ? "flat" : "percent",
       flatUsd: Number(shippingBaseFee),
-      percentValue: shippingPercentDecimal, // 10% → 0.1 (mobile uses directly)
+      percentValue: shippingPercentDecimal,
     },
     serviceFee: {
-      percent: serviceFeeDecimal,     // 12% → 0.12 (mobile uses directly)
+      percent: serviceFeeDecimal,
       minUsd: Number(settings.min_service_fee_usd ?? 5),
     },
     limits: {
@@ -182,6 +229,8 @@ async function fetchConfig(): Promise<PublicConfigResponse> {
     currency: "USD",
     updated_at: updatedAt,
     version,
+    catalog: catalogConfig,
+    env: envInfo,
   };
 }
 
@@ -193,12 +242,15 @@ Deno.serve(async (req: Request) => {
   const priority = getEndpointPriority("mobile-public-config");
 
   try {
+    // Detect environment from request
+    const envName = getEnvironmentFromRequest(req);
+    const cacheKey = `public-config:${envName}`;
+
     const response = await withLoadShedding(priority, async () => {
-      // Use request coalescing + caching (5 min TTL)
-      return coalesce(CACHE_KEY, fetchConfig, CACHE_TTL.PUBLIC_CONFIG);
+      return coalesce(cacheKey, () => fetchConfig(envName), CACHE_TTL.PUBLIC_CONFIG);
     });
 
-    console.log("[mobile-public-config] Returning cached/fresh config, version:", response.version);
+    console.log("[mobile-public-config] Returning config for env:", envName, "version:", response.version);
 
     return new Response(JSON.stringify(response), {
       status: 200,

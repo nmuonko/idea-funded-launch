@@ -389,3 +389,18 @@ verify_jwt = true
 
 [functions.payment-callback]
 verify_jwt = false
+
+[functions.catalog-home]
+verify_jwt = false
+
+[functions.catalog-search]
+verify_jwt = false
+
+[functions.catalog-product]
+verify_jwt = false
+
+[functions.catalog-category]
+verify_jwt = false
+
+[functions.catalog-refresh]
+verify_jwt = true

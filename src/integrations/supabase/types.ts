@@ -535,6 +535,167 @@ export type Database = {
           },
         ]
       }
+      catalog_categories: {
+        Row: {
+          created_at: string | null
+          enabled: boolean | null
+          external_id: string | null
+          icon_url: string | null
+          id: string
+          name: string
+          parent_id: string | null
+          priority: number | null
+          provider_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean | null
+          external_id?: string | null
+          icon_url?: string | null
+          id?: string
+          name: string
+          parent_id?: string | null
+          priority?: number | null
+          provider_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean | null
+          external_id?: string | null
+          icon_url?: string | null
+          id?: string
+          name?: string
+          parent_id?: string | null
+          priority?: number | null
+          provider_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_categories_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_products: {
+        Row: {
+          brand: string | null
+          category_path: string[] | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          expires_at: string | null
+          id: string
+          image_url: string | null
+          in_stock: boolean | null
+          price_usd: number | null
+          product_url: string | null
+          provider_id: string | null
+          provider_product_id: string
+          rating: number | null
+          raw: Json | null
+          review_count: number | null
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          brand?: string | null
+          category_path?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          in_stock?: boolean | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider_id?: string | null
+          provider_product_id: string
+          rating?: number | null
+          raw?: Json | null
+          review_count?: number | null
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          brand?: string | null
+          category_path?: string[] | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          expires_at?: string | null
+          id?: string
+          image_url?: string | null
+          in_stock?: boolean | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider_id?: string | null
+          provider_product_id?: string
+          rating?: number | null
+          raw?: Json | null
+          review_count?: number | null
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_products_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      catalog_providers: {
+        Row: {
+          config: Json | null
+          created_at: string | null
+          display_name: string
+          enabled: boolean | null
+          environment: string | null
+          id: string
+          name: string
+          priority: number | null
+          rate_limit_per_minute: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          config?: Json | null
+          created_at?: string | null
+          display_name: string
+          enabled?: boolean | null
+          environment?: string | null
+          id?: string
+          name: string
+          priority?: number | null
+          rate_limit_per_minute?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          config?: Json | null
+          created_at?: string | null
+          display_name?: string
+          enabled?: boolean | null
+          environment?: string | null
+          id?: string
+          name?: string
+          priority?: number | null
+          rate_limit_per_minute?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       checkout_sessions: {
         Row: {
           cart_snapshot: Json
@@ -725,6 +886,51 @@ export type Database = {
           platform?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      environments: {
+        Row: {
+          api_base_url: string | null
+          catalog_enabled: boolean | null
+          catalog_mode: string | null
+          created_at: string | null
+          id: string
+          is_default: boolean | null
+          min_app_version: string | null
+          name: string
+          ota_channel: string | null
+          ota_enabled: boolean | null
+          provider_secrets_prefix: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          api_base_url?: string | null
+          catalog_enabled?: boolean | null
+          catalog_mode?: string | null
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          min_app_version?: string | null
+          name: string
+          ota_channel?: string | null
+          ota_enabled?: boolean | null
+          provider_secrets_prefix?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          api_base_url?: string | null
+          catalog_enabled?: boolean | null
+          catalog_mode?: string | null
+          created_at?: string | null
+          id?: string
+          is_default?: boolean | null
+          min_app_version?: string | null
+          name?: string
+          ota_channel?: string | null
+          ota_enabled?: boolean | null
+          provider_secrets_prefix?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }

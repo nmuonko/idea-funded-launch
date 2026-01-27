@@ -322,13 +322,15 @@ export function createRainforestAdapter(
 
 /**
  * Fetch bestsellers from Rainforest API
- * IMPORTANT: When using 'url' param, don't include amazon_domain (per Rainforest docs)
+ * IMPORTANT: Rainforest requires either 'category_id' OR 'url' for type=bestsellers
+ * We use a default category_id if neither is provided
  */
 export async function fetchBestsellers(
   amazonDomain: string,
   page: number = 1,
   pageSize: number = 20,
-  bestsellersUrl?: string
+  bestsellersUrl?: string,
+  categoryId?: string
 ): Promise<{ products: CatalogProduct[]; total: number; error: string | null }> {
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
   
@@ -339,18 +341,26 @@ export async function fetchBestsellers(
 
   const startTime = Date.now();
   
+  // Default category: "amazon-devices-accessories" is stable and always has products
+  // Alternative options: "electronics" (node ID varies by region)
+  const DEFAULT_BESTSELLERS_CATEGORY = "bestsellers";
+  
   try {
-    // Build URL params - note: don't combine amazon_domain with url parameter
     const url = new URL(RAINFOREST_BASE_URL);
     url.searchParams.append("api_key", apiKey);
     url.searchParams.append("type", "bestsellers");
+    url.searchParams.append("amazon_domain", amazonDomain);
     
     if (bestsellersUrl) {
-      // When using URL, the domain is inferred from the URL itself
+      // When using URL, it takes precedence
       url.searchParams.append("url", bestsellersUrl);
+    } else if (categoryId) {
+      // Use provided category ID
+      url.searchParams.append("category_id", categoryId);
     } else {
-      // When no URL provided, use domain with a default bestsellers path
-      url.searchParams.append("amazon_domain", amazonDomain);
+      // Use default "bestsellers" which is the root bestsellers page
+      // This is the Amazon Bestsellers landing page
+      url.searchParams.append("category_id", DEFAULT_BESTSELLERS_CATEGORY);
     }
     
     if (page > 1) {
@@ -363,6 +373,7 @@ export async function fetchBestsellers(
       type: "bestsellers",
       domain: amazonDomain,
       hasUrl: !!bestsellersUrl,
+      categoryId: categoryId || DEFAULT_BESTSELLERS_CATEGORY,
     }));
 
     const response = await fetchWithTimeout(

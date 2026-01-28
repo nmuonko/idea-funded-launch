@@ -468,6 +468,165 @@ export type Database = {
           },
         ]
       }
+      cars_api_usage: {
+        Row: {
+          day: string
+          estimated_cost_usd: number
+          id: string
+          month: string
+          total_calls: number
+          updated_at: string
+        }
+        Insert: {
+          day?: string
+          estimated_cost_usd?: number
+          id?: string
+          month?: string
+          total_calls?: number
+          updated_at?: string
+        }
+        Update: {
+          day?: string
+          estimated_cost_usd?: number
+          id?: string
+          month?: string
+          total_calls?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      cars_listings_cache: {
+        Row: {
+          created_at: string
+          id: string
+          image_url: string | null
+          is_trending: boolean | null
+          listing_url: string | null
+          location: string | null
+          make: string | null
+          mileage: number | null
+          model: string | null
+          price: number | null
+          provider: string
+          provider_listing_id: string
+          title: string | null
+          updated_at: string
+          vin: string | null
+          year: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_trending?: boolean | null
+          listing_url?: string | null
+          location?: string | null
+          make?: string | null
+          mileage?: number | null
+          model?: string | null
+          price?: number | null
+          provider?: string
+          provider_listing_id: string
+          title?: string | null
+          updated_at?: string
+          vin?: string | null
+          year?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          is_trending?: boolean | null
+          listing_url?: string | null
+          location?: string | null
+          make?: string | null
+          mileage?: number | null
+          model?: string | null
+          price?: number | null
+          provider?: string
+          provider_listing_id?: string
+          title?: string | null
+          updated_at?: string
+          vin?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
+      cars_rate_limits: {
+        Row: {
+          id: string
+          identifier: string
+          identifier_type: string
+          request_count: number
+          updated_at: string
+          window_date: string
+        }
+        Insert: {
+          id?: string
+          identifier: string
+          identifier_type: string
+          request_count?: number
+          updated_at?: string
+          window_date?: string
+        }
+        Update: {
+          id?: string
+          identifier?: string
+          identifier_type?: string
+          request_count?: number
+          updated_at?: string
+          window_date?: string
+        }
+        Relationships: []
+      }
+      cars_search_cache: {
+        Row: {
+          cache_key: string
+          created_at: string
+          expires_at: string
+          response_json_min: Json
+          result_count: number
+          updated_at: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          expires_at: string
+          response_json_min?: Json
+          result_count?: number
+          updated_at?: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          response_json_min?: Json
+          result_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      cars_settings: {
+        Row: {
+          description: string | null
+          key: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          description?: string | null
+          key: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          description?: string | null
+          key?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: []
+      }
       cart_recovery_ab_tests: {
         Row: {
           cart_value_usd: number | null

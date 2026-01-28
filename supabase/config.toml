@@ -407,3 +407,9 @@ verify_jwt = true
 
 [functions.debug-ebay]
 verify_jwt = false
+
+[functions.cars-search]
+verify_jwt = false
+
+[functions.cars-add-to-cart]
+verify_jwt = true

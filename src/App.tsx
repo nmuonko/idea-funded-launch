@@ -47,6 +47,8 @@ import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import CacheSettings from "./pages/admin/CacheSettings";
+import CarsSettings from "./pages/admin/CarsSettings";
+import Cars from "./pages/Cars";
 
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
 import ServiceZones from "./pages/admin/ServiceZones";
@@ -109,6 +111,7 @@ const App = () => {
             <Route path="/contact" element={<Contact />} />
             <Route path="/delete-account" element={<DeleteAccount />} />
             <Route path="/download" element={<DownloadPage />} />
+            <Route path="/cars" element={<Cars />} />
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
@@ -280,6 +283,11 @@ const App = () => {
               <Route path="cache-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CacheSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="cars-settings" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <CarsSettings />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

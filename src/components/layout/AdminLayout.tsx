@@ -91,6 +91,7 @@ export function AdminLayout() {
     ...(isSuperAdmin ? [{
       title: language === 'fr' ? 'Système' : 'System',
       items: [
+        { to: '/admin/cars-settings', icon: Car, label: language === 'fr' ? 'Voitures' : 'Cars API', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/cache-settings', icon: Database, label: language === 'fr' ? 'Cache' : 'Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },

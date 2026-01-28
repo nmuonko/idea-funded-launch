@@ -847,6 +847,42 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_collection_cache: {
+        Row: {
+          collection_key: string
+          item_ids: Json
+          key: string
+          page: number
+          page_size: number
+          provider: string
+          total: number
+          ttl_seconds: number
+          updated_at: string
+        }
+        Insert: {
+          collection_key: string
+          item_ids?: Json
+          key: string
+          page?: number
+          page_size?: number
+          provider: string
+          total?: number
+          ttl_seconds?: number
+          updated_at?: string
+        }
+        Update: {
+          collection_key?: string
+          item_ids?: Json
+          key?: string
+          page?: number
+          page_size?: number
+          provider?: string
+          total?: number
+          ttl_seconds?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       catalog_collections: {
         Row: {
           description: string | null
@@ -903,7 +939,7 @@ export type Database = {
       }
       catalog_items: {
         Row: {
-          category: string | null
+          category_key: string | null
           id: string
           image_url: string | null
           images: Json | null
@@ -920,7 +956,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
-          category?: string | null
+          category_key?: string | null
           id: string
           image_url?: string | null
           images?: Json | null
@@ -937,7 +973,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
-          category?: string | null
+          category_key?: string | null
           id?: string
           image_url?: string | null
           images?: Json | null

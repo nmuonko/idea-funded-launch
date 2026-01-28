@@ -33,6 +33,44 @@ interface CatalogProvider {
   providerStatusReason: "missing_api_key" | "disabled" | null;
 }
 
+// Tesla-style navigation types
+interface CategoryQuery {
+  title: string;
+  q: string;
+}
+
+interface DrawerItem {
+  slug: string;
+  title: string;
+  icon: string | null;
+  enabled: boolean;
+  source: "db" | "provider";
+  providerScope: string;
+  queries: CategoryQuery[];
+  provider?: string;
+  active?: boolean;
+  badge?: string | null;
+  providerStatusReason?: "missing_api_key" | "disabled" | null;
+}
+
+interface DrawerSection {
+  sectionTitle: string;
+  items: DrawerItem[];
+}
+
+interface HomeSection {
+  title: string;
+  slug: string;
+  source: "db" | "provider";
+  queries: CategoryQuery[];
+}
+
+interface CatalogNavConfig {
+  version: number;
+  drawer: DrawerSection[];
+  homeSections: HomeSection[];
+}
+
 interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
@@ -79,6 +117,10 @@ interface PublicConfigResponse {
   defaultProvider: string;
   providerUiMode: "tabs" | "dropdown" | "chips";
   
+  // NEW: Tesla-style navigation config
+  catalogNav: CatalogNavConfig;
+  catalogNavVersion: number;
+  
   // Environment details (full info)
   envDetails: {
     name: "production" | "staging";
@@ -90,13 +132,23 @@ interface PublicConfigResponse {
   };
 }
 
+// Provider display names for Stores section
+const PROVIDER_STORE_NAMES: Record<string, string> = {
+  rainforest: "Amazon",
+  bluecart: "Walmart",
+  redcircle: "Target",
+  bigbox: "Home Depot",
+  serpwow: "Google Shopping",
+  countdown: "Countdown",
+};
+
 async function fetchConfig(envName: "production" | "staging"): Promise<PublicConfigResponse> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Fetch settings and environment config in parallel
-  const [settingsResult, envConfig, providersResult] = await Promise.all([
+  // Fetch settings, environment config, providers, categories, and nav settings in parallel
+  const [settingsResult, envConfig, providersResult, categoriesResult, navSettingsResult] = await Promise.all([
     supabase
       .from("settings")
       .select(`
@@ -117,9 +169,19 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     getEnvironmentConfig(supabase, envName),
     supabase
       .from("catalog_providers")
-      .select("name, display_name, enabled, priority, logo_url, color_hex, capabilities, requires_keys, adapter_name")
+      .select("name, display_name, enabled, priority, logo_url, color_hex, capabilities, requires_keys, adapter_name, secret_key_name")
       .or(`environment.eq.all,environment.eq.${envName}`)
       .order("priority", { ascending: false }),
+    supabase
+      .from("catalog_categories")
+      .select("slug, title, group_title, enabled, priority, provider_scope, queries, icon")
+      .eq("enabled", true)
+      .order("priority", { ascending: false }),
+    supabase
+      .from("catalog_nav_settings")
+      .select("home_sections, drawer_order, version")
+      .eq("key", "default")
+      .maybeSingle(),
   ]);
 
   const { data: settings, error } = settingsResult;
@@ -218,6 +280,75 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     },
   };
 
+  // Build Tesla-style navigation config from categories and nav settings
+  const categories = categoriesResult.data || [];
+  const navSettings = navSettingsResult.data;
+  
+  // Group categories by group_title for drawer sections
+  const categoryGroups = new Map<string, DrawerItem[]>();
+  for (const cat of categories) {
+    const groupTitle = (cat as any).group_title || "Other";
+    if (!categoryGroups.has(groupTitle)) {
+      categoryGroups.set(groupTitle, []);
+    }
+    categoryGroups.get(groupTitle)!.push({
+      slug: (cat as any).slug,
+      title: (cat as any).title,
+      icon: (cat as any).icon,
+      enabled: (cat as any).enabled,
+      source: "db",
+      providerScope: (cat as any).provider_scope || "all",
+      queries: ((cat as any).queries || []) as CategoryQuery[],
+    });
+  }
+
+  // Build drawer sections from category groups
+  const drawerOrder = (navSettings?.drawer_order || ["Electronics", "Charging", "Vehicles", "Stores"]) as string[];
+  const drawer: DrawerSection[] = [];
+
+  for (const sectionTitle of drawerOrder) {
+    if (sectionTitle === "Stores") {
+      // Build Stores section from providers
+      const storeItems: DrawerItem[] = catalogProviders.map(p => ({
+        slug: p.name,
+        title: PROVIDER_STORE_NAMES[p.name] || p.displayName,
+        icon: "store",
+        enabled: p.enabled,
+        source: "provider" as const,
+        providerScope: p.name,
+        queries: [],
+        provider: p.name,
+        active: p.active,
+        badge: p.active ? null : "Soon",
+        providerStatusReason: p.providerStatusReason,
+      }));
+      if (storeItems.length > 0) {
+        drawer.push({ sectionTitle: "Stores", items: storeItems });
+      }
+    } else {
+      const items = categoryGroups.get(sectionTitle);
+      if (items && items.length > 0) {
+        drawer.push({ sectionTitle, items });
+      }
+    }
+  }
+
+  // Add remaining sections not in drawer_order
+  for (const [sectionTitle, items] of categoryGroups) {
+    if (!drawerOrder.includes(sectionTitle) && items.length > 0) {
+      drawer.push({ sectionTitle, items });
+    }
+  }
+
+  const homeSections: HomeSection[] = (navSettings?.home_sections || []) as HomeSection[];
+  const catalogNavVersion = navSettings?.version || 1;
+
+  const catalogNav: CatalogNavConfig = {
+    version: catalogNavVersion,
+    drawer,
+    homeSections,
+  };
+
   if (!settings) {
     console.warn("[mobile-public-config] No settings found - returning defaults");
     return {
@@ -239,6 +370,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogProviders,
       defaultProvider,
       providerUiMode,
+      catalogNav,
+      catalogNavVersion,
       envDetails: envInfo,
     };
   }
@@ -265,6 +398,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogProviders,
       defaultProvider,
       providerUiMode,
+      catalogNav,
+      catalogNavVersion,
       envDetails: envInfo,
     };
   }
@@ -365,6 +500,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogProviders,
     defaultProvider,
     providerUiMode,
+    catalogNav,
+    catalogNavVersion,
     envDetails: envInfo,
   };
 }

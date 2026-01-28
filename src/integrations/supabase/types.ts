@@ -618,61 +618,39 @@ export type Database = {
       }
       catalog_categories: {
         Row: {
-          created_at: string | null
-          enabled: boolean | null
-          external_id: string | null
-          icon_url: string | null
-          id: string
-          name: string
-          parent_id: string | null
-          priority: number | null
-          provider_id: string | null
+          enabled: boolean
+          group_title: string
+          icon: string | null
+          priority: number
+          provider_scope: string
+          queries: Json
+          slug: string
+          title: string
+          updated_at: string
         }
         Insert: {
-          created_at?: string | null
-          enabled?: boolean | null
-          external_id?: string | null
-          icon_url?: string | null
-          id?: string
-          name: string
-          parent_id?: string | null
-          priority?: number | null
-          provider_id?: string | null
+          enabled?: boolean
+          group_title?: string
+          icon?: string | null
+          priority?: number
+          provider_scope?: string
+          queries?: Json
+          slug: string
+          title: string
+          updated_at?: string
         }
         Update: {
-          created_at?: string | null
-          enabled?: boolean | null
-          external_id?: string | null
-          icon_url?: string | null
-          id?: string
-          name?: string
-          parent_id?: string | null
-          priority?: number | null
-          provider_id?: string | null
+          enabled?: boolean
+          group_title?: string
+          icon?: string | null
+          priority?: number
+          provider_scope?: string
+          queries?: Json
+          slug?: string
+          title?: string
+          updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "catalog_categories_parent_id_fkey"
-            columns: ["parent_id"]
-            isOneToOne: false
-            referencedRelation: "catalog_categories"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "catalog_categories_provider_id_fkey"
-            columns: ["provider_id"]
-            isOneToOne: false
-            referencedRelation: "catalog_providers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "catalog_categories_provider_id_fkey"
-            columns: ["provider_id"]
-            isOneToOne: false
-            referencedRelation: "catalog_providers_public"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       catalog_collections: {
         Row: {
@@ -779,6 +757,30 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_nav_settings: {
+        Row: {
+          drawer_order: Json
+          home_sections: Json
+          key: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          drawer_order?: Json
+          home_sections?: Json
+          key?: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          drawer_order?: Json
+          home_sections?: Json
+          key?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       catalog_products: {
         Row: {
           brand: string | null
@@ -873,6 +875,7 @@ export type Database = {
           priority: number | null
           rate_limit_per_minute: number | null
           requires_keys: Json
+          secret_key_name: string | null
           updated_at: string | null
         }
         Insert: {
@@ -890,6 +893,7 @@ export type Database = {
           priority?: number | null
           rate_limit_per_minute?: number | null
           requires_keys?: Json
+          secret_key_name?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -907,6 +911,7 @@ export type Database = {
           priority?: number | null
           rate_limit_per_minute?: number | null
           requires_keys?: Json
+          secret_key_name?: string | null
           updated_at?: string | null
         }
         Relationships: []
@@ -3309,34 +3314,43 @@ export type Database = {
     Views: {
       catalog_providers_public: {
         Row: {
+          adapter_name: string | null
           capabilities: Json | null
           color_hex: string | null
           display_name: string | null
           enabled: boolean | null
+          environment: string | null
           id: string | null
           logo_url: string | null
           name: string | null
           priority: number | null
+          updated_at: string | null
         }
         Insert: {
+          adapter_name?: string | null
           capabilities?: Json | null
           color_hex?: string | null
           display_name?: string | null
           enabled?: boolean | null
+          environment?: string | null
           id?: string | null
           logo_url?: string | null
           name?: string | null
           priority?: number | null
+          updated_at?: string | null
         }
         Update: {
+          adapter_name?: string | null
           capabilities?: Json | null
           color_hex?: string | null
           display_name?: string | null
           enabled?: boolean | null
+          environment?: string | null
           id?: string | null
           logo_url?: string | null
           name?: string | null
           priority?: number | null
+          updated_at?: string | null
         }
         Relationships: []
       }

@@ -629,6 +629,13 @@ export type Database = {
             referencedRelation: "catalog_providers"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "catalog_categories_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_providers_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       catalog_config: {
@@ -725,6 +732,13 @@ export type Database = {
             columns: ["provider_id"]
             isOneToOne: false
             referencedRelation: "catalog_providers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "catalog_products_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_providers_public"
             referencedColumns: ["id"]
           },
         ]
@@ -3152,6 +3166,39 @@ export type Database = {
       }
     }
     Views: {
+      catalog_providers_public: {
+        Row: {
+          capabilities: Json | null
+          color_hex: string | null
+          display_name: string | null
+          enabled: boolean | null
+          id: string | null
+          logo_url: string | null
+          name: string | null
+          priority: number | null
+        }
+        Insert: {
+          capabilities?: Json | null
+          color_hex?: string | null
+          display_name?: string | null
+          enabled?: boolean | null
+          id?: string | null
+          logo_url?: string | null
+          name?: string | null
+          priority?: number | null
+        }
+        Update: {
+          capabilities?: Json | null
+          color_hex?: string | null
+          display_name?: string | null
+          enabled?: boolean | null
+          id?: string | null
+          logo_url?: string | null
+          name?: string | null
+          priority?: number | null
+        }
+        Relationships: []
+      }
       public_settings: {
         Row: {
           exchange_rate_usd_to_cdf: number | null

@@ -258,11 +258,14 @@ Deno.serve(async (req: Request) => {
     if (effectiveProvider === "ebay") {
       // eBay product detail
       try {
-        const ebayItem = await getEbayItem(supabase, productId!);
+        const ebayResult = await getEbayItem(supabase, productId!);
         
-        if (!ebayItem) {
+        if (!ebayResult.item) {
+          console.log(`[CATALOG_PRODUCT] eBay item not found: id=${productId} debug=`, JSON.stringify(ebayResult.debug));
           return errorResponse("NOT_FOUND", "Product not found on eBay");
         }
+        
+        const ebayItem = ebayResult.item;
         
         // HARD BLOCK: Check if item is disallowed
         const blockCheck = isDisallowedItem({
@@ -317,6 +320,7 @@ Deno.serve(async (req: Request) => {
           item,
           source: "live",
           cached: false,
+          providerDebug: { ebay: ebayResult.debug },
           error: null,
         }), {
           status: 200,

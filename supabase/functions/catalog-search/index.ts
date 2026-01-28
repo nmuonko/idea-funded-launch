@@ -21,7 +21,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
-import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
+import { searchEbay, CatalogItem as EbayCatalogItem, EbaySearchDebug } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { 
   filterDisallowedItems, 
@@ -627,9 +627,11 @@ Deno.serve(async (req: Request) => {
       }
 
       // Try eBay if we still need more items
+      let ebayDebug: EbaySearchDebug | null = null;
       if (liveItems.length < MIN_RESULTS_FOR_DB) {
         try {
           const ebayResult = await searchEbay(supabase, qNorm, 1, Math.min(20, pageSize));
+          ebayDebug = ebayResult.debug;
           
           if (ebayResult.items.length > 0) {
             // Map eBay items to our format and add to live items
@@ -647,7 +649,7 @@ Deno.serve(async (req: Request) => {
             
             liveItems.push(...ebayMapped);
             
-            // Cache eBay items to catalog_items
+            // Only cache to catalog_items if we got valid items (not empty)
             const toUpsertEbay = ebayMapped.map(item => ({
               id: item.id,
               provider: "ebay",
@@ -666,9 +668,18 @@ Deno.serve(async (req: Request) => {
             
             await supabase.from("catalog_items").upsert(toUpsertEbay, { onConflict: "id" });
             console.log(`[CATALOG_SEARCH] eBay returned ${ebayResult.items.length} items`);
+          } else {
+            // Log empty eBay result for debugging
+            console.log(`[CATALOG_SEARCH] eBay returned 0 items, debug:`, JSON.stringify(ebayDebug));
           }
         } catch (err) {
           console.warn(`[CATALOG_SEARCH] eBay search error:`, err);
+          ebayDebug = {
+            enabled: true,
+            tokenOk: false,
+            itemCount: 0,
+            error: err instanceof Error ? err.message : "Unknown error",
+          };
         }
       }
 
@@ -682,14 +693,16 @@ Deno.serve(async (req: Request) => {
       }
 
       // Store exact cache (for future exact queries)
+      // IMPORTANT: Only cache if we got valid results, use negative cache otherwise
       if (resultItems.length > 0) {
         await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
       } else {
-        // Negative cache (short TTL)
+        // Negative cache (short TTL of 60-120 seconds) - prevents poisoning
         await saveToCache(supabase, exactCacheKey, [], cacheSettings, true);
       }
 
       // Store/update family cache with larger result set
+      // Only store if we got actual items (not empty results)
       if (liveItems.length > 0 && familyQuery.length >= 2) {
         const familyCacheKey = buildFamilyCacheKey(familyQuery, amazonDomain);
         const existingFamily = await getFromCache(supabase, familyCacheKey);
@@ -703,6 +716,11 @@ Deno.serve(async (req: Request) => {
         }
         
         await saveToCache(supabase, familyCacheKey, familyItems, cacheSettings, false);
+      }
+      
+      // Store eBay debug info for response (staging only debug)
+      if (ebayDebug) {
+        (globalThis as any).__ebayDebug = ebayDebug;
       }
     }
 
@@ -726,14 +744,38 @@ Deno.serve(async (req: Request) => {
     
     // Map back filtered items
     const allowedIds = new Set(filteredItems.map(i => i.id));
-    resultItems = resultItems.filter(item => allowedIds.has(item.id));
+    let finalItems = resultItems.filter(item => allowedIds.has(item.id));
 
-    if (removedCount > 0) {
-      console.log(`[CATALOG_SEARCH] Filtered: removed=${removedCount} remaining=${resultItems.length} reasons=${JSON.stringify(reasons)}`);
+    // FILTER SAFETY: If filtering removed ALL items but we had some, log and return unfiltered (staging debug)
+    let filterOverblock = false;
+    if (finalItems.length === 0 && beforeFilter > 0) {
+      console.log(`[EBAY_FILTER] FILTER_OVERBLOCK: before=${beforeFilter}, after=0, returning unfiltered items`);
+      filterOverblock = true;
+      // Return unfiltered items in staging to debug
+      finalItems = resultItems;
     }
+
+    if (removedCount > 0 && !filterOverblock) {
+      console.log(`[EBAY_FILTER] { before: ${beforeFilter}, removed: ${removedCount}, after: ${finalItems.length}, topRemovedReasons: ${JSON.stringify(reasons)} }`);
+    }
+
+    resultItems = finalItems;
 
     const durationMs = Date.now() - startTime;
     console.log(`[CATALOG_SEARCH] Done: ${resultItems.length} items, reusedFrom=${reusedFrom}, cached=${cached}, stale=${stale}, durationMs=${durationMs}`);
+
+    // Build providerDebug for staging
+    const ebayDebugInfo = (globalThis as any).__ebayDebug as EbaySearchDebug | undefined;
+    const providerDebug = ebayDebugInfo ? {
+      ebay: {
+        ...ebayDebugInfo,
+        filteredOut: removedCount,
+        filterOverblock,
+      },
+    } : undefined;
+    
+    // Clean up global
+    delete (globalThis as any).__ebayDebug;
 
     return new Response(JSON.stringify({
       status: "success",
@@ -753,6 +795,8 @@ Deno.serve(async (req: Request) => {
       cacheAgeSec,
       reusedFrom,
       removedDisallowedCount: removedCount,
+      filterOverblock,
+      providerDebug,
       durationMs,
       error: null,
     }), {

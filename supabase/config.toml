@@ -404,3 +404,6 @@ verify_jwt = false
 
 [functions.catalog-refresh]
 verify_jwt = true
+
+[functions.debug-ebay]
+verify_jwt = false

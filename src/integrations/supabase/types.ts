@@ -316,6 +316,42 @@ export type Database = {
           },
         ]
       }
+      app_runtime_config: {
+        Row: {
+          blocks: Json
+          env: string
+          home: Json
+          id: string
+          providers: Json
+          search: Json
+          ui: Json
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          blocks?: Json
+          env: string
+          home?: Json
+          id?: string
+          providers?: Json
+          search?: Json
+          ui?: Json
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          blocks?: Json
+          env?: string
+          home?: Json
+          id?: string
+          providers?: Json
+          search?: Json
+          ui?: Json
+          updated_at?: string
+          version?: number
+        }
+        Relationships: []
+      }
       bank_transfer_settings: {
         Row: {
           account_number_or_iban: string

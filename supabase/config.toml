@@ -413,3 +413,6 @@ verify_jwt = false
 
 [functions.cars-add-to-cart]
 verify_jwt = true
+
+[functions.catalog-collection]
+verify_jwt = false

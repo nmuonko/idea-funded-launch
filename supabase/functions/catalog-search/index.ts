@@ -1,12 +1,13 @@
 /**
- * Catalog Search Endpoint - DB-First with Optional Live Fallback
+ * Catalog Search Endpoint - Smart 3-Layer Caching
  * 
- * GET /catalog-search?q=iphone&source=db&page=1&pageSize=20
+ * GET /catalog-search?q=iphone&page=1&pageSize=20
  * 
- * DB-First Strategy:
- * - Default: Search catalog_items table (instant, free)
- * - Live fallback: Only if source=live OR db results < 5
- * - Live results cached immediately to catalog_items
+ * 3-Layer "Avoid Rainforest" Pipeline:
+ * 1. Exact cache lookup (fastest)
+ * 2. Family cache reuse (smart - "iphone 13" reuses "iphone" cache)
+ * 3. DB-first search (catalog_items trigram)
+ * 4. Live Rainforest (only as last resort)
  * 
  * French Query Expansion (expand=1):
  * - Detects French vs English queries
@@ -27,8 +28,20 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=60",
 };
 
-// Minimum DB results before triggering live fallback
-const MIN_DB_RESULTS = 5;
+// Minimum results before trying next layer
+const MIN_RESULTS_FOR_CACHE_REUSE = 8;
+const MIN_RESULTS_FOR_DB = 5;
+const FAMILY_CACHE_SIZE = 50;
+
+// Stopwords to remove when extracting family tokens
+const STOPWORDS = new Set([
+  // English
+  "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "is", "it", "as",
+  // French  
+  "le", "la", "les", "un", "une", "des", "et", "ou", "de", "du", "au", "aux", "en", "dans", "sur", "pour", "avec", "par",
+  // Common modifiers
+  "new", "nouveau", "nouvelle", "best", "meilleur", "top", "pro", "max", "plus", "ultra", "mini", "lite",
+]);
 
 // ==================== LANGUAGE DETECTION ====================
 
@@ -102,6 +115,8 @@ const SYNONYM_MAP: Record<string, string[]> = {
   "keyboard": ["wireless keyboard", "mechanical keyboard"],
 };
 
+// ==================== QUERY NORMALIZATION ====================
+
 function removeAccents(str: string): string {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -113,6 +128,27 @@ function normalizeQuery(q: string): string {
 function hasAccents(q: string): boolean {
   return /[àâäéèêëïîôùûüÿçœæ]/i.test(q);
 }
+
+function tokenize(q: string): string[] {
+  return q.split(/\s+/).filter(t => t.length > 0);
+}
+
+function extractFamilyTokens(tokens: string[]): string[] {
+  // Remove stopwords and numbers
+  return tokens.filter(t => !STOPWORDS.has(t) && !/^\d+$/.test(t));
+}
+
+function extractNumbers(tokens: string[]): string[] {
+  // Extract numbers (like "13", "14", "17")
+  return tokens.filter(t => /^\d+$/.test(t));
+}
+
+function buildFamilyQuery(tokens: string[]): string {
+  const familyTokens = extractFamilyTokens(tokens);
+  return familyTokens.join(" ");
+}
+
+// ==================== LANGUAGE HELPERS ====================
 
 function detectQueryLanguage(q: string): "fr" | "en" | "unknown" {
   const normalized = normalizeQuery(q);
@@ -189,6 +225,8 @@ function buildQueryVariants(originalQuery: string, expand: boolean): string[] {
   return variants.slice(0, 3);
 }
 
+// ==================== TYPES ====================
+
 interface CatalogItem {
   id: string;
   providerProductId: string;
@@ -202,6 +240,12 @@ interface CatalogItem {
   reviewCount?: number | null;
   brand?: string | null;
   category?: string | null;
+}
+
+interface CacheSettings {
+  search_stale_minutes: number;
+  search_expires_minutes: number;
+  negative_expires_seconds: number;
 }
 
 function mapDbItemToResponse(item: any): CatalogItem {
@@ -221,6 +265,101 @@ function mapDbItemToResponse(item: any): CatalogItem {
   };
 }
 
+// ==================== CACHE HELPERS ====================
+
+function buildExactCacheKey(qNorm: string, page: number, pageSize: number, expand: boolean, domain: string): string {
+  return `search:v3:q=${qNorm}:page=${page}:size=${pageSize}:expand=${expand ? 1 : 0}:domain=${domain}`;
+}
+
+function buildFamilyCacheKey(familyQuery: string, domain: string): string {
+  return `search_family:v3:q=${familyQuery}:page=1:size=${FAMILY_CACHE_SIZE}:domain=${domain}`;
+}
+
+async function getCacheSettings(supabase: any): Promise<CacheSettings> {
+  const { data } = await supabase
+    .from("catalog_cache_settings")
+    .select("search_stale_minutes, search_expires_minutes, negative_expires_seconds")
+    .eq("key", "default")
+    .single();
+  
+  return data || {
+    search_stale_minutes: 240,
+    search_expires_minutes: 2880,
+    negative_expires_seconds: 120,
+  };
+}
+
+async function getFromCache(supabase: any, cacheKey: string): Promise<{ items: CatalogItem[] | null; stale: boolean; cacheAgeSeconds: number }> {
+  const { data } = await supabase
+    .from("catalog_cache")
+    .select("response, stale_at, updated_at")
+    .eq("cache_key", cacheKey)
+    .gt("expires_at", new Date().toISOString())
+    .single();
+  
+  if (!data) {
+    return { items: null, stale: false, cacheAgeSeconds: 0 };
+  }
+  
+  const now = new Date();
+  const staleAt = new Date(data.stale_at);
+  const updatedAt = new Date(data.updated_at);
+  const cacheAgeSeconds = Math.floor((now.getTime() - updatedAt.getTime()) / 1000);
+  
+  return {
+    items: data.response?.items || null,
+    stale: now > staleAt,
+    cacheAgeSeconds,
+  };
+}
+
+async function saveToCache(
+  supabase: any,
+  cacheKey: string,
+  items: CatalogItem[],
+  settings: CacheSettings,
+  isNegative: boolean = false
+): Promise<void> {
+  const now = new Date();
+  const staleMinutes = isNegative ? 1 : settings.search_stale_minutes;
+  const expiresMinutes = isNegative ? Math.ceil(settings.negative_expires_seconds / 60) : settings.search_expires_minutes;
+  
+  const staleAt = new Date(now.getTime() + staleMinutes * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + expiresMinutes * 60 * 1000);
+  
+  await supabase
+    .from("catalog_cache")
+    .upsert({
+      cache_key: cacheKey,
+      cache_type: "search",
+      response: { items },
+      stale_at: staleAt.toISOString(),
+      expires_at: expiresAt.toISOString(),
+      updated_at: now.toISOString(),
+    }, { onConflict: "cache_key" });
+}
+
+// ==================== FAMILY CACHE FILTERING ====================
+
+function filterItemsByTokens(items: CatalogItem[], originalTokens: string[], numbers: string[]): CatalogItem[] {
+  // Filter cached items to match original query tokens
+  const nonStopTokens = originalTokens.filter(t => !STOPWORDS.has(t));
+  
+  return items.filter(item => {
+    const titleLower = (item.title || "").toLowerCase();
+    
+    // All non-stopword tokens must appear in title
+    const tokensMatch = nonStopTokens.every(token => titleLower.includes(token));
+    
+    // If original query has numbers, at least one must appear
+    const numbersMatch = numbers.length === 0 || numbers.some(num => titleLower.includes(num));
+    
+    return tokensMatch && numbersMatch;
+  });
+}
+
+// ==================== MAIN HANDLER ====================
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -236,13 +375,25 @@ Deno.serve(async (req: Request) => {
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
   const expand = url.searchParams.get("expand") !== "0";
   const lang = url.searchParams.get("lang") || "fr";
-  const source = url.searchParams.get("source") || "db"; // db | live | auto
   const envName = getEnvironmentFromRequest(req);
   const deviceId = getDeviceId(req);
 
+  // Tokenize for family matching
+  const tokens = tokenize(qNorm);
+  const familyTokens = extractFamilyTokens(tokens);
+  const familyQuery = familyTokens.join(" ");
+  const queryNumbers = extractNumbers(tokens);
   const queryVariants = buildQueryVariants(qOriginal, expand);
 
-  console.log("[CATALOG_SEARCH]", { q: qOriginal, qNorm, source, queryVariants, page, env: envName });
+  console.log("[CATALOG_SEARCH]", { 
+    q: qOriginal, 
+    qNorm, 
+    familyQuery, 
+    queryNumbers, 
+    queryVariants, 
+    page, 
+    env: envName 
+  });
 
   if (!qNorm) {
     return new Response(JSON.stringify({
@@ -252,11 +403,16 @@ Deno.serve(async (req: Request) => {
       lang,
       expand: expand ? 1 : 0,
       queryVariants: [],
+      familyQuery: null,
       page,
       pageSize,
       total: 0,
       items: [],
       source: "empty",
+      cached: false,
+      stale: false,
+      cacheAgeSec: 0,
+      reusedFrom: null,
       error: null,
     }), {
       status: 200,
@@ -297,50 +453,98 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    let dbItems: CatalogItem[] = [];
+    // Load cache settings
+    const cacheSettings = await getCacheSettings(supabase);
+    
+    let resultItems: CatalogItem[] = [];
+    let reusedFrom: string | null = null;
+    let cached = false;
+    let stale = false;
+    let cacheAgeSec = 0;
     let usedLiveFallback = false;
 
-    // ========== DB SEARCH ==========
-    if (source === "db" || source === "auto") {
-      // Search all query variants against DB
-      const searchTerms = queryVariants.map(v => `%${v}%`);
-      
-      // Build OR conditions for title search
-      const { data: items, count } = await supabase
-        .from("catalog_items")
-        .select("*", { count: "exact" })
-        .or(searchTerms.map(t => `title.ilike.${t}`).join(","))
-        .order("rating", { ascending: false, nullsFirst: false })
-        .range((page - 1) * pageSize, page * pageSize - 1);
-
-      if (items && items.length > 0) {
-        dbItems = items.map(mapDbItemToResponse);
-      }
-
-      // Also search by tags and category
-      if (dbItems.length < pageSize) {
-        const { data: tagItems } = await supabase
-          .from("catalog_items")
-          .select("*")
-          .or(`category.ilike.%${qNorm}%,tags.cs.{${qNorm}}`)
-          .order("rating", { ascending: false, nullsFirst: false })
-          .limit(pageSize - dbItems.length);
-
-        if (tagItems && tagItems.length > 0) {
-          const existingIds = new Set(dbItems.map(i => i.id));
-          const newItems = tagItems
-            .filter(i => !existingIds.has(i.id))
-            .map(mapDbItemToResponse);
-          dbItems = [...dbItems, ...newItems];
-        }
-      }
-
-      console.log(`[CATALOG_SEARCH] DB search found ${dbItems.length} items`);
+    // ==================== STEP 1: EXACT CACHE ====================
+    const exactCacheKey = buildExactCacheKey(qNorm, page, pageSize, expand, amazonDomain);
+    const exactCache = await getFromCache(supabase, exactCacheKey);
+    
+    if (exactCache.items && exactCache.items.length > 0) {
+      console.log(`[CATALOG_SEARCH] Step 1: Exact cache hit (${exactCache.items.length} items, stale=${exactCache.stale})`);
+      resultItems = exactCache.items;
+      reusedFrom = "exact_cache";
+      cached = true;
+      stale = exactCache.stale;
+      cacheAgeSec = exactCache.cacheAgeSeconds;
     }
 
-    // ========== LIVE FALLBACK (if needed) ==========
-    if ((source === "live") || (source === "auto" && dbItems.length < MIN_DB_RESULTS)) {
-      console.log(`[CATALOG_SEARCH] Using live fallback (source=${source}, dbItems=${dbItems.length})`);
+    // ==================== STEP 2: FAMILY CACHE REUSE ====================
+    if (resultItems.length === 0 && familyQuery.length >= 2 && familyQuery !== qNorm) {
+      const familyCacheKey = buildFamilyCacheKey(familyQuery, amazonDomain);
+      const familyCache = await getFromCache(supabase, familyCacheKey);
+      
+      if (familyCache.items && familyCache.items.length > 0) {
+        // Filter family cache to match original tokens
+        const filtered = filterItemsByTokens(familyCache.items, tokens, queryNumbers);
+        console.log(`[CATALOG_SEARCH] Step 2: Family cache has ${familyCache.items.length} items, filtered to ${filtered.length}`);
+        
+        if (filtered.length >= MIN_RESULTS_FOR_CACHE_REUSE) {
+          resultItems = filtered.slice(0, pageSize);
+          reusedFrom = "family_cache";
+          cached = true;
+          stale = familyCache.stale;
+          cacheAgeSec = familyCache.cacheAgeSeconds;
+        }
+      }
+    }
+
+    // ==================== STEP 3: DB SEARCH ====================
+    if (resultItems.length < MIN_RESULTS_FOR_DB) {
+      console.log(`[CATALOG_SEARCH] Step 3: DB search (current=${resultItems.length})`);
+      
+      // Search using trigram on search_text
+      const searchTerms = queryVariants.map(v => `%${v}%`);
+      const { data: dbItems } = await supabase
+        .from("catalog_items")
+        .select("*")
+        .or(searchTerms.map(t => `search_text.ilike.${t}`).join(","))
+        .order("rating", { ascending: false, nullsFirst: false })
+        .limit(pageSize);
+
+      if (dbItems && dbItems.length > 0) {
+        const mapped = dbItems.map(mapDbItemToResponse);
+        
+        // Merge with any existing results
+        if (resultItems.length > 0) {
+          const existingIds = new Set(resultItems.map(i => i.id));
+          const newItems = mapped.filter(i => !existingIds.has(i.id));
+          resultItems = [...resultItems, ...newItems].slice(0, pageSize);
+        } else {
+          resultItems = mapped;
+          reusedFrom = "db";
+        }
+        
+        console.log(`[CATALOG_SEARCH] Step 3: DB found ${dbItems.length} items, total now ${resultItems.length}`);
+      }
+      
+      // Also try title/category search if needed
+      if (resultItems.length < MIN_RESULTS_FOR_DB) {
+        const { data: titleItems } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .or(`title.ilike.%${qNorm}%,category.ilike.%${qNorm}%`)
+          .order("rating", { ascending: false, nullsFirst: false })
+          .limit(pageSize - resultItems.length);
+        
+        if (titleItems && titleItems.length > 0) {
+          const existingIds = new Set(resultItems.map(i => i.id));
+          const newItems = titleItems.filter(i => !existingIds.has(i.id)).map(mapDbItemToResponse);
+          resultItems = [...resultItems, ...newItems];
+        }
+      }
+    }
+
+    // ==================== STEP 4: LIVE RAINFOREST (last resort) ====================
+    if (resultItems.length < MIN_RESULTS_FOR_DB) {
+      console.log(`[CATALOG_SEARCH] Step 4: Live Rainforest fallback (current=${resultItems.length})`);
       usedLiveFallback = true;
 
       // Only search first 2 variants to limit API calls
@@ -352,7 +556,7 @@ Deno.serve(async (req: Request) => {
           const { products, error: rainforestError } = await searchRainforest(
             variant,
             1, // Only page 1
-            Math.min(20, pageSize), // Max 20 per variant
+            Math.min(20, pageSize),
             amazonDomain
           );
 
@@ -360,7 +564,7 @@ Deno.serve(async (req: Request) => {
             const formatted = products.map(formatCatalogItem);
             liveItems.push(...formatted);
 
-            // Cache results to catalog_items immediately
+            // Cache to catalog_items
             const toUpsert = formatted.map(item => ({
               id: item.id,
               provider: "rainforest",
@@ -373,7 +577,7 @@ Deno.serve(async (req: Request) => {
               in_stock: item.inStock,
               rating: item.rating,
               category: "uncategorized",
-              tags: [qNorm],
+              tags: [qNorm, ...familyTokens],
               updated_at: new Date().toISOString(),
             }));
 
@@ -384,14 +588,48 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Merge with DB results, dedupe by ID
-      const existingIds = new Set(dbItems.map(i => i.id));
+      // Merge with existing results
+      const existingIds = new Set(resultItems.map(i => i.id));
       const newLiveItems = liveItems.filter(i => !existingIds.has(i.id));
-      dbItems = [...dbItems, ...newLiveItems].slice(0, pageSize);
+      resultItems = [...resultItems, ...newLiveItems].slice(0, pageSize);
+      
+      if (!reusedFrom) {
+        reusedFrom = "rainforest";
+      }
+
+      // Store exact cache (for future exact queries)
+      if (resultItems.length > 0) {
+        await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
+      } else {
+        // Negative cache (short TTL)
+        await saveToCache(supabase, exactCacheKey, [], cacheSettings, true);
+      }
+
+      // Store/update family cache with larger result set
+      if (liveItems.length > 0 && familyQuery.length >= 2) {
+        const familyCacheKey = buildFamilyCacheKey(familyQuery, amazonDomain);
+        const existingFamily = await getFromCache(supabase, familyCacheKey);
+        
+        let familyItems = liveItems;
+        if (existingFamily.items && existingFamily.items.length > 0) {
+          // Merge with existing family cache
+          const existingIds = new Set(existingFamily.items.map(i => i.id));
+          const newItems = liveItems.filter(i => !existingIds.has(i.id));
+          familyItems = [...existingFamily.items, ...newItems].slice(0, FAMILY_CACHE_SIZE);
+        }
+        
+        await saveToCache(supabase, familyCacheKey, familyItems, cacheSettings, false);
+      }
+    }
+
+    // ==================== CACHE EXACT RESULT (if from cache/db layers) ====================
+    if (!usedLiveFallback && resultItems.length > 0 && !cached) {
+      // Cache DB results for exact query
+      await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
     }
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_SEARCH] Returning ${dbItems.length} items, usedLive=${usedLiveFallback}, durationMs=${durationMs}`);
+    console.log(`[CATALOG_SEARCH] Done: ${resultItems.length} items, reusedFrom=${reusedFrom}, cached=${cached}, stale=${stale}, durationMs=${durationMs}`);
 
     return new Response(JSON.stringify({
       status: "success",
@@ -400,12 +638,16 @@ Deno.serve(async (req: Request) => {
       lang,
       expand: expand ? 1 : 0,
       queryVariants,
+      familyQuery: familyQuery.length >= 2 ? familyQuery : null,
       page,
       pageSize,
-      total: dbItems.length,
-      items: dbItems,
-      source: usedLiveFallback ? "db+live" : "db",
-      cached: !usedLiveFallback,
+      total: resultItems.length,
+      items: resultItems,
+      source: usedLiveFallback ? "db+rainforest" : (reusedFrom || "db"),
+      cached,
+      stale,
+      cacheAgeSec,
+      reusedFrom,
       durationMs,
       error: null,
     }), {
@@ -424,11 +666,15 @@ Deno.serve(async (req: Request) => {
       lang,
       expand: expand ? 1 : 0,
       queryVariants: [],
+      familyQuery: null,
       page,
       pageSize,
       total: null,
       items: [],
       cached: false,
+      stale: false,
+      cacheAgeSec: 0,
+      reusedFrom: null,
       error: { code: "INTERNAL_ERROR", message: "Search service error" },
     }), {
       status: 200,

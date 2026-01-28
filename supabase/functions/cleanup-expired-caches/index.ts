@@ -1,4 +1,4 @@
-// Cleanup expired cache entries from price_cache, product_cache, and product_hot_cache tables
+// Cleanup expired cache entries from all cache tables
 // Triggered via cron job (every 5-15 minutes) or manually by admin
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -61,7 +61,7 @@ serve(async (req) => {
       console.log('[cleanup-expired-caches] Search cache cleaned successfully');
     }
 
-    // 5. Clean CATALOG_CACHE expired entries (including negative cache)
+    // 5. Clean CATALOG_CACHE expired entries (including negative cache and family cache)
     const now = new Date().toISOString();
     const { error: catalogCacheError, count: catalogCacheDeleted } = await supabase
       .from('catalog_cache')
@@ -74,13 +74,27 @@ serve(async (req) => {
       console.log(`[cleanup-expired-caches] Catalog cache cleaned: ${catalogCacheDeleted || 0} entries removed`);
     }
 
+    // 6. Clean old CATALOG_ITEMS that haven't been updated in 30 days (optional maintenance)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { error: catalogItemsError, count: catalogItemsDeleted } = await supabase
+      .from('catalog_items')
+      .delete()
+      .lt('updated_at', thirtyDaysAgo);
+    
+    if (catalogItemsError) {
+      console.error('[cleanup-expired-caches] Error cleaning old catalog_items:', catalogItemsError);
+    } else {
+      console.log(`[cleanup-expired-caches] Old catalog items cleaned: ${catalogItemsDeleted || 0} entries removed`);
+    }
+
     // Get counts for logging
-    const [hotCacheResult, priceCacheResult, productCacheResult, searchCacheResult, catalogCacheResult] = await Promise.all([
+    const [hotCacheResult, priceCacheResult, productCacheResult, searchCacheResult, catalogCacheResult, catalogItemsResult] = await Promise.all([
       supabase.from('product_hot_cache').select('id', { count: 'exact', head: true }),
       supabase.from('price_cache').select('id', { count: 'exact', head: true }),
       supabase.from('product_cache').select('id', { count: 'exact', head: true }),
       supabase.from('catalog_search_cache').select('id', { count: 'exact', head: true }),
       supabase.from('catalog_cache').select('cache_key', { count: 'exact', head: true }),
+      supabase.from('catalog_items').select('id', { count: 'exact', head: true }),
     ]);
 
     const duration = Date.now() - startTime;
@@ -95,6 +109,7 @@ serve(async (req) => {
         productCacheRemaining: productCacheResult.count || 0,
         searchCacheRemaining: searchCacheResult.count || 0,
         catalogCacheRemaining: catalogCacheResult.count || 0,
+        catalogItemsRemaining: catalogItemsResult.count || 0,
         cleanedAt: new Date().toISOString(),
       },
     };

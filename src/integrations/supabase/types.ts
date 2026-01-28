@@ -731,39 +731,54 @@ export type Database = {
       }
       catalog_providers: {
         Row: {
+          adapter_name: string | null
+          capabilities: Json
+          color_hex: string | null
           config: Json | null
           created_at: string | null
           display_name: string
           enabled: boolean | null
           environment: string | null
           id: string
+          logo_url: string | null
           name: string
           priority: number | null
           rate_limit_per_minute: number | null
+          requires_keys: Json
           updated_at: string | null
         }
         Insert: {
+          adapter_name?: string | null
+          capabilities?: Json
+          color_hex?: string | null
           config?: Json | null
           created_at?: string | null
           display_name: string
           enabled?: boolean | null
           environment?: string | null
           id?: string
+          logo_url?: string | null
           name: string
           priority?: number | null
           rate_limit_per_minute?: number | null
+          requires_keys?: Json
           updated_at?: string | null
         }
         Update: {
+          adapter_name?: string | null
+          capabilities?: Json
+          color_hex?: string | null
           config?: Json | null
           created_at?: string | null
           display_name?: string
           enabled?: boolean | null
           environment?: string | null
           id?: string
+          logo_url?: string | null
           name?: string
           priority?: number | null
           rate_limit_per_minute?: number | null
+          requires_keys?: Json
           updated_at?: string | null
         }
         Relationships: []

@@ -2,6 +2,8 @@
  * eBay Browse API Adapter
  * Handles OAuth token caching and product search/detail
  * For display-only catalog (no purchases)
+ * 
+ * Enhanced with staging-only debug logging and marketplace header support
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -37,6 +39,26 @@ interface TokenRecord {
   expires_at: string;
 }
 
+export interface EbayTokenDebug {
+  ok: boolean;
+  status?: number;
+  expiresIn?: number;
+  expiresAt?: string;
+  error?: string;
+  cached?: boolean;
+}
+
+export interface EbaySearchDebug {
+  enabled: boolean;
+  tokenOk: boolean;
+  httpStatus?: number;
+  itemCount: number;
+  warnings?: string[];
+  error?: string;
+  filteredOut?: number;
+  filterOverblock?: boolean;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const EBAY_OAUTH_SCOPES = "https://api.ebay.com/oauth/api_scope";
@@ -55,12 +77,29 @@ const EBAY_ENDPOINTS = {
 // Token expiry buffer (60 seconds before actual expiry)
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
+// Negative cache TTL (60-120 seconds for empty/failed results)
+const NEGATIVE_CACHE_TTL_SECONDS = 90;
+
+// ─── Environment Helpers ─────────────────────────────────────────────────────
+
+function isStaging(): boolean {
+  // Check if we're in staging environment for debug logging
+  return Deno.env.get("EBAY_ENV") === "sandbox" || 
+         Deno.env.get("DENO_DEPLOYMENT_ID")?.includes("staging") ||
+         false;
+}
+
+function debugLog(marker: string, data: Record<string, any>): void {
+  // Always log for now to debug, but can be restricted to staging later
+  console.log(`[${marker}]`, JSON.stringify(data));
+}
+
 // ─── OAuth Token Management ──────────────────────────────────────────────────
 
 /**
  * Get a valid OAuth token, using cache or minting new
  */
-export async function getEbayToken(supabase: any): Promise<string> {
+export async function getEbayToken(supabase: any): Promise<{ token: string; debug: EbayTokenDebug }> {
   // Check for cached token
   const { data: cached } = await supabase
     .from("provider_tokens")
@@ -74,43 +113,70 @@ export async function getEbayToken(supabase: any): Promise<string> {
     
     // If token is still valid (with buffer), reuse it
     if (expiresAt > now + TOKEN_EXPIRY_BUFFER_MS) {
-      console.log("[ebayAdapter] Using cached token, expires:", cached.expires_at);
-      return cached.access_token;
+      const debug: EbayTokenDebug = {
+        ok: true,
+        cached: true,
+        expiresAt: cached.expires_at,
+        expiresIn: Math.floor((expiresAt - now) / 1000),
+      };
+      debugLog("EBAY_TOKEN", debug);
+      return { token: cached.access_token, debug };
     }
   }
 
   // Mint new token
-  console.log("[ebayAdapter] Minting new OAuth token");
   return await mintNewToken(supabase);
 }
 
 /**
  * Mint a new OAuth application access token
  */
-async function mintNewToken(supabase: any): Promise<string> {
+async function mintNewToken(supabase: any): Promise<{ token: string; debug: EbayTokenDebug }> {
   const clientId = Deno.env.get("EBAY_CLIENT_ID");
   const clientSecret = Deno.env.get("EBAY_CLIENT_SECRET");
   const environment = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
 
   if (!clientId || !clientSecret) {
+    const debug: EbayTokenDebug = {
+      ok: false,
+      error: "EBAY_CLIENT_ID or EBAY_CLIENT_SECRET not configured",
+    };
+    debugLog("EBAY_TOKEN", debug);
     throw new Error("EBAY_CLIENT_ID or EBAY_CLIENT_SECRET not configured");
   }
 
   const endpoint = EBAY_ENDPOINTS[environment].oauth;
   const credentials = btoa(`${clientId}:${clientSecret}`);
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: `grant_type=client_credentials&scope=${encodeURIComponent(EBAY_OAUTH_SCOPES)}`,
-  });
+  debugLog("EBAY_TOKEN", { minting: true, endpoint, environment });
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: `grant_type=client_credentials&scope=${encodeURIComponent(EBAY_OAUTH_SCOPES)}`,
+    });
+  } catch (err) {
+    const debug: EbayTokenDebug = {
+      ok: false,
+      error: `Network error: ${err instanceof Error ? err.message : "Unknown"}`,
+    };
+    debugLog("EBAY_TOKEN", debug);
+    throw new Error(`eBay OAuth network error: ${debug.error}`);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("[ebayAdapter] Token mint failed:", response.status, errorText);
+    const debug: EbayTokenDebug = {
+      ok: false,
+      status: response.status,
+      error: errorText.slice(0, 500),
+    };
+    debugLog("EBAY_TOKEN", debug);
     throw new Error(`eBay OAuth failed: ${response.status}`);
   }
 
@@ -137,11 +203,26 @@ async function mintNewToken(supabase: any): Promise<string> {
     // Continue anyway - token is valid
   }
 
-  console.log("[ebayAdapter] Token minted, expires:", expiresAt.toISOString());
-  return access_token;
+  const debug: EbayTokenDebug = {
+    ok: true,
+    cached: false,
+    status: response.status,
+    expiresIn: expires_in,
+    expiresAt: expiresAt.toISOString(),
+  };
+  debugLog("EBAY_TOKEN", debug);
+
+  return { token: access_token, debug };
 }
 
 // ─── Search API ──────────────────────────────────────────────────────────────
+
+interface SearchResult {
+  items: CatalogItem[];
+  total: number;
+  hasMore: boolean;
+  debug: EbaySearchDebug;
+}
 
 /**
  * Search eBay for products
@@ -152,12 +233,32 @@ export async function searchEbay(
   page: number = 1,
   pageSize: number = 20,
   config?: Partial<EbayConfig>
-): Promise<{ items: CatalogItem[]; total: number; hasMore: boolean }> {
+): Promise<SearchResult> {
   const environment = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
-  const token = await getEbayToken(supabase);
+  const marketplace = config?.marketplace || "EBAY_US";
+  
+  let tokenDebug: EbayTokenDebug;
+  let token: string;
+  
+  try {
+    const result = await getEbayToken(supabase);
+    token = result.token;
+    tokenDebug = result.debug;
+  } catch (err) {
+    return {
+      items: [],
+      total: 0,
+      hasMore: false,
+      debug: {
+        enabled: true,
+        tokenOk: false,
+        itemCount: 0,
+        error: err instanceof Error ? err.message : "Token error",
+      },
+    };
+  }
   
   const offset = (page - 1) * pageSize;
-  const marketplace = config?.marketplace || "EBAY_US";
   
   const params = new URLSearchParams({
     q: query,
@@ -169,33 +270,91 @@ export async function searchEbay(
 
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item_summary/search?${params}`;
   
-  console.log("[ebayAdapter] Searching:", query, "page:", page);
-
-  const response = await fetch(endpoint, {
-    method: "GET",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": marketplace,
-      "Content-Type": "application/json",
-    },
+  debugLog("EBAY_SEARCH_REQ", {
+    q: query,
+    limit: pageSize,
+    offset,
+    marketplace,
+    url: endpoint,
+    environment,
   });
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    const debug: EbaySearchDebug = {
+      enabled: true,
+      tokenOk: tokenDebug.ok,
+      itemCount: 0,
+      error: `Network error: ${err instanceof Error ? err.message : "Unknown"}`,
+    };
+    debugLog("EBAY_SEARCH_RES", debug);
+    return { items: [], total: 0, hasMore: false, debug };
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("[ebayAdapter] Search failed:", response.status, errorText);
     
     // If unauthorized, try minting new token once
     if (response.status === 401) {
-      console.log("[ebayAdapter] Token expired, re-minting");
-      const newToken = await mintNewToken(supabase);
-      return searchEbayWithToken(newToken, query, page, pageSize, marketplace, environment);
+      debugLog("EBAY_SEARCH_RES", { status: 401, retrying: true });
+      try {
+        const newTokenResult = await mintNewToken(supabase);
+        return searchEbayWithToken(newTokenResult.token, query, page, pageSize, marketplace, environment, newTokenResult.debug);
+      } catch (retryErr) {
+        return {
+          items: [],
+          total: 0,
+          hasMore: false,
+          debug: {
+            enabled: true,
+            tokenOk: false,
+            httpStatus: 401,
+            itemCount: 0,
+            error: "Token refresh failed",
+          },
+        };
+      }
     }
     
-    throw new Error(`eBay search failed: ${response.status}`);
+    const debug: EbaySearchDebug = {
+      enabled: true,
+      tokenOk: tokenDebug.ok,
+      httpStatus: response.status,
+      itemCount: 0,
+      error: errorText.slice(0, 500),
+    };
+    debugLog("EBAY_SEARCH_RES", debug);
+    return { items: [], total: 0, hasMore: false, debug };
   }
 
   const data = await response.json();
-  return normalizeSearchResults(data);
+  const result = normalizeSearchResults(data);
+  
+  const debug: EbaySearchDebug = {
+    enabled: true,
+    tokenOk: tokenDebug.ok,
+    httpStatus: response.status,
+    itemCount: result.items.length,
+    warnings: data.warnings?.map((w: any) => w.message) || [],
+  };
+  
+  debugLog("EBAY_SEARCH_RES", {
+    ...debug,
+    total: result.total,
+    hasMore: result.hasMore,
+    firstTitle: result.items[0]?.title?.slice(0, 50),
+  });
+  
+  return { ...result, debug };
 }
 
 async function searchEbayWithToken(
@@ -204,8 +363,9 @@ async function searchEbayWithToken(
   page: number,
   pageSize: number,
   marketplace: string,
-  environment: "production" | "sandbox"
-): Promise<{ items: CatalogItem[]; total: number; hasMore: boolean }> {
+  environment: "production" | "sandbox",
+  tokenDebug: EbayTokenDebug
+): Promise<SearchResult> {
   const offset = (page - 1) * pageSize;
   
   const params = new URLSearchParams({
@@ -228,11 +388,33 @@ async function searchEbayWithToken(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`eBay search failed: ${response.status} - ${errorText}`);
+    return {
+      items: [],
+      total: 0,
+      hasMore: false,
+      debug: {
+        enabled: true,
+        tokenOk: tokenDebug.ok,
+        httpStatus: response.status,
+        itemCount: 0,
+        error: errorText.slice(0, 500),
+      },
+    };
   }
 
   const data = await response.json();
-  return normalizeSearchResults(data);
+  const result = normalizeSearchResults(data);
+  
+  return {
+    ...result,
+    debug: {
+      enabled: true,
+      tokenOk: tokenDebug.ok,
+      httpStatus: response.status,
+      itemCount: result.items.length,
+      warnings: data.warnings?.map((w: any) => w.message) || [],
+    },
+  };
 }
 
 function normalizeSearchResults(data: any): { items: CatalogItem[]; total: number; hasMore: boolean } {
@@ -266,10 +448,28 @@ export async function getEbayItem(
   supabase: any,
   itemId: string,
   config?: Partial<EbayConfig>
-): Promise<CatalogItem | null> {
+): Promise<{ item: CatalogItem | null; debug: EbaySearchDebug }> {
   const environment = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
-  const token = await getEbayToken(supabase);
   const marketplace = config?.marketplace || "EBAY_US";
+
+  let tokenDebug: EbayTokenDebug;
+  let token: string;
+  
+  try {
+    const result = await getEbayToken(supabase);
+    token = result.token;
+    tokenDebug = result.debug;
+  } catch (err) {
+    return {
+      item: null,
+      debug: {
+        enabled: true,
+        tokenOk: false,
+        itemCount: 0,
+        error: err instanceof Error ? err.message : "Token error",
+      },
+    };
+  }
 
   // Clean the item ID (remove ebay: prefix if present)
   const cleanId = itemId.startsWith("ebay:") ? itemId.slice(5) : itemId;
@@ -279,45 +479,105 @@ export async function getEbayItem(
   
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}`;
   
-  console.log("[ebayAdapter] Getting item:", cleanId);
+  debugLog("EBAY_ITEM_REQ", { itemId: cleanId, marketplace, endpoint });
 
-  const response = await fetch(endpoint, {
-    method: "GET",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": marketplace,
-      "Content-Type": "application/json",
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    return {
+      item: null,
+      debug: {
+        enabled: true,
+        tokenOk: tokenDebug.ok,
+        itemCount: 0,
+        error: `Network error: ${err instanceof Error ? err.message : "Unknown"}`,
+      },
+    };
+  }
 
   if (!response.ok) {
     if (response.status === 404) {
-      console.log("[ebayAdapter] Item not found:", cleanId);
-      return null;
+      debugLog("EBAY_ITEM_RES", { status: 404, itemId: cleanId, found: false });
+      return {
+        item: null,
+        debug: {
+          enabled: true,
+          tokenOk: tokenDebug.ok,
+          httpStatus: 404,
+          itemCount: 0,
+          error: "Item not found",
+        },
+      };
     }
     
     // If unauthorized, try minting new token once
     if (response.status === 401) {
-      console.log("[ebayAdapter] Token expired, re-minting");
-      const newToken = await mintNewToken(supabase);
-      return getEbayItemWithToken(newToken, cleanId, marketplace, environment);
+      try {
+        const newTokenResult = await mintNewToken(supabase);
+        return getEbayItemWithToken(newTokenResult.token, cleanId, marketplace, environment, newTokenResult.debug);
+      } catch {
+        return {
+          item: null,
+          debug: {
+            enabled: true,
+            tokenOk: false,
+            httpStatus: 401,
+            itemCount: 0,
+            error: "Token refresh failed",
+          },
+        };
+      }
     }
     
     const errorText = await response.text();
-    console.error("[ebayAdapter] Get item failed:", response.status, errorText);
-    throw new Error(`eBay getItem failed: ${response.status}`);
+    return {
+      item: null,
+      debug: {
+        enabled: true,
+        tokenOk: tokenDebug.ok,
+        httpStatus: response.status,
+        itemCount: 0,
+        error: errorText.slice(0, 500),
+      },
+    };
   }
 
   const data = await response.json();
-  return normalizeItemDetail(data);
+  const item = normalizeItemDetail(data);
+  
+  debugLog("EBAY_ITEM_RES", { 
+    status: response.status, 
+    itemId: cleanId, 
+    found: true, 
+    title: item.title.slice(0, 50) 
+  });
+  
+  return {
+    item,
+    debug: {
+      enabled: true,
+      tokenOk: tokenDebug.ok,
+      httpStatus: response.status,
+      itemCount: 1,
+    },
+  };
 }
 
 async function getEbayItemWithToken(
   token: string,
   itemId: string,
   marketplace: string,
-  environment: "production" | "sandbox"
-): Promise<CatalogItem | null> {
+  environment: "production" | "sandbox",
+  tokenDebug: EbayTokenDebug
+): Promise<{ item: CatalogItem | null; debug: EbaySearchDebug }> {
   const encodedId = itemId.replace(/\|/g, "%7C");
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}`;
 
@@ -331,13 +591,43 @@ async function getEbayItemWithToken(
   });
 
   if (!response.ok) {
-    if (response.status === 404) return null;
+    if (response.status === 404) {
+      return {
+        item: null,
+        debug: {
+          enabled: true,
+          tokenOk: tokenDebug.ok,
+          httpStatus: 404,
+          itemCount: 0,
+          error: "Item not found",
+        },
+      };
+    }
     const errorText = await response.text();
-    throw new Error(`eBay getItem failed: ${response.status} - ${errorText}`);
+    return {
+      item: null,
+      debug: {
+        enabled: true,
+        tokenOk: tokenDebug.ok,
+        httpStatus: response.status,
+        itemCount: 0,
+        error: errorText.slice(0, 500),
+      },
+    };
   }
 
   const data = await response.json();
-  return normalizeItemDetail(data);
+  const item = normalizeItemDetail(data);
+  
+  return {
+    item,
+    debug: {
+      enabled: true,
+      tokenOk: tokenDebug.ok,
+      httpStatus: response.status,
+      itemCount: 1,
+    },
+  };
 }
 
 function normalizeItemDetail(item: any): CatalogItem {
@@ -428,6 +718,45 @@ function extractDetailImages(item: any): string[] {
   }
   
   return images.slice(0, 10);
+}
+
+// ─── Quick Debug Self-Test ───────────────────────────────────────────────────
+
+export async function debugEbaySearch(
+  supabase: any,
+  query: string = "iphone",
+  limit: number = 5
+): Promise<{
+  ok: boolean;
+  tokenOk: boolean;
+  status?: number;
+  itemCount: number;
+  firstItem?: { id: string; title: string; priceUsd: number | null };
+  error?: string;
+}> {
+  try {
+    const result = await searchEbay(supabase, query, 1, limit);
+    
+    return {
+      ok: result.items.length > 0,
+      tokenOk: result.debug.tokenOk,
+      status: result.debug.httpStatus,
+      itemCount: result.items.length,
+      firstItem: result.items[0] ? {
+        id: result.items[0].id,
+        title: result.items[0].title,
+        priceUsd: result.items[0].priceUsd,
+      } : undefined,
+      error: result.debug.error,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      tokenOk: false,
+      itemCount: 0,
+      error: err instanceof Error ? err.message : "Unknown error",
+    };
+  }
 }
 
 // ─── Exports ─────────────────────────────────────────────────────────────────

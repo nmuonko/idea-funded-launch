@@ -66,6 +66,9 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import PaymentsCompliance from "./pages/PaymentsCompliance";
 import Refunds from "./pages/Refunds";
+import Payouts from "./pages/Payouts";
+import About from "./pages/About";
+import Contact from "./pages/Contact";
 import DownloadPage from "./pages/Download";
 import Coverage from "./pages/Coverage";
 import DeleteAccount from "./pages/DeleteAccount";
@@ -77,7 +80,7 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account'];
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact'];
     return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment'));
   });
 
@@ -95,11 +98,14 @@ const App = () => {
           <Routes>
             <Route path="/" element={<HowItWorks />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/about" element={<About />} />
             <Route path="/coverage" element={<Coverage />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/payments-compliance" element={<PaymentsCompliance />} />
             <Route path="/refunds" element={<Refunds />} />
+            <Route path="/payouts" element={<Payouts />} />
+            <Route path="/contact" element={<Contact />} />
             <Route path="/delete-account" element={<DeleteAccount />} />
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/admin-login" element={<Index />} />

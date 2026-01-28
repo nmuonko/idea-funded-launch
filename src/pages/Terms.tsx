@@ -1,4 +1,4 @@
-import { FileText, AlertTriangle, Scale, Ban, RefreshCw } from "lucide-react";
+import { FileText, AlertTriangle, Scale, Ban, RefreshCw, Building2, CreditCard, Mail, MapPin, Gavel } from "lucide-react";
 import { motion } from "framer-motion";
 import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
 
@@ -47,6 +47,40 @@ const Terms = () => {
         </div>
       </section>
 
+      {/* Merchant of Record */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="bg-gradient-to-br from-violet-500/10 to-purple-500/5 rounded-3xl p-8 border border-violet-500/20">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-500/20 flex items-center justify-center">
+                  <Building2 className="h-6 w-6 text-violet-400" />
+                </div>
+                <h2 className="text-xl font-bold">Merchant of Record</h2>
+              </div>
+              <div className="space-y-4 text-white/70">
+                <p>
+                  <strong className="text-white">AfriShop</strong> is a brand and trade name operated by{" "}
+                  <strong className="text-white">AMERICAN GOODWILL SARL</strong> ("the Company", "we", "us", or "our"), 
+                  which serves as the merchant of record for all transactions processed through the AfriShop platform.
+                </p>
+                <div className="p-4 bg-white/5 rounded-2xl space-y-2 text-sm">
+                  <p><strong className="text-white/90">Legal Entity:</strong> AMERICAN GOODWILL SARL</p>
+                  <p><strong className="text-white/90">Registration:</strong> CD/LSH/RCCM/24-B-01234</p>
+                  <p><strong className="text-white/90">Address:</strong> 123 Avenue Lumumba, Lubumbashi, Haut-Katanga, DRC</p>
+                  <p><strong className="text-white/90">Contact:</strong> support@afrishop-usa.com</p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Service Nature */}
       <section className="py-16">
         <div className="container mx-auto px-4">
@@ -71,6 +105,87 @@ const Terms = () => {
                 <p className="text-white/80 text-sm">
                   <strong>Important:</strong> AfriShop is not the seller of third-party goods. Products are 
                   purchased from independent retailers and AfriShop acts as a facilitation service.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Orders & Cancellation */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10">
+              <h2 className="text-xl font-bold mb-6">Orders, Cancellation & Refunds</h2>
+              <div className="space-y-4 text-white/70">
+                <div className="p-4 bg-white/5 rounded-2xl">
+                  <h3 className="font-semibold text-white/90 mb-2">Order Placement</h3>
+                  <p className="text-sm">
+                    By placing an order, you authorize AfriShop to purchase goods on your behalf and arrange 
+                    for international shipping and delivery. Order confirmation is subject to product availability 
+                    and payment verification.
+                  </p>
+                </div>
+                <div className="p-4 bg-white/5 rounded-2xl">
+                  <h3 className="font-semibold text-white/90 mb-2">Cancellation</h3>
+                  <p className="text-sm">
+                    Orders may be cancelled before purchase completion. Once goods have been purchased from 
+                    retailers or shipping has commenced, cancellation may not be possible or may be subject 
+                    to fees. Contact support immediately for cancellation requests.
+                  </p>
+                </div>
+                <div className="p-4 bg-white/5 rounded-2xl">
+                  <h3 className="font-semibold text-white/90 mb-2">Refunds</h3>
+                  <p className="text-sm">
+                    Refund eligibility is determined on a case-by-case basis. Please refer to our{" "}
+                    <a href="/refunds" className="text-purple-400 hover:underline">Refund Policy</a> for 
+                    detailed information on eligible cases and processing timelines.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Payment Processing */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+                  <CreditCard className="h-6 w-6 text-green-400" />
+                </div>
+                <h2 className="text-xl font-bold">Payment Processing & Disputes</h2>
+              </div>
+              <div className="space-y-4 text-white/70">
+                <p>
+                  Payments are processed by licensed third-party payment providers on behalf of AMERICAN GOODWILL SARL. 
+                  We accept mobile money, bank transfers, and other payment methods as available in your region.
+                </p>
+                <p>
+                  For payment disputes, please contact our support team at{" "}
+                  <a href="mailto:support@afrishop-usa.com" className="text-purple-400 hover:underline">
+                    support@afrishop-usa.com
+                  </a>{" "}
+                  before initiating a chargeback with your payment provider. We are committed to resolving 
+                  disputes fairly and efficiently.
+                </p>
+                <p className="text-sm text-white/50">
+                  For information on how funds are collected and distributed, please see our{" "}
+                  <a href="/payouts" className="text-purple-400 hover:underline">Payouts & Beneficiaries</a> page.
                 </p>
               </div>
             </div>
@@ -163,6 +278,52 @@ const Terms = () => {
               </ul>
             </div>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Governing Law & Contact */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto grid md:grid-cols-2 gap-6">
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <Gavel className="h-5 w-5 text-purple-400" />
+                <h2 className="text-lg font-bold">Governing Law</h2>
+              </div>
+              <p className="text-white/70 text-sm leading-relaxed">
+                These Terms of Service are governed by the laws of the Democratic Republic of the Congo. 
+                Any disputes shall be resolved in the courts of Lubumbashi, Haut-Katanga.
+              </p>
+            </motion.div>
+            
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.1 }}
+              className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <Mail className="h-5 w-5 text-purple-400" />
+                <h2 className="text-lg font-bold">Contact</h2>
+              </div>
+              <div className="text-white/70 text-sm space-y-2">
+                <p>For questions about these terms:</p>
+                <a href="mailto:support@afrishop-usa.com" className="text-purple-400 hover:underline block">
+                  support@afrishop-usa.com
+                </a>
+                <p className="flex items-start gap-2 pt-2">
+                  <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>123 Avenue Lumumba, Lubumbashi, DRC</span>
+                </p>
+              </div>
+            </motion.div>
+          </div>
         </div>
       </section>
 

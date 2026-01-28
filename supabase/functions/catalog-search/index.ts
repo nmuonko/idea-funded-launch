@@ -19,10 +19,19 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
+import { 
+  buildCacheKey, 
+  getCache, 
+  setCache, 
+  checkRateLimit, 
+  rateLimitResponse, 
+  getDeviceId,
+  normalizeQuery as normalizeCacheQuery
+} from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
   "Cache-Control": "public, max-age=60",
 };
 
@@ -344,9 +353,11 @@ Deno.serve(async (req: Request) => {
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
   const fastMode = url.searchParams.get("fast") === "1";
+  const deviceId = getDeviceId(req);
   
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
+  const isStaging = envName === "staging";
   
   // Build query variants for French support
   const queryVariants = buildQueryVariants(qOriginal);
@@ -405,6 +416,17 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Rate limiting
+    const rateLimit = await checkRateLimit(supabase, deviceId, "search");
+    if (!rateLimit.allowed) {
+      console.log(`[CATALOG_SEARCH] Rate limited device=${deviceId} count=${rateLimit.count}`);
+      return new Response(JSON.stringify(rateLimitResponse(rateLimit.resetAt)), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const envConfig = await getEnvironmentConfig(supabase, envName);
 
     // If catalog is not enabled, return empty success
@@ -426,7 +448,43 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ========== CACHE LOOKUP ==========
+    // ========== UNIFIED CACHE LOOKUP ==========
+    const cacheKey = buildCacheKey("search", {
+      env: envName,
+      domain: amazonDomain,
+      query,
+      expand: isFrench,
+      page,
+      pageSize,
+    });
+    
+    const unifiedCache = await getCache(supabase, cacheKey);
+    
+    if (unifiedCache.hit && unifiedCache.data?.items?.length > 0) {
+      console.log(`[CATALOG_SEARCH] Unified cache hit: key=${cacheKey} stale=${unifiedCache.stale} age=${unifiedCache.cacheAgeSec}s`);
+      
+      return new Response(JSON.stringify({
+        status: "success",
+        env: envName,
+        query: qOriginal,
+        queryVariants,
+        page,
+        pageSize,
+        total: unifiedCache.data.total,
+        items: unifiedCache.data.items,
+        cached: true,
+        stale: unifiedCache.stale,
+        cacheAgeSec: unifiedCache.cacheAgeSec,
+        usedVariantCount: unifiedCache.data.usedVariantCount || 1,
+        ...(isStaging && { cacheKey }),
+        error: null,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ========== LEGACY CACHE LOOKUP (catalog_search_cache) ==========
     const { data: cacheRow } = await supabase
       .from("catalog_search_cache")
       .select("*")

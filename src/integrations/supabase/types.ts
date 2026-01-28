@@ -535,6 +535,51 @@ export type Database = {
           },
         ]
       }
+      catalog_cache: {
+        Row: {
+          amazon_domain: string | null
+          cache_key: string
+          cache_type: string
+          category: string | null
+          expires_at: string
+          page: number | null
+          page_size: number | null
+          provider: string | null
+          query: string | null
+          response: Json
+          stale_at: string
+          updated_at: string
+        }
+        Insert: {
+          amazon_domain?: string | null
+          cache_key: string
+          cache_type: string
+          category?: string | null
+          expires_at: string
+          page?: number | null
+          page_size?: number | null
+          provider?: string | null
+          query?: string | null
+          response?: Json
+          stale_at: string
+          updated_at?: string
+        }
+        Update: {
+          amazon_domain?: string | null
+          cache_key?: string
+          cache_type?: string
+          category?: string | null
+          expires_at?: string
+          page?: number | null
+          page_size?: number | null
+          provider?: string | null
+          query?: string | null
+          response?: Json
+          stale_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       catalog_categories: {
         Row: {
           created_at: string | null
@@ -720,6 +765,27 @@ export type Database = {
           priority?: number | null
           rate_limit_per_minute?: number | null
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      catalog_rate_limits: {
+        Row: {
+          count: number
+          device_id: string
+          endpoint: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          device_id: string
+          endpoint: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          device_id?: string
+          endpoint?: string
+          window_start?: string
         }
         Relationships: []
       }
@@ -3134,6 +3200,7 @@ export type Database = {
       clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
+      cleanup_catalog_cache: { Args: never; Returns: Json }
       cleanup_expired_records: { Args: never; Returns: Json }
       cleanup_guest_cart_snapshots: { Args: never; Returns: Json }
       finalize_paid_order: {

@@ -14,6 +14,25 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
 };
 
+interface ProviderCapabilities {
+  home?: boolean;
+  search?: boolean;
+  product?: boolean;
+  offers?: boolean;
+}
+
+interface CatalogProvider {
+  name: string;
+  displayName: string;
+  active: boolean;
+  enabled: boolean;
+  priority: number;
+  logoUrl: string | null;
+  colorHex: string | null;
+  capabilities: ProviderCapabilities;
+  providerStatusReason: "missing_api_key" | "disabled" | null;
+}
+
 interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
@@ -55,6 +74,11 @@ interface PublicConfigResponse {
     refreshIntervalMs: number;
   };
   
+  // NEW: Full provider list for dynamic UI rendering
+  catalogProviders: CatalogProvider[];
+  defaultProvider: string;
+  providerUiMode: "tabs" | "dropdown" | "chips";
+  
   // Environment details (full info)
   envDetails: {
     name: "production" | "staging";
@@ -93,13 +117,82 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     getEnvironmentConfig(supabase, envName),
     supabase
       .from("catalog_providers")
-      .select("name")
-      .eq("enabled", true)
-      .or(`environment.eq.all,environment.eq.${envName}`),
+      .select("name, display_name, enabled, priority, logo_url, color_hex, capabilities, requires_keys, adapter_name")
+      .or(`environment.eq.all,environment.eq.${envName}`)
+      .order("priority", { ascending: false }),
   ]);
 
   const { data: settings, error } = settingsResult;
-  const enabledProviders = (providersResult.data || []).map(p => p.name);
+  const rawProviders = providersResult.data || [];
+  
+  // Map of provider name/adapter to required secret env var
+  const PROVIDER_SECRET_MAP: Record<string, string> = {
+    rainforest: "RAINFOREST_API_KEY",
+    bluecart: "BLUECART_API_KEY",
+    countdown: "COUNTDOWN_API_KEY",
+    redcircle: "REDCIRCLE_API_KEY",
+    bigbox: "BIGBOX_API_KEY",
+    serpwow: "SERPWOW_API_KEY",
+    scaleserp: "SCALESERP_API_KEY",
+  };
+  
+  // Transform providers with active status check
+  const catalogProviders: CatalogProvider[] = rawProviders.map((p: any) => {
+    const isEnabled = p.enabled === true;
+    
+    // Check if required API key exists
+    let requiredSecret: string | null = null;
+    if (p.requires_keys && typeof p.requires_keys === 'object' && p.requires_keys.apiKeySecret) {
+      requiredSecret = p.requires_keys.apiKeySecret;
+    } else {
+      const adapterName = p.adapter_name || p.name;
+      requiredSecret = PROVIDER_SECRET_MAP[adapterName] || null;
+    }
+    
+    let hasRequiredKey = true;
+    if (requiredSecret) {
+      try {
+        const value = Deno.env.get(requiredSecret);
+        hasRequiredKey = value !== undefined && value !== null && value.trim().length > 0;
+      } catch {
+        hasRequiredKey = false;
+      }
+    }
+    
+    const isActive = isEnabled && hasRequiredKey;
+    
+    let statusReason: "missing_api_key" | "disabled" | null = null;
+    if (!isEnabled) statusReason = "disabled";
+    else if (!hasRequiredKey) statusReason = "missing_api_key";
+    
+    return {
+      name: p.name,
+      displayName: p.display_name,
+      active: isActive,
+      enabled: isEnabled,
+      priority: p.priority || 0,
+      logoUrl: p.logo_url || null,
+      colorHex: p.color_hex || null,
+      capabilities: {
+        home: p.capabilities?.home ?? false,
+        search: p.capabilities?.search ?? false,
+        product: p.capabilities?.product ?? false,
+        offers: p.capabilities?.offers ?? false,
+      },
+      providerStatusReason: statusReason,
+    };
+  });
+  
+  // Sort by active first, then priority
+  catalogProviders.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return b.priority - a.priority;
+  });
+  
+  const activeProviders = catalogProviders.filter(p => p.active);
+  const enabledProviders = activeProviders.map(p => p.name);
+  const defaultProvider = activeProviders.length > 0 ? activeProviders[0].name : "all";
+  const providerUiMode = activeProviders.length <= 4 ? "tabs" : "dropdown";
 
   if (error) {
     console.error("[mobile-public-config] Database error:", error.message);
@@ -143,6 +236,9 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       updated_at: new Date().toISOString(),
       version: 0,
       catalog: catalogConfig,
+      catalogProviders,
+      defaultProvider,
+      providerUiMode,
       envDetails: envInfo,
     };
   }
@@ -166,6 +262,9 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       updated_at: new Date().toISOString(),
       version: 0,
       catalog: catalogConfig,
+      catalogProviders,
+      defaultProvider,
+      providerUiMode,
       envDetails: envInfo,
     };
   }
@@ -263,6 +362,9 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     updated_at: updatedAt,
     version,
     catalog: catalogConfig,
+    catalogProviders,
+    defaultProvider,
+    providerUiMode,
     envDetails: envInfo,
   };
 }

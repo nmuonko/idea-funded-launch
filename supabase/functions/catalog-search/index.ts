@@ -355,6 +355,9 @@ Deno.serve(async (req: Request) => {
   const fastMode = url.searchParams.get("fast") === "1";
   const deviceId = getDeviceId(req);
   
+  // NEW: Provider parameter for filtering
+  const providerParam = url.searchParams.get("provider") || null;
+  
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
   const isStaging = envName === "staging";
@@ -440,6 +443,7 @@ Deno.serve(async (req: Request) => {
         pageSize,
         total: 0,
         items: [],
+        providersUsed: [],
         cached: false,
         error: null,
       }), {
@@ -447,6 +451,49 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    // Check active providers
+    let activeProviders: string[] = [];
+    const { data: providers } = await supabase
+      .from("catalog_providers")
+      .select("name, adapter_name, requires_keys, enabled")
+      .eq("enabled", true)
+      .or(`environment.eq.all,environment.eq.${envName}`)
+      .order("priority", { ascending: false });
+    
+    for (const p of (providers || [])) {
+      let requiredSecret: string | null = null;
+      if (p.requires_keys?.apiKeySecret) {
+        requiredSecret = p.requires_keys.apiKeySecret;
+      }
+      if (!requiredSecret || (Deno.env.get(requiredSecret)?.trim())) {
+        activeProviders.push(p.name);
+      }
+    }
+    
+    // If specific provider requested, validate it's active
+    if (providerParam && providerParam !== "all") {
+      if (!activeProviders.includes(providerParam)) {
+        return new Response(JSON.stringify({
+          status: "error",
+          env: envName,
+          query: qOriginal,
+          page,
+          pageSize,
+          total: 0,
+          items: [],
+          providersUsed: [],
+          cached: false,
+          error: { code: "PROVIDER_INACTIVE", message: `Provider '${providerParam}' not available` },
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      activeProviders = [providerParam];
+    }
+    
+    const providersUsed = activeProviders.filter(p => p === "amazon" || p === "rainforest").slice(0, 2);
 
     // ========== UNIFIED CACHE LOOKUP ==========
     const cacheKey = buildCacheKey("search", {
@@ -472,6 +519,7 @@ Deno.serve(async (req: Request) => {
         pageSize,
         total: unifiedCache.data.total,
         items: unifiedCache.data.items,
+        providersUsed,
         cached: true,
         stale: unifiedCache.stale,
         cacheAgeSec: unifiedCache.cacheAgeSec,

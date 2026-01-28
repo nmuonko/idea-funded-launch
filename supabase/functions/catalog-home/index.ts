@@ -170,8 +170,19 @@ Deno.serve(async (req: Request) => {
   const envName = getEnvironmentFromRequest(req);
   const deviceId = getDeviceId(req);
   const isStaging = envName === "staging";
+  
+  // NEW: Provider parameter for filtering (optional)
+  const providerParam = url.searchParams.get("provider") || null;
 
-  const buildResponse = (status: "success" | "error", trending: any[], hasMore: boolean, source: string, error: string | null, cacheData?: any) => {
+  const buildResponse = (
+    status: "success" | "error", 
+    trending: any[], 
+    hasMore: boolean, 
+    source: string, 
+    error: string | null, 
+    providersUsed: string[] = ["rainforest"],
+    cacheData?: any
+  ) => {
     const base = {
       status,
       env: envName,
@@ -182,6 +193,7 @@ Deno.serve(async (req: Request) => {
       itemCount: trending.length,
       hasMore,
       source,
+      providersUsed, // NEW: List of providers used for this request
       error,
     };
     return cacheData ? addCacheMetadata(base, cacheData, isStaging) : base;
@@ -192,13 +204,46 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     
     if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Backend configuration error")), {
+      return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Backend configuration error", [])), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    
+    // Check if provider is active (has required API key)
+    let activeProviders: string[] = [];
+    const { data: providers } = await supabase
+      .from("catalog_providers")
+      .select("name, adapter_name, requires_keys, enabled")
+      .eq("enabled", true)
+      .or(`environment.eq.all,environment.eq.${envName}`)
+      .order("priority", { ascending: false });
+    
+    for (const p of (providers || [])) {
+      let requiredSecret: string | null = null;
+      if (p.requires_keys?.apiKeySecret) {
+        requiredSecret = p.requires_keys.apiKeySecret;
+      }
+      if (!requiredSecret || (Deno.env.get(requiredSecret)?.trim())) {
+        activeProviders.push(p.name);
+      }
+    }
+    
+    // If specific provider requested, validate it's active
+    if (providerParam && providerParam !== "all") {
+      if (!activeProviders.includes(providerParam)) {
+        return new Response(JSON.stringify(buildResponse("error", [], false, "error", `Provider '${providerParam}' not available`, [])), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      activeProviders = [providerParam];
+    }
+    
+    // For now, we only use rainforest/amazon adapter
+    const providersUsed = activeProviders.filter(p => p === "amazon" || p === "rainforest").slice(0, 2);
 
     // Rate limiting
     const rateLimit = await checkRateLimit(supabase, deviceId, "home");
@@ -240,6 +285,7 @@ Deno.serve(async (req: Request) => {
         cached.hasMore || false,
         "cache",
         null,
+        providersUsed,
         cacheResult
       )), {
         status: 200,
@@ -335,7 +381,7 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[CATALOG_HOME] category=${category} page=${page} returned=${trending.length} source=${source} durationMs=${Date.now() - startTime}`);
 
-    return new Response(JSON.stringify(buildResponse("success", trending, hasMore, source, null)), {
+    return new Response(JSON.stringify(buildResponse("success", trending, hasMore, source, null, providersUsed)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -344,7 +390,7 @@ Deno.serve(async (req: Request) => {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_HOME] Error: ${errorMessage} durationMs=${Date.now() - startTime}`);
     
-    return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Catalog service error")), {
+    return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Catalog service error", [])), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

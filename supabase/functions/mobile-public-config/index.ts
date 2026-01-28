@@ -135,6 +135,7 @@ interface PublicConfigResponse {
 // Provider display names for Stores section
 const PROVIDER_STORE_NAMES: Record<string, string> = {
   rainforest: "Amazon",
+  ebay: "eBay",
   bluecart: "Walmart",
   redcircle: "Target",
   bigbox: "Home Depot",
@@ -190,6 +191,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   // Map of provider name/adapter to required secret env var
   const PROVIDER_SECRET_MAP: Record<string, string> = {
     rainforest: "RAINFOREST_API_KEY",
+    ebay: "EBAY_CLIENT_ID",
     bluecart: "BLUECART_API_KEY",
     countdown: "COUNTDOWN_API_KEY",
     redcircle: "REDCIRCLE_API_KEY",

@@ -2,6 +2,7 @@
 // Returns cart configuration for guest users (exchange rate, markup, shipping)
 // PUBLIC: No JWT required - callable with apikey only
 // Source of truth: `settings` table with aggressive caching
+// NEW: Also returns `runtime` config for backend-controlled UI + providers
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { coalesce, CACHE_TTL, makeCacheKey } from "../_shared/responseCache.ts";
@@ -71,6 +72,87 @@ interface CatalogNavConfig {
   homeSections: HomeSection[];
 }
 
+// NEW: Runtime config types for backend-controlled UI
+interface RuntimeProvider {
+  key: string;
+  label: string;
+  enabled: boolean;
+  type: string;
+  priority: number;
+}
+
+interface RuntimeDrawerItem {
+  key: string;
+  label_fr: string;
+  label_en: string;
+  type: "route" | "collection";
+  route?: string;
+  collectionKey?: string;
+}
+
+interface RuntimeChipItem {
+  key: string;
+  label_fr: string;
+  label_en: string;
+  collectionKey: string;
+}
+
+interface RuntimeUI {
+  drawer: RuntimeDrawerItem[];
+  chips: RuntimeChipItem[];
+}
+
+interface RuntimeSearchRule {
+  match: string;
+  include: string[];
+  exclude: string[];
+}
+
+interface RuntimeSearchConfig {
+  defaultMode: "db" | "live" | "hybrid";
+  autoTranslateFrToEn: boolean;
+  strictRules: RuntimeSearchRule[];
+  cache: {
+    searchTtlMinutes: number;
+    itemTtlMinutes: number;
+    negativeTtlSeconds: number;
+  };
+}
+
+interface RuntimeHomeSection {
+  key: string;
+  label_fr: string;
+  label_en: string;
+  collectionKey: string;
+  maxItems: number;
+}
+
+interface RuntimeCollection {
+  queries: string[];
+  providers: string[];
+  dbOnly: boolean;
+}
+
+interface RuntimeHomeConfig {
+  sections: RuntimeHomeSection[];
+  collections: Record<string, RuntimeCollection>;
+}
+
+interface RuntimeBlocksConfig {
+  denyKeywords: string[];
+  denyUrlContains: string[];
+  denyCategories: string[];
+}
+
+interface RuntimeConfig {
+  version: number;
+  providers: RuntimeProvider[];
+  ui: RuntimeUI;
+  search: RuntimeSearchConfig;
+  home: RuntimeHomeConfig;
+  blocks: RuntimeBlocksConfig;
+}
+
 interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
@@ -112,12 +194,12 @@ interface PublicConfigResponse {
     refreshIntervalMs: number;
   };
   
-  // NEW: Full provider list for dynamic UI rendering
+  // Full provider list for dynamic UI rendering
   catalogProviders: CatalogProvider[];
   defaultProvider: string;
   providerUiMode: "tabs" | "dropdown" | "chips";
   
-  // NEW: Tesla-style navigation config
+  // Tesla-style navigation config
   catalogNav: CatalogNavConfig;
   catalogNavVersion: number;
   
@@ -130,6 +212,9 @@ interface PublicConfigResponse {
       channel: string;
     };
   };
+  
+  // NEW: Runtime config for backend-controlled UI + providers
+  runtime: RuntimeConfig;
 }
 
 // Provider display names for Stores section
@@ -143,13 +228,73 @@ const PROVIDER_STORE_NAMES: Record<string, string> = {
   countdown: "Countdown",
 };
 
+// Default runtime config (used if DB fetch fails)
+const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
+  version: Date.now(),
+  providers: [
+    { key: "rainforest", label: "Amazon", enabled: true, type: "amazon", priority: 1 },
+    { key: "ebay", label: "eBay", enabled: false, type: "ebay", priority: 2 },
+  ],
+  ui: {
+    drawer: [
+      { key: "home", label_fr: "Accueil", label_en: "Home", type: "route", route: "Home" },
+      { key: "electronics", label_fr: "Électronique", label_en: "Electronics", type: "collection", collectionKey: "electronics" },
+      { key: "phones", label_fr: "Téléphones", label_en: "Phones", type: "collection", collectionKey: "phones" },
+      { key: "computers", label_fr: "Ordinateurs", label_en: "Computers", type: "collection", collectionKey: "computers" },
+      { key: "vehicles", label_fr: "Véhicules", label_en: "Vehicles", type: "collection", collectionKey: "vehicles" },
+    ],
+    chips: [
+      { key: "all", label_fr: "Tout", label_en: "All", collectionKey: "electronics_trending" },
+      { key: "phones", label_fr: "Téléphones", label_en: "Phones", collectionKey: "phones" },
+      { key: "tablets", label_fr: "Tablettes", label_en: "Tablets", collectionKey: "tablets" },
+      { key: "monitors", label_fr: "Moniteurs", label_en: "Monitors", collectionKey: "monitors" },
+      { key: "computers", label_fr: "Ordinateurs", label_en: "Computers", collectionKey: "computers" },
+      { key: "vehicles", label_fr: "Véhicules", label_en: "Vehicles", collectionKey: "vehicles" },
+    ],
+  },
+  search: {
+    defaultMode: "db",
+    autoTranslateFrToEn: true,
+    strictRules: [
+      { match: "iphone", include: ["iphone"], exclude: ["case", "cover", "charger", "protector", "kindle", "book", "prime video", "subscription"] },
+    ],
+    cache: {
+      searchTtlMinutes: 720,
+      itemTtlMinutes: 2880,
+      negativeTtlSeconds: 120,
+    },
+  },
+  home: {
+    sections: [
+      { key: "trending", label_fr: "Tendances", label_en: "Trending", collectionKey: "electronics_trending", maxItems: 10 },
+      { key: "best", label_fr: "Meilleures ventes", label_en: "Best Sellers", collectionKey: "best_sellers_electronics", maxItems: 10 },
+      { key: "deals", label_fr: "Promos", label_en: "Deals", collectionKey: "deals_electronics", maxItems: 10 },
+    ],
+    collections: {
+      electronics_trending: { queries: ["iphone", "samsung phone", "laptop", "headphones", "monitor"], providers: ["rainforest"], dbOnly: true },
+      phones: { queries: ["iphone", "android phone", "unlocked smartphone"], providers: ["rainforest", "ebay"], dbOnly: true },
+      tablets: { queries: ["ipad", "samsung tablet", "android tablet"], providers: ["rainforest"], dbOnly: true },
+      monitors: { queries: ["gaming monitor", "4k monitor", "ultrawide monitor"], providers: ["rainforest"], dbOnly: true },
+      computers: { queries: ["laptop", "macbook", "gaming laptop", "desktop computer"], providers: ["rainforest"], dbOnly: true },
+      vehicles: { queries: ["tesla accessories", "car accessories", "car charger"], providers: ["rainforest"], dbOnly: true },
+      best_sellers_electronics: { queries: ["best selling electronics", "top rated headphones", "popular laptop"], providers: ["rainforest"], dbOnly: true },
+      deals_electronics: { queries: ["electronics deals", "phone deals", "laptop sale"], providers: ["rainforest"], dbOnly: true },
+    },
+  },
+  blocks: {
+    denyKeywords: ["kindle", "audible", "prime video", "subscription", "ebook", "e-book", "paperback", "hardcover", "book", "magazine", "manga", "comics", "audiobook", "novel", "textbook", "membership", "streaming", "unlimited"],
+    denyUrlContains: ["/gp/video", "/Prime-Video", "/kindle", "/audible", "/books", "/magazines"],
+    denyCategories: ["Books", "Kindle Store", "Audible Books & Originals", "Prime Video", "Digital Music", "Magazine Subscriptions", "Apps & Games", "Subscriptions"],
+  },
+};
+
 async function fetchConfig(envName: "production" | "staging"): Promise<PublicConfigResponse> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Fetch settings, environment config, providers, categories, and nav settings in parallel
-  const [settingsResult, envConfig, providersResult, categoriesResult, navSettingsResult] = await Promise.all([
+  // Fetch settings, environment config, providers, categories, nav settings, AND runtime config in parallel
+  const [settingsResult, envConfig, providersResult, categoriesResult, navSettingsResult, runtimeConfigResult] = await Promise.all([
     supabase
       .from("settings")
       .select(`
@@ -182,6 +327,11 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       .from("catalog_nav_settings")
       .select("home_sections, drawer_order, version")
       .eq("key", "default")
+      .maybeSingle(),
+    supabase
+      .from("app_runtime_config")
+      .select("version, ui, providers, search, home, blocks")
+      .eq("env", envName)
       .maybeSingle(),
   ]);
 
@@ -351,6 +501,24 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     homeSections,
   };
 
+  // NEW: Build runtime config from DB or use defaults
+  let runtimeConfig: RuntimeConfig = DEFAULT_RUNTIME_CONFIG;
+  
+  if (runtimeConfigResult.data) {
+    const dbConfig = runtimeConfigResult.data;
+    runtimeConfig = {
+      version: Number(dbConfig.version) || Date.now(),
+      providers: (dbConfig.providers as RuntimeProvider[]) || DEFAULT_RUNTIME_CONFIG.providers,
+      ui: (dbConfig.ui as RuntimeUI) || DEFAULT_RUNTIME_CONFIG.ui,
+      search: (dbConfig.search as RuntimeSearchConfig) || DEFAULT_RUNTIME_CONFIG.search,
+      home: (dbConfig.home as RuntimeHomeConfig) || DEFAULT_RUNTIME_CONFIG.home,
+      blocks: (dbConfig.blocks as RuntimeBlocksConfig) || DEFAULT_RUNTIME_CONFIG.blocks,
+    };
+    console.log("[mobile-public-config] Loaded runtime config from DB, version:", runtimeConfig.version);
+  } else {
+    console.log("[mobile-public-config] Using default runtime config");
+  }
+
   if (!settings) {
     console.warn("[mobile-public-config] No settings found - returning defaults");
     return {
@@ -375,6 +543,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNav,
       catalogNavVersion,
       envDetails: envInfo,
+      runtime: runtimeConfig,
     };
   }
 
@@ -403,6 +572,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNav,
       catalogNavVersion,
       envDetails: envInfo,
+      runtime: runtimeConfig,
     };
   }
 
@@ -450,6 +620,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     serviceFeeRaw, serviceFeePercentValue,
     catalogEnabled: catalogConfig.enabled,
     catalogMode: catalogConfig.mode,
+    runtimeVersion: runtimeConfig.version,
   });
 
   // CRITICAL: Mobile app divides by 100, so we return WHOLE NUMBERS
@@ -505,6 +676,7 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogNav,
     catalogNavVersion,
     envDetails: envInfo,
+    runtime: runtimeConfig,
   };
 }
 
@@ -524,7 +696,7 @@ Deno.serve(async (req: Request) => {
       return coalesce(cacheKey, () => fetchConfig(envName), CACHE_TTL.PUBLIC_CONFIG);
     });
 
-    console.log("[mobile-public-config] Returning config for env:", envName, "version:", response.version);
+    console.log("[mobile-public-config] Returning config for env:", envName, "version:", response.version, "runtimeVersion:", response.runtime.version);
 
     return new Response(JSON.stringify(response), {
       status: 200,

@@ -224,8 +224,9 @@ const Privacy = () => {
               </div>
               <div className="space-y-2 text-white/70">
                 <p><strong className="text-white/90">Company:</strong> AMERICAN GOODWILL SARL</p>
-                <p><strong className="text-white/90">Registration:</strong> CD/LSH/RCCM/24-B-01234</p>
-                <p><strong className="text-white/90">Address:</strong> 123 Avenue Lumumba, Lubumbashi, Haut-Katanga, DRC</p>
+                <p><strong className="text-white/90">RCCM:</strong> CD/LSH/RCCM/17-B-6093</p>
+                <p><strong className="text-white/90">ID National:</strong> 05-F4300-N05127D | NIF: A2313322G</p>
+                <p><strong className="text-white/90">Address:</strong> 114 Croisement Av. Ndjamena & Kasaï, Q. Makutano, Lubumbashi, Haut-Katanga, RDC</p>
                 <p><strong className="text-white/90">Email:</strong>{" "}
                   <a href="mailto:privacy@afrishop-usa.com" className="text-green-400 hover:underline">
                     privacy@afrishop-usa.com

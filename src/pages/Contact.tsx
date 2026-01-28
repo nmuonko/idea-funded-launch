@@ -154,11 +154,13 @@ const Contact = () => {
                     <Building2 className="h-5 w-5 text-cyan-400 mt-0.5 flex-shrink-0" />
                     <div>
                       <p className="font-semibold mb-1">AMERICAN GOODWILL SARL</p>
-                      <p className="text-white/60 text-sm">
-                        123 Avenue Lumumba<br />
-                        Commune de Lubumbashi<br />
-                        Lubumbashi, Haut-Katanga<br />
-                        Democratic Republic of the Congo
+                      <p className="text-white/60 text-sm mb-2">
+                        114 Croisement des Avenues Ndjamena et Kasaï<br />
+                        Quartier Makutano, Commune de Lubumbashi<br />
+                        Haut-Katanga, République Démocratique du Congo
+                      </p>
+                      <p className="text-white/50 text-xs">
+                        RCCM: CD/LSH/RCCM/17-B-6093 | ID Nat: 05-F4300-N05127D
                       </p>
                     </div>
                   </div>

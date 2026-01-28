@@ -723,6 +723,39 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_search_cache: {
+        Row: {
+          amazon_domain: string
+          id: string
+          page: number
+          page_size: number
+          provider: string
+          query: string
+          response: Json
+          updated_at: string
+        }
+        Insert: {
+          amazon_domain?: string
+          id?: string
+          page?: number
+          page_size?: number
+          provider?: string
+          query: string
+          response?: Json
+          updated_at?: string
+        }
+        Update: {
+          amazon_domain?: string
+          id?: string
+          page?: number
+          page_size?: number
+          provider?: string
+          query?: string
+          response?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       checkout_sessions: {
         Row: {
           cart_snapshot: Json

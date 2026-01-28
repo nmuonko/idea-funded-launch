@@ -580,6 +580,42 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_cache_settings: {
+        Row: {
+          home_expires_minutes: number | null
+          home_stale_minutes: number | null
+          key: string
+          negative_expires_seconds: number | null
+          offers_expires_minutes: number | null
+          offers_stale_minutes: number | null
+          search_expires_minutes: number | null
+          search_stale_minutes: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          home_expires_minutes?: number | null
+          home_stale_minutes?: number | null
+          key?: string
+          negative_expires_seconds?: number | null
+          offers_expires_minutes?: number | null
+          offers_stale_minutes?: number | null
+          search_expires_minutes?: number | null
+          search_stale_minutes?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          home_expires_minutes?: number | null
+          home_stale_minutes?: number | null
+          key?: string
+          negative_expires_seconds?: number | null
+          offers_expires_minutes?: number | null
+          offers_stale_minutes?: number | null
+          search_expires_minutes?: number | null
+          search_stale_minutes?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       catalog_categories: {
         Row: {
           created_at: string | null
@@ -638,6 +674,33 @@ export type Database = {
           },
         ]
       }
+      catalog_collections: {
+        Row: {
+          description: string | null
+          item_ids: string[] | null
+          priority: number | null
+          slug: string
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          description?: string | null
+          item_ids?: string[] | null
+          priority?: number | null
+          slug: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          description?: string | null
+          item_ids?: string[] | null
+          priority?: number | null
+          slug?: string
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       catalog_config: {
         Row: {
           created_at: string
@@ -662,6 +725,57 @@ export type Database = {
           key?: string
           updated_at?: string
           value?: Json
+        }
+        Relationships: []
+      }
+      catalog_items: {
+        Row: {
+          category: string | null
+          id: string
+          image_url: string | null
+          images: Json | null
+          in_stock: boolean | null
+          price_usd: number | null
+          product_url: string | null
+          provider: string | null
+          provider_product_id: string | null
+          rating: number | null
+          search_text: string | null
+          tags: string[] | null
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string | null
+          id: string
+          image_url?: string | null
+          images?: Json | null
+          in_stock?: boolean | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider?: string | null
+          provider_product_id?: string | null
+          rating?: number | null
+          search_text?: string | null
+          tags?: string[] | null
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string | null
+          id?: string
+          image_url?: string | null
+          images?: Json | null
+          in_stock?: boolean | null
+          price_usd?: number | null
+          product_url?: string | null
+          provider?: string | null
+          provider_product_id?: string | null
+          rating?: number | null
+          search_text?: string | null
+          tags?: string[] | null
+          title?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -815,6 +929,33 @@ export type Database = {
           device_id?: string
           endpoint?: string
           window_start?: string
+        }
+        Relationships: []
+      }
+      catalog_refresh_jobs: {
+        Row: {
+          created_at: string | null
+          id: string
+          last_error: string | null
+          last_run: string | null
+          slug: string | null
+          status: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          last_error?: string | null
+          last_run?: string | null
+          slug?: string | null
+          status?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          last_error?: string | null
+          last_run?: string | null
+          slug?: string | null
+          status?: string | null
         }
         Relationships: []
       }
@@ -3424,6 +3565,8 @@ export type Database = {
           submission_status: string
         }[]
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       sync_profile_emails: { Args: never; Returns: undefined }
       upsert_cached_price: {
         Args: {

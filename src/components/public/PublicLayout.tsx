@@ -134,11 +134,11 @@ export const PublicFooter = () => {
               </p>
               <p className="flex items-start gap-2">
                 <FileText className="h-4 w-4 mt-0.5 flex-shrink-0 text-white/40" />
-                <span>Reg. No: CD/LSH/RCCM/24-B-01234</span>
+                <span>RCCM: CD/LSH/RCCM/17-B-6093 | ID Nat: 05-F4300-N05127D</span>
               </p>
               <p className="flex items-start gap-2">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0 text-white/40" />
-                <span>123 Avenue Lumumba, Lubumbashi, Haut-Katanga, DRC</span>
+                <span>114 Croisement Av. Ndjamena & Kasaï, Q. Makutano, Lubumbashi, Haut-Katanga, RDC</span>
               </p>
               <p className="flex items-start gap-2">
                 <Mail className="h-4 w-4 mt-0.5 flex-shrink-0 text-white/40" />

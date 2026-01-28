@@ -71,8 +71,10 @@ const Terms = () => {
                 </p>
                 <div className="p-4 bg-white/5 rounded-2xl space-y-2 text-sm">
                   <p><strong className="text-white/90">Legal Entity:</strong> AMERICAN GOODWILL SARL</p>
-                  <p><strong className="text-white/90">Registration:</strong> CD/LSH/RCCM/24-B-01234</p>
-                  <p><strong className="text-white/90">Address:</strong> 123 Avenue Lumumba, Lubumbashi, Haut-Katanga, DRC</p>
+                  <p><strong className="text-white/90">RCCM:</strong> CD/LSH/RCCM/17-B-6093</p>
+                  <p><strong className="text-white/90">ID National:</strong> 05-F4300-N05127D</p>
+                  <p><strong className="text-white/90">NIF (Tax ID):</strong> A2313322G</p>
+                  <p><strong className="text-white/90">Address:</strong> 114 Croisement Av. Ndjamena & Kasaï, Q. Makutano, Lubumbashi, Haut-Katanga, RDC</p>
                   <p><strong className="text-white/90">Contact:</strong> support@afrishop-usa.com</p>
                 </div>
               </div>
@@ -319,7 +321,7 @@ const Terms = () => {
                 </a>
                 <p className="flex items-start gap-2 pt-2">
                   <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <span>123 Avenue Lumumba, Lubumbashi, DRC</span>
+                  <span>114 Croisement Av. Ndjamena & Kasaï, Lubumbashi, RDC</span>
                 </p>
               </div>
             </motion.div>

@@ -144,8 +144,16 @@ const About = () => {
                 <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl">
                   <FileText className="h-5 w-5 text-violet-400 mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm text-white/50 mb-1">Registration Number</p>
-                    <p className="font-semibold">CD/LSH/RCCM/24-B-01234</p>
+                    <p className="text-sm text-white/50 mb-1">Registration (RCCM)</p>
+                    <p className="font-semibold">CD/LSH/RCCM/17-B-6093</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-4 p-4 bg-white/5 rounded-2xl">
+                  <FileText className="h-5 w-5 text-violet-400 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-white/50 mb-1">National ID / Tax ID</p>
+                    <p className="font-semibold">ID Nat: 05-F4300-N05127D | NIF: A2313322G</p>
                   </div>
                 </div>
                 
@@ -154,9 +162,9 @@ const About = () => {
                   <div>
                     <p className="text-sm text-white/50 mb-1">Registered Address</p>
                     <p className="font-semibold">
-                      123 Avenue Lumumba, Commune de Lubumbashi<br />
-                      Lubumbashi, Haut-Katanga<br />
-                      Democratic Republic of the Congo
+                      114 Croisement des Avenues Ndjamena et Kasaï<br />
+                      Quartier Makutano, Commune de Lubumbashi<br />
+                      Haut-Katanga, République Démocratique du Congo
                     </p>
                   </div>
                 </div>

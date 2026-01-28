@@ -1,17 +1,18 @@
 /**
- * Catalog Search Endpoint with Caching + French Query Translation
+ * Catalog Search Endpoint with Smart French Query Expansion
  * Search products via Rainforest API with server-side cache
- * GET /catalog-search?env=staging&q=iphone&page=1&pageSize=20&amazon_domain=amazon.com&fast=1
  * 
- * Cache behavior:
- * - Fresh cache (<=30 min): return immediately
- * - Stale cache (>30 min): refresh then return (unless fast=1)
- * - fast=1: return stale cache immediately if available
+ * GET /catalog-search?q=écouteurs bluetooth&expand=1&lang=fr&page=1&pageSize=20
  * 
- * French support:
- * - Detects French queries via stopwords/accents
- * - Translates common ecommerce terms to English
- * - Searches up to 3 query variants and merges/dedupes results
+ * Smart expansion (expand=1):
+ * - Detects if query is French vs English
+ * - French queries: translates to English + adds synonyms (max 3 variants)
+ * - English queries: uses original + cleaned variant (max 2 variants)
+ * - Merges/dedupes results by ASIN
+ * 
+ * Caching:
+ * - Cache by normalized query + expand + page/pageSize + amazon_domain
+ * - Repeated searches return in <300ms from cache
  * 
  * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
  */
@@ -26,7 +27,6 @@ import {
   checkRateLimit, 
   rateLimitResponse, 
   getDeviceId,
-  normalizeQuery as normalizeCacheQuery
 } from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
@@ -38,19 +38,60 @@ const corsHeaders = {
 // Cache TTL in seconds (30 minutes)
 const CACHE_TTL_SECONDS = 30 * 60;
 
-// French stopwords for language detection
+// ==================== LANGUAGE DETECTION ====================
+
+// French commerce keywords (with and without accents)
+const FRENCH_KEYWORDS = new Set([
+  // Electronics
+  "téléphone", "telephone", "téléphones", "telephones",
+  "écouteurs", "ecouteurs", "casque", "casques",
+  "ordinateur", "ordinateurs", "portable", "portables",
+  "chargeur", "chargeurs", "câble", "cable", "câbles", "cables",
+  "écran", "ecran", "écrans", "ecrans",
+  "souris", "clavier", "claviers",
+  "enceinte", "enceintes", "haut-parleur",
+  "tablette", "tablettes",
+  "montre", "montres", "connectée", "connectee",
+  "batterie", "batteries", "pile", "piles",
+  "imprimante", "imprimantes",
+  "webcam", "micro", "microphone",
+  // Gaming
+  "manette", "manettes", "console", "consoles",
+  "jeux", "jeu", "vidéo", "video",
+  // Home
+  "télévision", "television", "télé", "tele", "téléviseur", "televiseur",
+  "lampe", "lampes", "ventilateur", "ventilateurs",
+  "climatiseur", "réfrigérateur", "refrigerateur",
+  // Accessories
+  "coque", "coques", "étui", "etui",
+  "accessoire", "accessoires", "sac", "sacs", "sacoche",
+  "protection", "protecteur", "verre", "trempé", "trempe",
+  // Descriptors
+  "sans", "fil", "bluetooth", "solaire",
+  "nouveau", "nouvelle", "meilleur", "meilleure",
+  "pas", "cher", "bon", "marché", "marche",
+  "qualité", "qualite", "original", "originaux",
+]);
+
+// French stopwords for additional detection
 const FRENCH_STOPWORDS = new Set([
   "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "pour",
   "avec", "dans", "sur", "par", "en", "au", "aux", "ce", "cette", "ces",
-  "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "notre",
-  "votre", "leur", "qui", "que", "quoi", "dont", "où", "je", "tu", "il",
-  "elle", "nous", "vous", "ils", "elles", "est", "sont", "a", "ont", "être",
-  "avoir", "faire", "aller", "voir", "venir", "prendre", "très", "plus",
-  "moins", "bien", "bon", "bonne", "meilleur", "nouveau", "nouvelle", "petit",
-  "grand", "sans", "tout", "tous", "toute", "toutes", "autre", "autres"
 ]);
 
-// French to English ecommerce translation dictionary
+// English-only terms (model numbers, brands that indicate English context)
+const ENGLISH_INDICATORS = new Set([
+  "iphone", "samsung", "galaxy", "pixel", "macbook", "airpods",
+  "playstation", "xbox", "nintendo", "switch", "ps5", "ps4",
+  "kindle", "alexa", "echo", "gopro", "dyson", "roomba",
+  "wireless", "bluetooth", "charger", "case", "cover", "screen",
+  "laptop", "tablet", "headphones", "earbuds", "speaker", "monitor",
+  "keyboard", "mouse", "printer", "camera", "smartwatch", "phone",
+]);
+
+// ==================== TRANSLATION DICTIONARY ====================
+
+// French to English translation dictionary (commerce terms)
 const FRENCH_TO_ENGLISH: Record<string, string> = {
   // Phones & Mobile
   "téléphone": "phone",
@@ -63,8 +104,8 @@ const FRENCH_TO_ENGLISH: Record<string, string> = {
   "smartphones": "smartphones",
   "coque": "phone case",
   "coques": "phone cases",
-  "étui": "phone case",
-  "etui": "phone case",
+  "étui": "case",
+  "etui": "case",
   "chargeur": "charger",
   "chargeurs": "chargers",
   "câble": "cable",
@@ -169,7 +210,7 @@ const FRENCH_TO_ENGLISH: Record<string, string> = {
   "verre trempé": "tempered glass",
   "verre trempe": "tempered glass",
   
-  // General
+  // Descriptors
   "nouveau": "new",
   "nouvelle": "new",
   "meilleur": "best",
@@ -188,6 +229,22 @@ const FRENCH_TO_ENGLISH: Record<string, string> = {
   "solaire": "solar",
 };
 
+// Synonym expansion for better coverage
+const SYNONYM_MAP: Record<string, string[]> = {
+  "earbuds": ["earphones", "wireless earbuds"],
+  "headphones": ["headset", "over-ear headphones"],
+  "phone": ["smartphone", "mobile phone"],
+  "laptop": ["notebook", "portable computer"],
+  "charger": ["charging cable", "power adapter"],
+  "speaker": ["bluetooth speaker", "portable speaker"],
+  "smartwatch": ["smart watch", "fitness watch"],
+  "tablet": ["ipad", "android tablet"],
+  "mouse": ["wireless mouse", "computer mouse"],
+  "keyboard": ["wireless keyboard", "mechanical keyboard"],
+};
+
+// ==================== UTILITY FUNCTIONS ====================
+
 // Remove accents from string
 function removeAccents(str: string): string {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -198,34 +255,60 @@ function normalizeQuery(q: string): string {
   return removeAccents(q.trim().toLowerCase()).replace(/\s+/g, " ");
 }
 
+// Check if query contains accented characters
+function hasAccents(q: string): boolean {
+  return /[àâäéèêëïîôùûüÿçœæ]/i.test(q);
+}
+
 // Detect if query is likely French
-function isFrenchQuery(q: string): boolean {
+function detectQueryLanguage(q: string): "fr" | "en" | "unknown" {
   const normalized = normalizeQuery(q);
   const words = normalized.split(/\s+/);
   
+  // Check for accents in original (strong French signal)
+  if (hasAccents(q)) {
+    return "fr";
+  }
+  
   // Check for French stopwords
   const hasFrenchStopword = words.some(word => FRENCH_STOPWORDS.has(word));
-  if (hasFrenchStopword) return true;
+  if (hasFrenchStopword) {
+    return "fr";
+  }
   
-  // Check for accented characters in original
-  const hasAccents = /[àâäéèêëïîôùûüÿçœæ]/i.test(q);
-  if (hasAccents) return true;
+  // Check for French commerce keywords
+  const hasFrenchKeyword = words.some(word => FRENCH_KEYWORDS.has(word));
+  if (hasFrenchKeyword) {
+    return "fr";
+  }
   
-  // Check if any word matches French dictionary
-  const normalizedWords = normalized.split(/\s+/);
-  const hasFrenchWord = normalizedWords.some(word => 
-    FRENCH_TO_ENGLISH[word] !== undefined
-  );
-  if (hasFrenchWord) return true;
+  // Check if normalized words match French dictionary
+  const hasFrenchWord = words.some(word => FRENCH_TO_ENGLISH[word] !== undefined);
+  if (hasFrenchWord) {
+    return "fr";
+  }
   
-  return false;
+  // Check for English-only indicators
+  const hasEnglishIndicator = words.some(word => ENGLISH_INDICATORS.has(word));
+  if (hasEnglishIndicator) {
+    return "en";
+  }
+  
+  // Check for model numbers (alphanumeric patterns like "s23", "14 pro", etc.)
+  const looksLikeModelNumber = /\b(pro|max|plus|ultra|mini|lite|se)\b/i.test(normalized) ||
+    /\b\d{1,2}\b/.test(normalized);
+  if (looksLikeModelNumber) {
+    return "en";
+  }
+  
+  return "unknown";
 }
 
 // Translate French query to English using dictionary
 function translateFrenchToEnglish(q: string): string | null {
   const normalized = normalizeQuery(q);
   
-  // Try exact phrase match first (for multi-word terms)
+  // Try exact phrase match first (for multi-word terms like "ordinateur portable")
   if (FRENCH_TO_ENGLISH[normalized]) {
     return FRENCH_TO_ENGLISH[normalized];
   }
@@ -249,32 +332,64 @@ function translateFrenchToEnglish(q: string): string | null {
   return null;
 }
 
-// Build query variants for French queries
-function buildQueryVariants(originalQuery: string): string[] {
+// Get synonym variant for an English term
+function getSynonymVariant(englishQuery: string): string | null {
+  const normalized = normalizeQuery(englishQuery);
+  const words = normalized.split(/\s+/);
+  
+  // Find first word with synonyms
+  for (const word of words) {
+    const synonyms = SYNONYM_MAP[word];
+    if (synonyms && synonyms.length > 0) {
+      // Replace word with first synonym
+      const newWords = words.map(w => w === word ? synonyms[0] : w);
+      return newWords.join(" ");
+    }
+  }
+  
+  return null;
+}
+
+// Build query variants based on language detection
+function buildQueryVariants(originalQuery: string, expand: boolean): string[] {
   const variants: string[] = [];
-  const normalized = normalizeQuery(originalQuery);
+  const qNorm = normalizeQuery(originalQuery);
   
-  // Always include the normalized original
-  variants.push(normalized);
-  
-  // If not French, just return the original
-  if (!isFrenchQuery(originalQuery)) {
+  // If expansion disabled, return only normalized original
+  if (!expand) {
+    variants.push(qNorm);
     return variants;
   }
   
-  // Try full phrase translation
-  const phraseTranslation = translateFrenchToEnglish(originalQuery);
-  if (phraseTranslation && !variants.includes(phraseTranslation)) {
-    variants.push(phraseTranslation);
-  }
+  const detectedLang = detectQueryLanguage(originalQuery);
   
-  // Also try without accents as a variant
-  const noAccents = removeAccents(originalQuery.trim().toLowerCase());
-  if (noAccents !== normalized && !variants.includes(noAccents)) {
-    // Check if this version translates differently
-    const noAccentTranslation = translateFrenchToEnglish(noAccents);
-    if (noAccentTranslation && !variants.includes(noAccentTranslation)) {
-      variants.push(noAccentTranslation);
+  if (detectedLang === "fr" || detectedLang === "unknown") {
+    // French-likely or unknown: expand with translations
+    
+    // v1: Original (normalized, for French users who might find French-titled products)
+    variants.push(qNorm);
+    
+    // v2: English translation
+    const englishTranslation = translateFrenchToEnglish(originalQuery);
+    if (englishTranslation && !variants.includes(englishTranslation)) {
+      variants.push(englishTranslation);
+      
+      // v3: Synonym of English translation (optional)
+      const synonymVariant = getSynonymVariant(englishTranslation);
+      if (synonymVariant && !variants.includes(synonymVariant)) {
+        variants.push(synonymVariant);
+      }
+    }
+  } else {
+    // English-likely: minimal expansion
+    
+    // v1: Original (normalized)
+    variants.push(qNorm);
+    
+    // v2: Cleaned variant (remove extra punctuation)
+    const cleaned = qNorm.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (cleaned !== qNorm && cleaned.length > 0 && !variants.includes(cleaned)) {
+      variants.push(cleaned);
     }
   }
   
@@ -298,6 +413,8 @@ function mergeAndDedupeResults(variantResults: Array<{ variant: string; items: a
   return Array.from(seen.values());
 }
 
+// ==================== TYPES ====================
+
 interface CacheRow {
   id: string;
   provider: string;
@@ -312,22 +429,6 @@ interface CacheRow {
   updated_at: string;
 }
 
-interface CatalogSearchResponse {
-  status: "success" | "error";
-  env: string;
-  query: string;
-  queryVariants?: string[];
-  page: number;
-  pageSize: number;
-  total: number | null;
-  items: any[];
-  cached: boolean;
-  stale?: boolean;
-  cacheAgeSec?: number;
-  usedVariantCount?: number;
-  error: { code: string; message: string } | null;
-}
-
 function getCacheAge(updatedAt: string): number {
   return Math.floor((Date.now() - new Date(updatedAt).getTime()) / 1000);
 }
@@ -335,6 +436,8 @@ function getCacheAge(updatedAt: string): number {
 function isCacheFresh(updatedAt: string): boolean {
   return getCacheAge(updatedAt) <= CACHE_TTL_SECONDS;
 }
+
+// ==================== MAIN HANDLER ====================
 
 Deno.serve(async (req: Request) => {
   // Handle CORS preflight
@@ -348,29 +451,35 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const rawQuery = url.searchParams.get("q") || "";
   const qOriginal = rawQuery.trim();
-  const query = normalizeQuery(rawQuery);
+  const qNorm = normalizeQuery(rawQuery);
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
   const fastMode = url.searchParams.get("fast") === "1";
   const deviceId = getDeviceId(req);
   
-  // NEW: Provider parameter for filtering
+  // NEW: expand and lang parameters
+  const expand = url.searchParams.get("expand") !== "0"; // default true
+  const lang = url.searchParams.get("lang") || "fr"; // default "fr"
+  
+  // Provider parameter for filtering
   const providerParam = url.searchParams.get("provider") || null;
   
   // Detect environment from header or query param
   const envName = getEnvironmentFromRequest(req);
   const isStaging = envName === "staging";
   
-  // Build query variants for French support
-  const queryVariants = buildQueryVariants(qOriginal);
-  const isFrench = queryVariants.length > 1;
+  // Build query variants for smart expansion
+  const queryVariants = buildQueryVariants(qOriginal, expand);
+  const detectedLang = detectQueryLanguage(qOriginal);
 
   console.log("[CATALOG_SEARCH]", JSON.stringify({
-    q: query,
-    qOriginal,
+    q: qOriginal,
+    qNorm,
+    lang,
+    expand,
+    detectedLang,
     queryVariants,
-    isFrench,
     page,
     pageSize,
     env: envName,
@@ -379,11 +488,14 @@ Deno.serve(async (req: Request) => {
   }));
 
   // Default empty response for empty query
-  if (!query) {
+  if (!qNorm) {
     return new Response(JSON.stringify({
       status: "success",
       env: envName,
       query: "",
+      lang,
+      expand: expand ? 1 : 0,
+      queryVariants: [],
       page,
       pageSize,
       total: 0,
@@ -405,7 +517,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
-        query,
+        query: qOriginal,
+        lang,
+        expand: expand ? 1 : 0,
+        queryVariants: [],
         page,
         pageSize,
         total: 0,
@@ -438,7 +553,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
-        query,
+        query: qOriginal,
+        lang,
+        expand: expand ? 1 : 0,
+        queryVariants: [],
         page,
         pageSize,
         total: 0,
@@ -478,6 +596,9 @@ Deno.serve(async (req: Request) => {
           status: "error",
           env: envName,
           query: qOriginal,
+          lang,
+          expand: expand ? 1 : 0,
+          queryVariants: [],
           page,
           pageSize,
           total: 0,
@@ -496,11 +617,12 @@ Deno.serve(async (req: Request) => {
     const providersUsed = activeProviders.filter(p => p === "amazon" || p === "rainforest").slice(0, 2);
 
     // ========== UNIFIED CACHE LOOKUP ==========
+    // Cache key uses normalized query for consistency
     const cacheKey = buildCacheKey("search", {
       env: envName,
       domain: amazonDomain,
-      query,
-      expand: isFrench,
+      query: qNorm,
+      expand,
       page,
       pageSize,
     });
@@ -514,7 +636,9 @@ Deno.serve(async (req: Request) => {
         status: "success",
         env: envName,
         query: qOriginal,
-        queryVariants,
+        lang,
+        expand: expand ? 1 : 0,
+        queryVariants: unifiedCache.data.queryVariants || queryVariants,
         page,
         pageSize,
         total: unifiedCache.data.total,
@@ -537,7 +661,7 @@ Deno.serve(async (req: Request) => {
       .from("catalog_search_cache")
       .select("*")
       .eq("provider", "rainforest")
-      .eq("query", query)
+      .eq("query", qNorm)
       .eq("page", page)
       .eq("page_size", pageSize)
       .eq("amazon_domain", amazonDomain)
@@ -553,7 +677,8 @@ Deno.serve(async (req: Request) => {
       // Fast mode: return stale immediately
       if (fastMode || isFresh) {
         console.log("[CATALOG_SEARCH]", JSON.stringify({
-          q: query,
+          q: qOriginal,
+          qNorm,
           page,
           env: envName,
           status: "success",
@@ -566,7 +691,10 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify({
           status: "success",
           env: envName,
-          query,
+          query: qOriginal,
+          lang,
+          expand: expand ? 1 : 0,
+          queryVariants,
           page,
           pageSize,
           total: typedCache.response.total,
@@ -586,7 +714,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ========== FETCH FROM RAINFOREST WITH VARIANT SUPPORT ==========
-    // For French queries, search multiple variants in parallel and merge results
+    // Search multiple variants in parallel and merge results
     const variantResults: Array<{ variant: string; items: any[]; total: number | null }> = [];
     let combinedError: string | null = null;
     
@@ -634,20 +762,17 @@ Deno.serve(async (req: Request) => {
     const usedVariantCount = variantResults.length;
     const totalEstimate = variantResults.length > 0 ? variantResults[0].total : null;
 
-    // UPGRADE A & B: Use unified cache (auto-handles TTL and normalization)
-    // Cache results (setCache will:
-    // - Apply short TTL if empty (negative cache)
-    // - Normalize items to minimal payload
-    // - Apply normal TTL for positive results
+    // Cache results
     const cachePayload = { 
       items: mergedItems, 
       total: totalEstimate, 
-      usedVariantCount 
+      usedVariantCount,
+      queryVariants: variantsToSearch,
     };
     
     await setCache(supabase, "search", cacheKey, cachePayload, {
       provider: "rainforest",
-      query,
+      query: qNorm,
       page,
       pageSize,
       amazonDomain,
@@ -657,7 +782,7 @@ Deno.serve(async (req: Request) => {
     if (mergedItems.length > 0) {
       const legacyCacheData = {
         provider: "rainforest",
-        query,
+        query: qNorm,
         page,
         page_size: pageSize,
         amazon_domain: amazonDomain,
@@ -677,14 +802,14 @@ Deno.serve(async (req: Request) => {
     }
 
     console.log("[CATALOG_SEARCH]", JSON.stringify({
-      q: query,
-      qOriginal,
+      q: qOriginal,
+      qNorm,
       queryVariants: variantsToSearch,
       usedVariantCount,
       page,
       env: envName,
       status: mergedItems.length > 0 ? "success" : "empty",
-      source: isFrench ? "rainforest-multi-variant" : "rainforest-live",
+      source: queryVariants.length > 1 ? "rainforest-multi-variant" : "rainforest-live",
       itemCount: mergedItems.length,
       durationMs: Date.now() - startTime,
     }));
@@ -695,6 +820,8 @@ Deno.serve(async (req: Request) => {
         status: "success",
         env: envName,
         query: qOriginal,
+        lang,
+        expand: expand ? 1 : 0,
         queryVariants: variantsToSearch,
         page,
         pageSize,
@@ -715,7 +842,8 @@ Deno.serve(async (req: Request) => {
     if (typedCache && typedCache.response?.items?.length > 0) {
       const cacheAgeSec = getCacheAge(typedCache.updated_at);
       console.log("[CATALOG_SEARCH]", JSON.stringify({
-        q: query,
+        q: qOriginal,
+        qNorm,
         page,
         env: envName,
         status: "success",
@@ -728,7 +856,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
-        query,
+        query: qOriginal,
+        lang,
+        expand: expand ? 1 : 0,
+        queryVariants,
         page,
         pageSize,
         total: typedCache.response.total,
@@ -748,7 +879,7 @@ Deno.serve(async (req: Request) => {
       .from("catalog_products")
       .select("*")
       .gt("expires_at", new Date().toISOString())
-      .ilike("title", `%${query}%`)
+      .ilike("title", `%${qNorm}%`)
       .order("rating", { ascending: false })
       .limit(pageSize);
 
@@ -767,7 +898,8 @@ Deno.serve(async (req: Request) => {
       }));
 
       console.log("[CATALOG_SEARCH]", JSON.stringify({
-        q: query,
+        q: qOriginal,
+        qNorm,
         page,
         env: envName,
         status: "success",
@@ -779,7 +911,10 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
-        query,
+        query: qOriginal,
+        lang,
+        expand: expand ? 1 : 0,
+        queryVariants,
         page,
         pageSize,
         total: cachedItems.length,
@@ -795,8 +930,8 @@ Deno.serve(async (req: Request) => {
 
     // No cache available, return error status but still 200
     console.log("[CATALOG_SEARCH]", JSON.stringify({
-      q: query,
-      qOriginal,
+      q: qOriginal,
+      qNorm,
       page,
       env: envName,
       status: "error",
@@ -808,6 +943,8 @@ Deno.serve(async (req: Request) => {
       status: "error",
       env: envName,
       query: qOriginal,
+      lang,
+      expand: expand ? 1 : 0,
       queryVariants,
       page,
       pageSize,
@@ -824,7 +961,8 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error("[CATALOG_SEARCH]", JSON.stringify({
-      q: query,
+      q: qOriginal,
+      qNorm,
       page,
       env: envName,
       status: "error",
@@ -836,7 +974,10 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({
       status: "error",
       env: envName,
-      query,
+      query: qOriginal,
+      lang,
+      expand: expand ? 1 : 0,
+      queryVariants: [],
       page,
       pageSize,
       total: null,

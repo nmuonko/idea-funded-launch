@@ -3,9 +3,12 @@
  * 
  * Returns paginated items from a specific collection.
  * DB-first: No live Rainforest calls.
+ * 
+ * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { isDisallowedItem } from '../_shared/contentBlocker.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,6 +45,31 @@ function mapDbItemToResponse(item: any): CatalogItem {
     brand: item.brand,
     category: item.category,
   };
+}
+
+/**
+ * Filter items through content blocker
+ */
+function filterBlockedItems(items: CatalogItem[]): { filtered: CatalogItem[]; removedCount: number } {
+  let removedCount = 0;
+  const filtered = items.filter(item => {
+    const result = isDisallowedItem({
+      title: item.title,
+      productUrl: item.productUrl,
+      category: item.category,
+    });
+    if (result.isDisallowed) {
+      removedCount++;
+      return false;
+    }
+    return true;
+  });
+  
+  if (removedCount > 0) {
+    console.log(`[COLLECTION_FILTER] removed=${removedCount} remaining=${filtered.length}`);
+  }
+  
+  return { filtered, removedCount };
 }
 
 Deno.serve(async (req) => {
@@ -94,9 +122,9 @@ Deno.serve(async (req) => {
     const allItemIds: string[] = collection.item_ids || [];
     const total = allItemIds.length;
     
-    // Paginate
+    // Fetch extra items to account for filtering
     const startIdx = (page - 1) * pageSize;
-    const endIdx = startIdx + pageSize;
+    const endIdx = startIdx + pageSize + 10; // Extra buffer for filtering
     const pageItemIds = allItemIds.slice(startIdx, endIdx);
 
     if (pageItemIds.length === 0) {
@@ -133,10 +161,16 @@ Deno.serve(async (req) => {
 
     // Preserve order from item_ids
     const itemMap = new Map((items || []).map(i => [i.id, i]));
-    const orderedItems = pageItemIds
+    const rawItems = pageItemIds
       .map(id => itemMap.get(id))
       .filter(Boolean)
       .map(mapDbItemToResponse);
+
+    // HARD BLOCK: Filter out books/subscriptions/streaming
+    const { filtered: orderedItems, removedCount } = filterBlockedItems(rawItems);
+    
+    // Trim to pageSize after filtering
+    const finalItems = orderedItems.slice(0, pageSize);
 
     return new Response(
       JSON.stringify({
@@ -144,11 +178,12 @@ Deno.serve(async (req) => {
         slug: collection.slug,
         title: collection.title,
         description: collection.description,
-        items: orderedItems,
+        items: finalItems,
         total,
         page,
         pageSize,
-        hasMore: endIdx < total,
+        hasMore: (startIdx + pageSize) < total,
+        removedDisallowedCount: removedCount,
         updatedAt: collection.updated_at,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

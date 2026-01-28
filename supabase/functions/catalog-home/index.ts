@@ -8,11 +8,13 @@
  * Data is refreshed by scheduled catalog-refresh function.
  * 
  * IMPORTANT: This endpoint MUST always return HTTP 200 with stable JSON shape.
+ * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
+import { filterDisallowedItems, isDisallowedItem } from "../_shared/contentBlocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +70,32 @@ function mapDbItemToResponse(item: any): CatalogItem {
     brand: item.brand,
     category: item.category,
   };
+}
+
+/**
+ * Filter items through content blocker
+ */
+function filterBlockedItems(items: CatalogItem[]): CatalogItem[] {
+  const { allowed } = filterDisallowedItems(
+    items.map(item => ({
+      title: item.title,
+      productUrl: item.productUrl,
+      category: item.category,
+    })),
+    "[CATALOG_HOME_FILTER]"
+  );
+  
+  // Map back to original items by index
+  const allowedSet = new Set(allowed.map(a => a.title));
+  return items.filter(item => {
+    // Re-check each item individually to be safe
+    const result = isDisallowedItem({
+      title: item.title,
+      productUrl: item.productUrl,
+      category: item.category,
+    });
+    return !result.isDisallowed;
+  });
 }
 
 interface Section {
@@ -164,19 +192,22 @@ Deno.serve(async (req: Request) => {
 
         const itemMap = new Map((items || []).map(i => [i.id, i]));
 
-        // Build sections
+        // Build sections with content filtering
         for (const coll of collections) {
-          const collItemIds = (coll.item_ids || []).slice(0, 10);
-          const sectionItems = collItemIds
+          const collItemIds = (coll.item_ids || []).slice(0, 15); // Fetch extra to account for filtering
+          const rawItems = collItemIds
             .map(id => itemMap.get(id))
             .filter(Boolean)
             .map(mapDbItemToResponse);
+
+          // HARD BLOCK: Filter out books/subscriptions/streaming
+          const filteredItems = filterBlockedItems(rawItems).slice(0, 10);
 
           sections.push({
             type: "section",
             title: coll.title,
             slug: coll.slug,
-            items: sectionItems,
+            items: filteredItems,
             hasMore: (coll.item_ids || []).length > 10,
           });
         }
@@ -251,10 +282,13 @@ Deno.serve(async (req: Request) => {
 
     // Preserve order from item_ids
     const itemMap = new Map((items || []).map(i => [i.id, i]));
-    const orderedItems = pageItemIds
+    const rawItems = pageItemIds
       .map(id => itemMap.get(id))
       .filter(Boolean)
       .map(mapDbItemToResponse);
+
+    // HARD BLOCK: Filter out books/subscriptions/streaming
+    const orderedItems = filterBlockedItems(rawItems);
 
     const hasMore = endIdx < total;
 

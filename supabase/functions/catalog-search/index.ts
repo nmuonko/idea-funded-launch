@@ -15,12 +15,20 @@
  * - Max 3 query variants
  * 
  * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
+ * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
+import { 
+  filterDisallowedItems, 
+  isDisallowedItem, 
+  isBlockedSearchQuery, 
+  getBlockedSearchMessage,
+  ELECTRONICS_REFILL_QUERIES,
+} from "../_shared/contentBlocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -420,6 +428,34 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // HARD BLOCK: Check if query targets blocked content (books, subscriptions, etc.)
+  if (isBlockedSearchQuery(qOriginal)) {
+    console.log(`[CATALOG_SEARCH] Blocked query: "${qOriginal}"`);
+    return new Response(JSON.stringify({
+      status: "success",
+      env: envName,
+      query: qOriginal,
+      lang,
+      expand: expand ? 1 : 0,
+      queryVariants: [],
+      familyQuery: null,
+      page,
+      pageSize,
+      total: 0,
+      items: [],
+      source: "blocked",
+      cached: false,
+      stale: false,
+      cacheAgeSec: 0,
+      reusedFrom: null,
+      message: getBlockedSearchMessage(lang),
+      error: null,
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -628,6 +664,26 @@ Deno.serve(async (req: Request) => {
       await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
     }
 
+    // ==================== HARD BLOCK: Filter disallowed content ====================
+    const beforeFilter = resultItems.length;
+    const { allowed: filteredItems, removed: removedCount, reasons } = filterDisallowedItems(
+      resultItems.map(item => ({
+        ...item,
+        title: item.title,
+        productUrl: item.productUrl,
+        category: item.category,
+      })),
+      "[CATALOG_SEARCH_FILTER]"
+    );
+    
+    // Map back filtered items
+    const allowedIds = new Set(filteredItems.map(i => i.id));
+    resultItems = resultItems.filter(item => allowedIds.has(item.id));
+
+    if (removedCount > 0) {
+      console.log(`[CATALOG_SEARCH] Filtered: removed=${removedCount} remaining=${resultItems.length} reasons=${JSON.stringify(reasons)}`);
+    }
+
     const durationMs = Date.now() - startTime;
     console.log(`[CATALOG_SEARCH] Done: ${resultItems.length} items, reusedFrom=${reusedFrom}, cached=${cached}, stale=${stale}, durationMs=${durationMs}`);
 
@@ -648,6 +704,7 @@ Deno.serve(async (req: Request) => {
       stale,
       cacheAgeSec,
       reusedFrom,
+      removedDisallowedCount: removedCount,
       durationMs,
       error: null,
     }), {

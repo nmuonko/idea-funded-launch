@@ -713,6 +713,7 @@ export type Database = {
           image_url: string | null
           images: Json | null
           in_stock: boolean | null
+          is_disallowed: boolean | null
           price_usd: number | null
           product_url: string | null
           provider: string | null
@@ -729,6 +730,7 @@ export type Database = {
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
+          is_disallowed?: boolean | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -745,6 +747,7 @@ export type Database = {
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
+          is_disallowed?: boolean | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null

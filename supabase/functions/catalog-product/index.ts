@@ -9,12 +9,14 @@
  * - If not found, fetch from Rainforest and cache
  * 
  * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
+ * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { fetchProductDetails, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
+import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -142,6 +144,19 @@ Deno.serve(async (req: Request) => {
 
     if (dbItem) {
       const item = mapDbItemToResponse(dbItem);
+      
+      // HARD BLOCK: Check if item is disallowed
+      const blockCheck = isDisallowedItem({
+        title: item.title,
+        productUrl: item.productUrl,
+        category: item.category,
+      });
+      
+      if (blockCheck.isDisallowed) {
+        console.log(`[CATALOG_PRODUCT] Blocked: asin=${asin} reason=${blockCheck.reason}`);
+        return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
+      }
+      
       console.log(`[CATALOG_PRODUCT] DB hit: asin=${asin} durationMs=${Date.now() - startTime}`);
       
       return new Response(JSON.stringify({
@@ -220,6 +235,18 @@ Deno.serve(async (req: Request) => {
 
     if (rainforestError || !product) {
       return errorResponse(rainforestError || "NOT_FOUND", `Product not found on ${amazonDomain}`);
+    }
+
+    // HARD BLOCK: Check if live product is disallowed
+    const liveBlockCheck = isDisallowedItem({
+      title: product.title,
+      productUrl: product.productUrl,
+      categoryPath: product.categoryPath,
+    });
+    
+    if (liveBlockCheck.isDisallowed) {
+      console.log(`[CATALOG_PRODUCT] Blocked live: asin=${asin} reason=${liveBlockCheck.reason}`);
+      return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
     }
 
     // Cache to catalog_items

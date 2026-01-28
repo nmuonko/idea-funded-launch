@@ -21,6 +21,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
+import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { 
   filterDisallowedItems, 
@@ -578,15 +579,16 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ==================== STEP 4: LIVE RAINFOREST (last resort) ====================
+    // ==================== STEP 4: LIVE PROVIDER FALLBACK (last resort) ====================
     if (resultItems.length < MIN_RESULTS_FOR_DB) {
-      console.log(`[CATALOG_SEARCH] Step 4: Live Rainforest fallback (current=${resultItems.length})`);
+      console.log(`[CATALOG_SEARCH] Step 4: Live provider fallback (current=${resultItems.length})`);
       usedLiveFallback = true;
 
       // Only search first 2 variants to limit API calls
       const variantsToSearch = queryVariants.slice(0, 2);
       const liveItems: CatalogItem[] = [];
 
+      // Try Rainforest (Amazon) first
       for (const variant of variantsToSearch) {
         try {
           const { products, error: rainforestError } = await searchRainforest(
@@ -620,7 +622,53 @@ Deno.serve(async (req: Request) => {
             await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
           }
         } catch (err) {
-          console.warn(`[CATALOG_SEARCH] Live search error for "${variant}":`, err);
+          console.warn(`[CATALOG_SEARCH] Rainforest search error for "${variant}":`, err);
+        }
+      }
+
+      // Try eBay if we still need more items
+      if (liveItems.length < MIN_RESULTS_FOR_DB) {
+        try {
+          const ebayResult = await searchEbay(supabase, qNorm, 1, Math.min(20, pageSize));
+          
+          if (ebayResult.items.length > 0) {
+            // Map eBay items to our format and add to live items
+            const ebayMapped: CatalogItem[] = ebayResult.items.map((item: EbayCatalogItem) => ({
+              id: item.id,
+              providerProductId: item.providerProductId,
+              title: item.title,
+              priceUsd: item.priceUsd,
+              imageUrl: item.imageUrl,
+              images: item.images || [],
+              productUrl: item.productUrl,
+              inStock: item.inStock,
+              rating: item.rating,
+            }));
+            
+            liveItems.push(...ebayMapped);
+            
+            // Cache eBay items to catalog_items
+            const toUpsertEbay = ebayMapped.map(item => ({
+              id: item.id,
+              provider: "ebay",
+              provider_product_id: item.providerProductId,
+              title: item.title,
+              price_usd: item.priceUsd,
+              image_url: item.imageUrl,
+              images: item.images,
+              product_url: item.productUrl,
+              in_stock: item.inStock,
+              rating: item.rating,
+              category: "uncategorized",
+              tags: [qNorm, ...familyTokens],
+              updated_at: new Date().toISOString(),
+            }));
+            
+            await supabase.from("catalog_items").upsert(toUpsertEbay, { onConflict: "id" });
+            console.log(`[CATALOG_SEARCH] eBay returned ${ebayResult.items.length} items`);
+          }
+        } catch (err) {
+          console.warn(`[CATALOG_SEARCH] eBay search error:`, err);
         }
       }
 
@@ -630,7 +678,7 @@ Deno.serve(async (req: Request) => {
       resultItems = [...resultItems, ...newLiveItems].slice(0, pageSize);
       
       if (!reusedFrom) {
-        reusedFrom = "rainforest";
+        reusedFrom = "live";
       }
 
       // Store exact cache (for future exact queries)

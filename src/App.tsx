@@ -46,6 +46,7 @@ import PriceConfirmations from "./pages/admin/PriceConfirmations";
 import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
+import CacheSettings from "./pages/admin/CacheSettings";
 
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
 import ServiceZones from "./pages/admin/ServiceZones";
@@ -274,6 +275,11 @@ const App = () => {
               <Route path="service-zones" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <ServiceZones />
+                </AdminRouteGuard>
+              } />
+              <Route path="cache-settings" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <CacheSettings />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

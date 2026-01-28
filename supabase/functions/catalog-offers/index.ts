@@ -1,16 +1,28 @@
-// catalog-offers Edge Function
-// Returns multiple sellers/offers for a product ASIN from Rainforest API
-//
-// Route: GET /functions/v1/catalog-offers?env=staging&asin=B0XXX
-// Also accepts: id=rainforest:B0XXX
-//
-// Always returns HTTP 200 with stable JSON schema
+/**
+ * Catalog Offers Endpoint with Smart Caching
+ * Returns multiple sellers/offers for a product ASIN from Rainforest API
+ * 
+ * Cache strategy: stale=1hour, expire=6hours (prices change frequently)
+ * 
+ * GET /functions/v1/catalog-offers?env=staging&asin=B0XXX
+ * Also accepts: id=rainforest:B0XXX
+ */
 
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { 
+  buildCacheKey, 
+  getCache, 
+  setCache, 
+  setCacheShort,
+  checkRateLimit, 
+  rateLimitResponse, 
+  getDeviceId 
+} from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
@@ -46,13 +58,14 @@ interface OffersResponse {
   buyBox: BuyBox | null;
   offers: Offer[];
   offerCount: number;
+  cached: boolean;
+  stale: boolean;
+  cacheAgeSec: number;
   error: { code: string; message: string } | null;
 }
 
 function extractPrice(priceObj: any): number | null {
   if (!priceObj) return null;
-  
-  // Try various price fields
   const value = priceObj.value ?? priceObj.raw?.replace(/[^0-9.]/g, '');
   if (value !== undefined && value !== null && value !== '') {
     const parsed = typeof value === 'number' ? value : parseFloat(value);
@@ -64,21 +77,10 @@ function extractPrice(priceObj: any): number | null {
 function normalizeOffer(rawOffer: any): Offer {
   const priceUsd = extractPrice(rawOffer.price);
   const shippingUsd = extractPrice(rawOffer.delivery_price) ?? extractPrice(rawOffer.shipping);
-  
-  // Calculate total only if price is known
   let totalUsd: number | null = null;
-  if (priceUsd !== null) {
-    totalUsd = priceUsd + (shippingUsd ?? 0);
-  }
+  if (priceUsd !== null) totalUsd = priceUsd + (shippingUsd ?? 0);
 
-  // Extract delivery info
   const deliveryRaw = rawOffer.delivery ?? {};
-  const delivery = {
-    minDays: deliveryRaw.min_days ?? null,
-    maxDays: deliveryRaw.max_days ?? null,
-    text: deliveryRaw.raw ?? deliveryRaw.tagline ?? null,
-  };
-
   return {
     sellerName: rawOffer.seller?.name ?? rawOffer.seller_name ?? null,
     priceUsd,
@@ -91,13 +93,16 @@ function normalizeOffer(rawOffer: any): Offer {
     isFba: rawOffer.is_fba ?? rawOffer.fulfilled_by_amazon ?? null,
     sellerRating: rawOffer.seller?.rating ?? null,
     sellerRatingsCount: rawOffer.seller?.ratings_total ?? rawOffer.seller?.num_ratings ?? null,
-    delivery,
+    delivery: {
+      minDays: deliveryRaw.min_days ?? null,
+      maxDays: deliveryRaw.max_days ?? null,
+      text: deliveryRaw.raw ?? deliveryRaw.tagline ?? null,
+    },
   };
 }
 
 function normalizeBuyBox(buyboxData: any): BuyBox | null {
   if (!buyboxData) return null;
-  
   return {
     priceUsd: extractPrice(buyboxData.price) ?? extractPrice(buyboxData),
     seller: buyboxData.seller?.name ?? buyboxData.seller_name ?? null,
@@ -107,53 +112,117 @@ function normalizeBuyBox(buyboxData: any): BuyBox | null {
 }
 
 Deno.serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  const startTime = Date.now();
   const url = new URL(req.url);
-  const env = url.searchParams.get("env") ?? "production";
+  const envName = getEnvironmentFromRequest(req);
   const amazonDomain = url.searchParams.get("amazon_domain") ?? "amazon.com";
+  const deviceId = getDeviceId(req);
+  const isStaging = envName === "staging";
   
-  // Parse ASIN from either 'asin' param or 'id' param (rainforest:ASIN format)
+  // Parse ASIN
   let asin = url.searchParams.get("asin");
   const idParam = url.searchParams.get("id");
-  
   if (!asin && idParam) {
     const parts = idParam.split(":");
-    if (parts.length === 2 && parts[0] === "rainforest") {
-      asin = parts[1];
-    }
+    if (parts.length === 2 && parts[0] === "rainforest") asin = parts[1];
   }
 
-  // Validate ASIN
+  const buildResponse = (
+    status: "success" | "error", 
+    buyBox: BuyBox | null, 
+    offers: Offer[], 
+    cached: boolean, 
+    stale: boolean, 
+    cacheAgeSec: number,
+    error: { code: string; message: string } | null
+  ): OffersResponse => ({
+    status,
+    env: envName,
+    asin: asin ?? "",
+    amazonDomain,
+    buyBox,
+    offers,
+    offerCount: offers.length,
+    cached,
+    stale,
+    cacheAgeSec,
+    error,
+  });
+
   if (!asin || asin.length < 5) {
-    console.info(`[CATALOG_OFFERS] ${JSON.stringify({ env, asin: asin ?? "missing", status: "error", reason: "invalid_asin" })}`);
-    
-    const errorResponse: OffersResponse = {
-      status: "error",
-      env,
-      asin: asin ?? "",
-      amazonDomain,
-      buyBox: null,
-      offers: [],
-      offerCount: 0,
-      error: { code: "INVALID_ASIN", message: "Valid ASIN required" },
-    };
-    
-    return new Response(JSON.stringify(errorResponse), {
+    console.info(`[CATALOG_OFFERS] Invalid ASIN: ${asin ?? "missing"}`);
+    return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "INVALID_ASIN", message: "Valid ASIN required" })), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  console.info(`[CATALOG_OFFERS] ${JSON.stringify({ env, asin, amazonDomain })}`);
-
   try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "CONFIG_ERROR", message: "Service unavailable" })), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Rate limiting
+    const rateLimit = await checkRateLimit(supabase, deviceId, "offers");
+    if (!rateLimit.allowed) {
+      console.log(`[CATALOG_OFFERS] Rate limited device=${deviceId} count=${rateLimit.count}`);
+      return new Response(JSON.stringify(rateLimitResponse(rateLimit.resetAt)), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Build cache key
+    const productId = `rainforest:${asin}`;
+    const cacheKey = buildCacheKey("offers", {
+      env: envName,
+      domain: amazonDomain,
+      productId,
+    });
+
+    // Check cache first
+    const cacheResult = await getCache(supabase, cacheKey);
+    
+    if (cacheResult.hit && cacheResult.data) {
+      console.log(`[CATALOG_OFFERS] Cache hit: asin=${asin} stale=${cacheResult.stale} age=${cacheResult.cacheAgeSec}s`);
+      
+      return new Response(JSON.stringify({
+        ...buildResponse(
+          "success",
+          cacheResult.data.buyBox,
+          cacheResult.data.offers || [],
+          true,
+          cacheResult.stale,
+          cacheResult.cacheAgeSec,
+          null
+        ),
+        ...(isStaging && { cacheKey }),
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.info(`[CATALOG_OFFERS] Cache miss: asin=${asin}, fetching from Rainforest`);
+
     const apiKey = Deno.env.get("RAINFOREST_API_KEY");
     if (!apiKey) {
-      throw new Error("RAINFOREST_API_KEY not configured");
+      return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "CONFIG_ERROR", message: "API not configured" })), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Call Rainforest offers endpoint
@@ -171,32 +240,31 @@ Deno.serve(async (req: Request) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[CATALOG_OFFERS] Rainforest error: ${response.status} - ${errorText.substring(0, 200)}`);
-      throw new Error(`Rainforest API error: ${response.status}`);
+      
+      // Cache error for 5 minutes
+      await setCacheShort(supabase, "offers", cacheKey, { buyBox: null, offers: [], error: "API_ERROR" }, 5);
+      
+      return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "RAINFOREST_ERROR", message: "Offers temporarily unavailable" })), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const data = await response.json();
-
-    // Extract buybox
     const buyBox = normalizeBuyBox(data.buybox_winner ?? data.buybox);
+    const offers: Offer[] = (data.offers ?? []).map((o: any) => normalizeOffer(o));
 
-    // Extract and normalize offers
-    const rawOffers = data.offers ?? [];
-    const offers: Offer[] = rawOffers.map((o: any) => normalizeOffer(o));
+    // Cache the result (or short cache if empty)
+    if (offers.length > 0) {
+      await setCache(supabase, "offers", cacheKey, { buyBox, offers }, { amazonDomain });
+    } else {
+      // Cache empty result for only 5 minutes
+      await setCacheShort(supabase, "offers", cacheKey, { buyBox, offers: [] }, 5);
+    }
 
-    console.info(`[CATALOG_OFFERS] ${JSON.stringify({ env, asin, status: "success", offerCount: offers.length })}`);
+    console.info(`[CATALOG_OFFERS] Rainforest fetch: asin=${asin} offerCount=${offers.length} durationMs=${Date.now() - startTime}`);
 
-    const successResponse: OffersResponse = {
-      status: "success",
-      env,
-      asin,
-      amazonDomain,
-      buyBox,
-      offers,
-      offerCount: offers.length,
-      error: null,
-    };
-
-    return new Response(JSON.stringify(successResponse), {
+    return new Response(JSON.stringify(buildResponse("success", buyBox, offers, false, false, 0, null)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -205,18 +273,7 @@ Deno.serve(async (req: Request) => {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_OFFERS] Error: ${message}`);
 
-    const errorResponse: OffersResponse = {
-      status: "error",
-      env,
-      asin,
-      amazonDomain,
-      buyBox: null,
-      offers: [],
-      offerCount: 0,
-      error: { code: "RAINFOREST_ERROR", message: "Offers temporarily unavailable" },
-    };
-
-    return new Response(JSON.stringify(errorResponse), {
+    return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "INTERNAL_ERROR", message: "Offers service error" })), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -6,6 +6,8 @@
  * 
  * GET /functions/v1/catalog-offers?env=staging&asin=B0XXX
  * Also accepts: id=rainforest:B0XXX
+ * 
+ * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -18,6 +20,7 @@ import {
   rateLimitResponse, 
   getDeviceId 
 } from "../_shared/catalogCache.ts";
+import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

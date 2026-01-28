@@ -586,10 +586,28 @@ Deno.serve(async (req: Request) => {
     const usedVariantCount = variantResults.length;
     const totalEstimate = variantResults.length > 0 ? variantResults[0].total : null;
 
-    // If we got results, update cache and return
+    // UPGRADE A & B: Use unified cache (auto-handles TTL and normalization)
+    // Cache results (setCache will:
+    // - Apply short TTL if empty (negative cache)
+    // - Normalize items to minimal payload
+    // - Apply normal TTL for positive results
+    const cachePayload = { 
+      items: mergedItems, 
+      total: totalEstimate, 
+      usedVariantCount 
+    };
+    
+    await setCache(supabase, "search", cacheKey, cachePayload, {
+      provider: "rainforest",
+      query,
+      page,
+      pageSize,
+      amazonDomain,
+    });
+
+    // Also update legacy cache for backwards compatibility
     if (mergedItems.length > 0) {
-      // Cache the merged results under the original query
-      const cacheData = {
+      const legacyCacheData = {
         provider: "rainforest",
         query,
         page,
@@ -599,32 +617,32 @@ Deno.serve(async (req: Request) => {
         updated_at: new Date().toISOString(),
       };
 
-      // Upsert cache (use ON CONFLICT)
       const { error: upsertError } = await supabase
         .from("catalog_search_cache")
-        .upsert(cacheData, {
+        .upsert(legacyCacheData, {
           onConflict: "provider,query,page,page_size,amazon_domain",
         });
 
       if (upsertError) {
-        console.warn("[CATALOG_SEARCH] Cache upsert failed:", upsertError.message);
-      } else {
-        console.log("[CATALOG_SEARCH] Cache updated for:", query);
+        console.warn("[CATALOG_SEARCH] Legacy cache upsert failed:", upsertError.message);
       }
+    }
 
-      console.log("[CATALOG_SEARCH]", JSON.stringify({
-        q: query,
-        qOriginal,
-        queryVariants: variantsToSearch,
-        usedVariantCount,
-        page,
-        env: envName,
-        status: "success",
-        source: isFrench ? "rainforest-multi-variant" : "rainforest-live",
-        itemCount: mergedItems.length,
-        durationMs: Date.now() - startTime,
-      }));
+    console.log("[CATALOG_SEARCH]", JSON.stringify({
+      q: query,
+      qOriginal,
+      queryVariants: variantsToSearch,
+      usedVariantCount,
+      page,
+      env: envName,
+      status: mergedItems.length > 0 ? "success" : "empty",
+      source: isFrench ? "rainforest-multi-variant" : "rainforest-live",
+      itemCount: mergedItems.length,
+      durationMs: Date.now() - startTime,
+    }));
 
+    // If we got results, return success
+    if (mergedItems.length > 0) {
       return new Response(JSON.stringify({
         status: "success",
         env: envName,

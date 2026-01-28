@@ -61,12 +61,26 @@ serve(async (req) => {
       console.log('[cleanup-expired-caches] Search cache cleaned successfully');
     }
 
+    // 5. Clean CATALOG_CACHE expired entries (including negative cache)
+    const now = new Date().toISOString();
+    const { error: catalogCacheError, count: catalogCacheDeleted } = await supabase
+      .from('catalog_cache')
+      .delete()
+      .lt('expires_at', now);
+    
+    if (catalogCacheError) {
+      console.error('[cleanup-expired-caches] Error cleaning catalog_cache:', catalogCacheError);
+    } else {
+      console.log(`[cleanup-expired-caches] Catalog cache cleaned: ${catalogCacheDeleted || 0} entries removed`);
+    }
+
     // Get counts for logging
-    const [hotCacheResult, priceCacheResult, productCacheResult, searchCacheResult] = await Promise.all([
+    const [hotCacheResult, priceCacheResult, productCacheResult, searchCacheResult, catalogCacheResult] = await Promise.all([
       supabase.from('product_hot_cache').select('id', { count: 'exact', head: true }),
       supabase.from('price_cache').select('id', { count: 'exact', head: true }),
       supabase.from('product_cache').select('id', { count: 'exact', head: true }),
       supabase.from('catalog_search_cache').select('id', { count: 'exact', head: true }),
+      supabase.from('catalog_cache').select('cache_key', { count: 'exact', head: true }),
     ]);
 
     const duration = Date.now() - startTime;
@@ -80,6 +94,7 @@ serve(async (req) => {
         priceCacheRemaining: priceCacheResult.count || 0,
         productCacheRemaining: productCacheResult.count || 0,
         searchCacheRemaining: searchCacheResult.count || 0,
+        catalogCacheRemaining: catalogCacheResult.count || 0,
         cleanedAt: new Date().toISOString(),
       },
     };

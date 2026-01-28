@@ -1,16 +1,27 @@
 /**
  * Unified Catalog Cache Helper
  * Implements cache-first + stale-while-revalidate pattern for catalog endpoints
+ * 
+ * UPGRADE A: Negative caching with SHORT TTL (30s stale, 120s expire)
+ * UPGRADE B: Store only NORMALIZED payloads (no raw Rainforest JSON)
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-// TTL configuration per cache type (in minutes)
+// TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
   home: { stale: 15, expire: 60 },
   search: { stale: 10, expire: 30 },
-  product: { stale: 1440, expire: 10080 }, // 1 day stale, 7 days expire
+  product: { stale: 1440 * 7, expire: 1440 * 30 }, // 7 days stale, 30 days expire
   offers: { stale: 60, expire: 360 }, // 1 hour stale, 6 hours expire
+} as const;
+
+// NEGATIVE cache TTL (in seconds) - for empty/error results
+export const NEGATIVE_CACHE_TTL = {
+  home: { stale: 30, expire: 120 }, // 30s stale, 2min expire
+  search: { stale: 30, expire: 120 },
+  product: { stale: 30, expire: 120 },
+  offers: { stale: 60, expire: 300 }, // 1min stale, 5min expire (longer for offers)
 } as const;
 
 // Rate limit configuration per endpoint
@@ -45,6 +56,7 @@ export interface CacheResult {
   data: any | null;
   cacheAgeSec: number;
   cacheKey: string;
+  negativeCached?: boolean;
 }
 
 export interface RateLimitResult {
@@ -53,6 +65,34 @@ export interface RateLimitResult {
   limit: number;
   remaining: number;
   resetAt: string;
+}
+
+// Normalized CatalogItem schema for cache storage
+export interface NormalizedCatalogItem {
+  id: string;
+  provider: string;
+  providerProductId: string;
+  title: string;
+  priceUsd: number | null;
+  imageUrl: string | null;
+  images: string[];
+  productUrl: string | null;
+  inStock: boolean | null;
+  rating: number | null;
+  description?: string; // Optional, only for product details
+  brand?: string; // Optional
+}
+
+// Normalized Offer schema for cache storage
+export interface NormalizedOffer {
+  sellerName: string | null;
+  priceUsd: number | null;
+  shippingUsd: number | null;
+  totalUsd: number | null;
+  condition: string | null;
+  isPrime: boolean | null;
+  isFba: boolean | null;
+  deliveryText: string | null;
 }
 
 /**
@@ -110,6 +150,127 @@ export function buildCacheKey(
 }
 
 /**
+ * Detect if a cache response is "negative" (empty/error)
+ */
+export function isNegativeResult(type: CacheType, response: any): boolean {
+  if (!response) return true;
+  if (response.status === "error") return true;
+  if (response.error) return true;
+  
+  switch (type) {
+    case "home":
+      return !response.trending || response.trending.length === 0;
+    case "search":
+      return !response.items || response.items.length === 0;
+    case "product":
+      return !response.item;
+    case "offers":
+      return !response.offers || response.offers.length === 0;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Normalize a catalog item for minimal cache storage
+ * UPGRADE B: Only store required fields
+ */
+export function normalizeCatalogItem(item: any): NormalizedCatalogItem {
+  // Limit images to max 10
+  let images: string[] = [];
+  if (Array.isArray(item.images)) {
+    images = item.images
+      .filter((img: any) => typeof img === 'string' && img.startsWith('http'))
+      .slice(0, 10);
+  }
+  
+  // Truncate description to max 2000 chars
+  let description: string | undefined;
+  if (item.description && typeof item.description === 'string') {
+    description = item.description.length > 2000 
+      ? item.description.substring(0, 2000) + '...'
+      : item.description;
+  }
+  
+  return {
+    id: item.id || '',
+    provider: item.provider || 'rainforest',
+    providerProductId: item.providerProductId || '',
+    title: typeof item.title === 'string' ? item.title.substring(0, 500) : '',
+    priceUsd: typeof item.priceUsd === 'number' && item.priceUsd > 0 ? item.priceUsd : null,
+    imageUrl: item.imageUrl || null,
+    images,
+    productUrl: item.productUrl || null,
+    inStock: typeof item.inStock === 'boolean' ? item.inStock : null,
+    rating: typeof item.rating === 'number' ? item.rating : null,
+    ...(description && { description }),
+    ...(item.brand && { brand: item.brand }),
+  };
+}
+
+/**
+ * Normalize an offer for minimal cache storage
+ */
+export function normalizeOffer(offer: any): NormalizedOffer {
+  return {
+    sellerName: offer.sellerName || null,
+    priceUsd: typeof offer.priceUsd === 'number' ? offer.priceUsd : null,
+    shippingUsd: typeof offer.shippingUsd === 'number' ? offer.shippingUsd : null,
+    totalUsd: typeof offer.totalUsd === 'number' ? offer.totalUsd : null,
+    condition: offer.condition || null,
+    isPrime: typeof offer.isPrime === 'boolean' ? offer.isPrime : null,
+    isFba: typeof offer.isFba === 'boolean' ? offer.isFba : null,
+    deliveryText: offer.delivery?.text || offer.deliveryText || null,
+  };
+}
+
+/**
+ * Normalize cache payload based on type
+ * UPGRADE B: Strip raw provider data, keep only normalized fields
+ */
+export function normalizeCachePayload(type: CacheType, data: any, pageSize: number = 20): any {
+  switch (type) {
+    case "home":
+      return {
+        trending: Array.isArray(data.trending) 
+          ? data.trending.slice(0, pageSize).map(normalizeCatalogItem)
+          : [],
+        hasMore: data.hasMore || false,
+      };
+    
+    case "search":
+      return {
+        items: Array.isArray(data.items)
+          ? data.items.slice(0, pageSize).map(normalizeCatalogItem)
+          : [],
+        total: data.total ?? null,
+        usedVariantCount: data.usedVariantCount || 1,
+      };
+    
+    case "product":
+      return {
+        item: data.item ? normalizeCatalogItem(data.item) : null,
+      };
+    
+    case "offers":
+      return {
+        buyBox: data.buyBox ? {
+          priceUsd: data.buyBox.priceUsd ?? null,
+          seller: data.buyBox.seller ?? null,
+          shippingUsd: data.buyBox.shippingUsd ?? null,
+          condition: data.buyBox.condition ?? null,
+        } : null,
+        offers: Array.isArray(data.offers)
+          ? data.offers.map(normalizeOffer)
+          : [],
+      };
+    
+    default:
+      return data;
+  }
+}
+
+/**
  * Get cache entry from database
  */
 export async function getCache(
@@ -144,6 +305,9 @@ export async function getCache(
   const isStale = now > staleAt;
   const isExpired = now > expiresAt;
   
+  // Check if this is a negative cached result
+  const isNegative = typedEntry.response?._negativeCached === true;
+  
   return {
     hit: !isExpired,
     stale: isStale,
@@ -151,11 +315,14 @@ export async function getCache(
     data: typedEntry.response,
     cacheAgeSec,
     cacheKey,
+    negativeCached: isNegative,
   };
 }
 
 /**
- * Set cache entry in database
+ * Set cache entry in database with automatic TTL based on positive/negative result
+ * UPGRADE A: Uses short TTL for negative results
+ * UPGRADE B: Normalizes payload before storing
  */
 export async function setCache(
   supabase: SupabaseClient,
@@ -172,10 +339,30 @@ export async function setCache(
   }
 ): Promise<boolean> {
   const now = new Date();
-  const ttl = CACHE_TTL[type];
+  const pageSize = metadata?.pageSize || 20;
   
-  const staleAt = new Date(now.getTime() + ttl.stale * 60 * 1000);
-  const expiresAt = new Date(now.getTime() + ttl.expire * 60 * 1000);
+  // Check if this is a negative result
+  const isNegative = isNegativeResult(type, response);
+  
+  let staleAt: Date;
+  let expiresAt: Date;
+  let normalizedResponse: any;
+  
+  if (isNegative) {
+    // UPGRADE A: Short TTL for negative results
+    const ttl = NEGATIVE_CACHE_TTL[type];
+    staleAt = new Date(now.getTime() + ttl.stale * 1000);
+    expiresAt = new Date(now.getTime() + ttl.expire * 1000);
+    // Mark as negative cache
+    normalizedResponse = { ...response, _negativeCached: true };
+    console.log(`[CATALOG_CACHE] Negative cache: type=${type} stale=${ttl.stale}s expire=${ttl.expire}s`);
+  } else {
+    // UPGRADE B: Normalize payload and use normal TTL
+    const ttl = CACHE_TTL[type];
+    staleAt = new Date(now.getTime() + ttl.stale * 60 * 1000);
+    expiresAt = new Date(now.getTime() + ttl.expire * 60 * 1000);
+    normalizedResponse = normalizeCachePayload(type, response, pageSize);
+  }
   
   const cacheData = {
     cache_key: cacheKey,
@@ -186,7 +373,7 @@ export async function setCache(
     page: metadata?.page || null,
     page_size: metadata?.pageSize || null,
     amazon_domain: metadata?.amazonDomain || "amazon.com",
-    response,
+    response: normalizedResponse,
     stale_at: staleAt.toISOString(),
     expires_at: expiresAt.toISOString(),
     updated_at: now.toISOString(),
@@ -205,18 +392,19 @@ export async function setCache(
 }
 
 /**
- * Set cache with short TTL for error/empty responses
+ * Set cache with explicit short TTL (for legacy compatibility)
+ * @deprecated Use setCache which auto-detects negative results
  */
 export async function setCacheShort(
   supabase: SupabaseClient,
   type: CacheType,
   cacheKey: string,
   response: any,
-  ttlMinutes: number = 5
+  ttlMinutes: number = 2 // Default to 2 minutes for errors
 ): Promise<boolean> {
   const now = new Date();
-  const staleAt = new Date(now.getTime() + ttlMinutes * 60 * 1000);
-  const expiresAt = new Date(now.getTime() + ttlMinutes * 2 * 60 * 1000);
+  const staleAt = new Date(now.getTime() + 30 * 1000); // 30 seconds stale
+  const expiresAt = new Date(now.getTime() + ttlMinutes * 60 * 1000);
   
   const cacheData = {
     cache_key: cacheKey,
@@ -227,7 +415,7 @@ export async function setCacheShort(
     page: null,
     page_size: null,
     amazon_domain: "amazon.com",
-    response,
+    response: { ...response, _negativeCached: true },
     stale_at: staleAt.toISOString(),
     expires_at: expiresAt.toISOString(),
     updated_at: now.toISOString(),
@@ -348,6 +536,11 @@ export function addCacheMetadata(
     stale: cacheResult.stale,
     cacheAgeSec: cacheResult.cacheAgeSec,
   };
+  
+  // Add negativeCached flag if applicable
+  if (cacheResult.negativeCached) {
+    metadata.negativeCached = true;
+  }
   
   // Only include debug info in staging
   if (isStaging) {

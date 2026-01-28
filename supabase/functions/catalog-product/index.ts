@@ -15,8 +15,7 @@ import { fetchProductDetails, formatCatalogItem } from "../_shared/rainforestAda
 import { 
   buildCacheKey, 
   getCache, 
-  setCache, 
-  setCacheShort,
+  setCache,
   checkRateLimit, 
   rateLimitResponse, 
   getDeviceId 
@@ -211,8 +210,9 @@ Deno.serve(async (req: Request) => {
     const { product, error: rainforestError } = await fetchProductDetails(asin!, amazonDomain);
 
     if (rainforestError || !product) {
-      // Cache error for 2 minutes to avoid hammering API
-      await setCacheShort(supabase, "product", cacheKey, { item: null, error: rainforestError || "NOT_FOUND" }, 2);
+      // UPGRADE A: Negative cache with short TTL (30s stale, 2min expire)
+      // setCache now auto-detects negative results and applies short TTL
+      await setCache(supabase, "product", cacheKey, { item: null, error: rainforestError || "NOT_FOUND" }, { amazonDomain });
       return errorResponse(rainforestError || "NOT_FOUND", `Product not found on ${amazonDomain}`);
     }
 
@@ -246,8 +246,12 @@ Deno.serve(async (req: Request) => {
       }, { onConflict: "provider_product_id" });
     }
 
-    const images = product.images || [];
+    // UPGRADE B: Build normalized item (max 10 images, truncated description)
+    const images = (product.images || []).slice(0, 10);
     const priceUsd = (product.priceUsd !== null && product.priceUsd > 0) ? product.priceUsd : null;
+    const description = product.description && product.description.length > 2000
+      ? product.description.substring(0, 2000) + '...'
+      : product.description || null;
 
     const item = {
       id: productId,
@@ -260,11 +264,11 @@ Deno.serve(async (req: Request) => {
       productUrl: product.productUrl || null,
       inStock: product.inStock ?? null,
       rating: product.rating ?? null,
-      description: product.description || null,
+      description,
       brand: product.brand || null,
     };
 
-    // Store in unified cache
+    // Store in unified cache (auto-normalizes and applies correct TTL)
     await setCache(supabase, "product", cacheKey, { item }, { amazonDomain });
 
     console.log(`[CATALOG_PRODUCT] Rainforest fetch: asin=${asin} durationMs=${Date.now() - startTime}`);

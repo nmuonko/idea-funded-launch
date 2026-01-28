@@ -1,4 +1,4 @@
-import { Shield, Mail, Lock, Eye, UserCheck, Database, ShieldCheck, Clock } from "lucide-react";
+import { Shield, Mail, Lock, Eye, UserCheck, Database, ShieldCheck, Clock, Share2, Building2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
 
@@ -15,9 +15,10 @@ const Privacy = () => {
       title: "Information Collected",
       items: [
         { label: "Account Details", desc: "Name, phone number, email address" },
-        { label: "Order and Delivery Information", desc: "Shipping addresses, order history" },
+        { label: "Order and Delivery Information", desc: "Shipping addresses, order history, product preferences" },
         { label: "Communication Records", desc: "Customer support inquiries and correspondence" },
-        { label: "Technical and Device Information", desc: "Device type, operating system, app version" },
+        { label: "Technical and Device Information", desc: "Device type, operating system, app version, IP address" },
+        { label: "Transaction Data", desc: "Payment method types (not full payment details), order amounts, timestamps" },
       ]
     },
     {
@@ -27,35 +28,38 @@ const Privacy = () => {
     },
     {
       icon: Eye,
-      title: "Use of Data",
-      intro: "Personal information is used to:",
+      title: "Purpose of Data Collection",
+      intro: "Personal information is collected and used to:",
       items: [
-        { desc: "Process and fulfill orders" },
+        { desc: "Process and fulfill orders placed through the platform" },
         { desc: "Provide customer support and respond to inquiries" },
-        { desc: "Meet legal and regulatory obligations" },
+        { desc: "Verify payments and prevent fraud" },
+        { desc: "Communicate order status and delivery updates" },
+        { desc: "Meet legal, regulatory, and compliance obligations" },
         { desc: "Improve app performance and service reliability" },
       ]
     },
     {
-      icon: UserCheck,
-      title: "Data Sharing",
+      icon: Share2,
+      title: "Data Sharing with Third Parties",
       intro: "AfriShop may share personal information with:",
       items: [
-        { label: "Payment processors", desc: "for secure transaction handling" },
-        { label: "Shipping and logistics partners", desc: "to coordinate order delivery" },
-        { label: "Regulatory authorities", desc: "when required by law" },
+        { label: "Payment processors", desc: "for secure transaction handling and verification" },
+        { label: "Shipping and logistics partners", desc: "to coordinate order delivery and tracking" },
+        { label: "Customs and freight forwarders", desc: "for international shipping documentation" },
+        { label: "Regulatory authorities", desc: "when required by law or legal process" },
       ],
-      footer: "AfriShop does not sell personal information to third parties."
+      footer: "AfriShop does not sell personal information to third parties for marketing purposes."
     },
     {
       icon: ShieldCheck,
       title: "Data Security",
-      content: "AfriShop implements appropriate technical and organizational security measures to protect personal information. Data is transmitted securely using encryption and access controls to prevent unauthorized access, alteration, or disclosure."
+      content: "AfriShop implements appropriate technical and organizational security measures to protect personal information. Data is transmitted securely using encryption and access controls to prevent unauthorized access, alteration, or disclosure. We regularly review our security practices and update them as necessary."
     },
     {
       icon: Clock,
       title: "Data Retention",
-      content: "Personal data is retained only for as long as necessary to fulfill the purposes outlined in this Privacy Notice, including legal, accounting, and regulatory requirements."
+      content: "Personal data is retained for as long as necessary to fulfill the purposes outlined in this Privacy Notice, including: active account management, order fulfillment and support, legal and regulatory compliance (typically 5-7 years for financial records), and dispute resolution. You may request deletion of your account and personal data by contacting us."
     },
   ];
 
@@ -79,10 +83,10 @@ const Privacy = () => {
               <Shield className="h-10 w-10 text-green-400" />
             </div>
             <h1 className="text-4xl md:text-6xl font-bold mb-6">
-              Privacy <span className="bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">Notice</span>
+              Privacy <span className="bg-gradient-to-r from-green-400 to-emerald-400 bg-clip-text text-transparent">Policy</span>
             </h1>
             <p className="text-white/60 text-lg">
-              AfriShop
+              AfriShop — Operated by AMERICAN GOODWILL SARL
             </p>
           </motion.div>
         </div>
@@ -100,10 +104,17 @@ const Privacy = () => {
           >
             <div className="bg-gradient-to-br from-white/5 to-transparent backdrop-blur-xl rounded-3xl p-8 border border-white/10">
               <h2 className="text-2xl font-bold mb-4">Introduction</h2>
-              <p className="text-white/70 leading-relaxed">
-                This Privacy Notice explains how AfriShop collects, uses, and protects personal information. 
-                We are committed to safeguarding user privacy and ensuring transparency in our data practices.
-              </p>
+              <div className="space-y-4 text-white/70 leading-relaxed">
+                <p>
+                  This Privacy Policy explains how AfriShop (a brand operated by{" "}
+                  <strong className="text-white/90">AMERICAN GOODWILL SARL</strong>) collects, uses, 
+                  shares, and protects personal information.
+                </p>
+                <p>
+                  We are committed to safeguarding user privacy and ensuring transparency in our data practices. 
+                  By using AfriShop, you consent to the data practices described in this policy.
+                </p>
+              </div>
             </div>
           </motion.div>
         </div>
@@ -143,7 +154,7 @@ const Privacy = () => {
                       <li key={i} className="flex items-start gap-3">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-400 mt-2.5 flex-shrink-0" />
                         <span className="text-white/70">
-                          {item.label && <strong className="text-white/90">{item.label} </strong>}
+                          {item.label && <strong className="text-white/90">{item.label}: </strong>}
                           {item.desc}
                         </span>
                       </li>
@@ -170,21 +181,56 @@ const Privacy = () => {
             viewport={{ once: true }}
           >
             <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 rounded-3xl p-8 border border-green-500/20">
-              <h2 className="text-xl font-bold mb-4">User Rights</h2>
+              <h2 className="text-xl font-bold mb-4">Your Rights</h2>
               <p className="text-white/70 leading-relaxed mb-6">
-                Users have the right to request access, correction, or deletion of their personal data. 
-                Requests can be made by contacting AfriShop at the email address below.
+                You have the right to request access to, correction of, or deletion of your personal data. 
+                You may also request a copy of your data or ask us to restrict processing in certain circumstances.
+              </p>
+              <p className="text-white/70 leading-relaxed mb-6">
+                To exercise these rights, please contact us using the information below. We will respond to 
+                your request within 30 days.
               </p>
               <div className="flex items-center gap-4 p-4 bg-black/30 rounded-2xl">
                 <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center">
                   <Mail className="h-6 w-6 text-green-400" />
                 </div>
                 <div>
-                  <p className="text-sm text-white/50">Contact Information</p>
-                  <a href="mailto:nkadimisha@afrishop-usa.com" className="text-white hover:text-green-400 transition-colors">
-                    nkadimisha@afrishop-usa.com
+                  <p className="text-sm text-white/50">Privacy Requests</p>
+                  <a href="mailto:privacy@afrishop-usa.com" className="text-white hover:text-green-400 transition-colors">
+                    privacy@afrishop-usa.com
                   </a>
                 </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Data Controller */}
+      <section className="py-16">
+        <div className="container mx-auto px-4">
+          <motion.div 
+            className="max-w-3xl mx-auto"
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="bg-gradient-to-br from-white/5 to-transparent rounded-3xl p-8 border border-white/10">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center">
+                  <Building2 className="h-6 w-6 text-green-400" />
+                </div>
+                <h2 className="text-xl font-bold">Data Controller</h2>
+              </div>
+              <div className="space-y-2 text-white/70">
+                <p><strong className="text-white/90">Company:</strong> AMERICAN GOODWILL SARL</p>
+                <p><strong className="text-white/90">Registration:</strong> CD/LSH/RCCM/24-B-01234</p>
+                <p><strong className="text-white/90">Address:</strong> 123 Avenue Lumumba, Lubumbashi, Haut-Katanga, DRC</p>
+                <p><strong className="text-white/90">Email:</strong>{" "}
+                  <a href="mailto:privacy@afrishop-usa.com" className="text-green-400 hover:underline">
+                    privacy@afrishop-usa.com
+                  </a>
+                </p>
               </div>
             </div>
           </motion.div>

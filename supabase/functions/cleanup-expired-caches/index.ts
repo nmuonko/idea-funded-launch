@@ -48,11 +48,25 @@ serve(async (req) => {
       console.log('[cleanup-expired-caches] Product cache cleaned successfully');
     }
 
+    // 4. Clean SEARCH CACHE (entries older than 2 hours)
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { error: searchCacheError } = await supabase
+      .from('catalog_search_cache')
+      .delete()
+      .lt('updated_at', twoHoursAgo);
+    
+    if (searchCacheError) {
+      console.error('[cleanup-expired-caches] Error cleaning search cache:', searchCacheError);
+    } else {
+      console.log('[cleanup-expired-caches] Search cache cleaned successfully');
+    }
+
     // Get counts for logging
-    const [hotCacheResult, priceCacheResult, productCacheResult] = await Promise.all([
-      supabase.from('product_hot_cache').select('*', { count: 'exact', head: true }),
-      supabase.from('price_cache').select('*', { count: 'exact', head: true }),
-      supabase.from('product_cache').select('*', { count: 'exact', head: true }),
+    const [hotCacheResult, priceCacheResult, productCacheResult, searchCacheResult] = await Promise.all([
+      supabase.from('product_hot_cache').select('id', { count: 'exact', head: true }),
+      supabase.from('price_cache').select('id', { count: 'exact', head: true }),
+      supabase.from('product_cache').select('id', { count: 'exact', head: true }),
+      supabase.from('catalog_search_cache').select('id', { count: 'exact', head: true }),
     ]);
 
     const duration = Date.now() - startTime;
@@ -65,6 +79,7 @@ serve(async (req) => {
         hotCacheRemaining: hotCacheResult.count || 0,
         priceCacheRemaining: priceCacheResult.count || 0,
         productCacheRemaining: productCacheResult.count || 0,
+        searchCacheRemaining: searchCacheResult.count || 0,
         cleanedAt: new Date().toISOString(),
       },
     };

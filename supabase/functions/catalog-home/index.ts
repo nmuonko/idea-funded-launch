@@ -18,7 +18,8 @@ import {
   checkRateLimit, 
   rateLimitResponse, 
   getDeviceId,
-  addCacheMetadata
+  addCacheMetadata,
+  normalizeCatalogItem as normalizeCacheItem
 } from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
@@ -322,15 +323,15 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Cache the result if we got data
-    if (trending.length > 0) {
-      await setCache(supabase, "home", cacheKey, { trending, hasMore }, {
-        category,
-        page,
-        pageSize,
-        amazonDomain,
-      });
-    }
+    // Cache the result (setCache handles positive/negative TTL automatically)
+    // UPGRADE A: Empty results get short TTL, positive results get normal TTL
+    // UPGRADE B: setCache normalizes the payload automatically
+    await setCache(supabase, "home", cacheKey, { trending, hasMore }, {
+      category,
+      page,
+      pageSize,
+      amazonDomain,
+    });
 
     console.log(`[CATALOG_HOME] category=${category} page=${page} returned=${trending.length} source=${source} durationMs=${Date.now() - startTime}`);
 

@@ -13,8 +13,7 @@ import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { 
   buildCacheKey, 
   getCache, 
-  setCache, 
-  setCacheShort,
+  setCache,
   checkRateLimit, 
   rateLimitResponse, 
   getDeviceId 
@@ -241,8 +240,8 @@ Deno.serve(async (req: Request) => {
       const errorText = await response.text();
       console.error(`[CATALOG_OFFERS] Rainforest error: ${response.status} - ${errorText.substring(0, 200)}`);
       
-      // Cache error for 5 minutes
-      await setCacheShort(supabase, "offers", cacheKey, { buyBox: null, offers: [], error: "API_ERROR" }, 5);
+      // UPGRADE A: Negative cache with short TTL (setCache auto-detects)
+      await setCache(supabase, "offers", cacheKey, { buyBox: null, offers: [], error: "API_ERROR" }, { amazonDomain });
       
       return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "RAINFOREST_ERROR", message: "Offers temporarily unavailable" })), {
         status: 200,
@@ -254,13 +253,10 @@ Deno.serve(async (req: Request) => {
     const buyBox = normalizeBuyBox(data.buybox_winner ?? data.buybox);
     const offers: Offer[] = (data.offers ?? []).map((o: any) => normalizeOffer(o));
 
-    // Cache the result (or short cache if empty)
-    if (offers.length > 0) {
-      await setCache(supabase, "offers", cacheKey, { buyBox, offers }, { amazonDomain });
-    } else {
-      // Cache empty result for only 5 minutes
-      await setCacheShort(supabase, "offers", cacheKey, { buyBox, offers: [] }, 5);
-    }
+    // UPGRADE A & B: setCache handles both:
+    // - Negative results (empty offers) get short TTL (1min stale, 5min expire)
+    // - Positive results get normal TTL and normalized payload
+    await setCache(supabase, "offers", cacheKey, { buyBox, offers }, { amazonDomain });
 
     console.info(`[CATALOG_OFFERS] Rainforest fetch: asin=${asin} offerCount=${offers.length} durationMs=${Date.now() - startTime}`);
 

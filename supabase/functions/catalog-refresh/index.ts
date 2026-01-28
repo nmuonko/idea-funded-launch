@@ -1,169 +1,370 @@
 /**
- * Catalog Refresh Endpoint (Admin only)
- * Force refresh of product cache from providers
+ * Catalog Refresh Edge Function
+ * 
+ * Fetches bestseller products from Rainforest API and upserts to catalog_items.
+ * Triggered by cron schedule or manual admin call.
+ * 
+ * Protected by CRON_SECRET header for scheduled invocation.
+ * 
  * POST /catalog-refresh
+ * Headers: x-cron-secret: <CRON_SECRET>
+ * Body: { "categories": ["phones", "computers"] } (optional - defaults to all)
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig } from "../_shared/environmentResolver.ts";
-import { getEnabledProviders, getProviderAdapter, cacheProducts } from "../_shared/catalogProviders.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { verifyCronAuth, cronAuthErrorResponse } from '../_shared/cronAuth.ts';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
 };
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
+// Category mapping: slug → Amazon Bestseller URL path
+const CATEGORY_URLS: Record<string, { url: string; category: string }> = {
+  phones: {
+    url: 'https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless',
+    category: 'phones',
+  },
+  tablets: {
+    url: 'https://www.amazon.com/Best-Sellers-Computers-Accessories-Tablets/zgbs/pc/1232597011',
+    category: 'tablets',
+  },
+  computers: {
+    url: 'https://www.amazon.com/Best-Sellers-Computers-Accessories-Laptops/zgbs/pc/565108',
+    category: 'computers',
+  },
+  monitors: {
+    url: 'https://www.amazon.com/Best-Sellers-Electronics-Computer-Monitors/zgbs/electronics/1292115011',
+    category: 'monitors',
+  },
+  audio: {
+    url: 'https://www.amazon.com/Best-Sellers-Electronics-Headphones/zgbs/electronics/172541',
+    category: 'audio',
+  },
+  gaming: {
+    url: 'https://www.amazon.com/Best-Sellers-Video-Games/zgbs/videogames',
+    category: 'gaming',
+  },
+  accessories: {
+    url: 'https://www.amazon.com/Best-Sellers-Electronics-Computer-Accessories/zgbs/electronics/172456',
+    category: 'accessories',
+  },
+};
+
+interface RainforestProduct {
+  asin?: string;
+  title?: string;
+  link?: string;
+  image?: string;
+  images?: Array<{ link?: string }>;
+  price?: { value?: number; raw?: string };
+  rating?: number;
+  ratings_total?: number;
+  availability?: { raw?: string };
+  brand?: string;
+}
+
+interface CatalogItem {
+  id: string;
+  provider: string;
+  provider_product_id: string;
+  title: string | null;
+  price_usd: number | null;
+  image_url: string | null;
+  images: string[];
+  product_url: string | null;
+  in_stock: boolean | null;
+  rating: number | null;
+  review_count: number | null;
+  brand: string | null;
+  category: string;
+  tags: string[];
+  raw: unknown;
+}
+
+function normalizeProduct(product: RainforestProduct, category: string): CatalogItem | null {
+  if (!product.asin) return null;
+
+  const id = `rainforest:${product.asin}`;
+  
+  // Extract price
+  let priceUsd: number | null = null;
+  if (product.price?.value && product.price.value > 0) {
+    priceUsd = product.price.value;
+  }
+
+  // Extract images
+  const images: string[] = [];
+  if (product.image) {
+    images.push(product.image.replace(/^http:/, 'https:'));
+  }
+  if (product.images) {
+    for (const img of product.images) {
+      if (img.link) {
+        const normalized = img.link.replace(/^http:/, 'https:');
+        if (!images.includes(normalized)) {
+          images.push(normalized);
+        }
+      }
+    }
+  }
+
+  // Check stock
+  const inStock = product.availability?.raw
+    ? !product.availability.raw.toLowerCase().includes('unavailable')
+    : null;
+
+  // Build tags from title and category
+  const tags: string[] = [category];
+  if (product.brand) {
+    tags.push(product.brand.toLowerCase());
+  }
+
+  return {
+    id,
+    provider: 'rainforest',
+    provider_product_id: product.asin,
+    title: product.title || null,
+    price_usd: priceUsd,
+    image_url: images[0] || null,
+    images,
+    product_url: product.link || `https://www.amazon.com/dp/${product.asin}`,
+    in_stock: inStock,
+    rating: product.rating || null,
+    review_count: product.ratings_total || null,
+    brand: product.brand || null,
+    category,
+    tags,
+    raw: product,
+  };
+}
+
+async function fetchBestsellers(
+  apiKey: string,
+  categorySlug: string,
+  categoryConfig: { url: string; category: string }
+): Promise<CatalogItem[]> {
+  console.log(`[REFRESH] Fetching bestsellers for ${categorySlug}`);
+  
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    type: 'bestsellers',
+    url: categoryConfig.url,
+    amazon_domain: 'amazon.com',
+    output: 'json',
+  });
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(`https://api.rainforestapi.com/request?${params}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[REFRESH] Rainforest API error for ${categorySlug}:`, errorText);
+      throw new Error(`Rainforest API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const products: RainforestProduct[] = data.bestsellers || [];
+    
+    console.log(`[REFRESH] Got ${products.length} products for ${categorySlug}`);
+    
+    const items: CatalogItem[] = [];
+    for (const product of products.slice(0, 20)) { // Max 20 per category
+      const normalized = normalizeProduct(product, categoryConfig.category);
+      if (normalized) {
+        items.push(normalized);
+      }
+    }
+    
+    return items;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw err;
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  if (req.method !== "POST") {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const rainforestApiKey = Deno.env.get('RAINFOREST_API_KEY');
+
+  // Auth: Either cron secret OR admin user
+  const cronAuth = verifyCronAuth(req);
+  let isAuthorized = cronAuth.authorized;
+  
+  if (!isAuthorized) {
+    // Check for admin auth
+    const authHeader = req.headers.get('authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
+      if (user) {
+        const { data: roles } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .eq('role', 'admin')
+          .maybeSingle();
+        isAuthorized = !!roles;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
+    return cronAuthErrorResponse('Unauthorized: Requires cron secret or admin token');
+  }
+
+  if (!rainforestApiKey) {
     return new Response(
-      JSON.stringify({ success: false, error: "Method not allowed" }),
-      { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: false, error: 'RAINFOREST_API_KEY not configured' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 
-  const startTime = Date.now();
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+  // Parse request body for optional category filter
+  let targetCategories = Object.keys(CATEGORY_URLS);
   try {
-    // Verify admin JWT
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Verify the user is an admin
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Check admin role
-    const { data: role } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!role) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Admin access required" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Parse request body
     const body = await req.json().catch(() => ({}));
-    const query = body.query || "popular products";
-    const providerName = body.provider; // Optional: refresh specific provider
+    if (body.categories && Array.isArray(body.categories)) {
+      targetCategories = body.categories.filter((c: string) => CATEGORY_URLS[c]);
+    }
+  } catch {
+    // Use all categories
+  }
 
-    // Detect environment
-    const envName = getEnvironmentFromRequest(req);
-    const envConfig = await getEnvironmentConfig(supabase, envName);
+  console.log(`[REFRESH] Starting refresh for categories: ${targetCategories.join(', ')}`);
 
-    console.log("[CATALOG_DEBUG]", JSON.stringify({
-      fn: "catalog-refresh",
-      env: envName,
-      query,
-      providerName,
-      adminId: user.id,
-    }));
+  const results: Record<string, { fetched: number; upserted: number; error?: string }> = {};
+  const allItems: CatalogItem[] = [];
+  const categoryItems: Record<string, string[]> = {};
 
-    // Get enabled providers
-    let providers = await getEnabledProviders(supabase, envName);
+  for (const slug of targetCategories) {
+    const config = CATEGORY_URLS[slug];
     
-    if (providerName) {
-      providers = providers.filter(p => p.name === providerName);
-    }
+    // Create job record
+    const { data: job } = await supabase
+      .from('catalog_refresh_jobs')
+      .insert({
+        slug,
+        status: 'running',
+        started_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
 
-    if (providers.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "No providers enabled for refresh",
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    try {
+      const items = await fetchBestsellers(rainforestApiKey, slug, config);
+      
+      // Upsert items
+      if (items.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('catalog_items')
+          .upsert(
+            items.map(item => ({
+              ...item,
+              updated_at: new Date().toISOString(),
+            })),
+            { onConflict: 'id' }
+          );
 
-    // Refresh from each provider
-    const results: { provider: string; success: boolean; count: number; error?: string }[] = [];
-
-    for (const provider of providers) {
-      try {
-        const adapter = getProviderAdapter(provider, envConfig);
-        if (!adapter) {
-          results.push({ provider: provider.name, success: false, count: 0, error: "No adapter" });
-          continue;
+        if (upsertError) {
+          throw new Error(`Upsert failed: ${upsertError.message}`);
         }
+      }
 
-        const searchResult = await adapter.search(query, 1, {});
-        
-        if (searchResult.products.length > 0) {
-          await cacheProducts(supabase, provider.id, searchResult.products);
-        }
+      // Track item IDs for collection
+      categoryItems[slug] = items.map(i => i.id);
+      allItems.push(...items);
 
-        results.push({
-          provider: provider.name,
-          success: true,
-          count: searchResult.products.length,
-        });
-      } catch (err) {
-        results.push({
-          provider: provider.name,
-          success: false,
-          count: 0,
-          error: err instanceof Error ? err.message : "Unknown error",
-        });
+      results[slug] = { fetched: items.length, upserted: items.length };
+
+      // Update job
+      if (job?.id) {
+        await supabase
+          .from('catalog_refresh_jobs')
+          .update({
+            status: 'ok',
+            completed_at: new Date().toISOString(),
+            items_fetched: items.length,
+            items_upserted: items.length,
+          })
+          .eq('id', job.id);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[REFRESH] Error for ${slug}:`, errorMsg);
+      results[slug] = { fetched: 0, upserted: 0, error: errorMsg };
+
+      if (job?.id) {
+        await supabase
+          .from('catalog_refresh_jobs')
+          .update({
+            status: 'error',
+            completed_at: new Date().toISOString(),
+            last_error: errorMsg,
+          })
+          .eq('id', job.id);
       }
     }
 
-    const totalRefreshed = results.reduce((sum, r) => sum + r.count, 0);
-
-    console.log("[CATALOG_DEBUG]", JSON.stringify({
-      fn: "catalog-refresh",
-      env: envName,
-      totalRefreshed,
-      results,
-      durationMs: Date.now() - startTime,
-    }));
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: `Refreshed ${totalRefreshed} products from ${results.length} providers`,
-        results,
-        durationMs: Date.now() - startTime,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-
-  } catch (err) {
-    console.error("[catalog-refresh] Error:", err);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    // Rate limit: wait 500ms between categories
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
+
+  // Update collections with item IDs
+  for (const [slug, itemIds] of Object.entries(categoryItems)) {
+    if (itemIds.length > 0) {
+      await supabase
+        .from('catalog_collections')
+        .update({
+          item_ids: itemIds,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('slug', slug);
+    }
+  }
+
+  // Build trending_electronics from top items of each category
+  const trendingIds: string[] = [];
+  for (const slug of ['phones', 'computers', 'audio', 'monitors', 'tablets', 'gaming']) {
+    const catItems = categoryItems[slug] || [];
+    trendingIds.push(...catItems.slice(0, 15)); // Top 15 from each
+  }
+  
+  if (trendingIds.length > 0) {
+    await supabase
+      .from('catalog_collections')
+      .update({
+        item_ids: trendingIds.slice(0, 100), // Max 100 trending
+        updated_at: new Date().toISOString(),
+      })
+      .eq('slug', 'trending_electronics');
+  }
+
+  console.log(`[REFRESH] Complete. Total items: ${allItems.length}`);
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      results,
+      totalItems: allItems.length,
+      trendingCount: Math.min(trendingIds.length, 100),
+    }),
+    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
 });

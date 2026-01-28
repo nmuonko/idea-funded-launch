@@ -1,25 +1,20 @@
 /**
- * Catalog Product Details Endpoint with Smart Caching
- * Get product details by ASIN via Rainforest API
+ * Catalog Product Details Endpoint - DB-First with Live Fallback
  * 
- * Cache strategy: stale=1day, expire=7days (products rarely change)
+ * GET /catalog-product?id=rainforest:B0GCRKG9N1
+ * GET /catalog-product?asin=B0GCRKG9N1
  * 
- * Supported query formats:
- *   GET /catalog-product?env=staging&id=rainforest:B0GCRKG9N1
- *   GET /catalog-product?env=staging&provider=rainforest&asin=B0GCRKG9N1
+ * DB-First Strategy:
+ * - First check catalog_items table (preloaded data)
+ * - If not found, fetch from Rainforest and cache
+ * 
+ * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
 import { fetchProductDetails, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
-import { 
-  buildCacheKey, 
-  getCache, 
-  setCache,
-  checkRateLimit, 
-  rateLimitResponse, 
-  getDeviceId 
-} from "../_shared/catalogCache.ts";
+import { getDeviceId } from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,6 +53,42 @@ function parseProductId(url: URL): { provider: string | null; asin: string | nul
   return { provider, asin, rawId, asinError };
 }
 
+interface CatalogItem {
+  id: string;
+  provider: string;
+  providerProductId: string;
+  title: string;
+  priceUsd: number | null;
+  imageUrl: string | null;
+  images: string[];
+  productUrl: string | null;
+  inStock: boolean | null;
+  rating: number | null;
+  reviewCount?: number | null;
+  description?: string | null;
+  brand?: string | null;
+  category?: string | null;
+}
+
+function mapDbItemToResponse(item: any): CatalogItem {
+  return {
+    id: item.id,
+    provider: item.provider || "rainforest",
+    providerProductId: item.provider_product_id,
+    title: item.title || "",
+    priceUsd: item.price_usd,
+    imageUrl: item.image_url,
+    images: item.images || [],
+    productUrl: item.product_url,
+    inStock: item.in_stock,
+    rating: item.rating,
+    reviewCount: item.review_count,
+    description: item.raw?.description || null,
+    brand: item.brand,
+    category: item.category,
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -68,7 +99,6 @@ Deno.serve(async (req: Request) => {
   const envName = getEnvironmentFromRequest(req);
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
   const deviceId = getDeviceId(req);
-  const isStaging = envName === "staging";
 
   const { provider, asin, rawId, asinError } = parseProductId(url);
 
@@ -79,9 +109,7 @@ Deno.serve(async (req: Request) => {
       env: envName,
       id: rawId || null,
       item: null,
-      cached: false,
-      stale: false,
-      cacheAgeSec: 0,
+      source: "error",
       error: { code, message },
     }), {
       status: 200,
@@ -92,6 +120,8 @@ Deno.serve(async (req: Request) => {
   if (asinError) return errorResponse("INVALID_ASIN", asinError);
   if (provider && provider !== "rainforest") return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported`);
 
+  const productId = `rainforest:${asin}`;
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -100,42 +130,27 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Rate limiting
-    const rateLimit = await checkRateLimit(supabase, deviceId, "product");
-    if (!rateLimit.allowed) {
-      console.log(`[CATALOG_PRODUCT] Rate limited device=${deviceId} count=${rateLimit.count}`);
-      return new Response(JSON.stringify(rateLimitResponse(rateLimit.resetAt)), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const envConfig = await getEnvironmentConfig(supabase, envName);
     if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
 
-    // Build cache key
-    const productId = `rainforest:${asin}`;
-    const cacheKey = buildCacheKey("product", {
-      env: envName,
-      domain: amazonDomain,
-      productId,
-    });
+    // ========== DB-FIRST: Check catalog_items ==========
+    const { data: dbItem } = await supabase
+      .from("catalog_items")
+      .select("*")
+      .eq("id", productId)
+      .maybeSingle();
 
-    // Check unified cache first
-    const cacheResult = await getCache(supabase, cacheKey);
-    
-    if (cacheResult.hit && cacheResult.data?.item) {
-      console.log(`[CATALOG_PRODUCT] Cache hit: asin=${asin} stale=${cacheResult.stale} age=${cacheResult.cacheAgeSec}s`);
+    if (dbItem) {
+      const item = mapDbItemToResponse(dbItem);
+      console.log(`[CATALOG_PRODUCT] DB hit: asin=${asin} durationMs=${Date.now() - startTime}`);
       
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
         id: productId,
-        item: cacheResult.data.item,
+        item,
+        source: "db",
         cached: true,
-        stale: cacheResult.stale,
-        cacheAgeSec: cacheResult.cacheAgeSec,
-        ...(isStaging && { cacheKey }),
         error: null,
       }), {
         status: 200,
@@ -143,16 +158,16 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Also check catalog_products table (legacy cache)
-    const { data: cachedProduct } = await supabase
+    // ========== FALLBACK: Check legacy catalog_products ==========
+    const { data: legacyItem } = await supabase
       .from("catalog_products")
       .select("*")
       .eq("provider_product_id", asin)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
 
-    if (cachedProduct) {
-      const rawData = cachedProduct.raw as Record<string, any> | null;
+    if (legacyItem) {
+      const rawData = legacyItem.raw as Record<string, any> | null;
       let images: string[] = [];
       
       if (rawData?.processedImages && Array.isArray(rawData.processedImages)) {
@@ -164,41 +179,35 @@ Deno.serve(async (req: Request) => {
           .slice(0, 10);
       }
       
-      if (cachedProduct.image_url && !images.includes(cachedProduct.image_url)) {
-        images.unshift(cachedProduct.image_url);
+      if (legacyItem.image_url && !images.includes(legacyItem.image_url)) {
+        images.unshift(legacyItem.image_url);
       }
       images = [...new Set(images)].slice(0, 10);
-      
-      const priceUsd = (cachedProduct.price_usd && cachedProduct.price_usd > 0) ? cachedProduct.price_usd : null;
 
-      const item = {
+      const item: CatalogItem = {
         id: productId,
         provider: "rainforest",
-        providerProductId: cachedProduct.provider_product_id,
-        title: cachedProduct.title || "",
-        priceUsd,
-        imageUrl: cachedProduct.image_url || null,
+        providerProductId: legacyItem.provider_product_id,
+        title: legacyItem.title || "",
+        priceUsd: legacyItem.price_usd > 0 ? legacyItem.price_usd : null,
+        imageUrl: legacyItem.image_url || null,
         images,
-        productUrl: cachedProduct.product_url || null,
-        inStock: cachedProduct.in_stock ?? null,
-        rating: cachedProduct.rating || null,
-        description: cachedProduct.description || null,
-        brand: cachedProduct.brand || null,
+        productUrl: legacyItem.product_url || null,
+        inStock: legacyItem.in_stock ?? null,
+        rating: legacyItem.rating || null,
+        description: legacyItem.description || null,
+        brand: legacyItem.brand || null,
       };
 
-      // Store in unified cache for faster future access
-      await setCache(supabase, "product", cacheKey, { item }, { amazonDomain });
-
-      console.log(`[CATALOG_PRODUCT] DB cache hit: asin=${asin} durationMs=${Date.now() - startTime}`);
+      console.log(`[CATALOG_PRODUCT] Legacy DB hit: asin=${asin} durationMs=${Date.now() - startTime}`);
 
       return new Response(JSON.stringify({
         status: "success",
         env: envName,
         id: productId,
         item,
+        source: "db-legacy",
         cached: true,
-        stale: false,
-        cacheAgeSec: 0,
         error: null,
       }), {
         status: 200,
@@ -206,81 +215,60 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Fetch from Rainforest
+    // ========== LIVE FETCH: Rainforest API ==========
     const { product, error: rainforestError } = await fetchProductDetails(asin!, amazonDomain);
 
     if (rainforestError || !product) {
-      // UPGRADE A: Negative cache with short TTL (30s stale, 2min expire)
-      // setCache now auto-detects negative results and applies short TTL
-      await setCache(supabase, "product", cacheKey, { item: null, error: rainforestError || "NOT_FOUND" }, { amazonDomain });
       return errorResponse(rainforestError || "NOT_FOUND", `Product not found on ${amazonDomain}`);
     }
 
-    // Cache the product in catalog_products (legacy)
-    const { data: providerRow } = await supabase
-      .from("catalog_providers")
-      .select("id")
-      .eq("name", "amazon")
-      .maybeSingle();
+    // Cache to catalog_items
+    const toCache = {
+      id: productId,
+      provider: "rainforest",
+      provider_product_id: product.providerProductId,
+      title: product.title,
+      price_usd: product.priceUsd,
+      image_url: product.imageUrl,
+      images: product.images || [],
+      product_url: product.productUrl,
+      in_stock: product.inStock,
+      rating: product.rating,
+      review_count: product.reviewCount,
+      brand: product.brand,
+      category: "uncategorized",
+      tags: [],
+      raw: product.raw,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (providerRow?.id) {
-      const priceToCache = (product.priceUsd !== null && product.priceUsd > 0) ? product.priceUsd : null;
-      const rawWithImages = { ...(product.raw || {}), processedImages: product.images || [] };
-      
-      supabase.from("catalog_products").upsert({
-        provider_id: providerRow.id,
-        provider_product_id: product.providerProductId,
-        title: product.title,
-        description: product.description,
-        image_url: product.imageUrl,
-        product_url: product.productUrl,
-        price_usd: priceToCache,
-        currency: "USD",
-        in_stock: product.inStock,
-        rating: product.rating,
-        review_count: product.reviewCount,
-        brand: product.brand,
-        category_path: product.categoryPath,
-        raw: rawWithImages,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
-      }, { onConflict: "provider_product_id" });
-    }
+    await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
 
-    // UPGRADE B: Build normalized item (max 10 images, truncated description)
-    const images = (product.images || []).slice(0, 10);
-    const priceUsd = (product.priceUsd !== null && product.priceUsd > 0) ? product.priceUsd : null;
-    const description = product.description && product.description.length > 2000
-      ? product.description.substring(0, 2000) + '...'
-      : product.description || null;
-
-    const item = {
+    // Build response
+    const item: CatalogItem = {
       id: productId,
       provider: "rainforest",
       providerProductId: product.providerProductId,
       title: product.title || "",
-      priceUsd,
+      priceUsd: product.priceUsd,
       imageUrl: product.imageUrl || null,
-      images,
+      images: (product.images || []).slice(0, 10),
       productUrl: product.productUrl || null,
       inStock: product.inStock ?? null,
       rating: product.rating ?? null,
-      description,
+      description: product.description || null,
       brand: product.brand || null,
     };
 
-    // Store in unified cache (auto-normalizes and applies correct TTL)
-    await setCache(supabase, "product", cacheKey, { item }, { amazonDomain });
-
-    console.log(`[CATALOG_PRODUCT] Rainforest fetch: asin=${asin} durationMs=${Date.now() - startTime}`);
+    console.log(`[CATALOG_PRODUCT] Live fetch: asin=${asin} durationMs=${Date.now() - startTime}`);
 
     return new Response(JSON.stringify({
       status: "success",
       env: envName,
       id: productId,
       item,
+      source: "live",
       cached: false,
-      stale: false,
-      cacheAgeSec: 0,
       error: null,
     }), {
       status: 200,

@@ -1,158 +1,81 @@
 /**
- * Catalog Home Endpoint with Smart Caching
- * Returns featured/trending content for the native catalog home screen
- * GET /catalog-home?env=staging&page=1&pageSize=20&category=phones&amazon_domain=amazon.com
+ * Catalog Home Endpoint - DB-First Preloaded Catalog
+ * Returns Tesla-style sections from preloaded catalog_items/catalog_collections
  * 
- * Cache strategy: stale=15min, expire=60min
+ * GET /catalog-home?page=1&pageSize=20&category=all
+ * 
+ * NO LIVE RAINFOREST CALLS - All data served from DB.
+ * Data is refreshed by scheduled catalog-refresh function.
  * 
  * IMPORTANT: This endpoint MUST always return HTTP 200 with stable JSON shape.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
-import { fetchBestsellers, searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
-import { 
-  buildCacheKey, 
-  getCache, 
-  setCache, 
-  checkRateLimit, 
-  rateLimitResponse, 
-  getDeviceId,
-  addCacheMetadata,
-  normalizeCatalogItem as normalizeCacheItem
-} from "../_shared/catalogCache.ts";
+import { getDeviceId } from "../_shared/catalogCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
-  "Cache-Control": "public, max-age=300",
+  "Cache-Control": "public, max-age=60",
 };
 
 const MAX_PAGE_SIZE = 40;
 const DEFAULT_PAGE_SIZE = 20;
-const DEFAULT_AMAZON_DOMAIN = "amazon.com";
 
-// Category-specific Amazon Best Sellers URLs
-const CATEGORY_URLS: Record<string, string[]> = {
-  all: [
-    "https://www.amazon.com/Best-Sellers-Electronics/zgbs/electronics",
-    "https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless",
-    "https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc",
-    "https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011",
-  ],
-  phones: ["https://www.amazon.com/Best-Sellers-Cell-Phones-Accessories/zgbs/wireless"],
-  computers: ["https://www.amazon.com/Best-Sellers-Computers-Accessories/zgbs/pc"],
-  audio: ["https://www.amazon.com/Best-Sellers-Headphones/zgbs/electronics/12097479011"],
-  monitors: ["https://www.amazon.com/Best-Sellers-Computer-Monitors/zgbs/pc/1292115011"],
+// Valid categories map to collection slugs
+const CATEGORY_TO_COLLECTION: Record<string, string> = {
+  all: "trending_electronics",
+  phones: "phones",
+  tablets: "tablets",
+  computers: "computers",
+  monitors: "monitors",
+  audio: "audio",
+  gaming: "gaming",
+  accessories: "accessories",
+  vehicles: "vehicles",
 };
 
-const VALID_CATEGORIES = ["all", "phones", "computers", "audio", "monitors"];
-type CategoryType = "all" | "phones" | "computers" | "audio" | "monitors";
+const VALID_CATEGORIES = Object.keys(CATEGORY_TO_COLLECTION);
 
-const DEFAULT_EXCLUDE_KEYWORDS = {
-  title_keywords: ["Kindle", "Audible", "Paperback", "Hardcover", "Audiobook", "Book Set", "Novel", "Workbook"],
-  url_patterns: ["/books/", "/Kindle/", "/Audible/"],
-};
-
-interface ExcludeConfig {
-  title_keywords: string[];
-  url_patterns: string[];
+interface CatalogItem {
+  id: string;
+  providerProductId: string;
+  title: string | null;
+  priceUsd: number | null;
+  imageUrl: string | null;
+  images: string[];
+  productUrl: string | null;
+  inStock: boolean | null;
+  rating: number | null;
+  reviewCount: number | null;
+  brand: string | null;
+  category: string | null;
 }
 
-function shouldExcludeProduct(product: any, excludeConfig: ExcludeConfig): boolean {
-  const title = (product.title || "").toLowerCase();
-  const productUrl = (product.productUrl || product.link || "").toLowerCase();
-  
-  for (const keyword of excludeConfig.title_keywords) {
-    if (title.includes(keyword.toLowerCase())) return true;
-  }
-  for (const pattern of excludeConfig.url_patterns) {
-    if (productUrl.includes(pattern.toLowerCase())) return true;
-  }
-  return false;
+function mapDbItemToResponse(item: any): CatalogItem {
+  return {
+    id: item.id,
+    providerProductId: item.provider_product_id,
+    title: item.title,
+    priceUsd: item.price_usd,
+    imageUrl: item.image_url,
+    images: item.images || [],
+    productUrl: item.product_url,
+    inStock: item.in_stock,
+    rating: item.rating,
+    reviewCount: item.review_count,
+    brand: item.brand,
+    category: item.category,
+  };
 }
 
-async function fetchMultiCategoryProducts(
-  categoryUrls: string[],
-  amazonDomain: string,
-  page: number,
-  pageSize: number,
-  applyExclusion: boolean,
-  excludeConfig: ExcludeConfig
-): Promise<{ products: any[]; hasMore: boolean; categoriesUsed: number }> {
-  const results = await Promise.allSettled(
-    categoryUrls.map(url => fetchBestsellers(amazonDomain, page, pageSize, url))
-  );
-  
-  const seenIds = new Map<string, any>();
-  let categoriesUsed = 0;
-  
-  for (const result of results) {
-    if (result.status === "fulfilled" && !result.value.error && result.value.products.length > 0) {
-      categoriesUsed++;
-      for (const product of result.value.products) {
-        const formatted = formatCatalogItem(product);
-        if (!seenIds.has(formatted.id)) {
-          seenIds.set(formatted.id, formatted);
-        }
-      }
-    }
-  }
-  
-  let deduped = Array.from(seenIds.values());
-  if (applyExclusion) {
-    deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
-  }
-  
-  const products = deduped.slice(0, pageSize);
-  const hasMore = deduped.length > pageSize;
-  
-  return { products, hasMore, categoriesUsed };
-}
-
-async function fetchSingleCategoryProducts(
-  categoryUrl: string,
-  amazonDomain: string,
-  page: number,
-  pageSize: number
-): Promise<{ products: any[]; hasMore: boolean }> {
-  const result = await fetchBestsellers(amazonDomain, page, pageSize * 2, categoryUrl);
-  
-  if (result.error || !result.products || result.products.length === 0) {
-    return { products: [], hasMore: false };
-  }
-  
-  const seenIds = new Map<string, any>();
-  for (const product of result.products) {
-    const formatted = formatCatalogItem(product);
-    if (!seenIds.has(formatted.id)) {
-      seenIds.set(formatted.id, formatted);
-    }
-  }
-  
-  const deduped = Array.from(seenIds.values());
-  const products = deduped.slice(0, pageSize);
-  const hasMore = deduped.length > pageSize || result.hasMore;
-  
-  return { products, hasMore };
-}
-
-async function loadExcludeConfig(supabase: any): Promise<ExcludeConfig> {
-  try {
-    const { data } = await supabase
-      .from("catalog_config")
-      .select("key, value")
-      .eq("key", "home_exclude_keywords")
-      .single();
-    
-    if (!data) return DEFAULT_EXCLUDE_KEYWORDS;
-    return {
-      title_keywords: data.value?.title_keywords || DEFAULT_EXCLUDE_KEYWORDS.title_keywords,
-      url_patterns: data.value?.url_patterns || DEFAULT_EXCLUDE_KEYWORDS.url_patterns,
-    };
-  } catch {
-    return DEFAULT_EXCLUDE_KEYWORDS;
-  }
+interface Section {
+  type: "section";
+  title: string;
+  slug: string;
+  items: CatalogItem[];
+  hasMore: boolean;
 }
 
 Deno.serve(async (req: Request) => {
@@ -164,224 +87,194 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(url.searchParams.get("pageSize") || String(DEFAULT_PAGE_SIZE), 10)));
-  const amazonDomain = url.searchParams.get("amazon_domain") || DEFAULT_AMAZON_DOMAIN;
   const rawCategory = (url.searchParams.get("category") || "all").toLowerCase();
-  const category: CategoryType = VALID_CATEGORIES.includes(rawCategory) ? rawCategory as CategoryType : "all";
+  const category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : "all";
   const envName = getEnvironmentFromRequest(req);
   const deviceId = getDeviceId(req);
-  const isStaging = envName === "staging";
   
-  // NEW: Provider parameter for filtering (optional)
-  const providerParam = url.searchParams.get("provider") || null;
+  // Tesla-style mode: return sections for home screen
+  const sectionsMode = url.searchParams.get("sections") === "1" || category === "all";
 
   const buildResponse = (
-    status: "success" | "error", 
-    trending: any[], 
-    hasMore: boolean, 
-    source: string, 
-    error: string | null, 
-    providersUsed: string[] = ["rainforest"],
-    cacheData?: any
-  ) => {
-    const base = {
-      status,
-      env: envName,
-      category,
-      page,
-      pageSize,
-      trending,
-      itemCount: trending.length,
-      hasMore,
-      source,
-      providersUsed, // NEW: List of providers used for this request
-      error,
-    };
-    return cacheData ? addCacheMetadata(base, cacheData, isStaging) : base;
-  };
+    status: "success" | "error",
+    data: { trending?: CatalogItem[]; sections?: Section[]; hasMore?: boolean },
+    source: string,
+    error: string | null
+  ) => ({
+    status,
+    env: envName,
+    category,
+    page,
+    pageSize,
+    ...data,
+    itemCount: data.trending?.length || data.sections?.reduce((sum, s) => sum + s.items.length, 0) || 0,
+    source,
+    error,
+    durationMs: Date.now() - startTime,
+  });
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     
     if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Backend configuration error", [])), {
+      return new Response(JSON.stringify(buildResponse("error", {}, "error", "Backend configuration error")), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    // Check if provider is active (has required API key)
-    let activeProviders: string[] = [];
-    const { data: providers } = await supabase
-      .from("catalog_providers")
-      .select("name, adapter_name, requires_keys, enabled")
-      .eq("enabled", true)
-      .or(`environment.eq.all,environment.eq.${envName}`)
-      .order("priority", { ascending: false });
-    
-    for (const p of (providers || [])) {
-      let requiredSecret: string | null = null;
-      if (p.requires_keys?.apiKeySecret) {
-        requiredSecret = p.requires_keys.apiKeySecret;
-      }
-      if (!requiredSecret || (Deno.env.get(requiredSecret)?.trim())) {
-        activeProviders.push(p.name);
-      }
-    }
-    
-    // If specific provider requested, validate it's active
-    if (providerParam && providerParam !== "all") {
-      if (!activeProviders.includes(providerParam)) {
-        return new Response(JSON.stringify(buildResponse("error", [], false, "error", `Provider '${providerParam}' not available`, [])), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      activeProviders = [providerParam];
-    }
-    
-    // For now, we only use rainforest/amazon adapter
-    const providersUsed = activeProviders.filter(p => p === "amazon" || p === "rainforest").slice(0, 2);
-
-    // Rate limiting
-    const rateLimit = await checkRateLimit(supabase, deviceId, "home");
-    if (!rateLimit.allowed) {
-      console.log(`[CATALOG_HOME] Rate limited device=${deviceId} count=${rateLimit.count}`);
-      return new Response(JSON.stringify(rateLimitResponse(rateLimit.resetAt)), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const envConfig = await getEnvironmentConfig(supabase, envName);
     if (!isCatalogEnabled(envConfig)) {
-      return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Catalog not enabled")), {
+      return new Response(JSON.stringify(buildResponse("error", {}, "error", "Catalog not enabled")), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Build cache key
-    const cacheKey = buildCacheKey("home", {
-      env: envName,
-      domain: amazonDomain,
-      category,
-      page,
-      pageSize,
-    });
+    // ========== TESLA-STYLE SECTIONS MODE ==========
+    if (sectionsMode && page === 1) {
+      // Return multiple sections for home screen
+      const sectionSlugs = ["phones", "computers", "audio", "monitors", "tablets", "gaming"];
+      const sections: Section[] = [];
 
-    // Check cache first
-    const cacheResult = await getCache(supabase, cacheKey);
-    
-    if (cacheResult.hit) {
-      const cached = cacheResult.data;
-      console.log(`[CATALOG_HOME] Cache hit: key=${cacheKey} stale=${cacheResult.stale} age=${cacheResult.cacheAgeSec}s`);
-      
-      return new Response(JSON.stringify(buildResponse(
-        "success",
-        cached.trending || [],
-        cached.hasMore || false,
-        "cache",
-        null,
-        providersUsed,
-        cacheResult
-      )), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+      // Get all collections
+      const { data: collections } = await supabase
+        .from("catalog_collections")
+        .select("slug, title, item_ids")
+        .in("slug", sectionSlugs)
+        .eq("is_active", true)
+        .order("priority", { ascending: true });
 
-    console.log(`[CATALOG_HOME] Cache miss: key=${cacheKey}`);
-
-    // Load exclusion config
-    const excludeConfig = await loadExcludeConfig(supabase);
-    const categoryUrls = CATEGORY_URLS[category] || CATEGORY_URLS.all;
-    const applyExclusion = category === "all";
-    
-    let trending: any[] = [];
-    let hasMore = false;
-    let source = `bestsellers-${category}`;
-    
-    // Fetch from Rainforest
-    if (categoryUrls.length > 1) {
-      const result = await fetchMultiCategoryProducts(categoryUrls, amazonDomain, page, pageSize, applyExclusion, excludeConfig);
-      trending = result.products;
-      hasMore = result.hasMore;
-    } else {
-      const result = await fetchSingleCategoryProducts(categoryUrls[0], amazonDomain, page, pageSize);
-      trending = result.products;
-      hasMore = result.hasMore;
-    }
-    
-    // Fallback: search
-    if (trending.length === 0) {
-      const searchTerms: Record<string, string> = {
-        all: "electronics",
-        phones: "smartphone",
-        computers: "laptop computer",
-        audio: "headphones",
-        monitors: "computer monitor",
-      };
-      
-      const searchResult = await searchRainforest(searchTerms[category] || "electronics", page, pageSize, amazonDomain);
-      
-      if (!searchResult.error && searchResult.products.length > 0) {
-        const seenIds = new Map<string, any>();
-        for (const product of searchResult.products) {
-          const formatted = formatCatalogItem(product);
-          if (!seenIds.has(formatted.id)) seenIds.set(formatted.id, formatted);
+      if (collections && collections.length > 0) {
+        // Collect all item IDs for bulk fetch
+        const allItemIds: string[] = [];
+        for (const coll of collections) {
+          const ids = (coll.item_ids || []).slice(0, 10);
+          allItemIds.push(...ids);
         }
-        let deduped = Array.from(seenIds.values());
-        if (applyExclusion) deduped = deduped.filter(p => !shouldExcludeProduct(p, excludeConfig));
-        trending = deduped.slice(0, pageSize);
-        hasMore = searchResult.hasMore;
-        source = `search-${category}`;
-      }
-    }
-    
-    // Fallback: database cache
-    if (trending.length === 0) {
-      const offset = (page - 1) * pageSize;
-      const { data: cachedProducts, count } = await supabase
-        .from("catalog_products")
-        .select("*", { count: "exact" })
-        .gt("expires_at", new Date().toISOString())
-        .order("rating", { ascending: false })
-        .range(offset, offset + pageSize - 1);
 
-      if (cachedProducts && cachedProducts.length > 0) {
-        trending = cachedProducts.map((p: any) => ({
-          id: `rainforest:${p.provider_product_id}`,
-          provider: "rainforest",
-          providerProductId: p.provider_product_id,
-          title: p.title || "",
-          priceUsd: (p.price_usd && p.price_usd > 0) ? p.price_usd : null,
-          imageUrl: p.image_url || null,
-          images: p.raw?.images?.map((img: any) => img.link || img) || [],
-          productUrl: p.product_url || null,
-          inStock: p.in_stock ?? null,
-          rating: p.rating || null,
-        }));
-        hasMore = count !== null ? (offset + trending.length) < count : false;
-        source = "db-cache-fallback";
+        // Bulk fetch items
+        const { data: items } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .in("id", [...new Set(allItemIds)]);
+
+        const itemMap = new Map((items || []).map(i => [i.id, i]));
+
+        // Build sections
+        for (const coll of collections) {
+          const collItemIds = (coll.item_ids || []).slice(0, 10);
+          const sectionItems = collItemIds
+            .map(id => itemMap.get(id))
+            .filter(Boolean)
+            .map(mapDbItemToResponse);
+
+          sections.push({
+            type: "section",
+            title: coll.title,
+            slug: coll.slug,
+            items: sectionItems,
+            hasMore: (coll.item_ids || []).length > 10,
+          });
+        }
       }
+
+      console.log(`[CATALOG_HOME] sections mode, ${sections.length} sections, durationMs=${Date.now() - startTime}`);
+
+      return new Response(JSON.stringify({
+        status: "success",
+        env: envName,
+        category: "all",
+        page: 1,
+        pageSize,
+        sections,
+        source: "db-collections",
+        error: null,
+        durationMs: Date.now() - startTime,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // Cache the result (setCache handles positive/negative TTL automatically)
-    // UPGRADE A: Empty results get short TTL, positive results get normal TTL
-    // UPGRADE B: setCache normalizes the payload automatically
-    await setCache(supabase, "home", cacheKey, { trending, hasMore }, {
+    // ========== SINGLE CATEGORY/COLLECTION MODE ==========
+    const collectionSlug = CATEGORY_TO_COLLECTION[category] || "trending_electronics";
+
+    // Get collection
+    const { data: collection } = await supabase
+      .from("catalog_collections")
+      .select("slug, title, item_ids, updated_at")
+      .eq("slug", collectionSlug)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (!collection || !collection.item_ids || collection.item_ids.length === 0) {
+      // Empty collection - return empty success
+      console.log(`[CATALOG_HOME] Empty collection: ${collectionSlug}`);
+      return new Response(JSON.stringify(buildResponse("success", { trending: [], hasMore: false }, "db-empty", null)), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const allItemIds: string[] = collection.item_ids;
+    const total = allItemIds.length;
+
+    // Paginate
+    const startIdx = (page - 1) * pageSize;
+    const endIdx = startIdx + pageSize;
+    const pageItemIds = allItemIds.slice(startIdx, endIdx);
+
+    if (pageItemIds.length === 0) {
+      return new Response(JSON.stringify(buildResponse("success", { trending: [], hasMore: false }, "db-paginated", null)), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Fetch items
+    const { data: items, error: itemsError } = await supabase
+      .from("catalog_items")
+      .select("*")
+      .in("id", pageItemIds);
+
+    if (itemsError) {
+      console.error("[CATALOG_HOME] Error fetching items:", itemsError);
+      return new Response(JSON.stringify(buildResponse("error", {}, "error", itemsError.message)), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Preserve order from item_ids
+    const itemMap = new Map((items || []).map(i => [i.id, i]));
+    const orderedItems = pageItemIds
+      .map(id => itemMap.get(id))
+      .filter(Boolean)
+      .map(mapDbItemToResponse);
+
+    const hasMore = endIdx < total;
+
+    console.log(`[CATALOG_HOME] category=${category} page=${page} returned=${orderedItems.length} hasMore=${hasMore} durationMs=${Date.now() - startTime}`);
+
+    return new Response(JSON.stringify({
+      status: "success",
+      env: envName,
       category,
       page,
       pageSize,
-      amazonDomain,
-    });
-
-    console.log(`[CATALOG_HOME] category=${category} page=${page} returned=${trending.length} source=${source} durationMs=${Date.now() - startTime}`);
-
-    return new Response(JSON.stringify(buildResponse("success", trending, hasMore, source, null, providersUsed)), {
+      trending: orderedItems,
+      itemCount: orderedItems.length,
+      total,
+      hasMore,
+      source: "db-collection",
+      collectionUpdatedAt: collection.updated_at,
+      error: null,
+      durationMs: Date.now() - startTime,
+    }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -390,7 +283,7 @@ Deno.serve(async (req: Request) => {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_HOME] Error: ${errorMessage} durationMs=${Date.now() - startTime}`);
     
-    return new Response(JSON.stringify(buildResponse("error", [], false, "error", "Catalog service error", [])), {
+    return new Response(JSON.stringify(buildResponse("error", {}, "error", "Catalog service error")), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

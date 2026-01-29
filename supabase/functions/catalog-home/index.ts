@@ -117,9 +117,9 @@ const HOME_SECTIONS: SectionConfig[] = [
     seedQueries: MOTORS_SEED_QUERIES.slice(0, 5), // Use first 5 motor seeds
   },
   {
-    key: "clothing",
+    key: "clothing_shoes_accessories",
     title: "Clothing",
-    unifiedCategory: "clothing",
+    unifiedCategory: "clothing_shoes_accessories",
     maxItems: HOME_PAGE_SIZE,
     seedQueries: ["nike hoodie", "adidas shoes", "mens jacket"],
   },

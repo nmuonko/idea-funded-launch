@@ -11,6 +11,7 @@
 
 // ─── Unified Category Tabs ─────────────────────────────────────────────────────
 // This is the single source of truth for category tabs displayed in the app
+// Keys match eBay top nav (excluding: eBay Live, Saved, Collectibles)
 
 export interface CategoryTab {
   key: string;
@@ -19,24 +20,46 @@ export interface CategoryTab {
   subcategories?: string[];
 }
 
+// The 9 unified category tabs
 export const TABS: CategoryTab[] = [
   { 
     key: "electronics", 
     title: "Electronics", 
-    icon: "📱",
+    icon: "bolt",
     subcategories: ["phones", "computers", "audio", "monitors", "tablets", "chargers"]
   },
-  { key: "motors", title: "Motors", icon: "🚗" },
-  { key: "home_garden", title: "Home & Garden", icon: "🏠" },
-  { key: "clothing", title: "Clothing, Shoes & Accessories", icon: "👕" },
-  { key: "toys", title: "Toys", icon: "🧸" },
-  { key: "sporting_goods", title: "Sporting Goods", icon: "⚽" },
-  { key: "business_industrial", title: "Business & Industrial", icon: "🏭" },
-  { key: "jewelry_watches", title: "Jewelry & Watches", icon: "💎" },
-  { key: "refurbished", title: "Refurbished", icon: "♻️" },
+  { key: "motors", title: "Motors", icon: "car" },
+  { key: "home_garden", title: "Home & Garden", icon: "home" },
+  { key: "clothing_shoes_accessories", title: "Clothing, Shoes & Accessories", icon: "shirt" },
+  { key: "toys", title: "Toys", icon: "puzzle" },
+  { key: "sporting_goods", title: "Sporting Goods", icon: "dumbbell" },
+  { key: "business_industrial", title: "Business & Industrial", icon: "factory" },
+  { key: "jewelry_watches", title: "Jewelry & Watches", icon: "watch" },
+  { key: "refurbished", title: "Refurbished", icon: "refresh-ccw" },
 ];
 
 export const VALID_CATEGORIES = new Set(TABS.map(t => t.key));
+
+// Category aliases - maps alternate keys to canonical keys
+export const CATEGORY_ALIASES: Record<string, string> = {
+  "vehicles": "motors",
+  "cars": "motors",
+  "clothing": "clothing_shoes_accessories",
+  "fashion": "clothing_shoes_accessories",
+  "home": "home_garden",
+  "garden": "home_garden",
+  "jewelry": "jewelry_watches",
+  "watches": "jewelry_watches",
+  "industrial": "business_industrial",
+  "business": "business_industrial",
+  "sports": "sporting_goods",
+};
+
+// Resolve category alias to canonical key
+export function resolveCategory(key: string): string {
+  const lower = key.toLowerCase();
+  return CATEGORY_ALIASES[lower] || lower;
+}
 
 // Electronics subcategories - for sub-tab navigation
 export const ELECTRONICS_SUBCATEGORIES = new Set([
@@ -292,10 +315,10 @@ export function mapUnifiedCategory(input: CategoryMapperInput): string {
 
   // 5. Check CLOTHING
   for (const keyword of CLOTHING_KEYWORDS) {
-    if (title.includes(keyword)) return "clothing";
+    if (title.includes(keyword)) return "clothing_shoes_accessories";
   }
   if (path.includes("clothing") || path.includes("shoes") || path.includes("accessories") || path.includes("fashion")) {
-    return "clothing";
+    return "clothing_shoes_accessories";
   }
 
   // 6. Check HOME & GARDEN
@@ -402,6 +425,8 @@ export default {
   TABS,
   VALID_CATEGORIES,
   ELECTRONICS_SUBCATEGORIES,
+  CATEGORY_ALIASES,
+  resolveCategory,
   mapUnifiedCategory,
   mapUnifiedSubcategory,
   mapCategoryAndSubcategory,

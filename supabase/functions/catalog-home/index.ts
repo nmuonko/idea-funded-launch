@@ -1,16 +1,13 @@
 /**
- * Catalog Home Endpoint - DB-First with eBay Sections
+ * Catalog Home Endpoint - DB-First with Category Tabs
  * 
- * Returns sections-based structure for homepage:
+ * Returns sections-based structure for homepage + category list:
  * {
  *   status: "success",
  *   env,
- *   sections: [
- *     { key: "ebay_trending_all", title: "Trending", provider: "ebay", items: [...] },
- *     { key: "phones_trending", title: "Phones", provider: "ebay", items: [...] },
- *     { key: "electronics_trending", title: "Electronics", provider: "ebay", items: [...] },
- *     { key: "vehicles_trending", title: "Vehicles", provider: "ebay", items: [...] }
- *   ],
+ *   sections: [...],
+ *   homeCategories: [...],
+ *   homeDefaultCategoryKey: "electronics",
  *   error: null
  * }
  * 
@@ -43,6 +40,7 @@ interface CatalogItem {
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
+  categoryKey: string | null;
 }
 
 interface Section {
@@ -53,8 +51,17 @@ interface Section {
   hasMore: boolean;
 }
 
+interface CategoryTab {
+  key: string;
+  title: string;
+  groupTitle: string;
+  icon: string | null;
+  providers: string[];
+  order: number;
+}
+
 // ─── Home Sections Configuration ─────────────────────────────────────────────
-// Define which eBay collections to show on homepage
+// Define which collections to show on homepage
 
 const HOME_SECTIONS: Array<{
   key: string;
@@ -77,7 +84,7 @@ const HOME_SECTIONS: Array<{
     key: "phones_trending",
     title: "Phones",
     provider: "ebay",
-    categoryKey: "phones",
+    categoryKey: "electronics",
     maxItems: 10,
     ttlSeconds: 5400, // 1.5 hours
   },
@@ -93,7 +100,7 @@ const HOME_SECTIONS: Array<{
     key: "vehicles_trending",
     title: "Vehicles",
     provider: "ebay",
-    categoryKey: "vehicles",
+    categoryKey: "motors",
     isVehicle: true,
     maxItems: 10,
     ttlSeconds: 2700, // 45 min
@@ -165,6 +172,7 @@ function mapDbItemToResponse(item: any): CatalogItem {
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
+    categoryKey: item.category_key,
   };
 }
 
@@ -200,7 +208,7 @@ async function getSectionFromCache(
 
     const { data: itemRows } = await supabase
       .from("catalog_items")
-      .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating")
+      .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, category_key")
       .in("id", itemIds.slice(0, maxItems));
 
     return {
@@ -221,7 +229,7 @@ async function getSectionFromDB(
 ): Promise<CatalogItem[]> {
   let query = supabase
     .from("catalog_items")
-    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating")
+    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, category_key")
     .or("is_disallowed.is.null,is_disallowed.eq.false")
     .eq("provider", provider);
 
@@ -240,6 +248,43 @@ async function getSectionFromDB(
   return (rows || []).map(mapDbItemToResponse);
 }
 
+async function getCategories(supabase: any): Promise<CategoryTab[]> {
+  const { data: rows, error } = await supabase
+    .from("catalog_categories")
+    .select("slug, title, group_title, icon, priority, provider_scope, queries")
+    .eq("enabled", true)
+    .order("priority", { ascending: true });
+
+  if (error || !rows) {
+    console.error("[CATALOG_HOME] Failed to fetch categories:", error);
+    return [];
+  }
+
+  return rows.map((row: any) => {
+    let providers: string[] = [];
+    if (row.provider_scope === "all") {
+      providers = ["ebay", "rainforest"];
+    } else if (row.provider_scope === "ebay") {
+      providers = ["ebay"];
+    } else if (row.provider_scope === "rainforest") {
+      providers = ["rainforest"];
+    } else {
+      const queries = row.queries || {};
+      if (queries.ebay?.enabled !== false) providers.push("ebay");
+      if (queries.rainforest?.enabled !== false) providers.push("rainforest");
+    }
+
+    return {
+      key: row.slug,
+      title: row.title,
+      groupTitle: row.group_title,
+      icon: row.icon,
+      providers,
+      order: row.priority,
+    };
+  });
+}
+
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -254,11 +299,14 @@ Deno.serve(async (req: Request) => {
   const buildResponse = (
     status: "success" | "error",
     sections: Section[],
+    homeCategories: CategoryTab[],
     error: string | null
   ) => ({
     status,
     env: envName,
     sections,
+    homeCategories,
+    homeDefaultCategoryKey: "electronics",
     sectionCount: sections.length,
     itemCount: sections.reduce((sum, s) => sum + s.items.length, 0),
     source: "db-first",
@@ -271,7 +319,7 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     
     if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildResponse("error", [], "Backend configuration error")), {
+      return new Response(JSON.stringify(buildResponse("error", [], [], "Backend configuration error")), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -281,11 +329,14 @@ Deno.serve(async (req: Request) => {
 
     const envConfig = await getEnvironmentConfig(supabase, envName);
     if (!isCatalogEnabled(envConfig)) {
-      return new Response(JSON.stringify(buildResponse("error", [], "Catalog not enabled")), {
+      return new Response(JSON.stringify(buildResponse("error", [], [], "Catalog not enabled")), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Fetch categories for the tab list
+    const homeCategories = await getCategories(supabase);
 
     // Build sections for home screen
     const sections: Section[] = [];
@@ -332,7 +383,7 @@ Deno.serve(async (req: Request) => {
 
     debugLog("HOME_SECTIONS", { sectionKeys: Object.keys(sectionCounts), counts: sectionCounts });
 
-    return new Response(JSON.stringify(buildResponse("success", sections, null)), {
+    return new Response(JSON.stringify(buildResponse("success", sections, homeCategories, null)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -341,7 +392,7 @@ Deno.serve(async (req: Request) => {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_HOME] Error: ${errorMessage} durationMs=${Date.now() - startTime}`);
     
-    return new Response(JSON.stringify(buildResponse("error", [], "Catalog service error")), {
+    return new Response(JSON.stringify(buildResponse("error", [], [], "Catalog service error")), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -1,14 +1,14 @@
 /**
- * Catalog Refresh Seeded - DB-First Ingestion Engine
+ * Catalog Refresh Seeded - DB-First Ingestion Engine with Subcategory Support
  * 
- * Fetches products from eBay (primary, free) and optionally Rainforest (restricted)
- * based on seed queries in catalog_seed_queries table.
+ * Fetches products from eBay (primary) based on seed queries in catalog_seed_queries table.
+ * Supports vehicles and parts subcategories with proper classification.
  * 
  * POST /catalog-refresh-seeded
  * Params:
  *   - mode: "db" | "live" (default: "db")
  *   - category: optional filter
- *   - provider: optional filter ("ebay" | "rainforest")
+ *   - provider: optional filter ("ebay")
  *   - maxSeeds: max number of seeds to process (default: 30)
  * 
  * Requires: admin auth or cron secret
@@ -16,6 +16,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
+import { isPartNotVehicle, isAuctionTitle } from "../_shared/motorsFilter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,7 @@ const EBAY_ENDPOINTS = {
 };
 
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
+const VEHICLE_MIN_PRICE_USD = 1500;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,6 +53,9 @@ interface SeedQuery {
     buyingOptions?: string[];
     minPriceUsd?: number;
     excludeKeywords?: string[];
+    listingType?: string;
+    vehiclesSubkey?: string;
+    partsSubkey?: string;
   };
   ttl_minutes: number;
   last_refreshed_at?: string;
@@ -69,6 +74,9 @@ interface CatalogItemInsert {
   rating: number | null;
   unified_category: string;
   unified_subcategory: string | null;
+  listing_type: string | null;
+  vehicles_subkey: string | null;
+  parts_subkey: string | null;
   category_key: string;
   tags: string[];
   buying_options: string[];
@@ -145,14 +153,17 @@ async function searchEbayForSeed(
   const environment = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   const marketplace = "EBAY_US";
 
-  // Build filter string
+  // Build filter string - ALWAYS use FIXED_PRICE
   const filterParts = ["buyingOptions:{FIXED_PRICE}"];
   
-  if (seed.filters?.minPriceUsd) {
-    filterParts.push(`price:[${seed.filters.minPriceUsd}..],priceCurrency:USD`);
+  // Enforce min price for vehicles
+  const isVehicleSeed = seed.category === "vehicles" || seed.filters?.listingType === "vehicle";
+  const minPrice = seed.filters?.minPriceUsd || (isVehicleSeed ? VEHICLE_MIN_PRICE_USD : 0);
+  
+  if (minPrice > 0) {
+    filterParts.push(`price:[${minPrice}..],priceCurrency:USD`);
   }
 
-  // Add category filter for motors
   if (seed.ebay_category_id) {
     filterParts.push(`categoryIds:{${seed.ebay_category_id}}`);
   }
@@ -166,7 +177,7 @@ async function searchEbayForSeed(
 
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item_summary/search?${params}`;
 
-  console.log(`[REFRESH] Fetching eBay: ${seed.seed_key} q="${seed.query}"`);
+  console.log(`[REFRESH] Fetching eBay: ${seed.seed_key} q="${seed.query}" minPrice=${minPrice}`);
 
   const response = await fetch(endpoint, {
     method: "GET",
@@ -197,34 +208,33 @@ async function searchEbayForSeed(
 
     // Skip items with excluded keywords
     const shouldExclude = excludeKeywords.some(kw => titleLower.includes(kw.toLowerCase()));
-    if (shouldExclude) {
-      continue;
-    }
+    if (shouldExclude) continue;
+
+    // Skip auction titles
+    if (isAuctionTitle(title)) continue;
 
     // Extract price
     let priceUsd: number | null = null;
     if (item.price?.value) {
       priceUsd = parseFloat(item.price.value);
       if (item.price.currency !== "USD") {
-        // Simple conversion (approximate)
         if (item.price.currency === "GBP") priceUsd *= 1.27;
         else if (item.price.currency === "EUR") priceUsd *= 1.09;
         else if (item.price.currency === "CAD") priceUsd *= 0.74;
       }
     }
 
-    // Skip if below min price for motors
-    if (seed.filters?.minPriceUsd && priceUsd !== null && priceUsd < seed.filters.minPriceUsd) {
-      continue;
+    // For vehicles: enforce min price and filter out parts
+    if (isVehicleSeed) {
+      if (priceUsd !== null && priceUsd < VEHICLE_MIN_PRICE_USD) continue;
+      if (isPartNotVehicle(title)) continue;
     }
 
     // Extract buying options
     const buyingOptions = item.buyingOptions || [];
 
-    // Skip auctions for motors
-    if (seed.category === "motors" && !buyingOptions.includes("FIXED_PRICE")) {
-      continue;
-    }
+    // Skip if no FIXED_PRICE option
+    if (!buyingOptions.includes("FIXED_PRICE")) continue;
 
     // Extract images
     const images: string[] = [];
@@ -248,24 +258,30 @@ async function searchEbayForSeed(
       }
     }
 
-    // Get unified category AND subcategory
-    const { category: unifiedCategory, subcategory: unifiedSubcategory } = mapCategoryAndSubcategory({
+    // Get unified category and subcategory
+    const { 
+      category: unifiedCategory, 
+      subcategory: unifiedSubcategory,
+      listingType,
+      vehiclesSubkey,
+      partsSubkey,
+    } = mapCategoryAndSubcategory({
       title,
       provider: "ebay",
       ebayCategoryPath: item.categories?.[0]?.categoryName || "",
       ebayCategoryId: item.categories?.[0]?.categoryId || "",
       productUrl: item.itemWebUrl || "",
+      priceUsd,
     });
 
     // Skip blocked items
-    if (unifiedCategory === "blocked") {
-      continue;
-    }
+    if (unifiedCategory === "blocked") continue;
 
-    // Force category to seed category if mapper returns different
-    const finalCategory = unifiedCategory !== seed.category && seed.category !== "electronics"
-      ? seed.category
-      : unifiedCategory;
+    // Use seed's category/subkey if specified
+    const finalCategory = seed.category || unifiedCategory;
+    const finalListingType = seed.filters?.listingType || listingType;
+    const finalVehiclesSubkey = seed.filters?.vehiclesSubkey || vehiclesSubkey;
+    const finalPartsSubkey = seed.filters?.partsSubkey || partsSubkey;
 
     items.push({
       id: `ebay:${item.itemId}`,
@@ -274,14 +290,17 @@ async function searchEbayForSeed(
       title,
       price_usd: priceUsd,
       image_url: images[0] || null,
-      images: images.slice(0, 10), // Max 10 images
+      images: images.slice(0, 10),
       product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
       in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
       rating: null,
       unified_category: finalCategory,
-      unified_subcategory: unifiedSubcategory,
+      unified_subcategory: unifiedSubcategory || finalVehiclesSubkey || finalPartsSubkey,
+      listing_type: finalListingType,
+      vehicles_subkey: finalVehiclesSubkey,
+      parts_subkey: finalPartsSubkey,
       category_key: seed.category,
-      tags: [seed.category, seed.seed_key],
+      tags: [seed.category, seed.seed_key].filter(Boolean),
       buying_options: buyingOptions,
       metadata: {
         seedKey: seed.seed_key,
@@ -411,7 +430,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Get eBay token if we have eBay seeds
+  // Get eBay token
   const ebaySeeds = seeds.filter((s: SeedQuery) => s.provider === "ebay");
   let ebayToken: string | null = null;
 
@@ -427,6 +446,7 @@ Deno.serve(async (req) => {
   let totalFetched = 0;
   let totalUpserted = 0;
   const categoryStats: Record<string, number> = {};
+  const subcategoryStats: Record<string, number> = {};
 
   // Process eBay seeds
   for (const seed of ebaySeeds) {
@@ -457,8 +477,18 @@ Deno.serve(async (req) => {
           results[seed.seed_key] = { fetched: items.length, upserted: upsertedCount };
           console.log(`[UPSERT] ${seed.seed_key}: ${upsertedCount} items`);
           
-          // Track by category
+          // Track by category and subcategory
           categoryStats[seed.category] = (categoryStats[seed.category] || 0) + upsertedCount;
+          
+          // Track subcategories
+          for (const item of items) {
+            if (item.vehicles_subkey) {
+              subcategoryStats[item.vehicles_subkey] = (subcategoryStats[item.vehicles_subkey] || 0) + 1;
+            }
+            if (item.parts_subkey) {
+              subcategoryStats[item.parts_subkey] = (subcategoryStats[item.parts_subkey] || 0) + 1;
+            }
+          }
         }
       } else {
         results[seed.seed_key] = { fetched: 0, upserted: 0 };
@@ -483,27 +513,19 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Rainforest seeds (restricted - skip for now to save API credits)
-  const rainforestSeeds = seeds.filter((s: SeedQuery) => s.provider === "rainforest");
-  if (rainforestSeeds.length > 0) {
-    console.log(`[REFRESH] Skipping ${rainforestSeeds.length} Rainforest seeds (restricted mode)`);
-    for (const seed of rainforestSeeds) {
-      results[seed.seed_key] = { fetched: 0, upserted: 0, errors: ["Rainforest restricted - use catalog-refresh for Rainforest"] };
-    }
-  }
-
   console.log(`[REFRESH] Complete. Fetched=${totalFetched} Upserted=${totalUpserted}`);
   console.log(`[REFRESH] Category stats:`, categoryStats);
+  console.log(`[REFRESH] Subcategory stats:`, subcategoryStats);
 
   return new Response(
     JSON.stringify({
       success: true,
-      mode: "live",
+      mode,
       totalFetched,
       totalUpserted,
-      seedsProcessed: Object.keys(results).length,
       categoryStats,
-      results,
+      subcategoryStats,
+      seeds: results,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } }
   );

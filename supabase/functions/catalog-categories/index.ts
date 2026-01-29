@@ -6,9 +6,8 @@
  * { status: "success", env, categories: [...], error: null }
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
-import { TABS } from "../_shared/categoryMapper.ts";
+import { TABS, CATEGORY_ALIASES } from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -50,19 +49,20 @@ Deno.serve(async (req) => {
 
   // Validate environment
   if (!ALLOWED_ENVS.includes(envName)) {
-    console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} error=BAD_ENV env=${envName}`);
+    console.error(`[CAT_TABS] requestId=${requestId} error=BAD_ENV env=${envName}`);
     return new Response(
       JSON.stringify({
         status: "error",
         env: envName,
         categories: [],
+        aliases: {},
         error: { message: `Invalid environment: ${envName}`, code: "BAD_ENV" },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  console.log(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} method=${req.method}`);
+  console.log(`[CAT_TABS] requestId=${requestId} env=${envName} method=${req.method}`);
 
   try {
     // Return the fixed TABS list from categoryMapper (single source of truth)
@@ -75,13 +75,14 @@ Deno.serve(async (req) => {
     }));
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} count=${categories.length} durationMs=${durationMs}`);
+    console.log(`[CAT_TABS] requestId=${requestId} env=${envName} count=${categories.length} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
         status: "success",
         env: envName,
         categories,
+        aliases: CATEGORY_ALIASES,
         error: null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -91,9 +92,9 @@ Deno.serve(async (req) => {
     const errorStack = err instanceof Error ? err.stack : undefined;
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    console.error(`[CAT_TABS] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
     if (errorStack) {
-      console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} stack=${errorStack}`);
+      console.error(`[CAT_TABS] requestId=${requestId} stack=${errorStack}`);
     }
 
     return new Response(
@@ -101,6 +102,7 @@ Deno.serve(async (req) => {
         status: "error",
         env: envName,
         categories: [],
+        aliases: {},
         error: { message: "Internal server error", code: "INTERNAL_ERROR" },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

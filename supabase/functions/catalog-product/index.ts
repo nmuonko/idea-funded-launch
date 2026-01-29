@@ -158,6 +158,8 @@ Deno.serve(async (req: Request) => {
     if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
 
     // ========== DB-FIRST: Check catalog_items ==========
+    console.log(`[DETAIL_DB] id=${fullProductId} provider=${effectiveProvider} checking...`);
+    
     const { data: dbItem } = await supabase
       .from("catalog_items")
       .select("*")
@@ -175,11 +177,11 @@ Deno.serve(async (req: Request) => {
       });
       
       if (blockCheck.isDisallowed) {
-        console.log(`[CATALOG_PRODUCT] Blocked: id=${productId} reason=${blockCheck.reason}`);
+        console.log(`[DETAIL_DB] id=${fullProductId} hit=false reason=BLOCKED`);
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      console.log(`[CATALOG_PRODUCT] DB hit: id=${productId} provider=${effectiveProvider} durationMs=${Date.now() - startTime}`);
+      console.log(`[DETAIL_DB] id=${fullProductId} hit=true provider=${effectiveProvider} durationMs=${Date.now() - startTime}`);
       
       return new Response(JSON.stringify({
         status: "success",
@@ -194,6 +196,8 @@ Deno.serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    console.log(`[DETAIL_DB] id=${fullProductId} hit=false provider=${effectiveProvider} fetching_live...`);
 
     // ========== FALLBACK: Check legacy catalog_products (Rainforest only) ==========
     if (effectiveProvider === "rainforest") {

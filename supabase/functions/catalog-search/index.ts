@@ -52,6 +52,21 @@ interface CatalogItem {
 
 // ==================== QUERY HELPERS ====================
 
+// Vehicle-related keywords that should route to eBay live with vehicle filters
+const VEHICLE_QUERY_KEYWORDS = [
+  "car", "cars", "truck", "trucks", "suv", "sedan", "pickup",
+  "toyota", "honda", "jeep", "bmw", "mercedes", "ford", "chevy", "chevrolet",
+  "nissan", "kia", "hyundai", "lexus", "audi", "tesla", "mazda", "subaru",
+  "motorcycle", "harley", "yamaha", "kawasaki", "ducati",
+  "boat", "pontoon", "yacht", "rv", "camper", "trailer",
+  "atv", "utv", "quad", "polaris", "can-am",
+];
+
+function isVehicleQuery(query: string): boolean {
+  const lower = query.toLowerCase();
+  return VEHICLE_QUERY_KEYWORDS.some(kw => lower.includes(kw));
+}
+
 function normalizeQuery(q: string): string {
   return q.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -191,8 +206,17 @@ Deno.serve(async (req: Request) => {
     // ==================== EBAY LIVE SEARCH (unlimited pagination) ====================
     if (provider === "all" || provider === "ebay") {
       try {
-        console.log(`[CATALOG_SEARCH] eBay LIVE search: "${qNorm}" page=${page}`);
-        const ebayResult = await searchEbay(supabase, qNorm, page, pageSize);
+        // For vehicle queries, use FIXED_PRICE filter (no auctions)
+        const isVehicle = isVehicleQuery(qNorm);
+        const customFilter = isVehicle 
+          ? "buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}"
+          : undefined;
+        
+        console.log(`[CATALOG_SEARCH] eBay LIVE search: "${qNorm}" page=${page} isVehicle=${isVehicle}`);
+        const ebayResult = await searchEbay(supabase, qNorm, page, pageSize, { 
+          marketplace: "EBAY_US",
+          filter: customFilter,
+        });
         ebayDebug = ebayResult.debug;
         
         if (ebayResult.items.length > 0) {

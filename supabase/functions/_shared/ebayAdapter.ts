@@ -14,6 +14,7 @@ export interface EbayConfig {
   environment: "production" | "sandbox";
   marketplace: string;
   searchLimit: number;
+  filter?: string; // Custom filter string to override default
 }
 
 export interface CatalogItem {
@@ -260,12 +261,14 @@ export async function searchEbay(
   
   const offset = (page - 1) * pageSize;
   
+  // Use custom filter if provided, otherwise default
+  const filterString = config?.filter || "buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}";
+  
   const params = new URLSearchParams({
     q: query,
     limit: String(pageSize),
     offset: String(offset),
-    // Filter to fixed price items in good condition
-    filter: "buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}",
+    filter: filterString,
   });
 
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item_summary/search?${params}`;

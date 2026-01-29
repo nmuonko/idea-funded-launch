@@ -16,23 +16,26 @@
  */
 
 // ─── Price Thresholds by Vehicle Type ────────────────────────────────────────
-export const MOTORS_MIN_PRICE_USD = 1500;
-export const VEHICLES_MIN_PRICE_USD = 1500;
+// NOTE: These are SOFT defaults - endpoints can override with minPrice=0
+export const MOTORS_MIN_PRICE_USD = 0; // Changed from 1500 to allow full results
+export const VEHICLES_MIN_PRICE_USD = 0; // Changed from 1500 to allow full results
 
-// Lower thresholds for specific categories
-export const VEHICLES_MIN_PRICE_BY_SUBKEY: Record<string, number> = {
-  cars_trucks: 1500,
-  motorcycles: 800,
-  powersports: 500, // ATVs, UTVs can be cheaper
-  boats: 1000,
-  rvs_campers: 2000,
-  trailers_other: 500,
-  classic_cars: 5000,
+// Suggested thresholds for specific categories (optional, not enforced by default)
+export const VEHICLES_SUGGESTED_MIN_PRICE: Record<string, number> = {
+  cars_trucks: 0, // No minimum - filter by keywords instead
+  motorcycles: 0,
+  powersports: 0,
+  boats: 0,
+  rvs_campers: 0,
+  trailers_other: 0,
+  classic_cars: 0,
 };
 
-export function getMinPriceForVehicleSubkey(subkey: string | null): number {
+// For backward compatibility - always returns 0 unless explicitly requested
+export function getMinPriceForVehicleSubkey(subkey: string | null, enforceMinPrice: boolean = false): number {
+  if (!enforceMinPrice) return 0;
   if (!subkey) return VEHICLES_MIN_PRICE_USD;
-  return VEHICLES_MIN_PRICE_BY_SUBKEY[subkey] ?? VEHICLES_MIN_PRICE_USD;
+  return VEHICLES_SUGGESTED_MIN_PRICE[subkey] ?? 0;
 }
 
 // ─── Buying Options ─────────────────────────────────────────────────────────
@@ -138,16 +141,18 @@ export interface MotorsFilterResult {
 /**
  * Check if a motor listing is allowed as a VEHICLE (not part/accessory)
  * Used for unified_category = 'vehicles'
+ * 
+ * NOTE: Price filtering is now done via keyword-based exclusion, not minPrice
  */
-export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterResult {
+export function isAllowedMotorListing(input: MotorsFilterInput & { enforceMinPrice?: boolean }): MotorsFilterResult {
   const titleLower = (input.title || "").toLowerCase();
   const categoryPath = (input.categoryPath || "").toLowerCase();
   
-  // Get appropriate minimum price for this vehicle subkey
-  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey);
+  // Get appropriate minimum price for this vehicle subkey (only if enforced)
+  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey, input.enforceMinPrice ?? false);
 
-  // 1. Check minimum price (using category-specific threshold)
-  if (input.priceUsd === null || input.priceUsd < minPrice) {
+  // 1. Check minimum price ONLY if explicitly enforced
+  if (input.enforceMinPrice && (input.priceUsd === null || input.priceUsd < minPrice)) {
     return {
       isAllowed: false,
       reason: "price_below_minimum",
@@ -279,18 +284,23 @@ export function filterMotorListings<T extends MotorsFilterInput>(
 
 /**
  * Build eBay filter string for vehicles with optional subkey-specific pricing
+ * @param subkey - vehicle subcategory
+ * @param minPrice - explicit minimum price (default 0 for maximum results)
  */
-export function buildEbayMotorsFilter(subkey?: string | null): string {
-  const minPrice = getMinPriceForVehicleSubkey(subkey || null);
-  // eBay Browse API filter format
-  return `buyingOptions:{FIXED_PRICE},price:[${minPrice}..],conditionIds:{1000|1500|2000|2500|3000}`;
+export function buildEbayMotorsFilter(subkey?: string | null, minPrice: number = 0): string {
+  // eBay Browse API filter format - FIXED_PRICE only, no auctions
+  if (minPrice > 0) {
+    return `buyingOptions:{FIXED_PRICE},price:[${minPrice}..],conditionIds:{1000|1500|2000|2500|3000}`;
+  }
+  // No price filter - just FIXED_PRICE and condition
+  return `buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}`;
 }
 
 /**
  * Build eBay filter string for vehicles (alias)
  */
-export function buildEbayVehiclesFilter(subkey?: string | null): string {
-  return buildEbayMotorsFilter(subkey);
+export function buildEbayVehiclesFilter(subkey?: string | null, minPrice: number = 0): string {
+  return buildEbayMotorsFilter(subkey, minPrice);
 }
 
 /**
@@ -384,7 +394,7 @@ export const PARTS_SEED_QUERIES: Record<string, string[]> = {
 export default {
   MOTORS_MIN_PRICE_USD,
   VEHICLES_MIN_PRICE_USD,
-  VEHICLES_MIN_PRICE_BY_SUBKEY,
+  VEHICLES_SUGGESTED_MIN_PRICE,
   getMinPriceForVehicleSubkey,
   MOTORS_PARTS_KEYWORDS,
   MOTORS_AUCTION_KEYWORDS,

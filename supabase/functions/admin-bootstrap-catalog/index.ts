@@ -1,10 +1,10 @@
 /**
  * Admin Bootstrap Catalog
  * 
- * One-time setup endpoint that:
- * 1. Seeds default catalog queries (admin-seed-default-catalog)
+ * One-time setup endpoint that ALWAYS populates DB:
+ * 1. Seeds default catalog queries (inline, not separate function call)
  * 2. Runs live refresh for ALL categories (catalog-refresh-seeded?mode=live)
- * 3. Optionally backfills unified_category for existing items
+ * 3. Backfills unified_category and unified_subcategory for existing items
  * 
  * POST /admin-bootstrap-catalog
  * Body: { runBackfill?: boolean, maxSeeds?: number }
@@ -13,12 +13,90 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { mapUnifiedCategory } from "../_shared/categoryMapper.ts";
+import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cron-secret",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cron-secret, x-admin-key",
 };
+
+// Allow x-admin-key header as alternative auth
+function checkAdminKey(req: Request): boolean {
+  const adminKey = req.headers.get("x-admin-key");
+  const expectedKey = Deno.env.get("CRON_SECRET");
+  return adminKey === expectedKey && !!adminKey;
+}
+
+// Default seed queries for all categories
+const DEFAULT_SEEDS = [
+  // Electronics - Phones
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone", query: "iphone 15 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung", query: "samsung galaxy s24 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_pixel", query: "google pixel phone unlocked" },
+  
+  // Electronics - Computers
+  { category: "electronics", provider: "ebay", seed_key: "electronics_macbook", query: "macbook pro laptop" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_laptop", query: "laptop computer new" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_gaming_pc", query: "gaming pc desktop" },
+  
+  // Electronics - Audio
+  { category: "electronics", provider: "ebay", seed_key: "electronics_airpods", query: "airpods pro" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_headphones", query: "wireless headphones bluetooth" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_speaker", query: "bluetooth speaker portable" },
+  
+  // Electronics - Monitors
+  { category: "electronics", provider: "ebay", seed_key: "electronics_monitor", query: "gaming monitor 27 inch" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_4k_monitor", query: "4k monitor computer" },
+  
+  // Electronics - Tablets
+  { category: "electronics", provider: "ebay", seed_key: "electronics_ipad", query: "ipad pro" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_tablet", query: "samsung galaxy tab" },
+  
+  // Electronics - Chargers
+  { category: "electronics", provider: "ebay", seed_key: "electronics_charger", query: "usb-c fast charger" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_powerbank", query: "power bank portable charger" },
+  
+  // Motors (Buy It Now only, $1500+ minimum)
+  { category: "motors", provider: "ebay", seed_key: "motors_toyota", query: "toyota camry", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  { category: "motors", provider: "ebay", seed_key: "motors_honda", query: "honda civic", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  { category: "motors", provider: "ebay", seed_key: "motors_ford", query: "ford f150", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  { category: "motors", provider: "ebay", seed_key: "motors_bmw", query: "bmw 3 series", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  { category: "motors", provider: "ebay", seed_key: "motors_mercedes", query: "mercedes benz", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  
+  // Home & Garden
+  { category: "home_garden", provider: "ebay", seed_key: "home_vacuum", query: "robot vacuum cleaner" },
+  { category: "home_garden", provider: "ebay", seed_key: "home_airfryer", query: "air fryer kitchen" },
+  { category: "home_garden", provider: "ebay", seed_key: "home_blender", query: "blender kitchen" },
+  { category: "home_garden", provider: "ebay", seed_key: "home_tools", query: "power tool set" },
+  
+  // Clothing
+  { category: "clothing", provider: "ebay", seed_key: "clothing_nike", query: "nike hoodie" },
+  { category: "clothing", provider: "ebay", seed_key: "clothing_shoes", query: "nike shoes men" },
+  { category: "clothing", provider: "ebay", seed_key: "clothing_dress", query: "women dress summer" },
+  { category: "clothing", provider: "ebay", seed_key: "clothing_jacket", query: "men jacket winter" },
+  
+  // Toys
+  { category: "toys", provider: "ebay", seed_key: "toys_lego", query: "lego set" },
+  { category: "toys", provider: "ebay", seed_key: "toys_kids", query: "kids toys educational" },
+  { category: "toys", provider: "ebay", seed_key: "toys_rc", query: "rc car remote control" },
+  
+  // Sporting Goods
+  { category: "sporting_goods", provider: "ebay", seed_key: "sports_dumbbells", query: "dumbbells weight set" },
+  { category: "sporting_goods", provider: "ebay", seed_key: "sports_soccer", query: "soccer shoes cleats" },
+  { category: "sporting_goods", provider: "ebay", seed_key: "sports_basketball", query: "basketball shoes" },
+  
+  // Business & Industrial
+  { category: "business_industrial", provider: "ebay", seed_key: "business_generator", query: "portable generator" },
+  { category: "business_industrial", provider: "ebay", seed_key: "business_compressor", query: "air compressor" },
+  
+  // Jewelry & Watches
+  { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_watch", query: "luxury watch men" },
+  { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_necklace", query: "gold necklace chain" },
+  
+  // Refurbished
+  { category: "refurbished", provider: "ebay", seed_key: "refurb_iphone", query: "refurbished iphone" },
+  { category: "refurbished", provider: "ebay", seed_key: "refurb_laptop", query: "renewed laptop" },
+];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -30,8 +108,14 @@ Deno.serve(async (req) => {
 
   // Auth check
   let isAuthorized = false;
+  
+  // Check x-admin-key header first
+  if (checkAdminKey(req)) {
+    isAuthorized = true;
+  }
+  
   const authHeader = req.headers.get("authorization");
-  if (authHeader?.startsWith("Bearer ")) {
+  if (!isAuthorized && authHeader?.startsWith("Bearer ")) {
     const token = authHeader.replace("Bearer ", "");
     if (token === supabaseServiceKey) {
       isAuthorized = true;
@@ -64,12 +148,12 @@ Deno.serve(async (req) => {
 
   // Parse params
   let runBackfill = true;
-  let maxSeeds = 30;
+  let maxSeeds = 40;
 
   try {
     const body = await req.json().catch(() => ({}));
     runBackfill = body.runBackfill !== false;
-    maxSeeds = body.maxSeeds || 30;
+    maxSeeds = body.maxSeeds || 40;
   } catch {
     // Use defaults
   }
@@ -77,29 +161,42 @@ Deno.serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const startTime = Date.now();
 
-  const results: Record<string, any> = {};
+  const results: Record<string, unknown> = {};
 
-  // Step 1: Seed default catalog queries
-  console.log("[BOOTSTRAP] Step 1: Seeding default catalog queries...");
+  // Step A: Seed default catalog queries (inline)
+  console.log("[BOOTSTRAP] Step A: Seeding default catalog queries...");
   try {
-    const seedResponse = await fetch(`${supabaseUrl}/functions/v1/admin-seed-default-catalog`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${supabaseServiceKey}`,
-        "Content-Type": "application/json",
-      },
-    });
-    const seedResult = await seedResponse.json();
-    results.seedCatalog = seedResult;
-    console.log("[BOOTSTRAP] Seed result:", seedResult.totalSeeded || 0, "seeds");
+    let seededCount = 0;
+    let skippedCount = 0;
+    
+    for (const seed of DEFAULT_SEEDS) {
+      const { error } = await supabase
+        .from("catalog_seed_queries")
+        .upsert({
+          ...seed,
+          enabled: true,
+          ttl_minutes: 360,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "provider,seed_key" });
+      
+      if (error) {
+        console.error(`[BOOTSTRAP] Failed to seed ${seed.seed_key}:`, error.message);
+        skippedCount++;
+      } else {
+        seededCount++;
+      }
+    }
+    
+    results.seedCatalog = { seeded: seededCount, skipped: skippedCount };
+    console.log(`[BOOTSTRAP] Seeded ${seededCount} queries, skipped ${skippedCount}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[BOOTSTRAP] Seed failed:", msg);
     results.seedCatalog = { error: msg };
   }
 
-  // Step 2: Run live refresh
-  console.log("[BOOTSTRAP] Step 2: Running live refresh...");
+  // Step B: Run live refresh
+  console.log("[BOOTSTRAP] Step B: Running live refresh...");
   try {
     const refreshResponse = await fetch(`${supabaseUrl}/functions/v1/catalog-refresh-seeded`, {
       method: "POST",
@@ -121,16 +218,16 @@ Deno.serve(async (req) => {
     results.refreshCatalog = { error: msg };
   }
 
-  // Step 3: Backfill unified_category for existing items
+  // Step C: Backfill unified_category AND unified_subcategory for existing items
   if (runBackfill) {
-    console.log("[BOOTSTRAP] Step 3: Backfilling unified_category...");
+    console.log("[BOOTSTRAP] Step C: Backfilling unified_category and unified_subcategory...");
     try {
-      // Get items without unified_category
+      // Get items without unified_category OR unified_subcategory
       const { data: itemsToBackfill, error: fetchError } = await supabase
         .from("catalog_items")
-        .select("id, title, provider, product_url, metadata")
-        .is("unified_category", null)
-        .limit(1000);
+        .select("id, title, provider, product_url, metadata, unified_category")
+        .or("unified_category.is.null,unified_subcategory.is.null")
+        .limit(2000);
 
       if (fetchError) {
         throw new Error(fetchError.message);
@@ -141,22 +238,26 @@ Deno.serve(async (req) => {
 
       if (itemsToBackfill && itemsToBackfill.length > 0) {
         for (const item of itemsToBackfill) {
-          const unified = mapUnifiedCategory({
+          const { category, subcategory } = mapCategoryAndSubcategory({
             title: item.title || undefined,
             provider: item.provider || undefined,
             productUrl: item.product_url || undefined,
-            ebayCategoryPath: (item.metadata as any)?.categoryPath || undefined,
+            ebayCategoryPath: (item.metadata as Record<string, unknown>)?.categoryPath as string || undefined,
           });
 
-          if (unified === "blocked") {
+          if (category === "blocked") {
             // Delete blocked items
             await supabase.from("catalog_items").delete().eq("id", item.id);
             blockedCount++;
           } else {
-            // Update unified_category
+            // Update unified_category and unified_subcategory
             await supabase
               .from("catalog_items")
-              .update({ unified_category: unified, updated_at: new Date().toISOString() })
+              .update({ 
+                unified_category: category, 
+                unified_subcategory: subcategory,
+                updated_at: new Date().toISOString() 
+              })
               .eq("id", item.id);
             backfillCount++;
           }
@@ -197,12 +298,16 @@ Deno.serve(async (req) => {
 
   const durationMs = Date.now() - startTime;
   console.log(`[BOOTSTRAP] Complete. Total items: ${totalItems} Duration: ${durationMs}ms`);
+  console.log(`[BOOTSTRAP] Category breakdown:`, byCategory);
 
   return new Response(
     JSON.stringify({
-      success: true,
+      status: "success",
+      message: "Catalog bootstrap complete",
       totalItems: totalItems || 0,
-      byCategory,
+      categories: byCategory,
+      inserted: (results.refreshCatalog as Record<string, unknown>)?.totalUpserted || 0,
+      updated: (results.backfill as Record<string, unknown>)?.updated || 0,
       durationMs,
       steps: results,
     }),

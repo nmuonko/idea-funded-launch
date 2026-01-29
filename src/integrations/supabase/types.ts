@@ -956,6 +956,7 @@ export type Database = {
           tags: string[] | null
           title: string | null
           unified_category: string | null
+          unified_subcategory: string | null
           updated_at: string | null
         }
         Insert: {
@@ -976,6 +977,7 @@ export type Database = {
           tags?: string[] | null
           title?: string | null
           unified_category?: string | null
+          unified_subcategory?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -996,6 +998,7 @@ export type Database = {
           tags?: string[] | null
           title?: string | null
           unified_category?: string | null
+          unified_subcategory?: string | null
           updated_at?: string | null
         }
         Relationships: []

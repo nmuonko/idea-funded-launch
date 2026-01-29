@@ -1,9 +1,11 @@
 /**
  * catalog-category
- * Fetches items for a specific unified category from DB
+ * Fetches items for a specific unified category or subcategory from DB
  * 
  * Query params:
- * - category (preferred) OR key (legacy) - unified category slug (electronics, motors, clothing, etc.)
+ * - category (preferred) OR key (legacy) - unified category slug or electronics subcategory
+ *   Main categories: electronics, motors, clothing, home_garden, toys, sporting_goods, etc.
+ *   Electronics subcategories: phones, computers, audio, monitors, tablets, chargers
  * - page default 1
  * - pageSize default 20
  * - env (from header or param)
@@ -16,9 +18,9 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
-import { TABS, isValidCategory } from "../_shared/categoryMapper.ts";
+import { TABS, isValidCategory, isElectronicsSubcategory, isMainCategory } from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -60,6 +62,7 @@ interface CatalogItem {
   inStock: boolean;
   rating: number | null;
   unifiedCategory: string;
+  unifiedSubcategory: string | null;
 }
 
 interface DbItem {
@@ -74,6 +77,7 @@ interface DbItem {
   in_stock: boolean | null;
   rating: number | null;
   unified_category: string | null;
+  unified_subcategory: string | null;
   category_key: string | null;
 }
 
@@ -101,6 +105,7 @@ function normalizeItem(row: DbItem): CatalogItem {
     inStock: row.in_stock ?? true,
     rating: row.rating,
     unifiedCategory: row.unified_category || row.category_key || "electronics",
+    unifiedSubcategory: row.unified_subcategory || null,
   };
 }
 
@@ -174,8 +179,10 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Validate category
+  // Validate category - supports both main categories and electronics subcategories
   if (!isValidCategory(category)) {
+    const validCategories = TABS.map(t => t.key).join(", ");
+    const validSubcategories = "phones, computers, audio, monitors, tablets, chargers";
     console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=INVALID_CATEGORY category=${category}`);
     return new Response(
       JSON.stringify({
@@ -186,7 +193,10 @@ Deno.serve(async (req) => {
         pageSize,
         total: 0,
         items: [],
-        error: { message: `Invalid category: ${category}. Valid categories: ${TABS.map(t => t.key).join(", ")}`, code: "INVALID_CATEGORY" },
+        error: { 
+          message: `Invalid category: ${category}. Valid categories: ${validCategories}. Electronics subcategories: ${validSubcategories}`, 
+          code: "INVALID_CATEGORY" 
+        },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -215,20 +225,29 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // REMOVED: Environment check - catalog is ALWAYS enabled for mobile
-    // We no longer check isCatalogEnabled because mobile-public-config ALWAYS returns catalogEnabled: true
     console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} catalog_always_enabled=true`);
 
-    // Fetch items from catalog_items by unified_category
+    // Determine query strategy
+    const isSubcategory = isElectronicsSubcategory(category);
     const isMotors = category === "motors";
     const fetchLimit = pageSize * 4; // Fetch extra for filtering
 
-    // Build query - check both unified_category and category_key for backwards compatibility
-    // Also exclude blocked items
-    let query = supabase
-      .from("catalog_items")
-      .select("*")
-      .or(`unified_category.eq.${category},category_key.eq.${category}`)
+    // Build query based on whether it's a main category or subcategory
+    let query = supabase.from("catalog_items").select("*");
+
+    if (isSubcategory) {
+      // Query by unified_subcategory within electronics
+      query = query
+        .eq("unified_category", "electronics")
+        .eq("unified_subcategory", category);
+    } else {
+      // Query by unified_category (also check category_key for backwards compatibility)
+      query = query
+        .or(`unified_category.eq.${category},category_key.eq.${category}`);
+    }
+
+    // Exclude blocked items
+    query = query
       .neq("unified_category", "blocked")
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
@@ -318,13 +337,14 @@ Deno.serve(async (req) => {
     const pageItems = sortedItems.slice(startIdx, endIdx);
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} category=${category} total=${total} returning=${pageItems.length} providers=${[...new Set(pageItems.map(i => i.provider))].join(",")} durationMs=${durationMs}`);
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} category=${category} isSubcategory=${isSubcategory} total=${total} returning=${pageItems.length} providers=${[...new Set(pageItems.map(i => i.provider))].join(",")} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
         status: "success",
         env: envName,
         category,
+        isSubcategory,
         page,
         pageSize,
         total,

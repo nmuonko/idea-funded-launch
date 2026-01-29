@@ -1,11 +1,12 @@
 /**
- * Category Mapper - Unified Category Assignment
+ * Category Mapper - Unified Category & Subcategory Assignment
  * 
  * Maps items from eBay and Rainforest/Amazon to a consistent set of
  * unified categories for DB-first serving.
  * 
  * TABS list is the single source of truth for category tabs.
  * mapUnifiedCategory assigns a category based on title, provider, eBay category path, etc.
+ * mapUnifiedSubcategory assigns electronics subcategories (phones, computers, audio, etc.)
  */
 
 // ─── Unified Category Tabs ─────────────────────────────────────────────────────
@@ -15,10 +16,16 @@ export interface CategoryTab {
   key: string;
   title: string;
   icon?: string;
+  subcategories?: string[];
 }
 
 export const TABS: CategoryTab[] = [
-  { key: "electronics", title: "Electronics", icon: "📱" },
+  { 
+    key: "electronics", 
+    title: "Electronics", 
+    icon: "📱",
+    subcategories: ["phones", "computers", "audio", "monitors", "tablets", "chargers"]
+  },
   { key: "motors", title: "Motors", icon: "🚗" },
   { key: "home_garden", title: "Home & Garden", icon: "🏠" },
   { key: "clothing", title: "Clothing, Shoes & Accessories", icon: "👕" },
@@ -31,6 +38,16 @@ export const TABS: CategoryTab[] = [
 
 export const VALID_CATEGORIES = new Set(TABS.map(t => t.key));
 
+// Electronics subcategories - for sub-tab navigation
+export const ELECTRONICS_SUBCATEGORIES = new Set([
+  "phones", "computers", "audio", "monitors", "tablets", "chargers"
+]);
+
+// Check if a key is a subcategory of electronics
+export function isElectronicsSubcategory(key: string): boolean {
+  return ELECTRONICS_SUBCATEGORIES.has(key);
+}
+
 // ─── Blocked Keywords (Hard Block) ─────────────────────────────────────────────
 // Items matching these are NEVER shown - returns "blocked"
 
@@ -41,6 +58,47 @@ const BLOCKED_KEYWORDS = [
   "paperback", "hardcover", "textbook", "novel", "novels",
   "comics", "manga", "journal", "journals",
   "streaming", "membership", "unlimited", "digital download",
+];
+
+// ─── Electronics Subcategory Keywords ───────────────────────────────────────────
+
+const PHONES_KEYWORDS = [
+  "iphone", "samsung galaxy", "pixel phone", "smartphone", "unlocked phone",
+  "cell phone", "mobile phone", "android phone", "5g phone", "refurbished iphone",
+  "phone 15", "phone 14", "phone 13", "galaxy s", "galaxy z", "oneplus", "motorola",
+];
+
+const COMPUTERS_KEYWORDS = [
+  "laptop", "macbook", "notebook", "desktop", "pc computer", "chromebook",
+  "gaming laptop", "ultrabook", "workstation", "imac", "mac mini", "mac studio",
+  "dell xps", "thinkpad", "surface laptop", "hp pavilion", "asus rog",
+  "gaming pc", "all-in-one computer", "mini pc",
+];
+
+const AUDIO_KEYWORDS = [
+  "headphones", "earbuds", "airpods", "speaker", "soundbar", "bluetooth speaker",
+  "wireless earbuds", "noise cancelling", "over-ear", "in-ear", "beats",
+  "bose", "sony wh", "sennheiser", "jbl", "audio system", "home theater",
+  "subwoofer", "amplifier", "receiver", "dac",
+];
+
+const MONITORS_KEYWORDS = [
+  "monitor", "display", "ultrawide", "gaming monitor", "curved monitor",
+  "4k monitor", "27 inch", "32 inch", "led monitor", "ips display",
+  "computer monitor", "lg ultragear", "samsung odyssey", "asus rog monitor",
+];
+
+const TABLETS_KEYWORDS = [
+  "ipad", "tablet", "galaxy tab", "surface pro", "surface go",
+  "android tablet", "fire tablet", "wacom", "drawing tablet",
+  "ipad pro", "ipad air", "ipad mini", "samsung tab",
+];
+
+const CHARGERS_KEYWORDS = [
+  "charger", "charging", "usb-c", "lightning cable", "magsafe", "adapter",
+  "power bank", "wireless charger", "fast charger", "wall charger",
+  "car charger", "charging station", "usb hub", "docking station",
+  "power adapter", "laptop charger", "phone charger",
 ];
 
 // ─── Category Detection Rules ──────────────────────────────────────────────────
@@ -57,7 +115,7 @@ const MOTORS_TITLE_KEYWORDS = [
 
 const MOTORS_PATH_PATTERNS = ["motors", "vehicles", "cars & trucks", "motorcycles", "boats"];
 
-// Electronics keywords
+// Electronics keywords (general)
 const ELECTRONICS_KEYWORDS = [
   "iphone", "samsung", "laptop", "macbook", "monitor", "headset", "headphones",
   "earbuds", "airpods", "tablet", "ipad", "charger", "camera", "ps5", "xbox",
@@ -127,6 +185,48 @@ const REFURBISHED_KEYWORDS = [
   "pre-owned certified", "factory refurbished", "renewed premium",
 ];
 
+// ─── Subcategory Mapper ────────────────────────────────────────────────────────
+
+/**
+ * Map electronics item to a subcategory based on title keywords.
+ * Returns null if no clear subcategory match.
+ */
+export function mapUnifiedSubcategory(title: string): string | null {
+  const lowerTitle = title.toLowerCase();
+  
+  // Check phones first (common)
+  for (const keyword of PHONES_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "phones";
+  }
+  
+  // Check computers
+  for (const keyword of COMPUTERS_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "computers";
+  }
+  
+  // Check audio
+  for (const keyword of AUDIO_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "audio";
+  }
+  
+  // Check monitors
+  for (const keyword of MONITORS_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "monitors";
+  }
+  
+  // Check tablets
+  for (const keyword of TABLETS_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "tablets";
+  }
+  
+  // Check chargers
+  for (const keyword of CHARGERS_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "chargers";
+  }
+  
+  return null;
+}
+
 // ─── Main Category Mapper ──────────────────────────────────────────────────────
 
 export interface CategoryMapperInput {
@@ -136,6 +236,11 @@ export interface CategoryMapperInput {
   ebayCategoryId?: string;
   productUrl?: string;
   condition?: string;
+}
+
+export interface CategoryMapperResult {
+  category: string;
+  subcategory: string | null;
 }
 
 /**
@@ -238,10 +343,32 @@ export function mapUnifiedCategory(input: CategoryMapperInput): string {
 }
 
 /**
- * Check if a category key is valid
+ * Map an item to both category and subcategory
+ */
+export function mapCategoryAndSubcategory(input: CategoryMapperInput): CategoryMapperResult {
+  const category = mapUnifiedCategory(input);
+  
+  // Only compute subcategory for electronics
+  let subcategory: string | null = null;
+  if (category === "electronics" && input.title) {
+    subcategory = mapUnifiedSubcategory(input.title);
+  }
+  
+  return { category, subcategory };
+}
+
+/**
+ * Check if a category key is valid (main category or electronics subcategory)
  */
 export function isValidCategory(category: string): boolean {
-  return VALID_CATEGORIES.has(category);
+  return VALID_CATEGORIES.has(category) || ELECTRONICS_SUBCATEGORIES.has(category);
+}
+
+/**
+ * Check if key is a main category (not subcategory)
+ */
+export function isMainCategory(key: string): boolean {
+  return VALID_CATEGORIES.has(key);
 }
 
 /**
@@ -249,7 +376,19 @@ export function isValidCategory(category: string): boolean {
  */
 export function getCategoryTitle(key: string): string {
   const tab = TABS.find(t => t.key === key);
-  return tab?.title || key;
+  if (tab) return tab.title;
+  
+  // Check subcategories
+  const subcategoryTitles: Record<string, string> = {
+    phones: "Phones",
+    computers: "Computers",
+    audio: "Audio",
+    monitors: "Monitors",
+    tablets: "Tablets",
+    chargers: "Chargers",
+  };
+  
+  return subcategoryTitles[key] || key;
 }
 
 /**
@@ -262,7 +401,12 @@ function escapeRegex(str: string): string {
 export default {
   TABS,
   VALID_CATEGORIES,
+  ELECTRONICS_SUBCATEGORIES,
   mapUnifiedCategory,
+  mapUnifiedSubcategory,
+  mapCategoryAndSubcategory,
   isValidCategory,
+  isMainCategory,
+  isElectronicsSubcategory,
   getCategoryTitle,
 };

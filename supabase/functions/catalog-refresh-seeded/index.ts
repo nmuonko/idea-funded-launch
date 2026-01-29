@@ -15,7 +15,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { mapUnifiedCategory } from "../_shared/categoryMapper.ts";
+import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,16 +68,17 @@ interface CatalogItemInsert {
   in_stock: boolean;
   rating: number | null;
   unified_category: string;
+  unified_subcategory: string | null;
   category_key: string;
   tags: string[];
   buying_options: string[];
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   updated_at: string;
 }
 
 // ─── Token Management ────────────────────────────────────────────────────────
 
-async function getEbayToken(supabase: any): Promise<string> {
+async function getEbayToken(supabase: ReturnType<typeof createClient>): Promise<string> {
   // Check cached token
   const { data: cached } = await supabase
     .from("provider_tokens")
@@ -145,7 +146,7 @@ async function searchEbayForSeed(
   const marketplace = "EBAY_US";
 
   // Build filter string
-  let filterParts = ["buyingOptions:{FIXED_PRICE}"];
+  const filterParts = ["buyingOptions:{FIXED_PRICE}"];
   
   if (seed.filters?.minPriceUsd) {
     filterParts.push(`price:[${seed.filters.minPriceUsd}..],priceCurrency:USD`);
@@ -247,8 +248,8 @@ async function searchEbayForSeed(
       }
     }
 
-    // Get unified category
-    const unifiedCategory = mapUnifiedCategory({
+    // Get unified category AND subcategory
+    const { category: unifiedCategory, subcategory: unifiedSubcategory } = mapCategoryAndSubcategory({
       title,
       provider: "ebay",
       ebayCategoryPath: item.categories?.[0]?.categoryName || "",
@@ -261,8 +262,8 @@ async function searchEbayForSeed(
       continue;
     }
 
-    // Force category to seed category if mapper returns generic
-    const finalCategory = unifiedCategory === "electronics" && seed.category !== "electronics"
+    // Force category to seed category if mapper returns different
+    const finalCategory = unifiedCategory !== seed.category && seed.category !== "electronics"
       ? seed.category
       : unifiedCategory;
 
@@ -278,6 +279,7 @@ async function searchEbayForSeed(
       in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
       rating: null,
       unified_category: finalCategory,
+      unified_subcategory: unifiedSubcategory,
       category_key: seed.category,
       tags: [seed.category, seed.seed_key],
       buying_options: buyingOptions,
@@ -424,6 +426,7 @@ Deno.serve(async (req) => {
   const results: Record<string, { fetched: number; upserted: number; errors?: string[] }> = {};
   let totalFetched = 0;
   let totalUpserted = 0;
+  const categoryStats: Record<string, number> = {};
 
   // Process eBay seeds
   for (const seed of ebaySeeds) {
@@ -453,6 +456,9 @@ Deno.serve(async (req) => {
           totalUpserted += upsertedCount;
           results[seed.seed_key] = { fetched: items.length, upserted: upsertedCount };
           console.log(`[UPSERT] ${seed.seed_key}: ${upsertedCount} items`);
+          
+          // Track by category
+          categoryStats[seed.category] = (categoryStats[seed.category] || 0) + upsertedCount;
         }
       } else {
         results[seed.seed_key] = { fetched: 0, upserted: 0 };
@@ -487,6 +493,7 @@ Deno.serve(async (req) => {
   }
 
   console.log(`[REFRESH] Complete. Fetched=${totalFetched} Upserted=${totalUpserted}`);
+  console.log(`[REFRESH] Category stats:`, categoryStats);
 
   return new Response(
     JSON.stringify({
@@ -495,6 +502,7 @@ Deno.serve(async (req) => {
       totalFetched,
       totalUpserted,
       seedsProcessed: Object.keys(results).length,
+      categoryStats,
       results,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -15,9 +15,25 @@
  * 3. Can include any buying option
  */
 
-// ─── Price Threshold ────────────────────────────────────────────────────────
+// ─── Price Thresholds by Vehicle Type ────────────────────────────────────────
 export const MOTORS_MIN_PRICE_USD = 1500;
 export const VEHICLES_MIN_PRICE_USD = 1500;
+
+// Lower thresholds for specific categories
+export const VEHICLES_MIN_PRICE_BY_SUBKEY: Record<string, number> = {
+  cars_trucks: 1500,
+  motorcycles: 800,
+  powersports: 500, // ATVs, UTVs can be cheaper
+  boats: 1000,
+  rvs_campers: 2000,
+  trailers_other: 500,
+  classic_cars: 5000,
+};
+
+export function getMinPriceForVehicleSubkey(subkey: string | null): number {
+  if (!subkey) return VEHICLES_MIN_PRICE_USD;
+  return VEHICLES_MIN_PRICE_BY_SUBKEY[subkey] ?? VEHICLES_MIN_PRICE_USD;
+}
 
 // ─── Buying Options ─────────────────────────────────────────────────────────
 // Only these buying options are allowed for vehicles (no auctions)
@@ -108,6 +124,7 @@ export interface MotorsFilterInput {
   buyingOptions?: string[];
   condition?: string;
   categoryPath?: string;
+  vehiclesSubkey?: string | null; // For category-specific pricing
 }
 
 export interface MotorsFilterResult {
@@ -125,13 +142,16 @@ export interface MotorsFilterResult {
 export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterResult {
   const titleLower = (input.title || "").toLowerCase();
   const categoryPath = (input.categoryPath || "").toLowerCase();
+  
+  // Get appropriate minimum price for this vehicle subkey
+  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey);
 
-  // 1. Check minimum price
-  if (input.priceUsd === null || input.priceUsd < VEHICLES_MIN_PRICE_USD) {
+  // 1. Check minimum price (using category-specific threshold)
+  if (input.priceUsd === null || input.priceUsd < minPrice) {
     return {
       isAllowed: false,
       reason: "price_below_minimum",
-      matchedKeyword: `$${input.priceUsd} < $${VEHICLES_MIN_PRICE_USD}`,
+      matchedKeyword: `$${input.priceUsd} < $${minPrice}`,
     };
   }
 
@@ -258,18 +278,19 @@ export function filterMotorListings<T extends MotorsFilterInput>(
 }
 
 /**
- * Build eBay filter string for vehicles (fixed price + minimum price)
+ * Build eBay filter string for vehicles with optional subkey-specific pricing
  */
-export function buildEbayMotorsFilter(): string {
+export function buildEbayMotorsFilter(subkey?: string | null): string {
+  const minPrice = getMinPriceForVehicleSubkey(subkey || null);
   // eBay Browse API filter format
-  return `buyingOptions:{FIXED_PRICE},price:[${VEHICLES_MIN_PRICE_USD}..],conditionIds:{1000|1500|2000|2500|3000}`;
+  return `buyingOptions:{FIXED_PRICE},price:[${minPrice}..],conditionIds:{1000|1500|2000|2500|3000}`;
 }
 
 /**
  * Build eBay filter string for vehicles (alias)
  */
-export function buildEbayVehiclesFilter(): string {
-  return buildEbayMotorsFilter();
+export function buildEbayVehiclesFilter(subkey?: string | null): string {
+  return buildEbayMotorsFilter(subkey);
 }
 
 /**
@@ -363,6 +384,8 @@ export const PARTS_SEED_QUERIES: Record<string, string[]> = {
 export default {
   MOTORS_MIN_PRICE_USD,
   VEHICLES_MIN_PRICE_USD,
+  VEHICLES_MIN_PRICE_BY_SUBKEY,
+  getMinPriceForVehicleSubkey,
   MOTORS_PARTS_KEYWORDS,
   MOTORS_AUCTION_KEYWORDS,
   MOTORS_SEED_QUERIES,

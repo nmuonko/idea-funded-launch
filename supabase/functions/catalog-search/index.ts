@@ -179,22 +179,8 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const envConfig = await getEnvironmentConfig(supabase, envName);
-    if (!isCatalogEnabled(envConfig)) {
-      return new Response(JSON.stringify({
-        status: "error",
-        env: envName,
-        query: qOriginal,
-        page,
-        pageSize,
-        total: 0,
-        items: [],
-        error: { code: "CATALOG_DISABLED", message: "Catalog not enabled" },
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Catalog is always enabled - skip environment check for search
+    console.log(`[CATALOG_SEARCH] env=${envName} catalog=always_enabled`);
 
     let resultItems: CatalogItem[] = [];
     let ebayTotal = 0;

@@ -1,7 +1,7 @@
 /**
- * Catalog Home Endpoint - eBay LIVE for all sections
+ * Catalog Home Endpoint - DB-First with eBay Live Top-Up
  * 
- * Returns sections for homepage using eBay LIVE calls:
+ * Returns sections for homepage using DB-driven nav config:
  * {
  *   status: "success",
  *   env,
@@ -9,15 +9,13 @@
  *   tabs: [...],
  *   error: null
  * }
- * 
- * ALL sections use eBay LIVE for broad, fresh inventory.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
-import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
+import { isAllowedMotorListing, getMinPriceForVehicleSubkey } from "../_shared/motorsFilter.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -30,6 +28,7 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=60",
 };
 
+const HOME_MIN_PER_SECTION = 6;
 const HOME_PAGE_SIZE = 12;
 
 interface CatalogItem {
@@ -54,8 +53,8 @@ interface Section {
   subtabKey: string | null;
   items: CatalogItem[];
   hasMore: boolean;
-  total: number;
-  isLive: boolean;
+  dbCount: number;
+  liveTopUpCount: number;
 }
 
 interface HomeSectionConfig {
@@ -63,57 +62,63 @@ interface HomeSectionConfig {
   title: string;
   categoryKey: string;
   subtabKey: string | null;
-  ebayCategory: string;
   isVehicle: boolean;
   minPrice: number;
+  seedQueries: string[];
+  ebayCategory?: string;
 }
 
-// Home sections - ALL use eBay LIVE with proper category IDs
+// Home sections optimized for DRC market
 const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
     title: "Phones",
     categoryKey: "electronics",
     subtabKey: "phones",
-    ebayCategory: "9355", // Cell Phones & Smartphones
     isVehicle: false,
     minPrice: 0,
+    seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
+    ebayCategory: "9355",
   },
   {
     key: "vehicles",
     title: "Vehicles",
     categoryKey: "vehicles",
     subtabKey: "cars_trucks",
-    ebayCategory: "6001", // Cars & Trucks
     isVehicle: true,
     minPrice: 1500,
+    seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
+    ebayCategory: "6001",
   },
   {
     key: "gaming",
     title: "Gaming",
     categoryKey: "electronics",
     subtabKey: "gaming",
-    ebayCategory: "1249", // Video Games & Consoles
     isVehicle: false,
     minPrice: 0,
+    seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
+    ebayCategory: "1249",
   },
   {
     key: "clothing",
     title: "Clothing & Shoes",
     categoryKey: "clothing_shoes_accessories",
     subtabKey: null,
-    ebayCategory: "11450", // Clothing, Shoes & Accessories
     isVehicle: false,
     minPrice: 0,
+    seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
+    ebayCategory: "63889",
   },
   {
     key: "home_garden",
     title: "Home & Garden",
     categoryKey: "home_garden",
     subtabKey: null,
-    ebayCategory: "11700", // Home & Garden
     isVehicle: false,
     minPrice: 0,
+    seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
+    ebayCategory: "11700",
   },
 ];
 
@@ -121,7 +126,29 @@ function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
-function mapEbayItemToResponse(item: NormalizedItem, category: string, subcategory: string | null): CatalogItem {
+function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
+  let images: string[] = [];
+  if (Array.isArray(item.images)) {
+    images = item.images.filter((img): img is string => typeof img === "string");
+  }
+
+  return {
+    id: item.id as string,
+    provider: (item.provider as string) || "unknown",
+    providerProductId: (item.provider_product_id as string) || (item.id as string),
+    title: item.title as string | null,
+    priceUsd: item.price_usd as number | null,
+    imageUrl: (item.image_url as string) || (images.length > 0 ? images[0] : null),
+    images,
+    productUrl: item.product_url as string | null,
+    inStock: item.in_stock as boolean | null,
+    rating: item.rating as number | null,
+    unifiedCategory: (item.unified_category as string) || null,
+    unifiedSubcategory: (item.unified_subcategory as string) || null,
+  };
+}
+
+function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   return {
     id: item.id,
     provider: "ebay",
@@ -133,63 +160,111 @@ function mapEbayItemToResponse(item: NormalizedItem, category: string, subcatego
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
-    unifiedCategory: category,
-    unifiedSubcategory: subcategory,
+    unifiedCategory: null,
+    unifiedSubcategory: null,
   };
 }
 
-async function fetchSectionLive(
+async function getSectionFromDB(
   supabase: any,
   config: HomeSectionConfig,
-  requestId: string
-): Promise<{ items: CatalogItem[]; total: number; hasMore: boolean }> {
-  console.log(`[HOME_LIVE] requestId=${requestId} section=${config.key} ebayCategory=${config.ebayCategory}`);
+  maxItems: number
+): Promise<CatalogItem[]> {
+  let query = supabase
+    .from("catalog_items")
+    .select("*")
+    .eq("unified_category", config.categoryKey)
+    .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  try {
-    const result = await searchEbay(
-      supabase,
-      {
-        categoryId: config.ebayCategory,
-        page: 1,
-        pageSize: HOME_PAGE_SIZE,
-        minPrice: config.minPrice > 0 ? config.minPrice : undefined,
-        isVehicle: config.isVehicle,
-        marketplaceId: "EBAY_US",
-      },
-      requestId
-    );
-
-    let items = result.items;
-
-    // Apply content filter
-    items = items.filter(item => {
-      const blocked = isDisallowedItem({ title: item.title, productUrl: item.product_url });
-      return !blocked.isDisallowed;
-    });
-
-    // Vehicle-specific filtering
+  if (config.subtabKey) {
     if (config.isVehicle) {
-      items = items.filter(item => {
-        const filterResult = isAllowedMotorListing({ title: item.title, priceUsd: item.price_usd });
-        return filterResult.isAllowed;
-      });
+      query = query.eq("vehicles_subkey", config.subtabKey);
+    } else {
+      query = query.eq("unified_subcategory", config.subtabKey);
     }
+  }
 
-    const mappedItems = items.map(item => 
-      mapEbayItemToResponse(item, config.categoryKey, config.subtabKey)
-    );
+  if (config.isVehicle) {
+    query = query.gte("price_usd", config.minPrice);
+  }
 
-    // Upsert to DB for caching (fire and forget)
-    const toUpsert = items.map(item => ({
+  const { data: rows, error } = await query
+    .order("updated_at", { ascending: false })
+    .limit(maxItems + 10);
+
+  if (error) {
+    console.error(`[HOME_DB] Query error for ${config.key}:`, error.message);
+    return [];
+  }
+
+  return (rows || []).map(row => mapDbItemToResponse(row as Record<string, unknown>));
+}
+
+async function fetchEbayLiveItems(
+  supabase: any,
+  config: HomeSectionConfig,
+  neededCount: number,
+  requestId: string
+): Promise<CatalogItem[]> {
+  console.log(`[HOME_EBAY] requestId=${requestId} section=${config.key} neededCount=${neededCount}`);
+
+  const allItems: CatalogItem[] = [];
+  const seenIds = new Set<string>();
+
+  for (const query of config.seedQueries.slice(0, 2)) {
+    if (allItems.length >= neededCount) break;
+
+    try {
+      const result = await searchEbay(
+        supabase,
+        {
+          query,
+          categoryId: config.ebayCategory,
+          page: 1,
+          pageSize: 20,
+          minPrice: config.minPrice > 0 ? config.minPrice : undefined,
+          isVehicle: config.isVehicle,
+          marketplaceId: "EBAY_US",
+        },
+        requestId
+      );
+
+      for (const ebayItem of result.items) {
+        if (seenIds.has(ebayItem.id)) continue;
+
+        // Content filter
+        if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.product_url }).isDisallowed) {
+          continue;
+        }
+
+        // Vehicle filter
+        if (config.isVehicle) {
+          const filterResult = isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.price_usd });
+          if (!filterResult.isAllowed) continue;
+        }
+
+        seenIds.add(ebayItem.id);
+        allItems.push(mapEbayItemToResponse(ebayItem));
+      }
+
+      console.log(`[HOME_EBAY] requestId=${requestId} query="${query}" found=${result.items.length} filtered=${allItems.length}`);
+    } catch (err) {
+      console.error(`[HOME_EBAY] requestId=${requestId} query="${query}" error:`, err);
+    }
+  }
+
+  // Upsert to DB
+  if (allItems.length > 0) {
+    const toUpsert = allItems.map(item => ({
       id: item.id,
       provider: item.provider,
-      provider_product_id: item.provider_product_id,
+      provider_product_id: item.providerProductId,
       title: item.title,
-      price_usd: item.price_usd,
-      image_url: item.image_url,
+      price_usd: item.priceUsd,
+      image_url: item.imageUrl,
       images: item.images,
-      product_url: item.product_url,
-      in_stock: item.in_stock,
+      product_url: item.productUrl,
+      in_stock: item.inStock,
       rating: item.rating,
       unified_category: config.categoryKey,
       unified_subcategory: config.subtabKey,
@@ -197,21 +272,10 @@ async function fetchSectionLive(
       updated_at: new Date().toISOString(),
     }));
 
-    if (toUpsert.length > 0) {
-      supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
-    }
-
-    console.log(`[HOME_LIVE] requestId=${requestId} section=${config.key} returned=${mappedItems.length} total=${result.total}`);
-
-    return {
-      items: mappedItems.slice(0, HOME_PAGE_SIZE),
-      total: result.total,
-      hasMore: result.hasMore,
-    };
-  } catch (err) {
-    console.error(`[HOME_LIVE] requestId=${requestId} section=${config.key} error:`, err);
-    return { items: [], total: 0, hasMore: false };
+    await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
   }
+
+  return allItems;
 }
 
 Deno.serve(async (req: Request) => {
@@ -270,27 +334,38 @@ Deno.serve(async (req: Request) => {
       .eq("enabled", true)
       .order("order_index", { ascending: true });
 
-    // Build sections using eBay LIVE for ALL categories
+    // Build sections
     const sections: Section[] = [];
 
     for (const config of HOME_SECTIONS) {
-      const { items, total, hasMore } = await fetchSectionLive(supabase, config, requestId);
+      let items = await getSectionFromDB(supabase, config, HOME_PAGE_SIZE);
+
+      // If DB has fewer than minimum, top-up from eBay live
+      let liveTopUpCount = 0;
+      if (items.length < HOME_MIN_PER_SECTION) {
+        console.log(`[HOME] requestId=${requestId} section=${config.key} dbCount=${items.length} < ${HOME_MIN_PER_SECTION}, fetching live`);
+        const liveItems = await fetchEbayLiveItems(supabase, config, HOME_PAGE_SIZE - items.length, requestId);
+        
+        const seenIds = new Set(items.map(i => i.id));
+        const newItems = liveItems.filter(i => !seenIds.has(i.id));
+        items = [...items, ...newItems];
+        liveTopUpCount = newItems.length;
+      }
 
       sections.push({
         key: config.key,
         title: config.title,
         categoryKey: config.categoryKey,
         subtabKey: config.subtabKey,
-        items,
-        hasMore,
-        total,
-        isLive: true,
+        items: items.slice(0, HOME_PAGE_SIZE),
+        hasMore: items.length >= HOME_PAGE_SIZE,
+        dbCount: items.length - liveTopUpCount,
+        liveTopUpCount,
       });
     }
 
     const durationMs = Date.now() - startTime;
-    const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
-    console.log(`[HOME] requestId=${requestId} sections=${sections.length} totalItems=${totalItems} durationMs=${durationMs}`);
+    console.log(`[HOME] requestId=${requestId} sections=${sections.length} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({

@@ -3867,10 +3867,6 @@ export type Database = {
       }
     }
     Functions: {
-      can_view_customer_profiles: {
-        Args: { user_id: string }
-        Returns: boolean
-      }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_minutes: number }
         Returns: Json

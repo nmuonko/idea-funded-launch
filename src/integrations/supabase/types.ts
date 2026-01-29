@@ -939,6 +939,7 @@ export type Database = {
       }
       catalog_items: {
         Row: {
+          brand: string | null
           buying_options: string[] | null
           category_key: string | null
           id: string
@@ -963,6 +964,7 @@ export type Database = {
           vehicles_subkey: string | null
         }
         Insert: {
+          brand?: string | null
           buying_options?: string[] | null
           category_key?: string | null
           id: string
@@ -987,6 +989,7 @@ export type Database = {
           vehicles_subkey?: string | null
         }
         Update: {
+          brand?: string | null
           buying_options?: string[] | null
           category_key?: string | null
           id?: string

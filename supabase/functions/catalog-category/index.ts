@@ -49,6 +49,7 @@ import {
   VEHICLES_SEED_QUERIES,
   PARTS_SEED_QUERIES,
 } from "../_shared/motorsFilter.ts";
+import { extractBrand, applyBrandDiversity, logBrandDistribution } from "../_shared/brandExtractor.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -68,7 +69,14 @@ const CATEGORY_SEED_QUERIES: Record<string, string[]> = {
   vehicles: VEHICLES_SEED_QUERIES.cars_trucks.slice(0, 6),
   parts_accessories: PARTS_SEED_QUERIES.all_parts.concat(PARTS_SEED_QUERIES.car_truck_parts.slice(0, 3)),
   home_garden: ["vacuum cleaner", "air fryer", "blender", "power tools", "patio furniture"],
-  clothing_shoes_accessories: ["nike hoodie", "adidas shoes", "mens jacket", "womens dress", "sneakers"],
+  // DIVERSIFIED clothing queries - multiple brands + item types
+  clothing_shoes_accessories: [
+    "men hoodie", "women dress", "sneakers men", "sneakers women", "kids shoes",
+    "jacket", "coat", "jeans", "t-shirt", "polo shirt", "sweater", "cardigan",
+    "handbag", "backpack", "boots", "sunglasses", "belt", "watch",
+    "nike", "adidas", "puma", "new balance", "reebok", "under armour",
+    "levis jeans", "tommy hilfiger", "calvin klein", "zara", "tracksuit", "sportswear"
+  ],
   toys: ["lego set", "kids toy", "rc car", "board game", "action figure"],
   sporting_goods: ["dumbbells", "soccer ball", "basketball", "yoga mat", "camping gear"],
   business_industrial: ["generator", "air compressor", "commercial equipment"],
@@ -121,6 +129,7 @@ interface CatalogItem {
   listingType: string | null;
   vehiclesSubkey: string | null;
   partsSubkey: string | null;
+  brand: string | null;
 }
 
 interface DbItem {
@@ -140,6 +149,7 @@ interface DbItem {
   listing_type: string | null;
   vehicles_subkey: string | null;
   parts_subkey: string | null;
+  brand: string | null;
 }
 
 function generateRequestId(): string {
@@ -160,11 +170,15 @@ function normalizeItem(row: DbItem): CatalogItem {
     id = `${row.provider || "unknown"}:${row.provider_product_id || row.id}`;
   }
 
+  // Extract brand from title if not already stored
+  const title = row.title || "";
+  const brand = row.brand || extractBrand(title);
+
   return {
     id,
     provider: row.provider || "unknown",
     providerProductId: row.provider_product_id || row.id,
-    title: row.title || "",
+    title,
     priceUsd: row.price_usd,
     imageUrl: row.image_url || (images.length > 0 ? images[0] : null),
     images,
@@ -176,6 +190,7 @@ function normalizeItem(row: DbItem): CatalogItem {
     listingType: row.listing_type || null,
     vehiclesSubkey: row.vehicles_subkey || null,
     partsSubkey: row.parts_subkey || null,
+    brand,
   };
 }
 
@@ -191,6 +206,9 @@ function mapEbayItemToCatalogItem(
   if (!id.includes(":")) {
     id = `${item.provider}:${item.providerProductId}`;
   }
+
+  // Extract brand from title
+  const brand = extractBrand(item.title);
 
   return {
     id,
@@ -208,6 +226,7 @@ function mapEbayItemToCatalogItem(
     listingType,
     vehiclesSubkey,
     partsSubkey,
+    brand,
   };
 }
 
@@ -403,6 +422,7 @@ async function fetchEbayLiveItems(
         listing_type: item.listingType,
         vehicles_subkey: item.vehiclesSubkey,
         parts_subkey: item.partsSubkey,
+        brand: item.brand, // Store extracted brand
         updated_at: new Date().toISOString(),
       }));
       
@@ -700,7 +720,20 @@ Deno.serve(async (req) => {
         uniqueMap.set(item.id, item);
       }
     }
-    const uniqueItems = Array.from(uniqueMap.values());
+    let uniqueItems = Array.from(uniqueMap.values());
+
+    // ─── CLOTHING BRAND DIVERSITY ────────────────────────────────────────────
+    // For clothing category on page 1, apply brand diversity to prevent any single brand from dominating
+    const isClothing = category === "clothing_shoes_accessories" || category === "clothing" || category === "fashion";
+    if (isClothing && page === 1 && uniqueItems.length > 0) {
+      console.log(`[CAT_CATEGORY_DIVERSITY] requestId=${requestId} Applying brand diversity to ${uniqueItems.length} clothing items`);
+      logBrandDistribution(uniqueItems, `[CAT_CATEGORY_DIVERSITY_BEFORE] requestId=${requestId}`);
+      
+      // Apply diversity: max 2 items per brand in the first 20 results
+      uniqueItems = applyBrandDiversity(uniqueItems, 2, pageSize);
+      
+      logBrandDistribution(uniqueItems, `[CAT_CATEGORY_DIVERSITY_AFTER] requestId=${requestId}`);
+    }
 
     // Paginate
     const pageItems = uniqueItems.slice(0, pageSize);

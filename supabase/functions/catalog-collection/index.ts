@@ -5,7 +5,7 @@
  * Returns stable JSON shape: { status, env, provider, collectionKey, page, pageSize, total, items, error }
  * 
  * Query params:
- *   - collectionKey (required): electronics_trending, phones, tablets, monitors, computers, clothing, vehicles
+ *   - collectionKey (required): ebay_trending_all, electronics_trending, phones_trending, vehicles_trending, etc.
  *   - slug (alias for collectionKey for backward compatibility)
  *   - provider (optional): "ebay" | "rainforest" | "all" (default: "ebay")
  *   - page (default: 1)
@@ -50,54 +50,162 @@ interface CollectionResponse {
 }
 
 // ─── Collection Query Mappings ───────────────────────────────────────────────
+// Map collection keys to eBay search queries and category keys
 
-const COLLECTION_QUERIES: Record<string, { q: string; categoryKey: string }> = {
-  electronics_trending: {
-    q: "iphone smartphone laptop headphones",
+interface CollectionConfig {
+  q: string;
+  categoryKey: string;
+  isVehicle?: boolean;
+  ttlSeconds: number; // TTL for caching
+}
+
+const COLLECTION_QUERIES: Record<string, CollectionConfig> = {
+  // Main eBay trending - simple mixed electronics query
+  ebay_trending_all: {
+    q: "iphone laptop headphones",
     categoryKey: "electronics",
+    ttlSeconds: 2700, // 45 minutes
+  },
+  // Electronics focused
+  electronics_trending: {
+    q: "laptop headphones monitor",
+    categoryKey: "electronics",
+    ttlSeconds: 7200, // 2 hours
   },
   trending_electronics: {
-    q: "iphone smartphone laptop headphones",
+    q: "laptop headphones earbuds",
     categoryKey: "electronics",
+    ttlSeconds: 7200,
+  },
+  // Phones focused
+  phones_trending: {
+    q: "iphone samsung galaxy smartphone",
+    categoryKey: "phones",
+    ttlSeconds: 5400, // 1.5 hours
   },
   phones: {
     q: "iphone unlocked smartphone",
     categoryKey: "phones",
+    ttlSeconds: 7200,
+  },
+  // Vehicles - Buy It Now only, no accessories (use category filter)
+  vehicles_trending: {
+    q: "used car truck suv",
+    categoryKey: "vehicles",
+    isVehicle: true,
+    ttlSeconds: 2700, // 45 minutes
+  },
+  vehicles: {
+    q: "car truck sedan",
+    categoryKey: "vehicles",
+    isVehicle: true,
+    ttlSeconds: 2700,
   },
   tablets: {
-    q: "ipad android tablet",
+    q: "ipad tablet surface",
     categoryKey: "tablets",
+    ttlSeconds: 7200,
   },
   monitors: {
-    q: "computer monitor 27 inch",
+    q: "computer monitor gaming monitor",
     categoryKey: "monitors",
+    ttlSeconds: 7200,
   },
   computers: {
     q: "laptop macbook gaming pc",
     categoryKey: "computers",
+    ttlSeconds: 7200,
   },
   clothing: {
-    q: "men clothing sneakers",
+    q: "nike adidas sneakers",
     categoryKey: "clothing",
-  },
-  vehicles: {
-    q: "",
-    categoryKey: "vehicles",
+    ttlSeconds: 7200,
   },
 };
 
 // ─── Content Blocking ────────────────────────────────────────────────────────
 
-const DENY_KEYWORDS = [
+// Global deny keywords (books, subscriptions, etc.)
+const GLOBAL_DENY_KEYWORDS = [
   "kindle", "audible", "prime video", "subscription", "ebook", "e-book",
   "paperback", "hardcover", "book", "magazine", "manga", "audiobook",
   "textbook", "novel", "comics", "journal", "membership", "streaming",
-  "unlimited", "prime membership",
+  "unlimited", "prime membership", "digital code", "activation code",
 ];
 
-function isBlockedTitle(title: string): boolean {
+// Vehicle-specific deny keywords (accessories, parts)
+const VEHICLE_DENY_KEYWORDS = [
+  "floor mat", "floor mats", "car mat", "car mats",
+  "wheels", "wheel", "tire", "tires", "rim", "rims",
+  "seat cover", "seat covers", "car cover", "car covers",
+  "snow chains", "chains", "accessory", "accessories",
+  "parts", "replacement", "tool", "tools", "charger", "adapter",
+  "brake pad", "brake pads", "oil filter", "air filter",
+  "wiper", "wipers", "bulb", "bulbs", "led light", "led lights",
+  "dash cam", "car stereo", "phone mount", "phone holder",
+  "key fob", "key cover", "steering wheel cover", "sunshade",
+  "trunk organizer", "trash can", "car vacuum", "jump starter",
+];
+
+// Vehicle allow signals - must have one of these
+const VEHICLE_ALLOW_PATTERNS = [
+  "car", "truck", "suv", "sedan", "coupe", "van", "pickup", "vehicle",
+  "minivan", "hatchback", "convertible", "wagon",
+];
+
+// Minimum price for vehicles to filter out cheap accessories
+const VEHICLE_MIN_PRICE_USD = 1500;
+
+function isBlockedTitle(title: string, isVehicle: boolean = false): boolean {
   const lowerTitle = title.toLowerCase();
-  return DENY_KEYWORDS.some(keyword => lowerTitle.includes(keyword));
+  
+  // Global blocks
+  for (const keyword of GLOBAL_DENY_KEYWORDS) {
+    if (keyword.length <= 5) {
+      const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
+      if (regex.test(lowerTitle)) return true;
+    } else {
+      if (lowerTitle.includes(keyword)) return true;
+    }
+  }
+  
+  // Vehicle-specific blocks
+  if (isVehicle) {
+    for (const keyword of VEHICLE_DENY_KEYWORDS) {
+      if (lowerTitle.includes(keyword)) return true;
+    }
+  }
+  
+  return false;
+}
+
+function isValidVehicle(item: any): boolean {
+  const title = (item.title || "").toLowerCase();
+  const price = extractPrice(item.price);
+  
+  // Check for vehicle-specific deny keywords
+  for (const keyword of VEHICLE_DENY_KEYWORDS) {
+    if (title.includes(keyword)) return false;
+  }
+  
+  // Must have a vehicle type indicator OR be expensive enough
+  const hasVehicleType = VEHICLE_ALLOW_PATTERNS.some(pattern => title.includes(pattern));
+  const isExpensiveEnough = price !== null && price >= VEHICLE_MIN_PRICE_USD;
+  
+  return hasVehicleType || isExpensiveEnough;
+}
+
+function isAuctionItem(item: any): boolean {
+  // Check buyingOptions
+  const buyingOptions = item.buyingOptions || [];
+  if (Array.isArray(buyingOptions)) {
+    return buyingOptions.includes("AUCTION") && !buyingOptions.includes("FIXED_PRICE");
+  }
+  return false;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ─── Debug Logging ───────────────────────────────────────────────────────────
@@ -193,33 +301,28 @@ async function fetchEbayLive(
   supabase: any,
   query: string,
   limit: number,
-  offset: number
-): Promise<{ items: CollectionItem[]; total: number }> {
+  offset: number,
+  isVehicle: boolean = false
+): Promise<{ items: CollectionItem[]; total: number; filterStats: Record<string, number> }> {
   const token = await getEbayToken(supabase);
   if (!token) {
     debugLog("EBAY_COLLECTION_LIVE", { error: "No token available" });
-    return { items: [], total: 0 };
+    return { items: [], total: 0, filterStats: {} };
   }
 
   const environment = (Deno.env.get("EBAY_ENV") || "production") as "production" | "sandbox";
   
-  // Simplify the query for eBay - use parentheses for OR queries
-  // eBay Browse API may not handle complex OR chains well without parentheses
-  const simplifiedQuery = query.includes(" OR ") 
-    ? `(${query.replace(/ OR /g, ") OR (")})`
-    : query;
-  
+  // Build search params
   const params = new URLSearchParams({
-    q: simplifiedQuery,
-    limit: String(limit),
+    q: query,
+    limit: String(limit + 20), // Fetch extra to account for filtering
     offset: String(offset),
-    // Simpler filter - just fixed price
-    filter: "buyingOptions:{FIXED_PRICE}",
+    filter: "buyingOptions:{FIXED_PRICE}", // Buy It Now only
   });
 
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item_summary/search?${params}`;
   
-  debugLog("EBAY_COLLECTION_LIVE", { q: simplifiedQuery, limit, offset, endpoint });
+  debugLog("EBAY_COLLECTION_LIVE", { q: query, limit, offset, isVehicle, endpoint });
 
   try {
     const response = await fetch(endpoint, {
@@ -234,29 +337,45 @@ async function fetchEbayLive(
     if (!response.ok) {
       const errorText = await response.text();
       debugLog("EBAY_COLLECTION_LIVE", { error: `HTTP ${response.status}`, body: errorText.slice(0, 300) });
-      return { items: [], total: 0 };
+      return { items: [], total: 0, filterStats: {} };
     }
 
     const data = await response.json();
     const itemSummaries = data.itemSummaries || [];
     const total = data.total || 0;
 
-    debugLog("EBAY_COLLECTION_LIVE", { 
-      httpStatus: response.status,
-      rawItemCount: itemSummaries.length, 
-      total,
-      hasWarnings: !!data.warnings,
-      firstTitle: itemSummaries[0]?.title?.slice(0, 50),
-    });
+    // Filter and normalize items
+    const filterStats: Record<string, number> = {
+      beforeFilters: itemSummaries.length,
+      droppedBlocked: 0,
+      droppedAuction: 0,
+      droppedAccessories: 0,
+      kept: 0,
+    };
 
-    // Normalize and filter items
     const items: CollectionItem[] = [];
     for (const item of itemSummaries) {
       const title = item.title || "Unknown";
       
-      // Skip blocked items
-      if (isBlockedTitle(title)) continue;
+      // Skip auction items
+      if (isAuctionItem(item)) {
+        filterStats.droppedAuction++;
+        continue;
+      }
 
+      // Skip globally blocked items
+      if (isBlockedTitle(title, isVehicle)) {
+        filterStats.droppedBlocked++;
+        continue;
+      }
+
+      // Vehicle-specific filtering
+      if (isVehicle && !isValidVehicle(item)) {
+        filterStats.droppedAccessories++;
+        continue;
+      }
+
+      filterStats.kept++;
       items.push({
         id: `ebay:${item.itemId}`,
         provider: "ebay",
@@ -268,12 +387,30 @@ async function fetchEbayLive(
         productUrl: item.itemWebUrl || item.itemHref || "",
         inStock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
       });
+
+      // Stop once we have enough items
+      if (items.length >= limit) break;
     }
 
-    return { items, total: items.length };
+    debugLog("EBAY_WARM", { 
+      collectionKey: query.slice(0, 30),
+      q: query,
+      beforeFilters: filterStats.beforeFilters,
+      afterFilters: items.length,
+    });
+
+    if (isVehicle) {
+      debugLog("VEHICLES_FILTER", {
+        droppedAuctions: filterStats.droppedAuction,
+        droppedAccessories: filterStats.droppedAccessories,
+        kept: filterStats.kept,
+      });
+    }
+
+    return { items, total: items.length, filterStats };
   } catch (err) {
     debugLog("EBAY_COLLECTION_LIVE", { error: err instanceof Error ? err.message : "Unknown" });
-    return { items: [], total: 0 };
+    return { items: [], total: 0, filterStats: {} };
   }
 }
 
@@ -361,7 +498,8 @@ async function getItemsFromDB(
   provider: string,
   categoryKey: string,
   page: number,
-  pageSize: number
+  pageSize: number,
+  isVehicle: boolean = false
 ): Promise<{ items: CollectionItem[]; total: number }> {
   const offset = (page - 1) * pageSize;
 
@@ -376,9 +514,14 @@ async function getItemsFromDB(
     query = query.eq("provider", provider);
   }
 
-  // Match category_key for specific categories
-  if (categoryKey && categoryKey !== "electronics") {
+  // Match category_key
+  if (categoryKey) {
     query = query.eq("category_key", categoryKey);
+  }
+
+  // For vehicles, require minimum price
+  if (isVehicle) {
+    query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
   }
 
   const { data: rows, count } = await query
@@ -389,7 +532,7 @@ async function getItemsFromDB(
   const items: CollectionItem[] = [];
   for (const row of (rows || [])) {
     const title = row.title || "Unknown";
-    if (isBlockedTitle(title)) continue;
+    if (isBlockedTitle(title, isVehicle)) continue;
 
     items.push({
       id: row.id,
@@ -416,7 +559,7 @@ async function saveToCache(
   pageSize: number,
   items: CollectionItem[],
   total: number,
-  ttlSeconds: number = 21600 // 6 hours default
+  ttlSeconds: number = 7200
 ): Promise<void> {
   const itemIds = items.map(i => i.id);
 
@@ -525,11 +668,7 @@ Deno.serve(async (req: Request) => {
 
     // Get collection config (default to electronics if unknown)
     const collectionConfig = COLLECTION_QUERIES[collectionKey] || COLLECTION_QUERIES["electronics_trending"];
-
-    // Vehicles: return empty for now
-    if (collectionKey === "vehicles") {
-      return buildResponse("success", [], 0, null);
-    }
+    const isVehicle = collectionConfig.isVehicle === true;
 
     const cacheKey = `${provider}:${collectionKey}:${page}:${pageSize}`;
 
@@ -541,11 +680,11 @@ Deno.serve(async (req: Request) => {
 
     // Step 2: If mode=db (production default), try to build from existing DB items
     if (!allowLive) {
-      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize);
+      const dbResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle);
       
       // Cache the result (shorter TTL if few items)
       if (dbResult.items.length > 0) {
-        await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, dbResult.items, dbResult.total, 3600);
+        await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, dbResult.items, dbResult.total, Math.min(collectionConfig.ttlSeconds, 3600));
       }
       
       return buildResponse("success", dbResult.items, dbResult.total, null);
@@ -554,21 +693,21 @@ Deno.serve(async (req: Request) => {
     // Step 3: Live fetch (staging or mode=live)
     if (provider === "ebay" && collectionConfig.q) {
       const offset = (page - 1) * pageSize;
-      const liveResult = await fetchEbayLive(supabase, collectionConfig.q, pageSize, offset);
+      const liveResult = await fetchEbayLive(supabase, collectionConfig.q, pageSize, offset, isVehicle);
 
       if (liveResult.items.length > 0) {
         // Upsert items to catalog_items
         await upsertCatalogItems(supabase, liveResult.items, collectionConfig.categoryKey);
         
-        // Cache the collection (6 hours TTL)
-        await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, liveResult.items, liveResult.total, 21600);
+        // Cache the collection
+        await saveToCache(supabase, cacheKey, provider, collectionKey, page, pageSize, liveResult.items, liveResult.total, collectionConfig.ttlSeconds);
         
         return buildResponse("success", liveResult.items, liveResult.total, null);
       }
     }
 
     // Fallback: return whatever we have from DB
-    const fallbackResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize);
+    const fallbackResult = await getItemsFromDB(supabase, provider, collectionConfig.categoryKey, page, pageSize, isVehicle);
     return buildResponse("success", fallbackResult.items, fallbackResult.total, null);
 
   } catch (err) {

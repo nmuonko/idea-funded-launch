@@ -1,22 +1,24 @@
 /**
  * catalog-category
- * Fetches items for a specific category, combining eBay + Amazon (DB-first)
- * Amazon is restricted/cached, eBay can be fresher
+ * Fetches items for a specific unified category from DB
  * 
  * Query params:
- * - key (required) - category slug from catalog_categories
+ * - key (required) - unified category slug (electronics, motors, clothing, etc.)
  * - page default 1
  * - pageSize default 20
  * - env (from header or param)
- * - mode default "db" (db|live) - live only in staging
  * 
  * ALWAYS returns HTTP 200 with stable shape:
  * { status, env, key, page, pageSize, total, items, error }
+ * 
+ * Motors: Only FIXED_PRICE (Buy It Now) items, $1500+ minimum
+ * All categories: No books/subscriptions/streaming
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
+import { TABS, isValidCategory } from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -36,6 +38,9 @@ const GLOBAL_DENY_KEYWORDS = [
   "audiobook", "textbook", "novel", "comics"
 ];
 
+// Motors minimum price (to filter out parts/accessories)
+const MOTORS_MIN_PRICE_USD = 1500;
+
 interface CatalogItem {
   id: string;
   provider: string;
@@ -47,15 +52,7 @@ interface CatalogItem {
   productUrl: string;
   inStock: boolean;
   rating: number | null;
-  categoryKey: string;
-}
-
-interface CategoryRow {
-  slug: string;
-  title: string;
-  provider_scope: string;
-  queries: Record<string, unknown>;
-  enabled: boolean;
+  unifiedCategory: string;
 }
 
 interface DbItem {
@@ -69,6 +66,7 @@ interface DbItem {
   product_url: string;
   in_stock: boolean | null;
   rating: number | null;
+  unified_category: string | null;
   category_key: string | null;
 }
 
@@ -76,7 +74,7 @@ function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
-function normalizeItem(row: DbItem, categoryKey: string): CatalogItem {
+function normalizeItem(row: DbItem): CatalogItem {
   let images: string[] = [];
   if (Array.isArray(row.images)) {
     images = row.images.filter((img): img is string => typeof img === "string");
@@ -95,19 +93,13 @@ function normalizeItem(row: DbItem, categoryKey: string): CatalogItem {
     productUrl: row.product_url || "",
     inStock: row.in_stock ?? true,
     rating: row.rating,
-    categoryKey: row.category_key || categoryKey,
+    unifiedCategory: row.unified_category || row.category_key || "electronics",
   };
 }
 
 function isBlockedByGlobalDeny(title: string): boolean {
   const lowerTitle = title.toLowerCase();
   return GLOBAL_DENY_KEYWORDS.some(kw => lowerTitle.includes(kw.toLowerCase()));
-}
-
-function isBlockedByCustomDeny(title: string, denyKeywords: string[]): boolean {
-  if (!denyKeywords || denyKeywords.length === 0) return false;
-  const lowerTitle = title.toLowerCase();
-  return denyKeywords.some(kw => lowerTitle.includes(kw.toLowerCase()));
 }
 
 Deno.serve(async (req) => {
@@ -128,7 +120,7 @@ Deno.serve(async (req) => {
   }
 
   // Parse query params early for logging
-  const key = url.searchParams.get("key") || url.searchParams.get("id") || "";
+  const key = url.searchParams.get("key") || url.searchParams.get("category") || url.searchParams.get("id") || "";
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db";
@@ -165,6 +157,24 @@ Deno.serve(async (req) => {
         total: 0,
         items: [],
         error: { message: "Missing required 'key' parameter", code: "MISSING_KEY" },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  // Validate category key
+  if (!isValidCategory(key)) {
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=INVALID_CATEGORY key=${key}`);
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        env: envName,
+        key,
+        page,
+        pageSize,
+        total: 0,
+        items: [],
+        error: { message: `Invalid category: ${key}. Valid categories: ${TABS.map(t => t.key).join(", ")}`, code: "INVALID_CATEGORY" },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -212,15 +222,28 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 1. Fetch category definition
-    const { data: categoryRow, error: catError } = await supabase
-      .from("catalog_categories")
-      .select("slug, title, provider_scope, queries, enabled")
-      .eq("slug", key)
-      .maybeSingle();
+    // Fetch items from catalog_items by unified_category
+    const isMotors = key === "motors";
+    const fetchLimit = pageSize * 4; // Fetch extra for filtering
 
-    if (catError || !categoryRow) {
-      console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=CATEGORY_NOT_FOUND key=${key} dbError=${catError?.message || "none"}`);
+    // Build query - check both unified_category and category_key for backwards compatibility
+    let query = supabase
+      .from("catalog_items")
+      .select("*")
+      .or(`unified_category.eq.${key},category_key.eq.${key}`)
+      .or("is_disallowed.is.null,is_disallowed.eq.false");
+
+    // Motors-specific: minimum price filter
+    if (isMotors) {
+      query = query.gte("price_usd", MOTORS_MIN_PRICE_USD);
+    }
+
+    const { data: dbItems, error: dbError } = await query
+      .order("updated_at", { ascending: false })
+      .limit(fetchLimit);
+
+    if (dbError) {
+      console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=DB_ERROR message=${dbError.message}`);
       return new Response(
         JSON.stringify({
           status: "error",
@@ -230,125 +253,28 @@ Deno.serve(async (req) => {
           pageSize,
           total: 0,
           items: [],
-          error: { message: `Category '${key}' not found`, code: "CATEGORY_NOT_FOUND" },
+          error: { message: "Database error", code: "DB_ERROR" },
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!categoryRow.enabled) {
-      console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} key=${key} category_disabled`);
-      return new Response(
-        JSON.stringify({
-          status: "success",
-          env: envName,
-          key,
-          page,
-          pageSize,
-          total: 0,
-          items: [],
-          error: null,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const category = categoryRow as CategoryRow;
-    const queries = category.queries || {};
-
-    // Determine which providers to query
-    const providers: string[] = [];
-    if (category.provider_scope === "all") {
-      if (queries.ebay && (queries.ebay as Record<string, unknown>).enabled !== false) {
-        providers.push("ebay");
-      }
-      if (queries.rainforest && (queries.rainforest as Record<string, unknown>).enabled !== false) {
-        providers.push("rainforest");
-      }
-    } else if (category.provider_scope === "ebay") {
-      providers.push("ebay");
-    } else if (category.provider_scope === "rainforest") {
-      providers.push("rainforest");
-    }
-
-    // If no providers determined, default to both
-    if (providers.length === 0) {
-      providers.push("ebay", "rainforest");
-    }
-
-    // 2. Fetch items from DB (catalog_items) for each provider
+    // Normalize and filter items
     const allItems: CatalogItem[] = [];
-    const fetchLimit = pageSize * 3; // Fetch extra to account for filtering
 
-    for (const provider of providers) {
-      const providerConfig = queries[provider] as Record<string, unknown> | undefined;
-      const denyKeywords = (providerConfig?.denyKeywords as string[]) || [];
+    for (const row of dbItems || []) {
+      const item = normalizeItem(row as DbItem);
 
-      // Fetch from catalog_items with matching provider and category_key
-      const { data: dbItems, error: dbError } = await supabase
-        .from("catalog_items")
-        .select("*")
-        .eq("provider", provider)
-        .eq("category_key", key)
-        .or("is_disallowed.is.null,is_disallowed.eq.false")
-        .order("updated_at", { ascending: false })
-        .limit(fetchLimit);
+      // Apply global deny filter
+      if (isBlockedByGlobalDeny(item.title)) continue;
 
-      if (dbError) {
-        console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} provider=${provider} error=DB_ERROR message=${dbError.message}`);
-        continue;
-      }
+      // Apply contentBlocker
+      if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) continue;
 
-      if (dbItems && dbItems.length > 0) {
-        for (const row of dbItems) {
-          const item = normalizeItem(row as DbItem, key);
-          
-          // Apply global deny
-          if (isBlockedByGlobalDeny(item.title)) continue;
-          // Apply custom deny
-          if (isBlockedByCustomDeny(item.title, denyKeywords)) continue;
-          // Apply contentBlocker
-          if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) continue;
-
-          allItems.push(item);
-        }
-      }
+      allItems.push(item);
     }
 
-    // If no category-specific items, try broader search from catalog_items
-    if (allItems.length < pageSize) {
-      for (const provider of providers) {
-        const providerConfig = queries[provider] as Record<string, unknown> | undefined;
-        const denyKeywords = (providerConfig?.denyKeywords as string[]) || [];
-
-        // Fetch recent items from this provider without category filter
-        const { data: fallbackItems } = await supabase
-          .from("catalog_items")
-          .select("*")
-          .eq("provider", provider)
-          .or("is_disallowed.is.null,is_disallowed.eq.false")
-          .order("updated_at", { ascending: false })
-          .limit(fetchLimit);
-
-        if (fallbackItems && fallbackItems.length > 0) {
-          for (const row of fallbackItems) {
-            const item = normalizeItem(row as DbItem, key);
-            
-            // Check if already added
-            if (allItems.some(existing => existing.id === item.id)) continue;
-            
-            // Apply filters
-            if (isBlockedByGlobalDeny(item.title)) continue;
-            if (isBlockedByCustomDeny(item.title, denyKeywords)) continue;
-            if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) continue;
-
-            allItems.push(item);
-          }
-        }
-      }
-    }
-
-    // 3. De-duplicate by id
+    // De-duplicate by id
     const uniqueMap = new Map<string, CatalogItem>();
     for (const item of allItems) {
       if (!uniqueMap.has(item.id)) {
@@ -356,7 +282,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Sort: inStock first, then has price, then rating, then freshness
+    // Sort: inStock first, then has price, then rating
     const sortedItems = Array.from(uniqueMap.values()).sort((a, b) => {
       // In stock first
       if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
@@ -371,14 +297,14 @@ Deno.serve(async (req) => {
       return 0;
     });
 
-    // 5. Paginate
+    // Paginate
     const total = sortedItems.length;
     const startIdx = (page - 1) * pageSize;
     const endIdx = startIdx + pageSize;
     const pageItems = sortedItems.slice(startIdx, endIdx);
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} total=${total} returning=${pageItems.length} providers=${providers.join(",")} durationMs=${durationMs}`);
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} total=${total} returning=${pageItems.length} providers=${[...new Set(pageItems.map(i => i.provider))].join(",")} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({

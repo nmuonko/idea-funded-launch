@@ -4,7 +4,7 @@
  * One-time setup endpoint that ALWAYS populates DB:
  * 1. Seeds default catalog queries (inline, not separate function call)
  * 2. Runs live refresh for ALL categories (catalog-refresh-seeded?mode=live)
- * 3. Backfills unified_category and unified_subcategory for existing items
+ * 3. Backfills unified_category, listing_type, and subkeys for existing items
  * 
  * POST /admin-bootstrap-catalog
  * Body: { runBackfill?: boolean, maxSeeds?: number }
@@ -27,73 +27,273 @@ function checkAdminKey(req: Request): boolean {
   return adminKey === expectedKey && !!adminKey;
 }
 
-// Default seed queries for all categories
+// Default seed queries for all categories - Updated for VEHICLES + PARTS structure
 const DEFAULT_SEEDS = [
-  // Electronics - Phones
+  // ============ ELECTRONICS ============
+  // Phones
   { category: "electronics", provider: "ebay", seed_key: "electronics_iphone", query: "iphone 15 unlocked" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_samsung", query: "samsung galaxy s24 unlocked" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_pixel", query: "google pixel phone unlocked" },
   
-  // Electronics - Computers
+  // Computers
   { category: "electronics", provider: "ebay", seed_key: "electronics_macbook", query: "macbook pro laptop" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_laptop", query: "laptop computer new" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_gaming_pc", query: "gaming pc desktop" },
   
-  // Electronics - Audio
+  // Audio
   { category: "electronics", provider: "ebay", seed_key: "electronics_airpods", query: "airpods pro" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_headphones", query: "wireless headphones bluetooth" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_speaker", query: "bluetooth speaker portable" },
   
-  // Electronics - Monitors
+  // Monitors
   { category: "electronics", provider: "ebay", seed_key: "electronics_monitor", query: "gaming monitor 27 inch" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_4k_monitor", query: "4k monitor computer" },
   
-  // Electronics - Tablets
+  // Tablets
   { category: "electronics", provider: "ebay", seed_key: "electronics_ipad", query: "ipad pro" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_tablet", query: "samsung galaxy tab" },
   
-  // Electronics - Chargers
+  // Chargers
   { category: "electronics", provider: "ebay", seed_key: "electronics_charger", query: "usb-c fast charger" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_powerbank", query: "power bank portable charger" },
   
-  // Motors (Buy It Now only, $1500+ minimum)
-  { category: "motors", provider: "ebay", seed_key: "motors_toyota", query: "toyota camry", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
-  { category: "motors", provider: "ebay", seed_key: "motors_honda", query: "honda civic", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
-  { category: "motors", provider: "ebay", seed_key: "motors_ford", query: "ford f150", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
-  { category: "motors", provider: "ebay", seed_key: "motors_bmw", query: "bmw 3 series", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
-  { category: "motors", provider: "ebay", seed_key: "motors_mercedes", query: "mercedes benz", filters: { buyingOptions: ["FIXED_PRICE"], minPriceUsd: 1500, excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim"] } },
+  // ============ VEHICLES (Top-level, Buy It Now only, $1500+ minimum) ============
+  // Cars & Trucks
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_cars_toyota", 
+    query: "toyota camry car",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "cars_trucks",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim", "wheel", "engine", "motor", "transmission", "bumper", "fender", "hood", "door", "mirror", "light", "brake", "suspension"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_cars_honda", 
+    query: "honda civic sedan",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "cars_trucks",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim", "wheel", "engine", "motor", "transmission", "bumper", "fender", "hood", "door", "mirror", "light", "brake", "suspension"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_cars_ford", 
+    query: "ford f150 truck",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "cars_trucks",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim", "wheel", "engine", "motor", "transmission", "bumper", "fender", "hood", "door", "mirror", "light", "brake", "suspension"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_cars_bmw", 
+    query: "bmw 3 series sedan",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "cars_trucks",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim", "wheel", "engine", "motor", "transmission", "bumper", "fender", "hood", "door", "mirror", "light", "brake", "suspension"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_cars_suv", 
+    query: "SUV 4x4 vehicle",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "cars_trucks",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "floor mat", "tire", "rim", "wheel", "engine", "motor", "transmission", "bumper", "fender", "hood", "door", "mirror", "light", "brake", "suspension"] 
+    } 
+  },
   
-  // Home & Garden
+  // Motorcycles
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_motorcycles_harley", 
+    query: "harley davidson motorcycle",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "motorcycles",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "helmet", "jacket", "gloves", "exhaust", "seat", "tire", "wheel"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_motorcycles_honda", 
+    query: "honda motorcycle cruiser",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "motorcycles",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "helmet", "jacket", "gloves", "exhaust", "seat", "tire", "wheel"] 
+    } 
+  },
+  
+  // Powersports
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_powersports_atv", 
+    query: "ATV four wheeler",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "powersports",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "tire", "wheel", "helmet"] 
+    } 
+  },
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_powersports_utv", 
+    query: "UTV side by side",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "powersports",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "tire", "wheel", "helmet"] 
+    } 
+  },
+  
+  // Boats
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_boats_fishing", 
+    query: "fishing boat motor",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 1500, 
+      listingType: "vehicle",
+      vehiclesSubkey: "boats",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "propeller", "anchor", "cover", "seat"] 
+    } 
+  },
+  
+  // RVs & Campers
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_rvs_camper", 
+    query: "RV camper trailer",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 2000, 
+      listingType: "vehicle",
+      vehiclesSubkey: "rvs_campers",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "cover", "awning", "hitch"] 
+    } 
+  },
+  
+  // Classic Cars
+  { 
+    category: "vehicles", 
+    provider: "ebay", 
+    seed_key: "vehicles_classic_muscle", 
+    query: "classic muscle car",
+    filters: { 
+      buyingOptions: ["FIXED_PRICE"], 
+      minPriceUsd: 5000, 
+      listingType: "vehicle",
+      vehiclesSubkey: "classic_cars",
+      excludeKeywords: ["parts", "repair", "salvage", "auction", "bid", "model", "toy", "poster", "sign"] 
+    } 
+  },
+  
+  // ============ PARTS & ACCESSORIES ============
+  { 
+    category: "parts_accessories", 
+    provider: "ebay", 
+    seed_key: "parts_car_truck", 
+    query: "car truck parts",
+    filters: { listingType: "part", partsSubkey: "car_truck_parts" } 
+  },
+  { 
+    category: "parts_accessories", 
+    provider: "ebay", 
+    seed_key: "parts_wheels_tires", 
+    query: "wheels tires rims",
+    filters: { listingType: "part", partsSubkey: "wheels_tires" } 
+  },
+  { 
+    category: "parts_accessories", 
+    provider: "ebay", 
+    seed_key: "parts_motorcycle", 
+    query: "motorcycle parts accessories",
+    filters: { listingType: "part", partsSubkey: "moto_scooter_parts" } 
+  },
+  { 
+    category: "parts_accessories", 
+    provider: "ebay", 
+    seed_key: "parts_atv_utv", 
+    query: "ATV UTV parts",
+    filters: { listingType: "part", partsSubkey: "atv_utv_parts" } 
+  },
+  { 
+    category: "parts_accessories", 
+    provider: "ebay", 
+    seed_key: "parts_tools", 
+    query: "automotive tools equipment",
+    filters: { listingType: "part", partsSubkey: "tools_supplies" } 
+  },
+  
+  // ============ HOME & GARDEN ============
   { category: "home_garden", provider: "ebay", seed_key: "home_vacuum", query: "robot vacuum cleaner" },
   { category: "home_garden", provider: "ebay", seed_key: "home_airfryer", query: "air fryer kitchen" },
   { category: "home_garden", provider: "ebay", seed_key: "home_blender", query: "blender kitchen" },
   { category: "home_garden", provider: "ebay", seed_key: "home_tools", query: "power tool set" },
   
-  // Clothing
-  { category: "clothing", provider: "ebay", seed_key: "clothing_nike", query: "nike hoodie" },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_shoes", query: "nike shoes men" },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_dress", query: "women dress summer" },
-  { category: "clothing", provider: "ebay", seed_key: "clothing_jacket", query: "men jacket winter" },
+  // ============ CLOTHING, SHOES & ACCESSORIES ============
+  { category: "clothing_shoes_accessories", provider: "ebay", seed_key: "clothing_nike", query: "nike hoodie" },
+  { category: "clothing_shoes_accessories", provider: "ebay", seed_key: "clothing_shoes", query: "nike shoes men" },
+  { category: "clothing_shoes_accessories", provider: "ebay", seed_key: "clothing_dress", query: "women dress summer" },
+  { category: "clothing_shoes_accessories", provider: "ebay", seed_key: "clothing_jacket", query: "men jacket winter" },
   
-  // Toys
+  // ============ TOYS ============
   { category: "toys", provider: "ebay", seed_key: "toys_lego", query: "lego set" },
   { category: "toys", provider: "ebay", seed_key: "toys_kids", query: "kids toys educational" },
   { category: "toys", provider: "ebay", seed_key: "toys_rc", query: "rc car remote control" },
   
-  // Sporting Goods
+  // ============ SPORTING GOODS ============
   { category: "sporting_goods", provider: "ebay", seed_key: "sports_dumbbells", query: "dumbbells weight set" },
   { category: "sporting_goods", provider: "ebay", seed_key: "sports_soccer", query: "soccer shoes cleats" },
   { category: "sporting_goods", provider: "ebay", seed_key: "sports_basketball", query: "basketball shoes" },
   
-  // Business & Industrial
+  // ============ BUSINESS & INDUSTRIAL ============
   { category: "business_industrial", provider: "ebay", seed_key: "business_generator", query: "portable generator" },
   { category: "business_industrial", provider: "ebay", seed_key: "business_compressor", query: "air compressor" },
   
-  // Jewelry & Watches
+  // ============ JEWELRY & WATCHES ============
   { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_watch", query: "luxury watch men" },
   { category: "jewelry_watches", provider: "ebay", seed_key: "jewelry_necklace", query: "gold necklace chain" },
   
-  // Refurbished
+  // ============ REFURBISHED ============
   { category: "refurbished", provider: "ebay", seed_key: "refurb_iphone", query: "refurbished iphone" },
   { category: "refurbished", provider: "ebay", seed_key: "refurb_laptop", query: "renewed laptop" },
 ];
@@ -148,12 +348,12 @@ Deno.serve(async (req) => {
 
   // Parse params
   let runBackfill = true;
-  let maxSeeds = 40;
+  let maxSeeds = 50;
 
   try {
     const body = await req.json().catch(() => ({}));
     runBackfill = body.runBackfill !== false;
-    maxSeeds = body.maxSeeds || 40;
+    maxSeeds = body.maxSeeds || 50;
   } catch {
     // Use defaults
   }
@@ -164,7 +364,7 @@ Deno.serve(async (req) => {
   const results: Record<string, unknown> = {};
 
   // Step A: Seed default catalog queries (inline)
-  console.log("[BOOTSTRAP] Step A: Seeding default catalog queries...");
+  console.log("[BOOTSTRAP] Step A: Seeding default catalog queries with VEHICLES + PARTS structure...");
   try {
     let seededCount = 0;
     let skippedCount = 0;
@@ -218,15 +418,15 @@ Deno.serve(async (req) => {
     results.refreshCatalog = { error: msg };
   }
 
-  // Step C: Backfill unified_category AND unified_subcategory for existing items
+  // Step C: Backfill unified_category, listing_type, and subkeys for existing items
   if (runBackfill) {
-    console.log("[BOOTSTRAP] Step C: Backfilling unified_category and unified_subcategory...");
+    console.log("[BOOTSTRAP] Step C: Backfilling unified_category, listing_type, and subkeys...");
     try {
-      // Get items without unified_category OR unified_subcategory
+      // Get items without unified_category OR listing_type
       const { data: itemsToBackfill, error: fetchError } = await supabase
         .from("catalog_items")
-        .select("id, title, provider, product_url, metadata, unified_category")
-        .or("unified_category.is.null,unified_subcategory.is.null")
+        .select("id, title, provider, product_url, metadata, unified_category, listing_type")
+        .or("unified_category.is.null,listing_type.is.null")
         .limit(2000);
 
       if (fetchError) {
@@ -250,12 +450,28 @@ Deno.serve(async (req) => {
             await supabase.from("catalog_items").delete().eq("id", item.id);
             blockedCount++;
           } else {
-            // Update unified_category and unified_subcategory
+            // Determine listing_type and subkeys
+            let listingType: string | null = null;
+            let vehiclesSubkey: string | null = null;
+            let partsSubkey: string | null = null;
+            
+            if (category === "vehicles") {
+              listingType = "vehicle";
+              vehiclesSubkey = subcategory || "cars_trucks";
+            } else if (category === "parts_accessories") {
+              listingType = "part";
+              partsSubkey = subcategory || "all_parts";
+            }
+
+            // Update unified_category, listing_type, and subkeys
             await supabase
               .from("catalog_items")
               .update({ 
                 unified_category: category, 
                 unified_subcategory: subcategory,
+                listing_type: listingType,
+                vehicles_subkey: vehiclesSubkey,
+                parts_subkey: partsSubkey,
                 updated_at: new Date().toISOString() 
               })
               .eq("id", item.id);
@@ -303,7 +519,7 @@ Deno.serve(async (req) => {
   return new Response(
     JSON.stringify({
       status: "success",
-      message: "Catalog bootstrap complete",
+      message: "Catalog bootstrap complete with VEHICLES + PARTS structure",
       totalItems: totalItems || 0,
       categories: byCategory,
       inserted: (results.refreshCatalog as Record<string, unknown>)?.totalUpserted || 0,

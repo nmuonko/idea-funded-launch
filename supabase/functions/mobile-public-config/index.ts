@@ -164,6 +164,27 @@ interface ProvidersConfig {
   ebay: ProviderModeConfig;
 }
 
+// NEW: Provider policy config (detailed settings per provider)
+interface ProviderPolicyConfig {
+  enabled: boolean;
+  defaultMode: "auto" | "db" | "live";
+  liveEnabled: boolean;
+  dbTtlSeconds: number;
+  liveTtlSeconds: number;
+}
+
+interface ProvidersPolicy {
+  ebay: ProviderPolicyConfig;
+  amazon: ProviderPolicyConfig;
+}
+
+// NEW: Catalog defaults for home/category endpoints
+interface CatalogDefaults {
+  homeMinPerSection: number;
+  homePageSize: number;
+  categoryPageSize: number;
+}
+
 interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
@@ -178,6 +199,10 @@ interface PublicConfigResponse {
   storesHomeEnabled: boolean;
   // NEW: Provider modes for mobile
   providers: ProvidersConfig;
+  // NEW: Provider policy (detailed settings)
+  providersPolicy: ProvidersPolicy;
+  // NEW: Catalog defaults
+  catalogDefaults: CatalogDefaults;
   // Standard config
   exchangeRate: number;
   markup: {
@@ -453,6 +478,31 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       mode: "primary_db", // Primary DB source for vehicles/motors
     },
   };
+  
+  // NEW: Provider policy - detailed settings per provider
+  const providersPolicy: ProvidersPolicy = {
+    ebay: {
+      enabled: true,
+      defaultMode: "auto",
+      liveEnabled: true, // eBay is "unlimited" - we don't care about costs
+      dbTtlSeconds: 900, // 15 minutes
+      liveTtlSeconds: 300, // 5 minutes
+    },
+    amazon: {
+      enabled: true,
+      defaultMode: "db",
+      liveEnabled: false, // Amazon/Rainforest is RESTRICTED
+      dbTtlSeconds: 21600, // 6 hours
+      liveTtlSeconds: 0, // No live calls by default
+    },
+  };
+  
+  // NEW: Catalog defaults for home/category endpoints
+  const catalogDefaults: CatalogDefaults = {
+    homeMinPerSection: 12, // If DB has fewer, top-up from eBay live
+    homePageSize: 20,
+    categoryPageSize: 20,
+  };
 
   // Build env info from environment
   const envInfo = {
@@ -565,6 +615,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       storesEnabled: false,
       storesHomeEnabled: false,
       providers: providersConfig,
+      providersPolicy,
+      catalogDefaults,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -599,6 +651,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       storesEnabled: false,
       storesHomeEnabled: false,
       providers: providersConfig,
+      providersPolicy,
+      catalogDefaults,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -702,6 +756,10 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     storesHomeEnabled: false,
     // NEW: Provider modes for mobile
     providers: providersConfig,
+    // NEW: Provider policy (detailed settings)
+    providersPolicy,
+    // NEW: Catalog defaults
+    catalogDefaults,
     // Standard config
     exchangeRate: Number(exchangeRate),
     markup: {

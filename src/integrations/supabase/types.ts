@@ -953,6 +953,7 @@ export type Database = {
           search_text: string | null
           tags: string[] | null
           title: string | null
+          unified_category: string | null
           updated_at: string | null
         }
         Insert: {
@@ -970,6 +971,7 @@ export type Database = {
           search_text?: string | null
           tags?: string[] | null
           title?: string | null
+          unified_category?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -987,6 +989,7 @@ export type Database = {
           search_text?: string | null
           tags?: string[] | null
           title?: string | null
+          unified_category?: string | null
           updated_at?: string | null
         }
         Relationships: []

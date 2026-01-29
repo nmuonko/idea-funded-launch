@@ -1,5 +1,5 @@
 /**
- * Catalog Home Endpoint - DB-First with Category Tabs
+ * Catalog Home Endpoint - DB-First with Unified Categories
  * 
  * Returns sections-based structure for homepage + category list:
  * {
@@ -11,15 +11,13 @@
  *   error: null
  * }
  * 
- * DB-First: All data served from catalog_items/catalog_collection_cache.
- * Live eBay calls only in staging or when cache is empty.
- * Amazon/Rainforest stays restricted and heavily cached.
+ * DB-First: All data served from catalog_items using unified_category.
  * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
-import { filterDisallowedItems, isDisallowedItem } from "../_shared/contentBlocker.ts";
+import { TABS } from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -49,13 +47,13 @@ interface CatalogItem {
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
-  categoryKey: string | null;
+  unifiedCategory: string | null;
 }
 
 interface Section {
   key: string;
   title: string;
-  provider: string;
+  unifiedCategory: string;
   items: CatalogItem[];
   hasMore: boolean;
 }
@@ -63,56 +61,45 @@ interface Section {
 interface CategoryTab {
   key: string;
   title: string;
-  groupTitle: string;
   icon: string | null;
-  providers: string[];
   order: number;
 }
 
 // ─── Home Sections Configuration ─────────────────────────────────────────────
-// Define which collections to show on homepage
 
 const HOME_SECTIONS: Array<{
   key: string;
   title: string;
-  provider: string;
-  categoryKey: string;
+  unifiedCategory: string;
+  keywordFilter?: string[];
   isVehicle?: boolean;
   maxItems: number;
-  ttlSeconds: number;
 }> = [
   {
-    key: "ebay_trending_all",
+    key: "trending",
     title: "Trending",
-    provider: "ebay",
-    categoryKey: "electronics",
-    maxItems: 10,
-    ttlSeconds: 2700, // 45 min
+    unifiedCategory: "electronics",
+    maxItems: 20,
   },
   {
-    key: "phones_trending",
+    key: "phones",
     title: "Phones",
-    provider: "ebay",
-    categoryKey: "electronics",
-    maxItems: 10,
-    ttlSeconds: 5400, // 1.5 hours
+    unifiedCategory: "electronics",
+    keywordFilter: ["iphone", "samsung", "phone", "pixel", "galaxy", "smartphone"],
+    maxItems: 20,
   },
   {
-    key: "electronics_trending",
-    title: "Electronics",
-    provider: "ebay",
-    categoryKey: "electronics",
-    maxItems: 10,
-    ttlSeconds: 7200, // 2 hours
-  },
-  {
-    key: "vehicles_trending",
+    key: "motors",
     title: "Vehicles",
-    provider: "ebay",
-    categoryKey: "motors",
+    unifiedCategory: "motors",
     isVehicle: true,
-    maxItems: 10,
-    ttlSeconds: 2700, // 45 min
+    maxItems: 20,
+  },
+  {
+    key: "clothing",
+    title: "Clothing",
+    unifiedCategory: "clothing",
+    maxItems: 20,
   },
 ];
 
@@ -161,90 +148,42 @@ function isBlockedItem(item: CatalogItem, isVehicle: boolean = false): boolean {
   return false;
 }
 
-// ─── Debug Logging ───────────────────────────────────────────────────────────
-
-function debugLog(marker: string, data: Record<string, any>): void {
-  console.log(`[${marker}]`, JSON.stringify(data));
-}
-
 // ─── DB Helpers ──────────────────────────────────────────────────────────────
 
 function mapDbItemToResponse(item: any): CatalogItem {
+  let images: string[] = [];
+  if (Array.isArray(item.images)) {
+    images = item.images.filter((img: any): img is string => typeof img === "string");
+  }
+
   return {
     id: item.id,
-    provider: item.provider || "ebay",
-    providerProductId: item.provider_product_id || item.id.replace(/^ebay:/, ""),
+    provider: item.provider || "unknown",
+    providerProductId: item.provider_product_id || item.id.replace(/^(ebay|rainforest):/, ""),
     title: item.title,
     priceUsd: item.price_usd,
-    imageUrl: item.image_url,
-    images: Array.isArray(item.images) ? item.images : [],
+    imageUrl: item.image_url || (images.length > 0 ? images[0] : null),
+    images,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
-    categoryKey: item.category_key,
+    unifiedCategory: item.unified_category || item.category_key,
   };
-}
-
-async function getSectionFromCache(
-  supabase: any,
-  sectionKey: string,
-  provider: string,
-  maxItems: number
-): Promise<{ items: CatalogItem[]; hit: boolean }> {
-  // Try multiple cache key sizes (10 and 20 are common)
-  const cacheKeySizes = [maxItems, 10, 20];
-  
-  for (const size of cacheKeySizes) {
-    const cacheKey = `${provider}:${sectionKey}:1:${size}`;
-    
-    const { data: cache } = await supabase
-      .from("catalog_collection_cache")
-      .select("item_ids, updated_at, ttl_seconds")
-      .eq("key", cacheKey)
-      .maybeSingle();
-
-    if (!cache) continue;
-
-    // Check if cache is expired
-    const updatedAt = new Date(cache.updated_at).getTime();
-    const expiresAt = updatedAt + ((cache.ttl_seconds || 3600) * 1000);
-    if (Date.now() > expiresAt) continue;
-
-    const itemIds = cache.item_ids || [];
-    if (itemIds.length === 0) {
-      return { items: [], hit: true };
-    }
-
-    const { data: itemRows } = await supabase
-      .from("catalog_items")
-      .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, category_key")
-      .in("id", itemIds.slice(0, maxItems));
-
-    return {
-      items: (itemRows || []).map(mapDbItemToResponse),
-      hit: true,
-    };
-  }
-  
-  return { items: [], hit: false };
 }
 
 async function getSectionFromDB(
   supabase: any,
-  provider: string,
-  categoryKey: string,
+  unifiedCategory: string,
   maxItems: number,
+  keywordFilter?: string[],
   isVehicle: boolean = false
 ): Promise<CatalogItem[]> {
+  // Build query for unified_category or category_key (backwards compatibility)
   let query = supabase
     .from("catalog_items")
-    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, category_key")
-    .or("is_disallowed.is.null,is_disallowed.eq.false")
-    .eq("provider", provider);
-
-  if (categoryKey) {
-    query = query.eq("category_key", categoryKey);
-  }
+    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, unified_category, category_key")
+    .or(`unified_category.eq.${unifiedCategory},category_key.eq.${unifiedCategory}`)
+    .or("is_disallowed.is.null,is_disallowed.eq.false");
 
   if (isVehicle) {
     query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
@@ -252,46 +191,19 @@ async function getSectionFromDB(
 
   const { data: rows } = await query
     .order("updated_at", { ascending: false })
-    .limit(maxItems + 10); // Fetch extra for filtering
+    .limit(maxItems + 20); // Fetch extra for filtering
 
-  return (rows || []).map(mapDbItemToResponse);
-}
+  let items = (rows || []).map(mapDbItemToResponse);
 
-async function getCategories(supabase: any): Promise<CategoryTab[]> {
-  const { data: rows, error } = await supabase
-    .from("catalog_categories")
-    .select("slug, title, group_title, icon, priority, provider_scope, queries")
-    .eq("enabled", true)
-    .order("priority", { ascending: true });
-
-  if (error || !rows) {
-    console.error("[CATALOG_HOME] Failed to fetch categories:", error);
-    return [];
+  // Apply keyword filter if specified
+  if (keywordFilter && keywordFilter.length > 0) {
+    items = items.filter(item => {
+      const title = (item.title || "").toLowerCase();
+      return keywordFilter.some(kw => title.includes(kw.toLowerCase()));
+    });
   }
 
-  return rows.map((row: any) => {
-    let providers: string[] = [];
-    if (row.provider_scope === "all") {
-      providers = ["ebay", "rainforest"];
-    } else if (row.provider_scope === "ebay") {
-      providers = ["ebay"];
-    } else if (row.provider_scope === "rainforest") {
-      providers = ["rainforest"];
-    } else {
-      const queries = row.queries || {};
-      if (queries.ebay?.enabled !== false) providers.push("ebay");
-      if (queries.rainforest?.enabled !== false) providers.push("rainforest");
-    }
-
-    return {
-      key: row.slug,
-      title: row.title,
-      groupTitle: row.group_title,
-      icon: row.icon,
-      providers,
-      order: row.priority,
-    };
-  });
+  return items;
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
@@ -376,35 +288,26 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Fetch categories for the tab list
-    const homeCategories = await getCategories(supabase);
+    // Return fixed category tabs from categoryMapper (single source of truth)
+    const homeCategories: CategoryTab[] = TABS.map((tab, index) => ({
+      key: tab.key,
+      title: tab.title,
+      icon: tab.icon || null,
+      order: index + 1,
+    }));
 
-    // Build sections for home screen
+    // Build sections for home screen from DB
     const sections: Section[] = [];
     const sectionCounts: Record<string, number> = {};
 
     for (const sectionConfig of HOME_SECTIONS) {
-      // Try cache first
-      const cached = await getSectionFromCache(
+      const items = await getSectionFromDB(
         supabase,
-        sectionConfig.key,
-        sectionConfig.provider,
-        sectionConfig.maxItems
+        sectionConfig.unifiedCategory,
+        sectionConfig.maxItems,
+        sectionConfig.keywordFilter,
+        sectionConfig.isVehicle
       );
-
-      let items: CatalogItem[];
-      if (cached.hit && cached.items.length > 0) {
-        items = cached.items;
-      } else {
-        // Fallback to DB query
-        items = await getSectionFromDB(
-          supabase,
-          sectionConfig.provider,
-          sectionConfig.categoryKey,
-          sectionConfig.maxItems,
-          sectionConfig.isVehicle
-        );
-      }
 
       // Filter blocked items
       const filteredItems = items
@@ -414,7 +317,7 @@ Deno.serve(async (req: Request) => {
       sections.push({
         key: sectionConfig.key,
         title: sectionConfig.title,
-        provider: sectionConfig.provider,
+        unifiedCategory: sectionConfig.unifiedCategory,
         items: filteredItems,
         hasMore: items.length > sectionConfig.maxItems,
       });

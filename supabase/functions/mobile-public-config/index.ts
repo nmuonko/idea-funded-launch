@@ -153,6 +153,17 @@ interface RuntimeConfig {
   blocks: RuntimeBlocksConfig;
 }
 
+// Provider mode config for mobile
+interface ProviderModeConfig {
+  enabled: boolean;
+  mode: "primary_db" | "restricted_cached" | "live" | "disabled";
+}
+
+interface ProvidersConfig {
+  amazon: ProviderModeConfig;
+  ebay: ProviderModeConfig;
+}
+
 interface PublicConfigResponse {
   success: boolean;
   configValid: boolean;
@@ -161,6 +172,12 @@ interface PublicConfigResponse {
   env: "production" | "staging";
   catalogEnabled: boolean;
   catalogMode: "webview" | "native" | "hybrid";
+  catalogApiBaseUrl: string;
+  // NEW: Store picker control flags
+  storesEnabled: boolean;
+  storesHomeEnabled: boolean;
+  // NEW: Provider modes for mobile
+  providers: ProvidersConfig;
   // Standard config
   exchangeRate: number;
   markup: {
@@ -413,13 +430,28 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     throw new Error(`DATABASE_ERROR: ${error.message}`);
   }
 
-  // Build catalog config from environment
+  // Supabase functions base URL
+  const supabaseFunctionsUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1`;
+  
+  // CRITICAL: Always enable native catalog mode - never land on store picker
   const catalogConfig = {
-    enabled: envConfig?.catalog_enabled ?? false,
-    mode: (envConfig?.catalog_mode ?? "webview") as "webview" | "native" | "hybrid",
-    apiBaseUrl: envConfig?.api_base_url ?? "",
+    enabled: true, // ALWAYS enabled
+    mode: "native" as "webview" | "native" | "hybrid", // ALWAYS native
+    apiBaseUrl: supabaseFunctionsUrl,
     providers: enabledProviders,
     refreshIntervalMs: 300000, // 5 minutes
+  };
+  
+  // NEW: Provider modes for mobile - controls how each provider is used
+  const providersConfig: ProvidersConfig = {
+    amazon: {
+      enabled: true,
+      mode: "restricted_cached", // DB-first, minimal live API calls
+    },
+    ebay: {
+      enabled: true,
+      mode: "primary_db", // Primary DB source for vehicles/motors
+    },
   };
 
   // Build env info from environment
@@ -521,13 +553,18 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
 
   if (!settings) {
     console.warn("[mobile-public-config] No settings found - returning defaults");
+    console.log("[PUBLIC_CONFIG_ENV]", { env: envName, catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0 });
     return {
       success: true,
       configValid: false,
       reason: "NO_SETTINGS_CONFIGURED",
       env: envName,
-      catalogEnabled: catalogConfig.enabled,
-      catalogMode: catalogConfig.mode,
+      catalogEnabled: true,
+      catalogMode: "native",
+      catalogApiBaseUrl: catalogConfig.apiBaseUrl,
+      storesEnabled: false,
+      storesHomeEnabled: false,
+      providers: providersConfig,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -550,13 +587,18 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   const exchangeRate = settings.exchange_rate_usd_to_cdf;
   if (!exchangeRate || exchangeRate <= 0) {
     console.error("[mobile-public-config] Invalid exchange rate:", exchangeRate);
+    console.log("[PUBLIC_CONFIG_ENV]", { env: envName, catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0 });
     return {
       success: true,
       configValid: false,
       reason: "MISSING_EXCHANGE_RATE",
       env: envName,
-      catalogEnabled: catalogConfig.enabled,
-      catalogMode: catalogConfig.mode,
+      catalogEnabled: true,
+      catalogMode: "native",
+      catalogApiBaseUrl: catalogConfig.apiBaseUrl,
+      storesEnabled: false,
+      storesHomeEnabled: false,
+      providers: providersConfig,
       exchangeRate: 2500,
       markup: { type: "percent", value: 10 },
       shipping: { mode: "flat", flatUsd: 15, percentValue: 0 },
@@ -638,13 +680,28 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     note: "All percents as whole numbers (10 = 10%)"
   });
 
+  // Add logging for mobile debugging
+  console.log("[PUBLIC_CONFIG_ENV]", { 
+    env: envName, 
+    catalogEnabled: true, 
+    catalogMode: "native", 
+    storesEnabled: false, 
+    version 
+  });
+
   return {
     success: true,
     configValid: true,
     // TOP-LEVEL env fields for mobile debugging
     env: envName,
-    catalogEnabled: catalogConfig.enabled,
-    catalogMode: catalogConfig.mode,
+    catalogEnabled: true,
+    catalogMode: "native",
+    catalogApiBaseUrl: catalogConfig.apiBaseUrl,
+    // NEW: Store picker control flags
+    storesEnabled: false,
+    storesHomeEnabled: false,
+    // NEW: Provider modes for mobile
+    providers: providersConfig,
     // Standard config
     exchangeRate: Number(exchangeRate),
     markup: {
@@ -709,14 +766,31 @@ Deno.serve(async (req: Request) => {
     }
 
     console.error("[mobile-public-config] Error:", err);
+    // ALWAYS return HTTP 200 with stable JSON shape
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const fallbackApiBaseUrl = `${supabaseUrl}/functions/v1`;
+    
+    console.log("[PUBLIC_CONFIG_ENV]", { env: "production", catalogEnabled: true, catalogMode: "native", storesEnabled: false, version: 0, error: true });
+    
     return new Response(
       JSON.stringify({
         success: false,
         configValid: false,
         reason: "INTERNAL_ERROR",
         error: err instanceof Error ? err.message : "Unknown error",
+        // Provide stable defaults even on error so mobile doesn't crash
+        env: "production",
+        catalogEnabled: true,
+        catalogMode: "native",
+        catalogApiBaseUrl: fallbackApiBaseUrl,
+        storesEnabled: false,
+        storesHomeEnabled: false,
+        providers: {
+          amazon: { enabled: true, mode: "restricted_cached" },
+          ebay: { enabled: true, mode: "primary_db" },
+        },
       }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

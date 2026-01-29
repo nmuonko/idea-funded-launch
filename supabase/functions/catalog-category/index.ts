@@ -203,24 +203,9 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check if catalog is enabled
-    const envConfig = await getEnvironmentConfig(supabase, envName);
-    if (!isCatalogEnabled(envConfig)) {
-      console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} catalog_disabled`);
-      return new Response(
-        JSON.stringify({
-          status: "error",
-          env: envName,
-          category,
-          page,
-          pageSize,
-          total: 0,
-          items: [],
-          error: { message: "Catalog not enabled", code: "CATALOG_DISABLED" },
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // REMOVED: Environment check - catalog is ALWAYS enabled for mobile
+    // We no longer check isCatalogEnabled because mobile-public-config ALWAYS returns catalogEnabled: true
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} catalog_always_enabled=true`);
 
     // Fetch items from catalog_items by unified_category
     const isMotors = category === "motors";

@@ -279,14 +279,11 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const envConfig = await getEnvironmentConfig(supabase, envName);
-    if (!isCatalogEnabled(envConfig)) {
-      console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} catalog_disabled`);
-      return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Catalog not enabled", code: "CATALOG_DISABLED" })), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // REMOVED: Environment check - catalog is ALWAYS enabled for mobile
+    // const envConfig = await getEnvironmentConfig(supabase, envName);
+    // We no longer check isCatalogEnabled because mobile-public-config ALWAYS returns catalogEnabled: true
+    // This ensures catalog-home always serves data
+    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} catalog_always_enabled=true`);
 
     // Return fixed category tabs from categoryMapper (single source of truth)
     const homeCategories: CategoryTab[] = TABS.map((tab, index) => ({

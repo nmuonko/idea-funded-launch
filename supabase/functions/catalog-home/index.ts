@@ -32,7 +32,7 @@ import { isDisallowedItem } from "../_shared/contentBlocker.ts";
 import { 
   isAllowedMotorListing, 
   VEHICLES_SEED_QUERIES, 
-  VEHICLES_MIN_PRICE_USD,
+  getMinPriceForVehicleSubkey,
   buildEbayVehiclesFilter,
 } from "../_shared/motorsFilter.ts";
 
@@ -249,11 +249,12 @@ async function getSectionFromDB(
     .eq("unified_category", sectionConfig.unifiedCategory)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  // For vehicles, filter by listing_type
+  // For vehicles, filter by listing_type with subkey-specific pricing
   if (sectionConfig.isVehicle) {
+    const vehicleMinPrice = getMinPriceForVehicleSubkey(sectionConfig.defaultSubkey);
     query = query
       .eq("listing_type", "vehicle")
-      .gte("price_usd", VEHICLES_MIN_PRICE_USD);
+      .gte("price_usd", vehicleMinPrice);
   }
 
   const { data: rows, error } = await query

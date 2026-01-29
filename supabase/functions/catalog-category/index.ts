@@ -44,6 +44,7 @@ import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapt
 import { 
   isAllowedMotorListing, 
   VEHICLES_MIN_PRICE_USD, 
+  getMinPriceForVehicleSubkey,
   buildEbayVehiclesFilter,
   VEHICLES_SEED_QUERIES,
   PARTS_SEED_QUERIES,
@@ -236,10 +237,13 @@ async function fetchEbayLiveItems(
   console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} query="${query}"`);
   
   try {
-    // For vehicles, use special filters
+    // Determine the vehicle subkey for price filtering
+    const vehicleSubkey = isVehicles ? (sub || category === "vehicles" ? sub : category) : null;
+    
+    // For vehicles, use special filters with subkey-specific pricing
     const options: any = { marketplace: "EBAY_US" };
     if (isVehicles) {
-      options.filter = buildEbayVehiclesFilter();
+      options.filter = buildEbayVehiclesFilter(vehicleSubkey);
     }
     
     const result = await searchEbay(supabase, query, page, pageSize, options);
@@ -260,8 +264,12 @@ async function fetchEbayLiveItems(
         continue;
       }
       
-      // Apply vehicles filter (no auctions, no parts)
-      if (isVehicles && !isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.priceUsd }).isAllowed) {
+      // Apply vehicles filter (no auctions, no parts) with subkey-specific pricing
+      if (isVehicles && !isAllowedMotorListing({ 
+        title: ebayItem.title, 
+        priceUsd: ebayItem.priceUsd,
+        vehiclesSubkey: vehicleSubkey 
+      }).isAllowed) {
         continue;
       }
       
@@ -520,9 +528,13 @@ Deno.serve(async (req) => {
       .neq("unified_category", "blocked")
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-    // Apply minimum price for vehicles
+    // Determine vehicle subkey for category-specific pricing
+    const vehicleSubkey = isVehicles ? (isVehSubcat ? category : sub) : null;
+    const vehicleMinPrice = getMinPriceForVehicleSubkey(vehicleSubkey);
+
+    // Apply minimum price for vehicles (using category-specific threshold)
     if (isVehicles) {
-      query = query.gte("price_usd", VEHICLES_MIN_PRICE_USD);
+      query = query.gte("price_usd", vehicleMinPrice);
     }
 
     const { data: dbItems, count: dbCount, error: dbError } = await query
@@ -549,8 +561,12 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // For vehicles, apply strict vehicle filter
-      if (isVehicles && !isAllowedMotorListing({ title: item.title, priceUsd: item.priceUsd }).isAllowed) {
+      // For vehicles, apply strict vehicle filter with subkey-specific pricing
+      if (isVehicles && !isAllowedMotorListing({ 
+        title: item.title, 
+        priceUsd: item.priceUsd,
+        vehiclesSubkey: vehicleSubkey 
+      }).isAllowed) {
         filteredCount++;
         continue;
       }

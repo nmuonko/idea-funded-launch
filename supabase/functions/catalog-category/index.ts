@@ -4,10 +4,14 @@
  * Supports DB-first with eBay live pagination for limitless scrolling
  * 
  * Query params:
- * - category (required) - unified category slug or electronics subcategory
- *   Main categories: electronics, motors, home_garden, clothing_shoes_accessories, toys, sporting_goods, etc.
+ * - category (required) - unified category slug
+ *   Main categories: electronics, vehicles, home_garden, clothing_shoes_accessories, 
+ *                   toys, sporting_goods, business_industrial, jewelry_watches, 
+ *                   refurbished, parts_accessories
  *   Electronics subcategories: phones, computers, audio, monitors, tablets, chargers
- *   Aliases: vehicles->motors, clothing->clothing_shoes_accessories, etc.
+ *   Vehicles subcategories: cars_trucks, motorcycles, powersports, boats, rvs_campers, trailers_other, classic_cars
+ *   Parts subcategories: all_parts, car_truck_parts, wheels_tires, moto_scooter_parts, atv_utv_parts, tools_supplies
+ * - sub (optional) - subcategory key
  * - page default 1
  * - pageSize default 20
  * - mode: db | live (default: db)
@@ -15,9 +19,10 @@
  * - env (from header or param)
  * 
  * ALWAYS returns HTTP 200 with stable shape:
- * { status, env, category, page, pageSize, total, hasMore, items, error }
+ * { status, env, category, sub, page, pageSize, total, hasMore, items, error }
  * 
- * Motors: Only FIXED_PRICE (Buy It Now) items, $1500+ minimum, no parts
+ * Vehicles: Only FIXED_PRICE (Buy It Now) items, $1500+ minimum, no parts, no auctions
+ * Parts: All automotive parts and accessories
  * All categories: No books/subscriptions/streaming
  * Amazon/Rainforest: NEVER used for live pagination - eBay only
  */
@@ -29,12 +34,20 @@ import {
   TABS, 
   isValidCategory, 
   isElectronicsSubcategory, 
+  isVehiclesSubcategory,
+  isPartsSubcategory,
   mapCategoryAndSubcategory,
   resolveCategory,
   CATEGORY_ALIASES
 } from "../_shared/categoryMapper.ts";
 import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
-import { isAllowedMotorListing, MOTORS_SEED_QUERIES, MOTORS_MIN_PRICE_USD, buildEbayMotorsFilter } from "../_shared/motorsFilter.ts";
+import { 
+  isAllowedMotorListing, 
+  VEHICLES_MIN_PRICE_USD, 
+  buildEbayVehiclesFilter,
+  VEHICLES_SEED_QUERIES,
+  PARTS_SEED_QUERIES,
+} from "../_shared/motorsFilter.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -51,7 +64,8 @@ const corsHeaders = {
 
 const CATEGORY_SEED_QUERIES: Record<string, string[]> = {
   electronics: ["iphone", "samsung phone", "laptop", "headphones", "monitor", "tablet"],
-  motors: MOTORS_SEED_QUERIES.slice(0, 8),
+  vehicles: VEHICLES_SEED_QUERIES.cars_trucks.slice(0, 6),
+  parts_accessories: PARTS_SEED_QUERIES.all_parts.concat(PARTS_SEED_QUERIES.car_truck_parts.slice(0, 3)),
   home_garden: ["vacuum cleaner", "air fryer", "blender", "power tools", "patio furniture"],
   clothing_shoes_accessories: ["nike hoodie", "adidas shoes", "mens jacket", "womens dress", "sneakers"],
   toys: ["lego set", "kids toy", "rc car", "board game", "action figure"],
@@ -66,13 +80,28 @@ const CATEGORY_SEED_QUERIES: Record<string, string[]> = {
   monitors: ["gaming monitor", "4k monitor", "ultrawide monitor", "27 inch monitor"],
   tablets: ["ipad", "samsung tablet", "android tablet", "ipad pro"],
   chargers: ["phone charger", "laptop charger", "usb-c cable", "wireless charger", "power bank"],
+  // Vehicles subcategories
+  cars_trucks: VEHICLES_SEED_QUERIES.cars_trucks,
+  motorcycles: VEHICLES_SEED_QUERIES.motorcycles,
+  powersports: VEHICLES_SEED_QUERIES.powersports,
+  boats: VEHICLES_SEED_QUERIES.boats,
+  rvs_campers: VEHICLES_SEED_QUERIES.rvs_campers,
+  trailers_other: VEHICLES_SEED_QUERIES.trailers_other,
+  classic_cars: VEHICLES_SEED_QUERIES.classic_cars,
+  // Parts subcategories
+  all_parts: PARTS_SEED_QUERIES.all_parts,
+  car_truck_parts: PARTS_SEED_QUERIES.car_truck_parts,
+  wheels_tires: PARTS_SEED_QUERIES.wheels_tires,
+  moto_scooter_parts: PARTS_SEED_QUERIES.moto_scooter_parts,
+  atv_utv_parts: PARTS_SEED_QUERIES.atv_utv_parts,
+  tools_supplies: PARTS_SEED_QUERIES.tools_supplies,
 };
 
 // Global deny keywords (applied to ALL categories)
 const GLOBAL_DENY_KEYWORDS = [
   "kindle", "audible", "prime video", "subscription", "ebook", "e-book",
   "paperback", "hardcover", "book", "magazine", "manga", "streaming",
-  "audiobook", "textbook", "novel", "comics"
+  "audiobook", "textbook", "novel", "comics", "auction", "bid", "bidding",
 ];
 
 interface CatalogItem {
@@ -88,6 +117,9 @@ interface CatalogItem {
   rating: number | null;
   unifiedCategory: string;
   unifiedSubcategory: string | null;
+  listingType: string | null;
+  vehiclesSubkey: string | null;
+  partsSubkey: string | null;
 }
 
 interface DbItem {
@@ -104,6 +136,9 @@ interface DbItem {
   unified_category: string | null;
   unified_subcategory: string | null;
   category_key: string | null;
+  listing_type: string | null;
+  vehicles_subkey: string | null;
+  parts_subkey: string | null;
 }
 
 function generateRequestId(): string {
@@ -137,11 +172,20 @@ function normalizeItem(row: DbItem): CatalogItem {
     rating: row.rating,
     unifiedCategory: row.unified_category || row.category_key || "electronics",
     unifiedSubcategory: row.unified_subcategory || null,
+    listingType: row.listing_type || null,
+    vehiclesSubkey: row.vehicles_subkey || null,
+    partsSubkey: row.parts_subkey || null,
   };
 }
 
-function mapEbayItemToCatalogItem(item: EbayCatalogItem, category: string, subcategory: string | null): CatalogItem {
-  // Ensure ID is always provider:productId format
+function mapEbayItemToCatalogItem(
+  item: EbayCatalogItem, 
+  category: string, 
+  subcategory: string | null,
+  listingType: string | null,
+  vehiclesSubkey: string | null,
+  partsSubkey: string | null
+): CatalogItem {
   let id = item.id;
   if (!id.includes(":")) {
     id = `${item.provider}:${item.providerProductId}`;
@@ -160,6 +204,9 @@ function mapEbayItemToCatalogItem(item: EbayCatalogItem, category: string, subca
     rating: item.rating,
     unifiedCategory: category,
     unifiedSubcategory: subcategory,
+    listingType,
+    vehiclesSubkey,
+    partsSubkey,
   };
 }
 
@@ -173,22 +220,26 @@ function isBlockedByGlobalDeny(title: string): boolean {
 async function fetchEbayLiveItems(
   supabase: any,
   category: string,
-  isMotors: boolean,
+  sub: string | null,
+  isVehicles: boolean,
+  isParts: boolean,
   page: number,
   pageSize: number,
   requestId: string
 ): Promise<{ items: CatalogItem[]; total: number; hasMore: boolean }> {
-  const seedQueries = CATEGORY_SEED_QUERIES[category] || ["electronics"];
+  // Use subcategory seeds if available, otherwise use category seeds
+  const seedKey = sub || category;
+  const seedQueries = CATEGORY_SEED_QUERIES[seedKey] || CATEGORY_SEED_QUERIES[category] || ["electronics"];
   const queryIndex = (page - 1) % seedQueries.length;
   const query = seedQueries[queryIndex];
   
-  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} page=${page} query="${query}"`);
+  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} query="${query}"`);
   
   try {
-    // For motors, use special filters
+    // For vehicles, use special filters
     const options: any = { marketplace: "EBAY_US" };
-    if (isMotors) {
-      options.filter = buildEbayMotorsFilter();
+    if (isVehicles) {
+      options.filter = buildEbayVehiclesFilter();
     }
     
     const result = await searchEbay(supabase, query, page, pageSize, options);
@@ -209,21 +260,29 @@ async function fetchEbayLiveItems(
         continue;
       }
       
-      // Apply motors filter
-      if (isMotors && !isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.priceUsd }).isAllowed) {
+      // Apply vehicles filter (no auctions, no parts)
+      if (isVehicles && !isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.priceUsd }).isAllowed) {
         continue;
       }
       
       // Map category
-      const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
+      const mappedResult = mapCategoryAndSubcategory({
         title: ebayItem.title,
         provider: "ebay",
+        priceUsd: ebayItem.priceUsd,
       });
       
-      if (mappedCat === "blocked") continue;
+      if (mappedResult.category === "blocked") continue;
       
       // Force to requested category
-      const item = mapEbayItemToCatalogItem(ebayItem, category, subcategory);
+      const item = mapEbayItemToCatalogItem(
+        ebayItem, 
+        category, 
+        sub || mappedResult.subcategory,
+        isVehicles ? "vehicle" : (isParts ? "part" : null),
+        isVehicles ? (sub || mappedResult.vehiclesSubkey || "cars_trucks") : null,
+        isParts ? (sub || mappedResult.partsSubkey || "all_parts") : null
+      );
       
       seenIds.add(item.id);
       allItems.push(item);
@@ -246,6 +305,9 @@ async function fetchEbayLiveItems(
         rating: item.rating,
         unified_category: item.unifiedCategory,
         unified_subcategory: item.unifiedSubcategory,
+        listing_type: item.listingType,
+        vehicles_subkey: item.vehiclesSubkey,
+        parts_subkey: item.partsSubkey,
         updated_at: new Date().toISOString(),
       }));
       
@@ -289,12 +351,13 @@ Deno.serve(async (req) => {
 
   // Parse query params
   let categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || url.searchParams.get("id") || "";
+  const sub = url.searchParams.get("sub") || null;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db"; // db | live
   const provider = url.searchParams.get("provider") || "ebay"; // ebay | rainforest
 
-  // Resolve category aliases (vehicles -> motors, etc.)
+  // Resolve category aliases (motors -> vehicles, etc.)
   const category = resolveCategory(categoryRaw);
 
   // Build response helper
@@ -309,6 +372,7 @@ Deno.serve(async (req) => {
     env: envName,
     category,
     categoryRequested: categoryRaw !== category ? categoryRaw : undefined,
+    sub,
     page,
     pageSize,
     total,
@@ -327,7 +391,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  console.log(`[CAT_CATEGORY_DB] requestId=${requestId} env=${envName} category=${category} (raw=${categoryRaw}) page=${page} pageSize=${pageSize} mode=${mode}`);
+  console.log(`[CAT_CATEGORY_DB] requestId=${requestId} env=${envName} category=${category} sub=${sub} (raw=${categoryRaw}) page=${page} pageSize=${pageSize} mode=${mode}`);
 
   if (!category) {
     console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=MISSING_CATEGORY`);
@@ -340,12 +404,11 @@ Deno.serve(async (req) => {
   // Validate category (after alias resolution)
   if (!isValidCategory(category)) {
     const validCategories = TABS.map(t => t.key).join(", ");
-    const validSubcategories = "phones, computers, audio, monitors, tablets, chargers";
     const validAliases = Object.keys(CATEGORY_ALIASES).join(", ");
     console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=INVALID_CATEGORY category=${category}`);
     return new Response(
       JSON.stringify(buildResponse("error", [], 0, false, { 
-        message: `Invalid category: ${categoryRaw}. Valid: ${validCategories}. Subcategories: ${validSubcategories}. Aliases: ${validAliases}`, 
+        message: `Invalid category: ${categoryRaw}. Valid: ${validCategories}. Aliases: ${validAliases}`, 
         code: "INVALID_CATEGORY" 
       })),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -367,17 +430,22 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Determine query strategy
-    const isSubcategory = isElectronicsSubcategory(category);
-    const isMotors = category === "motors";
+    const isElecSubcat = isElectronicsSubcategory(category);
+    const isVehSubcat = isVehiclesSubcategory(category);
+    const isPartSubcat = isPartsSubcategory(category);
+    const isVehicles = category === "vehicles" || isVehSubcat;
+    const isParts = category === "parts_accessories" || isPartSubcat;
 
     // ─── MODE: LIVE - Use eBay directly with pagination ──────────────────────
     if (mode === "live" && provider === "ebay") {
-      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE category=${category} page=${page}`);
+      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE category=${category} sub=${sub} page=${page}`);
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
-        category,
-        isMotors,
+        isVehSubcat ? "vehicles" : (isPartSubcat ? "parts_accessories" : category),
+        isVehSubcat ? category : (isPartSubcat ? category : sub),
+        isVehicles,
+        isParts,
         page,
         pageSize,
         requestId
@@ -397,26 +465,64 @@ Deno.serve(async (req) => {
     // Build query
     let query = supabase.from("catalog_items").select("*", { count: "exact" });
 
-    if (isSubcategory) {
+    if (isElecSubcat) {
+      // Electronics subcategory
       query = query
         .eq("unified_category", "electronics")
         .eq("unified_subcategory", category);
+    } else if (isVehSubcat) {
+      // Vehicles subcategory
+      query = query
+        .eq("unified_category", "vehicles")
+        .eq("listing_type", "vehicle")
+        .eq("vehicles_subkey", category);
+    } else if (isPartSubcat) {
+      // Parts subcategory
+      query = query
+        .eq("unified_category", "parts_accessories")
+        .eq("listing_type", "part")
+        .eq("parts_subkey", category);
+    } else if (category === "vehicles") {
+      // Main vehicles category
+      query = query
+        .eq("unified_category", "vehicles")
+        .eq("listing_type", "vehicle");
+      if (sub) {
+        query = query.eq("vehicles_subkey", sub);
+      }
+    } else if (category === "parts_accessories") {
+      // Main parts category
+      query = query
+        .eq("unified_category", "parts_accessories")
+        .eq("listing_type", "part");
+      if (sub) {
+        query = query.eq("parts_subkey", sub);
+      }
     } else {
-      // Match both old and new category keys
+      // Other categories (electronics, home_garden, etc.)
+      // Match both old and new category keys for backward compatibility
       const categoryVariants = [category];
-      // Add legacy variants
       if (category === "clothing_shoes_accessories") {
         categoryVariants.push("clothing");
       }
+      // Also check for old "motors" data that should now be "vehicles"
+      if (category === "vehicles") {
+        categoryVariants.push("motors");
+      }
       query = query.in("unified_category", categoryVariants);
+      
+      if (sub) {
+        query = query.eq("unified_subcategory", sub);
+      }
     }
 
     query = query
       .neq("unified_category", "blocked")
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-    if (isMotors) {
-      query = query.gte("price_usd", MOTORS_MIN_PRICE_USD);
+    // Apply minimum price for vehicles
+    if (isVehicles) {
+      query = query.gte("price_usd", VEHICLES_MIN_PRICE_USD);
     }
 
     const { data: dbItems, count: dbCount, error: dbError } = await query
@@ -443,7 +549,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      if (isMotors && !isAllowedMotorListing({ title: item.title, priceUsd: item.priceUsd }).isAllowed) {
+      // For vehicles, apply strict vehicle filter
+      if (isVehicles && !isAllowedMotorListing({ title: item.title, priceUsd: item.priceUsd }).isAllowed) {
         filteredCount++;
         continue;
       }
@@ -465,8 +572,10 @@ Deno.serve(async (req) => {
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
-        category,
-        isMotors,
+        isVehSubcat ? "vehicles" : (isPartSubcat ? "parts_accessories" : category),
+        isVehSubcat ? category : (isPartSubcat ? category : sub),
+        isVehicles,
+        isParts,
         1,
         pageSize,
         requestId
@@ -483,55 +592,26 @@ Deno.serve(async (req) => {
         uniqueMap.set(item.id, item);
       }
     }
-
-    // Sort: inStock first, then has price, then rating
-    const sortedItems = Array.from(uniqueMap.values()).sort((a, b) => {
-      if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
-      const aHasPrice = a.priceUsd != null && a.priceUsd > 0;
-      const bHasPrice = b.priceUsd != null && b.priceUsd > 0;
-      if (aHasPrice !== bHasPrice) return aHasPrice ? -1 : 1;
-      const aRating = a.rating ?? 0;
-      const bRating = b.rating ?? 0;
-      if (aRating !== bRating) return bRating - aRating;
-      return 0;
-    });
+    const uniqueItems = Array.from(uniqueMap.values());
 
     // Paginate
-    const total = dbCount || sortedItems.length;
-    const pageItems = sortedItems.slice(0, pageSize);
-    const hasMore = total > page * pageSize;
+    const pageItems = uniqueItems.slice(0, pageSize);
+    const total = dbCount || uniqueItems.length;
+    const hasMore = uniqueItems.length > pageSize || (dbCount || 0) > page * pageSize;
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CAT_CATEGORY_DB] requestId=${requestId} env=${envName} category=${category} isSubcategory=${isSubcategory} total=${total} returning=${pageItems.length} hasMore=${hasMore} liveTopUp=${liveTopUpCount} durationMs=${durationMs}`);
+    console.log(`[CAT_CATEGORY_DB] requestId=${requestId} category=${category} sub=${sub} total=${total} returned=${pageItems.length} hasMore=${hasMore} liveTopUp=${liveTopUpCount} durationMs=${durationMs}`);
 
     return new Response(
-      JSON.stringify({
-        status: "success",
-        env: envName,
-        category,
-        categoryRequested: categoryRaw !== category ? categoryRaw : undefined,
-        isSubcategory,
-        page,
-        pageSize,
-        total,
-        hasMore,
-        items: pageItems,
-        dbCount: allItems.length - liveTopUpCount,
-        liveTopUpCount,
-        error: null,
-        durationMs,
-      }),
+      JSON.stringify(buildResponse("success", pageItems, total, hasMore, null)),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    const errorStack = err instanceof Error ? err.stack : undefined;
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} env=${envName} category=${category} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
-    if (errorStack) {
-      console.error(`[CAT_CATEGORY_DB] requestId=${requestId} stack=${errorStack}`);
-    }
+    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify(buildResponse("error", [], 0, false, { message: "Internal server error", code: "INTERNAL_ERROR" })),

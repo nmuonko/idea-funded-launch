@@ -3,7 +3,23 @@
  * Returns the list of category tabs from backend (single source of truth)
  * 
  * ALWAYS returns HTTP 200 with stable JSON shape:
- * { status: "success", env, categories: [...], error: null }
+ * { status: "success", env, categories: [...], aliases: {...}, error: null }
+ * 
+ * TOP-LEVEL TABS (in order):
+ * - electronics
+ * - vehicles (NEW - top-level, for actual vehicles ONLY)
+ * - home_garden
+ * - clothing_shoes_accessories
+ * - toys
+ * - sporting_goods
+ * - business_industrial
+ * - jewelry_watches
+ * - refurbished
+ * - parts_accessories (for automotive parts, NOT vehicles)
+ * 
+ * REMOVED:
+ * - "motors" as top-level (split into "vehicles" and "parts_accessories")
+ * - "secure_purchase" (completely removed)
  */
 
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
@@ -25,6 +41,8 @@ interface CategoryResponse {
   title: string;
   icon: string | null;
   order: number;
+  listingType?: "vehicle" | "part";
+  children?: { key: string; title: string; icon?: string; enabled?: boolean }[];
 }
 
 function generateRequestId(): string {
@@ -49,7 +67,7 @@ Deno.serve(async (req) => {
 
   // Validate environment
   if (!ALLOWED_ENVS.includes(envName)) {
-    console.error(`[CAT_TABS] requestId=${requestId} error=BAD_ENV env=${envName}`);
+    console.error(`[CAT_CATEGORIES] requestId=${requestId} error=BAD_ENV env=${envName}`);
     return new Response(
       JSON.stringify({
         status: "error",
@@ -62,20 +80,38 @@ Deno.serve(async (req) => {
     );
   }
 
-  console.log(`[CAT_TABS] requestId=${requestId} env=${envName} method=${req.method}`);
+  console.log(`[CAT_CATEGORIES] requestId=${requestId} env=${envName} method=${req.method}`);
 
   try {
     // Return the fixed TABS list from categoryMapper (single source of truth)
-    // This ensures consistency across the entire app
-    const categories: CategoryResponse[] = TABS.map((tab, index) => ({
-      key: tab.key,
-      title: tab.title,
-      icon: tab.icon || null,
-      order: index + 1,
-    }));
+    const categories: CategoryResponse[] = TABS.map((tab, index) => {
+      const category: CategoryResponse = {
+        key: tab.key,
+        title: tab.title,
+        icon: tab.icon || null,
+        order: index + 1,
+      };
+
+      // Add listing type for vehicles and parts
+      if (tab.listingType) {
+        category.listingType = tab.listingType;
+      }
+
+      // Add children (subcategories) if present
+      if (tab.subcategories && tab.subcategories.length > 0) {
+        category.children = tab.subcategories.map(sub => ({
+          key: sub.key,
+          title: sub.title,
+          icon: sub.icon,
+          enabled: sub.enabled !== false,
+        }));
+      }
+
+      return category;
+    });
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CAT_TABS] requestId=${requestId} env=${envName} count=${categories.length} durationMs=${durationMs}`);
+    console.log(`[CAT_CATEGORIES] requestId=${requestId} env=${envName} count=${categories.length} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
@@ -92,9 +128,9 @@ Deno.serve(async (req) => {
     const errorStack = err instanceof Error ? err.stack : undefined;
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CAT_TABS] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    console.error(`[CAT_CATEGORIES] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
     if (errorStack) {
-      console.error(`[CAT_TABS] requestId=${requestId} stack=${errorStack}`);
+      console.error(`[CAT_CATEGORIES] requestId=${requestId} stack=${errorStack}`);
     }
 
     return new Response(

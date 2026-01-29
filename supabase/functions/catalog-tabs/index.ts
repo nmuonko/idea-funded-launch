@@ -11,6 +11,22 @@
  *   error: null
  * }
  * 
+ * TOP-LEVEL TABS (in order):
+ * - electronics
+ * - vehicles (NEW - top-level, for actual vehicles ONLY)
+ * - home_garden
+ * - clothing_shoes_accessories
+ * - toys
+ * - sporting_goods
+ * - business_industrial
+ * - jewelry_watches
+ * - refurbished
+ * - parts_accessories (for automotive parts, NOT vehicles)
+ * 
+ * REMOVED:
+ * - "motors" as top-level (split into "vehicles" and "parts_accessories")
+ * - "secure_purchase" (completely removed)
+ * 
  * Frontend should use this for:
  * - Drawer menu
  * - Home pills/chips
@@ -18,6 +34,12 @@
  */
 
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
+import { 
+  TABS, 
+  VEHICLES_SUBCATEGORIES, 
+  PARTS_SUBCATEGORIES,
+  ELECTRONICS_SUBCATEGORIES_LIST,
+} from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -31,15 +53,15 @@ const corsHeaders = {
 };
 
 // ─── Category Tab Definitions ────────────────────────────────────────────────
-// Single source of truth for all 9 category tabs
 
-interface CategoryTab {
+interface CategoryTabResponse {
   key: string;
   title: string;
   icon: string;
   providerPriority: string[];
   allowLive: boolean;
-  motorsOnlyVehicles?: boolean;
+  listingType?: "vehicle" | "part";
+  children?: { key: string; title: string; icon?: string; enabled?: boolean }[];
 }
 
 interface HomeSection {
@@ -48,79 +70,12 @@ interface HomeSection {
   limit: number;
 }
 
-// The 9 unified category tabs matching eBay top nav
-const CATEGORY_TABS: CategoryTab[] = [
-  {
-    key: "electronics",
-    title: "Electronics",
-    icon: "bolt",
-    providerPriority: ["ebay", "rainforest"],
-    allowLive: true,
-  },
-  {
-    key: "motors",
-    title: "Motors",
-    icon: "car",
-    providerPriority: ["ebay"],
-    allowLive: true,
-    motorsOnlyVehicles: true,
-  },
-  {
-    key: "home_garden",
-    title: "Home & Garden",
-    icon: "home",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "clothing_shoes_accessories",
-    title: "Clothing, Shoes & Accessories",
-    icon: "shirt",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "toys",
-    title: "Toys",
-    icon: "puzzle",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "sporting_goods",
-    title: "Sporting Goods",
-    icon: "dumbbell",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "business_industrial",
-    title: "Business & Industrial",
-    icon: "factory",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "jewelry_watches",
-    title: "Jewelry & Watches",
-    icon: "watch",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  {
-    key: "refurbished",
-    title: "Refurbished",
-    icon: "refresh-ccw",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-];
-
 // Home sections to display on home screen
 const HOME_SECTIONS: HomeSection[] = [
   { key: "electronics", title: "Electronics", limit: 10 },
-  { key: "motors", title: "Motors", limit: 10 },
+  { key: "vehicles", title: "Vehicles", limit: 10 },
   { key: "home_garden", title: "Home & Garden", limit: 10 },
+  { key: "clothing_shoes_accessories", title: "Clothing", limit: 10 },
 ];
 
 function generateRequestId(): string {
@@ -161,14 +116,42 @@ Deno.serve(async (req) => {
   console.log(`[CAT_TABS] requestId=${requestId} env=${envName} method=${req.method}`);
 
   try {
+    // Build response tabs from categoryMapper TABS
+    const responseTabs: CategoryTabResponse[] = TABS.map(tab => {
+      const responseTab: CategoryTabResponse = {
+        key: tab.key,
+        title: tab.title,
+        icon: tab.icon || "package",
+        providerPriority: tab.providerPriority || ["ebay"],
+        allowLive: tab.allowLive !== false,
+      };
+
+      // Add listing type for vehicles and parts
+      if (tab.listingType) {
+        responseTab.listingType = tab.listingType;
+      }
+
+      // Add children (subcategories) if present
+      if (tab.subcategories && tab.subcategories.length > 0) {
+        responseTab.children = tab.subcategories.map(sub => ({
+          key: sub.key,
+          title: sub.title,
+          icon: sub.icon,
+          enabled: sub.enabled !== false, // Default to true if not specified
+        }));
+      }
+
+      return responseTab;
+    });
+
     const durationMs = Date.now() - startTime;
-    console.log(`[CAT_TABS] requestId=${requestId} env=${envName} tabsCount=${CATEGORY_TABS.length} sectionsCount=${HOME_SECTIONS.length} durationMs=${durationMs}`);
+    console.log(`[CAT_TABS] requestId=${requestId} env=${envName} tabsCount=${responseTabs.length} sectionsCount=${HOME_SECTIONS.length} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
         status: "success",
         env: envName,
-        tabs: CATEGORY_TABS,
+        tabs: responseTabs,
         homeSections: HOME_SECTIONS,
         error: null,
       }),

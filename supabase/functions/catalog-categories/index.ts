@@ -2,15 +2,21 @@
  * catalog-categories
  * Returns the list of enabled category tabs from catalog_categories table
  * Single source of truth for frontend tabs
+ * 
+ * ALWAYS returns HTTP 200 with stable JSON shape
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
+
+const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment",
+  "Access-Control-Max-Age": "86400",
 };
 
 interface CategoryRow {
@@ -33,16 +39,59 @@ interface CategoryResponse {
   order: number;
 }
 
+function generateRequestId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
+
 Deno.serve(async (req) => {
+  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const envName = getEnvironmentFromRequest(req);
+  const requestId = generateRequestId();
+  const startTime = Date.now();
+  let envName: EnvironmentName = "production";
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    envName = getEnvironmentFromRequest(req);
+  } catch {
+    envName = "production";
+  }
+
+  // Validate environment
+  if (!ALLOWED_ENVS.includes(envName)) {
+    console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} error=BAD_ENV env=${envName}`);
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        env: envName,
+        categories: [],
+        error: { message: `Invalid environment: ${envName}`, code: "BAD_ENV" },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  console.log(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} method=${req.method}`);
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} error=MISSING_CONFIG`);
+      return new Response(
+        JSON.stringify({
+          status: "error",
+          env: envName,
+          categories: [],
+          error: { message: "Backend configuration error", code: "CONFIG_ERROR" },
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Fetch enabled categories ordered by priority
@@ -53,7 +102,7 @@ Deno.serve(async (req) => {
       .order("priority", { ascending: true });
 
     if (error) {
-      console.error("[CATALOG_CATEGORIES] DB error:", error);
+      console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} error=DB_ERROR message=${error.message}`);
       return new Response(
         JSON.stringify({
           status: "error",
@@ -96,7 +145,8 @@ Deno.serve(async (req) => {
       };
     });
 
-    console.log(`[CATALOG_CATEGORIES] Returning ${categories.length} categories for env=${envName}`);
+    const durationMs = Date.now() - startTime;
+    console.log(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} count=${categories.length} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
@@ -108,7 +158,15 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("[CATALOG_CATEGORIES] Error:", err);
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    const durationMs = Date.now() - startTime;
+    
+    console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    if (errorStack) {
+      console.error(`[CATALOG_CATEGORIES_API] requestId=${requestId} stack=${errorStack}`);
+    }
+
     return new Response(
       JSON.stringify({
         status: "error",

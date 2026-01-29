@@ -10,18 +10,22 @@
  * - env (from header or param)
  * - mode default "db" (db|live) - live only in staging
  * 
- * Returns ALWAYS 200 with stable shape:
+ * ALWAYS returns HTTP 200 with stable shape:
  * { status, env, key, page, pageSize, total, items, error }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
+
+const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment",
+  "Access-Control-Max-Age": "86400",
   "Cache-Control": "public, max-age=120",
 };
 
@@ -68,6 +72,10 @@ interface DbItem {
   category_key: string | null;
 }
 
+function generateRequestId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
+
 function normalizeItem(row: DbItem, categoryKey: string): CatalogItem {
   let images: string[] = [];
   if (Array.isArray(row.images)) {
@@ -103,22 +111,50 @@ function isBlockedByCustomDeny(title: string, denyKeywords: string[]): boolean {
 }
 
 Deno.serve(async (req) => {
+  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const envName = getEnvironmentFromRequest(req);
+  const requestId = generateRequestId();
+  const startTime = Date.now();
   const url = new URL(req.url);
-  
-  // Support both 'key' and 'id' params for backward compatibility
+
+  let envName: EnvironmentName = "production";
+  try {
+    envName = getEnvironmentFromRequest(req);
+  } catch {
+    envName = "production";
+  }
+
+  // Parse query params early for logging
   const key = url.searchParams.get("key") || url.searchParams.get("id") || "";
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db";
 
-  console.log(`[CATALOG_CATEGORY] key=${key}, page=${page}, pageSize=${pageSize}, mode=${mode}, env=${envName}`);
+  // Validate environment
+  if (!ALLOWED_ENVS.includes(envName)) {
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=BAD_ENV env=${envName} key=${key}`);
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        env: envName,
+        key,
+        page,
+        pageSize,
+        total: 0,
+        items: [],
+        error: { message: `Invalid environment: ${envName}`, code: "BAD_ENV" },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} page=${page} pageSize=${pageSize} mode=${mode}`);
 
   if (!key) {
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=MISSING_KEY`);
     return new Response(
       JSON.stringify({
         status: "error",
@@ -135,13 +171,32 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=MISSING_CONFIG`);
+      return new Response(
+        JSON.stringify({
+          status: "error",
+          env: envName,
+          key,
+          page,
+          pageSize,
+          total: 0,
+          items: [],
+          error: { message: "Backend configuration error", code: "CONFIG_ERROR" },
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Check if catalog is enabled
     const envConfig = await getEnvironmentConfig(supabase, envName);
     if (!isCatalogEnabled(envConfig)) {
+      console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} catalog_disabled`);
       return new Response(
         JSON.stringify({
           status: "error",
@@ -165,7 +220,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (catError || !categoryRow) {
-      console.error("[CATALOG_CATEGORY] Category not found:", key, catError);
+      console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=CATEGORY_NOT_FOUND key=${key} dbError=${catError?.message || "none"}`);
       return new Response(
         JSON.stringify({
           status: "error",
@@ -182,6 +237,7 @@ Deno.serve(async (req) => {
     }
 
     if (!categoryRow.enabled) {
+      console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} key=${key} category_disabled`);
       return new Response(
         JSON.stringify({
           status: "success",
@@ -239,7 +295,7 @@ Deno.serve(async (req) => {
         .limit(fetchLimit);
 
       if (dbError) {
-        console.error(`[CATALOG_CATEGORY] DB error for provider ${provider}:`, dbError);
+        console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} provider=${provider} error=DB_ERROR message=${dbError.message}`);
         continue;
       }
 
@@ -321,7 +377,8 @@ Deno.serve(async (req) => {
     const endIdx = startIdx + pageSize;
     const pageItems = sortedItems.slice(startIdx, endIdx);
 
-    console.log(`[CATALOG_CATEGORY] key=${key}, total=${total}, returning=${pageItems.length}, providers=${providers.join(",")}`);
+    const durationMs = Date.now() - startTime;
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} total=${total} returning=${pageItems.length} providers=${providers.join(",")} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
@@ -337,7 +394,15 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("[CATALOG_CATEGORY] Error:", err);
+    const errorMessage = err instanceof Error ? err.message : "Unknown error";
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    const durationMs = Date.now() - startTime;
+    
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    if (errorStack) {
+      console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} stack=${errorStack}`);
+    }
+
     return new Response(
       JSON.stringify({
         status: "error",

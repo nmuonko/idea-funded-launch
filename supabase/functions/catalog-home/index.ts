@@ -18,14 +18,23 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { filterDisallowedItems, isDisallowedItem } from "../_shared/contentBlocker.ts";
+
+const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers":
+    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment",
+  "Access-Control-Max-Age": "86400",
   "Cache-Control": "public, max-age=60",
 };
+
+function generateRequestId(): string {
+  return crypto.randomUUID().slice(0, 8);
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -288,19 +297,49 @@ async function getCategories(supabase: any): Promise<CategoryTab[]> {
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
+  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const requestId = generateRequestId();
   const startTime = Date.now();
   const url = new URL(req.url);
-  const envName = getEnvironmentFromRequest(req);
+  
+  let envName: EnvironmentName = "production";
+  try {
+    envName = getEnvironmentFromRequest(req);
+  } catch {
+    envName = "production";
+  }
+
+  // Validate environment
+  if (!ALLOWED_ENVS.includes(envName)) {
+    console.error(`[CATALOG_HOME_API] requestId=${requestId} error=BAD_ENV env=${envName}`);
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        env: envName,
+        sections: [],
+        homeCategories: [],
+        homeDefaultCategoryKey: "electronics",
+        sectionCount: 0,
+        itemCount: 0,
+        source: "db-first",
+        error: { message: `Invalid environment: ${envName}`, code: "BAD_ENV" },
+        durationMs: Date.now() - startTime,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} method=${req.method} url=${url.pathname}`);
 
   const buildResponse = (
     status: "success" | "error",
     sections: Section[],
     homeCategories: CategoryTab[],
-    error: string | null
+    error: { message: string; code: string } | null
   ) => ({
     status,
     env: envName,
@@ -319,7 +358,8 @@ Deno.serve(async (req: Request) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     
     if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildResponse("error", [], [], "Backend configuration error")), {
+      console.error(`[CATALOG_HOME_API] requestId=${requestId} error=MISSING_CONFIG`);
+      return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Backend configuration error", code: "CONFIG_ERROR" })), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -329,7 +369,8 @@ Deno.serve(async (req: Request) => {
 
     const envConfig = await getEnvironmentConfig(supabase, envName);
     if (!isCatalogEnabled(envConfig)) {
-      return new Response(JSON.stringify(buildResponse("error", [], [], "Catalog not enabled")), {
+      console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} catalog_disabled`);
+      return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Catalog not enabled", code: "CATALOG_DISABLED" })), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -381,7 +422,8 @@ Deno.serve(async (req: Request) => {
       sectionCounts[sectionConfig.key] = filteredItems.length;
     }
 
-    debugLog("HOME_SECTIONS", { sectionKeys: Object.keys(sectionCounts), counts: sectionCounts });
+    const durationMs = Date.now() - startTime;
+    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} sectionKeys=${Object.keys(sectionCounts).join(",")} counts=${JSON.stringify(sectionCounts)} durationMs=${durationMs}`);
 
     return new Response(JSON.stringify(buildResponse("success", sections, homeCategories, null)), {
       status: 200,
@@ -390,9 +432,15 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[CATALOG_HOME] Error: ${errorMessage} durationMs=${Date.now() - startTime}`);
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    const durationMs = Date.now() - startTime;
     
-    return new Response(JSON.stringify(buildResponse("error", [], [], "Catalog service error")), {
+    console.error(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    if (errorStack) {
+      console.error(`[CATALOG_HOME_API] requestId=${requestId} stack=${errorStack}`);
+    }
+    
+    return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Catalog service error", code: "INTERNAL_ERROR" })), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

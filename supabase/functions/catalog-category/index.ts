@@ -439,6 +439,31 @@ async function fetchEbayLiveItems(
   }
 }
 
+// ─── UNIFIED CATEGORY KEY MAPPING ─────────────────────────────────────────
+// Maps legacy params to unified keys: vehicles_cars_trucks, vehicles_motorcycles, etc.
+const VEHICLE_SUB_TO_UNIFIED: Record<string, string> = {
+  cars_trucks: "vehicles_cars_trucks",
+  motorcycles: "vehicles_motorcycles",
+  powersports: "vehicles_powersports",
+  boats: "vehicles_boats",
+  rvs_campers: "vehicles_rvs_campers",
+  trailers_other: "vehicles_trailers_other",
+  classic_cars: "vehicles_classic_cars",
+  parts_accessories: "vehicles_parts_accessories",
+};
+
+// Reverse mapping: unified key -> subcategory
+const UNIFIED_TO_VEHICLE_SUB: Record<string, string> = {
+  vehicles_cars_trucks: "cars_trucks",
+  vehicles_motorcycles: "motorcycles",
+  vehicles_powersports: "powersports",
+  vehicles_boats: "boats",
+  vehicles_rvs_campers: "rvs_campers",
+  vehicles_trailers_other: "trailers_other",
+  vehicles_classic_cars: "classic_cars",
+  vehicles_parts_accessories: "parts_accessories",
+};
+
 Deno.serve(async (req) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -457,65 +482,93 @@ Deno.serve(async (req) => {
   }
 
   // Parse query params
-  let categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || url.searchParams.get("id") || "";
-  const sub = url.searchParams.get("sub") || null;
+  const categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || url.searchParams.get("id") || "";
+  const subRaw = url.searchParams.get("sub") || null;
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db"; // db | live
 
-  // Resolve category aliases (motors -> vehicles, etc.)
-  const category = resolveCategory(categoryRaw);
+  // ─── NORMALIZE CATEGORY ─────────────────────────────────────────────────────
+  // Resolve finalCategory: handles unified keys AND legacy params
+  let finalCategory: string;
+  let effectiveSub: string | null = null;
 
-  // Build response helper
+  // Case 1: Already a unified key like "vehicles_cars_trucks"
+  if (categoryRaw.startsWith("vehicles_") && UNIFIED_TO_VEHICLE_SUB[categoryRaw]) {
+    finalCategory = "vehicles";
+    effectiveSub = UNIFIED_TO_VEHICLE_SUB[categoryRaw];
+  }
+  // Case 2: Legacy params: category=vehicles & sub=cars_trucks
+  else if ((categoryRaw === "vehicles" || categoryRaw === "motors") && subRaw && VEHICLE_SUB_TO_UNIFIED[subRaw]) {
+    finalCategory = "vehicles";
+    effectiveSub = subRaw;
+  }
+  // Case 3: Direct subcategory access (e.g., category=cars_trucks)
+  else if (isVehiclesSubcategory(categoryRaw)) {
+    finalCategory = "vehicles";
+    effectiveSub = categoryRaw;
+  }
+  // Case 4: Parts unified key like "vehicles_parts_accessories"
+  else if (categoryRaw === "vehicles_parts_accessories") {
+    finalCategory = "parts_accessories";
+    effectiveSub = null;
+  }
+  // Case 5: Normal category resolution with alias support
+  else {
+    finalCategory = resolveCategory(categoryRaw);
+    effectiveSub = subRaw;
+  }
+
+  // Build response helper - ALWAYS returns status: "success", uses warning for errors
   const buildResponse = (
-    status: "success" | "error",
     items: CatalogItem[],
     total: number,
     hasMore: boolean,
-    error: { message: string; code: string } | null
+    warning: { message: string; code: string; debugId?: string } | null
   ) => ({
-    status,
+    status: "success" as const,
     env: envName,
-    category,
-    categoryRequested: categoryRaw !== category ? categoryRaw : undefined,
-    sub,
+    category: finalCategory,
+    categoryRequested: categoryRaw !== finalCategory ? categoryRaw : undefined,
+    sub: effectiveSub,
     page,
     pageSize,
     total,
     hasMore,
     items,
-    error,
+    warning,
     durationMs: Date.now() - startTime,
   });
 
-  // Validate environment
+  // Log the category resolution
+  console.log(`[CAT_CATEGORY] requestId=${requestId} finalCategory=${finalCategory} effectiveSub=${effectiveSub} categoryRaw=${categoryRaw} subRaw=${subRaw} page=${page} pageSize=${pageSize} mode=${mode} env=${envName}`);
+
+  // Validate environment - return success with warning, not error
   if (!ALLOWED_ENVS.includes(envName)) {
-    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=BAD_ENV env=${envName} category=${category}`);
+    console.error(`[CAT_CATEGORY] requestId=${requestId} warning=BAD_ENV env=${envName}`);
     return new Response(
-      JSON.stringify(buildResponse("error", [], 0, false, { message: `Invalid environment: ${envName}`, code: "BAD_ENV" })),
+      JSON.stringify(buildResponse([], 0, false, { message: `Invalid environment: ${envName}`, code: "BAD_ENV", debugId: requestId })),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  console.log(`[CAT_CATEGORY_DB] requestId=${requestId} env=${envName} category=${category} sub=${sub} (raw=${categoryRaw}) page=${page} pageSize=${pageSize} mode=${mode}`);
-
-  if (!category) {
-    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=MISSING_CATEGORY`);
+  if (!finalCategory) {
+    console.error(`[CAT_CATEGORY] requestId=${requestId} warning=MISSING_CATEGORY`);
     return new Response(
-      JSON.stringify(buildResponse("error", [], 0, false, { message: "Missing required 'category' parameter", code: "MISSING_CATEGORY" })),
+      JSON.stringify(buildResponse([], 0, false, { message: "Missing required 'category' parameter", code: "MISSING_CATEGORY", debugId: requestId })),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
   // Validate category (after alias resolution)
-  if (!isValidCategory(category)) {
+  if (!isValidCategory(finalCategory)) {
     const validCategories = TABS.map(t => t.key).join(", ");
-    const validAliases = Object.keys(CATEGORY_ALIASES).join(", ");
-    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=INVALID_CATEGORY category=${category}`);
+    console.error(`[CAT_CATEGORY] requestId=${requestId} warning=INVALID_CATEGORY category=${finalCategory}`);
     return new Response(
-      JSON.stringify(buildResponse("error", [], 0, false, { 
-        message: `Invalid category: ${categoryRaw}. Valid: ${validCategories}. Aliases: ${validAliases}`, 
-        code: "INVALID_CATEGORY" 
+      JSON.stringify(buildResponse([], 0, false, { 
+        message: `Invalid category: ${categoryRaw}. Valid: ${validCategories}`, 
+        code: "INVALID_CATEGORY",
+        debugId: requestId
       })),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -526,9 +579,9 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
     if (!supabaseUrl || !supabaseKey) {
-      console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=MISSING_CONFIG`);
+      console.error(`[CAT_CATEGORY] requestId=${requestId} warning=MISSING_CONFIG`);
       return new Response(
-        JSON.stringify(buildResponse("error", [], 0, false, { message: "Backend configuration error", code: "CONFIG_ERROR" })),
+        JSON.stringify(buildResponse([], 0, false, { message: "Backend configuration error", code: "CONFIG_ERROR", debugId: requestId })),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -536,23 +589,34 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Determine query strategy
-    const isElecSubcat = isElectronicsSubcategory(category);
-    const isVehSubcat = isVehiclesSubcategory(category);
-    const isPartSubcat = isPartsSubcategory(category);
-    const isVehicles = category === "vehicles" || isVehSubcat;
-    const isParts = category === "parts_accessories" || isPartSubcat;
+    const isElecSubcat = isElectronicsSubcategory(finalCategory);
+    const isVehSubcat = isVehiclesSubcategory(effectiveSub || "");
+    const isPartSubcat = isPartsSubcategory(effectiveSub || "");
+    const isVehicles = finalCategory === "vehicles" || isVehSubcat;
+    const isParts = finalCategory === "parts_accessories" || isPartSubcat;
 
-    // ─── LIVE eBay Mode ──────────────────────────────────────────────────────
-    // Use LIVE for: explicit mode=live, OR (mode=auto AND vehicles/motors)
-    const useLiveEbay = mode === "live" || (mode === "auto" && (isVehicles || isParts));
+    // ─── PROVIDER/MODE DECISION ──────────────────────────────────────────────
+    // For vehicles: ALWAYS use LIVE eBay (no credit worries per user requirements)
+    // For other eBay categories: use LIVE if requested, else DB-first
+    // For Amazon/Rainforest: NEVER live, always DB with caching
+    const isEbayCategory = isVehicles || isParts || 
+      ["electronics", "home_garden", "clothing_shoes_accessories", "toys", "sporting_goods", 
+       "business_industrial", "jewelry_watches", "refurbished"].includes(finalCategory);
+    
+    // Vehicles ALWAYS go LIVE for eBay (as per user requirement: "no credit worries")
+    const useLiveEbay = isVehicles || mode === "live" || (mode === "auto" && isEbayCategory);
+    const effectiveMode = useLiveEbay ? "live" : "db";
+    const provider = isEbayCategory ? "ebay" : "rainforest";
+
+    console.log(`[CAT_CATEGORY] requestId=${requestId} provider=${provider} effectiveMode=${effectiveMode} isVehicles=${isVehicles} isParts=${isParts}`);
 
     if (useLiveEbay) {
-      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE category=${category} sub=${sub} page=${page}`);
+      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE finalCategory=${finalCategory} effectiveSub=${effectiveSub} page=${page} offset=${(page-1)*pageSize}`);
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
-        isVehSubcat ? "vehicles" : (isPartSubcat ? "parts_accessories" : category),
-        isVehSubcat ? category : (isPartSubcat ? category : sub),
+        finalCategory,
+        effectiveSub,
         isVehicles,
         isParts,
         page,
@@ -560,10 +624,10 @@ Deno.serve(async (req) => {
         requestId
       );
       
-      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} total=${liveResult.total} returned=${liveResult.items.length} hasMore=${liveResult.hasMore}`);
+      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${finalCategory} sub=${effectiveSub} total=${liveResult.total} returned=${liveResult.items.length} hasMore=${liveResult.hasMore}`);
       
       return new Response(
-        JSON.stringify(buildResponse("success", liveResult.items, liveResult.total, liveResult.hasMore, null)),
+        JSON.stringify(buildResponse(liveResult.items, liveResult.total, liveResult.hasMore, null)),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -578,48 +642,48 @@ Deno.serve(async (req) => {
       // Electronics subcategory
       query = query
         .eq("unified_category", "electronics")
-        .eq("unified_subcategory", category);
+        .eq("unified_subcategory", finalCategory);
     } else if (isVehSubcat) {
       // Vehicles subcategory
       query = query
         .eq("unified_category", "vehicles")
         .eq("listing_type", "vehicle")
-        .eq("vehicles_subkey", category);
+        .eq("vehicles_subkey", effectiveSub);
     } else if (isPartSubcat) {
       // Parts subcategory
       query = query
         .eq("unified_category", "parts_accessories")
         .eq("listing_type", "part")
-        .eq("parts_subkey", category);
-    } else if (category === "vehicles") {
+        .eq("parts_subkey", effectiveSub);
+    } else if (finalCategory === "vehicles") {
       // Main vehicles category
       query = query
         .eq("unified_category", "vehicles")
         .eq("listing_type", "vehicle");
-      if (sub) {
-        query = query.eq("vehicles_subkey", sub);
+      if (effectiveSub) {
+        query = query.eq("vehicles_subkey", effectiveSub);
       }
-    } else if (category === "parts_accessories") {
+    } else if (finalCategory === "parts_accessories") {
       // Main parts category
       query = query
         .eq("unified_category", "parts_accessories")
         .eq("listing_type", "part");
-      if (sub) {
-        query = query.eq("parts_subkey", sub);
+      if (effectiveSub) {
+        query = query.eq("parts_subkey", effectiveSub);
       }
     } else {
       // Other categories (electronics, home_garden, etc.)
-      const categoryVariants = [category];
-      if (category === "clothing_shoes_accessories") {
+      const categoryVariants = [finalCategory];
+      if (finalCategory === "clothing_shoes_accessories") {
         categoryVariants.push("clothing");
       }
-      if (category === "vehicles") {
+      if (finalCategory === "vehicles") {
         categoryVariants.push("motors");
       }
       query = query.in("unified_category", categoryVariants);
       
-      if (sub) {
-        query = query.eq("unified_subcategory", sub);
+      if (effectiveSub) {
+        query = query.eq("unified_subcategory", effectiveSub);
       }
     }
 
@@ -628,7 +692,7 @@ Deno.serve(async (req) => {
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
     // Get minimum price for vehicles (ENFORCED)
-    const vehicleSubkey = isVehicles ? (isVehSubcat ? category : sub) : null;
+    const vehicleSubkey = isVehicles ? (isVehSubcat ? effectiveSub : effectiveSub) : null;
     const vehicleMinPrice = getMinPriceForVehicleSubkey(vehicleSubkey);
 
     // Apply minimum price for vehicles ($1500+)
@@ -643,7 +707,7 @@ Deno.serve(async (req) => {
     if (dbError) {
       console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=DB_ERROR message=${dbError.message}`);
       return new Response(
-        JSON.stringify(buildResponse("error", [], 0, false, { message: "Database error", code: "DB_ERROR" })),
+        JSON.stringify(buildResponse([], 0, false, { message: "Database error", code: "DB_ERROR", debugId: requestId })),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -690,8 +754,8 @@ Deno.serve(async (req) => {
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
-        isVehSubcat ? "vehicles" : (isPartSubcat ? "parts_accessories" : category),
-        isVehSubcat ? category : (isPartSubcat ? category : sub),
+        finalCategory,
+        effectiveSub,
         isVehicles,
         isParts,
         1,
@@ -713,7 +777,7 @@ Deno.serve(async (req) => {
     let uniqueItems = Array.from(uniqueMap.values());
 
     // ─── CLOTHING BRAND DIVERSITY ────────────────────────────────────────────
-    const isClothing = category === "clothing_shoes_accessories" || category === "clothing" || category === "fashion";
+    const isClothing = finalCategory === "clothing_shoes_accessories" || finalCategory === "clothing" || finalCategory === "fashion";
     if (isClothing && page === 1 && uniqueItems.length > 0) {
       console.log(`[CAT_CATEGORY_DIVERSITY] requestId=${requestId} Applying brand diversity to ${uniqueItems.length} clothing items`);
       logBrandDistribution(uniqueItems, `[CAT_CATEGORY_DIVERSITY_BEFORE] requestId=${requestId}`);
@@ -730,10 +794,10 @@ Deno.serve(async (req) => {
     const hasMore = uniqueItems.length > pageSize || (dbCount || 0) > page * pageSize;
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CAT_CATEGORY_DB] requestId=${requestId} category=${category} sub=${sub} total=${total} returned=${pageItems.length} hasMore=${hasMore} liveTopUp=${liveTopUpCount} durationMs=${durationMs}`);
+    console.log(`[CAT_CATEGORY_DB] requestId=${requestId} category=${finalCategory} sub=${effectiveSub} total=${total} returned=${pageItems.length} hasMore=${hasMore} liveTopUp=${liveTopUpCount} durationMs=${durationMs}`);
 
     return new Response(
-      JSON.stringify(buildResponse("success", pageItems, total, hasMore, null)),
+      JSON.stringify(buildResponse(pageItems, total, hasMore, null)),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
@@ -741,10 +805,10 @@ Deno.serve(async (req) => {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CAT_CATEGORY_DB] requestId=${requestId} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    console.error(`[CAT_CATEGORY] requestId=${requestId} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
 
     return new Response(
-      JSON.stringify(buildResponse("error", [], 0, false, { message: "Internal server error", code: "INTERNAL_ERROR" })),
+      JSON.stringify(buildResponse([], 0, false, { message: "Internal server error", code: "INTERNAL_ERROR", debugId: requestId })),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }

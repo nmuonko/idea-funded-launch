@@ -110,19 +110,11 @@ interface SectionConfig {
 
 const HOME_SECTIONS: SectionConfig[] = [
   {
-    key: "trending",
-    title: "Trending",
+    key: "electronics",
+    title: "Electronics",
     unifiedCategory: "electronics",
     maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["iphone", "samsung galaxy", "laptop", "headphones"],
-  },
-  {
-    key: "phones",
-    title: "Phones",
-    unifiedCategory: "electronics",
-    keywordFilter: ["iphone", "samsung", "phone", "pixel", "galaxy", "smartphone"],
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["iphone 15", "samsung phone unlocked", "android phone"],
+    seedQueries: ["iphone unlocked", "iphone 15 unlocked", "iphone 14 unlocked", "samsung galaxy unlocked", "ipad", "macbook"],
   },
   {
     key: "vehicles",
@@ -135,18 +127,18 @@ const HOME_SECTIONS: SectionConfig[] = [
     seedQueries: VEHICLES_SEED_QUERIES.cars_trucks.slice(0, 5),
   },
   {
-    key: "clothing_shoes_accessories",
-    title: "Clothing",
-    unifiedCategory: "clothing_shoes_accessories",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["nike hoodie", "adidas shoes", "mens jacket"],
-  },
-  {
     key: "home_garden",
     title: "Home & Garden",
     unifiedCategory: "home_garden",
     maxItems: HOME_PAGE_SIZE,
     seedQueries: ["vacuum cleaner", "air fryer", "power tools"],
+  },
+  {
+    key: "clothing_shoes_accessories",
+    title: "Clothing",
+    unifiedCategory: "clothing_shoes_accessories",
+    maxItems: HOME_PAGE_SIZE,
+    seedQueries: ["nike hoodie", "adidas shoes", "mens jacket"],
   },
   {
     key: "jewelry_watches",
@@ -156,6 +148,49 @@ const HOME_SECTIONS: SectionConfig[] = [
     seedQueries: ["mens watch", "gold necklace", "diamond ring"],
   },
 ];
+
+// ─── iPhone Priority Ranking ─────────────────────────────────────────────────
+
+const PRIORITY_KEYWORDS_TIER1 = ["iphone", "apple iphone"]; // Highest priority
+const PRIORITY_KEYWORDS_TIER2 = ["samsung", "galaxy", "ipad", "macbook"]; // High priority
+const PRIORITY_KEYWORDS_TIER3 = ["pixel", "playstation", "ps5", "xbox", "nintendo", "airpods"]; // Medium priority
+
+function getItemPriority(title: string): number {
+  const titleLower = (title || "").toLowerCase();
+  
+  // Tier 1: iPhones get highest priority (0)
+  for (const kw of PRIORITY_KEYWORDS_TIER1) {
+    if (titleLower.includes(kw)) return 0;
+  }
+  
+  // Tier 2: Samsung/iPad/Macbook (1)
+  for (const kw of PRIORITY_KEYWORDS_TIER2) {
+    if (titleLower.includes(kw)) return 1;
+  }
+  
+  // Tier 3: Pixel/PlayStation/Xbox (2)
+  for (const kw of PRIORITY_KEYWORDS_TIER3) {
+    if (titleLower.includes(kw)) return 2;
+  }
+  
+  // Everything else (3)
+  return 3;
+}
+
+function rankElectronicsItems(items: CatalogItem[]): CatalogItem[] {
+  return items.sort((a, b) => {
+    const priorityA = getItemPriority(a.title || "");
+    const priorityB = getItemPriority(b.title || "");
+    
+    // Sort by priority first (lower is better)
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    
+    // Then by price (higher first for premium feel)
+    const priceA = a.priceUsd || 0;
+    const priceB = b.priceUsd || 0;
+    return priceB - priceA;
+  });
+}
 
 // ─── Content Blocking ────────────────────────────────────────────────────────
 
@@ -492,11 +527,21 @@ Deno.serve(async (req: Request) => {
 
     for (const sectionConfig of HOME_SECTIONS) {
       // Step 1: Get from DB
-      const dbItems = await getSectionFromDB(
+      let dbItems = await getSectionFromDB(
         supabase,
         sectionConfig,
-        sectionConfig.maxItems
+        sectionConfig.maxItems + 10 // Fetch extra for filtering/ranking
       );
+      
+      // Step 1.5: Apply iPhone priority ranking for electronics
+      if (sectionConfig.unifiedCategory === "electronics") {
+        dbItems = rankElectronicsItems(dbItems);
+        
+        // Log ranking results
+        const iphoneCount = dbItems.filter(i => (i.title || "").toLowerCase().includes("iphone")).length;
+        const topTitles = dbItems.slice(0, 3).map(i => (i.title || "").slice(0, 40));
+        console.log(`[HOME_RANK] electronicsCount=${dbItems.length} iphoneCount=${iphoneCount} topTitles=${JSON.stringify(topTitles)}`);
+      }
 
       // Filter blocked items
       let filteredDbItems = dbItems

@@ -28,16 +28,35 @@ function checkAdminKey(req: Request): boolean {
 }
 
 // Default seed queries for all categories - Updated for VEHICLES + PARTS structure
+// PRIORITY: Electronics (especially iPhone) must be heavily seeded for home screen
 const DEFAULT_SEEDS = [
-  // ============ ELECTRONICS ============
-  // Phones
-  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone", query: "iphone 15 unlocked" },
-  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung", query: "samsung galaxy s24 unlocked" },
+  // ============ ELECTRONICS - IPHONE PRIORITY ============
+  // iPhones - Multiple queries to ensure abundance
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_unlocked", query: "iphone unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_15", query: "iphone 15 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_14", query: "iphone 14 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_13", query: "iphone 13 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_iphone_pro", query: "iphone pro max unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_apple_iphone", query: "apple iphone new" },
+  
+  // Samsung Galaxy - Secondary priority
+  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung_unlocked", query: "samsung galaxy unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung_s24", query: "samsung galaxy s24 unlocked" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_samsung_s23", query: "samsung galaxy s23 unlocked" },
+  
+  // Other phones
   { category: "electronics", provider: "ebay", seed_key: "electronics_pixel", query: "google pixel phone unlocked" },
   
-  // Computers
-  { category: "electronics", provider: "ebay", seed_key: "electronics_macbook", query: "macbook pro laptop" },
+  // Apple Tablets
+  { category: "electronics", provider: "ebay", seed_key: "electronics_ipad_pro", query: "ipad pro" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_ipad", query: "ipad tablet apple" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_tablet", query: "samsung galaxy tab" },
+  
+  // Computers - Macbook priority
+  { category: "electronics", provider: "ebay", seed_key: "electronics_macbook_pro", query: "macbook pro laptop" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_macbook_air", query: "macbook air laptop" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_laptop", query: "laptop computer new" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_gaming_laptop", query: "gaming laptop" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_gaming_pc", query: "gaming pc desktop" },
   
   // Audio
@@ -49,9 +68,10 @@ const DEFAULT_SEEDS = [
   { category: "electronics", provider: "ebay", seed_key: "electronics_monitor", query: "gaming monitor 27 inch" },
   { category: "electronics", provider: "ebay", seed_key: "electronics_4k_monitor", query: "4k monitor computer" },
   
-  // Tablets
-  { category: "electronics", provider: "ebay", seed_key: "electronics_ipad", query: "ipad pro" },
-  { category: "electronics", provider: "ebay", seed_key: "electronics_tablet", query: "samsung galaxy tab" },
+  // Gaming consoles
+  { category: "electronics", provider: "ebay", seed_key: "electronics_playstation", query: "playstation 5 console" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_xbox", query: "xbox series x console" },
+  { category: "electronics", provider: "ebay", seed_key: "electronics_nintendo", query: "nintendo switch console" },
   
   // Chargers
   { category: "electronics", provider: "ebay", seed_key: "electronics_charger", query: "usb-c fast charger" },

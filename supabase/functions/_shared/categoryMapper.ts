@@ -50,14 +50,27 @@ export const PARTS_SUBKEYS = new Set(PARTS_SUBCATEGORIES.map(s => s.key));
 // ─── Electronics Subcategories ──────────────────────────────────────────────
 export const ELECTRONICS_SUBCATEGORIES_LIST = [
   { key: "phones", title: "Phones", icon: "smartphone" },
+  { key: "gaming", title: "Gaming", icon: "gamepad-2" },
   { key: "computers", title: "Computers", icon: "laptop" },
   { key: "audio", title: "Audio", icon: "headphones" },
   { key: "monitors", title: "Monitors", icon: "monitor" },
   { key: "tablets", title: "Tablets", icon: "tablet" },
   { key: "chargers", title: "Chargers", icon: "battery-charging" },
+  { key: "other", title: "Other Electronics", icon: "cpu" },
 ];
 
 export const ELECTRONICS_SUBCATEGORIES = new Set(ELECTRONICS_SUBCATEGORIES_LIST.map(s => s.key));
+
+// ─── Unified Home Sections (expanded subcategories for DB queries) ──────────
+// These are used by catalog-home for targeted DB queries
+export const HOME_SECTION_MAPPINGS = {
+  phones: { unified_category: "electronics", unified_subcategory: "phones" },
+  gaming: { unified_category: "electronics", unified_subcategory: "gaming" },
+  vehicles_cars_trucks: { unified_category: "vehicles", vehicles_subkey: "cars_trucks" },
+  vehicles_motorcycles: { unified_category: "vehicles", vehicles_subkey: "motorcycles" },
+  clothing_shoes: { unified_category: "clothing_shoes_accessories" },
+  home_garden: { unified_category: "home_garden" },
+};
 
 // ─── Unified Category Tabs ─────────────────────────────────────────────────────
 
@@ -219,6 +232,18 @@ const PHONES_KEYWORDS = [
   "iphone", "samsung galaxy", "pixel phone", "smartphone", "unlocked phone",
   "cell phone", "mobile phone", "android phone", "5g phone", "refurbished iphone",
   "phone 15", "phone 14", "phone 13", "galaxy s", "galaxy z", "oneplus", "motorola",
+  // DRC-popular brands
+  "tecno", "infinix", "itel", "oppo", "vivo", "realme", "huawei phone",
+  "xiaomi phone", "redmi phone", "poco phone",
+];
+
+// Gaming keywords - HIGH PRIORITY for DRC market
+const GAMING_KEYWORDS = [
+  "ps5", "playstation 5", "playstation5", "playstation 4", "ps4",
+  "xbox series x", "xbox series s", "xbox one", "nintendo switch",
+  "steam deck", "gaming console", "game console", "vr headset", "meta quest",
+  "oculus quest", "psvr", "nintendo", "gamepad", "gaming controller",
+  "dualshense", "dualsense", "joy-con", "pro controller",
 ];
 
 const COMPUTERS_KEYWORDS = [
@@ -385,30 +410,47 @@ const REFURBISHED_KEYWORDS = [
 
 /**
  * Map electronics item to a subcategory based on title keywords.
+ * PRIORITY ORDER: phones > gaming > computers > audio > tablets > monitors > chargers > other
  */
 export function mapUnifiedSubcategory(title: string): string | null {
   const lowerTitle = title.toLowerCase();
   
+  // 1. PHONES - highest priority for DRC market
   for (const keyword of PHONES_KEYWORDS) {
     if (lowerTitle.includes(keyword)) return "phones";
   }
+  
+  // 2. GAMING - second priority
+  for (const keyword of GAMING_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "gaming";
+  }
+  
+  // 3. COMPUTERS (laptops, desktops)
   for (const keyword of COMPUTERS_KEYWORDS) {
     if (lowerTitle.includes(keyword)) return "computers";
   }
+  
+  // 4. AUDIO
   for (const keyword of AUDIO_KEYWORDS) {
     if (lowerTitle.includes(keyword)) return "audio";
   }
-  for (const keyword of MONITORS_KEYWORDS) {
-    if (lowerTitle.includes(keyword)) return "monitors";
-  }
+  
+  // 5. TABLETS
   for (const keyword of TABLETS_KEYWORDS) {
     if (lowerTitle.includes(keyword)) return "tablets";
   }
+  
+  // 6. MONITORS
+  for (const keyword of MONITORS_KEYWORDS) {
+    if (lowerTitle.includes(keyword)) return "monitors";
+  }
+  
+  // 7. CHARGERS (lowest priority in electronics)
   for (const keyword of CHARGERS_KEYWORDS) {
     if (lowerTitle.includes(keyword)) return "chargers";
   }
   
-  return null;
+  return "other";
 }
 
 /**

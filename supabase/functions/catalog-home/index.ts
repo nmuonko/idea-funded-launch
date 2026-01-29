@@ -95,57 +95,99 @@ interface CategoryTab {
 }
 
 // ─── Home Sections Configuration ─────────────────────────────────────────────
+// ORDER: phones > vehicles (cars_trucks) > gaming > clothing > home_garden
+// This is optimized for DRC market
 
 interface SectionConfig {
   key: string;
   title: string;
   unifiedCategory: string;
+  unifiedSubcategory?: string;  // For filtering electronics subcategories
   keywordFilter?: string[];
   isVehicle?: boolean;
+  vehiclesSubkey?: string;      // For vehicles subcategory
   maxItems: number;
   seedQueries: string[];
   listingType?: "vehicle" | "part";
-  defaultSubkey?: string;
 }
 
 const HOME_SECTIONS: SectionConfig[] = [
+  // 1. PHONES - Top priority for DRC market
   {
-    key: "electronics",
-    title: "Electronics",
+    key: "phones",
+    title: "Phones",
     unifiedCategory: "electronics",
+    unifiedSubcategory: "phones",
     maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["iphone unlocked", "iphone 15 unlocked", "iphone 14 unlocked", "samsung galaxy unlocked", "ipad", "macbook"],
+    seedQueries: [
+      "iphone 15 unlocked",
+      "iphone 14 unlocked", 
+      "samsung galaxy s24 unlocked",
+      "samsung galaxy s23 unlocked",
+      "tecno camon",
+      "infinix hot",
+      "google pixel unlocked",
+    ],
   },
+  // 2. VEHICLES - Cars & Trucks (real vehicles only, $1500+)
   {
     key: "vehicles",
     title: "Vehicles",
     unifiedCategory: "vehicles",
     isVehicle: true,
+    vehiclesSubkey: "cars_trucks",
     listingType: "vehicle",
-    defaultSubkey: "cars_trucks",
     maxItems: HOME_PAGE_SIZE,
-    seedQueries: VEHICLES_SEED_QUERIES.cars_trucks.slice(0, 5),
+    seedQueries: [
+      "car for sale truck for sale suv sedan",
+      "toyota camry buy it now",
+      "honda accord buy it now", 
+      "ford f150 buy it now",
+      "bmw 3 series buy it now",
+    ],
   },
+  // 3. GAMING - PS5, Xbox, Nintendo
+  {
+    key: "gaming",
+    title: "Gaming",
+    unifiedCategory: "electronics",
+    unifiedSubcategory: "gaming",
+    maxItems: HOME_PAGE_SIZE,
+    seedQueries: [
+      "ps5 console playstation 5",
+      "xbox series x console",
+      "nintendo switch",
+      "meta quest vr",
+      "gaming laptop",
+    ],
+  },
+  // 4. CLOTHING - Diversified brands (not Nike-only)
+  {
+    key: "clothing_shoes_accessories",
+    title: "Clothing & Shoes",
+    unifiedCategory: "clothing_shoes_accessories",
+    maxItems: HOME_PAGE_SIZE,
+    seedQueries: [
+      "men sneakers",
+      "women sneakers",
+      "hoodie men",
+      "handbag women",
+      "kids shoes",
+      "jacket",
+    ],
+  },
+  // 5. HOME & GARDEN
   {
     key: "home_garden",
     title: "Home & Garden",
     unifiedCategory: "home_garden",
     maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["vacuum cleaner", "air fryer", "power tools"],
-  },
-  {
-    key: "clothing_shoes_accessories",
-    title: "Clothing",
-    unifiedCategory: "clothing_shoes_accessories",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["nike hoodie", "adidas shoes", "mens jacket"],
-  },
-  {
-    key: "jewelry_watches",
-    title: "Jewelry & Watches",
-    unifiedCategory: "jewelry_watches",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: ["mens watch", "gold necklace", "diamond ring"],
+    seedQueries: [
+      "cordless vacuum",
+      "air fryer",
+      "blender kitchen",
+      "power tool set",
+    ],
   },
 ];
 
@@ -284,12 +326,22 @@ async function getSectionFromDB(
     .eq("unified_category", sectionConfig.unifiedCategory)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  // For vehicles, filter by listing_type with subkey-specific pricing
+  // For electronics with specific subcategory (phones, gaming)
+  if (sectionConfig.unifiedSubcategory) {
+    query = query.eq("unified_subcategory", sectionConfig.unifiedSubcategory);
+  }
+
+  // For vehicles, filter by listing_type AND vehicles_subkey with proper pricing
   if (sectionConfig.isVehicle) {
-    const vehicleMinPrice = getMinPriceForVehicleSubkey(sectionConfig.defaultSubkey);
+    const vehicleMinPrice = getMinPriceForVehicleSubkey(sectionConfig.vehiclesSubkey);
     query = query
       .eq("listing_type", "vehicle")
       .gte("price_usd", vehicleMinPrice);
+    
+    // Filter by specific subkey (cars_trucks, motorcycles, etc.)
+    if (sectionConfig.vehiclesSubkey) {
+      query = query.eq("vehicles_subkey", sectionConfig.vehiclesSubkey);
+    }
   }
 
   const { data: rows, error } = await query
@@ -297,7 +349,7 @@ async function getSectionFromDB(
     .limit(maxItems + 30); // Fetch extra for filtering
 
   if (error) {
-    console.error(`[HOME_DB] Query error for ${sectionConfig.unifiedCategory}:`, error.message);
+    console.error(`[HOME_DB] Query error for ${sectionConfig.unifiedCategory}/${sectionConfig.unifiedSubcategory || sectionConfig.vehiclesSubkey || 'all'}:`, error.message);
     return [];
   }
 
@@ -383,11 +435,11 @@ async function fetchEbayLiveItems(
         
         // Set category to match section
         item.unifiedCategory = sectionConfig.unifiedCategory;
-        item.unifiedSubcategory = mappedResult.subcategory;
+        item.unifiedSubcategory = sectionConfig.unifiedSubcategory || mappedResult.subcategory;
         
         if (isVehicles) {
           item.listingType = "vehicle";
-          item.vehiclesSubkey = sectionConfig.defaultSubkey || "cars_trucks";
+          item.vehiclesSubkey = sectionConfig.vehiclesSubkey || "cars_trucks";
         }
         
         seenIds.add(item.id);

@@ -1,18 +1,11 @@
 /**
- * Catalog Search Endpoint - Smart 3-Layer Caching
+ * Catalog Search Endpoint - Unified Search with eBay LIVE + Amazon Cached
  * 
- * GET /catalog-search?q=iphone&page=1&pageSize=20
+ * GET /catalog-search?q=iphone&page=1&pageSize=20&provider=all
  * 
- * 3-Layer "Avoid Rainforest" Pipeline:
- * 1. Exact cache lookup (fastest)
- * 2. Family cache reuse (smart - "iphone 13" reuses "iphone" cache)
- * 3. DB-first search (catalog_items trigram)
- * 4. Live Rainforest (only as last resort)
- * 
- * French Query Expansion (expand=1):
- * - Detects French vs English queries
- * - Translates French to English for better Amazon results
- * - Max 3 query variants
+ * Search Strategy:
+ * - eBay: LIVE search with unlimited pagination (primary)
+ * - Amazon/Rainforest: DB-first only (cached, restricted)
  * 
  * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
  * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
@@ -20,16 +13,14 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
-import { searchRainforest, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
 import { searchEbay, CatalogItem as EbayCatalogItem, EbaySearchDebug } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { 
   filterDisallowedItems, 
-  isDisallowedItem, 
   isBlockedSearchQuery, 
   getBlockedSearchMessage,
-  ELECTRONICS_REFILL_QUERIES,
 } from "../_shared/contentBlocker.ts";
+import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,334 +28,67 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=60",
 };
 
-// Minimum results before trying next layer
-const MIN_RESULTS_FOR_CACHE_REUSE = 8;
-const MIN_RESULTS_FOR_DB = 5;
-const FAMILY_CACHE_SIZE = 50;
-
-// Stopwords to remove when extracting family tokens
-const STOPWORDS = new Set([
-  // English
-  "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "from", "is", "it", "as",
-  // French  
-  "le", "la", "les", "un", "une", "des", "et", "ou", "de", "du", "au", "aux", "en", "dans", "sur", "pour", "avec", "par",
-  // Common modifiers
-  "new", "nouveau", "nouvelle", "best", "meilleur", "top", "pro", "max", "plus", "ultra", "mini", "lite",
-]);
-
-// ==================== LANGUAGE DETECTION ====================
-
-const FRENCH_KEYWORDS = new Set([
-  "téléphone", "telephone", "téléphones", "telephones",
-  "écouteurs", "ecouteurs", "casque", "casques",
-  "ordinateur", "ordinateurs", "portable", "portables",
-  "chargeur", "chargeurs", "câble", "cable", "câbles", "cables",
-  "écran", "ecran", "écrans", "ecrans",
-  "souris", "clavier", "claviers",
-  "enceinte", "enceintes", "haut-parleur",
-  "tablette", "tablettes",
-  "montre", "montres", "connectée", "connectee",
-  "batterie", "batteries", "pile", "piles",
-  "imprimante", "imprimantes",
-  "webcam", "micro", "microphone",
-  "manette", "manettes", "console", "consoles",
-  "jeux", "jeu", "vidéo", "video",
-  "télévision", "television", "télé", "tele", "téléviseur", "televiseur",
-  "lampe", "lampes", "ventilateur", "ventilateurs",
-  "climatiseur", "réfrigérateur", "refrigerateur",
-  "coque", "coques", "étui", "etui",
-  "accessoire", "accessoires", "sac", "sacs", "sacoche",
-  "protection", "protecteur", "verre", "trempé", "trempe",
-  "sans", "fil", "bluetooth", "solaire",
-  "nouveau", "nouvelle", "meilleur", "meilleure",
-  "pas", "cher", "bon", "marché", "marche",
-  "qualité", "qualite", "original", "originaux",
-]);
-
-const FRENCH_TO_ENGLISH: Record<string, string> = {
-  "téléphone": "phone", "telephone": "phone", "téléphones": "phones", "telephones": "phones",
-  "portable": "mobile phone", "portables": "mobile phones",
-  "coque": "phone case", "coques": "phone cases", "étui": "case", "etui": "case",
-  "chargeur": "charger", "chargeurs": "chargers",
-  "câble": "cable", "cable": "cable", "câbles": "cables", "cables": "cables",
-  "écouteurs": "earbuds", "ecouteurs": "earbuds",
-  "casque": "headphones", "casques": "headphones",
-  "enceinte": "speaker", "enceintes": "speakers", "haut-parleur": "speaker",
-  "ordinateur": "computer", "ordinateurs": "computers",
-  "ordinateur portable": "laptop", "pc portable": "laptop",
-  "clavier": "keyboard", "claviers": "keyboards",
-  "souris": "mouse",
-  "écran": "monitor", "ecran": "monitor", "écrans": "monitors", "ecrans": "monitors",
-  "moniteur": "monitor", "moniteurs": "monitors",
-  "imprimante": "printer", "imprimantes": "printers",
-  "batterie": "battery", "batteries": "batteries",
-  "batterie externe": "power bank", "powerbank": "power bank",
-  "manette": "controller", "manettes": "controllers",
-  "console": "console", "consoles": "consoles",
-  "jeux": "games", "jeu": "game", "jeux vidéo": "video games", "jeux video": "video games",
-  "télévision": "television", "television": "television",
-  "télé": "tv", "tele": "tv", "tv": "tv",
-  "montre": "watch", "montres": "watches",
-  "montre connectée": "smartwatch", "montre connectee": "smartwatch",
-  "tablette": "tablet", "tablettes": "tablets",
-  "accessoire": "accessory", "accessoires": "accessories",
-  "sans fil": "wireless", "bluetooth": "bluetooth",
-};
-
-const SYNONYM_MAP: Record<string, string[]> = {
-  "earbuds": ["earphones", "wireless earbuds"],
-  "headphones": ["headset", "over-ear headphones"],
-  "phone": ["smartphone", "mobile phone"],
-  "laptop": ["notebook", "portable computer"],
-  "charger": ["charging cable", "power adapter"],
-  "speaker": ["bluetooth speaker", "portable speaker"],
-  "smartwatch": ["smart watch", "fitness watch"],
-  "tablet": ["ipad", "android tablet"],
-  "mouse": ["wireless mouse", "computer mouse"],
-  "keyboard": ["wireless keyboard", "mechanical keyboard"],
-};
-
-// ==================== QUERY NORMALIZATION ====================
-
-function removeAccents(str: string): string {
-  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-function normalizeQuery(q: string): string {
-  return removeAccents(q.trim().toLowerCase()).replace(/\s+/g, " ");
-}
-
-function hasAccents(q: string): boolean {
-  return /[àâäéèêëïîôùûüÿçœæ]/i.test(q);
-}
-
-function tokenize(q: string): string[] {
-  return q.split(/\s+/).filter(t => t.length > 0);
-}
-
-function extractFamilyTokens(tokens: string[]): string[] {
-  // Remove stopwords and numbers
-  return tokens.filter(t => !STOPWORDS.has(t) && !/^\d+$/.test(t));
-}
-
-function extractNumbers(tokens: string[]): string[] {
-  // Extract numbers (like "13", "14", "17")
-  return tokens.filter(t => /^\d+$/.test(t));
-}
-
-function buildFamilyQuery(tokens: string[]): string {
-  const familyTokens = extractFamilyTokens(tokens);
-  return familyTokens.join(" ");
-}
-
-// ==================== LANGUAGE HELPERS ====================
-
-function detectQueryLanguage(q: string): "fr" | "en" | "unknown" {
-  const normalized = normalizeQuery(q);
-  const words = normalized.split(/\s+/);
-  
-  if (hasAccents(q)) return "fr";
-  if (words.some(word => FRENCH_KEYWORDS.has(word))) return "fr";
-  if (words.some(word => FRENCH_TO_ENGLISH[word] !== undefined)) return "fr";
-  
-  return "unknown";
-}
-
-function translateFrenchToEnglish(q: string): string | null {
-  const normalized = normalizeQuery(q);
-  if (FRENCH_TO_ENGLISH[normalized]) return FRENCH_TO_ENGLISH[normalized];
-  
-  const words = normalized.split(/\s+/);
-  let hasTranslation = false;
-  const translatedWords = words.map(word => {
-    const translation = FRENCH_TO_ENGLISH[word];
-    if (translation) {
-      hasTranslation = true;
-      return translation;
-    }
-    return word;
-  });
-  
-  return hasTranslation ? translatedWords.join(" ") : null;
-}
-
-function getSynonymVariant(englishQuery: string): string | null {
-  const normalized = normalizeQuery(englishQuery);
-  const words = normalized.split(/\s+/);
-  
-  for (const word of words) {
-    const synonyms = SYNONYM_MAP[word];
-    if (synonyms && synonyms.length > 0) {
-      const newWords = words.map(w => w === word ? synonyms[0] : w);
-      return newWords.join(" ");
-    }
-  }
-  return null;
-}
-
-function buildQueryVariants(originalQuery: string, expand: boolean): string[] {
-  const variants: string[] = [];
-  const qNorm = normalizeQuery(originalQuery);
-  
-  if (!expand) {
-    variants.push(qNorm);
-    return variants;
-  }
-  
-  const detectedLang = detectQueryLanguage(originalQuery);
-  
-  if (detectedLang === "fr" || detectedLang === "unknown") {
-    variants.push(qNorm);
-    const englishTranslation = translateFrenchToEnglish(originalQuery);
-    if (englishTranslation && !variants.includes(englishTranslation)) {
-      variants.push(englishTranslation);
-      const synonymVariant = getSynonymVariant(englishTranslation);
-      if (synonymVariant && !variants.includes(synonymVariant)) {
-        variants.push(synonymVariant);
-      }
-    }
-  } else {
-    variants.push(qNorm);
-    const cleaned = qNorm.replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-    if (cleaned !== qNorm && cleaned.length > 0 && !variants.includes(cleaned)) {
-      variants.push(cleaned);
-    }
-  }
-  
-  return variants.slice(0, 3);
-}
-
 // ==================== TYPES ====================
 
 interface CatalogItem {
   id: string;
+  provider: string;
   providerProductId: string;
   title: string | null;
   priceUsd: number | null;
+  currency: string;
   imageUrl: string | null;
   images: string[];
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
-  reviewCount?: number | null;
-  brand?: string | null;
-  category?: string | null;
+  condition?: string;
+  shippingPriceUsd?: number | null;
+  location?: string;
+  buyingOptions?: string[];
+  category?: string;
+  subcategory?: string;
 }
 
-interface CacheSettings {
-  search_stale_minutes: number;
-  search_expires_minutes: number;
-  negative_expires_seconds: number;
+// ==================== QUERY HELPERS ====================
+
+function normalizeQuery(q: string): string {
+  return q.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function mapDbItemToResponse(item: any): CatalogItem {
   return {
     id: item.id,
+    provider: item.provider || "ebay",
     providerProductId: item.provider_product_id,
     title: item.title,
     priceUsd: item.price_usd,
+    currency: "USD",
     imageUrl: item.image_url,
     images: item.images || [],
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
-    reviewCount: item.review_count,
-    brand: item.brand,
-    category: item.category,
+    category: item.unified_category,
+    subcategory: item.unified_subcategory,
+    buyingOptions: item.buying_options,
   };
 }
 
-// ==================== CACHE HELPERS ====================
-
-function buildExactCacheKey(qNorm: string, page: number, pageSize: number, expand: boolean, domain: string): string {
-  return `search:v3:q=${qNorm}:page=${page}:size=${pageSize}:expand=${expand ? 1 : 0}:domain=${domain}`;
-}
-
-function buildFamilyCacheKey(familyQuery: string, domain: string): string {
-  return `search_family:v3:q=${familyQuery}:page=1:size=${FAMILY_CACHE_SIZE}:domain=${domain}`;
-}
-
-async function getCacheSettings(supabase: any): Promise<CacheSettings> {
-  const { data } = await supabase
-    .from("catalog_cache_settings")
-    .select("search_stale_minutes, search_expires_minutes, negative_expires_seconds")
-    .eq("key", "default")
-    .single();
-  
-  return data || {
-    search_stale_minutes: 240,
-    search_expires_minutes: 2880,
-    negative_expires_seconds: 120,
-  };
-}
-
-async function getFromCache(supabase: any, cacheKey: string): Promise<{ items: CatalogItem[] | null; stale: boolean; cacheAgeSeconds: number }> {
-  const { data } = await supabase
-    .from("catalog_cache")
-    .select("response, stale_at, updated_at")
-    .eq("cache_key", cacheKey)
-    .gt("expires_at", new Date().toISOString())
-    .single();
-  
-  if (!data) {
-    return { items: null, stale: false, cacheAgeSeconds: 0 };
-  }
-  
-  const now = new Date();
-  const staleAt = new Date(data.stale_at);
-  const updatedAt = new Date(data.updated_at);
-  const cacheAgeSeconds = Math.floor((now.getTime() - updatedAt.getTime()) / 1000);
-  
+function mapEbayItemToResponse(item: EbayCatalogItem): CatalogItem {
   return {
-    items: data.response?.items || null,
-    stale: now > staleAt,
-    cacheAgeSeconds,
+    id: item.id,
+    provider: "ebay",
+    providerProductId: item.providerProductId,
+    title: item.title,
+    priceUsd: item.priceUsd,
+    currency: item.currency || "USD",
+    imageUrl: item.imageUrl,
+    images: item.images || [],
+    productUrl: item.productUrl,
+    inStock: item.inStock,
+    rating: item.rating,
   };
-}
-
-async function saveToCache(
-  supabase: any,
-  cacheKey: string,
-  items: CatalogItem[],
-  settings: CacheSettings,
-  isNegative: boolean = false
-): Promise<void> {
-  const now = new Date();
-  const staleMinutes = isNegative ? 1 : settings.search_stale_minutes;
-  const expiresMinutes = isNegative ? Math.ceil(settings.negative_expires_seconds / 60) : settings.search_expires_minutes;
-  
-  const staleAt = new Date(now.getTime() + staleMinutes * 60 * 1000);
-  const expiresAt = new Date(now.getTime() + expiresMinutes * 60 * 1000);
-  
-  await supabase
-    .from("catalog_cache")
-    .upsert({
-      cache_key: cacheKey,
-      cache_type: "search",
-      response: { items },
-      stale_at: staleAt.toISOString(),
-      expires_at: expiresAt.toISOString(),
-      updated_at: now.toISOString(),
-    }, { onConflict: "cache_key" });
-}
-
-// ==================== FAMILY CACHE FILTERING ====================
-
-function filterItemsByTokens(items: CatalogItem[], originalTokens: string[], numbers: string[]): CatalogItem[] {
-  // Filter cached items to match original query tokens
-  const nonStopTokens = originalTokens.filter(t => !STOPWORDS.has(t));
-  
-  return items.filter(item => {
-    const titleLower = (item.title || "").toLowerCase();
-    
-    // All non-stopword tokens must appear in title
-    const tokensMatch = nonStopTokens.every(token => titleLower.includes(token));
-    
-    // If original query has numbers, at least one must appear
-    const numbersMatch = numbers.length === 0 || numbers.some(num => titleLower.includes(num));
-    
-    return tokensMatch && numbersMatch;
-  });
 }
 
 // ==================== MAIN HANDLER ====================
@@ -381,47 +105,31 @@ Deno.serve(async (req: Request) => {
   const qNorm = normalizeQuery(rawQuery);
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
-  const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
-  const expand = url.searchParams.get("expand") !== "0";
+  const provider = url.searchParams.get("provider") || "all"; // all, ebay, amazon
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
   const deviceId = getDeviceId(req);
 
-  // Tokenize for family matching
-  const tokens = tokenize(qNorm);
-  const familyTokens = extractFamilyTokens(tokens);
-  const familyQuery = familyTokens.join(" ");
-  const queryNumbers = extractNumbers(tokens);
-  const queryVariants = buildQueryVariants(qOriginal, expand);
-
   console.log("[CATALOG_SEARCH]", { 
     q: qOriginal, 
-    qNorm, 
-    familyQuery, 
-    queryNumbers, 
-    queryVariants, 
     page, 
-    env: envName 
+    pageSize,
+    provider,
+    env: envName,
+    deviceId: deviceId?.slice(0, 8),
   });
 
+  // Empty query
   if (!qNorm) {
     return new Response(JSON.stringify({
       status: "success",
       env: envName,
       query: "",
-      lang,
-      expand: expand ? 1 : 0,
-      queryVariants: [],
-      familyQuery: null,
       page,
       pageSize,
       total: 0,
       items: [],
       source: "empty",
-      cached: false,
-      stale: false,
-      cacheAgeSec: 0,
-      reusedFrom: null,
       error: null,
     }), {
       status: 200,
@@ -436,19 +144,11 @@ Deno.serve(async (req: Request) => {
       status: "success",
       env: envName,
       query: qOriginal,
-      lang,
-      expand: expand ? 1 : 0,
-      queryVariants: [],
-      familyQuery: null,
       page,
       pageSize,
       total: 0,
       items: [],
       source: "blocked",
-      cached: false,
-      stale: false,
-      cacheAgeSec: 0,
-      reusedFrom: null,
       message: getBlockedSearchMessage(lang),
       error: null,
     }), {
@@ -466,6 +166,9 @@ Deno.serve(async (req: Request) => {
         status: "error",
         env: envName,
         query: qOriginal,
+        page,
+        pageSize,
+        total: 0,
         items: [],
         error: { code: "CONFIG_ERROR", message: "Backend unavailable" },
       }), {
@@ -482,6 +185,9 @@ Deno.serve(async (req: Request) => {
         status: "error",
         env: envName,
         query: qOriginal,
+        page,
+        pageSize,
+        total: 0,
         items: [],
         error: { code: "CATALOG_DISABLED", message: "Catalog not enabled" },
       }), {
@@ -490,249 +196,102 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Load cache settings
-    const cacheSettings = await getCacheSettings(supabase);
-    
     let resultItems: CatalogItem[] = [];
-    let reusedFrom: string | null = null;
-    let cached = false;
-    let stale = false;
-    let cacheAgeSec = 0;
-    let usedLiveFallback = false;
+    let ebayTotal = 0;
+    let amazonTotal = 0;
+    let ebayDebug: EbaySearchDebug | null = null;
+    let sources: string[] = [];
 
-    // ==================== STEP 1: EXACT CACHE ====================
-    const exactCacheKey = buildExactCacheKey(qNorm, page, pageSize, expand, amazonDomain);
-    const exactCache = await getFromCache(supabase, exactCacheKey);
-    
-    if (exactCache.items && exactCache.items.length > 0) {
-      console.log(`[CATALOG_SEARCH] Step 1: Exact cache hit (${exactCache.items.length} items, stale=${exactCache.stale})`);
-      resultItems = exactCache.items;
-      reusedFrom = "exact_cache";
-      cached = true;
-      stale = exactCache.stale;
-      cacheAgeSec = exactCache.cacheAgeSeconds;
-    }
-
-    // ==================== STEP 2: FAMILY CACHE REUSE ====================
-    if (resultItems.length === 0 && familyQuery.length >= 2 && familyQuery !== qNorm) {
-      const familyCacheKey = buildFamilyCacheKey(familyQuery, amazonDomain);
-      const familyCache = await getFromCache(supabase, familyCacheKey);
-      
-      if (familyCache.items && familyCache.items.length > 0) {
-        // Filter family cache to match original tokens
-        const filtered = filterItemsByTokens(familyCache.items, tokens, queryNumbers);
-        console.log(`[CATALOG_SEARCH] Step 2: Family cache has ${familyCache.items.length} items, filtered to ${filtered.length}`);
+    // ==================== EBAY LIVE SEARCH (unlimited pagination) ====================
+    if (provider === "all" || provider === "ebay") {
+      try {
+        console.log(`[CATALOG_SEARCH] eBay LIVE search: "${qNorm}" page=${page}`);
+        const ebayResult = await searchEbay(supabase, qNorm, page, pageSize);
+        ebayDebug = ebayResult.debug;
         
-        if (filtered.length >= MIN_RESULTS_FOR_CACHE_REUSE) {
-          resultItems = filtered.slice(0, pageSize);
-          reusedFrom = "family_cache";
-          cached = true;
-          stale = familyCache.stale;
-          cacheAgeSec = familyCache.cacheAgeSeconds;
-        }
-      }
-    }
-
-    // ==================== STEP 3: DB SEARCH ====================
-    if (resultItems.length < MIN_RESULTS_FOR_DB) {
-      console.log(`[CATALOG_SEARCH] Step 3: DB search (current=${resultItems.length})`);
-      
-      // Search using trigram on search_text
-      const searchTerms = queryVariants.map(v => `%${v}%`);
-      const { data: dbItems } = await supabase
-        .from("catalog_items")
-        .select("*")
-        .or(searchTerms.map(t => `search_text.ilike.${t}`).join(","))
-        .order("rating", { ascending: false, nullsFirst: false })
-        .limit(pageSize);
-
-      if (dbItems && dbItems.length > 0) {
-        const mapped = dbItems.map(mapDbItemToResponse);
-        
-        // Merge with any existing results
-        if (resultItems.length > 0) {
-          const existingIds = new Set(resultItems.map(i => i.id));
-          const newItems = mapped.filter(i => !existingIds.has(i.id));
-          resultItems = [...resultItems, ...newItems].slice(0, pageSize);
-        } else {
-          resultItems = mapped;
-          reusedFrom = "db";
-        }
-        
-        console.log(`[CATALOG_SEARCH] Step 3: DB found ${dbItems.length} items, total now ${resultItems.length}`);
-      }
-      
-      // Also try title/category search if needed
-      if (resultItems.length < MIN_RESULTS_FOR_DB) {
-        const { data: titleItems } = await supabase
-          .from("catalog_items")
-          .select("*")
-          .or(`title.ilike.%${qNorm}%,category.ilike.%${qNorm}%`)
-          .order("rating", { ascending: false, nullsFirst: false })
-          .limit(pageSize - resultItems.length);
-        
-        if (titleItems && titleItems.length > 0) {
-          const existingIds = new Set(resultItems.map(i => i.id));
-          const newItems = titleItems.filter(i => !existingIds.has(i.id)).map(mapDbItemToResponse);
-          resultItems = [...resultItems, ...newItems];
-        }
-      }
-    }
-
-    // ==================== STEP 4: LIVE PROVIDER FALLBACK (last resort) ====================
-    if (resultItems.length < MIN_RESULTS_FOR_DB) {
-      console.log(`[CATALOG_SEARCH] Step 4: Live provider fallback (current=${resultItems.length})`);
-      usedLiveFallback = true;
-
-      // Only search first 2 variants to limit API calls
-      const variantsToSearch = queryVariants.slice(0, 2);
-      const liveItems: CatalogItem[] = [];
-
-      // Try Rainforest (Amazon) first
-      for (const variant of variantsToSearch) {
-        try {
-          const { products, error: rainforestError } = await searchRainforest(
-            variant,
-            1, // Only page 1
-            Math.min(20, pageSize),
-            amazonDomain
-          );
-
-          if (!rainforestError && products.length > 0) {
-            const formatted = products.map(formatCatalogItem);
-            liveItems.push(...formatted);
-
-            // Cache to catalog_items
-            const toUpsert = formatted.map(item => ({
-              id: item.id,
-              provider: "rainforest",
-              provider_product_id: item.providerProductId,
-              title: item.title,
-              price_usd: item.priceUsd,
-              image_url: item.imageUrl,
-              images: item.images,
-              product_url: item.productUrl,
-              in_stock: item.inStock,
-              rating: item.rating,
-              category: "uncategorized",
-              tags: [qNorm, ...familyTokens],
-              updated_at: new Date().toISOString(),
-            }));
-
-            await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
-          }
-        } catch (err) {
-          console.warn(`[CATALOG_SEARCH] Rainforest search error for "${variant}":`, err);
-        }
-      }
-
-      // Try eBay if we still need more items
-      let ebayDebug: EbaySearchDebug | null = null;
-      if (liveItems.length < MIN_RESULTS_FOR_DB) {
-        try {
-          const ebayResult = await searchEbay(supabase, qNorm, 1, Math.min(20, pageSize));
-          ebayDebug = ebayResult.debug;
+        if (ebayResult.items.length > 0) {
+          const ebayMapped = ebayResult.items.map(mapEbayItemToResponse);
+          resultItems.push(...ebayMapped);
+          ebayTotal = ebayResult.total;
+          sources.push("ebay_live");
           
-          if (ebayResult.items.length > 0) {
-            // Map eBay items to our format and add to live items
-            const ebayMapped: CatalogItem[] = ebayResult.items.map((item: EbayCatalogItem) => ({
-              id: item.id,
-              providerProductId: item.providerProductId,
+          console.log(`[CATALOG_SEARCH] eBay returned ${ebayResult.items.length} items, total=${ebayTotal}`);
+          
+          // Upsert to catalog_items for caching (async, don't wait)
+          const toUpsert = ebayResult.items.map((item: EbayCatalogItem) => {
+            const { category, subcategory } = mapCategoryAndSubcategory({
               title: item.title,
-              priceUsd: item.priceUsd,
-              imageUrl: item.imageUrl,
-              images: item.images || [],
+              provider: "ebay",
               productUrl: item.productUrl,
-              inStock: item.inStock,
-              rating: item.rating,
-            }));
+            });
             
-            liveItems.push(...ebayMapped);
-            
-            // Only cache to catalog_items if we got valid items (not empty)
-            const toUpsertEbay = ebayMapped.map(item => ({
+            return {
               id: item.id,
               provider: "ebay",
               provider_product_id: item.providerProductId,
               title: item.title,
               price_usd: item.priceUsd,
               image_url: item.imageUrl,
-              images: item.images,
+              images: item.images || [],
               product_url: item.productUrl,
               in_stock: item.inStock,
               rating: item.rating,
-              category: "uncategorized",
-              tags: [qNorm, ...familyTokens],
+              unified_category: category !== "blocked" ? category : "electronics",
+              unified_subcategory: subcategory,
+              tags: [qNorm],
               updated_at: new Date().toISOString(),
-            }));
-            
-            await supabase.from("catalog_items").upsert(toUpsertEbay, { onConflict: "id" });
-            console.log(`[CATALOG_SEARCH] eBay returned ${ebayResult.items.length} items`);
-          } else {
-            // Log empty eBay result for debugging
-            console.log(`[CATALOG_SEARCH] eBay returned 0 items, debug:`, JSON.stringify(ebayDebug));
-          }
-        } catch (err) {
-          console.warn(`[CATALOG_SEARCH] eBay search error:`, err);
-          ebayDebug = {
-            enabled: true,
-            tokenOk: false,
-            itemCount: 0,
-            error: err instanceof Error ? err.message : "Unknown error",
-          };
+            };
+          });
+          
+          // Fire and forget - don't await
+          supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
         }
-      }
-
-      // Merge with existing results
-      const existingIds = new Set(resultItems.map(i => i.id));
-      const newLiveItems = liveItems.filter(i => !existingIds.has(i.id));
-      resultItems = [...resultItems, ...newLiveItems].slice(0, pageSize);
-      
-      if (!reusedFrom) {
-        reusedFrom = "live";
-      }
-
-      // Store exact cache (for future exact queries)
-      // IMPORTANT: Only cache if we got valid results, use negative cache otherwise
-      if (resultItems.length > 0) {
-        await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
-      } else {
-        // Negative cache (short TTL of 60-120 seconds) - prevents poisoning
-        await saveToCache(supabase, exactCacheKey, [], cacheSettings, true);
-      }
-
-      // Store/update family cache with larger result set
-      // Only store if we got actual items (not empty results)
-      if (liveItems.length > 0 && familyQuery.length >= 2) {
-        const familyCacheKey = buildFamilyCacheKey(familyQuery, amazonDomain);
-        const existingFamily = await getFromCache(supabase, familyCacheKey);
-        
-        let familyItems = liveItems;
-        if (existingFamily.items && existingFamily.items.length > 0) {
-          // Merge with existing family cache
-          const existingIds = new Set(existingFamily.items.map(i => i.id));
-          const newItems = liveItems.filter(i => !existingIds.has(i.id));
-          familyItems = [...existingFamily.items, ...newItems].slice(0, FAMILY_CACHE_SIZE);
-        }
-        
-        await saveToCache(supabase, familyCacheKey, familyItems, cacheSettings, false);
-      }
-      
-      // Store eBay debug info for response (staging only debug)
-      if (ebayDebug) {
-        (globalThis as any).__ebayDebug = ebayDebug;
+      } catch (err) {
+        console.error("[CATALOG_SEARCH] eBay search error:", err);
+        ebayDebug = {
+          enabled: true,
+          tokenOk: false,
+          itemCount: 0,
+          error: err instanceof Error ? err.message : "Unknown error",
+        };
       }
     }
 
-    // ==================== CACHE EXACT RESULT (if from cache/db layers) ====================
-    if (!usedLiveFallback && resultItems.length > 0 && !cached) {
-      // Cache DB results for exact query
-      await saveToCache(supabase, exactCacheKey, resultItems, cacheSettings, false);
+    // ==================== AMAZON DB-FIRST SEARCH (no live calls) ====================
+    if (provider === "all" || provider === "amazon") {
+      try {
+        console.log(`[CATALOG_SEARCH] Amazon DB search: "${qNorm}"`);
+        
+        // Search from catalog_items where provider is rainforest/amazon
+        const { data: amazonItems, count } = await supabase
+          .from("catalog_items")
+          .select("*", { count: "exact" })
+          .or(`provider.eq.rainforest,provider.eq.amazon`)
+          .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`)
+          .order("rating", { ascending: false, nullsFirst: false })
+          .range((page - 1) * pageSize, page * pageSize - 1);
+        
+        if (amazonItems && amazonItems.length > 0) {
+          const mapped = amazonItems.map(mapDbItemToResponse);
+          
+          // Merge with eBay results, avoiding duplicates
+          const existingIds = new Set(resultItems.map(i => i.providerProductId));
+          const newItems = mapped.filter(i => !existingIds.has(i.providerProductId));
+          
+          resultItems.push(...newItems);
+          amazonTotal = count || amazonItems.length;
+          sources.push("amazon_db");
+          
+          console.log(`[CATALOG_SEARCH] Amazon DB returned ${amazonItems.length} items`);
+        }
+      } catch (err) {
+        console.error("[CATALOG_SEARCH] Amazon DB search error:", err);
+      }
     }
 
-    // ==================== HARD BLOCK: Filter disallowed content ====================
+    // ==================== FILTER DISALLOWED CONTENT ====================
     const beforeFilter = resultItems.length;
-    const { allowed: filteredItems, removed: removedCount, reasons } = filterDisallowedItems(
+    const { allowed: filteredItems, removed: removedCount } = filterDisallowedItems(
       resultItems.map(item => ({
         ...item,
         title: item.title,
@@ -742,61 +301,42 @@ Deno.serve(async (req: Request) => {
       "[CATALOG_SEARCH_FILTER]"
     );
     
-    // Map back filtered items
     const allowedIds = new Set(filteredItems.map(i => i.id));
-    let finalItems = resultItems.filter(item => allowedIds.has(item.id));
+    const finalItems = resultItems.filter(item => allowedIds.has(item.id));
 
-    // FILTER SAFETY: If filtering removed ALL items but we had some, log and return unfiltered (staging debug)
-    let filterOverblock = false;
-    if (finalItems.length === 0 && beforeFilter > 0) {
-      console.log(`[EBAY_FILTER] FILTER_OVERBLOCK: before=${beforeFilter}, after=0, returning unfiltered items`);
-      filterOverblock = true;
-      // Return unfiltered items in staging to debug
-      finalItems = resultItems;
+    if (removedCount > 0) {
+      console.log(`[CATALOG_SEARCH] Filtered: before=${beforeFilter}, removed=${removedCount}, after=${finalItems.length}`);
     }
 
-    if (removedCount > 0 && !filterOverblock) {
-      console.log(`[EBAY_FILTER] { before: ${beforeFilter}, removed: ${removedCount}, after: ${finalItems.length}, topRemovedReasons: ${JSON.stringify(reasons)} }`);
-    }
-
-    resultItems = finalItems;
+    // Sort: eBay first by default (unless amazonFirst param)
+    const amazonFirst = url.searchParams.get("amazonFirst") === "true";
+    const sortedItems = finalItems.sort((a, b) => {
+      if (amazonFirst) {
+        if (a.provider.includes("amazon") || a.provider === "rainforest") return -1;
+        if (b.provider.includes("amazon") || b.provider === "rainforest") return 1;
+      } else {
+        if (a.provider === "ebay") return -1;
+        if (b.provider === "ebay") return 1;
+      }
+      return 0;
+    });
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_SEARCH] Done: ${resultItems.length} items, reusedFrom=${reusedFrom}, cached=${cached}, stale=${stale}, durationMs=${durationMs}`);
-
-    // Build providerDebug for staging
-    const ebayDebugInfo = (globalThis as any).__ebayDebug as EbaySearchDebug | undefined;
-    const providerDebug = ebayDebugInfo ? {
-      ebay: {
-        ...ebayDebugInfo,
-        filteredOut: removedCount,
-        filterOverblock,
-      },
-    } : undefined;
-    
-    // Clean up global
-    delete (globalThis as any).__ebayDebug;
+    console.log(`[CATALOG_SEARCH] Done: ${sortedItems.length} items, sources=${sources.join(",")}, durationMs=${durationMs}`);
 
     return new Response(JSON.stringify({
       status: "success",
       env: envName,
       query: qOriginal,
-      lang,
-      expand: expand ? 1 : 0,
-      queryVariants,
-      familyQuery: familyQuery.length >= 2 ? familyQuery : null,
       page,
       pageSize,
-      total: resultItems.length,
-      items: resultItems,
-      source: usedLiveFallback ? "db+rainforest" : (reusedFrom || "db"),
-      cached,
-      stale,
-      cacheAgeSec,
-      reusedFrom,
+      total: Math.max(ebayTotal, amazonTotal, sortedItems.length),
+      items: sortedItems.slice(0, pageSize),
+      sources,
+      ebayTotal,
+      amazonTotal,
       removedDisallowedCount: removedCount,
-      filterOverblock,
-      providerDebug,
+      providerDebug: ebayDebug ? { ebay: ebayDebug } : undefined,
       durationMs,
       error: null,
     }), {
@@ -812,18 +352,10 @@ Deno.serve(async (req: Request) => {
       status: "error",
       env: envName,
       query: qOriginal,
-      lang,
-      expand: expand ? 1 : 0,
-      queryVariants: [],
-      familyQuery: null,
       page,
       pageSize,
-      total: null,
+      total: 0,
       items: [],
-      cached: false,
-      stale: false,
-      cacheAgeSec: 0,
-      reusedFrom: null,
       error: { code: "INTERNAL_ERROR", message: "Search service error" },
     }), {
       status: 200,

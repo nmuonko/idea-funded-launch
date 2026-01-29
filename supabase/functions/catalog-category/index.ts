@@ -38,6 +38,13 @@ const GLOBAL_DENY_KEYWORDS = [
   "audiobook", "textbook", "novel", "comics"
 ];
 
+// Motors deny keywords (parts, accessories, auctions)
+const MOTORS_DENY_KEYWORDS = [
+  "floor mat", "car mat", "tire", "rim", "seat cover", "car cover",
+  "parts", "replacement", "repair", "brake pad", "oil filter", "wiper",
+  "bulb", "led light", "dash cam", "phone mount", "key fob", "auction", "bid"
+];
+
 // Motors minimum price (to filter out parts/accessories)
 const MOTORS_MIN_PRICE_USD = 1500;
 
@@ -100,6 +107,11 @@ function normalizeItem(row: DbItem): CatalogItem {
 function isBlockedByGlobalDeny(title: string): boolean {
   const lowerTitle = title.toLowerCase();
   return GLOBAL_DENY_KEYWORDS.some(kw => lowerTitle.includes(kw.toLowerCase()));
+}
+
+function isBlockedByMotorsDeny(title: string): boolean {
+  const lowerTitle = title.toLowerCase();
+  return MOTORS_DENY_KEYWORDS.some(kw => lowerTitle.includes(kw.toLowerCase()));
 }
 
 Deno.serve(async (req) => {
@@ -248,18 +260,33 @@ Deno.serve(async (req) => {
 
     // Normalize and filter items
     const allItems: CatalogItem[] = [];
+    let filteredCount = 0;
 
     for (const row of dbItems || []) {
       const item = normalizeItem(row as DbItem);
 
       // Apply global deny filter
-      if (isBlockedByGlobalDeny(item.title)) continue;
+      if (isBlockedByGlobalDeny(item.title)) {
+        filteredCount++;
+        continue;
+      }
+
+      // Apply motors-specific filter
+      if (isMotors && isBlockedByMotorsDeny(item.title)) {
+        filteredCount++;
+        continue;
+      }
 
       // Apply contentBlocker
-      if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) continue;
+      if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) {
+        filteredCount++;
+        continue;
+      }
 
       allItems.push(item);
     }
+    
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} dbRows=${dbItems?.length || 0} filtered=${filteredCount} remaining=${allItems.length}`);
 
     // De-duplicate by id
     const uniqueMap = new Map<string, CatalogItem>();

@@ -16,7 +16,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled, EnvironmentName } from "../_shared/environmentResolver.ts";
+import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { TABS } from "../_shared/categoryMapper.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
@@ -101,6 +101,18 @@ const HOME_SECTIONS: Array<{
     unifiedCategory: "clothing",
     maxItems: 20,
   },
+  {
+    key: "home_garden",
+    title: "Home & Garden",
+    unifiedCategory: "home_garden",
+    maxItems: 20,
+  },
+  {
+    key: "jewelry_watches",
+    title: "Jewelry & Watches",
+    unifiedCategory: "jewelry_watches",
+    maxItems: 20,
+  },
 ];
 
 // ─── Content Blocking ────────────────────────────────────────────────────────
@@ -178,20 +190,25 @@ async function getSectionFromDB(
   keywordFilter?: string[],
   isVehicle: boolean = false
 ): Promise<CatalogItem[]> {
-  // Build query for unified_category or category_key (backwards compatibility)
+  // Query by unified_category
   let query = supabase
     .from("catalog_items")
     .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, unified_category, category_key")
-    .or(`unified_category.eq.${unifiedCategory},category_key.eq.${unifiedCategory}`)
+    .eq("unified_category", unifiedCategory)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
   if (isVehicle) {
     query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
   }
 
-  const { data: rows } = await query
+  const { data: rows, error } = await query
     .order("updated_at", { ascending: false })
-    .limit(maxItems + 20); // Fetch extra for filtering
+    .limit(maxItems + 30); // Fetch extra for filtering
+
+  if (error) {
+    console.error(`[HOME_DB] Query error for ${unifiedCategory}:`, error.message);
+    return [];
+  }
 
   let items = (rows || []).map(mapDbItemToResponse);
 
@@ -279,10 +296,7 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // REMOVED: Environment check - catalog is ALWAYS enabled for mobile
-    // const envConfig = await getEnvironmentConfig(supabase, envName);
-    // We no longer check isCatalogEnabled because mobile-public-config ALWAYS returns catalogEnabled: true
-    // This ensures catalog-home always serves data
+    // Catalog is ALWAYS enabled - no environment check needed
     console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} catalog_always_enabled=true`);
 
     // Return fixed category tabs from categoryMapper (single source of truth)
@@ -323,7 +337,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} sectionKeys=${Object.keys(sectionCounts).join(",")} counts=${JSON.stringify(sectionCounts)} durationMs=${durationMs}`);
+    
+    // Detailed logging
+    console.log(`[HOME_DB] requestId=${requestId} counts=${JSON.stringify(sectionCounts)}`);
+    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} totalItems=${sections.reduce((s,x)=>s+x.items.length,0)} durationMs=${durationMs}`);
 
     return new Response(JSON.stringify(buildResponse("success", sections, homeCategories, null)), {
       status: 200,

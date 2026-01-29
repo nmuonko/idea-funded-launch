@@ -939,12 +939,14 @@ export type Database = {
       }
       catalog_items: {
         Row: {
+          buying_options: string[] | null
           category_key: string | null
           id: string
           image_url: string | null
           images: Json | null
           in_stock: boolean | null
           is_disallowed: boolean | null
+          metadata: Json | null
           price_usd: number | null
           product_url: string | null
           provider: string | null
@@ -957,12 +959,14 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          buying_options?: string[] | null
           category_key?: string | null
           id: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
           is_disallowed?: boolean | null
+          metadata?: Json | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -975,12 +979,14 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          buying_options?: string[] | null
           category_key?: string | null
           id?: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
           is_disallowed?: boolean | null
+          metadata?: Json | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -1231,6 +1237,54 @@ export type Database = {
           query?: string
           response?: Json
           updated_at?: string
+        }
+        Relationships: []
+      }
+      catalog_seed_queries: {
+        Row: {
+          category: string
+          created_at: string | null
+          ebay_category_id: string | null
+          enabled: boolean | null
+          filters: Json | null
+          id: string
+          item_count: number | null
+          last_refreshed_at: string | null
+          provider: string
+          query: string | null
+          seed_key: string
+          ttl_minutes: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          ebay_category_id?: string | null
+          enabled?: boolean | null
+          filters?: Json | null
+          id?: string
+          item_count?: number | null
+          last_refreshed_at?: string | null
+          provider: string
+          query?: string | null
+          seed_key: string
+          ttl_minutes?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          ebay_category_id?: string | null
+          enabled?: boolean | null
+          filters?: Json | null
+          id?: string
+          item_count?: number | null
+          last_refreshed_at?: string | null
+          provider?: string
+          query?: string | null
+          seed_key?: string
+          ttl_minutes?: number | null
+          updated_at?: string | null
         }
         Relationships: []
       }

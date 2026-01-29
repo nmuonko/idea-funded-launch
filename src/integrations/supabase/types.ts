@@ -1039,6 +1039,98 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_nav_subtabs: {
+        Row: {
+          created_at: string
+          ebay_category_hint: string | null
+          enabled: boolean
+          id: string
+          is_parts: boolean
+          is_vehicle: boolean
+          key: string
+          min_price_usd: number | null
+          order_index: number
+          parent_key: string
+          provider_mode: Json
+          title_en: string
+          title_fr: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          ebay_category_hint?: string | null
+          enabled?: boolean
+          id?: string
+          is_parts?: boolean
+          is_vehicle?: boolean
+          key: string
+          min_price_usd?: number | null
+          order_index?: number
+          parent_key: string
+          provider_mode?: Json
+          title_en: string
+          title_fr: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          ebay_category_hint?: string | null
+          enabled?: boolean
+          id?: string
+          is_parts?: boolean
+          is_vehicle?: boolean
+          key?: string
+          min_price_usd?: number | null
+          order_index?: number
+          parent_key?: string
+          provider_mode?: Json
+          title_en?: string
+          title_fr?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "catalog_nav_subtabs_parent_key_fkey"
+            columns: ["parent_key"]
+            isOneToOne: false
+            referencedRelation: "catalog_nav_tabs"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      catalog_nav_tabs: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          icon: string | null
+          key: string
+          order_index: number
+          title_en: string
+          title_fr: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          icon?: string | null
+          key: string
+          order_index?: number
+          title_en: string
+          title_fr: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          icon?: string | null
+          key?: string
+          order_index?: number
+          title_en?: string
+          title_fr?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       catalog_products: {
         Row: {
           brand: string | null
@@ -1493,6 +1585,36 @@ export type Database = {
           platform?: string
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      ebay_category_cache: {
+        Row: {
+          category_id: string
+          category_name: string | null
+          category_tree_id: string | null
+          expires_at: string
+          hint: string
+          marketplace_id: string
+          updated_at: string
+        }
+        Insert: {
+          category_id: string
+          category_name?: string | null
+          category_tree_id?: string | null
+          expires_at?: string
+          hint: string
+          marketplace_id?: string
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string
+          category_name?: string | null
+          category_tree_id?: string | null
+          expires_at?: string
+          hint?: string
+          marketplace_id?: string
+          updated_at?: string
         }
         Relationships: []
       }

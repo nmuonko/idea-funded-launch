@@ -1,40 +1,21 @@
 /**
  * Catalog Home Endpoint - DB-First with eBay Live Top-Up
  * 
- * Returns sections-based structure for homepage + category list:
+ * Returns sections for homepage using DB-driven nav config:
  * {
  *   status: "success",
  *   env,
  *   sections: [...],
- *   homeCategories: [...],
- *   homeDefaultCategoryKey: "electronics",
+ *   tabs: [...],
  *   error: null
  * }
- * 
- * DB-First: All data served from catalog_items using unified_category.
- * If DB has < homeMinPerSection (12), top-up from eBay live.
- * Amazon/Rainforest is NEVER called here.
- * 
- * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
- * 
- * HOME SECTIONS:
- * - Electronics (trending)
- * - Vehicles (cars_trucks default)
- * - Home & Garden
- * - Clothing (optional)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
-import { TABS, mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
-import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
+import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
-import { 
-  isAllowedMotorListing, 
-  VEHICLES_SEED_QUERIES, 
-  getMinPriceForVehicleSubkey,
-  buildEbayVehiclesFilter,
-} from "../_shared/motorsFilter.ts";
+import { isAllowedMotorListing, getMinPriceForVehicleSubkey } from "../_shared/motorsFilter.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -47,17 +28,8 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=60",
 };
 
-// ─── Configuration ───────────────────────────────────────────────────────────
-
-const HOME_MIN_PER_SECTION = 12; // If DB has fewer, top-up from eBay
-const HOME_PAGE_SIZE = 20;
-const LIVE_CACHE_TTL_SECONDS = 300; // 5 minutes
-
-function generateRequestId(): string {
-  return crypto.randomUUID().slice(0, 8);
-}
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+const HOME_MIN_PER_SECTION = 6;
+const HOME_PAGE_SIZE = 12;
 
 interface CatalogItem {
   id: string;
@@ -72,388 +44,216 @@ interface CatalogItem {
   rating: number | null;
   unifiedCategory: string | null;
   unifiedSubcategory: string | null;
-  listingType: string | null;
-  vehiclesSubkey: string | null;
-  partsSubkey: string | null;
 }
 
 interface Section {
   key: string;
   title: string;
-  unifiedCategory: string;
+  categoryKey: string;
+  subtabKey: string | null;
   items: CatalogItem[];
   hasMore: boolean;
   dbCount: number;
   liveTopUpCount: number;
 }
 
-interface CategoryTab {
+interface HomeSectionConfig {
   key: string;
   title: string;
-  icon: string | null;
-  order: number;
-}
-
-// ─── Home Sections Configuration ─────────────────────────────────────────────
-// ORDER: phones > vehicles (cars_trucks) > gaming > clothing > home_garden
-// This is optimized for DRC market
-
-interface SectionConfig {
-  key: string;
-  title: string;
-  unifiedCategory: string;
-  unifiedSubcategory?: string;  // For filtering electronics subcategories
-  keywordFilter?: string[];
-  isVehicle?: boolean;
-  vehiclesSubkey?: string;      // For vehicles subcategory
-  maxItems: number;
+  categoryKey: string;
+  subtabKey: string | null;
+  isVehicle: boolean;
+  minPrice: number;
   seedQueries: string[];
-  listingType?: "vehicle" | "part";
+  ebayCategory?: string;
 }
 
-const HOME_SECTIONS: SectionConfig[] = [
-  // 1. PHONES - Top priority for DRC market
+// Home sections optimized for DRC market
+const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
     title: "Phones",
-    unifiedCategory: "electronics",
-    unifiedSubcategory: "phones",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: [
-      "iphone 15 unlocked",
-      "iphone 14 unlocked", 
-      "samsung galaxy s24 unlocked",
-      "samsung galaxy s23 unlocked",
-      "tecno camon",
-      "infinix hot",
-      "google pixel unlocked",
-    ],
+    categoryKey: "electronics",
+    subtabKey: "phones",
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
+    ebayCategory: "9355",
   },
-  // 2. VEHICLES - Cars & Trucks (real vehicles only, $1500+)
   {
     key: "vehicles",
     title: "Vehicles",
-    unifiedCategory: "vehicles",
+    categoryKey: "vehicles",
+    subtabKey: "cars_trucks",
     isVehicle: true,
-    vehiclesSubkey: "cars_trucks",
-    listingType: "vehicle",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: [
-      "car for sale truck for sale suv sedan",
-      "toyota camry buy it now",
-      "honda accord buy it now", 
-      "ford f150 buy it now",
-      "bmw 3 series buy it now",
-    ],
+    minPrice: 1500,
+    seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
+    ebayCategory: "6001",
   },
-  // 3. GAMING - PS5, Xbox, Nintendo
   {
     key: "gaming",
     title: "Gaming",
-    unifiedCategory: "electronics",
-    unifiedSubcategory: "gaming",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: [
-      "ps5 console playstation 5",
-      "xbox series x console",
-      "nintendo switch",
-      "meta quest vr",
-      "gaming laptop",
-    ],
+    categoryKey: "electronics",
+    subtabKey: "gaming",
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
+    ebayCategory: "1249",
   },
-  // 4. CLOTHING - Diversified brands (not Nike-only)
   {
-    key: "clothing_shoes_accessories",
+    key: "clothing",
     title: "Clothing & Shoes",
-    unifiedCategory: "clothing_shoes_accessories",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: [
-      "men sneakers",
-      "women sneakers",
-      "hoodie men",
-      "handbag women",
-      "kids shoes",
-      "jacket",
-    ],
+    categoryKey: "clothing_shoes_accessories",
+    subtabKey: null,
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
+    ebayCategory: "63889",
   },
-  // 5. HOME & GARDEN
   {
     key: "home_garden",
     title: "Home & Garden",
-    unifiedCategory: "home_garden",
-    maxItems: HOME_PAGE_SIZE,
-    seedQueries: [
-      "cordless vacuum",
-      "air fryer",
-      "blender kitchen",
-      "power tool set",
-    ],
+    categoryKey: "home_garden",
+    subtabKey: null,
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
+    ebayCategory: "11700",
   },
 ];
 
-// ─── iPhone Priority Ranking ─────────────────────────────────────────────────
-
-const PRIORITY_KEYWORDS_TIER1 = ["iphone", "apple iphone"]; // Highest priority
-const PRIORITY_KEYWORDS_TIER2 = ["samsung", "galaxy", "ipad", "macbook"]; // High priority
-const PRIORITY_KEYWORDS_TIER3 = ["pixel", "playstation", "ps5", "xbox", "nintendo", "airpods"]; // Medium priority
-
-function getItemPriority(title: string): number {
-  const titleLower = (title || "").toLowerCase();
-  
-  // Tier 1: iPhones get highest priority (0)
-  for (const kw of PRIORITY_KEYWORDS_TIER1) {
-    if (titleLower.includes(kw)) return 0;
-  }
-  
-  // Tier 2: Samsung/iPad/Macbook (1)
-  for (const kw of PRIORITY_KEYWORDS_TIER2) {
-    if (titleLower.includes(kw)) return 1;
-  }
-  
-  // Tier 3: Pixel/PlayStation/Xbox (2)
-  for (const kw of PRIORITY_KEYWORDS_TIER3) {
-    if (titleLower.includes(kw)) return 2;
-  }
-  
-  // Everything else (3)
-  return 3;
+function generateRequestId(): string {
+  return crypto.randomUUID().slice(0, 8);
 }
 
-function rankElectronicsItems(items: CatalogItem[]): CatalogItem[] {
-  return items.sort((a, b) => {
-    const priorityA = getItemPriority(a.title || "");
-    const priorityB = getItemPriority(b.title || "");
-    
-    // Sort by priority first (lower is better)
-    if (priorityA !== priorityB) return priorityA - priorityB;
-    
-    // Then by price (higher first for premium feel)
-    const priceA = a.priceUsd || 0;
-    const priceB = b.priceUsd || 0;
-    return priceB - priceA;
-  });
-}
-
-// ─── Content Blocking ────────────────────────────────────────────────────────
-
-const GLOBAL_DENY_KEYWORDS = [
-  "kindle", "audible", "prime video", "subscription", "ebook", "e-book",
-  "paperback", "hardcover", "book", "magazine", "manga", "audiobook",
-  "textbook", "novel", "comics", "journal", "membership", "streaming",
-  "unlimited", "prime membership", "auction", "bid", "bidding",
-];
-
-function isBlockedItem(item: CatalogItem, isVehicle: boolean = false): boolean {
-  const title = (item.title || "").toLowerCase();
-  
-  // Global blocks
-  for (const keyword of GLOBAL_DENY_KEYWORDS) {
-    if (keyword.length <= 5) {
-      const regex = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-      if (regex.test(title)) return true;
-    } else {
-      if (title.includes(keyword)) return true;
-    }
-  }
-  
-  // Vehicle-specific: use motorsFilter
-  if (isVehicle) {
-    const result = isAllowedMotorListing({
-      title: item.title || "",
-      priceUsd: item.priceUsd,
-    });
-    return !result.isAllowed;
-  }
-  
-  return false;
-}
-
-// ─── DB Helpers ──────────────────────────────────────────────────────────────
-
-function mapDbItemToResponse(item: any): CatalogItem {
+function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   let images: string[] = [];
   if (Array.isArray(item.images)) {
-    images = item.images.filter((img: any): img is string => typeof img === "string");
+    images = item.images.filter((img): img is string => typeof img === "string");
   }
 
   return {
-    id: item.id,
-    provider: item.provider || "unknown",
-    providerProductId: item.provider_product_id || item.id.replace(/^(ebay|rainforest):/, ""),
-    title: item.title,
-    priceUsd: item.price_usd,
-    imageUrl: item.image_url || (images.length > 0 ? images[0] : null),
+    id: item.id as string,
+    provider: (item.provider as string) || "unknown",
+    providerProductId: (item.provider_product_id as string) || (item.id as string),
+    title: item.title as string | null,
+    priceUsd: item.price_usd as number | null,
+    imageUrl: (item.image_url as string) || (images.length > 0 ? images[0] : null),
     images,
-    productUrl: item.product_url,
-    inStock: item.in_stock,
-    rating: item.rating,
-    unifiedCategory: item.unified_category || item.category_key,
-    unifiedSubcategory: item.unified_subcategory || null,
-    listingType: item.listing_type || null,
-    vehiclesSubkey: item.vehicles_subkey || null,
-    partsSubkey: item.parts_subkey || null,
+    productUrl: item.product_url as string | null,
+    inStock: item.in_stock as boolean | null,
+    rating: item.rating as number | null,
+    unifiedCategory: (item.unified_category as string) || null,
+    unifiedSubcategory: (item.unified_subcategory as string) || null,
   };
 }
 
-function mapEbayItemToResponse(item: EbayCatalogItem): CatalogItem {
+function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   return {
     id: item.id,
-    provider: item.provider,
-    providerProductId: item.providerProductId,
+    provider: "ebay",
+    providerProductId: item.provider_product_id,
     title: item.title,
-    priceUsd: item.priceUsd,
-    imageUrl: item.imageUrl,
-    images: item.images || [],
-    productUrl: item.productUrl,
-    inStock: item.inStock,
+    priceUsd: item.price_usd,
+    imageUrl: item.image_url,
+    images: item.images,
+    productUrl: item.product_url,
+    inStock: item.in_stock,
     rating: item.rating,
-    unifiedCategory: null, // Will be set during upsert
+    unifiedCategory: null,
     unifiedSubcategory: null,
-    listingType: null,
-    vehiclesSubkey: null,
-    partsSubkey: null,
   };
 }
 
 async function getSectionFromDB(
   supabase: any,
-  sectionConfig: SectionConfig,
+  config: HomeSectionConfig,
   maxItems: number
 ): Promise<CatalogItem[]> {
   let query = supabase
     .from("catalog_items")
-    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, unified_category, unified_subcategory, category_key, listing_type, vehicles_subkey, parts_subkey")
-    .eq("unified_category", sectionConfig.unifiedCategory)
+    .select("*")
+    .eq("unified_category", config.categoryKey)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  // For electronics with specific subcategory (phones, gaming)
-  if (sectionConfig.unifiedSubcategory) {
-    query = query.eq("unified_subcategory", sectionConfig.unifiedSubcategory);
+  if (config.subtabKey) {
+    if (config.isVehicle) {
+      query = query.eq("vehicles_subkey", config.subtabKey);
+    } else {
+      query = query.eq("unified_subcategory", config.subtabKey);
+    }
   }
 
-  // For vehicles, filter by listing_type AND vehicles_subkey with proper pricing
-  if (sectionConfig.isVehicle) {
-    const vehicleMinPrice = getMinPriceForVehicleSubkey(sectionConfig.vehiclesSubkey);
-    query = query
-      .eq("listing_type", "vehicle")
-      .gte("price_usd", vehicleMinPrice);
-    
-    // Filter by specific subkey (cars_trucks, motorcycles, etc.)
-    if (sectionConfig.vehiclesSubkey) {
-      query = query.eq("vehicles_subkey", sectionConfig.vehiclesSubkey);
-    }
+  if (config.isVehicle) {
+    query = query.gte("price_usd", config.minPrice);
   }
 
   const { data: rows, error } = await query
     .order("updated_at", { ascending: false })
-    .limit(maxItems + 30); // Fetch extra for filtering
+    .limit(maxItems + 10);
 
   if (error) {
-    console.error(`[HOME_DB] Query error for ${sectionConfig.unifiedCategory}/${sectionConfig.unifiedSubcategory || sectionConfig.vehiclesSubkey || 'all'}:`, error.message);
+    console.error(`[HOME_DB] Query error for ${config.key}:`, error.message);
     return [];
   }
 
-  let items = (rows || []).map(mapDbItemToResponse);
-
-  // Apply keyword filter if specified
-  if (sectionConfig.keywordFilter && sectionConfig.keywordFilter.length > 0) {
-    items = items.filter(item => {
-      const title = (item.title || "").toLowerCase();
-      return sectionConfig.keywordFilter!.some(kw => title.includes(kw.toLowerCase()));
-    });
-  }
-
-  return items;
+  return (rows || []).map(row => mapDbItemToResponse(row as Record<string, unknown>));
 }
-
-// ─── eBay Live Top-Up ────────────────────────────────────────────────────────
 
 async function fetchEbayLiveItems(
   supabase: any,
-  sectionConfig: SectionConfig,
+  config: HomeSectionConfig,
   neededCount: number,
   requestId: string
 ): Promise<CatalogItem[]> {
-  console.log(`[HOME_EBAY_TOPUP] requestId=${requestId} section=${sectionConfig.key} neededCount=${neededCount}`);
-  
+  console.log(`[HOME_EBAY] requestId=${requestId} section=${config.key} neededCount=${neededCount}`);
+
   const allItems: CatalogItem[] = [];
   const seenIds = new Set<string>();
-  
-  // Limit queries to avoid excessive API calls
-  const queriesToRun = sectionConfig.seedQueries.slice(0, 3);
-  
-  for (const query of queriesToRun) {
+
+  for (const query of config.seedQueries.slice(0, 2)) {
     if (allItems.length >= neededCount) break;
-    
+
     try {
-      const isVehicles = sectionConfig.isVehicle === true;
-      
-      // For vehicles, apply special filter
-      const options: any = { marketplace: "EBAY_US" };
-      if (isVehicles) {
-        options.filter = buildEbayVehiclesFilter();
-      }
-      
       const result = await searchEbay(
         supabase,
-        query,
-        1, // page 1
-        20, // limit
-        options
+        {
+          query,
+          categoryId: config.ebayCategory,
+          page: 1,
+          pageSize: 20,
+          minPrice: config.minPrice > 0 ? config.minPrice : undefined,
+          isVehicle: config.isVehicle,
+          marketplaceId: "EBAY_US",
+        },
+        requestId
       );
-      
-      if (result.items.length === 0) {
-        console.log(`[HOME_EBAY_TOPUP] requestId=${requestId} query="${query}" returned 0 items`);
-        continue;
-      }
-      
-      // Process items
+
       for (const ebayItem of result.items) {
         if (seenIds.has(ebayItem.id)) continue;
-        
-        const item = mapEbayItemToResponse(ebayItem);
-        
-        // Apply content filter
-        if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) {
+
+        // Content filter
+        if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.product_url }).isDisallowed) {
           continue;
         }
-        
-        // Apply vehicles filter (no auctions, no parts)
-        if (isVehicles && !isAllowedMotorListing({ title: item.title || "", priceUsd: item.priceUsd }).isAllowed) {
-          continue;
+
+        // Vehicle filter
+        if (config.isVehicle) {
+          const filterResult = isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.price_usd });
+          if (!filterResult.isAllowed) continue;
         }
-        
-        // Map category
-        const mappedResult = mapCategoryAndSubcategory({
-          title: item.title || "",
-          provider: "ebay",
-          priceUsd: item.priceUsd,
-        });
-        
-        // Skip blocked categories
-        if (mappedResult.category === "blocked") continue;
-        
-        // Set category to match section
-        item.unifiedCategory = sectionConfig.unifiedCategory;
-        item.unifiedSubcategory = sectionConfig.unifiedSubcategory || mappedResult.subcategory;
-        
-        if (isVehicles) {
-          item.listingType = "vehicle";
-          item.vehiclesSubkey = sectionConfig.vehiclesSubkey || "cars_trucks";
-        }
-        
-        seenIds.add(item.id);
-        allItems.push(item);
+
+        seenIds.add(ebayItem.id);
+        allItems.push(mapEbayItemToResponse(ebayItem));
       }
-      
-      console.log(`[HOME_EBAY_TOPUP] requestId=${requestId} query="${query}" found=${result.items.length} filtered=${allItems.length}`);
-      
+
+      console.log(`[HOME_EBAY] requestId=${requestId} query="${query}" found=${result.items.length} filtered=${allItems.length}`);
     } catch (err) {
-      console.error(`[HOME_EBAY_TOPUP] requestId=${requestId} query="${query}" error:`, err);
+      console.error(`[HOME_EBAY] requestId=${requestId} query="${query}" error:`, err);
     }
   }
-  
-  // Upsert to DB for future use
+
+  // Upsert to DB
   if (allItems.length > 0) {
     const toUpsert = allItems.map(item => ({
       id: item.id,
@@ -466,42 +266,26 @@ async function fetchEbayLiveItems(
       product_url: item.productUrl,
       in_stock: item.inStock,
       rating: item.rating,
-      unified_category: item.unifiedCategory,
-      unified_subcategory: item.unifiedSubcategory,
-      listing_type: item.listingType,
-      vehicles_subkey: item.vehiclesSubkey,
-      parts_subkey: item.partsSubkey,
+      unified_category: config.categoryKey,
+      unified_subcategory: config.subtabKey,
+      vehicles_subkey: config.isVehicle ? config.subtabKey : null,
       updated_at: new Date().toISOString(),
     }));
-    
-    const { error: upsertError } = await supabase
-      .from("catalog_items")
-      .upsert(toUpsert, { onConflict: "id" });
-    
-    if (upsertError) {
-      console.error(`[HOME_EBAY_TOPUP] requestId=${requestId} upsert error:`, upsertError.message);
-    } else {
-      console.log(`[HOME_EBAY_TOPUP] requestId=${requestId} upserted ${toUpsert.length} items`);
-    }
+
+    await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
   }
-  
+
   return allItems;
 }
 
-// ─── Main Handler ────────────────────────────────────────────────────────────
-
 Deno.serve(async (req: Request) => {
-  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   const requestId = generateRequestId();
   const startTime = Date.now();
-  const url = new URL(req.url);
-  const mode = url.searchParams.get("mode") || "auto"; // db | live | auto
-  const pageSize = parseInt(url.searchParams.get("pageSize") || String(HOME_PAGE_SIZE), 10);
-  
+
   let envName: EnvironmentName = "production";
   try {
     envName = getEnvironmentFromRequest(req);
@@ -509,149 +293,104 @@ Deno.serve(async (req: Request) => {
     envName = "production";
   }
 
-  // Validate environment
+  console.log(`[HOME] requestId=${requestId} env=${envName}`);
+
   if (!ALLOWED_ENVS.includes(envName)) {
-    console.error(`[CATALOG_HOME_API] requestId=${requestId} error=BAD_ENV env=${envName}`);
     return new Response(
       JSON.stringify({
         status: "error",
         env: envName,
         sections: [],
-        homeCategories: [],
-        homeDefaultCategoryKey: "electronics",
-        sectionCount: 0,
-        itemCount: 0,
-        source: "db-first",
+        tabs: [],
         error: { message: `Invalid environment: ${envName}`, code: "BAD_ENV" },
-        durationMs: Date.now() - startTime,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} mode=${mode} pageSize=${pageSize}`);
-
-  const buildResponse = (
-    status: "success" | "error",
-    sections: Section[],
-    homeCategories: CategoryTab[],
-    error: { message: string; code: string } | null
-  ) => ({
-    status,
-    env: envName,
-    sections,
-    homeCategories,
-    homeDefaultCategoryKey: "electronics",
-    sectionCount: sections.length,
-    itemCount: sections.reduce((sum, s) => sum + s.items.length, 0),
-    source: "db-first",
-    error,
-    durationMs: Date.now() - startTime,
-  });
-
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
+
     if (!supabaseUrl || !supabaseKey) {
-      console.error(`[CATALOG_HOME_API] requestId=${requestId} error=MISSING_CONFIG`);
-      return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Backend configuration error", code: "CONFIG_ERROR" })), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          status: "error",
+          env: envName,
+          sections: [],
+          tabs: [],
+          error: { message: "Backend configuration error", code: "CONFIG_ERROR" },
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} catalog_always_enabled=true`);
+    // Fetch tabs from nav tables
+    const { data: tabs } = await supabase
+      .from("catalog_nav_tabs")
+      .select("key, title_en, title_fr, icon, order_index")
+      .eq("enabled", true)
+      .order("order_index", { ascending: true });
 
-    // Return fixed category tabs from categoryMapper (single source of truth)
-    const homeCategories: CategoryTab[] = TABS.map((tab, index) => ({
-      key: tab.key,
-      title: tab.title,
-      icon: tab.icon || null,
-      order: index + 1,
-    }));
-
-    // Build sections for home screen
+    // Build sections
     const sections: Section[] = [];
-    const sectionCounts: Record<string, { db: number; live: number }> = {};
 
-    for (const sectionConfig of HOME_SECTIONS) {
-      // Step 1: Get from DB
-      let dbItems = await getSectionFromDB(
-        supabase,
-        sectionConfig,
-        sectionConfig.maxItems + 10 // Fetch extra for filtering/ranking
-      );
-      
-      // Step 1.5: Apply iPhone priority ranking for electronics
-      if (sectionConfig.unifiedCategory === "electronics") {
-        dbItems = rankElectronicsItems(dbItems);
-        
-        // Log ranking results
-        const iphoneCount = dbItems.filter(i => (i.title || "").toLowerCase().includes("iphone")).length;
-        const topTitles = dbItems.slice(0, 3).map(i => (i.title || "").slice(0, 40));
-        console.log(`[HOME_RANK] electronicsCount=${dbItems.length} iphoneCount=${iphoneCount} topTitles=${JSON.stringify(topTitles)}`);
-      }
+    for (const config of HOME_SECTIONS) {
+      let items = await getSectionFromDB(supabase, config, HOME_PAGE_SIZE);
 
-      // Filter blocked items
-      let filteredDbItems = dbItems
-        .filter(item => !isBlockedItem(item, sectionConfig.isVehicle));
-
-      const dbCount = filteredDbItems.length;
+      // If DB has fewer than minimum, top-up from eBay live
       let liveTopUpCount = 0;
-      
-      // Step 2: If DB has fewer than minimum AND mode allows live, fetch from eBay
-      if (filteredDbItems.length < HOME_MIN_PER_SECTION && mode !== "db") {
-        const neededCount = sectionConfig.maxItems - filteredDbItems.length;
-        const liveItems = await fetchEbayLiveItems(
-          supabase,
-          sectionConfig,
-          neededCount,
-          requestId
-        );
+      if (items.length < HOME_MIN_PER_SECTION) {
+        console.log(`[HOME] requestId=${requestId} section=${config.key} dbCount=${items.length} < ${HOME_MIN_PER_SECTION}, fetching live`);
+        const liveItems = await fetchEbayLiveItems(supabase, config, HOME_PAGE_SIZE - items.length, requestId);
         
-        // Merge, avoiding duplicates
-        const existingIds = new Set(filteredDbItems.map(i => i.id));
-        const newItems = liveItems.filter(i => !existingIds.has(i.id));
-        filteredDbItems = [...filteredDbItems, ...newItems];
+        const seenIds = new Set(items.map(i => i.id));
+        const newItems = liveItems.filter(i => !seenIds.has(i.id));
+        items = [...items, ...newItems];
         liveTopUpCount = newItems.length;
       }
 
-      // Slice to max items
-      const finalItems = filteredDbItems.slice(0, sectionConfig.maxItems);
-
       sections.push({
-        key: sectionConfig.key,
-        title: sectionConfig.title,
-        unifiedCategory: sectionConfig.unifiedCategory,
-        items: finalItems,
-        hasMore: filteredDbItems.length > sectionConfig.maxItems,
-        dbCount,
+        key: config.key,
+        title: config.title,
+        categoryKey: config.categoryKey,
+        subtabKey: config.subtabKey,
+        items: items.slice(0, HOME_PAGE_SIZE),
+        hasMore: items.length >= HOME_PAGE_SIZE,
+        dbCount: items.length - liveTopUpCount,
         liveTopUpCount,
       });
-
-      sectionCounts[sectionConfig.key] = { db: dbCount, live: liveTopUpCount };
     }
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} sections=${sections.length} totalItems=${sections.reduce((sum, s) => sum + s.items.length, 0)} durationMs=${durationMs}`);
+    console.log(`[HOME] requestId=${requestId} sections=${sections.length} durationMs=${durationMs}`);
 
-    return new Response(JSON.stringify(buildResponse("success", sections, homeCategories, null)), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        status: "success",
+        env: envName,
+        sections,
+        tabs: tabs || [],
+        error: null,
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    const durationMs = Date.now() - startTime;
-    
-    console.error(`[CATALOG_HOME_API] requestId=${requestId} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    console.error(`[HOME] requestId=${requestId} error:`, errorMessage);
 
-    return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Internal server error", code: "INTERNAL_ERROR" })), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({
+        status: "error",
+        env: envName,
+        sections: [],
+        tabs: [],
+        error: { message: "Internal error", code: "INTERNAL_ERROR" },
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   }
 });

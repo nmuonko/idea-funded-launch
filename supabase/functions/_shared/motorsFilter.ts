@@ -1,115 +1,239 @@
 /**
- * Motors Filter - Vehicle-Specific Filtering
+ * Motors Filter - Vehicle-Specific Filtering (STRICT MODE)
  * 
- * AfriShop Vehicles & Parts Category Rules:
+ * AfriShop Vehicles Category Rules:
  * 
  * VEHICLES (unified_category = 'vehicles'):
- * 1. ONLY Buy It Now / Fixed Price items (no auctions)
- * 2. Minimum price $1,500 (filters out parts/accessories)
- * 3. Block parts, accessories, wheels, tires, etc.
+ * 1. ONLY Buy It Now / Fixed Price items (NO auctions)
+ * 2. Minimum price $1,500 (ENFORCED by default for vehicles)
+ * 3. STRONG exclusion of parts, accessories, wheels, tires, etc.
  * 4. Block auction-related keywords: "auction", "bid", "bidding"
+ * 5. Prefer eBay category path validation when available
  * 
  * PARTS & ACCESSORIES (unified_category = 'parts_accessories'):
- * 1. All automotive parts, wheels, tires, accessories
- * 2. No minimum price requirement
- * 3. Can include any buying option
+ * - Separate category for automotive parts
+ * - No minimum price requirement
+ * - Can include any buying option
  */
 
-// ─── Price Thresholds by Vehicle Type ────────────────────────────────────────
-// NOTE: These are SOFT defaults - endpoints can override with minPrice=0
-export const MOTORS_MIN_PRICE_USD = 0; // Changed from 1500 to allow full results
-export const VEHICLES_MIN_PRICE_USD = 0; // Changed from 1500 to allow full results
+// ─── Price Thresholds (ENFORCED for vehicles) ────────────────────────────────
+export const VEHICLES_MIN_PRICE_USD = 1500; // ENFORCED minimum for real vehicles
 
-// Suggested thresholds for specific categories (optional, not enforced by default)
+// Suggested thresholds for specific vehicle categories
 export const VEHICLES_SUGGESTED_MIN_PRICE: Record<string, number> = {
-  cars_trucks: 0, // No minimum - filter by keywords instead
-  motorcycles: 0,
-  powersports: 0,
-  boats: 0,
-  rvs_campers: 0,
-  trailers_other: 0,
-  classic_cars: 0,
+  cars_trucks: 1500,     // Real cars/trucks are $1500+
+  motorcycles: 1000,     // Motorcycles can be slightly cheaper
+  powersports: 800,      // ATVs, snowmobiles
+  boats: 500,            // Small boats
+  rvs_campers: 2000,     // RVs are expensive
+  trailers_other: 300,   // Utility trailers
+  classic_cars: 3000,    // Classic cars are valuable
 };
 
-// For backward compatibility - always returns 0 unless explicitly requested
-export function getMinPriceForVehicleSubkey(subkey: string | null, enforceMinPrice: boolean = false): number {
-  if (!enforceMinPrice) return 0;
+// Get minimum price for vehicle subkey (ALWAYS ENFORCED for vehicles)
+export function getMinPriceForVehicleSubkey(subkey: string | null): number {
   if (!subkey) return VEHICLES_MIN_PRICE_USD;
-  return VEHICLES_SUGGESTED_MIN_PRICE[subkey] ?? 0;
+  return VEHICLES_SUGGESTED_MIN_PRICE[subkey] ?? VEHICLES_MIN_PRICE_USD;
 }
 
+// For backward compatibility
+export const MOTORS_MIN_PRICE_USD = VEHICLES_MIN_PRICE_USD;
+
 // ─── Buying Options ─────────────────────────────────────────────────────────
-// Only these buying options are allowed for vehicles (no auctions)
+// ONLY these buying options are allowed for vehicles (NO auctions)
 export const ALLOWED_BUYING_OPTIONS = ["FIXED_PRICE", "BUY_IT_NOW", "BEST_OFFER"];
 
-// ─── Deny Keywords ──────────────────────────────────────────────────────────
-// Items with these keywords in title are blocked from vehicles
+// ─── COMPREHENSIVE Parts/Accessories Keywords (EXPANDED) ─────────────────────
+// Items with these keywords in title are BLOCKED from vehicles category
 
 export const MOTORS_PARTS_KEYWORDS = [
-  // Wheels & Tires
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SENSORS & ELECTRONICS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "tpms", "sensor", "sensors", "valve stem", "valve cap", "tire pressure",
+  "antenna", "radio antenna", "power antenna", "shark fin antenna",
+  "relay", "fuse", "switch", "module", "ecu", "pcm", "ecm",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WHEELS, TIRES & HUB CAPS
+  // ═══════════════════════════════════════════════════════════════════════════
   "wheel", "wheels", "tire", "tires", "rim", "rims",
-  "hubcap", "hub cap", "lug nut",
+  "hubcap", "hub cap", "hubcaps", "hub caps", "wheel cover", "wheel covers",
+  "lug nut", "lug nuts", "lug bolt", "wheel lock", "center cap", "center caps",
+  "valve stem", "tire valve", "wheel spacer", "wheel adapter",
+  "alloy wheel", "steel wheel", "chrome wheel", "beadlock",
   
-  // Engine & Mechanical
-  "engine", "motor part", "transmission", "alternator", "starter",
-  "radiator", "carburetor", "fuel pump", "water pump", "oil pump",
-  "brake pad", "brake rotor", "brake caliper", "brake line",
-  "shock absorber", "strut", "suspension", "control arm",
-  "timing belt", "serpentine belt", "timing chain",
-  "spark plug", "ignition coil", "distributor",
-  "catalytic converter", "muffler", "exhaust pipe", "exhaust manifold",
-  "fuel injector", "throttle body", "intake manifold",
-  "cylinder head", "crankshaft", "camshaft", "piston",
-  "gasket", "seal", "bearing", "bushing",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENGINE & MECHANICAL PARTS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "engine", "motor part", "engine part", "transmission", "gearbox",
+  "alternator", "starter", "starter motor", "generator",
+  "radiator", "carburetor", "carb", "fuel pump", "water pump", "oil pump",
+  "turbo", "turbocharger", "supercharger", "intercooler",
+  "cylinder head", "crankshaft", "camshaft", "piston", "connecting rod",
+  "valve", "valves", "lifter", "rocker arm", "timing chain", "timing belt",
+  "serpentine belt", "drive belt", "fan belt", "v-belt",
+  "throttle body", "intake manifold", "exhaust manifold",
+  "fuel injector", "injector", "fuel rail", "throttle cable",
   
-  // Filters
-  "oil filter", "air filter", "fuel filter", "cabin filter",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BRAKES
+  // ═══════════════════════════════════════════════════════════════════════════
+  "brake", "brakes", "brake pad", "brake pads", "brake shoe", "brake shoes",
+  "brake rotor", "brake rotors", "brake disc", "brake discs",
+  "brake caliper", "caliper", "brake line", "brake hose",
+  "brake fluid", "brake master", "master cylinder", "abs module",
+  "parking brake", "e-brake", "emergency brake",
   
-  // Electrical
-  "battery", "headlight", "tail light", "brake light", "fog light",
-  "turn signal", "bulb", "led light", "hid light",
-  "wiper", "wiper blade", "wiper motor",
-  "power window", "window motor", "window regulator",
-  "door handle", "door lock", "door actuator",
-  "mirror", "side mirror", "rear view",
-  "horn", "relay", "fuse",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SUSPENSION & STEERING
+  // ═══════════════════════════════════════════════════════════════════════════
+  "shock", "shocks", "shock absorber", "strut", "struts", "coilover",
+  "suspension", "spring", "springs", "coil spring", "leaf spring",
+  "control arm", "a-arm", "ball joint", "tie rod", "tie-rod",
+  "sway bar", "stabilizer bar", "end link", "bushing", "bushings",
+  "steering rack", "power steering", "steering pump", "steering column",
+  "cv joint", "cv axle", "axle shaft", "u-joint", "driveshaft",
   
-  // Interior
-  "seat cover", "floor mat", "car mat", "cargo mat", "trunk liner",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EXHAUST SYSTEM
+  // ═══════════════════════════════════════════════════════════════════════════
+  "exhaust", "muffler", "exhaust pipe", "catalytic converter", "cat converter",
+  "exhaust manifold", "header", "headers", "downpipe", "resonator",
+  "tailpipe", "exhaust tip", "flex pipe", "o2 sensor", "oxygen sensor",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FILTERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "filter", "filters", "oil filter", "air filter", "fuel filter",
+  "cabin filter", "cabin air", "transmission filter", "air intake",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ELECTRICAL & LIGHTING
+  // ═══════════════════════════════════════════════════════════════════════════
+  "headlight", "headlamp", "tail light", "taillight", "brake light",
+  "fog light", "fog lamp", "turn signal", "blinker", "indicator light",
+  "bulb", "bulbs", "led bulb", "hid bulb", "led light", "hid light",
+  "lamp", "lamps", "light bar", "work light",
+  "battery", "car battery", "battery terminal", "battery cable",
+  "ignition coil", "coil pack", "spark plug", "spark plugs", "glow plug",
+  "distributor", "distributor cap", "ignition wire", "plug wire",
+  "wiring harness", "harness", "connector", "wire",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GASKETS & SEALS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "gasket", "gaskets", "head gasket", "intake gasket", "exhaust gasket",
+  "valve cover gasket", "oil pan gasket", "seal", "seals", "o-ring",
+  "bearing", "bearings", "wheel bearing", "hub bearing",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BODY PARTS & PANELS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "bumper", "front bumper", "rear bumper", "bumper cover",
+  "fender", "fenders", "quarter panel", "rocker panel",
+  "hood", "bonnet", "trunk lid", "tailgate", "liftgate",
+  "door panel", "door shell", "door skin",
+  "grille", "grill", "front grille", "radiator grille",
+  "spoiler", "wing", "body kit", "side skirt", "splitter",
+  "mud flap", "splash guard", "fender liner", "wheel well liner",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MIRRORS & GLASS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "mirror", "mirrors", "side mirror", "door mirror", "rear view",
+  "rearview", "tow mirror", "towing mirror",
+  "windshield", "window", "glass", "side glass", "rear window",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // WIPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "wiper", "wipers", "wiper blade", "wiper arm", "wiper motor",
+  "windshield wiper", "rain sensor",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // INTERIOR PARTS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "seat cover", "seat covers", "floor mat", "floor mats", "car mat", "car mats",
+  "cargo mat", "trunk mat", "trunk liner", "cargo liner",
   "steering wheel cover", "seat cushion", "headrest",
-  "sun visor", "armrest", "center console",
-  "dashboard cover", "dash mat",
+  "sun visor", "visor", "armrest", "center console", "console lid",
+  "dashboard cover", "dash cover", "dash mat", "dash panel",
+  "shift knob", "gear knob", "shift boot", "e-brake boot",
+  "pedal cover", "pedal pad", "door handle", "interior handle",
   
-  // Exterior
-  "car cover", "bumper", "fender", "hood", "trunk lid",
-  "spoiler", "body kit", "side skirt", "mud flap", "splash guard",
-  "grille", "emblem", "badge", "decal", "vinyl wrap",
-  "antenna", "roof rack", "cargo carrier",
-  "license plate frame", "license plate holder",
-  "tow hitch", "trailer hitch", "ball mount",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CAR COVERS & PROTECTION
+  // ═══════════════════════════════════════════════════════════════════════════
+  "car cover", "vehicle cover", "truck cover", "suv cover",
+  "bra", "front end bra", "hood bra", "bumper protector",
+  "door edge", "door guard", "paint protection",
   
-  // Accessories (non-vehicle items)
-  "phone mount", "phone holder", "tablet mount",
-  "dash cam", "dashcam", "backup camera", "rear camera",
-  "gps", "navigation", "car charger", "usb charger",
-  "air freshener", "organizer", "trash can", "garbage",
-  "key fob", "key cover", "key case", "key chain",
-  "sunshade", "windshield shade", "window tint",
-  "projection light", "door projector", "logo light",
-  "ice scraper", "snow brush", "emergency kit",
-  "jumper cable", "jump starter", "tire inflator", "air compressor",
-  "car wash", "wax", "polish", "detailing",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EMBLEMS & DECOR
+  // ═══════════════════════════════════════════════════════════════════════════
+  "emblem", "emblems", "badge", "badges", "logo", "nameplate",
+  "decal", "decals", "sticker", "stickers", "vinyl wrap",
+  "pinstripe", "stripe", "stripes", "graphic", "graphics",
+  "license plate frame", "license plate holder", "plate frame",
   
-  // Repair/Parts indicators
-  "replacement", "repair", "remanufactured", "rebuilt",
-  "oem part", "aftermarket", "compatible with", "fits",
-  "part number", "part #", "pn:", "oe#",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ACCESSORIES & ELECTRONICS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "phone mount", "phone holder", "tablet mount", "cup holder",
+  "dash cam", "dashcam", "backup camera", "rear camera", "reverse camera",
+  "gps", "gps mount", "navigation", "car charger", "usb charger", "usb port",
+  "air freshener", "freshener", "organizer", "trash can", "garbage",
+  "sunshade", "windshield shade", "window shade", "window tint", "tint",
+  "projection light", "door projector", "logo light", "puddle light",
+  "key fob", "key cover", "key case", "key chain", "keychain",
+  "remote start", "alarm", "car alarm", "security system",
+  "stereo", "radio", "head unit", "speaker", "speakers", "subwoofer",
+  "amplifier", "amp", "car audio", "bluetooth adapter", "aux cable",
+  "carplay", "android auto",
   
-  // Generic parts
-  "parts", "accessories", "accessory", "component", "kit",
-  "hardware", "mounting", "bracket", "clamp", "bolt", "screw",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TOOLS & MAINTENANCE
+  // ═══════════════════════════════════════════════════════════════════════════
+  "ice scraper", "snow brush", "emergency kit", "first aid",
+  "jumper cable", "jump starter", "battery charger", "battery tender",
+  "tire inflator", "air compressor", "tire gauge", "pressure gauge",
+  "jack", "jack stand", "lug wrench", "wheel chock",
+  "tow rope", "tow strap", "recovery strap", "winch",
+  "car wash", "wax", "polish", "detailing", "clay bar",
+  "tire shine", "wheel cleaner", "glass cleaner", "interior cleaner",
+  "microfiber", "chamois", "drying towel",
+  "oil", "motor oil", "engine oil", "transmission fluid", "brake fluid",
+  "coolant", "antifreeze", "power steering fluid", "wiper fluid",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // RACKS & CARRIERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "roof rack", "cargo rack", "bike rack", "kayak rack", "ski rack",
+  "cargo carrier", "cargo box", "rooftop carrier",
+  "tow hitch", "trailer hitch", "hitch", "ball mount", "hitch pin",
+  "hitch cover", "receiver hitch", "tow bar",
+  "bed extender", "tonneau cover", "bed cover", "bed liner", "bed mat",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PARTS INDICATORS (generic)
+  // ═══════════════════════════════════════════════════════════════════════════
+  "parts", "part", "accessories", "accessory", "component", "kit",
+  "replacement", "repair", "remanufactured", "rebuilt", "refurbished part",
+  "oem part", "aftermarket", "compatible with", "fits", "for",
+  "part number", "part #", "pn:", "oe#", "oem#",
+  "hardware", "mounting", "bracket", "clamp", "bolt", "screw", "nut",
+  "clip", "retainer", "fastener", "grommet",
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FLUIDS & CHEMICALS
+  // ═══════════════════════════════════════════════════════════════════════════
+  "additive", "fuel additive", "oil additive", "treatment",
+  "grease", "lubricant", "penetrating oil", "wd-40",
+  "adhesive", "sealant", "gasket maker", "rtv",
 ];
 
+// ─── Auction Keywords (BLOCK for vehicles) ───────────────────────────────────
 export const MOTORS_AUCTION_KEYWORDS = [
   "auction", "bid", "bidding", "reserve", "no reserve",
   "estate sale", "repo", "repossessed", "bank owned",
@@ -117,6 +241,35 @@ export const MOTORS_AUCTION_KEYWORDS = [
   "for parts", "parts only", "not running", "project car",
   "needs work", "mechanic special", "fixer upper",
   "barn find", "as-is", "as is", "no warranty",
+];
+
+// ─── Valid eBay Category Paths for VEHICLES ──────────────────────────────────
+// If categoryPath is available, ONLY allow these
+export const VALID_VEHICLE_CATEGORY_PATHS = [
+  "ebay motors > cars & trucks",
+  "ebay motors > motorcycles",
+  "ebay motors > powersports",
+  "ebay motors > boats",
+  "ebay motors > rvs & campers",
+  "ebay motors > trailers",
+  "ebay motors > other vehicles",
+  "ebay motors > atvs",
+  "vehicles > cars",
+  "vehicles > trucks",
+  "vehicles > motorcycles",
+];
+
+// ─── INVALID eBay Category Paths (parts/accessories) ─────────────────────────
+export const INVALID_VEHICLE_CATEGORY_PATHS = [
+  "parts",
+  "accessories",
+  "wheels",
+  "tires",
+  "automotive tools",
+  "oils",
+  "fluids",
+  "safety",
+  "security",
 ];
 
 // ─── Filter Interface ───────────────────────────────────────────────────────
@@ -127,7 +280,7 @@ export interface MotorsFilterInput {
   buyingOptions?: string[];
   condition?: string;
   categoryPath?: string;
-  vehiclesSubkey?: string | null; // For category-specific pricing
+  vehiclesSubkey?: string | null;
 }
 
 export interface MotorsFilterResult {
@@ -142,25 +295,25 @@ export interface MotorsFilterResult {
  * Check if a motor listing is allowed as a VEHICLE (not part/accessory)
  * Used for unified_category = 'vehicles'
  * 
- * NOTE: Price filtering is now done via keyword-based exclusion, not minPrice
+ * STRICT MODE: Enforces $1500+ minimum, FIXED_PRICE only, strong keyword exclusion
  */
-export function isAllowedMotorListing(input: MotorsFilterInput & { enforceMinPrice?: boolean }): MotorsFilterResult {
+export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterResult {
   const titleLower = (input.title || "").toLowerCase();
   const categoryPath = (input.categoryPath || "").toLowerCase();
   
-  // Get appropriate minimum price for this vehicle subkey (only if enforced)
-  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey, input.enforceMinPrice ?? false);
+  // Get minimum price for this vehicle subkey
+  const minPrice = getMinPriceForVehicleSubkey(input.vehiclesSubkey);
 
-  // 1. Check minimum price ONLY if explicitly enforced
-  if (input.enforceMinPrice && (input.priceUsd === null || input.priceUsd < minPrice)) {
+  // 1. ENFORCE minimum price ($1500+ for real vehicles)
+  if (input.priceUsd === null || input.priceUsd < minPrice) {
     return {
       isAllowed: false,
       reason: "price_below_minimum",
-      matchedKeyword: `$${input.priceUsd} < $${minPrice}`,
+      matchedKeyword: `$${input.priceUsd ?? 0} < $${minPrice}`,
     };
   }
 
-  // 2. Check buying options (if provided) - only Fixed Price/Buy It Now allowed
+  // 2. Check buying options - ONLY Fixed Price/Buy It Now allowed
   if (input.buyingOptions && input.buyingOptions.length > 0) {
     const hasAllowedOption = input.buyingOptions.some(opt => 
       ALLOWED_BUYING_OPTIONS.some(allowed => 
@@ -188,30 +341,48 @@ export function isAllowedMotorListing(input: MotorsFilterInput & { enforceMinPri
     }
   }
 
-  // 4. Check parts/accessories keywords in title
-  for (const keyword of MOTORS_PARTS_KEYWORDS) {
-    if (titleLower.includes(keyword.toLowerCase())) {
-      return {
-        isAllowed: false,
-        reason: "parts_accessory",
-        matchedKeyword: keyword,
-      };
+  // 4. Check category path for parts indicators (if available)
+  if (categoryPath) {
+    // Check if it's in an INVALID category path
+    for (const invalidPath of INVALID_VEHICLE_CATEGORY_PATHS) {
+      if (categoryPath.includes(invalidPath)) {
+        return {
+          isAllowed: false,
+          reason: "category_path_parts",
+          matchedKeyword: invalidPath,
+        };
+      }
     }
   }
 
-  // 5. Check category path for parts indicators
-  if (categoryPath.includes("parts") || 
-      categoryPath.includes("accessories") || 
-      categoryPath.includes("wheels") ||
-      categoryPath.includes("tires")) {
-    return {
-      isAllowed: false,
-      reason: "category_parts",
-      matchedKeyword: categoryPath,
-    };
+  // 5. Check parts/accessories keywords in title (COMPREHENSIVE list)
+  for (const keyword of MOTORS_PARTS_KEYWORDS) {
+    // Use word boundary matching for short keywords to avoid false positives
+    const keywordLower = keyword.toLowerCase();
+    
+    if (keywordLower.length <= 4) {
+      // For very short keywords, require word boundaries
+      const regex = new RegExp(`\\b${keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+      if (regex.test(titleLower)) {
+        return {
+          isAllowed: false,
+          reason: "parts_accessory",
+          matchedKeyword: keyword,
+        };
+      }
+    } else {
+      // For longer keywords, substring match is fine
+      if (titleLower.includes(keywordLower)) {
+        return {
+          isAllowed: false,
+          reason: "parts_accessory",
+          matchedKeyword: keyword,
+        };
+      }
+    }
   }
 
-  // All checks passed
+  // All checks passed - this appears to be a real vehicle listing
   return {
     isAllowed: true,
     reason: null,
@@ -221,7 +392,6 @@ export function isAllowedMotorListing(input: MotorsFilterInput & { enforceMinPri
 
 /**
  * Check if an item should be classified as a PART (not vehicle)
- * Used for unified_category = 'parts_accessories'
  */
 export function isPartsListing(input: MotorsFilterInput): boolean {
   const titleLower = (input.title || "").toLowerCase();
@@ -235,19 +405,15 @@ export function isPartsListing(input: MotorsFilterInput): boolean {
   }
 
   // Check category path for parts indicators
-  if (categoryPath.includes("parts") || 
-      categoryPath.includes("accessories") || 
-      categoryPath.includes("wheels") ||
-      categoryPath.includes("tires")) {
-    return true;
-  }
-
-  // Price below vehicle minimum likely indicates parts
-  if (input.priceUsd !== null && input.priceUsd < VEHICLES_MIN_PRICE_USD) {
-    // But only if from motors category
-    if (categoryPath.includes("motors") || categoryPath.includes("auto")) {
+  for (const invalidPath of INVALID_VEHICLE_CATEGORY_PATHS) {
+    if (categoryPath.includes(invalidPath)) {
       return true;
     }
+  }
+
+  // Price below vehicle minimum indicates parts
+  if (input.priceUsd !== null && input.priceUsd < VEHICLES_MIN_PRICE_USD) {
+    return true;
   }
 
   return false;
@@ -283,36 +449,41 @@ export function filterMotorListings<T extends MotorsFilterInput>(
 }
 
 /**
- * Build eBay filter string for vehicles with optional subkey-specific pricing
+ * Build eBay filter string for vehicles
  * @param subkey - vehicle subcategory
- * @param minPrice - explicit minimum price (default 0 for maximum results)
+ * @param minPrice - minimum price (defaults to subkey-specific or $1500)
  */
-export function buildEbayMotorsFilter(subkey?: string | null, minPrice: number = 0): string {
-  // eBay Browse API filter format - FIXED_PRICE only, no auctions
-  if (minPrice > 0) {
-    return `buyingOptions:{FIXED_PRICE},price:[${minPrice}..],conditionIds:{1000|1500|2000|2500|3000}`;
-  }
-  // No price filter - just FIXED_PRICE and condition
-  return `buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}`;
+export function buildEbayMotorsFilter(subkey?: string | null, minPrice?: number): string {
+  const effectiveMinPrice = minPrice ?? getMinPriceForVehicleSubkey(subkey ?? null);
+  
+  // eBay Browse API filter format:
+  // - FIXED_PRICE only (no auctions)
+  // - Price >= $1500 (or subkey-specific minimum)
+  // - New/Used conditions only
+  return `buyingOptions:{FIXED_PRICE},price:[${effectiveMinPrice}..],conditionIds:{1000|1500|2000|2500|3000}`;
 }
 
 /**
  * Build eBay filter string for vehicles (alias)
  */
-export function buildEbayVehiclesFilter(subkey?: string | null, minPrice: number = 0): string {
+export function buildEbayVehiclesFilter(subkey?: string | null, minPrice?: number): string {
   return buildEbayMotorsFilter(subkey, minPrice);
 }
 
 /**
  * Seed queries for VEHICLES category (actual vehicles, not parts)
+ * These should return real vehicle listings
  */
 export const MOTORS_SEED_QUERIES = [
-  // Cars & Trucks
-  "used car",
+  // Actual vehicle searches
+  "car for sale",
+  "truck for sale",
+  "suv for sale",
+  "sedan for sale",
   "toyota camry",
   "honda accord",
   "honda civic",
-  "ford f150",
+  "ford f-150",
   "ford mustang",
   "chevrolet silverado",
   "bmw 3 series",
@@ -324,7 +495,7 @@ export const MOTORS_SEED_QUERIES = [
   "nissan altima",
   "hyundai sonata",
   "kia optima",
-  "mazda cx5",
+  "mazda cx-5",
   "subaru outback",
   "jeep wrangler",
   "dodge ram",
@@ -332,33 +503,41 @@ export const MOTORS_SEED_QUERIES = [
 
 export const VEHICLES_SEED_QUERIES: Record<string, string[]> = {
   cars_trucks: [
-    "used car", "cars and trucks", "SUV", "sedan", "pickup truck",
-    "toyota camry", "honda accord", "ford f150", "chevrolet silverado",
-    "tesla model 3", "bmw 3 series", "mercedes c class", "audi a4",
+    "car for sale", "truck for sale", "suv for sale", "sedan for sale",
+    "pickup truck for sale", "used car buy it now", "certified pre-owned",
+    "toyota camry for sale", "honda accord for sale", "ford f-150 for sale",
+    "chevrolet silverado for sale", "tesla model 3 for sale",
+    "bmw for sale", "mercedes for sale", "audi for sale",
   ],
   motorcycles: [
-    "motorcycle", "harley davidson", "honda motorcycle", "kawasaki ninja",
-    "yamaha motorcycle", "ducati", "triumph motorcycle", "indian motorcycle",
+    "motorcycle for sale", "harley davidson for sale", "honda motorcycle",
+    "kawasaki ninja", "yamaha motorcycle", "ducati", "triumph motorcycle",
+    "indian motorcycle", "cruiser motorcycle", "sport bike",
   ],
   powersports: [
-    "ATV UTV", "quad", "side by side", "polaris ranger", "can-am",
-    "snowmobile", "jet ski", "sea-doo", "personal watercraft",
+    "atv for sale", "utv for sale", "side by side", "polaris ranger",
+    "can-am maverick", "rzr for sale", "snowmobile", "jet ski",
+    "sea-doo", "personal watercraft", "quad for sale",
   ],
   boats: [
-    "boat", "fishing boat", "pontoon boat", "yacht", "sailboat",
-    "speedboat", "bass boat", "cabin cruiser",
+    "boat for sale", "fishing boat", "pontoon boat", "yacht",
+    "sailboat", "speedboat", "bass boat", "cabin cruiser",
+    "center console boat", "bowrider",
   ],
   rvs_campers: [
-    "RV camper", "motorhome", "travel trailer", "fifth wheel",
-    "camper van", "recreational vehicle", "toy hauler",
+    "rv for sale", "motorhome", "travel trailer", "fifth wheel",
+    "camper van", "class a motorhome", "class c motorhome",
+    "toy hauler", "pop up camper",
   ],
   trailers_other: [
     "utility trailer", "cargo trailer", "enclosed trailer",
-    "flatbed trailer", "dump trailer", "car hauler",
+    "flatbed trailer", "dump trailer", "car hauler trailer",
+    "landscape trailer", "equipment trailer",
   ],
   classic_cars: [
-    "classic car", "vintage car", "antique car", "muscle car",
-    "collector car", "hot rod", "restored classic",
+    "classic car for sale", "vintage car", "antique car", "muscle car",
+    "collector car", "hot rod", "restored classic", "1960s car",
+    "1970s muscle car", "classic corvette", "classic mustang",
   ],
 };
 
@@ -398,6 +577,8 @@ export default {
   getMinPriceForVehicleSubkey,
   MOTORS_PARTS_KEYWORDS,
   MOTORS_AUCTION_KEYWORDS,
+  VALID_VEHICLE_CATEGORY_PATHS,
+  INVALID_VEHICLE_CATEGORY_PATHS,
   MOTORS_SEED_QUERIES,
   VEHICLES_SEED_QUERIES,
   PARTS_SEED_QUERIES,

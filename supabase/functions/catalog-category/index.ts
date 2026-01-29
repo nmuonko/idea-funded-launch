@@ -21,10 +21,15 @@
  * ALWAYS returns HTTP 200 with stable shape:
  * { status, env, category, sub, page, pageSize, total, hasMore, items, error }
  * 
- * Vehicles: Only FIXED_PRICE (Buy It Now) items, $1500+ minimum, no parts, no auctions
- * Parts: All automotive parts and accessories
- * All categories: No books/subscriptions/streaming
- * Amazon/Rainforest: NEVER used for live pagination - eBay only
+ * VEHICLES HARD FILTERS:
+ * - ONLY Buy It Now / Fixed Price (NO auctions)
+ * - Price >= $1,500 (enforced)
+ * - Strong parts/accessories keyword exclusion
+ * - eBay category path validation when available
+ * 
+ * PARTS: All automotive parts and accessories
+ * ALL CATEGORIES: No books/subscriptions/streaming
+ * AMAZON/RAINFOREST: NEVER used for live pagination - eBay only
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -48,6 +53,7 @@ import {
   buildEbayVehiclesFilter,
   VEHICLES_SEED_QUERIES,
   PARTS_SEED_QUERIES,
+  filterMotorListings,
 } from "../_shared/motorsFilter.ts";
 import { extractBrand, applyBrandDiversity, logBrandDistribution } from "../_shared/brandExtractor.ts";
 
@@ -89,7 +95,7 @@ const CATEGORY_SEED_QUERIES: Record<string, string[]> = {
   monitors: ["gaming monitor", "4k monitor", "ultrawide monitor", "27 inch monitor"],
   tablets: ["ipad", "samsung tablet", "android tablet", "ipad pro"],
   chargers: ["phone charger", "laptop charger", "usb-c cable", "wireless charger", "power bank"],
-  // Vehicles subcategories
+  // Vehicles subcategories - use actual vehicle queries
   cars_trucks: VEHICLES_SEED_QUERIES.cars_trucks,
   motorcycles: VEHICLES_SEED_QUERIES.motorcycles,
   powersports: VEHICLES_SEED_QUERIES.powersports,
@@ -110,8 +116,21 @@ const CATEGORY_SEED_QUERIES: Record<string, string[]> = {
 const GLOBAL_DENY_KEYWORDS = [
   "kindle", "audible", "prime video", "subscription", "ebook", "e-book",
   "paperback", "hardcover", "book", "magazine", "manga", "streaming",
-  "audiobook", "textbook", "novel", "comics", "auction", "bid", "bidding",
+  "audiobook", "textbook", "novel", "comics",
 ];
+
+// ─── eBay Category IDs for Motors ─────────────────────────────────────────────
+// These are the correct eBay Browse API category IDs for actual vehicles
+const EBAY_CATEGORY_IDS: Record<string, string> = {
+  // Vehicles
+  cars_trucks: "6001",     // Cars & Trucks
+  motorcycles: "6024",     // Motorcycles
+  powersports: "66466",    // Powersports - ATVs, Snowmobiles, etc.
+  boats: "26429",          // Boats
+  rvs_campers: "50054",    // RVs & Campers
+  trailers_other: "50056", // Trailers
+  classic_cars: "6001",    // Same as cars_trucks, filter by keywords
+};
 
 interface CatalogItem {
   id: string;
@@ -235,85 +254,50 @@ function isBlockedByGlobalDeny(title: string): boolean {
   return GLOBAL_DENY_KEYWORDS.some(kw => lowerTitle.includes(kw.toLowerCase()));
 }
 
-// ─── Parts Keywords for Filtering ─────────────────────────────────────────────
-const PARTS_FILTER_KEYWORDS = [
-  "parts", "manual", "seat cover", "floor mats", "floor mat", "car mat",
-  "brake pad", "oil filter", "air filter", "accessory", "accessories", 
-  "replacement", "kit", "cover", "mat", "pad", "rotor", "caliper", "pump", 
-  "belt", "gasket", "seal", "bearing", "bushing", "mount", "bracket",
-  "emblem", "decal", "sticker", "badge", "keychain", "key chain", "key fob",
-  "phone holder", "phone mount", "charger", "led light", "bulb", "fuse",
-  "wiper", "mirror", "antenna", "sun visor", "steering wheel cover",
-  "car wash", "polish", "wax", "cleaner", "detailing",
-];
-
-function isPartsByTitle(title: string): boolean {
-  const lower = title.toLowerCase();
-  return PARTS_FILTER_KEYWORDS.some(kw => lower.includes(kw));
-}
-
-// ─── eBay Category IDs for Motors ─────────────────────────────────────────────
-// These are the correct eBay Browse API category IDs for actual vehicles
-const EBAY_CATEGORY_IDS: Record<string, string> = {
-  // Vehicles
-  cars_trucks: "6001", // Cars & Trucks
-  motorcycles: "6024", // Motorcycles
-  powersports: "66466", // Powersports - ATVs, Snowmobiles, etc.
-  boats: "26429", // Boats
-  rvs_campers: "50054", // RVs & Campers
-  trailers_other: "50056", // Trailers
-  classic_cars: "6001", // Same as cars_trucks, filter by title
-};
-
 // ─── Query Builder for Vehicles ───────────────────────────────────────────────
 function buildVehicleSearchQuery(category: string, sub: string | null): string {
   // Use specific vehicle makes/models to get actual vehicle listings
   if (sub === "cars_trucks" || category === "cars_trucks") {
-    return "toyota honda ford chevrolet";
+    return "car for sale truck for sale suv sedan";
   }
   if (sub === "motorcycles" || category === "motorcycles") {
-    return "harley davidson honda motorcycle";
+    return "motorcycle for sale harley honda";
   }
   if (sub === "powersports" || category === "powersports") {
-    return "polaris rzr can-am maverick";
+    return "atv utv polaris rzr can-am";
   }
   if (sub === "boats" || category === "boats") {
-    return "boat for sale";
+    return "boat for sale fishing pontoon";
   }
   if (sub === "rvs_campers" || category === "rvs_campers") {
-    return "RV for sale motorhome";
+    return "rv motorhome camper travel trailer";
   }
   if (sub === "trailers_other" || category === "trailers_other") {
-    return "utility trailer enclosed trailer";
+    return "utility trailer cargo enclosed";
   }
   if (sub === "classic_cars" || category === "classic_cars") {
-    return "classic car muscle car 1960s 1970s";
+    return "classic car vintage muscle 1960 1970";
   }
   // Default for vehicles category
-  return "toyota honda ford chevrolet";
+  return "car for sale truck suv sedan";
 }
 
-// Build eBay filter with category ID for vehicles
-function buildVehicleCategoryFilter(sub: string | null, minPrice: number = 0): string {
+// Build eBay filter with category ID + price + FIXED_PRICE for vehicles
+function buildVehicleCategoryFilter(sub: string | null, minPrice: number): string {
   const categoryId = sub ? EBAY_CATEGORY_IDS[sub] : EBAY_CATEGORY_IDS.cars_trucks;
   
-  // Base filter: FIXED_PRICE only (no auctions)
-  let filter = "buyingOptions:{FIXED_PRICE}";
+  // Base filter: FIXED_PRICE only + minimum price
+  let filter = `buyingOptions:{FIXED_PRICE},price:[${minPrice}..]`;
   
-  // Add category filter if we have a category ID
+  // Add category filter if we have a valid category ID
   if (categoryId) {
     filter += `,categoryIds:{${categoryId}}`;
-  }
-  
-  // Add price filter if specified
-  if (minPrice > 0) {
-    filter += `,price:[${minPrice}..]`;
   }
   
   return filter;
 }
 
-// ─── eBay Live Fetch with Pagination ─────────────────────────────────────────
+// ─── eBay Live Fetch with STRICT Vehicle Filtering ───────────────────────────
 
 async function fetchEbayLiveItems(
   supabase: any,
@@ -323,9 +307,12 @@ async function fetchEbayLiveItems(
   isParts: boolean,
   page: number,
   pageSize: number,
-  requestId: string,
-  minPrice: number = 0
+  requestId: string
 ): Promise<{ items: CatalogItem[]; total: number; hasMore: boolean }> {
+  // Get min price for vehicles (ENFORCED)
+  const vehicleSubkey = isVehicles ? (sub || "cars_trucks") : null;
+  const minPrice = isVehicles ? getMinPriceForVehicleSubkey(vehicleSubkey) : 0;
+  
   // Build the search query based on category/sub
   let query: string;
   if (isVehicles) {
@@ -333,16 +320,15 @@ async function fetchEbayLiveItems(
   } else if (isParts) {
     query = sub ? (PARTS_SEED_QUERIES[sub]?.[0] || "auto parts") : "auto parts";
   } else {
-    // Use subcategory seeds if available, otherwise use category seeds
     const seedKey = sub || category;
     const seedQueries = CATEGORY_SEED_QUERIES[seedKey] || CATEGORY_SEED_QUERIES[category] || ["electronics"];
     query = seedQueries[0];
   }
   
-  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} query="${query}" minPrice=${minPrice}`);
+  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} minPrice=${minPrice} query="${query}"`);
   
   try {
-    // For vehicles, use category-specific filter with eBay category IDs
+    // For vehicles, use strict filter with eBay category IDs + price
     const options: any = { 
       marketplace: "EBAY_US",
       filter: isVehicles 
@@ -359,22 +345,33 @@ async function fetchEbayLiveItems(
     
     const allItems: CatalogItem[] = [];
     const seenIds = new Set<string>();
+    let filteredByPrice = 0;
+    let filteredByParts = 0;
+    let filteredByContent = 0;
     
     for (const ebayItem of result.items) {
       if (seenIds.has(ebayItem.id)) continue;
       
       // Apply content filter
       if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.productUrl }).isDisallowed) {
+        filteredByContent++;
         continue;
       }
       
-      // For vehicles: rely on eBay category filter, only do light keyword blocking
-      // Skip items that are clearly parts/accessories (but be less aggressive)
+      // For vehicles: Apply STRICT filtering using motorsFilter
       if (isVehicles) {
-        const lower = ebayItem.title.toLowerCase();
-        // Only block obvious parts keywords
-        if (lower.includes("floor mat") || lower.includes("seat cover") || 
-            lower.includes("phone holder") || lower.includes("car charger")) {
+        const filterResult = isAllowedMotorListing({
+          title: ebayItem.title,
+          priceUsd: ebayItem.priceUsd,
+          vehiclesSubkey: vehicleSubkey,
+        });
+        
+        if (!filterResult.isAllowed) {
+          if (filterResult.reason === "price_below_minimum") {
+            filteredByPrice++;
+          } else {
+            filteredByParts++;
+          }
           continue;
         }
       }
@@ -402,7 +399,7 @@ async function fetchEbayLiveItems(
       allItems.push(item);
     }
     
-    console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} query="${query}" fetched=${result.items.length} filtered=${allItems.length} total=${result.total}`);
+    console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} query="${query}" fetched=${result.items.length} filtered=${allItems.length} byPrice=${filteredByPrice} byParts=${filteredByParts} byContent=${filteredByContent} total=${result.total}`);
     
     // Upsert to DB for caching (async, don't block response)
     if (allItems.length > 0) {
@@ -422,7 +419,7 @@ async function fetchEbayLiveItems(
         listing_type: item.listingType,
         vehicles_subkey: item.vehiclesSubkey,
         parts_subkey: item.partsSubkey,
-        brand: item.brand, // Store extracted brand
+        brand: item.brand,
         updated_at: new Date().toISOString(),
       }));
       
@@ -465,7 +462,6 @@ Deno.serve(async (req) => {
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db"; // db | live
-  const provider = url.searchParams.get("provider") || "ebay"; // ebay | rainforest
 
   // Resolve category aliases (motors -> vehicles, etc.)
   const category = resolveCategory(categoryRaw);
@@ -546,18 +542,12 @@ Deno.serve(async (req) => {
     const isVehicles = category === "vehicles" || isVehSubcat;
     const isParts = category === "parts_accessories" || isPartSubcat;
 
-    // Parse minPrice parameter (default 0 for maximum results)
-    const minPrice = parseInt(url.searchParams.get("minPrice") || "0", 10);
-
     // ─── LIVE eBay Mode ──────────────────────────────────────────────────────
-    // Use LIVE for: explicit mode=live, OR provider=ebay, OR (mode=auto AND vehicles/motors)
-    const useLiveEbay = 
-      provider === "ebay" || 
-      mode === "live" || 
-      (mode === "auto" && (isVehicles || isParts));
+    // Use LIVE for: explicit mode=live, OR (mode=auto AND vehicles/motors)
+    const useLiveEbay = mode === "live" || (mode === "auto" && (isVehicles || isParts));
 
     if (useLiveEbay) {
-      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE category=${category} sub=${sub} page=${page} minPrice=${minPrice}`);
+      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE category=${category} sub=${sub} page=${page}`);
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
@@ -567,8 +557,7 @@ Deno.serve(async (req) => {
         isParts,
         page,
         pageSize,
-        requestId,
-        minPrice
+        requestId
       );
       
       console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} total=${liveResult.total} returned=${liveResult.items.length} hasMore=${liveResult.hasMore}`);
@@ -620,12 +609,10 @@ Deno.serve(async (req) => {
       }
     } else {
       // Other categories (electronics, home_garden, etc.)
-      // Match both old and new category keys for backward compatibility
       const categoryVariants = [category];
       if (category === "clothing_shoes_accessories") {
         categoryVariants.push("clothing");
       }
-      // Also check for old "motors" data that should now be "vehicles"
       if (category === "vehicles") {
         categoryVariants.push("motors");
       }
@@ -640,11 +627,11 @@ Deno.serve(async (req) => {
       .neq("unified_category", "blocked")
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-    // Determine vehicle subkey for category-specific pricing
+    // Get minimum price for vehicles (ENFORCED)
     const vehicleSubkey = isVehicles ? (isVehSubcat ? category : sub) : null;
     const vehicleMinPrice = getMinPriceForVehicleSubkey(vehicleSubkey);
 
-    // Apply minimum price for vehicles (using category-specific threshold)
+    // Apply minimum price for vehicles ($1500+)
     if (isVehicles) {
       query = query.gte("price_usd", vehicleMinPrice);
     }
@@ -673,14 +660,17 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // For vehicles, apply strict vehicle filter with subkey-specific pricing
-      if (isVehicles && !isAllowedMotorListing({ 
-        title: item.title, 
-        priceUsd: item.priceUsd,
-        vehiclesSubkey: vehicleSubkey 
-      }).isAllowed) {
-        filteredCount++;
-        continue;
+      // For vehicles, apply STRICT motorsFilter
+      if (isVehicles) {
+        const filterResult = isAllowedMotorListing({ 
+          title: item.title, 
+          priceUsd: item.priceUsd,
+          vehiclesSubkey: vehicleSubkey 
+        });
+        if (!filterResult.isAllowed) {
+          filteredCount++;
+          continue;
+        }
       }
 
       if (isDisallowedItem({ title: item.title, productUrl: item.productUrl }).isDisallowed) {
@@ -723,7 +713,6 @@ Deno.serve(async (req) => {
     let uniqueItems = Array.from(uniqueMap.values());
 
     // ─── CLOTHING BRAND DIVERSITY ────────────────────────────────────────────
-    // For clothing category on page 1, apply brand diversity to prevent any single brand from dominating
     const isClothing = category === "clothing_shoes_accessories" || category === "clothing" || category === "fashion";
     if (isClothing && page === 1 && uniqueItems.length > 0) {
       console.log(`[CAT_CATEGORY_DIVERSITY] requestId=${requestId} Applying brand diversity to ${uniqueItems.length} clothing items`);

@@ -3,13 +3,13 @@
  * Fetches items for a specific unified category from DB
  * 
  * Query params:
- * - key (required) - unified category slug (electronics, motors, clothing, etc.)
+ * - category (preferred) OR key (legacy) - unified category slug (electronics, motors, clothing, etc.)
  * - page default 1
  * - pageSize default 20
  * - env (from header or param)
  * 
  * ALWAYS returns HTTP 200 with stable shape:
- * { status, env, key, page, pageSize, total, items, error }
+ * { status, env, category, page, pageSize, total, items, error }
  * 
  * Motors: Only FIXED_PRICE (Buy It Now) items, $1500+ minimum
  * All categories: No books/subscriptions/streaming
@@ -119,20 +119,20 @@ Deno.serve(async (req) => {
     envName = "production";
   }
 
-  // Parse query params early for logging
-  const key = url.searchParams.get("key") || url.searchParams.get("category") || url.searchParams.get("id") || "";
+  // Parse query params - prefer 'category', fall back to 'key' for backwards compatibility
+  const category = url.searchParams.get("category") || url.searchParams.get("key") || url.searchParams.get("id") || "";
   const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
   const pageSize = Math.min(50, Math.max(1, parseInt(url.searchParams.get("pageSize") || "20", 10)));
   const mode = url.searchParams.get("mode") || "db";
 
   // Validate environment
   if (!ALLOWED_ENVS.includes(envName)) {
-    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=BAD_ENV env=${envName} key=${key}`);
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=BAD_ENV env=${envName} category=${category}`);
     return new Response(
       JSON.stringify({
         status: "error",
         env: envName,
-        key,
+        category,
         page,
         pageSize,
         total: 0,
@@ -143,38 +143,38 @@ Deno.serve(async (req) => {
     );
   }
 
-  console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} page=${page} pageSize=${pageSize} mode=${mode}`);
+  console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} category=${category} page=${page} pageSize=${pageSize} mode=${mode}`);
 
-  if (!key) {
-    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=MISSING_KEY`);
+  if (!category) {
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=MISSING_CATEGORY`);
     return new Response(
       JSON.stringify({
         status: "error",
         env: envName,
-        key: "",
+        category: "",
         page,
         pageSize,
         total: 0,
         items: [],
-        error: { message: "Missing required 'key' parameter", code: "MISSING_KEY" },
+        error: { message: "Missing required 'category' parameter", code: "MISSING_CATEGORY" },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
-  // Validate category key
-  if (!isValidCategory(key)) {
-    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=INVALID_CATEGORY key=${key}`);
+  // Validate category
+  if (!isValidCategory(category)) {
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} error=INVALID_CATEGORY category=${category}`);
     return new Response(
       JSON.stringify({
         status: "error",
         env: envName,
-        key,
+        category,
         page,
         pageSize,
         total: 0,
         items: [],
-        error: { message: `Invalid category: ${key}. Valid categories: ${TABS.map(t => t.key).join(", ")}`, code: "INVALID_CATEGORY" },
+        error: { message: `Invalid category: ${category}. Valid categories: ${TABS.map(t => t.key).join(", ")}`, code: "INVALID_CATEGORY" },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
         JSON.stringify({
           status: "error",
           env: envName,
-          key,
+          category,
           page,
           pageSize,
           total: 0,
@@ -211,7 +211,7 @@ Deno.serve(async (req) => {
         JSON.stringify({
           status: "error",
           env: envName,
-          key,
+          category,
           page,
           pageSize,
           total: 0,
@@ -223,14 +223,16 @@ Deno.serve(async (req) => {
     }
 
     // Fetch items from catalog_items by unified_category
-    const isMotors = key === "motors";
+    const isMotors = category === "motors";
     const fetchLimit = pageSize * 4; // Fetch extra for filtering
 
     // Build query - check both unified_category and category_key for backwards compatibility
+    // Also exclude blocked items
     let query = supabase
       .from("catalog_items")
       .select("*")
-      .or(`unified_category.eq.${key},category_key.eq.${key}`)
+      .or(`unified_category.eq.${category},category_key.eq.${category}`)
+      .neq("unified_category", "blocked")
       .or("is_disallowed.is.null,is_disallowed.eq.false");
 
     // Motors-specific: minimum price filter
@@ -248,7 +250,7 @@ Deno.serve(async (req) => {
         JSON.stringify({
           status: "error",
           env: envName,
-          key,
+          category,
           page,
           pageSize,
           total: 0,
@@ -304,13 +306,13 @@ Deno.serve(async (req) => {
     const pageItems = sortedItems.slice(startIdx, endIdx);
 
     const durationMs = Date.now() - startTime;
-    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} total=${total} returning=${pageItems.length} providers=${[...new Set(pageItems.map(i => i.provider))].join(",")} durationMs=${durationMs}`);
+    console.log(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} category=${category} total=${total} returning=${pageItems.length} providers=${[...new Set(pageItems.map(i => i.provider))].join(",")} durationMs=${durationMs}`);
 
     return new Response(
       JSON.stringify({
         status: "success",
         env: envName,
-        key,
+        category,
         page,
         pageSize,
         total,
@@ -324,7 +326,7 @@ Deno.serve(async (req) => {
     const errorStack = err instanceof Error ? err.stack : undefined;
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} key=${key} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+    console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} env=${envName} category=${category} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
     if (errorStack) {
       console.error(`[CATALOG_CATEGORY_API] requestId=${requestId} stack=${errorStack}`);
     }
@@ -333,7 +335,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         status: "error",
         env: envName,
-        key,
+        category,
         page,
         pageSize,
         total: 0,

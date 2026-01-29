@@ -13,6 +13,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import { verifyCronAuth, cronAuthErrorResponse } from '../_shared/cronAuth.ts';
+import { mapUnifiedCategory } from '../_shared/categoryMapper.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,15 +78,17 @@ interface CatalogItem {
   rating: number | null;
   review_count: number | null;
   brand: string | null;
-  category: string;
+  category_key: string;
+  unified_category: string;
   tags: string[];
   raw: unknown;
 }
 
-function normalizeProduct(product: RainforestProduct, category: string): CatalogItem | null {
+function normalizeProduct(product: RainforestProduct, categoryKey: string): CatalogItem | null {
   if (!product.asin) return null;
 
   const id = `rainforest:${product.asin}`;
+  const title = product.title || null;
   
   // Extract price
   let priceUsd: number | null = null;
@@ -114,8 +117,21 @@ function normalizeProduct(product: RainforestProduct, category: string): Catalog
     ? !product.availability.raw.toLowerCase().includes('unavailable')
     : null;
 
+  // Compute unified_category using categoryMapper
+  const unifiedCategory = mapUnifiedCategory({
+    title: title || undefined,
+    provider: 'rainforest',
+    productUrl: product.link || `https://www.amazon.com/dp/${product.asin}`,
+  });
+
+  // Skip blocked items
+  if (unifiedCategory === 'blocked') {
+    console.log(`[REFRESH] Skipping blocked item: ${title?.slice(0, 50)}`);
+    return null;
+  }
+
   // Build tags from title and category
-  const tags: string[] = [category];
+  const tags: string[] = [categoryKey];
   if (product.brand) {
     tags.push(product.brand.toLowerCase());
   }
@@ -124,7 +140,7 @@ function normalizeProduct(product: RainforestProduct, category: string): Catalog
     id,
     provider: 'rainforest',
     provider_product_id: product.asin,
-    title: product.title || null,
+    title,
     price_usd: priceUsd,
     image_url: images[0] || null,
     images,
@@ -133,7 +149,8 @@ function normalizeProduct(product: RainforestProduct, category: string): Catalog
     rating: product.rating || null,
     review_count: product.ratings_total || null,
     brand: product.brand || null,
-    category,
+    category_key: categoryKey,
+    unified_category: unifiedCategory,
     tags,
     raw: product,
   };

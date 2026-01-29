@@ -1,22 +1,30 @@
 /**
  * Motors Filter - Vehicle-Specific Filtering
  * 
- * AfriShop Motors category rules:
+ * AfriShop Vehicles & Parts Category Rules:
+ * 
+ * VEHICLES (unified_category = 'vehicles'):
  * 1. ONLY Buy It Now / Fixed Price items (no auctions)
  * 2. Minimum price $1,500 (filters out parts/accessories)
  * 3. Block parts, accessories, wheels, tires, etc.
- * 4. Block auction-related keywords
+ * 4. Block auction-related keywords: "auction", "bid", "bidding"
+ * 
+ * PARTS & ACCESSORIES (unified_category = 'parts_accessories'):
+ * 1. All automotive parts, wheels, tires, accessories
+ * 2. No minimum price requirement
+ * 3. Can include any buying option
  */
 
 // ─── Price Threshold ────────────────────────────────────────────────────────
 export const MOTORS_MIN_PRICE_USD = 1500;
+export const VEHICLES_MIN_PRICE_USD = 1500;
 
 // ─── Buying Options ─────────────────────────────────────────────────────────
-// Only these buying options are allowed for motors
+// Only these buying options are allowed for vehicles (no auctions)
 export const ALLOWED_BUYING_OPTIONS = ["FIXED_PRICE", "BUY_IT_NOW", "BEST_OFFER"];
 
 // ─── Deny Keywords ──────────────────────────────────────────────────────────
-// Items with these keywords in title are blocked from motors
+// Items with these keywords in title are blocked from vehicles
 
 export const MOTORS_PARTS_KEYWORDS = [
   // Wheels & Tires
@@ -111,18 +119,19 @@ export interface MotorsFilterResult {
 // ─── Main Filter Function ───────────────────────────────────────────────────
 
 /**
- * Check if a motor listing is allowed (actual vehicle, not part/accessory)
+ * Check if a motor listing is allowed as a VEHICLE (not part/accessory)
+ * Used for unified_category = 'vehicles'
  */
 export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterResult {
   const titleLower = (input.title || "").toLowerCase();
   const categoryPath = (input.categoryPath || "").toLowerCase();
 
   // 1. Check minimum price
-  if (input.priceUsd === null || input.priceUsd < MOTORS_MIN_PRICE_USD) {
+  if (input.priceUsd === null || input.priceUsd < VEHICLES_MIN_PRICE_USD) {
     return {
       isAllowed: false,
       reason: "price_below_minimum",
-      matchedKeyword: `$${input.priceUsd} < $${MOTORS_MIN_PRICE_USD}`,
+      matchedKeyword: `$${input.priceUsd} < $${VEHICLES_MIN_PRICE_USD}`,
     };
   }
 
@@ -186,6 +195,40 @@ export function isAllowedMotorListing(input: MotorsFilterInput): MotorsFilterRes
 }
 
 /**
+ * Check if an item should be classified as a PART (not vehicle)
+ * Used for unified_category = 'parts_accessories'
+ */
+export function isPartsListing(input: MotorsFilterInput): boolean {
+  const titleLower = (input.title || "").toLowerCase();
+  const categoryPath = (input.categoryPath || "").toLowerCase();
+
+  // Check for parts keywords in title
+  for (const keyword of MOTORS_PARTS_KEYWORDS) {
+    if (titleLower.includes(keyword.toLowerCase())) {
+      return true;
+    }
+  }
+
+  // Check category path for parts indicators
+  if (categoryPath.includes("parts") || 
+      categoryPath.includes("accessories") || 
+      categoryPath.includes("wheels") ||
+      categoryPath.includes("tires")) {
+    return true;
+  }
+
+  // Price below vehicle minimum likely indicates parts
+  if (input.priceUsd !== null && input.priceUsd < VEHICLES_MIN_PRICE_USD) {
+    // But only if from motors category
+    if (categoryPath.includes("motors") || categoryPath.includes("auto")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Filter an array of motor listings, keeping only allowed vehicles
  */
 export function filterMotorListings<T extends MotorsFilterInput>(
@@ -215,18 +258,25 @@ export function filterMotorListings<T extends MotorsFilterInput>(
 }
 
 /**
- * Build eBay filter string for motors (fixed price + minimum price)
+ * Build eBay filter string for vehicles (fixed price + minimum price)
  */
 export function buildEbayMotorsFilter(): string {
   // eBay Browse API filter format
-  return `buyingOptions:{FIXED_PRICE},price:[${MOTORS_MIN_PRICE_USD}..],conditionIds:{1000|1500|2000|2500|3000}`;
+  return `buyingOptions:{FIXED_PRICE},price:[${VEHICLES_MIN_PRICE_USD}..],conditionIds:{1000|1500|2000|2500|3000}`;
 }
 
 /**
- * Seed queries for motors category (actual vehicles, not parts)
+ * Build eBay filter string for vehicles (alias)
+ */
+export function buildEbayVehiclesFilter(): string {
+  return buildEbayMotorsFilter();
+}
+
+/**
+ * Seed queries for VEHICLES category (actual vehicles, not parts)
  */
 export const MOTORS_SEED_QUERIES = [
-  // Specific vehicle searches
+  // Cars & Trucks
   "used car",
   "toyota camry",
   "honda accord",
@@ -249,12 +299,78 @@ export const MOTORS_SEED_QUERIES = [
   "dodge ram",
 ];
 
+export const VEHICLES_SEED_QUERIES: Record<string, string[]> = {
+  cars_trucks: [
+    "used car", "cars and trucks", "SUV", "sedan", "pickup truck",
+    "toyota camry", "honda accord", "ford f150", "chevrolet silverado",
+    "tesla model 3", "bmw 3 series", "mercedes c class", "audi a4",
+  ],
+  motorcycles: [
+    "motorcycle", "harley davidson", "honda motorcycle", "kawasaki ninja",
+    "yamaha motorcycle", "ducati", "triumph motorcycle", "indian motorcycle",
+  ],
+  powersports: [
+    "ATV UTV", "quad", "side by side", "polaris ranger", "can-am",
+    "snowmobile", "jet ski", "sea-doo", "personal watercraft",
+  ],
+  boats: [
+    "boat", "fishing boat", "pontoon boat", "yacht", "sailboat",
+    "speedboat", "bass boat", "cabin cruiser",
+  ],
+  rvs_campers: [
+    "RV camper", "motorhome", "travel trailer", "fifth wheel",
+    "camper van", "recreational vehicle", "toy hauler",
+  ],
+  trailers_other: [
+    "utility trailer", "cargo trailer", "enclosed trailer",
+    "flatbed trailer", "dump trailer", "car hauler",
+  ],
+  classic_cars: [
+    "classic car", "vintage car", "antique car", "muscle car",
+    "collector car", "hot rod", "restored classic",
+  ],
+};
+
+/**
+ * Seed queries for PARTS & ACCESSORIES category
+ */
+export const PARTS_SEED_QUERIES: Record<string, string[]> = {
+  all_parts: [
+    "auto parts", "car parts", "automotive parts",
+  ],
+  car_truck_parts: [
+    "car truck parts", "engine parts", "brake parts", "suspension parts",
+    "transmission parts", "exhaust parts", "cooling system parts",
+  ],
+  wheels_tires: [
+    "wheels tires", "car wheels", "truck tires", "alloy wheels",
+    "tire set", "wheel set", "off road tires",
+  ],
+  moto_scooter_parts: [
+    "motorcycle parts", "scooter parts", "harley parts", "motorcycle exhaust",
+    "motorcycle seat", "motorcycle handlebar",
+  ],
+  atv_utv_parts: [
+    "atv parts", "utv parts", "quad parts", "side by side parts",
+    "atv tires", "utv accessories",
+  ],
+  tools_supplies: [
+    "automotive tools", "car tools", "mechanic tools", "car cleaning supplies",
+    "car wax polish", "car detailing", "oil change kit",
+  ],
+};
+
 export default {
   MOTORS_MIN_PRICE_USD,
+  VEHICLES_MIN_PRICE_USD,
   MOTORS_PARTS_KEYWORDS,
   MOTORS_AUCTION_KEYWORDS,
   MOTORS_SEED_QUERIES,
+  VEHICLES_SEED_QUERIES,
+  PARTS_SEED_QUERIES,
   isAllowedMotorListing,
+  isPartsListing,
   filterMotorListings,
   buildEbayMotorsFilter,
+  buildEbayVehiclesFilter,
 };

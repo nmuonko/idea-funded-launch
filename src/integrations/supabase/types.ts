@@ -946,7 +946,9 @@ export type Database = {
           images: Json | null
           in_stock: boolean | null
           is_disallowed: boolean | null
+          listing_type: string | null
           metadata: Json | null
+          parts_subkey: string | null
           price_usd: number | null
           product_url: string | null
           provider: string | null
@@ -958,6 +960,7 @@ export type Database = {
           unified_category: string | null
           unified_subcategory: string | null
           updated_at: string | null
+          vehicles_subkey: string | null
         }
         Insert: {
           buying_options?: string[] | null
@@ -967,7 +970,9 @@ export type Database = {
           images?: Json | null
           in_stock?: boolean | null
           is_disallowed?: boolean | null
+          listing_type?: string | null
           metadata?: Json | null
+          parts_subkey?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -979,6 +984,7 @@ export type Database = {
           unified_category?: string | null
           unified_subcategory?: string | null
           updated_at?: string | null
+          vehicles_subkey?: string | null
         }
         Update: {
           buying_options?: string[] | null
@@ -988,7 +994,9 @@ export type Database = {
           images?: Json | null
           in_stock?: boolean | null
           is_disallowed?: boolean | null
+          listing_type?: string | null
           metadata?: Json | null
+          parts_subkey?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -1000,6 +1008,7 @@ export type Database = {
           unified_category?: string | null
           unified_subcategory?: string | null
           updated_at?: string | null
+          vehicles_subkey?: string | null
         }
         Relationships: []
       }

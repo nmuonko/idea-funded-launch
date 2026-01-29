@@ -16,6 +16,12 @@
  * Amazon/Rainforest is NEVER called here.
  * 
  * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
+ * 
+ * HOME SECTIONS:
+ * - Electronics (trending)
+ * - Vehicles (cars_trucks default)
+ * - Home & Garden
+ * - Clothing (optional)
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -23,7 +29,12 @@ import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environme
 import { TABS, mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
 import { searchEbay, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
-import { isAllowedMotorListing, MOTORS_SEED_QUERIES } from "../_shared/motorsFilter.ts";
+import { 
+  isAllowedMotorListing, 
+  VEHICLES_SEED_QUERIES, 
+  VEHICLES_MIN_PRICE_USD,
+  buildEbayVehiclesFilter,
+} from "../_shared/motorsFilter.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -61,6 +72,9 @@ interface CatalogItem {
   rating: number | null;
   unifiedCategory: string | null;
   unifiedSubcategory: string | null;
+  listingType: string | null;
+  vehiclesSubkey: string | null;
+  partsSubkey: string | null;
 }
 
 interface Section {
@@ -90,6 +104,8 @@ interface SectionConfig {
   isVehicle?: boolean;
   maxItems: number;
   seedQueries: string[];
+  listingType?: "vehicle" | "part";
+  defaultSubkey?: string;
 }
 
 const HOME_SECTIONS: SectionConfig[] = [
@@ -109,12 +125,14 @@ const HOME_SECTIONS: SectionConfig[] = [
     seedQueries: ["iphone 15", "samsung phone unlocked", "android phone"],
   },
   {
-    key: "motors",
+    key: "vehicles",
     title: "Vehicles",
-    unifiedCategory: "motors",
+    unifiedCategory: "vehicles",
     isVehicle: true,
+    listingType: "vehicle",
+    defaultSubkey: "cars_trucks",
     maxItems: HOME_PAGE_SIZE,
-    seedQueries: MOTORS_SEED_QUERIES.slice(0, 5), // Use first 5 motor seeds
+    seedQueries: VEHICLES_SEED_QUERIES.cars_trucks.slice(0, 5),
   },
   {
     key: "clothing_shoes_accessories",
@@ -145,10 +163,8 @@ const GLOBAL_DENY_KEYWORDS = [
   "kindle", "audible", "prime video", "subscription", "ebook", "e-book",
   "paperback", "hardcover", "book", "magazine", "manga", "audiobook",
   "textbook", "novel", "comics", "journal", "membership", "streaming",
-  "unlimited", "prime membership",
+  "unlimited", "prime membership", "auction", "bid", "bidding",
 ];
-
-const VEHICLE_MIN_PRICE_USD = 1500;
 
 function isBlockedItem(item: CatalogItem, isVehicle: boolean = false): boolean {
   const title = (item.title || "").toLowerCase();
@@ -196,6 +212,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
     rating: item.rating,
     unifiedCategory: item.unified_category || item.category_key,
     unifiedSubcategory: item.unified_subcategory || null,
+    listingType: item.listing_type || null,
+    vehiclesSubkey: item.vehicles_subkey || null,
+    partsSubkey: item.parts_subkey || null,
   };
 }
 
@@ -213,24 +232,28 @@ function mapEbayItemToResponse(item: EbayCatalogItem): CatalogItem {
     rating: item.rating,
     unifiedCategory: null, // Will be set during upsert
     unifiedSubcategory: null,
+    listingType: null,
+    vehiclesSubkey: null,
+    partsSubkey: null,
   };
 }
 
 async function getSectionFromDB(
   supabase: any,
-  unifiedCategory: string,
-  maxItems: number,
-  keywordFilter?: string[],
-  isVehicle: boolean = false
+  sectionConfig: SectionConfig,
+  maxItems: number
 ): Promise<CatalogItem[]> {
   let query = supabase
     .from("catalog_items")
-    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, unified_category, unified_subcategory, category_key")
-    .eq("unified_category", unifiedCategory)
+    .select("id, provider, provider_product_id, title, price_usd, image_url, images, product_url, in_stock, rating, unified_category, unified_subcategory, category_key, listing_type, vehicles_subkey, parts_subkey")
+    .eq("unified_category", sectionConfig.unifiedCategory)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
-  if (isVehicle) {
-    query = query.gte("price_usd", VEHICLE_MIN_PRICE_USD);
+  // For vehicles, filter by listing_type
+  if (sectionConfig.isVehicle) {
+    query = query
+      .eq("listing_type", "vehicle")
+      .gte("price_usd", VEHICLES_MIN_PRICE_USD);
   }
 
   const { data: rows, error } = await query
@@ -238,17 +261,17 @@ async function getSectionFromDB(
     .limit(maxItems + 30); // Fetch extra for filtering
 
   if (error) {
-    console.error(`[HOME_DB] Query error for ${unifiedCategory}:`, error.message);
+    console.error(`[HOME_DB] Query error for ${sectionConfig.unifiedCategory}:`, error.message);
     return [];
   }
 
   let items = (rows || []).map(mapDbItemToResponse);
 
   // Apply keyword filter if specified
-  if (keywordFilter && keywordFilter.length > 0) {
+  if (sectionConfig.keywordFilter && sectionConfig.keywordFilter.length > 0) {
     items = items.filter(item => {
       const title = (item.title || "").toLowerCase();
-      return keywordFilter.some(kw => title.includes(kw.toLowerCase()));
+      return sectionConfig.keywordFilter!.some(kw => title.includes(kw.toLowerCase()));
     });
   }
 
@@ -275,17 +298,20 @@ async function fetchEbayLiveItems(
     if (allItems.length >= neededCount) break;
     
     try {
-      // For motors, apply special filter
-      const isMotors = sectionConfig.isVehicle === true;
+      const isVehicles = sectionConfig.isVehicle === true;
+      
+      // For vehicles, apply special filter
+      const options: any = { marketplace: "EBAY_US" };
+      if (isVehicles) {
+        options.filter = buildEbayVehiclesFilter();
+      }
       
       const result = await searchEbay(
         supabase,
         query,
         1, // page 1
         20, // limit
-        {
-          marketplace: "EBAY_US",
-        }
+        options
       );
       
       if (result.items.length === 0) {
@@ -304,23 +330,29 @@ async function fetchEbayLiveItems(
           continue;
         }
         
-        // Apply motors filter
-        if (isMotors && !isAllowedMotorListing({ title: item.title || "", priceUsd: item.priceUsd }).isAllowed) {
+        // Apply vehicles filter (no auctions, no parts)
+        if (isVehicles && !isAllowedMotorListing({ title: item.title || "", priceUsd: item.priceUsd }).isAllowed) {
           continue;
         }
         
         // Map category
-        const { category, subcategory } = mapCategoryAndSubcategory({
+        const mappedResult = mapCategoryAndSubcategory({
           title: item.title || "",
           provider: "ebay",
+          priceUsd: item.priceUsd,
         });
         
         // Skip blocked categories
-        if (category === "blocked") continue;
+        if (mappedResult.category === "blocked") continue;
         
-        // Force category to match section if mapper returns different
+        // Set category to match section
         item.unifiedCategory = sectionConfig.unifiedCategory;
-        item.unifiedSubcategory = subcategory;
+        item.unifiedSubcategory = mappedResult.subcategory;
+        
+        if (isVehicles) {
+          item.listingType = "vehicle";
+          item.vehiclesSubkey = sectionConfig.defaultSubkey || "cars_trucks";
+        }
         
         seenIds.add(item.id);
         allItems.push(item);
@@ -348,6 +380,9 @@ async function fetchEbayLiveItems(
       rating: item.rating,
       unified_category: item.unifiedCategory,
       unified_subcategory: item.unifiedSubcategory,
+      listing_type: item.listingType,
+      vehicles_subkey: item.vehiclesSubkey,
+      parts_subkey: item.partsSubkey,
       updated_at: new Date().toISOString(),
     }));
     
@@ -458,10 +493,8 @@ Deno.serve(async (req: Request) => {
       // Step 1: Get from DB
       const dbItems = await getSectionFromDB(
         supabase,
-        sectionConfig.unifiedCategory,
-        sectionConfig.maxItems,
-        sectionConfig.keywordFilter,
-        sectionConfig.isVehicle
+        sectionConfig,
+        sectionConfig.maxItems
       );
 
       // Filter blocked items
@@ -505,10 +538,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const durationMs = Date.now() - startTime;
-    
-    // Detailed logging
-    console.log(`[HOME_DB] requestId=${requestId} counts=${JSON.stringify(sectionCounts)}`);
-    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} totalItems=${sections.reduce((s,x)=>s+x.items.length,0)} durationMs=${durationMs}`);
+    console.log(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} sections=${sections.length} totalItems=${sections.reduce((sum, s) => sum + s.items.length, 0)} durationMs=${durationMs}`);
 
     return new Response(JSON.stringify(buildResponse("success", sections, homeCategories, null)), {
       status: 200,
@@ -517,15 +547,11 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    const errorStack = err instanceof Error ? err.stack : undefined;
     const durationMs = Date.now() - startTime;
     
-    console.error(`[CATALOG_HOME_API] requestId=${requestId} env=${envName} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
-    if (errorStack) {
-      console.error(`[CATALOG_HOME_API] requestId=${requestId} stack=${errorStack}`);
-    }
-    
-    return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Catalog service error", code: "INTERNAL_ERROR" })), {
+    console.error(`[CATALOG_HOME_API] requestId=${requestId} error=INTERNAL_ERROR message=${errorMessage} durationMs=${durationMs}`);
+
+    return new Response(JSON.stringify(buildResponse("error", [], [], { message: "Internal server error", code: "INTERNAL_ERROR" })), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -255,31 +255,32 @@ function isBlockedByGlobalDeny(title: string): boolean {
 }
 
 // ─── Query Builder for Vehicles ───────────────────────────────────────────────
+// Use EXPLICIT vehicle-focused queries that exclude parts
 function buildVehicleSearchQuery(category: string, sub: string | null): string {
   // Use specific vehicle makes/models to get actual vehicle listings
   if (sub === "cars_trucks" || category === "cars_trucks") {
-    return "car for sale truck for sale suv sedan";
+    return "used car for sale sedan suv truck coupe wagon";
   }
   if (sub === "motorcycles" || category === "motorcycles") {
-    return "motorcycle for sale harley honda";
+    return "motorcycle for sale harley davidson honda yamaha kawasaki";
   }
   if (sub === "powersports" || category === "powersports") {
-    return "atv utv polaris rzr can-am";
+    return "atv quad for sale side by side utv 4 wheeler";
   }
   if (sub === "boats" || category === "boats") {
-    return "boat for sale fishing pontoon";
+    return "boat for sale bass boat pontoon fishing boat sailboat";
   }
   if (sub === "rvs_campers" || category === "rvs_campers") {
-    return "rv motorhome camper travel trailer";
+    return "rv motorhome camper travel trailer fifth wheel";
   }
   if (sub === "trailers_other" || category === "trailers_other") {
-    return "utility trailer cargo enclosed";
+    return "utility trailer cargo trailer enclosed trailer flatbed";
   }
   if (sub === "classic_cars" || category === "classic_cars") {
-    return "classic car vintage muscle 1960 1970";
+    return "classic car for sale vintage muscle car antique";
   }
   // Default for vehicles category
-  return "car for sale truck suv sedan";
+  return "car for sale truck suv sedan coupe";
 }
 
 // Build eBay filter with category ID + price + FIXED_PRICE for vehicles
@@ -298,6 +299,7 @@ function buildVehicleCategoryFilter(sub: string | null, minPrice: number): strin
 }
 
 // ─── eBay Live Fetch with STRICT Vehicle Filtering ───────────────────────────
+// VEHICLES: Always use live eBay, never return empty due to DB-only mode
 
 async function fetchEbayLiveItems(
   supabase: any,
@@ -313,130 +315,159 @@ async function fetchEbayLiveItems(
   const vehicleSubkey = isVehicles ? (sub || "cars_trucks") : null;
   const minPrice = isVehicles ? getMinPriceForVehicleSubkey(vehicleSubkey) : 0;
   
-  // Build the search query based on category/sub
-  let query: string;
+  // Build search query - vehicles get multiple fallback queries
+  const queriesToTry: string[] = [];
+  
   if (isVehicles) {
-    query = buildVehicleSearchQuery(category, sub);
+    // Primary query
+    queriesToTry.push(buildVehicleSearchQuery(category, sub));
+    
+    // Fallback queries for vehicles - more explicit vehicle listings
+    if (sub === "cars_trucks" || !sub) {
+      queriesToTry.push("toyota camry for sale", "honda accord for sale", "ford f150 for sale", "chevrolet silverado for sale");
+    } else if (sub === "motorcycles") {
+      queriesToTry.push("harley davidson for sale", "honda goldwing for sale", "yamaha r1 for sale", "cruiser motorcycle for sale");
+    } else if (sub === "powersports") {
+      queriesToTry.push("atv quad 4 wheeler for sale", "polaris sportsman for sale", "honda rancher atv", "side by side utv for sale");
+    } else if (sub === "boats") {
+      queriesToTry.push("bass tracker boat for sale", "pontoon boat for sale", "fishing boat for sale", "ski boat for sale");
+    } else if (sub === "rvs_campers") {
+      queriesToTry.push("travel trailer for sale", "fifth wheel for sale", "class a motorhome for sale", "pop up camper for sale");
+    } else if (sub === "trailers_other") {
+      queriesToTry.push("utility trailer for sale", "cargo trailer for sale", "enclosed trailer for sale", "car hauler trailer for sale");
+    } else if (sub === "classic_cars") {
+      queriesToTry.push("classic mustang for sale", "classic corvette for sale", "classic camaro for sale", "classic truck for sale");
+    }
   } else if (isParts) {
-    query = sub ? (PARTS_SEED_QUERIES[sub]?.[0] || "auto parts") : "auto parts";
+    queriesToTry.push(sub ? (PARTS_SEED_QUERIES[sub]?.[0] || "auto parts") : "auto parts");
   } else {
     const seedKey = sub || category;
     const seedQueries = CATEGORY_SEED_QUERIES[seedKey] || CATEGORY_SEED_QUERIES[category] || ["electronics"];
-    query = seedQueries[0];
+    queriesToTry.push(...seedQueries.slice(0, 2));
   }
   
-  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} minPrice=${minPrice} query="${query}"`);
+  console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} category=${category} sub=${sub} page=${page} minPrice=${minPrice} queries=${queriesToTry.length}`);
   
-  try {
-    // For vehicles, use strict filter with eBay category IDs + price
-    const options: any = { 
-      marketplace: "EBAY_US",
-      filter: isVehicles 
-        ? buildVehicleCategoryFilter(sub, minPrice) 
-        : "buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}",
-    };
-    
-    const result = await searchEbay(supabase, query, page, pageSize, options);
-    
-    if (result.items.length === 0) {
-      console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} query="${query}" returned 0`);
-      return { items: [], total: 0, hasMore: false };
-    }
-    
-    const allItems: CatalogItem[] = [];
-    const seenIds = new Set<string>();
-    let filteredByPrice = 0;
-    let filteredByParts = 0;
-    let filteredByContent = 0;
-    
-    for (const ebayItem of result.items) {
-      if (seenIds.has(ebayItem.id)) continue;
+  // Try queries until we get results
+  for (const query of queriesToTry) {
+    try {
+      console.log(`[VEHICLE_LIVE] requestId=${requestId} trying query="${query}" category=${category} sub=${sub}`);
       
-      // Apply content filter
-      if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.productUrl }).isDisallowed) {
-        filteredByContent++;
+      // For vehicles, use strict filter with eBay category IDs + price
+      const options: any = { 
+        marketplace: "EBAY_US",
+        filter: isVehicles 
+          ? buildVehicleCategoryFilter(sub, minPrice) 
+          : "buyingOptions:{FIXED_PRICE},conditionIds:{1000|1500|2000|2500|3000}",
+      };
+      
+      const result = await searchEbay(supabase, query, page, pageSize, options);
+      
+      if (result.items.length === 0) {
+        console.log(`[VEHICLE_LIVE] requestId=${requestId} query="${query}" returned 0, trying next`);
         continue;
       }
       
-      // For vehicles: Apply STRICT filtering using motorsFilter
-      if (isVehicles) {
-        const filterResult = isAllowedMotorListing({
-          title: ebayItem.title,
-          priceUsd: ebayItem.priceUsd,
-          vehiclesSubkey: vehicleSubkey,
-        });
+      const allItems: CatalogItem[] = [];
+      const seenIds = new Set<string>();
+      let filteredByPrice = 0;
+      let filteredByParts = 0;
+      let filteredByContent = 0;
+      
+      for (const ebayItem of result.items) {
+        if (seenIds.has(ebayItem.id)) continue;
         
-        if (!filterResult.isAllowed) {
-          if (filterResult.reason === "price_below_minimum") {
-            filteredByPrice++;
-          } else {
-            filteredByParts++;
-          }
+        // Apply content filter
+        if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.productUrl }).isDisallowed) {
+          filteredByContent++;
           continue;
         }
+        
+        // For vehicles: Apply STRICT filtering using motorsFilter
+        if (isVehicles) {
+          const filterResult = isAllowedMotorListing({
+            title: ebayItem.title,
+            priceUsd: ebayItem.priceUsd,
+            vehiclesSubkey: vehicleSubkey,
+          });
+          
+          if (!filterResult.isAllowed) {
+            if (filterResult.reason === "price_below_minimum") {
+              filteredByPrice++;
+            } else {
+              filteredByParts++;
+              console.log(`[VEHICLE_BLOCK] requestId=${requestId} blocked="${ebayItem.title?.slice(0,50)}" reason=${filterResult.reason}`);
+            }
+            continue;
+          }
+        }
+        
+        // Map category
+        const mappedResult = mapCategoryAndSubcategory({
+          title: ebayItem.title,
+          provider: "ebay",
+          priceUsd: ebayItem.priceUsd,
+        });
+        
+        if (mappedResult.category === "blocked") continue;
+        
+        // Force to requested category
+        const item = mapEbayItemToCatalogItem(
+          ebayItem, 
+          category, 
+          sub || mappedResult.subcategory,
+          isVehicles ? "vehicle" : (isParts ? "part" : null),
+          isVehicles ? (sub || mappedResult.vehiclesSubkey || "cars_trucks") : null,
+          isParts ? (sub || mappedResult.partsSubkey || "all_parts") : null
+        );
+        
+        seenIds.add(item.id);
+        allItems.push(item);
       }
       
-      // Map category
-      const mappedResult = mapCategoryAndSubcategory({
-        title: ebayItem.title,
-        provider: "ebay",
-        priceUsd: ebayItem.priceUsd,
-      });
+      console.log(`[VEHICLE_LIVE] requestId=${requestId} query="${query}" fetched=${result.items.length} passed=${allItems.length} byPrice=${filteredByPrice} byParts=${filteredByParts} byContent=${filteredByContent} total=${result.total}`);
       
-      if (mappedResult.category === "blocked") continue;
+      // If we got items, upsert and return
+      if (allItems.length > 0) {
+        // Upsert to DB for caching (async, don't block response)
+        const toUpsert = allItems.map(item => ({
+          id: item.id,
+          provider: item.provider,
+          provider_product_id: item.providerProductId,
+          title: item.title,
+          price_usd: item.priceUsd,
+          image_url: item.imageUrl,
+          images: item.images,
+          product_url: item.productUrl,
+          in_stock: item.inStock,
+          rating: item.rating,
+          unified_category: item.unifiedCategory,
+          unified_subcategory: item.unifiedSubcategory,
+          listing_type: item.listingType,
+          vehicles_subkey: item.vehiclesSubkey,
+          parts_subkey: item.partsSubkey,
+          brand: item.brand,
+          updated_at: new Date().toISOString(),
+        }));
+        
+        // Fire and forget - don't wait for upsert
+        supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+        
+        return {
+          items: allItems,
+          total: result.total || (allItems.length + ((page - 1) * pageSize)),
+          hasMore: result.hasMore || allItems.length >= pageSize,
+        };
+      }
       
-      // Force to requested category
-      const item = mapEbayItemToCatalogItem(
-        ebayItem, 
-        category, 
-        sub || mappedResult.subcategory,
-        isVehicles ? "vehicle" : (isParts ? "part" : null),
-        isVehicles ? (sub || mappedResult.vehiclesSubkey || "cars_trucks") : null,
-        isParts ? (sub || mappedResult.partsSubkey || "all_parts") : null
-      );
-      
-      seenIds.add(item.id);
-      allItems.push(item);
+    } catch (err) {
+      console.error(`[VEHICLE_LIVE] requestId=${requestId} query="${query}" error:`, err);
     }
-    
-    console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} query="${query}" fetched=${result.items.length} filtered=${allItems.length} byPrice=${filteredByPrice} byParts=${filteredByParts} byContent=${filteredByContent} total=${result.total}`);
-    
-    // Upsert to DB for caching (async, don't block response)
-    if (allItems.length > 0) {
-      const toUpsert = allItems.map(item => ({
-        id: item.id,
-        provider: item.provider,
-        provider_product_id: item.providerProductId,
-        title: item.title,
-        price_usd: item.priceUsd,
-        image_url: item.imageUrl,
-        images: item.images,
-        product_url: item.productUrl,
-        in_stock: item.inStock,
-        rating: item.rating,
-        unified_category: item.unifiedCategory,
-        unified_subcategory: item.unifiedSubcategory,
-        listing_type: item.listingType,
-        vehicles_subkey: item.vehiclesSubkey,
-        parts_subkey: item.partsSubkey,
-        brand: item.brand,
-        updated_at: new Date().toISOString(),
-      }));
-      
-      // Fire and forget - don't wait for upsert
-      supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
-    }
-    
-    return {
-      items: allItems,
-      total: result.total || (allItems.length + ((page - 1) * pageSize)),
-      hasMore: result.hasMore || allItems.length >= pageSize,
-    };
-    
-  } catch (err) {
-    console.error(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} query="${query}" error:`, err);
-    return { items: [], total: 0, hasMore: false };
   }
+  
+  // All queries exhausted
+  console.warn(`[VEHICLE_LIVE] requestId=${requestId} ALL_QUERIES_EXHAUSTED category=${category} sub=${sub}`);
+  return { items: [], total: 0, hasMore: false };
 }
 
 // ─── UNIFIED CATEGORY KEY MAPPING ─────────────────────────────────────────
@@ -596,28 +627,68 @@ Deno.serve(async (req) => {
     const isParts = finalCategory === "parts_accessories" || isPartSubcat;
 
     // ─── PROVIDER/MODE DECISION ──────────────────────────────────────────────
-    // For vehicles: ALWAYS use LIVE eBay (no credit worries per user requirements)
-    // For other eBay categories: use LIVE if requested, else DB-first
-    // For Amazon/Rainforest: NEVER live, always DB with caching
+    // eBay: ALWAYS allowed to be live (no credit worries)
+    // Amazon/Rainforest: DB-first ONLY, cached, restricted
+    // Vehicles: FORCE LIVE eBay (ALWAYS) - never use DB-only for vehicles
+    
     const isEbayCategory = isVehicles || isParts || 
       ["electronics", "home_garden", "clothing_shoes_accessories", "toys", "sporting_goods", 
        "business_industrial", "jewelry_watches", "refurbished"].includes(finalCategory);
     
-    // Vehicles ALWAYS go LIVE for eBay (as per user requirement: "no credit worries")
-    const useLiveEbay = isVehicles || mode === "live" || (mode === "auto" && isEbayCategory);
+    // VEHICLES: ALWAYS use LIVE eBay - this is the key fix
+    // eBay is allowed live, so vehicles should NEVER return empty due to DB-only mode
+    const forceLiveForVehicles = isVehicles; // Cars, motorcycles, boats, etc. ALWAYS live
+    const useLiveEbay = forceLiveForVehicles || mode === "live" || (mode === "auto" && isEbayCategory);
     const effectiveMode = useLiveEbay ? "live" : "db";
     const provider = isEbayCategory ? "ebay" : "rainforest";
 
-    console.log(`[CAT_CATEGORY] requestId=${requestId} provider=${provider} effectiveMode=${effectiveMode} isVehicles=${isVehicles} isParts=${isParts}`);
+    console.log(`[CAT_CATEGORY] requestId=${requestId} provider=${provider} effectiveMode=${effectiveMode} isVehicles=${isVehicles} isParts=${isParts} forceLiveForVehicles=${forceLiveForVehicles}`);
 
-    if (useLiveEbay) {
+    // ─── VEHICLES: ALWAYS LIVE (never empty due to DB-only) ──────────────────
+    if (isVehicles) {
+      console.log(`[VEHICLE_LIVE] requestId=${requestId} category=${finalCategory} sub=${effectiveSub} page=${page} offset=${(page-1)*pageSize} FORCING_LIVE_EBAY`);
+      
+      const liveResult = await fetchEbayLiveItems(
+        supabase,
+        finalCategory,
+        effectiveSub,
+        true, // isVehicles
+        false, // isParts
+        page,
+        pageSize,
+        requestId
+      );
+      
+      console.log(`[VEHICLE_LIVE] requestId=${requestId} category=${finalCategory} sub=${effectiveSub} total=${liveResult.total} returned=${liveResult.items.length} hasMore=${liveResult.hasMore}`);
+      
+      // If live returned 0, log warning but still return success
+      if (liveResult.items.length === 0) {
+        console.warn(`[VEHICLE_LIVE] requestId=${requestId} WARNING: Live eBay returned 0 vehicles for ${finalCategory}/${effectiveSub}`);
+        return new Response(
+          JSON.stringify(buildResponse([], 0, false, { 
+            message: "No vehicles currently available. Please try again shortly.", 
+            code: "EMPTY_VEHICLES", 
+            debugId: requestId 
+          })),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
+      return new Response(
+        JSON.stringify(buildResponse(liveResult.items, liveResult.total, liveResult.hasMore, null)),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ─── OTHER EBAY CATEGORIES: Live if requested ────────────────────────────
+    if (useLiveEbay && !isVehicles) {
       console.log(`[CAT_CATEGORY_LIVE_EBAY] requestId=${requestId} LIVE_MODE finalCategory=${finalCategory} effectiveSub=${effectiveSub} page=${page} offset=${(page-1)*pageSize}`);
       
       const liveResult = await fetchEbayLiveItems(
         supabase,
         finalCategory,
         effectiveSub,
-        isVehicles,
+        false, // Not vehicles
         isParts,
         page,
         pageSize,

@@ -20,11 +20,12 @@
 export const VEHICLES_MIN_PRICE_USD = 1500; // ENFORCED minimum for real vehicles
 
 // Suggested thresholds for specific vehicle categories
+// These help exclude small parts but still allow affordable vehicles
 export const VEHICLES_SUGGESTED_MIN_PRICE: Record<string, number> = {
   cars_trucks: 1500,     // Real cars/trucks are $1500+
-  motorcycles: 1000,     // Motorcycles can be slightly cheaper
-  powersports: 800,      // ATVs, snowmobiles
-  boats: 500,            // Small boats
+  motorcycles: 800,      // Real motorcycles start at $800+
+  powersports: 500,      // ATVs can be cheaper (used)
+  boats: 500,            // Small boats/kayaks
   rvs_campers: 2000,     // RVs are expensive
   trailers_other: 300,   // Utility trailers
   classic_cars: 3000,    // Classic cars are valuable
@@ -75,6 +76,8 @@ export const MOTORS_PARTS_KEYWORDS = [
   "serpentine belt", "drive belt", "fan belt", "v-belt",
   "throttle body", "intake manifold", "exhaust manifold",
   "fuel injector", "injector", "fuel rail", "throttle cable",
+  "differential", "diff", "front differential", "rear differential", "axle",
+  "clutch", "flywheel", "pressure plate", "torque converter",
   
   // ═══════════════════════════════════════════════════════════════════════════
   // BRAKES

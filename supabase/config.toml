@@ -416,3 +416,6 @@ verify_jwt = true
 
 [functions.catalog-collection]
 verify_jwt = false
+
+[functions.catalog-categories]
+verify_jwt = false

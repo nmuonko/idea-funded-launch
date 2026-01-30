@@ -937,6 +937,36 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_facets_cache: {
+        Row: {
+          cache_key: string
+          created_at: string | null
+          expires_at: string
+          facets: Json
+          provider: string
+          query: string | null
+          resolved_key: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string | null
+          expires_at?: string
+          facets?: Json
+          provider: string
+          query?: string | null
+          resolved_key: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string | null
+          expires_at?: string
+          facets?: Json
+          provider?: string
+          query?: string | null
+          resolved_key?: string
+        }
+        Relationships: []
+      }
       catalog_items: {
         Row: {
           brand: string | null
@@ -1015,6 +1045,24 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_key_aliases: {
+        Row: {
+          alias: string
+          canonical_key: string
+          created_at: string | null
+        }
+        Insert: {
+          alias: string
+          canonical_key: string
+          created_at?: string | null
+        }
+        Update: {
+          alias?: string
+          canonical_key?: string
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       catalog_nav_settings: {
         Row: {
           drawer_order: Json
@@ -1043,6 +1091,7 @@ export type Database = {
         Row: {
           created_at: string
           ebay_category_hint: string | null
+          ebay_category_id: string | null
           enabled: boolean
           id: string
           is_parts: boolean
@@ -1059,6 +1108,7 @@ export type Database = {
         Insert: {
           created_at?: string
           ebay_category_hint?: string | null
+          ebay_category_id?: string | null
           enabled?: boolean
           id?: string
           is_parts?: boolean
@@ -1075,6 +1125,7 @@ export type Database = {
         Update: {
           created_at?: string
           ebay_category_hint?: string | null
+          ebay_category_id?: string | null
           enabled?: boolean
           id?: string
           is_parts?: boolean
@@ -1101,6 +1152,7 @@ export type Database = {
       catalog_nav_tabs: {
         Row: {
           created_at: string
+          ebay_category_id: string | null
           enabled: boolean
           icon: string | null
           key: string
@@ -1111,6 +1163,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          ebay_category_id?: string | null
           enabled?: boolean
           icon?: string | null
           key: string
@@ -1121,6 +1174,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          ebay_category_id?: string | null
           enabled?: boolean
           icon?: string | null
           key?: string
@@ -3880,6 +3934,7 @@ export type Database = {
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
       cleanup_catalog_cache: { Args: never; Returns: Json }
+      cleanup_expired_facets_cache: { Args: never; Returns: Json }
       cleanup_expired_records: { Args: never; Returns: Json }
       cleanup_guest_cart_snapshots: { Args: never; Returns: Json }
       finalize_paid_order: {

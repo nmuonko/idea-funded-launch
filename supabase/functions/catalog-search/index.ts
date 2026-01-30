@@ -26,6 +26,7 @@ import {
   encodeMixerCursor, 
   decodeMixerCursor, 
   getInitialCursor,
+  logMixerDebug,
   MixerCursor,
   ProviderItem,
   buildProviderStats,
@@ -452,6 +453,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
+    // UNIFIED: Use same mixer as catalog-category for consistent behavior
 
     const mixResult = mixProviderItems({
       amazonItems: amazonItems as ProviderItem[],
@@ -463,7 +465,14 @@ Deno.serve(async (req: Request) => {
       amazonCap: settings.amazonMaxResultsPerQuery,
       amazonHasMore,
       ebayHasMore,
+      categoryKey: categoryKey || "search",
+      requestId,
     });
+
+    // Log mixer debug info (first page only for performance)
+    if (!cursor) {
+      logMixerDebug(mixResult, requestId, categoryKey || "search");
+    }
 
     // Filter disallowed content from mixed results
     const { allowed: filteredItems, removed: removedCount } = filterDisallowedItems(
@@ -479,7 +488,7 @@ Deno.serve(async (req: Request) => {
     const allowedIds = new Set(filteredItems.map(i => i.id));
     const finalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogItem[];
 
-    // Build provider stats
+    // Build provider stats with mixing configuration for transparency
     const providerStats = buildProviderStats({
       mode: effectiveMode.mode,
       amazonEnabled: effectiveMode.amazonActive,
@@ -490,6 +499,9 @@ Deno.serve(async (req: Request) => {
       amazonCap: settings.amazonMaxResultsPerQuery,
       amazonStatus,
       ebayReturned: mixResult.ebayReturned,
+      mixingPhase: mixResult.mixingPhase,
+      amazonFirstCount: settings.mixedAmazonFirstCount,
+      blendRatio: settings.mixedBlendRatio,
     });
 
     // Build next cursor

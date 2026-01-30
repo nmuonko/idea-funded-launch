@@ -22,6 +22,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
+import { 
+  CANONICAL_TABS, 
+  CANONICAL_SUBTABS,
+  getCategoryMeta,
+} from "../_shared/categoryRegistry.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -59,29 +64,50 @@ function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
-// Fallback tabs if DB is empty (should not happen after migration)
-const FALLBACK_TABS: TabResponse[] = [
-  { key: "electronics", title_en: "Electronics", title_fr: "Électronique", icon: "Smartphone", order: 1, enabled: true, subtabs: [] },
-  { key: "vehicles", title_en: "Vehicles", title_fr: "Véhicules", icon: "Car", order: 2, enabled: true, subtabs: [
-    { key: "vehicles_all", title_en: "All Vehicles", title_fr: "Tous les Véhicules", order: 0, enabled: true, is_vehicle: true },
-    { key: "vehicles_cars_trucks", title_en: "Cars & Trucks", title_fr: "Voitures & Camions", order: 1, enabled: true, is_vehicle: true },
-    { key: "vehicles_motorcycles", title_en: "Motorcycles", title_fr: "Motos", order: 2, enabled: true, is_vehicle: true },
-    { key: "vehicles_powersports", title_en: "Powersports", title_fr: "Sports Motorisés", order: 3, enabled: true, is_vehicle: true },
-    { key: "vehicles_boats", title_en: "Boats", title_fr: "Bateaux", order: 4, enabled: true, is_vehicle: true },
-    { key: "vehicles_rvs_campers", title_en: "RVs & Campers", title_fr: "Camping-cars", order: 5, enabled: true, is_vehicle: true },
-    { key: "vehicles_trailers_other", title_en: "Trailers & Other", title_fr: "Remorques & Autres", order: 6, enabled: true, is_vehicle: true },
-    { key: "vehicles_classic_cars", title_en: "Classic Cars", title_fr: "Voitures Classiques", order: 7, enabled: true, is_vehicle: true },
-    { key: "vehicles_parts_accessories", title_en: "Parts & Accessories", title_fr: "Pièces & Accessoires", order: 8, enabled: true, is_parts: true },
-  ]},
-  { key: "home_garden", title_en: "Home & Garden", title_fr: "Maison & Jardin", icon: "Home", order: 3, enabled: true, subtabs: [] },
-  { key: "clothing_shoes_accessories", title_en: "Clothing, Shoes & Accessories", title_fr: "Vêtements, Chaussures & Accessoires", icon: "Shirt", order: 4, enabled: true, subtabs: [] },
-  { key: "toys", title_en: "Toys", title_fr: "Jouets", icon: "Gamepad2", order: 5, enabled: true, subtabs: [] },
-  { key: "sporting_goods", title_en: "Sporting Goods", title_fr: "Articles de Sport", icon: "Dumbbell", order: 6, enabled: true, subtabs: [] },
-  { key: "business_industrial", title_en: "Business & Industrial", title_fr: "Entreprise & Industrie", icon: "Building", order: 7, enabled: true, subtabs: [] },
-  { key: "jewelry_watches", title_en: "Jewelry & Watches", title_fr: "Bijoux & Montres", icon: "Watch", order: 8, enabled: true, subtabs: [] },
-  { key: "refurbished", title_en: "Refurbished", title_fr: "Reconditionné", icon: "RefreshCw", order: 9, enabled: true, subtabs: [] },
-  { key: "parts_accessories", title_en: "Parts & Accessories", title_fr: "Pièces & Accessoires", icon: "Wrench", order: 10, enabled: true, subtabs: [] },
-];
+// Build fallback tabs from canonical registry
+function buildFallbackTabs(): TabResponse[] {
+  const iconMap: Record<string, string> = {
+    electronics: "Smartphone",
+    vehicles: "Car",
+    home_garden: "Home",
+    clothing_shoes_accessories: "Shirt",
+    toys: "Gamepad2",
+    sporting_goods: "Dumbbell",
+    business_industrial: "Building",
+    jewelry_watches: "Watch",
+    refurbished: "RefreshCw",
+    parts_accessories: "Wrench",
+  };
+
+  return CANONICAL_TABS.map((tabKey, index) => {
+    const meta = getCategoryMeta(tabKey);
+    const subtabKeys = CANONICAL_SUBTABS[tabKey] || [];
+    
+    return {
+      key: tabKey,
+      title_en: meta?.titleEn || tabKey,
+      title_fr: meta?.titleFr || tabKey,
+      icon: iconMap[tabKey] || null,
+      order: index + 1,
+      enabled: true,
+      subtabs: subtabKeys.map((subKey, subIndex) => {
+        const subMeta = getCategoryMeta(subKey);
+        return {
+          key: subKey,
+          title_en: subMeta?.titleEn || subKey,
+          title_fr: subMeta?.titleFr || subKey,
+          order: subIndex,
+          enabled: true,
+          is_vehicle: subMeta?.isVehicle || false,
+          is_parts: subMeta?.isParts || false,
+          min_price_usd: subMeta?.minPrice || null,
+        };
+      }),
+    };
+  });
+}
+
+const FALLBACK_TABS = buildFallbackTabs();
 
 Deno.serve(async (req) => {
   // CORS preflight

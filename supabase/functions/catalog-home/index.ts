@@ -1,7 +1,8 @@
 /**
  * Catalog Home Endpoint - DB-First with eBay Live Top-Up
+ * Uses CANONICAL category keys from categoryRegistry
  * 
- * Returns sections for homepage using DB-driven nav config:
+ * Returns:
  * {
  *   status: "success",
  *   env,
@@ -15,7 +16,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
-import { isAllowedMotorListing, getMinPriceForVehicleSubkey } from "../_shared/motorsFilter.ts";
+import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
+import { normalizeAndValidateImageUrl } from "../_shared/imageValidation.ts";
+import { 
+  CANONICAL_TABS, 
+  CANONICAL_SUBTABS,
+  getCategoryMeta,
+  getEbayCategoryId,
+} from "../_shared/categoryRegistry.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -38,6 +46,7 @@ interface CatalogItem {
   title: string | null;
   priceUsd: number | null;
   imageUrl: string | null;
+  imageMissing: boolean;
   images: string[];
   productUrl: string | null;
   inStock: boolean | null;
@@ -49,32 +58,49 @@ interface CatalogItem {
 interface Section {
   key: string;
   title: string;
-  categoryKey: string;
-  subtabKey: string | null;
+  categoryKey: string;       // CANONICAL key e.g. "electronics_phones"
+  parentTab: string;         // Parent tab key e.g. "electronics"
+  subtabKey: string | null;  // Subtab suffix e.g. "phones"
   items: CatalogItem[];
   hasMore: boolean;
   dbCount: number;
   liveTopUpCount: number;
 }
 
-interface HomeSectionConfig {
+interface Tab {
   key: string;
+  titleEn: string;
+  titleFr: string;
+  icon: string | null;
+  orderIndex: number;
+  subtabs: Array<{
+    key: string;
+    titleEn: string;
+    titleFr: string;
+    orderIndex: number;
+  }>;
+}
+
+interface HomeSectionConfig {
+  key: string;               // Section display key
+  categoryKey: string;       // CANONICAL category key (e.g., "electronics_phones")
+  parentTab: string;         // Parent tab key
+  subtabKey: string | null;  // Subtab suffix
   title: string;
-  categoryKey: string;
-  subtabKey: string | null;
   isVehicle: boolean;
   minPrice: number;
   seedQueries: string[];
   ebayCategory?: string;
 }
 
-// Home sections optimized for DRC market
+// Home sections using CANONICAL keys
 const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
-    title: "Phones",
-    categoryKey: "electronics",
+    categoryKey: "electronics_phones",
+    parentTab: "electronics",
     subtabKey: "phones",
+    title: "Phones",
     isVehicle: false,
     minPrice: 0,
     seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
@@ -82,9 +108,10 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
   },
   {
     key: "vehicles",
-    title: "Vehicles",
-    categoryKey: "vehicles",
+    categoryKey: "vehicles_cars_trucks",
+    parentTab: "vehicles",
     subtabKey: "cars_trucks",
+    title: "Vehicles",
     isVehicle: true,
     minPrice: 1500,
     seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
@@ -92,9 +119,10 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
   },
   {
     key: "gaming",
-    title: "Gaming",
-    categoryKey: "electronics",
+    categoryKey: "electronics_gaming",
+    parentTab: "electronics",
     subtabKey: "gaming",
+    title: "Gaming",
     isVehicle: false,
     minPrice: 0,
     seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
@@ -102,9 +130,10 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
   },
   {
     key: "clothing",
-    title: "Clothing & Shoes",
     categoryKey: "clothing_shoes_accessories",
+    parentTab: "clothing_shoes_accessories",
     subtabKey: null,
+    title: "Clothing & Shoes",
     isVehicle: false,
     minPrice: 0,
     seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
@@ -112,9 +141,10 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
   },
   {
     key: "home_garden",
-    title: "Home & Garden",
     categoryKey: "home_garden",
+    parentTab: "home_garden",
     subtabKey: null,
+    title: "Home & Garden",
     isVehicle: false,
     minPrice: 0,
     seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
@@ -129,8 +159,14 @@ function generateRequestId(): string {
 function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   let images: string[] = [];
   if (Array.isArray(item.images)) {
-    images = item.images.filter((img): img is string => typeof img === "string");
+    images = item.images
+      .filter((img): img is string => typeof img === "string")
+      .map(img => normalizeAndValidateImageUrl(img, item.product_url as string))
+      .filter((img): img is string => img !== null);
   }
+
+  const rawImageUrl = item.image_url as string | null;
+  const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.product_url as string);
 
   return {
     id: item.id as string,
@@ -138,7 +174,8 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     providerProductId: (item.provider_product_id as string) || (item.id as string),
     title: item.title as string | null,
     priceUsd: item.price_usd as number | null,
-    imageUrl: (item.image_url as string) || (images.length > 0 ? images[0] : null),
+    imageUrl: validatedImageUrl || (images.length > 0 ? images[0] : null),
+    imageMissing: !validatedImageUrl && images.length === 0,
     images,
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
@@ -149,14 +186,20 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
 }
 
 function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
+  const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
+  const validatedImages = item.images
+    .map(img => normalizeAndValidateImageUrl(img, item.product_url))
+    .filter((img): img is string => img !== null);
+
   return {
     id: item.id,
     provider: "ebay",
     providerProductId: item.provider_product_id,
     title: item.title,
     priceUsd: item.price_usd,
-    imageUrl: item.image_url,
-    images: item.images,
+    imageUrl: validatedImageUrl || (validatedImages.length > 0 ? validatedImages[0] : null),
+    imageMissing: !validatedImageUrl && validatedImages.length === 0,
+    images: validatedImages,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -173,7 +216,7 @@ async function getSectionFromDB(
   let query = supabase
     .from("catalog_items")
     .select("*")
-    .eq("unified_category", config.categoryKey)
+    .eq("unified_category", config.parentTab)
     .or("is_disallowed.is.null,is_disallowed.eq.false");
 
   if (config.subtabKey) {
@@ -266,7 +309,7 @@ async function fetchEbayLiveItems(
       product_url: item.productUrl,
       in_stock: item.inStock,
       rating: item.rating,
-      unified_category: config.categoryKey,
+      unified_category: config.parentTab,
       unified_subcategory: config.subtabKey,
       vehicles_subkey: config.isVehicle ? config.subtabKey : null,
       updated_at: new Date().toISOString(),
@@ -276,6 +319,31 @@ async function fetchEbayLiveItems(
   }
 
   return allItems;
+}
+
+// Build tabs from canonical registry
+function buildTabs(): Tab[] {
+  return CANONICAL_TABS.map((tabKey, index) => {
+    const meta = getCategoryMeta(tabKey);
+    const subtabs = CANONICAL_SUBTABS[tabKey] || [];
+    
+    return {
+      key: tabKey,
+      titleEn: meta?.titleEn || tabKey,
+      titleFr: meta?.titleFr || tabKey,
+      icon: null,
+      orderIndex: index,
+      subtabs: subtabs.map((subKey, subIndex) => {
+        const subMeta = getCategoryMeta(subKey);
+        return {
+          key: subKey,
+          titleEn: subMeta?.titleEn || subKey,
+          titleFr: subMeta?.titleFr || subKey,
+          orderIndex: subIndex,
+        };
+      }),
+    };
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -327,12 +395,9 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch tabs from nav tables
-    const { data: tabs } = await supabase
-      .from("catalog_nav_tabs")
-      .select("key, title_en, title_fr, icon, order_index")
-      .eq("enabled", true)
-      .order("order_index", { ascending: true });
+    // Build tabs from canonical registry (single source of truth)
+    const tabs = buildTabs();
+    console.log(`[NAV] requestId=${requestId} tabs=${tabs.length} subtabs=${tabs.reduce((a, t) => a + t.subtabs.length, 0)}`);
 
     // Build sections
     const sections: Section[] = [];
@@ -355,7 +420,8 @@ Deno.serve(async (req: Request) => {
       sections.push({
         key: config.key,
         title: config.title,
-        categoryKey: config.categoryKey,
+        categoryKey: config.categoryKey,      // CANONICAL key
+        parentTab: config.parentTab,
         subtabKey: config.subtabKey,
         items: items.slice(0, HOME_PAGE_SIZE),
         hasMore: items.length >= HOME_PAGE_SIZE,
@@ -372,7 +438,7 @@ Deno.serve(async (req: Request) => {
         status: "success",
         env: envName,
         sections,
-        tabs: tabs || [],
+        tabs,
         error: null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

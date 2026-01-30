@@ -883,9 +883,10 @@ function normalizeProduct(
     priceUsd,
   }));
 
-  // Extract images
+  // Extract images and select best main image
   const images = extractImages(product);
-  const imageUrl = images[0] || undefined;
+  const bestMainImage = selectBestMainImage(product as unknown as Record<string, unknown>, images);
+  const imageUrl = bestMainImage || images[0] || undefined;
 
   // Build product URL
   const productUrl = product.link || `https://www.${amazonDomain}/dp/${product.asin}`;
@@ -918,6 +919,92 @@ function normalizeProduct(
     reviewCount: product.ratings_total || product.reviews_total,
     raw: product as unknown as Record<string, unknown>,
   };
+}
+
+/**
+ * Select the best main image from Amazon product data
+ * Prefers high-res variants over thumbnails
+ */
+function selectBestMainImage(product: Record<string, unknown>, extractedImages: string[]): string | null {
+  // Amazon thumbnail patterns that indicate low resolution
+  const THUMBNAIL_PATTERNS = [
+    /_SS\d{2,3}\./i,
+    /_SX\d{2,3}\./i,
+    /_SY\d{2,3}\./i,
+    /_AC_U[SL]\d{2,3}/i,
+    /_SR\d+,\d+\./i,
+  ];
+  
+  const isThumbnail = (url: string): boolean => {
+    return THUMBNAIL_PATTERNS.some(pattern => pattern.test(url));
+  };
+  
+  const estimateResolution = (url: string): number => {
+    if (!url) return 0;
+    if (url.includes("_SL1500") || url.includes("_SL1600")) return 1600;
+    if (url.includes("_SL1200")) return 1200;
+    if (url.includes("_SL1000")) return 1000;
+    if (url.includes("_SL800") || url.includes("_SX800")) return 800;
+    if (url.includes("_SL500") || url.includes("_SX500")) return 500;
+    const sizeMatch = url.match(/_S[XYL](\d{3,4})/i);
+    if (sizeMatch) return parseInt(sizeMatch[1], 10);
+    if (isThumbnail(url)) return 100;
+    return 400;
+  };
+  
+  const upgradeToHighRes = (url: string): string => {
+    if (!url) return url;
+    if (url.includes("_SL1500") || url.includes("_SL1600")) return url;
+    return url
+      .replace(/_S[XYL]\d{2,3}\./gi, "_SL1500.")
+      .replace(/_SS\d{2,3}\./gi, "_SL1500.")
+      .replace(/_AC_U[SL]\d{2,3}/gi, "_AC_SL1500")
+      .replace(/_SR\d+,\d+\./gi, "_SL1500.");
+  };
+  
+  // Check main_image field first (often highest quality)
+  if (product.main_image) {
+    const mainImg = product.main_image;
+    const url = typeof mainImg === "string" ? mainImg : (mainImg as Record<string, string>)?.link;
+    if (url) {
+      const upgraded = upgradeToHighRes(url);
+      const wasThumbnail = isThumbnail(url);
+      console.log("[AMAZON_LIST_IMAGE]", JSON.stringify({
+        asin: product.asin,
+        source: "main_image",
+        resolution: estimateResolution(url),
+        wasThumbnail,
+        upgraded: url !== upgraded,
+        url: upgraded.substring(0, 80),
+      }));
+      return upgraded;
+    }
+  }
+  
+  // Sort extracted images by resolution and pick best
+  if (extractedImages.length > 0) {
+    const sortedByRes = extractedImages
+      .map(url => ({ url, resolution: estimateResolution(url) }))
+      .sort((a, b) => b.resolution - a.resolution);
+    
+    const best = sortedByRes[0];
+    const upgraded = upgradeToHighRes(best.url);
+    const wasThumbnail = isThumbnail(best.url);
+    
+    console.log("[AMAZON_LIST_IMAGE]", JSON.stringify({
+      asin: product.asin,
+      source: "extractedImages[best]",
+      resolution: best.resolution,
+      wasThumbnail,
+      upgraded: best.url !== upgraded,
+      url: upgraded.substring(0, 80),
+    }));
+    
+    return upgraded;
+  }
+  
+  console.log("[AMAZON_NO_IMAGE]", JSON.stringify({ asin: product.asin }));
+  return null;
 }
 
 /**

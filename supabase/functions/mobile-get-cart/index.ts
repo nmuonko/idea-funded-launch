@@ -7,6 +7,7 @@ import {
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
 import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
+import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
 
 // Heavy threshold for manual quote requirement (non-vehicles)
 const HEAVY_THRESHOLD_KG = 9;
@@ -87,8 +88,15 @@ function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
 /**
  * Format item for response - STABLE SCHEMA for all item types
  * Every item has: id, type, title, price fields, quote_status, shipping_cost, updated_at
+ * Includes image_count from media cache when available
  */
-function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: number, exchangeRate: number) {
+function formatItem(
+  item: any, 
+  markupPercent: number, 
+  vehicleMarkupPercent: number, 
+  exchangeRate: number,
+  mediaInfo?: { image_count: number; image_count_status: "cached" | "pending" }
+) {
   const basePriceUsd = Number(item.base_price_usd || 0);
   const quantity = item.quantity || 1;
   const estWeightKg = Number(item.est_weight_kg || 1);
@@ -115,6 +123,10 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
   // This is essential for React Native which requires absolute https URLs
   const safeImageUrl = normalizeImageUrl(item.product_image_url, item.product_url);
   
+  // Image count from media cache or default to 1
+  const imageCount = mediaInfo?.image_count ?? 1;
+  const imageCountStatus = mediaInfo?.image_count_status ?? "pending";
+  
   // STABLE BASE FIELDS for all items
   const baseFields = {
     id: item.id,
@@ -123,6 +135,7 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     productTitle: item.title || null,
     title: item.title || null,  // Alias for consistency
     productImageUrl: safeImageUrl,
+    mainImageUrl: safeImageUrl,  // Alias for consistency
     image_url: safeImageUrl,
     store: item.store,
     quantity: isVehicle ? 1 : quantity,
@@ -130,6 +143,10 @@ function formatItem(item: any, markupPercent: number, vehicleMarkupPercent: numb
     isSavedForLater: item.is_saved_for_later || false,
     savedAt: item.saved_at || null,
     updatedAt: item.updated_at || null,
+    // Image count from media cache
+    image_count: imageCount,
+    imageCount: imageCount,
+    image_count_status: imageCountStatus,
     // Quote fields - ALWAYS present (null if not applicable)
     quoteStatus,
     quotedShippingUsd,
@@ -353,6 +370,13 @@ serve(async (req) => {
 
     console.log('[CART_DEBUG]', JSON.stringify({ fn: 'get-cart', userId: user.id, cartId: order.id, action: 'items_loaded', itemCount: items?.length || 0 }));
 
+    // MEDIA CACHE LOOKUP: Get exact image counts for cart items (no prefetch to keep cart fast)
+    const productUrls = (items || []).map(item => item.product_url).filter(Boolean);
+    const mediaCacheStart = Date.now();
+    const mediaLookup = await lookupCartItemMediaCounts(supabase, productUrls);
+    const mediaCacheTime = Date.now() - mediaCacheStart;
+    console.log(`[GET_CART_DEBUG] Media cache lookup: ${mediaLookup.size} results in ${mediaCacheTime}ms`);
+
     // Separate active and saved items
     const activeItems: any[] = [];
     const savedItems: any[] = [];
@@ -380,7 +404,9 @@ serve(async (req) => {
     let hasPendingPriceConfirmation = false;
 
     (items || []).forEach(item => {
-      const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate);
+      // Get media info for this item from cache lookup
+      const mediaInfo = mediaLookup.get(item.product_url);
+      const formattedItem = formatItem(item, markupPercent, vehicleMarkupPercent, exchangeRate, mediaInfo);
       
       if (item.is_saved_for_later) {
         savedItems.push(formattedItem);

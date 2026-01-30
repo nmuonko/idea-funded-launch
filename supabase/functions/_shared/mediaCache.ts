@@ -417,3 +417,145 @@ export async function batchLookupCachedMedia(
 
   return result;
 }
+
+/**
+ * Parse product URL to extract provider and provider_item_id
+ * Used for cart items which store product_url rather than composite IDs
+ * 
+ * Examples:
+ *   - https://www.ebay.com/itm/123456789 -> { provider: "ebay", itemId: "123456789" }
+ *   - https://www.amazon.com/dp/B08XYZ123 -> { provider: "amazon", itemId: "B08XYZ123" }
+ */
+export function parseProductUrl(productUrl: string): { provider: "ebay" | "amazon"; itemId: string } | null {
+  if (!productUrl || typeof productUrl !== "string") return null;
+
+  const lowerUrl = productUrl.toLowerCase();
+
+  // eBay patterns
+  if (lowerUrl.includes("ebay.")) {
+    // Match /itm/123456789 or /itm/some-title/123456789
+    const itmMatch = productUrl.match(/\/itm\/(?:[^\/]+\/)?(\d+)/i);
+    if (itmMatch) return { provider: "ebay", itemId: itmMatch[1] };
+    
+    // Match /p/123456789
+    const pMatch = productUrl.match(/\/p\/(\d+)/i);
+    if (pMatch) return { provider: "ebay", itemId: pMatch[1] };
+    
+    return null;
+  }
+
+  // Amazon patterns
+  if (lowerUrl.includes("amazon.")) {
+    // Match /dp/B08XYZ123 or /gp/product/B08XYZ123
+    const dpMatch = productUrl.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
+    if (dpMatch) return { provider: "amazon", itemId: dpMatch[1].toUpperCase() };
+    
+    // Match /product/B08XYZ123
+    const productMatch = productUrl.match(/\/product\/([A-Z0-9]{10})/i);
+    if (productMatch) return { provider: "amazon", itemId: productMatch[1].toUpperCase() };
+    
+    return null;
+  }
+
+  return null;
+}
+
+/**
+ * Lookup image counts for cart items from catalog_item_media cache (no prefetch)
+ * Returns a map of product_url -> { image_count, status }
+ */
+export async function lookupCartItemMediaCounts(
+  supabase: SupabaseClient,
+  productUrls: string[]
+): Promise<Map<string, { image_count: number; image_count_status: "cached" | "pending" }>> {
+  const result = new Map<string, { image_count: number; image_count_status: "cached" | "pending" }>();
+
+  if (!productUrls || productUrls.length === 0) return result;
+
+  // Parse all URLs to extract provider/itemId
+  const parsedItems: Array<{ productUrl: string; provider: string; itemId: string }> = [];
+  for (const url of productUrls) {
+    const parsed = parseProductUrl(url);
+    if (parsed) {
+      parsedItems.push({ productUrl: url, provider: parsed.provider, itemId: parsed.itemId });
+    } else {
+      // Can't parse - mark as pending
+      result.set(url, { image_count: 1, image_count_status: "pending" });
+    }
+  }
+
+  if (parsedItems.length === 0) return result;
+
+  // Group by provider for batch queries
+  const ebayItems = parsedItems.filter((p) => p.provider === "ebay");
+  const amazonItems = parsedItems.filter((p) => p.provider === "amazon");
+
+  const now = new Date().toISOString();
+
+  // Query eBay cache
+  if (ebayItems.length > 0) {
+    const ebayIds = ebayItems.map((p) => p.itemId);
+    const { data: ebayData } = await supabase
+      .from("catalog_item_media")
+      .select("provider_item_id, image_count")
+      .eq("provider", "ebay")
+      .in("provider_item_id", ebayIds)
+      .gt("expires_at", now);
+
+    const ebayMap = new Map<string, number>();
+    if (ebayData) {
+      for (const row of ebayData) {
+        ebayMap.set(row.provider_item_id, row.image_count);
+      }
+    }
+
+    // Map back to product URLs
+    for (const item of ebayItems) {
+      if (ebayMap.has(item.itemId)) {
+        result.set(item.productUrl, { 
+          image_count: ebayMap.get(item.itemId)!, 
+          image_count_status: "cached" 
+        });
+      } else {
+        result.set(item.productUrl, { image_count: 1, image_count_status: "pending" });
+      }
+    }
+  }
+
+  // Query Amazon cache
+  if (amazonItems.length > 0) {
+    const amazonIds = amazonItems.map((p) => p.itemId);
+    const { data: amazonData } = await supabase
+      .from("catalog_item_media")
+      .select("provider_item_id, image_count")
+      .eq("provider", "amazon")
+      .in("provider_item_id", amazonIds)
+      .gt("expires_at", now);
+
+    const amazonMap = new Map<string, number>();
+    if (amazonData) {
+      for (const row of amazonData) {
+        amazonMap.set(row.provider_item_id, row.image_count);
+      }
+    }
+
+    // Map back to product URLs
+    for (const item of amazonItems) {
+      if (amazonMap.has(item.itemId)) {
+        result.set(item.productUrl, { 
+          image_count: amazonMap.get(item.itemId)!, 
+          image_count_status: "cached" 
+        });
+      } else {
+        result.set(item.productUrl, { image_count: 1, image_count_status: "pending" });
+      }
+    }
+  }
+
+  if (DEV) {
+    const cachedCount = [...result.values()].filter((v) => v.image_count_status === "cached").length;
+    console.log(`[CART_MEDIA] Looked up ${productUrls.length} URLs, cached=${cachedCount}`);
+  }
+
+  return result;
+}

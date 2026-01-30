@@ -102,6 +102,7 @@ interface HomeSectionConfig {
 }
 
 // Home sections using CANONICAL keys with "see_all" queries
+// IMPORTANT: seeAllQuery MUST be non-empty to route to /catalog-search (mixed mode)
 const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
@@ -113,7 +114,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
     ebayCategory: "9355",
-    seeAllQuery: "iphone",
+    seeAllQuery: "iphone",  // → /catalog-search?q=iphone&category_key=electronics_phones
   },
   {
     key: "vehicles",
@@ -125,7 +126,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 1500,
     seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
     ebayCategory: "6001",
-    seeAllQuery: "cars",
+    seeAllQuery: "cars",  // → /catalog-search?q=cars&category_key=vehicles_cars_trucks
   },
   {
     key: "gaming",
@@ -137,7 +138,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
     ebayCategory: "1249",
-    seeAllQuery: "ps5",
+    seeAllQuery: "ps5",  // → /catalog-search?q=ps5&category_key=electronics_gaming
   },
   {
     key: "clothing",
@@ -149,7 +150,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
     ebayCategory: "63889",
-    seeAllQuery: "sneakers",
+    seeAllQuery: "shoes",  // → /catalog-search?q=shoes&category_key=clothing_shoes_accessories
   },
   {
     key: "home_garden",
@@ -161,7 +162,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
     ebayCategory: "11700",
-    seeAllQuery: "home appliances",
+    seeAllQuery: "sofa",  // → /catalog-search?q=sofa&category_key=home_garden
   },
   {
     key: "refurbished",
@@ -173,7 +174,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["refurbished iphone", "refurbished laptop", "refurbished macbook"],
     ebayCategory: "11800",
-    seeAllQuery: "refurbished",
+    seeAllQuery: "refurbished",  // → /catalog-search?q=refurbished&category_key=refurbished
   },
   {
     key: "parts_accessories",
@@ -185,7 +186,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["car parts", "phone accessories", "laptop charger"],
     ebayCategory: "6028",
-    seeAllQuery: "parts",
+    seeAllQuery: "parts",  // → /catalog-search?q=parts&category_key=parts_accessories
   },
 ];
 

@@ -131,7 +131,7 @@ export function buildCacheKey(
   
   switch (type) {
     case "home":
-      return `home:v1:domain=${domain}:env=${env}:category=${params.category || "all"}:page=${params.page || 1}:size=${params.pageSize || 20}`;
+      return `home:v2:domain=${domain}:env=${env}:category=${params.category || "all"}:page=${params.page || 1}:size=${params.pageSize || 20}`;
     
     case "search":
       const qNorm = params.query ? normalizeQuery(params.query) : "";

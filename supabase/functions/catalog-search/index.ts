@@ -71,6 +71,7 @@ interface CatalogItem extends ProviderItem {
   currency: string;
   mainImageUrl: string | null;   // Single best image for list performance
   imageUrl: string | null;       // Backward compat
+  imageCount: number;            // Total images available from listing
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
@@ -179,6 +180,7 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     currency: item.currency,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount: item.image_count || 1,  // Total images available
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -195,8 +197,9 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   let rawImageUrl = item.image_url as string | null;
   
   // Fallback to first in images array
-  if (!rawImageUrl && Array.isArray(item.images) && item.images.length > 0) {
-    rawImageUrl = item.images[0] as string;
+  const imagesArray = Array.isArray(item.images) ? item.images : [];
+  if (!rawImageUrl && imagesArray.length > 0) {
+    rawImageUrl = imagesArray[0] as string;
   }
   
   // Upgrade to high-res based on provider
@@ -209,6 +212,9 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     }
   }
   
+  // Compute image count from stored images array or default to 1
+  const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
+  
   return {
     id: item.id as string,
     provider,
@@ -218,6 +224,7 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     currency: "USD",
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount,           // Total images available
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
     rating: item.rating as number | null,

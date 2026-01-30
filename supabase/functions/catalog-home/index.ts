@@ -47,6 +47,7 @@ interface CatalogItem {
   priceUsd: number | null;
   mainImageUrl: string | null;    // Single best image for list performance
   imageUrl: string | null;        // Backward compat (alias for mainImageUrl)
+  imageCount: number;             // Total images available from listing
   imageMissing: boolean;
   productUrl: string | null;
   inStock: boolean | null;
@@ -199,14 +200,20 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   const rawImageUrl = item.image_url as string | null;
   const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.product_url as string);
   
+  // Get images array for counting
+  const imagesArray = Array.isArray(item.images) ? item.images : [];
+  
   // Fallback to first image in array if main image is null
   let mainImage = validatedImageUrl;
-  if (!mainImage && Array.isArray(item.images)) {
-    const firstImage = item.images.find((img): img is string => typeof img === "string" && img.length > 0);
+  if (!mainImage && imagesArray.length > 0) {
+    const firstImage = imagesArray.find((img): img is string => typeof img === "string" && img.length > 0);
     if (firstImage) {
       mainImage = normalizeAndValidateImageUrl(firstImage, item.product_url as string);
     }
   }
+
+  // Compute image count from stored images array or default to 1
+  const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
 
   return {
     id: item.id as string,
@@ -216,6 +223,7 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     priceUsd: item.price_usd as number | null,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount,           // Total images available
     imageMissing: !mainImage,
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
@@ -243,6 +251,7 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     priceUsd: item.price_usd,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount: item.image_count || 1,  // Total images available
     imageMissing: !mainImage,
     productUrl: item.product_url,
     inStock: item.in_stock,

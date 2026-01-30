@@ -107,9 +107,60 @@ export function isBlockedImageUrl(url: string | null | undefined): boolean {
   return false;
 }
 
+// ─── IMAGE RESOLUTION UPGRADE ────────────────────────────────────────────────
+
+/**
+ * Upgrade eBay image URL to highest resolution (s-l1600)
+ * eBay uses s-l### pattern where ### is the size (64, 140, 225, 300, 500, 1600)
+ */
+function upgradeEbayToHighRes(url: string): string {
+  return url.replace(/s-l\d+/gi, "s-l1600");
+}
+
+/**
+ * Upgrade Amazon image URL to highest resolution
+ * Amazon uses various size tokens: _SX###, _SY###, _AC_US###, etc.
+ */
+function upgradeAmazonToHighRes(url: string): string {
+  // Already high-res
+  if (url.includes("_SL1500") || url.includes("_SL1600")) return url;
+  
+  // Upgrade size tokens to SL1500
+  return url
+    .replace(/_S[XYL]\d{2,3}\./gi, "_SL1500.")
+    .replace(/_SS\d{2,3}\./gi, "_SL1500.")
+    .replace(/_AC_U[SYL]\d{2,3}/gi, "_AC_SL1500")
+    .replace(/_SR\d+,\d+\./gi, "_SL1500.");
+}
+
+/**
+ * Detect if URL is from a known provider and upgrade to high-res
+ */
+function upgradeToHighRes(url: string): string {
+  // eBay images
+  if (url.includes("ebayimg.com") || url.includes("i.ebayimg")) {
+    const upgraded = upgradeEbayToHighRes(url);
+    if (upgraded !== url) {
+      console.log("[IMAGE_UPGRADE] eBay:", url.substring(0, 50), "→ high-res");
+    }
+    return upgraded;
+  }
+  
+  // Amazon images
+  if (url.includes("amazon") || url.includes("media-amazon") || url.includes("ssl-images-amazon")) {
+    const upgraded = upgradeAmazonToHighRes(url);
+    if (upgraded !== url) {
+      console.log("[IMAGE_UPGRADE] Amazon:", url.substring(0, 50), "→ high-res");
+    }
+    return upgraded;
+  }
+  
+  return url;
+}
+
 /**
  * Normalize and validate an image URL, rejecting blocked patterns.
- * This combines URL normalization with blocklist filtering.
+ * This combines URL normalization with blocklist filtering AND resolution upgrade.
  * 
  * @param raw - Raw image URL (may be protocol-relative or relative path)
  * @param productUrl - Product URL for resolving relative paths
@@ -157,5 +208,8 @@ export function normalizeAndValidateImageUrl(raw: unknown, productUrl?: string):
     return null;
   }
 
-  return validatedUrl;
+  // Upgrade to high-res version
+  const upgradedUrl = upgradeToHighRes(validatedUrl);
+
+  return upgradedUrl;
 }

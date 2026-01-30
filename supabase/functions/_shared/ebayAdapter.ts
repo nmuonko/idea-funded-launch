@@ -425,21 +425,75 @@ function normalizeSearchResults(data: any): { items: CatalogItem[]; total: numbe
   const total = data.total || 0;
   const hasMore = data.next !== undefined;
 
-  const items: CatalogItem[] = itemSummaries.map((item: any) => ({
-    id: `ebay:${item.itemId}`,
-    provider: "ebay",
-    providerProductId: item.itemId,
-    title: item.title || "Unknown",
-    priceUsd: extractPrice(item.price),
-    currency: item.price?.currency || "USD",
-    imageUrl: item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || null,
-    images: extractImages(item),
-    productUrl: item.itemWebUrl || item.itemHref || "",
-    inStock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
-    rating: null, // eBay doesn't return ratings in search
-  }));
+  const items: CatalogItem[] = itemSummaries.map((item: any) => {
+    // Use optimized image selection for high-res main image
+    const bestImage = selectBestEbayImageInternal(item);
+    const images = extractImages(item);
+    
+    return {
+      id: `ebay:${item.itemId}`,
+      provider: "ebay",
+      providerProductId: item.itemId,
+      title: item.title || "Unknown",
+      priceUsd: extractPrice(item.price),
+      currency: item.price?.currency || "USD",
+      imageUrl: bestImage,
+      images,
+      productUrl: item.itemWebUrl || item.itemHref || "",
+      inStock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
+      rating: null, // eBay doesn't return ratings in search
+    };
+  });
 
   return { items, total, hasMore };
+}
+
+/**
+ * Internal function to select best image from eBay item
+ * Priority: image.imageUrl > additionalImages[0] > thumbnailImages[0]
+ * All URLs are upgraded to s-l1600
+ */
+function selectBestEbayImageInternal(item: any): string | null {
+  // Priority 1: Primary image field (always prefer this)
+  if (item.image?.imageUrl) {
+    const upgraded = upgradeImageToHighRes(item.image.imageUrl);
+    const wasThumbnail = /s-l(64|96|140|200|225|300|400|500)\b/i.test(item.image.imageUrl);
+    if (wasThumbnail) {
+      debugLog("EBAY_LIST_IMAGE_UPGRADED", {
+        itemId: item.itemId,
+        source: "image.imageUrl",
+        original: item.image.imageUrl.substring(0, 60),
+        upgraded: upgraded.substring(0, 60),
+      });
+    }
+    return upgraded;
+  }
+  
+  // Priority 2: Additional images (still high quality)
+  if (item.additionalImages?.length > 0 && item.additionalImages[0]?.imageUrl) {
+    const upgraded = upgradeImageToHighRes(item.additionalImages[0].imageUrl);
+    debugLog("EBAY_LIST_IMAGE_FALLBACK", {
+      itemId: item.itemId,
+      source: "additionalImages[0]",
+      upgraded: upgraded.substring(0, 60),
+    });
+    return upgraded;
+  }
+  
+  // Priority 3: Thumbnail images (last resort, but still upgrade)
+  if (item.thumbnailImages?.length > 0 && item.thumbnailImages[0]?.imageUrl) {
+    const upgraded = upgradeImageToHighRes(item.thumbnailImages[0].imageUrl);
+    debugLog("EBAY_LIST_IMAGE_THUMBNAIL", {
+      itemId: item.itemId,
+      source: "thumbnailImages[0]",
+      warning: "Using thumbnail as fallback",
+      upgraded: upgraded.substring(0, 60),
+    });
+    return upgraded;
+  }
+  
+  debugLog("EBAY_NO_IMAGE", { itemId: item.itemId });
+  return null;
 }
 
 // ─── Product Detail API ──────────────────────────────────────────────────────
@@ -649,6 +703,9 @@ function normalizeItemDetail(item: any): CatalogItem {
     attributes["Condition"] = item.condition;
   }
 
+  // Use high-res image for main display
+  const mainImage = item.image?.imageUrl ? upgradeImageToHighRes(item.image.imageUrl) : null;
+  
   return {
     id: `ebay:${item.itemId}`,
     provider: "ebay",
@@ -656,7 +713,7 @@ function normalizeItemDetail(item: any): CatalogItem {
     title: item.title || "Unknown",
     priceUsd: extractPrice(item.price),
     currency: item.price?.currency || "USD",
-    imageUrl: item.image?.imageUrl || null,
+    imageUrl: mainImage,
     images: extractDetailImages(item),
     productUrl: item.itemWebUrl || "",
     inStock: item.estimatedAvailabilities?.[0]?.availabilityStatus !== "OUT_OF_STOCK",

@@ -1,0 +1,562 @@
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import { toast } from '@/hooks/use-toast';
+import { 
+  Store, 
+  Settings2, 
+  DollarSign, 
+  Shuffle, 
+  Clock, 
+  Save, 
+  RefreshCw,
+  AlertCircle,
+  Zap,
+  Shield
+} from 'lucide-react';
+import { format } from 'date-fns';
+
+interface CatalogSettings {
+  catalog_provider_mode: string;
+  amazon_enabled: boolean;
+  ebay_enabled: boolean;
+  amazon_max_results_per_query: number;
+  amazon_max_calls_per_hour: number;
+  amazon_budget_window: string;
+  mixed_amazon_first_count: number;
+  mixed_blend_ratio: { amazon: number; ebay: number };
+  search_cache_ttl_seconds: number;
+  home_cache_ttl_seconds: number;
+  offers_cache_ttl_seconds: number;
+  negative_cache_ttl_seconds: number;
+  ebay_cache_ttl_seconds: number;
+}
+
+interface SettingRow {
+  key: string;
+  value: string;
+  updated_at: string;
+}
+
+const DEFAULT_SETTINGS: CatalogSettings = {
+  catalog_provider_mode: 'mixed',
+  amazon_enabled: true,
+  ebay_enabled: true,
+  amazon_max_results_per_query: 200,
+  amazon_max_calls_per_hour: 100,
+  amazon_budget_window: 'hour',
+  mixed_amazon_first_count: 60,
+  mixed_blend_ratio: { amazon: 1, ebay: 2 },
+  search_cache_ttl_seconds: 172800,
+  home_cache_ttl_seconds: 86400,
+  offers_cache_ttl_seconds: 43200,
+  negative_cache_ttl_seconds: 120,
+  ebay_cache_ttl_seconds: 0,
+};
+
+export default function CatalogSourcesSettings() {
+  const { language } = useLanguage();
+  const queryClient = useQueryClient();
+  const [settings, setSettings] = useState<CatalogSettings>(DEFAULT_SETTINGS);
+  const [isDirty, setIsDirty] = useState(false);
+
+  const { data: rawSettings, isLoading, refetch } = useQuery({
+    queryKey: ['admin-catalog-settings'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('key, value, updated_at')
+        .in('key', Object.keys(DEFAULT_SETTINGS));
+      
+      if (error) throw error;
+      return data as SettingRow[];
+    },
+  });
+
+  useEffect(() => {
+    if (rawSettings) {
+      const parsed: Partial<CatalogSettings> = {};
+      
+      rawSettings.forEach(row => {
+        try {
+          const value = JSON.parse(row.value);
+          (parsed as Record<string, unknown>)[row.key] = value;
+        } catch {
+          (parsed as Record<string, unknown>)[row.key] = row.value;
+        }
+      });
+
+      setSettings({
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+      });
+    }
+  }, [rawSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const updates: Record<string, unknown> = {
+        catalog_provider_mode: settings.catalog_provider_mode,
+        amazon_enabled: settings.amazon_enabled,
+        ebay_enabled: settings.ebay_enabled,
+        amazon_max_results_per_query: settings.amazon_max_results_per_query,
+        amazon_max_calls_per_hour: settings.amazon_max_calls_per_hour,
+        amazon_budget_window: settings.amazon_budget_window,
+        mixed_amazon_first_count: settings.mixed_amazon_first_count,
+        mixed_blend_ratio: settings.mixed_blend_ratio,
+        search_cache_ttl_seconds: settings.search_cache_ttl_seconds,
+        home_cache_ttl_seconds: settings.home_cache_ttl_seconds,
+        offers_cache_ttl_seconds: settings.offers_cache_ttl_seconds,
+        negative_cache_ttl_seconds: settings.negative_cache_ttl_seconds,
+        ebay_cache_ttl_seconds: settings.ebay_cache_ttl_seconds,
+      };
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await supabase.functions.invoke('admin-catalog-settings', {
+        method: 'POST',
+        body: { updates },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (response.error) throw response.error;
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-catalog-settings'] });
+      setIsDirty(false);
+      toast({
+        title: language === 'fr' ? 'Paramètres sauvegardés' : 'Settings saved',
+        description: language === 'fr' 
+          ? 'Les changements sont actifs immédiatement.'
+          : 'Changes are active immediately.',
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: language === 'fr' ? 'Erreur' : 'Error',
+        description: error instanceof Error ? error.message : 'Failed to save settings',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleChange = <K extends keyof CatalogSettings>(key: K, value: CatalogSettings[K]) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setIsDirty(true);
+  };
+
+  const handleSave = () => {
+    saveMutation.mutate();
+  };
+
+  const formatSeconds = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+    if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+    return `${Math.round(seconds / 86400)}d`;
+  };
+
+  const getLastUpdated = (): string | null => {
+    if (!rawSettings || rawSettings.length === 0) return null;
+    const latest = rawSettings.reduce((a, b) => 
+      new Date(a.updated_at) > new Date(b.updated_at) ? a : b
+    );
+    return latest.updated_at;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  const lastUpdated = getLastUpdated();
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Store className="h-6 w-6" />
+            {language === 'fr' ? 'Sources du Catalogue' : 'Catalog Sources'}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {language === 'fr'
+              ? 'Contrôlez les fournisseurs de produits et les limites API.'
+              : 'Control product providers and API limits.'}
+          </p>
+        </div>
+        <Button 
+          onClick={handleSave} 
+          disabled={!isDirty || saveMutation.isPending}
+          className="gap-2"
+        >
+          {saveMutation.isPending ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          {language === 'fr' ? 'Sauvegarder' : 'Save Changes'}
+        </Button>
+      </div>
+
+      {/* Provider Mode & Activation */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Settings2 className="h-5 w-5" />
+            {language === 'fr' ? 'Mode Fournisseur' : 'Provider Mode'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Choisissez comment les produits sont récupérés et mélangés."
+              : 'Choose how products are fetched and mixed.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Mode Selector */}
+          <div className="space-y-2">
+            <Label>{language === 'fr' ? 'Mode' : 'Mode'}</Label>
+            <Select 
+              value={settings.catalog_provider_mode}
+              onValueChange={(value) => handleChange('catalog_provider_mode', value)}
+            >
+              <SelectTrigger className="w-full md:w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mixed">
+                  <span className="flex items-center gap-2">
+                    <Shuffle className="h-4 w-4" />
+                    {language === 'fr' ? 'Mixte (Amazon + eBay)' : 'Mixed (Amazon + eBay)'}
+                  </span>
+                </SelectItem>
+                <SelectItem value="ebay">
+                  <span className="flex items-center gap-2">
+                    <Zap className="h-4 w-4" />
+                    {language === 'fr' ? 'eBay Uniquement' : 'eBay Only'}
+                  </span>
+                </SelectItem>
+                <SelectItem value="amazon">
+                  <span className="flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
+                    {language === 'fr' ? 'Amazon Uniquement' : 'Amazon Only'}
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* Provider Toggles */}
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium">Amazon</Label>
+                <p className="text-sm text-muted-foreground">
+                  {language === 'fr' ? 'Produits depuis la base de données' : 'Products from database cache'}
+                </p>
+              </div>
+              <Switch 
+                checked={settings.amazon_enabled}
+                onCheckedChange={(checked) => handleChange('amazon_enabled', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium">eBay</Label>
+                <p className="text-sm text-muted-foreground">
+                  {language === 'fr' ? 'Recherche en temps réel' : 'Live API search'}
+                </p>
+              </div>
+              <Switch 
+                checked={settings.ebay_enabled}
+                onCheckedChange={(checked) => handleChange('ebay_enabled', checked)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Amazon Limits */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <DollarSign className="h-5 w-5" />
+            {language === 'fr' ? 'Limites Amazon' : 'Amazon Limits'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Contrôlez les coûts API Amazon avec des limites de budget."
+              : 'Control Amazon API costs with budget limits.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="max_results">
+                {language === 'fr' ? 'Max résultats par requête' : 'Max results per query'}
+              </Label>
+              <Input
+                id="max_results"
+                type="number"
+                min={50}
+                max={500}
+                value={settings.amazon_max_results_per_query}
+                onChange={(e) => handleChange('amazon_max_results_per_query', parseInt(e.target.value) || 200)}
+              />
+              <p className="text-xs text-muted-foreground">50-500</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="max_calls">
+                {language === 'fr' ? 'Max appels par fenêtre' : 'Max calls per window'}
+              </Label>
+              <Input
+                id="max_calls"
+                type="number"
+                min={10}
+                max={1000}
+                value={settings.amazon_max_calls_per_hour}
+                onChange={(e) => handleChange('amazon_max_calls_per_hour', parseInt(e.target.value) || 100)}
+              />
+              <p className="text-xs text-muted-foreground">10-1000</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>{language === 'fr' ? 'Fenêtre de budget' : 'Budget window'}</Label>
+              <Select 
+                value={settings.amazon_budget_window}
+                onValueChange={(value) => handleChange('amazon_budget_window', value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="hour">{language === 'fr' ? 'Par heure' : 'Per hour'}</SelectItem>
+                  <SelectItem value="day">{language === 'fr' ? 'Par jour' : 'Per day'}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Mixing Strategy */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Shuffle className="h-5 w-5" />
+            {language === 'fr' ? 'Stratégie de Mélange' : 'Mixing Strategy'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Comment les résultats Amazon et eBay sont ordonnés."
+              : 'How Amazon and eBay results are ordered.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="amazon_first_count">
+                {language === 'fr' ? "Premiers items Amazon (N)" : 'Amazon-first count (N)'}
+              </Label>
+              <Input
+                id="amazon_first_count"
+                type="number"
+                min={0}
+                max={200}
+                value={settings.mixed_amazon_first_count}
+                onChange={(e) => handleChange('mixed_amazon_first_count', parseInt(e.target.value) || 60)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {language === 'fr'
+                  ? 'Nombre de produits Amazon en premier avant le mélange'
+                  : 'Number of Amazon products first before blending'}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <Label>{language === 'fr' ? 'Ratio de mélange' : 'Blend ratio'}</Label>
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">Amazon</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={settings.mixed_blend_ratio.amazon}
+                    onChange={(e) => handleChange('mixed_blend_ratio', {
+                      ...settings.mixed_blend_ratio,
+                      amazon: parseInt(e.target.value) || 1,
+                    })}
+                  />
+                </div>
+                <span className="text-muted-foreground font-medium pt-5">:</span>
+                <div className="flex-1">
+                  <Label className="text-xs text-muted-foreground">eBay</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={settings.mixed_blend_ratio.ebay}
+                    onChange={(e) => handleChange('mixed_blend_ratio', {
+                      ...settings.mixed_blend_ratio,
+                      ebay: parseInt(e.target.value) || 2,
+                    })}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {language === 'fr'
+                  ? `${settings.mixed_blend_ratio.amazon} Amazon pour ${settings.mixed_blend_ratio.ebay} eBay après la phase initiale`
+                  : `${settings.mixed_blend_ratio.amazon} Amazon for every ${settings.mixed_blend_ratio.ebay} eBay after initial phase`}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cache TTLs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            {language === 'fr' ? 'Durée du Cache' : 'Cache Duration'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Combien de temps les résultats sont mis en cache (en secondes)."
+              : 'How long results are cached (in seconds).'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="search_ttl">
+                {language === 'fr' ? 'Cache Recherche' : 'Search Cache'}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="search_ttl"
+                  type="number"
+                  min={60}
+                  value={settings.search_cache_ttl_seconds}
+                  onChange={(e) => handleChange('search_cache_ttl_seconds', parseInt(e.target.value) || 172800)}
+                />
+                <span className="text-sm text-muted-foreground min-w-[40px]">
+                  {formatSeconds(settings.search_cache_ttl_seconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="home_ttl">
+                {language === 'fr' ? 'Cache Accueil' : 'Home Cache'}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="home_ttl"
+                  type="number"
+                  min={60}
+                  value={settings.home_cache_ttl_seconds}
+                  onChange={(e) => handleChange('home_cache_ttl_seconds', parseInt(e.target.value) || 86400)}
+                />
+                <span className="text-sm text-muted-foreground min-w-[40px]">
+                  {formatSeconds(settings.home_cache_ttl_seconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="offers_ttl">
+                {language === 'fr' ? 'Cache Offres' : 'Offers Cache'}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="offers_ttl"
+                  type="number"
+                  min={60}
+                  value={settings.offers_cache_ttl_seconds}
+                  onChange={(e) => handleChange('offers_cache_ttl_seconds', parseInt(e.target.value) || 43200)}
+                />
+                <span className="text-sm text-muted-foreground min-w-[40px]">
+                  {formatSeconds(settings.offers_cache_ttl_seconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="negative_ttl">
+                {language === 'fr' ? 'Cache Négatif' : 'Negative Cache'}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="negative_ttl"
+                  type="number"
+                  min={30}
+                  max={600}
+                  value={settings.negative_cache_ttl_seconds}
+                  onChange={(e) => handleChange('negative_cache_ttl_seconds', parseInt(e.target.value) || 120)}
+                />
+                <span className="text-sm text-muted-foreground min-w-[40px]">
+                  {formatSeconds(settings.negative_cache_ttl_seconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ebay_ttl">
+                {language === 'fr' ? 'Cache eBay' : 'eBay Cache'}
+              </Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="ebay_ttl"
+                  type="number"
+                  min={0}
+                  value={settings.ebay_cache_ttl_seconds}
+                  onChange={(e) => handleChange('ebay_cache_ttl_seconds', parseInt(e.target.value) || 0)}
+                />
+                <span className="text-sm text-muted-foreground min-w-[40px]">
+                  {settings.ebay_cache_ttl_seconds === 0 
+                    ? (language === 'fr' ? 'Désactivé' : 'Off') 
+                    : formatSeconds(settings.ebay_cache_ttl_seconds)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Status Footer */}
+      {lastUpdated && (
+        <p className="text-xs text-muted-foreground text-center">
+          {language === 'fr' ? 'Dernière mise à jour:' : 'Last updated:'}{' '}
+          {format(new Date(lastUpdated), 'PPpp')}
+        </p>
+      )}
+    </div>
+  );
+}

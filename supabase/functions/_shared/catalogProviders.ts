@@ -20,6 +20,7 @@ export interface CatalogProduct {
   description?: string;
   imageUrl?: string;
   images?: string[];                    // Array of image URLs for gallery
+  imageCount?: number;                  // Total images available from listing
   productUrl: string;
   priceUsd: number | null;              // null when price unavailable (NEVER 0)
   currency: string;

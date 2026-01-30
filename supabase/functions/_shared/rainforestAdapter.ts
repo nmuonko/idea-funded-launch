@@ -902,6 +902,9 @@ function normalizeProduct(
   // IMPORTANT: Never return empty images array if we have any image
   // Ensure at least imageUrl is in images array
   const finalImages = images.length > 0 ? images : (imageUrl ? [imageUrl] : []);
+  
+  // Compute image count from actual images array
+  const imageCount = finalImages.length || 1;
 
   return {
     providerProductId: product.asin,
@@ -910,6 +913,7 @@ function normalizeProduct(
     description,
     imageUrl,
     images: finalImages, // Never empty if imageUrl exists
+    imageCount,          // Total images available from listing
     productUrl,
     priceUsd, // null or positive number, never 0 for missing
     currency: "USD",

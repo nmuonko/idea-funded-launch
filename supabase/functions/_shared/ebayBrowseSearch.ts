@@ -81,6 +81,7 @@ export interface NormalizedItem {
   image_url: string | null;
   images: string[];
   image_urls: string[]; // New: limited to 2 images (main + 1 additional)
+  image_count: number;  // Total images available from listing
   product_url: string;
   provider: string;
   provider_product_id: string;
@@ -104,10 +105,41 @@ function upgradeEbayImageUrl(url: string | null): string | null {
 }
 
 /**
+ * Count total images available from eBay listing (for image_count field)
+ * This counts ALL images, not just the ones we return for list views
+ */
+function countTotalImages(item: Record<string, unknown>): number {
+  let count = 0;
+  
+  // Primary image
+  const image = item.image as Record<string, unknown> | undefined;
+  if (image?.imageUrl) {
+    count = 1;
+  }
+  
+  // Additional images
+  const additionalImages = item.additionalImages as Array<Record<string, unknown>> | undefined;
+  if (additionalImages && Array.isArray(additionalImages)) {
+    count += additionalImages.length;
+  }
+  
+  // Fallback: if no main image, count thumbnails
+  if (count === 0) {
+    const thumbnailImages = item.thumbnailImages as Array<Record<string, unknown>> | undefined;
+    if (thumbnailImages && Array.isArray(thumbnailImages)) {
+      count = thumbnailImages.length;
+    }
+  }
+  
+  // Never return 0 if we have any image
+  return count > 0 ? count : 1;
+}
+
+/**
  * Extract and normalize eBay images for LIST views (limited to 2)
  * For product detail views, use the full images from getItem API
  */
-function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: string | null; imageUrls: string[] } {
+function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: string | null; imageUrls: string[]; imageCount: number } {
   const seen = new Set<string>();
   const images: string[] = [];
 
@@ -149,9 +181,13 @@ function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: st
     }
   }
 
+  // Get total image count from the listing
+  const imageCount = countTotalImages(item);
+
   return {
     mainImageUrl: images[0] || null,
     imageUrls: images.slice(0, 2), // Strictly limit to 2 for LIST views
+    imageCount,
   };
 }
 
@@ -217,7 +253,7 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
   const currency = (price?.currency as string) || "USD";
 
   // Use new high-res image extraction (limited for list views)
-  const { mainImageUrl, imageUrls } = extractHighResImages(item);
+  const { mainImageUrl, imageUrls, imageCount } = extractHighResImages(item);
 
   const buyingOptions = (item.buyingOptions as string[]) || [];
   const itemWebUrl = item.itemWebUrl as string || "";
@@ -231,6 +267,7 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
     image_url: mainImageUrl,
     images: imageUrls, // For backward compatibility
     image_urls: imageUrls, // Limited to 2 for list views
+    image_count: imageCount, // Total images available from listing
     product_url: itemWebUrl,
     provider: "ebay",
     provider_product_id: itemId,

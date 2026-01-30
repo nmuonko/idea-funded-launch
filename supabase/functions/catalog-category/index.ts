@@ -149,6 +149,7 @@ interface CatalogProduct extends ProviderItem {
   priceUsd: number | null;
   mainImageUrl: string | null;   // Single best image for list performance
   imageUrl: string | null;       // Backward compat
+  imageCount: number;            // Total images available from listing
   imageMissing: boolean;
   productUrl: string;
   inStock: boolean;
@@ -221,6 +222,7 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
     priceUsd: item.price_usd,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount: item.image_count || 1,  // Total images available
     imageMissing: !mainImage,
     productUrl: item.product_url,
     inStock: item.in_stock,
@@ -242,13 +244,19 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
   
   let mainImage = validatedImageUrl;
   
+  // Get images array for counting
+  const imagesArray = Array.isArray(row.images) ? row.images : [];
+  
   // Fallback to first in images array
-  if (!mainImage && Array.isArray(row.images) && row.images.length > 0) {
-    const firstImg = row.images.find((img): img is string => typeof img === "string");
+  if (!mainImage && imagesArray.length > 0) {
+    const firstImg = imagesArray.find((img): img is string => typeof img === "string");
     if (firstImg) {
       mainImage = normalizeAndValidateImageUrl(firstImg, row.product_url as string);
     }
   }
+
+  // Compute image count from stored images array or default to 1
+  const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
 
   return {
     id: row.id as string,
@@ -258,6 +266,7 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
     priceUsd: row.price_usd as number | null,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    imageCount,           // Total images available
     imageMissing: !mainImage,
     productUrl: (row.product_url as string) || "",
     inStock: (row.in_stock as boolean) ?? true,

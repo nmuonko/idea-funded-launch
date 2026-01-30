@@ -64,8 +64,8 @@ interface CatalogItem extends ProviderItem {
   title: string | null;
   priceUsd: number | null;
   currency: string;
-  imageUrl: string | null;
-  images: string[];
+  mainImageUrl: string | null;   // Single best image for list performance
+  imageUrl: string | null;       // Backward compat
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
@@ -105,6 +105,7 @@ function generateRequestId(): string {
 
 function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   const metadata = item.metadata || {};
+  const mainImage = item.image_url || (item.image_urls?.length > 0 ? item.image_urls[0] : null);
   return {
     id: item.id,
     provider: "ebay",
@@ -112,8 +113,8 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     title: item.title,
     priceUsd: item.price_usd,
     currency: item.currency,
-    imageUrl: item.image_url,
-    images: item.images,
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -124,6 +125,15 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
 }
 
 function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
+  // For list views, only return single main image
+  const rawImageUrl = item.image_url as string | null;
+  let mainImage = rawImageUrl;
+  
+  // Fallback to first in images array
+  if (!mainImage && Array.isArray(item.images) && item.images.length > 0) {
+    mainImage = item.images[0] as string;
+  }
+  
   return {
     id: item.id as string,
     provider: (item.provider as string) || "amazon",
@@ -131,8 +141,8 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     title: item.title as string | null,
     priceUsd: item.price_usd as number | null,
     currency: "USD",
-    imageUrl: item.image_url as string | null,
-    images: (item.images as string[]) || [],
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
     rating: item.rating as number | null,
@@ -140,6 +150,8 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     subcategory: item.unified_subcategory as string | undefined,
   };
 }
+
+// ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 
 // ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 

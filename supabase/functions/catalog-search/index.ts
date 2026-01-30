@@ -8,6 +8,7 @@
  * - Budget control for Amazon API calls
  * - Caching with stale-while-revalidate
  * - Cursor-based infinite pagination
+ * - French → English search query rewriting
  * 
  * ALWAYS returns HTTP 200 with stable JSON
  */
@@ -36,6 +37,7 @@ import {
   setCache,
   CacheResult,
 } from "../_shared/catalogCache.ts";
+import { rewriteSearchQuery, SearchMeta } from "../_shared/searchRewriter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -50,6 +52,8 @@ const VEHICLE_QUERY_KEYWORDS = [
   "motorcycle", "harley", "yamaha", "kawasaki", "ducati",
   "boat", "pontoon", "yacht", "rv", "camper", "trailer",
   "atv", "utv", "quad", "polaris", "can-am",
+  // French vehicle terms
+  "voiture", "voitures", "moto", "camion", "vehicule",
 ];
 
 const DEFAULT_LIMIT = 24;
@@ -87,6 +91,7 @@ interface SearchResponse {
   facets?: unknown[];
   appliedFilters?: Record<string, unknown>;
   providerStats: ProviderStats;
+  searchMeta?: SearchMeta;  // Query rewrite metadata
   durationMs: number;
   warning?: { message: string; code: string };
   error: { code: string; message: string } | null;
@@ -166,7 +171,6 @@ Deno.serve(async (req: Request) => {
 
   const rawQuery = url.searchParams.get("q") || "";
   const qOriginal = rawQuery.trim();
-  const qNorm = qOriginal.toLowerCase().replace(/\s+/g, " ");
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
   const providerParam = url.searchParams.get("provider") || null;
@@ -174,7 +178,18 @@ Deno.serve(async (req: Request) => {
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
 
-  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam}`);
+  // Initialize search metadata (will be populated by rewriter)
+  let searchMeta: SearchMeta = {
+    originalQuery: qOriginal,
+    normalizedQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
+    rewrittenQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
+    rewriteApplied: false,
+    ruleId: null,
+    rulePriority: null,
+    categoryKey,
+  };
+
+  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam} lang=${lang}`);
 
   // Build empty response helper
   const buildEmptyResponse = (error?: { code: string; message: string }): SearchResponse => ({
@@ -196,19 +211,20 @@ Deno.serve(async (req: Request) => {
       amazonStatus: "disabled",
       ebayReturned: 0,
     }),
+    searchMeta,
     durationMs: Date.now() - startTime,
     error: error || null,
   });
 
   // Empty query
-  if (!qNorm) {
+  if (!qOriginal) {
     return new Response(JSON.stringify(buildEmptyResponse()), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  // Blocked content check
+  // Blocked content check (use original before rewrite)
   if (isBlockedSearchQuery(qOriginal)) {
     console.log(`[SEARCH] requestId=${requestId} BLOCKED query: "${qOriginal}"`);
     return new Response(JSON.stringify({
@@ -235,6 +251,20 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // ─── REWRITE QUERY ────────────────────────────────────────────────────────
+    // Rewrite French queries to English for better provider results
+    searchMeta = await rewriteSearchQuery(supabase, qOriginal, {
+      lang,
+      categoryKey,
+      requestId,
+    });
+    
+    const qNorm = searchMeta.rewrittenQuery; // Use rewritten query for searches
+    
+    if (searchMeta.rewriteApplied) {
+      console.log(`[SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
+    }
 
     // Load settings
     const settings = await getCatalogSettings(supabase);
@@ -477,6 +507,7 @@ Deno.serve(async (req: Request) => {
       hasMore: mixResult.hasMore,
       total: Math.max(ebayTotal, amazonItems.length, finalItems.length),
       providerStats,
+      searchMeta, // Include query rewrite metadata
       durationMs,
       error: null,
     };

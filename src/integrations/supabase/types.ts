@@ -3288,6 +3288,45 @@ export type Database = {
         }
         Relationships: []
       }
+      search_rewrites: {
+        Row: {
+          category_key: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          lang: string
+          notes: string | null
+          pattern: string
+          priority: number
+          rewrite: string
+          updated_at: string
+        }
+        Insert: {
+          category_key?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          lang?: string
+          notes?: string | null
+          pattern: string
+          priority?: number
+          rewrite: string
+          updated_at?: string
+        }
+        Update: {
+          category_key?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          lang?: string
+          notes?: string | null
+          pattern?: string
+          priority?: number
+          rewrite?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       settings: {
         Row: {
           bank_account_holder: string | null

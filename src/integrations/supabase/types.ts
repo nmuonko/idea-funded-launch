@@ -3026,6 +3026,39 @@ export type Database = {
         }
         Relationships: []
       }
+      provider_budget: {
+        Row: {
+          call_count: number
+          id: string
+          limit_count: number
+          provider: string
+          updated_at: string
+          window_key: string
+          window_start: string
+          window_type: string
+        }
+        Insert: {
+          call_count?: number
+          id?: string
+          limit_count?: number
+          provider: string
+          updated_at?: string
+          window_key: string
+          window_start: string
+          window_type: string
+        }
+        Update: {
+          call_count?: number
+          id?: string
+          limit_count?: number
+          provider?: string
+          updated_at?: string
+          window_key?: string
+          window_start?: string
+          window_type?: string
+        }
+        Relationships: []
+      }
       provider_tokens: {
         Row: {
           access_token: string
@@ -3925,6 +3958,10 @@ export type Database = {
         Args: { user_id: string }
         Returns: boolean
       }
+      check_provider_budget: {
+        Args: { p_limit?: number; p_provider: string; p_window_type: string }
+        Returns: Json
+      }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_minutes: number }
         Returns: Json
@@ -3934,6 +3971,7 @@ export type Database = {
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
       cleanup_catalog_cache: { Args: never; Returns: Json }
+      cleanup_catalog_provider_data: { Args: never; Returns: Json }
       cleanup_expired_facets_cache: { Args: never; Returns: Json }
       cleanup_expired_records: { Args: never; Returns: Json }
       cleanup_guest_cart_snapshots: { Args: never; Returns: Json }
@@ -4066,6 +4104,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      increment_provider_budget: {
+        Args: { p_limit?: number; p_provider: string; p_window_type: string }
+        Returns: Json
       }
       is_admin: { Args: never; Returns: boolean }
       is_admin_cached: { Args: never; Returns: boolean }

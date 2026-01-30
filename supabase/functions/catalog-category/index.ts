@@ -41,6 +41,7 @@ import {
   encodeMixerCursor, 
   decodeMixerCursor, 
   getInitialCursor,
+  logMixerDebug,
   MixerCursor,
   ProviderItem,
   buildProviderStats,
@@ -579,6 +580,7 @@ Deno.serve(async (req) => {
     }
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
+    // UNIFIED: Use same mixer as catalog-search for consistent behavior
 
     const mixResult = mixProviderItems({
       amazonItems: amazonItems as ProviderItem[],
@@ -590,7 +592,14 @@ Deno.serve(async (req) => {
       amazonCap: settings.amazonMaxResultsPerQuery,
       amazonHasMore,
       ebayHasMore,
+      categoryKey: canonicalKey,
+      requestId,
     });
+
+    // Log mixer debug info (first page only for performance)
+    if (!cursor) {
+      logMixerDebug(mixResult, requestId, canonicalKey);
+    }
 
     // Final filtering
     const { allowed: filteredItems, removed: removedCount } = filterDisallowedItems(
@@ -610,7 +619,7 @@ Deno.serve(async (req) => {
       finalItems = applyBrandDiversity(finalItems, 2, limit) as CatalogProduct[];
     }
 
-    // Build provider stats
+    // Build provider stats with mixing configuration for transparency
     const providerStats = buildProviderStats({
       mode: effectiveMode.mode,
       amazonEnabled: effectiveMode.amazonActive,
@@ -621,6 +630,9 @@ Deno.serve(async (req) => {
       amazonCap: settings.amazonMaxResultsPerQuery,
       amazonStatus,
       ebayReturned: mixResult.ebayReturned,
+      mixingPhase: mixResult.mixingPhase,
+      amazonFirstCount: settings.mixedAmazonFirstCount,
+      blendRatio: settings.mixedBlendRatio,
     });
 
     // Build next cursor

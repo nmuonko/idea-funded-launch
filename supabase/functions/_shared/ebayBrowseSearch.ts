@@ -80,6 +80,7 @@ export interface NormalizedItem {
   currency: string;
   image_url: string | null;
   images: string[];
+  image_urls: string[]; // New: limited to 2 images (main + 1 additional)
   product_url: string;
   provider: string;
   provider_product_id: string;
@@ -90,6 +91,67 @@ export interface NormalizedItem {
   listing_type: string | null;
   buying_options: string[];
   metadata: Record<string, unknown>;
+}
+
+/**
+ * Upgrade eBay image URL to highest resolution (s-l1600)
+ * eBay uses s-l### pattern where ### is the size (64, 140, 225, 300, 500, 1600)
+ */
+function upgradeEbayImageUrl(url: string | null): string | null {
+  if (!url) return null;
+  // Replace s-l### with s-l1600 for highest resolution
+  return url.replace(/s-l\d+/g, "s-l1600");
+}
+
+/**
+ * Extract and normalize eBay images with high-res upgrade and 2-image limit
+ */
+function extractHighResImages(item: Record<string, unknown>): { imageUrl: string | null; imageUrls: string[] } {
+  const seen = new Set<string>();
+  const images: string[] = [];
+
+  // Primary image (highest priority)
+  const image = item.image as Record<string, unknown> | undefined;
+  if (image?.imageUrl) {
+    const upgraded = upgradeEbayImageUrl(image.imageUrl as string);
+    if (upgraded && !seen.has(upgraded)) {
+      seen.add(upgraded);
+      images.push(upgraded);
+    }
+  }
+
+  // Additional images (secondary)
+  const additionalImages = item.additionalImages as Array<Record<string, unknown>> | undefined;
+  if (additionalImages) {
+    for (const img of additionalImages) {
+      if (images.length >= 2) break; // Limit to 2
+      const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
+      if (upgraded && !seen.has(upgraded)) {
+        seen.add(upgraded);
+        images.push(upgraded);
+      }
+    }
+  }
+
+  // Fallback to thumbnails if no primary/additional (but still upgrade them)
+  if (images.length === 0) {
+    const thumbnailImages = item.thumbnailImages as Array<Record<string, unknown>> | undefined;
+    if (thumbnailImages) {
+      for (const img of thumbnailImages) {
+        if (images.length >= 2) break;
+        const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
+        if (upgraded && !seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
+      }
+    }
+  }
+
+  return {
+    imageUrl: images[0] || null,
+    imageUrls: images.slice(0, 2), // Strictly limit to 2
+  };
 }
 
 /**
@@ -146,21 +208,15 @@ function hasVehicleSignals(title: string): boolean {
 }
 
 /**
- * Normalize eBay item to standard format
+ * Normalize eBay item to standard format with high-res images
  */
 function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | null): NormalizedItem {
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value ? parseFloat(price.value as string) : null;
   const currency = (price?.currency as string) || "USD";
 
-  const image = item.image as Record<string, unknown> | undefined;
-  const imageUrl = image?.imageUrl as string | null;
-  
-  const thumbnailImages = item.thumbnailImages as Array<Record<string, unknown>> | undefined;
-  const images = thumbnailImages?.map(img => img.imageUrl as string).filter(Boolean) || [];
-  if (imageUrl && !images.includes(imageUrl)) {
-    images.unshift(imageUrl);
-  }
+  // Use new high-res image extraction with 2-image limit
+  const { imageUrl, imageUrls } = extractHighResImages(item);
 
   const buyingOptions = (item.buyingOptions as string[]) || [];
   const itemWebUrl = item.itemWebUrl as string || "";
@@ -172,7 +228,8 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
     price_usd: currency === "USD" ? priceValue : priceValue, // TODO: convert other currencies
     currency,
     image_url: imageUrl,
-    images,
+    images: imageUrls, // For backward compatibility
+    image_urls: imageUrls, // New field: limited to 2
     product_url: itemWebUrl,
     provider: "ebay",
     provider_product_id: itemId,

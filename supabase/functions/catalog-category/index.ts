@@ -96,6 +96,40 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
   vehicles_parts_accessories: ["car parts", "auto parts", "brake pads", "oil filter"],
 };
 
+// Default Amazon queries per category (same as /catalog-home see_all.q)
+// Used when browsing a category with no explicit search query
+const AMAZON_DEFAULT_QUERIES: Record<string, string> = {
+  // Top-level tabs
+  electronics: "iphone",
+  electronics_phones: "iphone",
+  electronics_computers: "laptop",
+  electronics_gaming: "ps5",
+  electronics_cameras: "camera",
+  electronics_audio: "headphones",
+  vehicles: "cars",
+  vehicles_all: "cars",
+  vehicles_cars_trucks: "cars",
+  vehicles_motorcycles: "motorcycle",
+  vehicles_powersports: "atv",
+  vehicles_boats: "boat",
+  vehicles_rvs_campers: "rv",
+  vehicles_trailers_other: "trailer",
+  vehicles_classic_cars: "classic car",
+  home_garden: "sofa",
+  clothing_shoes_accessories: "shoes",
+  clothing_men: "men clothing",
+  clothing_women: "women clothing",
+  clothing_shoes: "sneakers",
+  clothing_bags: "handbag",
+  toys: "lego",
+  sporting_goods: "fitness",
+  business_industrial: "generator",
+  jewelry_watches: "watch",
+  refurbished: "refurbished",
+  parts_accessories: "parts",
+  vehicles_parts_accessories: "car parts",
+};
+
 // ─── RESPONSE TYPES ───────────────────────────────────────────────────────────
 
 interface CatalogProduct extends ProviderItem {
@@ -107,6 +141,7 @@ interface CatalogProduct extends ProviderItem {
   imageUrl: string | null;
   imageMissing: boolean;
   images: string[];
+  imageUrls: string[]; // New: limited to 2 images (main + 1 additional)
   productUrl: string;
   inStock: boolean;
   rating: number | null;
@@ -160,7 +195,10 @@ function generateRequestId(): string {
 
 function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: string | null): CatalogProduct {
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
-  const validatedImages = item.images
+  // Use image_urls (limited to 2) if available, otherwise fall back to images
+  const sourceImages = item.image_urls?.length > 0 ? item.image_urls : item.images;
+  const validatedImages = sourceImages
+    .slice(0, 2) // Ensure max 2 images
     .map(img => normalizeAndValidateImageUrl(img, item.product_url))
     .filter((img): img is string => img !== null);
   const metadata = item.metadata || {};
@@ -174,6 +212,7 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
     imageUrl: validatedImageUrl || (validatedImages.length > 0 ? validatedImages[0] : null),
     imageMissing: !validatedImageUrl && validatedImages.length === 0,
     images: validatedImages,
+    imageUrls: validatedImages.slice(0, 2), // Strictly limited to 2
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -192,12 +231,18 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
   if (Array.isArray(row.images)) {
     images = row.images
       .filter((img): img is string => typeof img === "string")
+      .slice(0, 2) // Limit to 2 images
       .map(img => normalizeAndValidateImageUrl(img, row.product_url as string))
       .filter((img): img is string => img !== null);
   }
 
   const rawImageUrl = row.image_url as string | null;
   const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, row.product_url as string);
+
+  // Ensure imageUrls has the primary image first, then additional (max 2)
+  const imageUrls = validatedImageUrl 
+    ? [validatedImageUrl, ...images.filter(img => img !== validatedImageUrl)].slice(0, 2)
+    : images.slice(0, 2);
 
   return {
     id: row.id as string,
@@ -207,7 +252,8 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
     priceUsd: row.price_usd as number | null,
     imageUrl: validatedImageUrl || (images.length > 0 ? images[0] : null),
     imageMissing: !validatedImageUrl && images.length === 0,
-    images,
+    images: imageUrls, // Use limited images for backward compat
+    imageUrls, // New field: strictly limited to 2
     productUrl: (row.product_url as string) || "",
     inStock: (row.in_stock as boolean) ?? true,
     rating: row.rating as number | null,
@@ -411,8 +457,11 @@ Deno.serve(async (req) => {
           amazonStatus = "budget_exceeded";
           console.log(`[AMAZON_BUDGET] requestId=${requestId} Budget exceeded`);
         } else {
+          // Derive default Amazon query for category browsing (same as catalog-home see_all.q)
+          const defaultAmazonQuery = AMAZON_DEFAULT_QUERIES[canonicalKey] || AMAZON_DEFAULT_QUERIES[parentTab] || null;
+          
           // Fetch from DB (cached Amazon data)
-          console.log(`[CATALOG] requestId=${requestId} Amazon DB: category="${canonicalKey}"`);
+          console.log(`[CATALOG] requestId=${requestId} Amazon DB: category="${canonicalKey}" defaultQuery="${defaultAmazonQuery}"`);
 
           let query = supabase.from("catalog_items").select("*", { count: "exact" });
           query = query.or("provider.eq.rainforest,provider.eq.amazon");
@@ -420,6 +469,15 @@ Deno.serve(async (req) => {
 
           if (subtabKey) {
             query = query.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
+          }
+
+          // Apply default query as search_text filter for better relevance
+          // This ensures category browsing shows Amazon items matching the see_all query
+          if (defaultAmazonQuery) {
+            const searchKeywords = defaultAmazonQuery.toLowerCase().split(/\s+/);
+            // Use ilike for broader matching
+            const searchPattern = `%${searchKeywords.join("%")}%`;
+            query = query.ilike("search_text", searchPattern);
           }
 
           query = query.or("is_disallowed.is.null,is_disallowed.eq.false");

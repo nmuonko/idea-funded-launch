@@ -679,48 +679,92 @@ function extractPrice(priceObj: any): number | null {
   return value;
 }
 
-function extractImages(item: any): string[] {
-  const images: string[] = [];
-  
-  if (item.image?.imageUrl) {
-    images.push(item.image.imageUrl);
-  }
-  
-  if (item.thumbnailImages) {
-    for (const thumb of item.thumbnailImages) {
-      if (thumb.imageUrl && !images.includes(thumb.imageUrl)) {
-        images.push(thumb.imageUrl);
-      }
-    }
-  }
-  
-  if (item.additionalImages) {
-    for (const img of item.additionalImages) {
-      if (img.imageUrl && !images.includes(img.imageUrl)) {
-        images.push(img.imageUrl);
-      }
-    }
-  }
-  
-  return images.slice(0, 10); // Max 10 images
+/**
+ * Upgrade eBay image URL to highest resolution (s-l1600)
+ * eBay uses s-l### pattern where ### is the size (64, 140, 225, 300, 500, 1600)
+ */
+function upgradeImageToHighRes(url: string): string {
+  return url.replace(/s-l\d+/g, "s-l1600");
 }
 
-function extractDetailImages(item: any): string[] {
+/**
+ * Extract images from eBay item with high-res upgrade and 2-image limit
+ */
+function extractImages(item: any): string[] {
+  const seen = new Set<string>();
   const images: string[] = [];
   
+  // Primary image (highest priority, upgrade to high-res)
   if (item.image?.imageUrl) {
-    images.push(item.image.imageUrl);
+    const upgraded = upgradeImageToHighRes(item.image.imageUrl);
+    if (!seen.has(upgraded)) {
+      seen.add(upgraded);
+      images.push(upgraded);
+    }
   }
   
-  if (item.additionalImages) {
+  // Additional images (limit to 2 total)
+  if (item.additionalImages && images.length < 2) {
     for (const img of item.additionalImages) {
-      if (img.imageUrl && !images.includes(img.imageUrl)) {
-        images.push(img.imageUrl);
+      if (images.length >= 2) break;
+      if (img.imageUrl) {
+        const upgraded = upgradeImageToHighRes(img.imageUrl);
+        if (!seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
       }
     }
   }
   
-  return images.slice(0, 10);
+  // Fallback to thumbnails if no primary/additional (still limit to 2)
+  if (images.length === 0 && item.thumbnailImages) {
+    for (const thumb of item.thumbnailImages) {
+      if (images.length >= 2) break;
+      if (thumb.imageUrl) {
+        const upgraded = upgradeImageToHighRes(thumb.imageUrl);
+        if (!seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
+      }
+    }
+  }
+  
+  return images.slice(0, 2); // Strictly limit to 2 images
+}
+
+/**
+ * Extract detail images with high-res upgrade and 2-image limit
+ */
+function extractDetailImages(item: any): string[] {
+  const seen = new Set<string>();
+  const images: string[] = [];
+  
+  // Primary image
+  if (item.image?.imageUrl) {
+    const upgraded = upgradeImageToHighRes(item.image.imageUrl);
+    if (!seen.has(upgraded)) {
+      seen.add(upgraded);
+      images.push(upgraded);
+    }
+  }
+  
+  // Additional images (limit to 2 total)
+  if (item.additionalImages && images.length < 2) {
+    for (const img of item.additionalImages) {
+      if (images.length >= 2) break;
+      if (img.imageUrl) {
+        const upgraded = upgradeImageToHighRes(img.imageUrl);
+        if (!seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
+      }
+    }
+  }
+  
+  return images.slice(0, 2);
 }
 
 // ─── Quick Debug Self-Test ───────────────────────────────────────────────────

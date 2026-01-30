@@ -158,10 +158,11 @@ Deno.serve(async (req: Request) => {
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
   const providerParam = url.searchParams.get("provider") || null;
+  const categoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
 
-  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" cursor=${cursor} limit=${limit} provider=${providerParam}`);
+  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam}`);
 
   // Build empty response helper
   const buildEmptyResponse = (error?: { code: string; message: string }): SearchResponse => ({
@@ -276,13 +277,20 @@ Deno.serve(async (req: Request) => {
           console.log(`[AMAZON_BUDGET] requestId=${requestId} Budget exceeded`);
         } else {
           // Fetch from DB (cached Amazon data)
-          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${qNorm}"`);
+          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${qNorm}" category_key=${categoryKey}`);
 
-          const { data: amazonData, count } = await supabase
+          let amazonQuery = supabase
             .from("catalog_items")
             .select("*", { count: "exact" })
             .or("provider.eq.rainforest,provider.eq.amazon")
-            .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`)
+            .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`);
+
+          // Apply category filter if provided
+          if (categoryKey) {
+            amazonQuery = amazonQuery.eq("unified_category", categoryKey.split("_")[0]);
+          }
+
+          const { data: amazonData, count } = await amazonQuery
             .order("rating", { ascending: false, nullsFirst: false })
             .range(
               mixerCursor.amazonReturnedSoFar,
@@ -307,8 +315,26 @@ Deno.serve(async (req: Request) => {
     if (effectiveMode.ebayActive && effectiveMode.mode !== "amazon") {
       try {
         const minPrice = isVehicle ? 1500 : undefined;
+        
+        // Map category_key to eBay category ID if applicable
+        let ebayCategory: string | undefined;
+        if (categoryKey) {
+          const categoryMapping: Record<string, string> = {
+            electronics_phones: "9355",
+            electronics_gaming: "1249",
+            electronics_computers: "58058",
+            electronics_cameras: "625",
+            electronics_audio: "3253",
+            clothing_shoes_accessories: "63889",
+            home_garden: "11700",
+            vehicles_cars_trucks: "6001",
+            refurbished: "11800",
+            parts_accessories: "6028",
+          };
+          ebayCategory = categoryMapping[categoryKey];
+        }
 
-        console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${qNorm}" isVehicle=${isVehicle}`);
+        console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${qNorm}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
 
         const ebayResult = await searchEbay(
           supabase,
@@ -318,6 +344,7 @@ Deno.serve(async (req: Request) => {
             pageSize: limit,
             minPrice,
             isVehicle,
+            categoryId: ebayCategory,
             marketplaceId: "EBAY_US",
           },
           requestId

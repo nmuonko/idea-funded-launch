@@ -3,30 +3,23 @@
  * Fetches items for a specific category/subtab with cursor-based pagination
  * Uses canonical category registry for alias resolution
  * 
- * ALWAYS returns HTTP 200 with stable JSON:
- * { 
- *   status: "success", 
- *   items, 
- *   nextCursor, 
- *   hasMore, 
- *   categoryResolved: { requested, resolved, resolution },
- *   filters?,
- *   error: null 
- * }
- * 
- * PROVIDER RULES:
- * - eBay: LIVE + infinite pagination (limit+offset, max 10,000)
- * - Amazon/Rainforest: DB-first only (cached, restricted)
+ * PROVIDER MIXING (Amazon + eBay):
+ * - Mixed mode: Amazon-first, then blend, then eBay-only
+ * - Budget control for Amazon API calls
+ * - Cursor-based infinite pagination
  * 
  * VEHICLES:
  * - ALWAYS use live eBay Browse API
  * - Each subcategory uses correct eBay category_id
  * - Strict filters: FIXED_PRICE only, min price, exclude parts keywords
+ * 
+ * ALWAYS returns HTTP 200 with stable JSON:
+ * { status, items, nextCursor, hasMore, categoryResolved, providerStats }
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
-import { isDisallowedItem } from "../_shared/contentBlocker.ts";
+import { isDisallowedItem, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { searchEbay, searchEbayWithFallback, upsertItemsToDb, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { extractBrand, applyBrandDiversity } from "../_shared/brandExtractor.ts";
@@ -41,6 +34,18 @@ import {
   CategoryResolutionError,
 } from "../_shared/categoryRegistry.ts";
 import { normalizeAndValidateImageUrl } from "../_shared/imageValidation.ts";
+import { getCatalogSettings, getEffectiveMode, CatalogSettings } from "../_shared/catalogSettings.ts";
+import { checkBudget, incrementBudget, resolveAmazonStatus, AmazonStatusInfo } from "../_shared/providerBudget.ts";
+import { 
+  mixProviderItems, 
+  encodeMixerCursor, 
+  decodeMixerCursor, 
+  getInitialCursor,
+  MixerCursor,
+  ProviderItem,
+  buildProviderStats,
+  ProviderStats,
+} from "../_shared/providerMixer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 const DEFAULT_LIMIT = 24;
@@ -91,33 +96,9 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
   vehicles_parts_accessories: ["car parts", "auto parts", "brake pads", "oil filter"],
 };
 
-// ─── CURSOR ENCODING ──────────────────────────────────────────────────────────
-
-interface CursorData {
-  offset: number;
-  provider: "ebay" | "db";
-}
-
-function encodeCursor(data: CursorData): string {
-  return btoa(JSON.stringify(data));
-}
-
-function decodeCursor(cursor: string): CursorData | null {
-  try {
-    const decoded = atob(cursor);
-    const data = JSON.parse(decoded);
-    if (typeof data.offset === "number" && typeof data.provider === "string") {
-      return data as CursorData;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // ─── RESPONSE TYPES ───────────────────────────────────────────────────────────
 
-interface CatalogProduct {
+interface CatalogProduct extends ProviderItem {
   id: string;
   provider: string;
   providerProductId: string;
@@ -133,6 +114,9 @@ interface CatalogProduct {
   unifiedSubcategory: string | null;
   listingType: string | null;
   brand: string | null;
+  condition?: string;
+  shippingPrice?: number | null;
+  location?: string | null;
 }
 
 interface FilterOption {
@@ -162,6 +146,7 @@ interface CategoryResponse {
     resolution: string;
   };
   filters?: FilterGroup[];
+  providerStats: ProviderStats;
   warning?: { message: string; code: string; debugId?: string };
   error: { message: string; code: string; debugId?: string } | null;
   durationMs: number;
@@ -174,11 +159,11 @@ function generateRequestId(): string {
 // ─── ITEM NORMALIZATION ───────────────────────────────────────────────────────
 
 function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: string | null): CatalogProduct {
-  // Validate image URL
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
   const validatedImages = item.images
     .map(img => normalizeAndValidateImageUrl(img, item.product_url))
     .filter((img): img is string => img !== null);
+  const metadata = item.metadata || {};
 
   return {
     id: item.id,
@@ -196,6 +181,9 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
     unifiedSubcategory: subcategory,
     listingType: item.listing_type,
     brand: item.brand || extractBrand(item.title),
+    condition: (metadata.condition as string) || undefined,
+    shippingPrice: (metadata.shipping_price as number) || null,
+    location: (metadata.location as string) || null,
   };
 }
 
@@ -254,6 +242,20 @@ Deno.serve(async (req) => {
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
   const sort = url.searchParams.get("sort") || "relevance";
   const filtersParam = url.searchParams.get("filters") || null;
+  const providerParam = url.searchParams.get("provider") || null;
+
+  // Build empty provider stats helper
+  const buildEmptyProviderStats = (): ProviderStats => buildProviderStats({
+    mode: "unknown",
+    amazonEnabled: false,
+    ebayEnabled: false,
+    amazonCacheHit: false,
+    amazonBudgetRemaining: null,
+    amazonReturned: 0,
+    amazonCap: 0,
+    amazonStatus: "disabled",
+    ebayReturned: 0,
+  });
 
   // Build response helper
   const buildResponse = (
@@ -262,6 +264,7 @@ Deno.serve(async (req) => {
     hasMore: boolean,
     nextCursor: string | null,
     categoryResolved: CategoryResponse["categoryResolved"],
+    providerStats: ProviderStats,
     filters?: FilterGroup[],
     warning?: CategoryResponse["warning"],
     error?: CategoryResponse["error"]
@@ -273,18 +276,20 @@ Deno.serve(async (req) => {
     total,
     categoryResolved,
     filters,
+    providerStats,
     warning,
     error: error || null,
     durationMs: Date.now() - startTime,
   });
 
-  console.log(`[CATALOG] requestId=${requestId} categoryRequested=${categoryRaw} cursor=${cursor} limit=${limit} env=${envName}`);
+  console.log(`[CATALOG] requestId=${requestId} categoryRequested=${categoryRaw} cursor=${cursor} limit=${limit} env=${envName} provider=${providerParam}`);
 
   // Validate environment
   if (!ALLOWED_ENVS.includes(envName)) {
     return new Response(
       JSON.stringify(buildResponse([], 0, false, null, 
         { requested: categoryRaw, resolved: null, resolution: "none" },
+        buildEmptyProviderStats(),
         undefined, undefined, 
         { message: `Invalid environment: ${envName}`, code: "BAD_ENV", debugId: requestId }
       )),
@@ -296,6 +301,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify(buildResponse([], 0, false, null,
         { requested: "", resolved: null, resolution: "none" },
+        buildEmptyProviderStats(),
         undefined, undefined,
         { message: "Missing required 'category' parameter", code: "MISSING_CATEGORY", debugId: requestId }
       )),
@@ -311,6 +317,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify(buildResponse([], 0, false, null,
         { requested: categoryRaw, resolved: null, resolution: "none" },
+        buildEmptyProviderStats(),
         undefined, undefined,
         { 
           message: `Invalid category: "${categoryRaw}". Suggestions: ${resolution.suggestions.join(", ") || "none"}`,
@@ -344,6 +351,7 @@ Deno.serve(async (req) => {
       return new Response(
         JSON.stringify(buildResponse([], 0, false, null,
           { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
+          buildEmptyProviderStats(),
           undefined, undefined,
           { message: "Backend configuration error", code: "CONFIG_ERROR", debugId: requestId }
         )),
@@ -353,181 +361,204 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Decode cursor
-    let offset = 0;
-    let provider: "ebay" | "db" = isVehicle ? "ebay" : "db";
-    
+    // Load settings
+    const settings = await getCatalogSettings(supabase);
+    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
+
+    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`);
+
+    // Decode cursor (use mixer cursor for mixed mode)
+    let mixerCursor = getInitialCursor();
     if (cursor) {
-      const cursorData = decodeCursor(cursor);
-      if (cursorData) {
-        offset = cursorData.offset;
-        provider = cursorData.provider;
+      const decoded = decodeMixerCursor(cursor);
+      if (decoded) {
+        mixerCursor = decoded;
       }
     }
 
-    const page = Math.floor(offset / limit) + 1;
+    const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
-    // ─── LIVE eBay Search (for vehicles or explicit live mode) ────────────────
-    if (isVehicle || provider === "ebay") {
-      const fallbackQueries = isVehicle 
-        ? (VEHICLE_FALLBACK_QUERIES[canonicalKey] || VEHICLE_FALLBACK_QUERIES.vehicles_cars_trucks)
-        : (CATEGORY_FALLBACK_QUERIES[canonicalKey] || CATEGORY_FALLBACK_QUERIES[parentTab] || ["electronics"]);
+    // Initialize provider tracking
+    let amazonItems: CatalogProduct[] = [];
+    let ebayItems: CatalogProduct[] = [];
+    let amazonHasMore = false;
+    let ebayHasMore = false;
+    let ebayTotal = 0;
+    let amazonCacheHit = false;
+    let amazonBudgetRemaining: number | null = null;
+    let amazonStatus: AmazonStatusInfo["status"] = "disabled";
 
-      const searchResult = await searchEbayWithFallback(
-        supabase,
-        {
-          categoryId: ebayCategory || undefined,
-          page,
-          pageSize: limit,
-          minPrice: minPrice > 0 ? minPrice : undefined,
-          isVehicle,
-          isParts,
-          marketplaceId: "EBAY_US",
-        },
-        fallbackQueries,
-        requestId
-      );
+    // ─── Amazon (DB-cached only) ──────────────────────────────────────────────
+    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay" && !isVehicle) {
+      try {
+        // Check budget
+        const budgetStatus = await checkBudget(
+          supabase,
+          "amazon",
+          settings.amazonBudgetWindow,
+          settings.amazonMaxCallsPerHour,
+          requestId
+        );
+        amazonBudgetRemaining = budgetStatus.remaining;
 
-      // Apply additional filtering for vehicles
-      let filteredItems = searchResult.items;
-      if (isVehicle) {
-        filteredItems = searchResult.items.filter(item => {
-          const filterResult = isAllowedMotorListing({
-            title: item.title,
-            priceUsd: item.price_usd,
+        // Check if cap hit for this category
+        const queryCapHit = mixerCursor.amazonReturnedSoFar >= settings.amazonMaxResultsPerQuery;
+
+        if (queryCapHit) {
+          amazonStatus = "cap_exhausted";
+          console.log(`[CATALOG] requestId=${requestId} Amazon cap exhausted: ${mixerCursor.amazonReturnedSoFar}/${settings.amazonMaxResultsPerQuery}`);
+        } else if (!budgetStatus.allowed) {
+          amazonStatus = "budget_exceeded";
+          console.log(`[AMAZON_BUDGET] requestId=${requestId} Budget exceeded`);
+        } else {
+          // Fetch from DB (cached Amazon data)
+          console.log(`[CATALOG] requestId=${requestId} Amazon DB: category="${canonicalKey}"`);
+
+          let query = supabase.from("catalog_items").select("*", { count: "exact" });
+          query = query.or("provider.eq.rainforest,provider.eq.amazon");
+          query = query.eq("unified_category", parentTab);
+
+          if (subtabKey) {
+            query = query.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
+          }
+
+          query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
+
+          const { data: amazonData, count } = await query
+            .order("rating", { ascending: false, nullsFirst: false })
+            .range(
+              mixerCursor.amazonReturnedSoFar,
+              mixerCursor.amazonReturnedSoFar + limit - 1
+            );
+
+          if (amazonData && amazonData.length > 0) {
+            amazonItems = amazonData.map(item => 
+              normalizeDbItem(
+                item as Record<string, unknown>, 
+                parentTab, 
+                subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null
+              )
+            );
+            amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
+            amazonCacheHit = true;
+            amazonStatus = "cached";
+            console.log(`[CATALOG] requestId=${requestId} Amazon DB returned ${amazonItems.length} items`);
+          }
+        }
+      } catch (err) {
+        console.error(`[CATALOG] requestId=${requestId} Amazon error:`, err);
+        amazonStatus = "error";
+      }
+    }
+
+    // ─── eBay LIVE Search ─────────────────────────────────────────────────────
+    if (effectiveMode.ebayActive && effectiveMode.mode !== "amazon") {
+      try {
+        const fallbackQueries = isVehicle 
+          ? (VEHICLE_FALLBACK_QUERIES[canonicalKey] || VEHICLE_FALLBACK_QUERIES.vehicles_cars_trucks)
+          : (CATEGORY_FALLBACK_QUERIES[canonicalKey] || CATEGORY_FALLBACK_QUERIES[parentTab] || ["electronics"]);
+
+        console.log(`[CATALOG] requestId=${requestId} eBay LIVE: category="${canonicalKey}" isVehicle=${isVehicle}`);
+
+        const searchResult = await searchEbayWithFallback(
+          supabase,
+          {
+            categoryId: ebayCategory || undefined,
+            page,
+            pageSize: limit,
+            minPrice: minPrice > 0 ? minPrice : undefined,
+            isVehicle,
+            isParts,
+            marketplaceId: "EBAY_US",
+          },
+          fallbackQueries,
+          requestId
+        );
+
+        // Apply additional filtering for vehicles
+        let filteredItems = searchResult.items;
+        if (isVehicle) {
+          filteredItems = searchResult.items.filter(item => {
+            const filterResult = isAllowedMotorListing({
+              title: item.title,
+              priceUsd: item.price_usd,
+            });
+            return filterResult.isAllowed;
           });
-          return filterResult.isAllowed;
+        }
+
+        // Filter disallowed content
+        filteredItems = filteredItems.filter(item => {
+          const blocked = isDisallowedItem({ title: item.title, productUrl: item.product_url });
+          return !blocked.isDisallowed;
         });
-      }
 
-      // Filter disallowed content
-      filteredItems = filteredItems.filter(item => {
-        const blocked = isDisallowedItem({ title: item.title, productUrl: item.product_url });
-        return !blocked.isDisallowed;
-      });
+        // Map to response format
+        ebayItems = filteredItems.map(item => 
+          normalizeEbayItem(item, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
+        );
+        ebayTotal = searchResult.total;
+        ebayHasMore = searchResult.hasMore && (mixerCursor.ebayOffset + limit) < 10000;
 
-      // Map to response format
-      const responseItems = filteredItems.map(item => 
-        normalizeEbayItem(item, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
-      );
+        console.log(`[CATALOG] requestId=${requestId} eBay returned ${ebayItems.length} items, total=${ebayTotal}`);
 
-      // Upsert to DB for caching (async, don't wait)
-      upsertItemsToDb(supabase, filteredItems, parentTab, subtabKey, requestId);
+        // Upsert to DB for caching (async, don't wait)
+        upsertItemsToDb(supabase, filteredItems, parentTab, subtabKey, requestId);
 
-      // Build next cursor
-      const newOffset = offset + limit;
-      const hasMore = searchResult.hasMore && newOffset < 10000;
-      const nextCursor = hasMore ? encodeCursor({ offset: newOffset, provider: "ebay" }) : null;
-
-      console.log(`[CATALOG] requestId=${requestId} cursorIn=${cursor} cursorOut=${nextCursor} items=${responseItems.length} hasMore=${hasMore}`);
-
-      // Build basic filters for eBay results
-      const filters: FilterGroup[] = [
-        {
-          key: "price",
-          title: "Price",
-          type: "range",
-          min: minPrice,
-          max: 100000,
-        },
-        {
-          key: "condition",
-          title: "Condition",
-          type: "multi",
-          options: [
-            { value: "new", label: "New" },
-            { value: "used", label: "Used" },
-            { value: "refurbished", label: "Refurbished" },
-          ],
-        },
-      ];
-
-      return new Response(
-        JSON.stringify(buildResponse(
-          responseItems, 
-          searchResult.total, 
-          hasMore, 
-          nextCursor,
-          { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
-          filters,
-          searchResult.warning || undefined
-        )),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // ─── DB Mode ──────────────────────────────────────────────────────────────
-    let query = supabase.from("catalog_items").select("*", { count: "exact" });
-
-    // Filter by category
-    if (isParts) {
-      query = query.eq("unified_category", "parts_accessories");
-      if (subtabKey) {
-        query = query.eq("parts_subkey", subtabKey.replace("parts_", ""));
-      }
-    } else {
-      query = query.eq("unified_category", parentTab);
-      if (subtabKey) {
-        query = query.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
+      } catch (err) {
+        console.error(`[CATALOG] requestId=${requestId} eBay error:`, err);
       }
     }
 
-    query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
+    // ─── MIX RESULTS ──────────────────────────────────────────────────────────
 
-    const { data: dbItems, count: dbCount, error: dbError } = await query
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    const mixResult = mixProviderItems({
+      amazonItems: amazonItems as ProviderItem[],
+      ebayItems: ebayItems as ProviderItem[],
+      limit,
+      cursor: mixerCursor,
+      amazonFirstCount: settings.mixedAmazonFirstCount,
+      blendRatio: settings.mixedBlendRatio,
+      amazonCap: settings.amazonMaxResultsPerQuery,
+      amazonHasMore,
+      ebayHasMore,
+    });
 
-    if (dbError) {
-      console.error(`[CATALOG] requestId=${requestId} DB error:`, dbError.message);
-      return new Response(
-        JSON.stringify(buildResponse([], 0, false, null,
-          { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
-          undefined, undefined,
-          { message: "Database error", code: "DB_ERROR", debugId: requestId }
-        )),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    let items = (dbItems || []).map(row => 
-      normalizeDbItem(row as Record<string, unknown>, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
+    // Final filtering
+    const { allowed: filteredItems, removed: removedCount } = filterDisallowedItems(
+      mixResult.items.map(item => ({
+        ...item,
+        title: (item as CatalogProduct).title,
+        productUrl: (item as CatalogProduct).productUrl,
+      })),
+      `[CATALOG] requestId=${requestId}`
     );
 
-    // If DB is empty and offset is 0, fallback to live eBay
-    if (items.length === 0 && offset === 0) {
-      console.log(`[CATALOG] requestId=${requestId} [CATEGORY_FALLBACK] DB empty, switching to live eBay`);
-      
-      const fallbackQueries = CATEGORY_FALLBACK_QUERIES[canonicalKey] || CATEGORY_FALLBACK_QUERIES[parentTab] || ["electronics"];
-      const searchResult = await searchEbayWithFallback(
-        supabase,
-        { 
-          categoryId: ebayCategory || undefined,
-          page: 1, 
-          pageSize: limit, 
-          marketplaceId: "EBAY_US" 
-        },
-        fallbackQueries,
-        requestId
-      );
-
-      items = searchResult.items.map(item => 
-        normalizeEbayItem(item, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
-      );
-      upsertItemsToDb(supabase, searchResult.items, parentTab, subtabKey, requestId);
-    }
+    const allowedIds = new Set(filteredItems.map(i => i.id));
+    let finalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogProduct[];
 
     // Apply brand diversity for clothing
-    if (parentTab === "clothing_shoes_accessories" && offset === 0 && items.length > 5) {
-      items = applyBrandDiversity(items, 2, limit) as CatalogProduct[];
+    if (parentTab === "clothing_shoes_accessories" && mixerCursor.totalReturned === 0 && finalItems.length > 5) {
+      finalItems = applyBrandDiversity(finalItems, 2, limit) as CatalogProduct[];
     }
 
-    const total = dbCount || items.length;
-    const newOffset = offset + limit;
-    const hasMore = (dbCount || 0) > newOffset;
-    const nextCursor = hasMore ? encodeCursor({ offset: newOffset, provider: "db" }) : null;
+    // Build provider stats
+    const providerStats = buildProviderStats({
+      mode: effectiveMode.mode,
+      amazonEnabled: effectiveMode.amazonActive,
+      ebayEnabled: effectiveMode.ebayActive,
+      amazonCacheHit,
+      amazonBudgetRemaining,
+      amazonReturned: mixResult.amazonReturned,
+      amazonCap: settings.amazonMaxResultsPerQuery,
+      amazonStatus,
+      ebayReturned: mixResult.ebayReturned,
+    });
 
-    console.log(`[CATALOG] requestId=${requestId} cursorIn=${cursor} cursorOut=${nextCursor} items=${items.length} hasMore=${hasMore}`);
+    // Build next cursor
+    const nextCursor = mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null;
+
+    console.log(`[CATALOG] requestId=${requestId} cursorIn=${cursor} cursorOut=${nextCursor} items=${finalItems.length} hasMore=${mixResult.hasMore} phase=${mixResult.mixingPhase}`);
 
     // Build filters based on category
     const filters: FilterGroup[] = [
@@ -535,8 +566,18 @@ Deno.serve(async (req) => {
         key: "price",
         title: "Price",
         type: "range",
-        min: 0,
-        max: 10000,
+        min: minPrice,
+        max: isVehicle ? 200000 : 10000,
+      },
+      {
+        key: "condition",
+        title: "Condition",
+        type: "multi",
+        options: [
+          { value: "new", label: "New" },
+          { value: "used", label: "Used" },
+          { value: "refurbished", label: "Refurbished" },
+        ],
       },
       {
         key: "brand",
@@ -553,12 +594,14 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify(buildResponse(
-        items, 
-        total, 
-        hasMore, 
+        finalItems, 
+        Math.max(ebayTotal, amazonItems.length, finalItems.length),
+        mixResult.hasMore, 
         nextCursor,
         { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
-        filters
+        providerStats,
+        filters,
+        undefined
       )),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -570,6 +613,7 @@ Deno.serve(async (req) => {
     return new Response(
       JSON.stringify(buildResponse([], 0, false, null,
         { requested: categoryRaw, resolved: canonicalKey, resolution: resolved.method },
+        buildEmptyProviderStats(),
         undefined, undefined,
         { message: "Internal error", code: "INTERNAL_ERROR", debugId: requestId }
       )),

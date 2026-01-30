@@ -47,6 +47,7 @@ import TransferProofs from "./pages/admin/TransferProofs";
 import AdminHealth from "./pages/admin/Health";
 import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import CacheSettings from "./pages/admin/CacheSettings";
+import CatalogSourcesSettings from "./pages/admin/CatalogSourcesSettings";
 import CarsSettings from "./pages/admin/CarsSettings";
 import Cars from "./pages/Cars";
 
@@ -288,6 +289,11 @@ const App = () => {
               <Route path="cars-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CarsSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="catalog-sources" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <CatalogSourcesSettings />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

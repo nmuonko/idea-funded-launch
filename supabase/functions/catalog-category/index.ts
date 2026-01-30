@@ -465,19 +465,20 @@ Deno.serve(async (req) => {
 
           let query = supabase.from("catalog_items").select("*", { count: "exact" });
           query = query.or("provider.eq.rainforest,provider.eq.amazon");
-          query = query.eq("unified_category", parentTab);
+          
+          // Include items that match either the category OR have uncategorized but match default query
+          // This allows old uncategorized items to still appear while also including properly categorized ones
+          if (defaultAmazonQuery) {
+            const searchKeywords = defaultAmazonQuery.toLowerCase().split(/\s+/);
+            const searchPattern = `%${searchKeywords.join("%")}%`;
+            // Match by category OR by search text for uncategorized items
+            query = query.or(`unified_category.eq.${parentTab},and(unified_category.is.null,search_text.ilike.${searchPattern}),and(unified_category.eq.uncategorized,search_text.ilike.${searchPattern})`);
+          } else {
+            query = query.eq("unified_category", parentTab);
+          }
 
           if (subtabKey) {
             query = query.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
-          }
-
-          // Apply default query as search_text filter for better relevance
-          // This ensures category browsing shows Amazon items matching the see_all query
-          if (defaultAmazonQuery) {
-            const searchKeywords = defaultAmazonQuery.toLowerCase().split(/\s+/);
-            // Use ilike for broader matching
-            const searchPattern = `%${searchKeywords.join("%")}%`;
-            query = query.ilike("search_text", searchPattern);
           }
 
           query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
@@ -490,13 +491,18 @@ Deno.serve(async (req) => {
             );
 
           if (amazonData && amazonData.length > 0) {
-            amazonItems = amazonData.map(item => 
-              normalizeDbItem(
+            // IMPORTANT: Force the resolved unified_category on all returned items
+            // This ensures items display correctly even if DB has stale/uncategorized values
+            amazonItems = amazonData.map(item => {
+              const normalized = normalizeDbItem(
                 item as Record<string, unknown>, 
                 parentTab, 
                 subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null
-              )
-            );
+              );
+              // Override unified category with resolved value
+              normalized.unifiedCategory = canonicalKey;
+              return normalized;
+            });
             amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
             amazonCacheHit = true;
             amazonStatus = "cached";

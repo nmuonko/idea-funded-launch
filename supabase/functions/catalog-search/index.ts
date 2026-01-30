@@ -285,9 +285,11 @@ Deno.serve(async (req: Request) => {
             .or("provider.eq.rainforest,provider.eq.amazon")
             .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`);
 
-          // Apply category filter if provided
+          // Apply category filter if provided - but also include uncategorized items matching query
           if (categoryKey) {
-            amazonQuery = amazonQuery.eq("unified_category", categoryKey.split("_")[0]);
+            const parentCategory = categoryKey.split("_")[0];
+            // Include items matching category OR uncategorized (legacy data)
+            amazonQuery = amazonQuery.or(`unified_category.eq.${parentCategory},unified_category.is.null,unified_category.eq.uncategorized`);
           }
 
           const { data: amazonData, count } = await amazonQuery
@@ -298,7 +300,15 @@ Deno.serve(async (req: Request) => {
             );
 
           if (amazonData && amazonData.length > 0) {
-            amazonItems = amazonData.map(item => mapDbItemToResponse(item as Record<string, unknown>));
+            // Force the resolved category on returned items if category_key was provided
+            amazonItems = amazonData.map(item => {
+              const mapped = mapDbItemToResponse(item as Record<string, unknown>);
+              // Override category if provided in request
+              if (categoryKey) {
+                mapped.category = categoryKey;
+              }
+              return mapped;
+            });
             amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
             amazonCacheHit = true;
             amazonStatus = "cached";

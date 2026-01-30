@@ -8,6 +8,9 @@
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+// Cache version for invalidating stale entries when schema changes
+export const AMAZON_CACHE_VERSION = "v2"; // Bump to invalidate old uncategorized Amazon entries
+
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
   home: { stale: 15, expire: 60 },
@@ -136,7 +139,8 @@ export function buildCacheKey(
     case "search":
       const qNorm = params.query ? normalizeQuery(params.query) : "";
       const expand = params.expand ? 1 : 0;
-      return `search:v1:domain=${domain}:env=${env}:q=${qNorm}:expand=${expand}:provider=${params.provider || "all"}:page=${params.page || 1}:size=${params.pageSize || 20}`;
+      // Include AMAZON_CACHE_VERSION in cache key to invalidate old entries with uncategorized items
+      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qNorm}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}`;
     
     case "product":
       return `product:v1:domain=${domain}:env=${env}:id=${params.productId || ""}`;

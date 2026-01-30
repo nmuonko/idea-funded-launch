@@ -967,6 +967,33 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_item_media: {
+        Row: {
+          expires_at: string
+          fetched_at: string
+          image_count: number
+          image_urls: Json
+          provider: string
+          provider_item_id: string
+        }
+        Insert: {
+          expires_at: string
+          fetched_at?: string
+          image_count?: number
+          image_urls?: Json
+          provider: string
+          provider_item_id: string
+        }
+        Update: {
+          expires_at?: string
+          fetched_at?: string
+          image_count?: number
+          image_urls?: Json
+          provider?: string
+          provider_item_id?: string
+        }
+        Relationships: []
+      }
       catalog_items: {
         Row: {
           brand: string | null

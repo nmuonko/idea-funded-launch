@@ -24,6 +24,12 @@ const CATALOG_SETTING_KEYS = [
   "ebay_cache_ttl_seconds",
   "amazon_category_allowlist",
   "enable_category_rules",
+  // Media cache settings
+  "media_cache_ttl_days",
+  "media_prefetch_enabled",
+  "media_prefetch_max_items_per_page",
+  "media_fetch_timeout_ms",
+  "media_fetch_concurrency",
 ];
 
 Deno.serve(async (req) => {

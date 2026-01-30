@@ -47,6 +47,7 @@ import {
   buildProviderStats,
   ProviderStats,
 } from "../_shared/providerMixer.ts";
+import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 const DEFAULT_LIMIT = 24;
@@ -621,12 +622,27 @@ Deno.serve(async (req) => {
     );
 
     const allowedIds = new Set(filteredItems.map(i => i.id));
-    let finalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogProduct[];
+    let filteredFinalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogProduct[];
 
     // Apply brand diversity for clothing
-    if (parentTab === "clothing_shoes_accessories" && mixerCursor.totalReturned === 0 && finalItems.length > 5) {
-      finalItems = applyBrandDiversity(finalItems, 2, limit) as CatalogProduct[];
+    if (parentTab === "clothing_shoes_accessories" && mixerCursor.totalReturned === 0 && filteredFinalItems.length > 5) {
+      filteredFinalItems = applyBrandDiversity(filteredFinalItems, 2, limit) as CatalogProduct[];
     }
+
+    // Enrich items with exact image counts from media cache
+    const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
+      supabase,
+      filteredFinalItems as unknown as Record<string, unknown>[]
+    );
+
+    // Map enriched items back to CatalogProduct type with updated counts
+    const finalItems = filteredFinalItems.map((item, idx) => ({
+      ...item,
+      imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
+      image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
+    }));
+
+    console.log(`[CATALOG_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
 
     // Build provider stats with mixing configuration for transparency
     const providerStats = buildProviderStats({

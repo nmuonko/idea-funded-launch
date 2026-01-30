@@ -39,6 +39,7 @@ import {
   CacheResult,
 } from "../_shared/catalogCache.ts";
 import { rewriteSearchQuery, SearchMeta } from "../_shared/searchRewriter.ts";
+import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,6 +83,13 @@ interface CatalogItem extends ProviderItem {
   location?: string | null;
 }
 
+interface MediaEnrichmentStats {
+  checked: number;
+  cacheHit: number;
+  fetched: number;
+  timedOut: number;
+}
+
 interface SearchResponse {
   status: "success" | "error";
   env: string;
@@ -94,6 +102,7 @@ interface SearchResponse {
   appliedFilters?: Record<string, unknown>;
   providerStats: ProviderStats;
   searchMeta?: SearchMeta;  // Query rewrite metadata
+  mediaStats?: MediaEnrichmentStats;  // Media cache enrichment stats (dev only)
   durationMs: number;
   warning?: { message: string; code: string };
   error: { code: string; message: string } | null;
@@ -562,7 +571,22 @@ Deno.serve(async (req: Request) => {
     );
 
     const allowedIds = new Set(filteredItems.map(i => i.id));
-    const finalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogItem[];
+    const filteredFinalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogItem[];
+
+    // Enrich items with exact image counts from media cache
+    const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
+      supabase,
+      filteredFinalItems as unknown as Record<string, unknown>[]
+    );
+
+    // Map enriched items back to CatalogItem type with updated counts
+    const finalItems = filteredFinalItems.map((item, idx) => ({
+      ...item,
+      imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
+      image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
+    }));
+
+    console.log(`[SEARCH_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
 
     // Build provider stats with mixing configuration for transparency
     const providerStats = buildProviderStats({
@@ -586,6 +610,8 @@ Deno.serve(async (req: Request) => {
     const durationMs = Date.now() - startTime;
     console.log(`[SEARCH] requestId=${requestId} Done: ${finalItems.length} items, mode=${effectiveMode.mode}, phase=${mixResult.mixingPhase}, durationMs=${durationMs}`);
 
+    const DEV = Deno.env.get("ENVIRONMENT") !== "production";
+
     const response: SearchResponse = {
       status: "success",
       env: envName,
@@ -596,6 +622,7 @@ Deno.serve(async (req: Request) => {
       total: Math.max(ebayTotal, amazonItems.length, finalItems.length),
       providerStats,
       searchMeta, // Include query rewrite metadata
+      mediaStats: DEV ? mediaStats : undefined, // Include media stats in dev only
       durationMs,
       error: null,
     };

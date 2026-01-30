@@ -24,6 +24,10 @@ import {
   getCategoryMeta,
   getEbayCategoryId,
 } from "../_shared/categoryRegistry.ts";
+import { 
+  enrichItemsWithMediaCounts, 
+  getMediaCacheSettings,
+} from "../_shared/mediaCache.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -455,6 +459,10 @@ Deno.serve(async (req: Request) => {
     // Build sections
     const sections: Section[] = [];
 
+    // Get media cache settings once for all sections
+    const mediaCacheSettings = await getMediaCacheSettings(supabase);
+    let totalMediaStats = { checked: 0, cacheHit: 0, fetched: 0, timedOut: 0 };
+
     for (const config of HOME_SECTIONS) {
       let items = await getSectionFromDB(supabase, config, HOME_PAGE_SIZE);
 
@@ -470,13 +478,34 @@ Deno.serve(async (req: Request) => {
         liveTopUpCount = newItems.length;
       }
 
+      // Enrich items with exact image counts from media cache
+      const slicedItems = items.slice(0, HOME_PAGE_SIZE);
+      const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
+        supabase,
+        slicedItems as unknown as Record<string, unknown>[],
+        mediaCacheSettings
+      );
+
+      // Aggregate media stats
+      totalMediaStats.checked += mediaStats.checked;
+      totalMediaStats.cacheHit += mediaStats.cacheHit;
+      totalMediaStats.fetched += mediaStats.fetched;
+      totalMediaStats.timedOut += mediaStats.timedOut;
+
+      // Map enriched items back to CatalogItem type with updated counts
+      const finalItems = slicedItems.map((item, idx) => ({
+        ...item,
+        imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
+        image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
+      }));
+
       sections.push({
         key: config.key,
         title: config.title,
         categoryKey: config.categoryKey,      // CANONICAL key
         parentTab: config.parentTab,
         subtabKey: config.subtabKey,
-        items: items.slice(0, HOME_PAGE_SIZE),
+        items: finalItems,
         hasMore: items.length >= HOME_PAGE_SIZE,
         dbCount: items.length - liveTopUpCount,
         liveTopUpCount,
@@ -487,6 +516,8 @@ Deno.serve(async (req: Request) => {
         },
       });
     }
+
+    console.log(`[HOME_MEDIA] requestId=${requestId} checked=${totalMediaStats.checked} cacheHit=${totalMediaStats.cacheHit} fetched=${totalMediaStats.fetched} timeout=${totalMediaStats.timedOut}`);
 
     const durationMs = Date.now() - startTime;
     console.log(`[HOME] requestId=${requestId} sections=${sections.length} durationMs=${durationMs}`);

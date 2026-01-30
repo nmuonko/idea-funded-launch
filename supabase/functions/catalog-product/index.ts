@@ -77,8 +77,10 @@ interface CatalogItem {
   providerProductId: string;
   title: string;
   priceUsd: number | null;
-  imageUrl: string | null;
-  images: string[];
+  mainImageUrl: string | null;    // Best single image for display
+  imageUrl: string | null;        // Backward compat
+  imageUrls: string[];            // ALL images for product detail gallery
+  images: string[];               // Backward compat
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
@@ -86,17 +88,37 @@ interface CatalogItem {
   description?: string | null;
   brand?: string | null;
   category?: string | null;
+  condition?: string;
+  attributes?: Record<string, string>;
 }
 
 function mapDbItemToResponse(item: any): CatalogItem {
+  // Get all images from DB, preferring full list
+  let allImages: string[] = [];
+  if (item.images && Array.isArray(item.images)) {
+    allImages = item.images.filter((img: any): img is string => typeof img === "string" && img.length > 0);
+  }
+  
+  // Ensure image_url is first if not already in list
+  if (item.image_url && !allImages.includes(item.image_url)) {
+    allImages.unshift(item.image_url);
+  }
+  
+  // Deduplicate
+  allImages = [...new Set(allImages)];
+  
+  const mainImage = allImages[0] || item.image_url || null;
+  
   return {
     id: item.id,
     provider: item.provider || "rainforest",
     providerProductId: item.provider_product_id,
     title: item.title || "",
     priceUsd: item.price_usd,
-    imageUrl: item.image_url,
-    images: item.images || [],
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
+    imageUrls: allImages, // ALL images for gallery
+    images: allImages,    // Backward compat
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -224,7 +246,10 @@ Deno.serve(async (req: Request) => {
         if (legacyItem.image_url && !images.includes(legacyItem.image_url)) {
           images.unshift(legacyItem.image_url);
         }
-        images = [...new Set(images)].slice(0, 10);
+        // NO LIMIT for product details - return ALL images
+        images = [...new Set(images)];
+        
+        const mainImage = images[0] || legacyItem.image_url || null;
 
         const item: CatalogItem = {
           id: fullProductId,
@@ -232,8 +257,10 @@ Deno.serve(async (req: Request) => {
           providerProductId: legacyItem.provider_product_id,
           title: legacyItem.title || "",
           priceUsd: legacyItem.price_usd > 0 ? legacyItem.price_usd : null,
-          imageUrl: legacyItem.image_url || null,
-          images,
+          mainImageUrl: mainImage,
+          imageUrl: mainImage,
+          imageUrls: images,  // ALL images for gallery
+          images,             // Backward compat
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
           rating: legacyItem.rating || null,
@@ -301,18 +328,26 @@ Deno.serve(async (req: Request) => {
         
         await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
         
+        // eBay getItem returns ALL images already (no limit in extractDetailImages)
+        const allImages = ebayItem.images || [];
+        const mainImage = allImages[0] || ebayItem.imageUrl || null;
+        
         const item: CatalogItem = {
           id: fullProductId,
           provider: "ebay",
           providerProductId: ebayItem.providerProductId,
           title: ebayItem.title || "",
           priceUsd: ebayItem.priceUsd,
-          imageUrl: ebayItem.imageUrl || null,
-          images: (ebayItem.images || []).slice(0, 10),
+          mainImageUrl: mainImage,
+          imageUrl: mainImage,
+          imageUrls: allImages,  // ALL images for gallery
+          images: allImages,     // Backward compat
           productUrl: ebayItem.productUrl || null,
           inStock: ebayItem.inStock ?? null,
           rating: null,
           description: ebayItem.description || null,
+          condition: ebayItem.attributes?.["Condition"],
+          attributes: ebayItem.attributes,
         };
         
         console.log(`[CATALOG_PRODUCT] eBay live fetch: id=${productId} durationMs=${Date.now() - startTime}`);
@@ -378,15 +413,20 @@ Deno.serve(async (req: Request) => {
 
     await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
 
-    // Build response
+    // Build response - NO LIMIT for product details
+    const allImages = product.images || [];
+    const mainImage = allImages[0] || product.imageUrl || null;
+    
     const item: CatalogItem = {
       id: fullProductId,
       provider: "rainforest",
       providerProductId: product.providerProductId,
       title: product.title || "",
       priceUsd: product.priceUsd,
-      imageUrl: product.imageUrl || null,
-      images: (product.images || []).slice(0, 10),
+      mainImageUrl: mainImage,
+      imageUrl: mainImage,
+      imageUrls: allImages,  // ALL images for gallery
+      images: allImages,     // Backward compat
       productUrl: product.productUrl || null,
       inStock: product.inStock ?? null,
       rating: product.rating ?? null,

@@ -104,9 +104,10 @@ function upgradeEbayImageUrl(url: string | null): string | null {
 }
 
 /**
- * Extract and normalize eBay images with high-res upgrade and 2-image limit
+ * Extract and normalize eBay images for LIST views (limited to 2)
+ * For product detail views, use the full images from getItem API
  */
-function extractHighResImages(item: Record<string, unknown>): { imageUrl: string | null; imageUrls: string[] } {
+function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: string | null; imageUrls: string[] } {
   const seen = new Set<string>();
   const images: string[] = [];
 
@@ -120,11 +121,11 @@ function extractHighResImages(item: Record<string, unknown>): { imageUrl: string
     }
   }
 
-  // Additional images (secondary)
+  // Additional images (secondary) - limit to 2 total for LIST views
   const additionalImages = item.additionalImages as Array<Record<string, unknown>> | undefined;
   if (additionalImages) {
     for (const img of additionalImages) {
-      if (images.length >= 2) break; // Limit to 2
+      if (images.length >= 2) break; // Limit to 2 for list
       const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
       if (upgraded && !seen.has(upgraded)) {
         seen.add(upgraded);
@@ -149,8 +150,8 @@ function extractHighResImages(item: Record<string, unknown>): { imageUrl: string
   }
 
   return {
-    imageUrl: images[0] || null,
-    imageUrls: images.slice(0, 2), // Strictly limit to 2
+    mainImageUrl: images[0] || null,
+    imageUrls: images.slice(0, 2), // Strictly limit to 2 for LIST views
   };
 }
 
@@ -215,8 +216,8 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
   const priceValue = price?.value ? parseFloat(price.value as string) : null;
   const currency = (price?.currency as string) || "USD";
 
-  // Use new high-res image extraction with 2-image limit
-  const { imageUrl, imageUrls } = extractHighResImages(item);
+  // Use new high-res image extraction (limited for list views)
+  const { mainImageUrl, imageUrls } = extractHighResImages(item);
 
   const buyingOptions = (item.buyingOptions as string[]) || [];
   const itemWebUrl = item.itemWebUrl as string || "";
@@ -227,9 +228,9 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
     title: (item.title as string) || "",
     price_usd: currency === "USD" ? priceValue : priceValue, // TODO: convert other currencies
     currency,
-    image_url: imageUrl,
+    image_url: mainImageUrl,
     images: imageUrls, // For backward compatibility
-    image_urls: imageUrls, // New field: limited to 2
+    image_urls: imageUrls, // Limited to 2 for list views
     product_url: itemWebUrl,
     provider: "ebay",
     provider_product_id: itemId,

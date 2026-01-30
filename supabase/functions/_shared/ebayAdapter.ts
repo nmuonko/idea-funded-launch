@@ -688,7 +688,8 @@ function upgradeImageToHighRes(url: string): string {
 }
 
 /**
- * Extract images from eBay item with high-res upgrade and 2-image limit
+ * Extract images from eBay item for LIST views (limited to 2)
+ * Used by search results for performance
  */
 function extractImages(item: any): string[] {
   const seen = new Set<string>();
@@ -703,7 +704,7 @@ function extractImages(item: any): string[] {
     }
   }
   
-  // Additional images (limit to 2 total)
+  // Additional images (limit to 2 total for list views)
   if (item.additionalImages && images.length < 2) {
     for (const img of item.additionalImages) {
       if (images.length >= 2) break;
@@ -731,17 +732,19 @@ function extractImages(item: any): string[] {
     }
   }
   
-  return images.slice(0, 2); // Strictly limit to 2 images
+  return images.slice(0, 2); // Strictly limit to 2 images for lists
 }
 
 /**
- * Extract detail images with high-res upgrade and 2-image limit
+ * Extract ALL images from eBay item detail for PRODUCT DETAIL view
+ * NO LIMIT - returns all available images in high-res
+ * Used by getItem for product detail pages
  */
 function extractDetailImages(item: any): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
   
-  // Primary image
+  // Primary image (first and highest priority)
   if (item.image?.imageUrl) {
     const upgraded = upgradeImageToHighRes(item.image.imageUrl);
     if (!seen.has(upgraded)) {
@@ -750,10 +753,9 @@ function extractDetailImages(item: any): string[] {
     }
   }
   
-  // Additional images (limit to 2 total)
-  if (item.additionalImages && images.length < 2) {
+  // ALL additional images (no limit for details)
+  if (item.additionalImages && Array.isArray(item.additionalImages)) {
     for (const img of item.additionalImages) {
-      if (images.length >= 2) break;
       if (img.imageUrl) {
         const upgraded = upgradeImageToHighRes(img.imageUrl);
         if (!seen.has(upgraded)) {
@@ -764,7 +766,33 @@ function extractDetailImages(item: any): string[] {
     }
   }
   
-  return images.slice(0, 2);
+  // Also check gallery/variant images if present
+  if (item.galleryImages && Array.isArray(item.galleryImages)) {
+    for (const img of item.galleryImages) {
+      if (img.imageUrl) {
+        const upgraded = upgradeImageToHighRes(img.imageUrl);
+        if (!seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
+      }
+    }
+  }
+  
+  // Fallback to thumbnails only if nothing else (upgrade them)
+  if (images.length === 0 && item.thumbnailImages) {
+    for (const thumb of item.thumbnailImages) {
+      if (thumb.imageUrl) {
+        const upgraded = upgradeImageToHighRes(thumb.imageUrl);
+        if (!seen.has(upgraded)) {
+          seen.add(upgraded);
+          images.push(upgraded);
+        }
+      }
+    }
+  }
+  
+  return images; // NO LIMIT for product details
 }
 
 // ─── Quick Debug Self-Test ───────────────────────────────────────────────────

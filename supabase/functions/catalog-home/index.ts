@@ -45,9 +45,9 @@ interface CatalogItem {
   providerProductId: string;
   title: string | null;
   priceUsd: number | null;
-  imageUrl: string | null;
+  mainImageUrl: string | null;    // Single best image for list performance
+  imageUrl: string | null;        // Backward compat (alias for mainImageUrl)
   imageMissing: boolean;
-  images: string[];
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
@@ -195,16 +195,18 @@ function generateRequestId(): string {
 }
 
 function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
-  let images: string[] = [];
-  if (Array.isArray(item.images)) {
-    images = item.images
-      .filter((img): img is string => typeof img === "string")
-      .map(img => normalizeAndValidateImageUrl(img, item.product_url as string))
-      .filter((img): img is string => img !== null);
-  }
-
+  // For list views, we only need the single best image
   const rawImageUrl = item.image_url as string | null;
   const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.product_url as string);
+  
+  // Fallback to first image in array if main image is null
+  let mainImage = validatedImageUrl;
+  if (!mainImage && Array.isArray(item.images)) {
+    const firstImage = item.images.find((img): img is string => typeof img === "string" && img.length > 0);
+    if (firstImage) {
+      mainImage = normalizeAndValidateImageUrl(firstImage, item.product_url as string);
+    }
+  }
 
   return {
     id: item.id as string,
@@ -212,9 +214,9 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     providerProductId: (item.provider_product_id as string) || (item.id as string),
     title: item.title as string | null,
     priceUsd: item.price_usd as number | null,
-    imageUrl: validatedImageUrl || (images.length > 0 ? images[0] : null),
-    imageMissing: !validatedImageUrl && images.length === 0,
-    images,
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
+    imageMissing: !mainImage,
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
     rating: item.rating as number | null,
@@ -224,10 +226,14 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
 }
 
 function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
+  // For list views, only use main image (no array)
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
-  const validatedImages = item.images
-    .map(img => normalizeAndValidateImageUrl(img, item.product_url))
-    .filter((img): img is string => img !== null);
+  
+  // Fallback to first image_url in array
+  let mainImage = validatedImageUrl;
+  if (!mainImage && item.image_urls && item.image_urls.length > 0) {
+    mainImage = normalizeAndValidateImageUrl(item.image_urls[0], item.product_url);
+  }
 
   return {
     id: item.id,
@@ -235,9 +241,9 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     providerProductId: item.provider_product_id,
     title: item.title,
     priceUsd: item.price_usd,
-    imageUrl: validatedImageUrl || (validatedImages.length > 0 ? validatedImages[0] : null),
-    imageMissing: !validatedImageUrl && validatedImages.length === 0,
-    images: validatedImages,
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
+    imageMissing: !mainImage,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -342,8 +348,8 @@ async function fetchEbayLiveItems(
       provider_product_id: item.providerProductId,
       title: item.title,
       price_usd: item.priceUsd,
-      image_url: item.imageUrl,
-      images: item.images,
+      image_url: item.mainImageUrl,
+      images: item.mainImageUrl ? [item.mainImageUrl] : [], // Store single image as array
       product_url: item.productUrl,
       in_stock: item.inStock,
       rating: item.rating,

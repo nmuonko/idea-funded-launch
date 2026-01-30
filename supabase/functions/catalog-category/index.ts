@@ -138,10 +138,9 @@ interface CatalogProduct extends ProviderItem {
   providerProductId: string;
   title: string;
   priceUsd: number | null;
-  imageUrl: string | null;
+  mainImageUrl: string | null;   // Single best image for list performance
+  imageUrl: string | null;       // Backward compat
   imageMissing: boolean;
-  images: string[];
-  imageUrls: string[]; // New: limited to 2 images (main + 1 additional)
   productUrl: string;
   inStock: boolean;
   rating: number | null;
@@ -194,13 +193,15 @@ function generateRequestId(): string {
 // ─── ITEM NORMALIZATION ───────────────────────────────────────────────────────
 
 function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: string | null): CatalogProduct {
+  // For list views, only use single main image
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
-  // Use image_urls (limited to 2) if available, otherwise fall back to images
-  const sourceImages = item.image_urls?.length > 0 ? item.image_urls : item.images;
-  const validatedImages = sourceImages
-    .slice(0, 2) // Ensure max 2 images
-    .map(img => normalizeAndValidateImageUrl(img, item.product_url))
-    .filter((img): img is string => img !== null);
+  let mainImage = validatedImageUrl;
+  
+  // Fallback to first in image_urls
+  if (!mainImage && item.image_urls?.length > 0) {
+    mainImage = normalizeAndValidateImageUrl(item.image_urls[0], item.product_url);
+  }
+  
   const metadata = item.metadata || {};
 
   return {
@@ -209,10 +210,9 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
     providerProductId: item.provider_product_id,
     title: item.title,
     priceUsd: item.price_usd,
-    imageUrl: validatedImageUrl || (validatedImages.length > 0 ? validatedImages[0] : null),
-    imageMissing: !validatedImageUrl && validatedImages.length === 0,
-    images: validatedImages,
-    imageUrls: validatedImages.slice(0, 2), // Strictly limited to 2
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
+    imageMissing: !mainImage,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -227,22 +227,19 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
 }
 
 function normalizeDbItem(row: Record<string, unknown>, category: string, subcategory: string | null): CatalogProduct {
-  let images: string[] = [];
-  if (Array.isArray(row.images)) {
-    images = row.images
-      .filter((img): img is string => typeof img === "string")
-      .slice(0, 2) // Limit to 2 images
-      .map(img => normalizeAndValidateImageUrl(img, row.product_url as string))
-      .filter((img): img is string => img !== null);
-  }
-
+  // For list views, only return single main image
   const rawImageUrl = row.image_url as string | null;
   const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, row.product_url as string);
-
-  // Ensure imageUrls has the primary image first, then additional (max 2)
-  const imageUrls = validatedImageUrl 
-    ? [validatedImageUrl, ...images.filter(img => img !== validatedImageUrl)].slice(0, 2)
-    : images.slice(0, 2);
+  
+  let mainImage = validatedImageUrl;
+  
+  // Fallback to first in images array
+  if (!mainImage && Array.isArray(row.images) && row.images.length > 0) {
+    const firstImg = row.images.find((img): img is string => typeof img === "string");
+    if (firstImg) {
+      mainImage = normalizeAndValidateImageUrl(firstImg, row.product_url as string);
+    }
+  }
 
   return {
     id: row.id as string,
@@ -250,10 +247,9 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
     providerProductId: (row.provider_product_id as string) || (row.id as string),
     title: (row.title as string) || "",
     priceUsd: row.price_usd as number | null,
-    imageUrl: validatedImageUrl || (images.length > 0 ? images[0] : null),
-    imageMissing: !validatedImageUrl && images.length === 0,
-    images: imageUrls, // Use limited images for backward compat
-    imageUrls, // New field: strictly limited to 2
+    mainImageUrl: mainImage,
+    imageUrl: mainImage,  // Backward compat
+    imageMissing: !mainImage,
     productUrl: (row.product_url as string) || "",
     inStock: (row.in_stock as boolean) ?? true,
     rating: row.rating as number | null,

@@ -55,6 +55,12 @@ interface CatalogItem {
   unifiedSubcategory: string | null;
 }
 
+interface SeeAllMeta {
+  type: "search";
+  q: string;
+  category_key: string | null;
+}
+
 interface Section {
   key: string;
   title: string;
@@ -65,6 +71,7 @@ interface Section {
   hasMore: boolean;
   dbCount: number;
   liveTopUpCount: number;
+  see_all: SeeAllMeta;       // "See All" routing metadata
 }
 
 interface Tab {
@@ -91,9 +98,10 @@ interface HomeSectionConfig {
   minPrice: number;
   seedQueries: string[];
   ebayCategory?: string;
+  seeAllQuery: string;       // Query for "See All" mixed search
 }
 
-// Home sections using CANONICAL keys
+// Home sections using CANONICAL keys with "see_all" queries
 const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
@@ -105,6 +113,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
     ebayCategory: "9355",
+    seeAllQuery: "iphone",
   },
   {
     key: "vehicles",
@@ -116,6 +125,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 1500,
     seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
     ebayCategory: "6001",
+    seeAllQuery: "cars",
   },
   {
     key: "gaming",
@@ -127,6 +137,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
     ebayCategory: "1249",
+    seeAllQuery: "ps5",
   },
   {
     key: "clothing",
@@ -138,6 +149,7 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
     ebayCategory: "63889",
+    seeAllQuery: "sneakers",
   },
   {
     key: "home_garden",
@@ -149,6 +161,31 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     minPrice: 0,
     seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
     ebayCategory: "11700",
+    seeAllQuery: "home appliances",
+  },
+  {
+    key: "refurbished",
+    categoryKey: "refurbished",
+    parentTab: "refurbished",
+    subtabKey: null,
+    title: "Refurbished",
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["refurbished iphone", "refurbished laptop", "refurbished macbook"],
+    ebayCategory: "11800",
+    seeAllQuery: "refurbished",
+  },
+  {
+    key: "parts_accessories",
+    categoryKey: "parts_accessories",
+    parentTab: "parts_accessories",
+    subtabKey: null,
+    title: "Parts & Accessories",
+    isVehicle: false,
+    minPrice: 0,
+    seedQueries: ["car parts", "phone accessories", "laptop charger"],
+    ebayCategory: "6028",
+    seeAllQuery: "parts",
   },
 ];
 
@@ -427,6 +464,11 @@ Deno.serve(async (req: Request) => {
         hasMore: items.length >= HOME_PAGE_SIZE,
         dbCount: items.length - liveTopUpCount,
         liveTopUpCount,
+        see_all: {
+          type: "search",
+          q: config.seeAllQuery,
+          category_key: config.categoryKey,
+        },
       });
     }
 

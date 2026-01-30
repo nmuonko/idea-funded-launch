@@ -18,12 +18,74 @@ import { fetchProductDetails, formatCatalogItem } from "../_shared/rainforestAda
 import { getEbayItem, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
+import { 
+  upgradeEbayImageToHighRes, 
+  upgradeAmazonImageToHighRes,
+  isEbayThumbnail,
+  isAmazonThumbnail 
+} from "../_shared/imageOptimization.ts";
+
+// Dev mode check
+const IS_DEV = Deno.env.get("DENO_DEPLOYMENT_ID")?.includes("staging") ||
+               Deno.env.get("ENV") === "development" ||
+               Deno.env.get("NODE_ENV") === "development";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
   "Cache-Control": "public, max-age=300",
 };
+
+/**
+ * Upgrade ALL gallery images to high-resolution for product detail view
+ * Applies provider-specific resolution upgrades and deduplicates
+ */
+function upgradeGalleryImages(images: string[], provider: string): string[] {
+  if (!images || !Array.isArray(images)) return [];
+  
+  const seen = new Set<string>();
+  const upgraded: string[] = [];
+  let logCount = 0;
+  const maxLogs = 5;
+  
+  for (const url of images) {
+    if (!url || typeof url !== "string") continue;
+    
+    let upgradedUrl: string;
+    let wasUpgraded = false;
+    let wasThumbnail = false;
+    
+    if (provider === "ebay" || url.includes("ebayimg.com") || url.includes("i.ebayimg")) {
+      wasThumbnail = isEbayThumbnail(url);
+      upgradedUrl = upgradeEbayImageToHighRes(url);
+      wasUpgraded = upgradedUrl !== url;
+    } else if (provider === "rainforest" || url.includes("amazon") || url.includes("media-amazon") || url.includes("ssl-images-amazon")) {
+      wasThumbnail = isAmazonThumbnail(url);
+      upgradedUrl = upgradeAmazonImageToHighRes(url);
+      wasUpgraded = upgradedUrl !== url;
+    } else {
+      upgradedUrl = url;
+    }
+    
+    // Deduplicate after upgrade (some URLs become identical)
+    if (!seen.has(upgradedUrl)) {
+      seen.add(upgradedUrl);
+      upgraded.push(upgradedUrl);
+      
+      // Dev logging (limit to 5 per request)
+      if (IS_DEV && wasUpgraded && logCount < maxLogs) {
+        console.log(`[IMG_UPGRADE_DETAIL] provider=${provider} old=${url.substring(0, 60)} new=${upgradedUrl.substring(0, 60)}`);
+        logCount++;
+      }
+      
+      if (IS_DEV && wasThumbnail && logCount < maxLogs) {
+        console.log(`[THUMBNAIL_DETECTED] provider=${provider} url=${url.substring(0, 60)}`);
+      }
+    }
+  }
+  
+  return upgraded;
+}
 
 function validateAsin(asin: string): string | null {
   if (!asin || asin.length === 0) return "ASIN is required";
@@ -79,7 +141,7 @@ interface CatalogItem {
   priceUsd: number | null;
   mainImageUrl: string | null;    // Best single image for display
   imageUrl: string | null;        // Backward compat
-  imageUrls: string[];            // ALL images for product detail gallery
+  imageUrls: string[];            // ALL images for product detail gallery (HIGH-RES)
   images: string[];               // Backward compat
   productUrl: string | null;
   inStock: boolean | null;
@@ -93,6 +155,8 @@ interface CatalogItem {
 }
 
 function mapDbItemToResponse(item: any): CatalogItem {
+  const provider = item.provider || "rainforest";
+  
   // Get all images from DB, preferring full list
   let allImages: string[] = [];
   if (item.images && Array.isArray(item.images)) {
@@ -104,20 +168,20 @@ function mapDbItemToResponse(item: any): CatalogItem {
     allImages.unshift(item.image_url);
   }
   
-  // Deduplicate
-  allImages = [...new Set(allImages)];
+  // Upgrade ALL gallery images to high-res and deduplicate
+  allImages = upgradeGalleryImages(allImages, provider);
   
-  const mainImage = allImages[0] || item.image_url || null;
+  const mainImage = allImages[0] || null;
   
   return {
     id: item.id,
-    provider: item.provider || "rainforest",
+    provider,
     providerProductId: item.provider_product_id,
     title: item.title || "",
     priceUsd: item.price_usd,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
-    imageUrls: allImages, // ALL images for gallery
+    imageUrls: allImages, // ALL images for gallery (HIGH-RES)
     images: allImages,    // Backward compat
     productUrl: item.product_url,
     inStock: item.in_stock,
@@ -232,24 +296,23 @@ Deno.serve(async (req: Request) => {
 
       if (legacyItem) {
         const rawData = legacyItem.raw as Record<string, any> | null;
-        let images: string[] = [];
+        let rawImages: string[] = [];
         
         if (rawData?.processedImages && Array.isArray(rawData.processedImages)) {
-          images = rawData.processedImages;
+          rawImages = rawData.processedImages;
         } else if (rawData?.images && Array.isArray(rawData.images)) {
-          images = rawData.images
+          rawImages = rawData.images
             .map((i: any) => i?.large || i?.link || (typeof i === "string" ? i : null))
-            .filter((url: any): url is string => !!url && url.startsWith("http"))
-            .slice(0, 10);
+            .filter((url: any): url is string => !!url && url.startsWith("http"));
         }
         
-        if (legacyItem.image_url && !images.includes(legacyItem.image_url)) {
-          images.unshift(legacyItem.image_url);
+        if (legacyItem.image_url && !rawImages.includes(legacyItem.image_url)) {
+          rawImages.unshift(legacyItem.image_url);
         }
-        // NO LIMIT for product details - return ALL images
-        images = [...new Set(images)];
         
-        const mainImage = images[0] || legacyItem.image_url || null;
+        // Upgrade ALL gallery images to high-res and deduplicate
+        const images = upgradeGalleryImages(rawImages, "rainforest");
+        const mainImage = images[0] || null;
 
         const item: CatalogItem = {
           id: fullProductId,
@@ -259,7 +322,7 @@ Deno.serve(async (req: Request) => {
           priceUsd: legacyItem.price_usd > 0 ? legacyItem.price_usd : null,
           mainImageUrl: mainImage,
           imageUrl: mainImage,
-          imageUrls: images,  // ALL images for gallery
+          imageUrls: images,  // ALL images for gallery (HIGH-RES)
           images,             // Backward compat
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
@@ -268,7 +331,7 @@ Deno.serve(async (req: Request) => {
           brand: legacyItem.brand || null,
         };
 
-        console.log(`[CATALOG_PRODUCT] Legacy DB hit: id=${productId} durationMs=${Date.now() - startTime}`);
+        console.log(`[CATALOG_PRODUCT] Legacy DB hit: id=${productId} imageCount=${images.length} durationMs=${Date.now() - startTime}`);
 
         return new Response(JSON.stringify({
           status: "success",
@@ -328,9 +391,13 @@ Deno.serve(async (req: Request) => {
         
         await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
         
-        // eBay getItem returns ALL images already (no limit in extractDetailImages)
-        const allImages = ebayItem.images || [];
-        const mainImage = allImages[0] || ebayItem.imageUrl || null;
+        // Upgrade ALL eBay gallery images to high-res and deduplicate
+        const rawImages = ebayItem.images || [];
+        if (ebayItem.imageUrl && !rawImages.includes(ebayItem.imageUrl)) {
+          rawImages.unshift(ebayItem.imageUrl);
+        }
+        const allImages = upgradeGalleryImages(rawImages, "ebay");
+        const mainImage = allImages[0] || null;
         
         const item: CatalogItem = {
           id: fullProductId,
@@ -340,7 +407,7 @@ Deno.serve(async (req: Request) => {
           priceUsd: ebayItem.priceUsd,
           mainImageUrl: mainImage,
           imageUrl: mainImage,
-          imageUrls: allImages,  // ALL images for gallery
+          imageUrls: allImages,  // ALL images for gallery (HIGH-RES)
           images: allImages,     // Backward compat
           productUrl: ebayItem.productUrl || null,
           inStock: ebayItem.inStock ?? null,
@@ -350,7 +417,7 @@ Deno.serve(async (req: Request) => {
           attributes: ebayItem.attributes,
         };
         
-        console.log(`[CATALOG_PRODUCT] eBay live fetch: id=${productId} durationMs=${Date.now() - startTime}`);
+        console.log(`[CATALOG_PRODUCT] eBay live fetch: id=${productId} imageCount=${allImages.length} durationMs=${Date.now() - startTime}`);
         
         return new Response(JSON.stringify({
           status: "success",
@@ -413,9 +480,13 @@ Deno.serve(async (req: Request) => {
 
     await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
 
-    // Build response - NO LIMIT for product details
-    const allImages = product.images || [];
-    const mainImage = allImages[0] || product.imageUrl || null;
+    // Upgrade ALL Rainforest gallery images to high-res and deduplicate
+    const rawImages = product.images || [];
+    if (product.imageUrl && !rawImages.includes(product.imageUrl)) {
+      rawImages.unshift(product.imageUrl);
+    }
+    const allImages = upgradeGalleryImages(rawImages, "rainforest");
+    const mainImage = allImages[0] || null;
     
     const item: CatalogItem = {
       id: fullProductId,
@@ -425,7 +496,7 @@ Deno.serve(async (req: Request) => {
       priceUsd: product.priceUsd,
       mainImageUrl: mainImage,
       imageUrl: mainImage,
-      imageUrls: allImages,  // ALL images for gallery
+      imageUrls: allImages,  // ALL images for gallery (HIGH-RES)
       images: allImages,     // Backward compat
       productUrl: product.productUrl || null,
       inStock: product.inStock ?? null,
@@ -434,7 +505,7 @@ Deno.serve(async (req: Request) => {
       brand: product.brand || null,
     };
 
-    console.log(`[CATALOG_PRODUCT] Live fetch: id=${productId} durationMs=${Date.now() - startTime}`);
+    console.log(`[CATALOG_PRODUCT] Live fetch: id=${productId} imageCount=${allImages.length} durationMs=${Date.now() - startTime}`);
 
     return new Response(JSON.stringify({
       status: "success",

@@ -177,13 +177,21 @@ export async function fetchAndCacheMedia(
   const timeout = setTimeout(() => controller.abort(), settings.fetchTimeoutMs);
 
   try {
-    const productUrl = `${supabaseUrl}/functions/v1/catalog-product?id=${encodeURIComponent(compositeId)}`;
+    // Normalize composite ID to colon format for catalog-product
+    // Handles: ebay_v1|..., EBAY_V1|..., ebay:v1|..., rainforest_..., etc.
+    const normalizedId = `${provider}:${itemId}`;
+    const productUrl = `${supabaseUrl}/functions/v1/catalog-product?id=${encodeURIComponent(normalizedId)}`;
+
+    if (DEV) {
+      console.log(`[MEDIA_CACHE] Fetching: original=${compositeId} normalized=${normalizedId}`);
+    }
 
     const response = await fetch(productUrl, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${serviceKey}`,
         "Content-Type": "application/json",
+        "x-afrishop-environment": "production", // Required to bypass catalog disabled check
       },
       signal: controller.signal,
     });

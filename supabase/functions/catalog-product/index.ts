@@ -99,24 +99,40 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   let productId: string | null = null;
 
   const id = (url.searchParams.get("id") || "").trim();
+  const lowerCaseId = id.toLowerCase();
+  
+  // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123"
   if (id && id.includes(":")) {
     const parts = id.split(":", 2);
     provider = (parts[0] || "").trim().toLowerCase() || null;
     productId = (parts[1] || "").trim() || null;
-    // For rainforest, convert to uppercase ASIN
-    if (provider === "rainforest" && productId) {
-      productId = productId.toUpperCase();
-    }
-  } else {
+  }
+  // Handle underscore separator: "ebay_v1|..." or "EBAY_V1|..."
+  else if (lowerCaseId.startsWith("ebay_")) {
+    provider = "ebay";
+    productId = id.slice(5); // Keep original case for item ID
+  }
+  else if (lowerCaseId.startsWith("rainforest_")) {
+    provider = "rainforest";
+    productId = id.slice(11);
+  }
+  else if (lowerCaseId.startsWith("amazon_")) {
+    provider = "rainforest"; // Treat amazon as rainforest
+    productId = id.slice(7);
+  }
+  // Fallback to query params or default
+  else {
     provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
     productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
-    if (provider === "rainforest" && productId) {
-      productId = productId.toUpperCase();
-    }
     if (!productId && id) {
       productId = id.toUpperCase();
       provider = "rainforest";
     }
+  }
+
+  // Normalize for rainforest - ASINs must be uppercase
+  if (provider === "rainforest" && productId) {
+    productId = productId.toUpperCase();
   }
 
   const rawId = provider && productId ? `${provider}:${productId}` : productId || id || "";

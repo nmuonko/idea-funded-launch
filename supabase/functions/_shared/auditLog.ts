@@ -213,3 +213,36 @@ export async function logAudit(
     console.error('[AuditLog] Exception:', err);
   }
 }
+
+/**
+ * Log admin actions to admin_audit_logs table
+ * Used by admin-home-sections, admin-home-seeds, etc.
+ */
+export async function logAdminAction(
+  supabase: SupabaseClientAny,
+  params: {
+    adminId: string;
+    actionType: string;
+    targetSection: string;
+    targetId: string | null;
+    details?: Record<string, unknown>;
+  }
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('admin_audit_logs')
+      .insert({
+        admin_id: params.adminId,
+        action_type: params.actionType,
+        target_section: params.targetSection,
+        target_id: params.targetId,
+        details: params.details || {},
+      });
+
+    if (error) {
+      console.error('[AuditLog] Admin action log failed:', error.message);
+    }
+  } catch (err) {
+    console.error('[AuditLog] Admin action log exception:', err);
+  }
+}

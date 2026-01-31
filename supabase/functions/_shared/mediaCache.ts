@@ -42,26 +42,50 @@ interface EnrichedItem {
  * Formats:
  *   - "ebay:123456789" -> { provider: "ebay", itemId: "123456789" }
  *   - "ebay:v1|..." (compact format) -> { provider: "ebay", itemId: "v1|..." }
+ *   - "ebay_v1|..." (underscore format from DB) -> { provider: "ebay", itemId: "v1|..." }
+ *   - "EBAY_V1|..." (uppercase from DB) -> { provider: "ebay", itemId: "v1|..." }
  *   - "rainforest:B08XYZ123" -> { provider: "amazon", itemId: "B08XYZ123" }
  *   - "amazon:B08XYZ123" -> { provider: "amazon", itemId: "B08XYZ123" }
  */
 export function parseProviderKey(compositeId: string): { provider: "ebay" | "amazon"; itemId: string } | null {
   if (!compositeId || typeof compositeId !== "string") return null;
 
-  // Handle "ebay:..." format
-  if (compositeId.startsWith("ebay:")) {
+  // Normalize to lowercase for matching
+  const lowerCaseId = compositeId.toLowerCase();
+
+  // Handle "ebay:..." format (colon separator)
+  if (lowerCaseId.startsWith("ebay:")) {
     const itemId = compositeId.slice(5);
     return { provider: "ebay", itemId };
   }
 
+  // Handle "ebay_..." format (underscore separator - used in catalog_items DB)
+  // e.g., "ebay_v1|123456789|0" or "EBAY_V1|123456789|0"
+  if (lowerCaseId.startsWith("ebay_")) {
+    const itemId = compositeId.slice(5); // Keep original case for the item ID
+    return { provider: "ebay", itemId };
+  }
+
   // Handle "rainforest:..." format (treat as amazon)
-  if (compositeId.startsWith("rainforest:")) {
+  if (lowerCaseId.startsWith("rainforest:")) {
+    const itemId = compositeId.slice(11);
+    return { provider: "amazon", itemId };
+  }
+
+  // Handle "rainforest_..." format (underscore variant)
+  if (lowerCaseId.startsWith("rainforest_")) {
     const itemId = compositeId.slice(11);
     return { provider: "amazon", itemId };
   }
 
   // Handle "amazon:..." format
-  if (compositeId.startsWith("amazon:")) {
+  if (lowerCaseId.startsWith("amazon:")) {
+    const itemId = compositeId.slice(7);
+    return { provider: "amazon", itemId };
+  }
+
+  // Handle "amazon_..." format (underscore variant)
+  if (lowerCaseId.startsWith("amazon_")) {
     const itemId = compositeId.slice(7);
     return { provider: "amazon", itemId };
   }
@@ -174,12 +198,38 @@ export async function fetchAndCacheMedia(
     const productData = await response.json();
 
     // Extract imageUrls from the product response
+    // /catalog-product returns: { item: { imageUrls: [...] } }
     let imageUrls: string[] = [];
 
-    if (productData.imageUrls && Array.isArray(productData.imageUrls)) {
+    // Check all possible response shapes:
+    // 1. item.imageUrls - actual /catalog-product response shape
+    if (productData.item?.imageUrls && Array.isArray(productData.item.imageUrls)) {
+      imageUrls = productData.item.imageUrls;
+      if (DEV) console.log(`[MEDIA_CACHE] Found ${imageUrls.length} images at item.imageUrls`);
+    }
+    // 2. item.images - backward compat alias
+    else if (productData.item?.images && Array.isArray(productData.item.images)) {
+      imageUrls = productData.item.images;
+      if (DEV) console.log(`[MEDIA_CACHE] Found ${imageUrls.length} images at item.images`);
+    }
+    // 3. imageUrls at root level (legacy)
+    else if (productData.imageUrls && Array.isArray(productData.imageUrls)) {
       imageUrls = productData.imageUrls;
-    } else if (productData.product?.imageUrls && Array.isArray(productData.product.imageUrls)) {
+      if (DEV) console.log(`[MEDIA_CACHE] Found ${imageUrls.length} images at root imageUrls`);
+    }
+    // 4. product.imageUrls (legacy)
+    else if (productData.product?.imageUrls && Array.isArray(productData.product.imageUrls)) {
       imageUrls = productData.product.imageUrls;
+      if (DEV) console.log(`[MEDIA_CACHE] Found ${imageUrls.length} images at product.imageUrls`);
+    }
+    // 5. Log if no images found
+    else {
+      if (DEV) {
+        console.log(`[MEDIA_CACHE] No images found in response for ${compositeId}. Keys: ${Object.keys(productData).join(", ")}`);
+        if (productData.item) {
+          console.log(`[MEDIA_CACHE] item keys: ${Object.keys(productData.item).join(", ")}`);
+        }
+      }
     }
 
     // Filter to valid image URLs only (no videos, no empty)

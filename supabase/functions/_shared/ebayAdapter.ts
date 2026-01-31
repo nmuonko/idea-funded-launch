@@ -796,58 +796,86 @@ function extractImages(item: any): string[] {
  * Extract ALL images from eBay item detail for PRODUCT DETAIL view
  * NO LIMIT - returns all available images in high-res
  * Used by getItem for product detail pages
+ * 
+ * eBay Browse API may return images in various fields:
+ * - item.image - primary image object
+ * - item.additionalImages[] - additional gallery images
+ * - item.galleryImages[] - alternate gallery field (rare)
+ * - item.images[] - sometimes a flat array of image objects
+ * - item.pictureURLs[] - eBay-specific field in some responses (strings)
  */
 function extractDetailImages(item: any): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
   
-  // Primary image (first and highest priority)
-  if (item.image?.imageUrl) {
-    const upgraded = upgradeImageToHighRes(item.image.imageUrl);
+  debugLog("EBAY_DETAIL_IMAGES_RAW", {
+    itemId: item.itemId,
+    hasImage: !!item.image?.imageUrl,
+    additionalImagesCount: item.additionalImages?.length ?? 0,
+    galleryImagesCount: item.galleryImages?.length ?? 0,
+    imagesArrayCount: item.images?.length ?? 0,
+    pictureURLsCount: item.pictureURLs?.length ?? 0,
+  });
+  
+  // Helper to add upgraded image
+  const addImage = (url: string | undefined | null) => {
+    if (!url || typeof url !== "string") return;
+    const upgraded = upgradeImageToHighRes(url);
     if (!seen.has(upgraded)) {
       seen.add(upgraded);
       images.push(upgraded);
     }
+  };
+  
+  // Source 1: Primary image (first and highest priority)
+  if (item.image?.imageUrl) {
+    addImage(item.image.imageUrl);
   }
   
-  // ALL additional images (no limit for details)
+  // Source 2: ALL additional images (no limit for details)
   if (item.additionalImages && Array.isArray(item.additionalImages)) {
     for (const img of item.additionalImages) {
-      if (img.imageUrl) {
-        const upgraded = upgradeImageToHighRes(img.imageUrl);
-        if (!seen.has(upgraded)) {
-          seen.add(upgraded);
-          images.push(upgraded);
-        }
-      }
+      addImage(img?.imageUrl);
     }
   }
   
-  // Also check gallery/variant images if present
+  // Source 3: Gallery/variant images if present
   if (item.galleryImages && Array.isArray(item.galleryImages)) {
     for (const img of item.galleryImages) {
-      if (img.imageUrl) {
-        const upgraded = upgradeImageToHighRes(img.imageUrl);
-        if (!seen.has(upgraded)) {
-          seen.add(upgraded);
-          images.push(upgraded);
-        }
+      addImage(img?.imageUrl);
+    }
+  }
+  
+  // Source 4: Flat images array (sometimes present in eBay responses)
+  if (item.images && Array.isArray(item.images)) {
+    for (const img of item.images) {
+      if (typeof img === "string") {
+        addImage(img);
+      } else if (img?.imageUrl) {
+        addImage(img.imageUrl);
       }
     }
   }
   
-  // Fallback to thumbnails only if nothing else (upgrade them)
-  if (images.length === 0 && item.thumbnailImages) {
-    for (const thumb of item.thumbnailImages) {
-      if (thumb.imageUrl) {
-        const upgraded = upgradeImageToHighRes(thumb.imageUrl);
-        if (!seen.has(upgraded)) {
-          seen.add(upgraded);
-          images.push(upgraded);
-        }
-      }
+  // Source 5: pictureURLs - eBay-specific field (array of URL strings)
+  if (item.pictureURLs && Array.isArray(item.pictureURLs)) {
+    for (const url of item.pictureURLs) {
+      addImage(url);
     }
   }
+  
+  // Source 6: Fallback to thumbnails only if nothing else (upgrade them)
+  if (images.length === 0 && item.thumbnailImages && Array.isArray(item.thumbnailImages)) {
+    for (const thumb of item.thumbnailImages) {
+      addImage(thumb?.imageUrl);
+    }
+  }
+  
+  debugLog("EBAY_DETAIL_IMAGES_RESULT", {
+    itemId: item.itemId,
+    totalImages: images.length,
+    firstImage: images[0]?.substring(0, 60),
+  });
   
   return images; // NO LIMIT for product details
 }

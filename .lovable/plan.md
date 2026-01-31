@@ -1,64 +1,57 @@
 
-# Fix: Homepage Not Updating After Adding Seeds
+# Fix: Home Curation Seeds and Vehicles Search Issues
 
-## Root Cause
+## Problem Summary
 
-The `catalog_cache` table has a **CHECK constraint** that only allows these values for `cache_type`:
+You've identified two issues:
 
-```sql
-CHECK ((cache_type = ANY (ARRAY['home', 'search', 'product', 'offers'])))
+1. **Seeds cannot be deleted/updated** - Admin operations fail silently
+2. **"See All" on Vehicles shows toys** - The search displays toy vehicles instead of real cars/trucks
+
+---
+
+## Root Cause Analysis
+
+### Issue 1: Seed Operations Failing
+
+The edge functions `admin-home-seeds`, `admin-home-sections`, and `admin-home-seed-suggestions` are returning 404 errors from the gateway, even though the code exists and logs show the functions booting successfully.
+
+**Diagnosis**: There appears to be a deployment synchronization issue where the functions need to be force-redeployed to ensure they're properly registered with the gateway.
+
+### Issue 2: Vehicles Showing Toys
+
+When you click "See All" on the Vehicles section, the query "Vehicles" is sent to the search endpoint. However, the vehicle detection logic fails because:
+
+**The `VEHICLE_QUERY_KEYWORDS` list is missing English "vehicle" and "vehicles"!**
+
+```typescript
+// Current list (line 100-101 in catalog-search):
+"voiture", "voitures", "moto", "camion", "vehicule", "automobile"
+//                                        ^^^^ French only!
 ```
 
-The `catalog-prewarm-worker` is trying to insert cache entries with these cache types:
-- `home_amazon`
-- `home_ebay`
-- `home_mixed`
-
-**These are all rejected by the constraint**, causing the upserts to silently fail (the code doesn't check the result). This is why:
-- Jobs appear as "completed" in the dashboard
-- The worker logs show sections being processed with hundreds of items
-- But the `catalog_cache` table has zero `home:` entries
+The list has the French term `"vehicule"` but not the English terms `"vehicle"` or `"vehicles"`. When a user searches for "Vehicles", the `isVehicleQuery()` function returns `false`, allowing the query to go to Amazon, which returns toy vehicles.
 
 ---
 
 ## Solution
 
-### Option A: Update the CHECK Constraint (Recommended)
+### Fix 1: Add Missing English Vehicle Keywords
 
-Add the new cache types to the allowed values:
-
-```sql
-ALTER TABLE public.catalog_cache 
-DROP CONSTRAINT catalog_cache_cache_type_check;
-
-ALTER TABLE public.catalog_cache 
-ADD CONSTRAINT catalog_cache_cache_type_check 
-CHECK ((cache_type = ANY (ARRAY[
-  'home', 'search', 'product', 'offers',
-  'home_amazon', 'home_ebay', 'home_mixed'
-])));
-```
-
-### Option B: Worker uses existing 'home' type
-
-Change the worker to use `cache_type: "home"` instead of granular types. However, this loses the ability to query cached items by provider type separately.
-
----
-
-## Additional Fix: Add Error Handling to Worker
-
-The worker should check upsert results and log errors:
+Update `supabase/functions/catalog-search/index.ts` to include "vehicle" and "vehicles" in the keyword list:
 
 ```typescript
-// Current (silent failure)
-await supabase.from("catalog_cache").upsert({...}, { onConflict: "cache_key" });
-
-// Fixed (with error logging)
-const { error } = await supabase.from("catalog_cache").upsert({...}, { onConflict: "cache_key" });
-if (error) {
-  console.error(`[WORKER] Cache upsert failed for ${section.key}:`, error);
-}
+// French vehicle terms + English
+"voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
 ```
+
+### Fix 2: Redeploy All Affected Edge Functions
+
+Force redeploy these functions to fix the 404 gateway issues:
+- `admin-home-seeds`
+- `admin-home-sections`
+- `admin-home-seed-suggestions`
+- `catalog-search`
 
 ---
 
@@ -66,25 +59,35 @@ if (error) {
 
 | File | Change |
 |------|--------|
-| Database Migration | Add new cache types to CHECK constraint |
-| `supabase/functions/catalog-prewarm-worker/index.ts` | Add error checking for cache upserts |
+| `supabase/functions/catalog-search/index.ts` | Add `"vehicle"`, `"vehicles"` to `VEHICLE_QUERY_KEYWORDS` (line 101) |
 
 ---
 
-## Testing After Fix
+## Expected Behavior After Fix
 
-1. Run the database migration to update the constraint
-2. Redeploy `catalog-prewarm-worker` with error logging
-3. Click "Publish Now" in Home Curation
-4. Wait for job to complete
-5. Verify cache entries exist: `SELECT * FROM catalog_cache WHERE cache_key LIKE 'home:%'`
-6. Load homepage → Should now show curated content
+1. **Seed management**: Add, edit, and delete seed queries in Home Curation will work
+2. **Vehicles "See All"**: Will search eBay Motors exclusively, returning real cars and trucks instead of toy vehicles
 
 ---
 
-## Why This Wasn't Caught Earlier
+## Data Flow After Fix
 
-1. The worker completed successfully because it didn't check upsert errors
-2. The job status showed "completed" based on item counts, not cache writes
-3. The `catalog-home` endpoint fell back to live eBay queries gracefully
-4. No error logs were generated because the constraint violation wasn't caught
+```text
+User clicks "See All" on Vehicles section
+       │
+       ▼
+Frontend sends: q="Vehicles" category_key=vehicles_cars_trucks
+       │
+       ▼
+catalog-search receives query
+       │
+       ▼
+isVehicleQuery("vehicles") → TRUE (now matches "vehicles" keyword)
+       │
+       ▼
+Amazon SKIPPED (only sells parts/toys)
+eBay Motors searched exclusively
+       │
+       ▼
+Returns real cars, trucks, SUVs with $1,500+ prices
+```

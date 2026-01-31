@@ -13,44 +13,44 @@ const EBAY_MAX_LIMIT = 50; // eBay API max per request
 const DEFAULT_LIMIT = 20;
 
 // Parts keywords to exclude from vehicle searches
+// NOTE: These are checked as WORD BOUNDARIES (not substring match) to avoid false positives
+// e.g., "for" would incorrectly match "Ford Focus for sale"
 const PARTS_DENY_KEYWORDS = [
-  "tpms", "sensor", "valve stem", "valve cap", "hubcap", "hub cap",
+  // Sensors & small parts
+  "tpms sensor", "valve stem", "valve cap", "hubcap", "hub cap",
   "wheel cover", "rim cover", "floor mat", "floor liner", "seat cover",
-  "dash cover", "car cover", "bra", "mud flap", "splash guard",
-  "emblem", "badge", "decal", "sticker", "antenna", "mast",
-  "mirror", "side mirror", "wiper blade", "wiper arm", "windshield",
-  "brake pad", "brake rotor", "brake caliper", "brake line",
+  "dash cover", "car cover", "mud flap", "splash guard",
+  "emblem", "badge", "decal", "sticker", 
+  // Mechanical parts
+  "brake pad", "brake pads", "brake rotor", "brake caliper", "brake line",
   "oil filter", "air filter", "cabin filter", "fuel filter",
-  "spark plug", "ignition coil", "alternator", "starter",
-  "radiator", "thermostat", "water pump", "coolant",
-  "belt", "serpentine", "timing belt", "timing chain",
-  "gasket", "seal", "o-ring", "bearing", "bushing",
-  "shock", "strut", "spring", "control arm", "ball joint",
-  "tie rod", "sway bar", "link", "mount", "bracket",
-  "exhaust", "muffler", "catalytic", "pipe", "clamp",
-  "light bulb", "headlight bulb", "tail light", "turn signal",
-  "fuse", "relay", "switch", "connector", "harness",
-  "battery", "terminal", "cable", "ground strap",
-  "key", "remote", "fob", "transponder", "immobilizer",
-  "manual", "repair manual", "service manual", "owner manual",
-  "tool", "wrench", "socket", "jack", "stand",
-  "cargo", "trunk", "organizer", "net", "tray",
-  "phone mount", "cup holder", "ashtray", "visor",
-  "floor jack", "car jack", "lug wrench", "torque wrench",
-  "oem", "aftermarket", "replacement", "compatible",
-  "for", "fits", "compatible with", "replacement for",
-  // Automotive shop equipment
+  "spark plug", "spark plugs", "ignition coil",
+  "alternator part", "starter motor part",
+  "thermostat", "water pump",
+  "serpentine belt", "timing belt", "timing chain",
+  "gasket", "gasket set", "o-ring", "bearing set", "bushing kit",
+  "shock absorber", "strut assembly", "control arm",
+  "ball joint", "tie rod end", "sway bar link", 
+  "exhaust pipe", "muffler", "catalytic converter",
+  "headlight bulb", "tail light bulb", "turn signal bulb",
+  "fuse box", "relay module", "wiring harness",
+  "key fob", "remote key", "transponder key",
+  "repair manual", "service manual", "owner manual",
+  "lug wrench", "torque wrench", "floor jack",
+  // Accessories
+  "phone mount", "cup holder insert", "cargo net", "trunk organizer",
+  // Automotive shop equipment  
   "automotive lift", "car lift", "vehicle lift", "two post lift", "four post lift",
   "scissor lift", "alignment machine", "alignment rack", "wheel alignment",
   "tire changer", "tire machine", "wheel balancer", "balancing machine",
-  "diagnostic scanner", "obd scanner", "obd2", "obdii", "code reader", "scan tool",
+  "diagnostic scanner", "obd scanner", "obd2 scanner", "obdii scanner", "code reader", "scan tool",
   "diagnostic tool", "diagnostic computer", "engine analyzer",
   "brake lathe", "rotor lathe", "parts washer", "spray booth", "paint booth",
   "engine hoist", "engine crane", "transmission jack", "shop press", "hydraulic press",
-  "a/c machine", "ac machine", "refrigerant recovery", "fluid extractor",
-  "creeper", "mechanics creeper", "tool chest", "tool cabinet", "service cart",
-  "sandblaster", "bead blaster", "media blaster", "engine stand", "welder",
-  "dynamometer", "dyno", "rotisserie", "battery tester", "load tester",
+  "a/c machine", "ac recharge", "refrigerant recovery", "fluid extractor",
+  "mechanics creeper", "tool chest", "tool cabinet", "service cart",
+  "sandblaster", "bead blaster", "media blaster", "engine stand",
+  "dynamometer", "rotisserie", "battery tester", "load tester",
 ];
 
 // Vehicle signal keywords (title should have these for vehicles)

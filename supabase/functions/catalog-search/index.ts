@@ -422,6 +422,15 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VEHICLE SEARCH: Skip Amazon entirely for vehicle queries
+    // Amazon sells car PARTS and accessories, not actual cars/trucks/motorcycles
+    // eBay Motors is the correct source for actual vehicle listings
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (isVehicle) {
+      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - skipping Amazon (parts only), using eBay Motors exclusively`);
+    }
+
     // ─── FETCH FROM PROVIDERS ─────────────────────────────────────────────────
 
     let amazonItems: CatalogItem[] = [];
@@ -436,7 +445,8 @@ Deno.serve(async (req: Request) => {
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
     // ─── Amazon (Smart Live + Cache) ──────────────────────────────────────────
-    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay") {
+    // SKIP AMAZON FOR VEHICLE SEARCHES - Amazon sells parts, not actual vehicles
+    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay" && !isVehicle) {
       try {
         // Check budget
         const budgetStatus = await checkBudget(
@@ -656,23 +666,16 @@ Deno.serve(async (req: Request) => {
 
         // ═══════════════════════════════════════════════════════════════════════════
         // VEHICLE SEARCH FIX: When searching for car makes/models, force eBay Motors
-        // category and enhance the query to get actual vehicles, not parts
+        // category to get actual vehicles, not parts from general search
         // ═══════════════════════════════════════════════════════════════════════════
         let enhancedQuery = qNorm;
         if (isVehicle && !ebayCategory) {
           // Force eBay Motors > Cars & Trucks category for vehicle searches
           ebayCategory = "6001"; // Cars & Trucks category
           
-          // Enhance query to prioritize actual vehicles over parts
-          // Add "for sale" qualifier to get actual vehicle listings
-          const vehicleSaleTerms = ["for sale", "clean title", "runs", "drives"];
-          const hasVehicleTerm = vehicleSaleTerms.some(term => qNorm.toLowerCase().includes(term));
-          
-          if (!hasVehicleTerm) {
-            enhancedQuery = `${qNorm} car for sale`;
-          }
-          
-          console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001, enhancedQuery="${enhancedQuery}"`);
+          // DON'T modify the query for specific car models - just use the category filter
+          // Adding "car for sale" to "tesla model 3" makes results too restrictive
+          console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001 for query="${qNorm}"`);
         }
 
         console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);

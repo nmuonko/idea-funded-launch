@@ -1804,6 +1804,33 @@ export type Database = {
         }
         Relationships: []
       }
+      home_seen_items: {
+        Row: {
+          id: string
+          provider: string
+          provider_item_id: string
+          rotation_key: string
+          section_key: string
+          seen_at: string
+        }
+        Insert: {
+          id?: string
+          provider: string
+          provider_item_id: string
+          rotation_key: string
+          section_key: string
+          seen_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: string
+          provider_item_id?: string
+          rotation_key?: string
+          section_key?: string
+          seen_at?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category: string
@@ -4051,6 +4078,10 @@ export type Database = {
       cleanup_expired_facets_cache: { Args: never; Returns: Json }
       cleanup_expired_records: { Args: never; Returns: Json }
       cleanup_guest_cart_snapshots: { Args: never; Returns: Json }
+      cleanup_home_seen_items: {
+        Args: { p_days_to_keep?: number }
+        Returns: Json
+      }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string

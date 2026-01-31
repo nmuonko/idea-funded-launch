@@ -44,7 +44,7 @@ interface CatalogSettings {
   offers_cache_ttl_seconds: number;
   negative_cache_ttl_seconds: number;
   ebay_cache_ttl_seconds: number;
-  // New Smart Live settings
+  // Smart Live settings
   amazon_live_search_enabled: boolean;
   amazon_live_category_enabled: boolean;
   amazon_live_home_enabled: boolean;
@@ -54,6 +54,12 @@ interface CatalogSettings {
   amazon_home_prewarm_max_items_per_section: number;
   amazon_query_generic_blocklist: string[];
   amazon_live_min_query_len: number;
+  // Home rotation settings
+  home_rotation_interval_minutes: number;
+  home_rotation_mode: string;
+  home_avoid_repeat_days: number;
+  home_items_per_section: number;
+  ebay_home_cache_ttl_seconds: number;
 }
 
 interface SettingRow {
@@ -72,11 +78,11 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   mixed_amazon_first_count: 60,
   mixed_blend_ratio: { amazon: 1, ebay: 2 },
   search_cache_ttl_seconds: 172800,
-  home_cache_ttl_seconds: 86400,
+  home_cache_ttl_seconds: 43200,
   offers_cache_ttl_seconds: 43200,
   negative_cache_ttl_seconds: 120,
   ebay_cache_ttl_seconds: 0,
-  // New Smart Live settings
+  // Smart Live settings
   amazon_live_search_enabled: true,
   amazon_live_category_enabled: true,
   amazon_live_home_enabled: false,
@@ -86,6 +92,12 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   amazon_home_prewarm_max_items_per_section: 200,
   amazon_query_generic_blocklist: ["shoes", "clothes", "home", "house", "decor", "vetement", "chaussure", "maison"],
   amazon_live_min_query_len: 3,
+  // Home rotation settings
+  home_rotation_interval_minutes: 720,
+  home_rotation_mode: 'timebucket',
+  home_avoid_repeat_days: 7,
+  home_items_per_section: 120,
+  ebay_home_cache_ttl_seconds: 1800,
 };
 
 export default function CatalogSourcesSettings() {
@@ -153,6 +165,12 @@ export default function CatalogSourcesSettings() {
         amazon_home_prewarm_max_items_per_section: settings.amazon_home_prewarm_max_items_per_section,
         amazon_query_generic_blocklist: settings.amazon_query_generic_blocklist,
         amazon_live_min_query_len: settings.amazon_live_min_query_len,
+        // Home rotation settings
+        home_rotation_interval_minutes: settings.home_rotation_interval_minutes,
+        home_rotation_mode: settings.home_rotation_mode,
+        home_avoid_repeat_days: settings.home_avoid_repeat_days,
+        home_items_per_section: settings.home_items_per_section,
+        ebay_home_cache_ttl_seconds: settings.ebay_home_cache_ttl_seconds,
       };
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -667,6 +685,64 @@ export default function CatalogSourcesSettings() {
                   onChange={(e) => handleChange('amazon_home_prewarm_interval_minutes', parseInt(e.target.value) || 720)}
                 />
               </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Home Rotation Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <RefreshCw className="h-5 w-5" />
+            {language === 'fr' ? 'Rotation Accueil (12h)' : 'Home Rotation (12h)'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Contrôlez la rotation automatique du contenu de la page d'accueil."
+              : 'Control automatic home page content rotation.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>
+                {language === 'fr' ? 'Intervalle rotation (min)' : 'Rotation interval (min)'}
+              </Label>
+              <Input
+                type="number"
+                min={60}
+                max={1440}
+                value={settings.home_rotation_interval_minutes}
+                onChange={(e) => handleChange('home_rotation_interval_minutes', parseInt(e.target.value) || 720)}
+              />
+              <p className="text-xs text-muted-foreground">720 = 12h</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                {language === 'fr' ? 'Éviter répétitions (jours)' : 'Avoid repeat (days)'}
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                max={30}
+                value={settings.home_avoid_repeat_days}
+                onChange={(e) => handleChange('home_avoid_repeat_days', parseInt(e.target.value) || 7)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                {language === 'fr' ? 'Items par section' : 'Items per section'}
+              </Label>
+              <Input
+                type="number"
+                min={20}
+                max={200}
+                value={settings.home_items_per_section}
+                onChange={(e) => handleChange('home_items_per_section', parseInt(e.target.value) || 120)}
+              />
             </div>
           </div>
         </CardContent>

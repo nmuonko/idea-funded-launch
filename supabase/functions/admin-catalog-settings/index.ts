@@ -30,6 +30,22 @@ const CATALOG_SETTING_KEYS = [
   "media_prefetch_max_items_per_page",
   "media_fetch_timeout_ms",
   "media_fetch_concurrency",
+  // Smart Amazon Live settings
+  "amazon_live_search_enabled",
+  "amazon_live_category_enabled",
+  "amazon_live_home_enabled",
+  "amazon_live_max_pages",
+  "amazon_home_prewarm_enabled",
+  "amazon_home_prewarm_interval_minutes",
+  "amazon_home_prewarm_max_items_per_section",
+  "amazon_query_generic_blocklist",
+  "amazon_live_min_query_len",
+  // Home rotation settings
+  "home_rotation_interval_minutes",
+  "home_rotation_mode",
+  "home_avoid_repeat_days",
+  "home_items_per_section",
+  "ebay_home_cache_ttl_seconds",
 ];
 
 Deno.serve(async (req) => {

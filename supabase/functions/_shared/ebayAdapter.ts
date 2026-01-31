@@ -953,35 +953,59 @@ async function scrapeEbayImages(itemId: string, supabase?: any): Promise<string[
  * - item.images[] - sometimes a flat array of image objects
  * - item.pictureURLs[] - eBay-specific field in some responses (strings)
  * 
- * For multi-variation listings with many images, also tries scraping the webpage
+ * PERFORMANCE OPTIMIZATION: Web scraping is DISABLED by default for product details
+ * since it adds 1-2 seconds latency. The API images are sufficient for most use cases.
+ * Scraping can be re-enabled via admin_settings.ebay_detail_scraping_enabled = "true"
  */
 async function extractDetailImagesAsync(item: any, supabase?: any): Promise<string[]> {
-  // First, get images from API response
+  // Get images from API response - fast path
   const apiImages = extractDetailImagesFromApi(item);
   
-  // Only attempt scraping if we have an item ID and API returned incomplete data
-  // Threshold: scrape if API returned fewer than 15 images (multi-variation listings often have 30+)
-  if (item.itemId && apiImages.length < 15) {
-    debugLog("EBAY_IMAGES_SCRAPING", { 
-      itemId: item.itemId, 
-      apiImageCount: apiImages.length,
-      reason: "API returned < 15 images, trying scrape for more"
-    });
-    
-    const scrapedImages = await scrapeEbayImages(item.itemId, supabase);
-    
-    if (scrapedImages.length > apiImages.length) {
-      debugLog("EBAY_IMAGES_SCRAPED_MORE", { 
+  // PERFORMANCE: Skip scraping by default - adds 1-2s latency
+  // Most eBay items have sufficient images from the API (3-10 typically)
+  // Only scrape if explicitly enabled AND we have very few images
+  if (item.itemId && apiImages.length < 3 && supabase) {
+    // Check if detail scraping is explicitly enabled (default: disabled for performance)
+    const scrapingEnabled = await isDetailScrapingEnabled(supabase);
+    if (scrapingEnabled) {
+      debugLog("EBAY_IMAGES_SCRAPING", { 
         itemId: item.itemId, 
-        apiCount: apiImages.length,
-        scrapedCount: scrapedImages.length,
-        using: "scraped"
+        apiImageCount: apiImages.length,
+        reason: "API returned < 3 images and scraping enabled"
       });
-      return scrapedImages;
+      
+      const scrapedImages = await scrapeEbayImages(item.itemId, supabase);
+      
+      if (scrapedImages.length > apiImages.length) {
+        debugLog("EBAY_IMAGES_SCRAPED_MORE", { 
+          itemId: item.itemId, 
+          apiCount: apiImages.length,
+          scrapedCount: scrapedImages.length,
+          using: "scraped"
+        });
+        return scrapedImages;
+      }
     }
   }
   
   return apiImages;
+}
+
+// Check if detail page scraping is enabled (default: disabled for performance)
+async function isDetailScrapingEnabled(supabase: any): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "ebay_detail_scraping_enabled")
+      .maybeSingle();
+    
+    // Default to DISABLED for performance (opposite of list scraping)
+    if (!data) return false;
+    return data.value === "true" || data.value === "1";
+  } catch {
+    return false; // Default disabled on error
+  }
 }
 
 /**

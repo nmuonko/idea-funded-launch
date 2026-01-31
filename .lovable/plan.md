@@ -1,62 +1,52 @@
 
-# Fix: Home Rotation Button Times Out and Doesn't Update
+# Fix: Home Rotation Stalls at 7/8 Sections
 
-## Problem Analysis
+## Problem
 
-The "Refresh Now" button (Home Rotation) triggers the `catalog-prewarm-home` edge function, which:
+The background worker (`catalog-prewarm-worker`) processes all 8 sections in a single function invocation. Edge functions have a ~150 second timeout. When processing takes longer, the function dies mid-execution, leaving the job stuck in "processing" status forever.
 
-1. **Processes 8 sections sequentially** (phones, vehicles, gaming, computers, clothing, home_garden, refurbished, parts_accessories)
-2. **Each section makes multiple API calls**:
-   - 3 Amazon/Rainforest API calls per section
-   - 3 eBay API calls per section
-   - Database reads/writes for caching, seen items, and catalog_items
-3. **Total operations**: ~48 API calls + ~24 database operations = easily 60-120 seconds
-
-Edge Functions have strict timeouts (typically 150s on Supabase), and network latency compounds the issue. The function times out before completing, so:
-- The cache is never fully populated
-- The home page continues showing stale/fallback data
-- Users see no change
+Current situation:
+- Job has been stuck for **883+ seconds** (15 minutes)
+- Status: `processing` on section `parts_accessories`
+- No way to detect or recover from this state
 
 ---
 
-## Solution: Async Queue-Based Architecture
+## Solution: Self-Chaining Worker Pattern
 
-Instead of waiting for the prewarm to complete, implement an **immediate-return pattern** where:
-
-1. **Edge Function returns immediately** after queuing the job
-2. **Background processing** handles the actual prewarming (in smaller chunks or via scheduled execution)
-3. **Status tracking** allows the admin to see progress
+Split the work across multiple function invocations using a **self-chaining pattern**. Each invocation processes **one section only**, then triggers itself to process the next section.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    ASYNC PREWARM ARCHITECTURE                            │
+│                    SELF-CHAINING WORKER PATTERN                          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
-│  Admin clicks "Refresh Now"                                             │
+│  catalog-prewarm-home                                                   │
 │       │                                                                  │
 │       ▼                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  catalog-prewarm-home (FAST - returns in <1 second)              │    │
-│  │                                                                   │    │
-│  │  1. Insert job into prewarm_jobs table with status='pending'     │    │
-│  │  2. Return immediately with job_id                               │    │
-│  │                                                                   │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│       │                                                                  │
-│       ▼                                                                  │
-│  UI shows "Prewarm started" immediately                                 │
+│  Creates job → Triggers worker (sectionIndex=0)                         │
 │                                                                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  OPTION A: Trigger background worker                            │    │
-│  │  catalog-prewarm-worker (separate edge function)                │    │
-│  │  - Processes 1-2 sections per invocation                        │    │
-│  │  - Chains to next worker via pg_cron or self-invocation         │    │
+│  │  Worker Invocation 1 (section: phones)                          │    │
+│  │  - Process phones section (~15-20s)                             │    │
+│  │  - Update job progress                                          │    │
+│  │  - Trigger self (sectionIndex=1) → exits                        │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  OPTION B: Process sections in parallel                         │    │
-│  │  - Each section runs independently with shorter timeout         │    │
-│  │  - Promise.allSettled with per-section error handling           │    │
+│  │  Worker Invocation 2 (section: vehicles)                        │    │
+│  │  - Process vehicles section                                     │    │
+│  │  - Update job progress                                          │    │
+│  │  - Trigger self (sectionIndex=2) → exits                        │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ... continues for all 8 sections ...                                   │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  Worker Invocation 8 (section: parts_accessories)               │    │
+│  │  - Process final section                                        │    │
+│  │  - Mark job as completed                                        │    │
+│  │  - No more self-invocation                                      │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -64,186 +54,138 @@ Instead of waiting for the prewarm to complete, implement an **immediate-return 
 
 ---
 
-## Implementation Plan
+## Implementation Details
 
-### Phase 1: Immediate Return with Job Tracking
+### 1. Update Worker to Process One Section at a Time
 
-**Create new table: `prewarm_jobs`**
+**Modify `catalog-prewarm-worker/index.ts`**:
+
+- Accept `sectionIndex` parameter (default: 0)
+- Process only the section at that index
+- After completing, trigger itself with `sectionIndex + 1`
+- Mark job complete when `sectionIndex >= sections.length`
+
+```typescript
+// New request body
+interface WorkerRequest {
+  jobId: string;
+  sectionIndex?: number; // Which section to process (0-7)
+}
+
+// Main handler
+const { jobId, sectionIndex = 0 } = await req.json();
+
+// Process ONLY this one section
+const section = HOME_PREWARM_SECTIONS[sectionIndex];
+const result = await processSection(section, ...);
+
+// Update progress
+await supabase.from("prewarm_jobs").update({
+  sections_completed: sectionIndex + 1,
+  current_section: section.key,
+  ...
+}).eq("id", jobId);
+
+// Chain to next section if more remain
+const nextIndex = sectionIndex + 1;
+if (nextIndex < HOME_PREWARM_SECTIONS.length) {
+  // Fire-and-forget self-invocation
+  fetch(`${supabaseUrl}/functions/v1/catalog-prewarm-worker`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${serviceKey}` },
+    body: JSON.stringify({ jobId, sectionIndex: nextIndex })
+  });
+} else {
+  // Mark job as completed
+  await supabase.from("prewarm_jobs").update({
+    status: "completed",
+    completed_at: new Date().toISOString()
+  }).eq("id", jobId);
+}
+```
+
+### 2. Add Stall Detection and Auto-Recovery
+
+**Add to `prewarm_jobs` table**:
+- `last_heartbeat` column to track activity
+
+**Frontend changes**:
+- Detect stalled jobs (no progress for 60+ seconds)
+- Show "Stalled" status with retry option
+- Auto-timeout polling after 10 minutes
+
+```typescript
+// In pollJobStatus
+const stalledThreshold = 60; // seconds
+const secondsSinceStart = (Date.now() - new Date(job.started_at).getTime()) / 1000;
+const isStalled = job.status === 'processing' && 
+                  secondsSinceStart > stalledThreshold * (job.sections_completed + 1);
+
+if (isStalled) {
+  setJobProgress({ ...job, status: 'stalled' });
+  // Stop polling, show "Retry" button
+}
+```
+
+### 3. Clean Up Orphaned Jobs
+
+Add logic to detect and mark stuck jobs:
 
 ```sql
-CREATE TABLE prewarm_jobs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  status text NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed
-  rotation_key text,
-  sections_total integer DEFAULT 0,
-  sections_completed integer DEFAULT 0,
-  amazon_fetched integer DEFAULT 0,
-  ebay_fetched integer DEFAULT 0,
-  mixed_total integer DEFAULT 0,
-  error_message text,
-  started_at timestamptz,
-  completed_at timestamptz,
-  created_at timestamptz DEFAULT now()
-);
-```
-
-**Update `catalog-prewarm-home` to return immediately**
-
-```typescript
-// NEW FLOW:
-// 1. Create pending job record
-// 2. Return immediately with job ID
-// 3. Trigger background processing (via Edge Function or self-chain)
-
-const { data: job } = await supabase
-  .from('prewarm_jobs')
-  .insert({
-    status: 'pending',
-    rotation_key: rotationKey,
-    sections_total: HOME_PREWARM_SECTIONS.length,
-  })
-  .select()
-  .single();
-
-// Trigger background worker (fire-and-forget)
-fetch(`${supabaseUrl}/functions/v1/catalog-prewarm-worker`, {
-  method: 'POST',
-  headers: { 
-    'Authorization': `Bearer ${supabaseKey}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ jobId: job.id })
-}).catch(() => {}); // Fire and forget
-
-// Return immediately
-return new Response(JSON.stringify({
-  ok: true,
-  jobId: job.id,
-  status: 'queued',
-  message: 'Home prewarm started in background',
-}), ...);
-```
-
-### Phase 2: Background Worker Function
-
-**Create `catalog-prewarm-worker/index.ts`**
-
-Processes sections one at a time with progress updates:
-
-```typescript
-// Receives jobId, processes each section sequentially or in small batches
-// Updates prewarm_jobs.sections_completed after each section
-// Handles timeout by resuming from last completed section
-```
-
-### Phase 3: UI Updates for Progress Tracking
-
-**Update `CatalogSourcesSettings.tsx`**
-
-1. Show "Starting..." immediately when button clicked
-2. Poll job status every 3-5 seconds
-3. Display progress bar: "3/8 sections completed"
-4. Show completion message when done
-
-```typescript
-// After prewarm call returns jobId
-const pollJobStatus = async (jobId: string) => {
-  const { data: job } = await supabase
-    .from('prewarm_jobs')
-    .select('*')
-    .eq('id', jobId)
-    .single();
-  
-  if (job.status === 'completed') {
-    // Show success
-  } else if (job.status === 'failed') {
-    // Show error
-  } else {
-    // Update progress UI
-    setProgress(`${job.sections_completed}/${job.sections_total} sections`);
-    setTimeout(() => pollJobStatus(jobId), 3000);
-  }
-};
+-- Mark jobs stuck in "processing" for > 10 minutes as failed
+UPDATE prewarm_jobs 
+SET status = 'failed', 
+    error_message = 'Timeout: Worker stopped responding'
+WHERE status = 'processing' 
+  AND started_at < NOW() - INTERVAL '10 minutes';
 ```
 
 ---
 
-## Files to Create/Modify
-
-### Database Changes
-1. **New table**: `prewarm_jobs` for job tracking
+## Files to Modify
 
 ### Edge Functions
-1. **Modify**: `supabase/functions/catalog-prewarm-home/index.ts`
-   - Return immediately after creating job
-   - Fire background worker
-
-2. **Create**: `supabase/functions/catalog-prewarm-worker/index.ts`
-   - Process sections one at a time
-   - Update job progress
-   - Handle resumption on timeout
+1. **`supabase/functions/catalog-prewarm-worker/index.ts`**
+   - Accept `sectionIndex` parameter
+   - Process only one section per invocation
+   - Self-chain to next section
+   - Update heartbeat timestamp
 
 ### Frontend
-1. **Modify**: `src/pages/admin/CatalogSourcesSettings.tsx`
-   - Handle async response with jobId
-   - Add polling for job status
-   - Show progress indicator
+2. **`src/pages/admin/CatalogSourcesSettings.tsx`**
+   - Add stall detection logic
+   - Show "Stalled - Retry?" UI state
+   - Add polling timeout (10 min max)
+   - Add "Cancel Job" button
+
+### Database (Optional)
+3. **Add `last_heartbeat` column** to `prewarm_jobs`
+   - Helps detect stalled jobs more accurately
 
 ---
 
-## Alternative Simpler Approach: Parallel Processing with Short Timeouts
+## Benefits
 
-If the queue approach is too complex, a simpler fix:
-
-1. **Process all sections in parallel** using `Promise.allSettled`
-2. **Add per-section timeout of 10 seconds**
-3. **Reduce API calls per section** (1 query instead of 3)
-4. **Return partial results** even if some sections fail
-
-This reduces total time from ~120s to ~15-20s.
-
----
-
-## Technical Details
-
-### Current Flow (Broken)
-```
-Button Click → Edge Function (60-120s) → Timeout → No update
-```
-
-### New Flow (Queue-Based)
-```
-Button Click → Edge Function (200ms) → Job Queued → Background Worker → Cache Updated
-                 ↓
-           UI: "Started!" → Poll Status → "3/8 sections..." → "Complete!"
-```
-
-### New Flow (Parallel Simplification)
-```
-Button Click → Edge Function (15-20s) → Partial Success → Cache Updated
-                                              ↓
-                                       UI: "5/8 sections refreshed"
-```
+| Aspect | Before | After |
+|--------|--------|-------|
+| Max execution per invocation | ~120s (hits timeout) | ~15-25s per section |
+| Failure handling | Job stuck forever | Auto-detects stall, can retry |
+| Progress visibility | Stops updating at failure point | Continues showing progress |
+| Recovery | Manual DB fix required | UI retry button |
+| Total time | N/A (never completes) | ~2-3 minutes total |
 
 ---
 
-## Recommended Approach
+## Quick Fix for Current Stuck Job
 
-**Implement the simpler Parallel Processing fix first**:
-1. Faster to implement
-2. No new infrastructure (no job table)
-3. Significantly reduces total time
-4. Acceptable partial success behavior
+Before implementing the full solution, reset the stuck job:
 
-If that's still too slow, then implement the full queue architecture.
+```sql
+UPDATE prewarm_jobs 
+SET status = 'failed', 
+    error_message = 'Timeout during parts_accessories section',
+    completed_at = NOW()
+WHERE id = '320725c6-8c27-4828-bf57-04c53991e3c5';
+```
 
----
-
-## Expected Outcomes
-
-| Metric | Before | After (Parallel) | After (Queue) |
-|--------|--------|------------------|---------------|
-| Response time | 60-120s (timeout) | 15-20s | <1s |
-| User feedback | None (hangs) | Immediate result | Immediate + progress |
-| Success rate | 0% (always times out) | ~80% (partial) | 100% |
-| Home page update | Never | After button returns | After background completes |
+This will clear the UI and allow a new prewarm attempt.

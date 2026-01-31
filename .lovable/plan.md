@@ -1,205 +1,143 @@
 
 
-# Fix Amazon Product Gallery Images via Rainforest API
+# Ensure Full Images for All eBay and Amazon Items Across All Categories
 
-## Problem Summary
+## Current State Analysis
 
-Amazon products are showing only 1 image in the app instead of the full gallery (5-10+ images). Investigation reveals **two distinct issues**:
+After investigation, I found the following:
 
-### Issue 1: Images Array Only Contains Thumbnails
-The `catalog_items` table shows Amazon products with only 1 thumbnail image:
-```
-images: ["https://m.media-amazon.com/images/I/81hZmCZ5RVL._AC_UL320_.jpg"]
-```
-- This `_AC_UL320_` suffix indicates a 320px low-resolution thumbnail
-- The full gallery images are NOT being extracted from Rainforest API responses
+**eBay (Working Well)**
+- 181 items in media cache with average 6.59 images per item
+- 403 of 427 catalog_items have multiple images
+- The recent fixes for ID normalization and service role bypass are working
 
-### Issue 2: Media Cache Has Empty Image Arrays
-Similar to the eBay issue, the `catalog_item_media` table shows:
-```
-image_count: 1, image_urls: []  // Empty for ALL Amazon items
-```
-This indicates the media enrichment fetch is failing to extract images.
+**Amazon/Rainforest (Needs Work)**
+- Only 6 items in media cache, ALL with just 1 image
+- No items in `catalog_items` with `provider = 'rainforest'` or `provider = 'amazon'`
+- Amazon items aren't being properly cached after search/category browsing
+- The `rainforestAdapter.ts` enhancements (image extraction) are in place but items aren't being upserted to DB
 
----
+## Root Cause
 
-## Root Cause Analysis
+The issue is that Amazon/Rainforest items returned from DB searches aren't being properly:
+1. **Stored in catalog_items** - Search and category endpoints fetch from DB but don't upsert new Amazon results with full image data
+2. **Enriched via media cache** - The `enrichItemsWithMediaCounts` function works, but it needs items in the DB first
 
-After reviewing `rainforestAdapter.ts`, the `extractImages` function (lines 711-845) already checks 10 different image sources:
-1. `product.images[]`
-2. `product.image_gallery[]`
-3. `result.images[]`
-4. `result.image_gallery[]`
-5. `hi_res_images[]`
-6. `images_flat[]`
-7. `variants[].main_image` and `variants[].images[]`
-8. `main_image`
-9. `image` (string)
-10. `thumbnail` / `small_image` fallbacks
+## Technical Solution
 
-However, the function is **only returning 1 image** because:
-1. **Rainforest search results** (used for list views) only return `main_image` with a single thumbnail
-2. **Rainforest product details** should return full `images[]` array, but the current code may not be receiving it
+### Step 1: Update `catalog-search` to Upsert Amazon Items
 
-The key insight from logs is that `extractImages` logs show:
-```
-sources: { images: 0, gallery: 0, hiRes: 0, variants: 0 }
-```
-This means Rainforest is not returning the `images` array in the expected format.
+When Amazon items are fetched from the database, we need to ensure they have the `images` array populated. Additionally, when fetching via Rainforest API for product details, we should backfill the `catalog_items` table.
 
----
+**File: `supabase/functions/catalog-search/index.ts`**
 
-## Solution: Enhanced Rainforest Image Extraction
+Add an upsert step after fetching Amazon items from DB to ensure any cached items are properly stored with their images array. Also add logic to trigger media cache enrichment for Amazon items that have low image counts.
 
-### Step 1: Add Debug Logging to Rainforest Adapter
-Before fixing, we need to understand what Rainforest is actually returning:
+### Step 2: Update `catalog-category` Similarly
 
-```typescript
-// In fetchProductDetails()
-console.log("[RAINFOREST_PRODUCT_RAW_KEYS]", JSON.stringify({
-  asin: data.product?.asin,
-  topKeys: Object.keys(data.product || {}),
-  hasImages: !!data.product?.images,
-  imagesType: typeof data.product?.images,
-  imagesLength: Array.isArray(data.product?.images) ? data.product.images.length : 'N/A',
-  hasMainImage: !!data.product?.main_image,
-  hasGallery: !!data.product?.image_gallery,
-}));
-```
+Same changes for the category browsing endpoint to ensure Amazon items get their full image data cached.
 
-### Step 2: Handle Rainforest's Actual Response Structure
-Based on Rainforest API documentation and common patterns, their `type=product` response typically includes:
-- `product.main_image` - Primary product image object with `link` property
-- `product.images` - Array of image objects, each with `link`, `variant`, etc.
-- `product.variants[].images` - Variant-specific images
+**File: `supabase/functions/catalog-category/index.ts`**
 
-The current code expects image objects with `link` or `large` fields, but Rainforest may use different field names. We need to handle:
-```typescript
-// Rainforest image object can be:
-{ link: "url", variant: "PT01" }  // Standard
-{ url: "url" }                     // Alternative
-"https://..."                      // Direct string
-```
+### Step 3: Enhance Media Cache for Amazon Items
 
-### Step 3: Add Variant Image Aggregation
-Rainforest product responses often have most images in `variants[].images` rather than the top-level `images[]`. We should:
-1. Increase the variant image limit from 3 to 8 per variant
-2. Prioritize unique images across all variants
+Update the `enrichItemsWithMediaCounts` function to be more aggressive about fetching fresh data for Amazon items, since they currently have poor cache coverage.
 
-### Step 4: Request All Image Data from Rainforest
-The current API call may not be requesting full image data. We should verify the API request includes necessary parameters.
+**File: `supabase/functions/_shared/mediaCache.ts`**
 
----
+Add special handling for Amazon items with `image_count <= 1` to force a fresh fetch from `catalog-product`.
 
-## Technical Implementation
+### Step 4: Ensure Rainforest Adapter Caches to catalog_items
 
-### File: `supabase/functions/_shared/rainforestAdapter.ts`
+When `catalog-product` fetches a product detail from Rainforest API, ensure it properly caches the full image gallery to `catalog_items.images`.
 
-#### Change 1: Enhanced Debug Logging in `fetchProductDetails()`
-Add logging after receiving the Rainforest response to see exactly what fields are present.
+**File: `supabase/functions/catalog-product/index.ts`**
 
-#### Change 2: Improve `extractImages()` Function
-```typescript
-function extractImages(product: RainforestProduct): string[] {
-  const seen = new Set<string>();
-  const images: string[] = [];
-  const rawProduct = product as any;
-  
-  // ENHANCED: Log raw image data for debugging
-  console.log("[RAINFOREST_IMAGES_RAW]", JSON.stringify({
-    asin: product.asin,
-    hasImages: !!rawProduct.images,
-    imagesType: Array.isArray(rawProduct.images) ? 'array' : typeof rawProduct.images,
-    imagesLen: rawProduct.images?.length || 0,
-    sampleImage: rawProduct.images?.[0] ? JSON.stringify(rawProduct.images[0]).slice(0, 100) : null,
-    hasGallery: !!rawProduct.image_gallery,
-    galleryLen: rawProduct.image_gallery?.length || 0,
-    hasHiRes: !!rawProduct.hi_res_images,
-    variantsLen: rawProduct.variants?.length || 0,
-  }));
+This is already partially implemented but needs verification that the `images` column is being populated correctly.
 
-  // ... existing extraction logic with enhancements ...
-  
-  // CHANGE: Increase variant image limit from 3 to 8
-  for (const variant of rawProduct.variants.slice(0, 10)) {
-    if (variant.main_image) {
-      addImage(extractUrl(variant.main_image));
-    }
-    if (variant.images && Array.isArray(variant.images)) {
-      for (const img of variant.images.slice(0, 8)) { // Was 3, now 8
-        addImage(extractUrl(img));
-      }
-    }
-  }
-  
-  // CHANGE: Increase max images from 10 to 15
-  return images.slice(0, 15);
-}
-```
+### Step 5: Clear Stale Cache and Force Re-enrichment
 
-#### Change 3: Handle Rainforest-Specific Image Fields
-Add extraction for additional Rainforest-specific fields:
-```typescript
-// === Source 11: product.main_image.link (common Rainforest format) ===
-if (rawProduct.main_image?.link) {
-  addImage(rawProduct.main_image.link, true);
-}
+Run SQL to identify and clear poorly-cached entries:
 
-// === Source 12: Check for "images_count" field and log mismatch ===
-if (rawProduct.images_count && rawProduct.images_count > images.length) {
-  console.log("[RAINFOREST_IMAGE_MISMATCH]", JSON.stringify({
-    asin: product.asin,
-    reported: rawProduct.images_count,
-    extracted: images.length,
-  }));
-}
-```
-
-### Step 5: Clear Stale Amazon Media Cache
-After deployment, run SQL to force re-fetch:
 ```sql
+-- Clear Amazon media cache entries with only 1 image (force re-fetch)
 DELETE FROM catalog_item_media 
 WHERE provider = 'amazon' 
-  AND image_count <= 2;
+  AND image_count <= 1;
 
+-- Clear stale catalog_items Amazon entries with only 1 image
 DELETE FROM catalog_items 
-WHERE provider = 'rainforest' 
-  AND jsonb_array_length(COALESCE(images, '[]'::jsonb)) <= 2;
+WHERE provider IN ('rainforest', 'amazon')
+  AND jsonb_array_length(COALESCE(images, '[]'::jsonb)) <= 1;
 ```
 
----
+### Step 6: Add Amazon-Specific Debug Logging
+
+Add detailed logging to track Amazon image extraction throughout the pipeline.
 
 ## Files to Modify
 
-1. **`supabase/functions/_shared/rainforestAdapter.ts`**
-   - Add detailed debug logging in `fetchProductDetails()` 
-   - Enhance `extractImages()` with more sources
-   - Increase image limits (variants: 3→8, total: 10→15)
-   - Add Rainforest-specific field handling
+1. **`supabase/functions/catalog-search/index.ts`**
+   - Add force-refresh logic for Amazon items with low image counts
+   - Ensure media enrichment runs for all providers
 
-2. **Database cleanup**
-   - Delete stale Amazon items with ≤2 images to force re-fetch
+2. **`supabase/functions/catalog-category/index.ts`**
+   - Same as above for category browsing
 
----
+3. **`supabase/functions/_shared/mediaCache.ts`**
+   - Add special handling to force re-fetch for Amazon items with image_count <= 1
+
+4. **`supabase/functions/catalog-product/index.ts`**
+   - Verify and fix the upsert to `catalog_items.images` for Rainforest products
+
+5. **Database cleanup** - Clear stale entries
 
 ## Expected Outcome
 
-After these fixes:
-- Amazon products will display full image galleries (5-15 images typical)
-- Debug logs will reveal exactly what Rainforest returns
-- Media cache will properly store all Amazon image URLs
+After these changes:
+- All eBay items across all categories will show full galleries (already working, just needs cache cleanup)
+- All Amazon items will fetch and display full image galleries (5-15 images typical)
+- The media cache will properly store all image URLs for both providers
 - Product detail pages will show complete photo galleries
+- List views will show accurate `imageCount` badges
 
----
+## Technical Details
 
-## Risk Assessment
+### How Image Flow Works
 
-**Low Risk**: These are data extraction improvements with added logging. No API contract changes.
+```text
+List View (Home/Search/Category)
+         │
+         ▼
+┌─────────────────────────────────────┐
+│  1. Fetch items from DB or live API │
+│  2. Each item has imageCount field  │
+│  3. enrichItemsWithMediaCounts()    │
+│     - Check catalog_item_media      │
+│     - If missing, call catalog-product
+│     - Cache full gallery            │
+└─────────────────────────────────────┘
+         │
+         ▼
+Product Detail View
+         │
+         ▼
+┌─────────────────────────────────────┐
+│  catalog-product endpoint           │
+│  1. DB-first check catalog_items    │
+│  2. If found, return item.imageUrls │
+│  3. If not, fetch live from provider│
+│     - eBay: getEbayItem (full)      │
+│     - Amazon: fetchProductDetails   │
+│  4. Cache to catalog_items          │
+│  5. Return full imageUrls array     │
+└─────────────────────────────────────┘
+```
 
-**Testing Plan**:
-1. Deploy with debug logging enabled
-2. Open an Amazon product to trigger fresh fetch
-3. Check edge function logs for `[RAINFOREST_IMAGES_RAW]` output
-4. Verify `catalog_item_media` shows correct `image_count` > 1
-5. Confirm frontend displays multiple images
+### Key Changes Summary
+
+1. **mediaCache.ts**: Force re-fetch for Amazon items with `image_count <= 1`
+2. **catalog-search/category**: Ensure media enrichment is always triggered
+3. **catalog-product**: Verify full `images` array is cached for all providers
+4. **Database**: Clear poorly-cached entries to force fresh data
 

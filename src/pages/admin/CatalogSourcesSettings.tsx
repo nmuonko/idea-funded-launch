@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from '@/hooks/use-toast';
 import { 
   Store, 
@@ -21,7 +22,11 @@ import {
   RefreshCw,
   AlertCircle,
   Zap,
-  Shield
+  Shield,
+  Flame,
+  Home,
+  Search,
+  Layers
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -39,6 +44,16 @@ interface CatalogSettings {
   offers_cache_ttl_seconds: number;
   negative_cache_ttl_seconds: number;
   ebay_cache_ttl_seconds: number;
+  // New Smart Live settings
+  amazon_live_search_enabled: boolean;
+  amazon_live_category_enabled: boolean;
+  amazon_live_home_enabled: boolean;
+  amazon_live_max_pages: number;
+  amazon_home_prewarm_enabled: boolean;
+  amazon_home_prewarm_interval_minutes: number;
+  amazon_home_prewarm_max_items_per_section: number;
+  amazon_query_generic_blocklist: string[];
+  amazon_live_min_query_len: number;
 }
 
 interface SettingRow {
@@ -61,6 +76,16 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   offers_cache_ttl_seconds: 43200,
   negative_cache_ttl_seconds: 120,
   ebay_cache_ttl_seconds: 0,
+  // New Smart Live settings
+  amazon_live_search_enabled: true,
+  amazon_live_category_enabled: true,
+  amazon_live_home_enabled: false,
+  amazon_live_max_pages: 1,
+  amazon_home_prewarm_enabled: true,
+  amazon_home_prewarm_interval_minutes: 720,
+  amazon_home_prewarm_max_items_per_section: 200,
+  amazon_query_generic_blocklist: ["shoes", "clothes", "home", "house", "decor", "vetement", "chaussure", "maison"],
+  amazon_live_min_query_len: 3,
 };
 
 export default function CatalogSourcesSettings() {
@@ -118,6 +143,16 @@ export default function CatalogSourcesSettings() {
         offers_cache_ttl_seconds: settings.offers_cache_ttl_seconds,
         negative_cache_ttl_seconds: settings.negative_cache_ttl_seconds,
         ebay_cache_ttl_seconds: settings.ebay_cache_ttl_seconds,
+        // New Smart Live settings
+        amazon_live_search_enabled: settings.amazon_live_search_enabled,
+        amazon_live_category_enabled: settings.amazon_live_category_enabled,
+        amazon_live_home_enabled: settings.amazon_live_home_enabled,
+        amazon_live_max_pages: settings.amazon_live_max_pages,
+        amazon_home_prewarm_enabled: settings.amazon_home_prewarm_enabled,
+        amazon_home_prewarm_interval_minutes: settings.amazon_home_prewarm_interval_minutes,
+        amazon_home_prewarm_max_items_per_section: settings.amazon_home_prewarm_max_items_per_section,
+        amazon_query_generic_blocklist: settings.amazon_query_generic_blocklist,
+        amazon_live_min_query_len: settings.amazon_live_min_query_len,
       };
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -163,6 +198,41 @@ export default function CatalogSourcesSettings() {
   const handleSave = () => {
     saveMutation.mutate();
   };
+
+  const prewarmMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await supabase.functions.invoke('catalog-prewarm-home', {
+        method: 'POST',
+        body: {},
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      if (response.error) throw response.error;
+      return response.data;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: language === 'fr' ? 'Cache Amazon rafraîchi' : 'Amazon cache refreshed',
+        description: language === 'fr' 
+          ? `${data?.totalFetched || 0} produits récupérés, ${data?.totalUpserted || 0} mis en cache.`
+          : `${data?.totalFetched || 0} products fetched, ${data?.totalUpserted || 0} cached.`,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: language === 'fr' ? 'Erreur' : 'Error',
+        description: error instanceof Error ? error.message : 'Failed to prewarm cache',
+        variant: 'destructive',
+      });
+    },
+  });
 
   const formatSeconds = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`;
@@ -434,6 +504,169 @@ export default function CatalogSourcesSettings() {
                   ? `${settings.mixed_blend_ratio.amazon} Amazon pour ${settings.mixed_blend_ratio.ebay} eBay après la phase initiale`
                   : `${settings.mixed_blend_ratio.amazon} Amazon for every ${settings.mixed_blend_ratio.ebay} eBay after initial phase`}
               </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Smart Amazon Live Settings */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Flame className="h-5 w-5" />
+            {language === 'fr' ? 'Amazon Live Intelligent' : 'Smart Amazon Live'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? "Contrôlez quand Amazon utilise l'API live vs le cache."
+              : 'Control when Amazon uses live API vs cache.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Live Toggles per Endpoint */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium flex items-center gap-2">
+                  <Search className="h-4 w-4" />
+                  {language === 'fr' ? 'Recherche Live' : 'Search Live'}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {language === 'fr' ? 'API live pour recherche' : 'Live API for search'}
+                </p>
+              </div>
+              <Switch 
+                checked={settings.amazon_live_search_enabled}
+                onCheckedChange={(checked) => handleChange('amazon_live_search_enabled', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  {language === 'fr' ? 'Catégorie Live' : 'Category Live'}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {language === 'fr' ? 'API live pour catégories' : 'Live API for categories'}
+                </p>
+              </div>
+              <Switch 
+                checked={settings.amazon_live_category_enabled}
+                onCheckedChange={(checked) => handleChange('amazon_live_category_enabled', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-base font-medium flex items-center gap-2">
+                  <Home className="h-4 w-4" />
+                  {language === 'fr' ? 'Accueil Live' : 'Home Live'}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {language === 'fr' ? 'Désactivé = prewarm' : 'Off = prewarm cache'}
+                </p>
+              </div>
+              <Switch 
+                checked={settings.amazon_live_home_enabled}
+                onCheckedChange={(checked) => handleChange('amazon_live_home_enabled', checked)}
+              />
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Live Limits */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>
+                {language === 'fr' ? 'Pages live max' : 'Max live pages'}
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                value={settings.amazon_live_max_pages}
+                onChange={(e) => handleChange('amazon_live_max_pages', parseInt(e.target.value) || 1)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {language === 'fr' ? 'Pages après = cache seulement' : 'Pages after = cache only'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                {language === 'fr' ? 'Longueur min requête' : 'Min query length'}
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={settings.amazon_live_min_query_len}
+                onChange={(e) => handleChange('amazon_live_min_query_len', parseInt(e.target.value) || 3)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {language === 'fr' ? 'Requêtes courtes = cache' : 'Short queries = cache only'}
+              </p>
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Prewarm Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base font-medium">
+                  {language === 'fr' ? 'Prewarm Cache Accueil' : 'Home Cache Prewarm'}
+                </Label>
+                <p className="text-sm text-muted-foreground">
+                  {language === 'fr' 
+                    ? 'Pré-charge les produits Amazon pour la page d\'accueil'
+                    : 'Pre-loads Amazon products for home page'}
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => prewarmMutation.mutate()}
+                disabled={prewarmMutation.isPending}
+                className="gap-2"
+              >
+                {prewarmMutation.isPending ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Flame className="h-4 w-4" />
+                )}
+                {language === 'fr' ? 'Rafraîchir Maintenant' : 'Refresh Now'}
+              </Button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>
+                  {language === 'fr' ? 'Max items par section' : 'Max items per section'}
+                </Label>
+                <Input
+                  type="number"
+                  min={50}
+                  max={500}
+                  value={settings.amazon_home_prewarm_max_items_per_section}
+                  onChange={(e) => handleChange('amazon_home_prewarm_max_items_per_section', parseInt(e.target.value) || 200)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>
+                  {language === 'fr' ? 'Intervalle (minutes)' : 'Interval (minutes)'}
+                </Label>
+                <Input
+                  type="number"
+                  min={60}
+                  max={1440}
+                  value={settings.amazon_home_prewarm_interval_minutes}
+                  onChange={(e) => handleChange('amazon_home_prewarm_interval_minutes', parseInt(e.target.value) || 720)}
+                />
+              </div>
             </div>
           </div>
         </CardContent>

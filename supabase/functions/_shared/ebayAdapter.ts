@@ -534,9 +534,10 @@ export async function getEbayItem(
   // eBay item IDs need pipe encoding
   const encodedId = cleanId.replace(/\|/g, "%7C");
   
-  const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}`;
+  // Request PRODUCT fieldgroup to get additional images from product catalog
+  const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}?fieldgroups=PRODUCT`;
   
-  debugLog("EBAY_ITEM_REQ", { itemId: cleanId, marketplace, endpoint });
+  debugLog("EBAY_ITEM_REQ", { itemId: cleanId, marketplace, endpoint, fieldgroups: "PRODUCT" });
 
   let response: Response;
   try {
@@ -636,7 +637,8 @@ async function getEbayItemWithToken(
   tokenDebug: EbayTokenDebug
 ): Promise<{ item: CatalogItem | null; debug: EbaySearchDebug }> {
   const encodedId = itemId.replace(/\|/g, "%7C");
-  const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}`;
+  // Request PRODUCT fieldgroup to get additional images from product catalog
+  const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}?fieldgroups=PRODUCT`;
 
   const response = await fetch(endpoint, {
     method: "GET",
@@ -815,6 +817,11 @@ function extractDetailImages(item: any): string[] {
     galleryImagesCount: item.galleryImages?.length ?? 0,
     imagesArrayCount: item.images?.length ?? 0,
     pictureURLsCount: item.pictureURLs?.length ?? 0,
+    // NEW: Check product and itemGroup fields (from PRODUCT fieldgroup)
+    hasProduct: !!item.product,
+    productAdditionalImagesCount: item.product?.additionalImages?.length ?? 0,
+    hasPrimaryItemGroup: !!item.primaryItemGroup,
+    itemGroupAdditionalImagesCount: item.primaryItemGroup?.itemGroupAdditionalImages?.length ?? 0,
   });
   
   // Helper to add upgraded image
@@ -832,21 +839,51 @@ function extractDetailImages(item: any): string[] {
     addImage(item.image.imageUrl);
   }
   
-  // Source 2: ALL additional images (no limit for details)
+  // Source 2: ALL additional images from item level (seller-uploaded photos)
   if (item.additionalImages && Array.isArray(item.additionalImages)) {
     for (const img of item.additionalImages) {
       addImage(img?.imageUrl);
     }
   }
   
-  // Source 3: Gallery/variant images if present
+  // Source 3: Product catalog images (from PRODUCT fieldgroup)
+  // These are eBay catalog product images that may include additional angles
+  if (item.product) {
+    // Product primary image
+    if (item.product.image?.imageUrl) {
+      addImage(item.product.image.imageUrl);
+    }
+    // Product additional images
+    if (item.product.additionalImages && Array.isArray(item.product.additionalImages)) {
+      for (const img of item.product.additionalImages) {
+        addImage(img?.imageUrl);
+      }
+    }
+  }
+  
+  // Source 4: Item group images (for multi-variation listings)
+  // primaryItemGroup contains images shared across variations
+  if (item.primaryItemGroup) {
+    // Item group main image
+    if (item.primaryItemGroup.itemGroupImage?.imageUrl) {
+      addImage(item.primaryItemGroup.itemGroupImage.imageUrl);
+    }
+    // Item group additional images
+    if (item.primaryItemGroup.itemGroupAdditionalImages && Array.isArray(item.primaryItemGroup.itemGroupAdditionalImages)) {
+      for (const img of item.primaryItemGroup.itemGroupAdditionalImages) {
+        addImage(img?.imageUrl);
+      }
+    }
+  }
+  
+  // Source 5: Gallery/variant images if present (legacy field)
   if (item.galleryImages && Array.isArray(item.galleryImages)) {
     for (const img of item.galleryImages) {
       addImage(img?.imageUrl);
     }
   }
   
-  // Source 4: Flat images array (sometimes present in eBay responses)
+  // Source 6: Flat images array (sometimes present in eBay responses)
   if (item.images && Array.isArray(item.images)) {
     for (const img of item.images) {
       if (typeof img === "string") {
@@ -857,14 +894,14 @@ function extractDetailImages(item: any): string[] {
     }
   }
   
-  // Source 5: pictureURLs - eBay-specific field (array of URL strings)
+  // Source 7: pictureURLs - eBay-specific field (array of URL strings)
   if (item.pictureURLs && Array.isArray(item.pictureURLs)) {
     for (const url of item.pictureURLs) {
       addImage(url);
     }
   }
   
-  // Source 6: Fallback to thumbnails only if nothing else (upgrade them)
+  // Source 8: Fallback to thumbnails only if nothing else (upgrade them)
   if (images.length === 0 && item.thumbnailImages && Array.isArray(item.thumbnailImages)) {
     for (const thumb of item.thumbnailImages) {
       addImage(thumb?.imageUrl);
@@ -874,6 +911,12 @@ function extractDetailImages(item: any): string[] {
   debugLog("EBAY_DETAIL_IMAGES_RESULT", {
     itemId: item.itemId,
     totalImages: images.length,
+    sources: {
+      primaryImage: item.image?.imageUrl ? 1 : 0,
+      additionalImages: item.additionalImages?.length ?? 0,
+      productImages: (item.product?.additionalImages?.length ?? 0) + (item.product?.image?.imageUrl ? 1 : 0),
+      itemGroupImages: (item.primaryItemGroup?.itemGroupAdditionalImages?.length ?? 0) + (item.primaryItemGroup?.itemGroupImage?.imageUrl ? 1 : 0),
+    },
     firstImage: images[0]?.substring(0, 60),
   });
   

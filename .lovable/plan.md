@@ -1,151 +1,148 @@
 
-# Fix Product Gallery Images for eBay and Amazon
+# Fix eBay Product Images - Complete ID Format Normalization
 
 ## Problem Summary
 
-You're not getting all the images/pictures for eBay and Amazon items - even though the official listings show more photos. After investigating the codebase, I found **multiple root causes**:
+eBay items are showing only 1 image instead of 25+ because of ID format mismatches:
 
-### Issue 1: ID Format Mismatch in Media Cache
-The `parseProviderKey` function in `mediaCache.ts` expects IDs in format `ebay:v1|123...` (with colon), but the actual catalog items use format `ebay_v1|123...` (with underscore). This causes the media cache enrichment to fail silently.
+1. **`catalog-product` only handles colon format** (`ebay:v1|...`), NOT underscore format (`EBAY_V1|...`)
+2. **mediaCache passes original ID unchanged** to catalog-product, which defaults to rainforest provider for unrecognized formats
+3. **Log evidence**: `provider=rainforest error=INVALID_ID` for eBay IDs
 
-**Evidence from logs:**
-```
-[CATALOG_PRODUCT] id=EBAY_V1|147110427949|0 provider=rainforest error=INVALID_ID
-```
-The uppercase ID and wrong provider shows the parsing is failing.
+## Technical Solution
 
-### Issue 2: Response Shape Mismatch
-The `fetchAndCacheMedia` function looks for:
-- `productData.imageUrls` 
-- `productData.product?.imageUrls`
+### Step 1: Fix ID Parsing in catalog-product/index.ts
 
-But `/catalog-product` returns:
-- `productData.item.imageUrls`
-
-This means even when a product is successfully fetched, the images are never extracted.
-
-**Evidence from database:**
-```
-image_count: 1, actual_urls_count: 0  // For ALL items in catalog_item_media
-```
-
-### Issue 3: eBay Search API Limitations
-The eBay Browse API's `/item_summary/search` endpoint (used for list views) only returns:
-- 1 main image
-- Limited `additionalImages` (typically 0-1)
-
-The full gallery (up to 12 images) is only available from the `/item/{itemId}` detail endpoint.
-
-### Issue 4: Amazon Search API Limitations
-Similarly, Rainforest's search API returns limited images. The full gallery is only available from the product detail endpoint.
-
-### Issue 5: eBay images limited to 2 in search results
-In `ebayAdapter.ts`, the `extractImages` function explicitly limits images to 2:
-```typescript
-return images.slice(0, 2); // Strictly limit to 2 images for lists
-```
-
-This is by design for performance, but the detail fetch isn't working to populate the full gallery.
-
----
-
-## Solution Plan
-
-### Step 1: Fix ID Parsing in Media Cache
-Update `parseProviderKey` to handle both formats:
-- `ebay:v1|...` (colon separator)
-- `ebay_v1|...` (underscore separator - used in DB)
+Update `parseProductId` to handle underscore separator in addition to colon:
 
 ```typescript
-// Handle "ebay_..." format (underscore variant used in catalog_items)
-if (compositeId.startsWith("ebay_")) {
-  const itemId = compositeId.slice(5); // "v1|123..."
-  return { provider: "ebay", itemId };
+function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null } {
+  let provider: string | null = null;
+  let productId: string | null = null;
+
+  const id = (url.searchParams.get("id") || "").trim();
+  const lowerCaseId = id.toLowerCase();
+  
+  // Handle colon separator: "ebay:v1|..."
+  if (id && id.includes(":")) {
+    const parts = id.split(":", 2);
+    provider = (parts[0] || "").trim().toLowerCase() || null;
+    productId = (parts[1] || "").trim() || null;
+  }
+  // Handle underscore separator: "ebay_v1|..." or "EBAY_V1|..."
+  else if (lowerCaseId.startsWith("ebay_")) {
+    provider = "ebay";
+    productId = id.slice(5); // Keep original case for item ID
+  }
+  else if (lowerCaseId.startsWith("rainforest_")) {
+    provider = "rainforest";
+    productId = id.slice(11);
+  }
+  else if (lowerCaseId.startsWith("amazon_")) {
+    provider = "rainforest"; // Treat amazon as rainforest
+    productId = id.slice(7);
+  }
+  // Fallback to query params or default
+  else {
+    provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
+    productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
+    if (!productId && id) {
+      productId = id.toUpperCase();
+      provider = "rainforest";
+    }
+  }
+
+  // Normalize for rainforest
+  if (provider === "rainforest" && productId) {
+    productId = productId.toUpperCase();
+  }
+
+  const rawId = provider && productId ? `${provider}:${productId}` : productId || id || "";
+  
+  // Validation
+  let idError: string | null = null;
+  if (!productId) {
+    idError = "Product ID is required";
+  } else if (provider === "rainforest") {
+    idError = validateAsin(productId);
+  }
+
+  return { provider, productId, rawId, idError };
 }
 ```
 
-### Step 2: Fix Response Extraction in Media Cache
-Update `fetchAndCacheMedia` to look in the correct response path:
+### Step 2: Normalize ID in mediaCache before calling catalog-product
+
+Update `fetchAndCacheMedia` to construct a normalized ID with colon format:
 
 ```typescript
-// Current (broken):
-if (productData.imageUrls) ...
-if (productData.product?.imageUrls) ...
-
-// Fixed - check all possible paths:
-if (productData.item?.imageUrls) ...      // Actual structure
-if (productData.item?.images) ...          // Backward compat
-if (productData.imageUrls) ...             // Fallback
+export async function fetchAndCacheMedia(
+  supabase: SupabaseClient,
+  provider: string,
+  itemId: string,
+  compositeId: string,
+  settings: MediaCacheSettings
+): Promise<MediaCacheRecord | null> {
+  // ...existing code...
+  
+  // Normalize composite ID to colon format for catalog-product
+  const normalizedId = `${provider}:${itemId}`;
+  
+  const productUrl = `${supabaseUrl}/functions/v1/catalog-product?id=${encodeURIComponent(normalizedId)}`;
+  // ...rest of function
+}
 ```
 
-### Step 3: Improve eBay Detail Image Extraction
-The `extractDetailImages` function in `ebayAdapter.ts` should also check for:
-- `item.images[]` array (sometimes present)
-- `item.pictureURLs[]` (eBay-specific field in some responses)
+### Step 3: Clear Stale Media Cache Entries
 
-### Step 4: Improve Amazon/Rainforest Image Extraction
-Ensure all Rainforest image sources are checked:
-- `product.images[]`
-- `product.image_gallery[]`
-- `product.hi_res_images[]`
-- `product.variants[].images[]`
+Run SQL to delete incorrect cache entries:
 
-The code already does this but we should verify it's working.
-
-### Step 5: Add Detailed Logging
-Add logging to trace exactly what's being received from providers:
-- Log raw image arrays before processing
-- Log after deduplication
-- Log final count vs. expected count
-
----
-
-## Technical Details
-
-### Files to Modify
-
-1. **`supabase/functions/_shared/mediaCache.ts`**
-   - Fix `parseProviderKey()` to handle underscore format
-   - Fix `fetchAndCacheMedia()` response extraction path
-   - Add debug logging for image extraction
-
-2. **`supabase/functions/_shared/ebayAdapter.ts`**
-   - Enhance `extractDetailImages()` to check more image fields
-   - Add logging for raw image data from eBay API
-
-3. **`supabase/functions/_shared/rainforestAdapter.ts`**
-   - Verify `extractImages()` is capturing all sources
-   - Add logging for raw image arrays
-
-4. **`supabase/functions/catalog-product/index.ts`**
-   - Ensure response includes all images in `imageUrls` array
-   - Log image count for debugging
-
-### Database Cleanup
-After fixes are deployed, we'll need to clear the incorrectly cached media entries:
 ```sql
-DELETE FROM catalog_item_media WHERE image_count = 1 AND image_urls = '[]'::jsonb;
+DELETE FROM catalog_item_media 
+WHERE provider = 'ebay' 
+  AND image_count <= 2;
 ```
 
----
+### Step 4: Add Environment Header to mediaCache Fetch
+
+Add the required environment header to bypass catalog disabled checks:
+
+```typescript
+const response = await fetch(productUrl, {
+  method: "GET",
+  headers: {
+    Authorization: `Bearer ${serviceKey}`,
+    "Content-Type": "application/json",
+    "x-afrishop-environment": "production", // Required to bypass catalog disabled check
+  },
+  signal: controller.signal,
+});
+```
+
+## Files to Modify
+
+1. **`supabase/functions/catalog-product/index.ts`**
+   - Update `parseProductId()` to handle underscore separator format
+   - Support uppercase variants (EBAY_V1|...)
+
+2. **`supabase/functions/_shared/mediaCache.ts`**
+   - Normalize composite ID to colon format before API call
+   - Add environment header to fetch request
 
 ## Expected Outcome
 
 After these fixes:
-- eBay items with 7 photos on the official site will show `image_count: 7` in list feeds
-- Product detail pages will display all 7 photos in the gallery
-- Amazon items will similarly show correct photo counts
-- The media cache will properly store all image URLs for fast subsequent access
+- eBay items with 25+ photos will correctly show all images
+- Media cache will properly store all image URLs
+- Product detail pages will display full galleries
+- The `catalog-product` endpoint will correctly route eBay IDs regardless of input format
 
----
+## Testing Plan
 
-## Risk Assessment
-
-**Low Risk**: These are targeted fixes to data extraction logic. No changes to database schema or API contracts.
-
-**Testing Plan**:
 1. Deploy fixes
-2. Clear stale media cache entries
-3. Browse a few eBay/Amazon items and verify image counts
-4. Open product detail and verify full gallery displays
-
+2. Clear stale media cache entries with SQL
+3. Open the specific eBay item (157299757552)
+4. Verify:
+   - `catalog-product` logs show `provider=ebay` (not rainforest)
+   - Response includes `imageCount > 1`
+   - Frontend displays multiple images in gallery

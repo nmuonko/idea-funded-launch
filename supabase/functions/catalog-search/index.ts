@@ -97,8 +97,8 @@ const VEHICLE_QUERY_KEYWORDS = [
   // Other vehicles
   "boat", "pontoon", "yacht", "rv", "camper", "trailer", "motorhome",
   "atv", "utv", "quad", "polaris", "can-am", "side by side", "rzr",
-  // French vehicle terms
-  "voiture", "voitures", "moto", "camion", "vehicule", "automobile",
+  // French vehicle terms + English generic
+  "voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
 ];
 
 const DEFAULT_LIMIT = 24;

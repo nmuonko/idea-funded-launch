@@ -762,8 +762,8 @@ function upgradeImageToHighRes(url: string): string {
 }
 
 /**
- * Extract images from eBay item for LIST views (limited to 2)
- * Used by search results for performance
+ * Extract ALL images from eBay item for LIST views
+ * Returns all available images from the API response
  */
 function extractImages(item: any): string[] {
   const seen = new Set<string>();
@@ -778,10 +778,9 @@ function extractImages(item: any): string[] {
     }
   }
   
-  // Additional images (limit to 2 total for list views)
-  if (item.additionalImages && images.length < 2) {
+  // ALL additional images
+  if (item.additionalImages && Array.isArray(item.additionalImages)) {
     for (const img of item.additionalImages) {
-      if (images.length >= 2) break;
       if (img.imageUrl) {
         const upgraded = upgradeImageToHighRes(img.imageUrl);
         if (!seen.has(upgraded)) {
@@ -792,10 +791,9 @@ function extractImages(item: any): string[] {
     }
   }
   
-  // Fallback to thumbnails if no primary/additional (still limit to 2)
+  // Fallback to thumbnails if no primary/additional
   if (images.length === 0 && item.thumbnailImages) {
     for (const thumb of item.thumbnailImages) {
-      if (images.length >= 2) break;
       if (thumb.imageUrl) {
         const upgraded = upgradeImageToHighRes(thumb.imageUrl);
         if (!seen.has(upgraded)) {
@@ -806,7 +804,7 @@ function extractImages(item: any): string[] {
     }
   }
   
-  return images.slice(0, 2); // Strictly limit to 2 images for lists
+  return images; // Return ALL images, no limit
 }
 
 // ─── Scraping Safeguards ───────────────────────────────────────────────────

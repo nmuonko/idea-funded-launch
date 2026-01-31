@@ -877,13 +877,13 @@ async function extractDetailImagesAsync(item: any): Promise<string[]> {
   // First, get images from API response
   const apiImages = extractDetailImagesFromApi(item);
   
-  // If API returned fewer than 10 images, try scraping the webpage for more
-  // (eBay multi-variation listings often have 20-50+ images not exposed via API)
-  if (apiImages.length < 10 && item.itemId) {
-    debugLog("EBAY_IMAGES_SUPPLEMENTING", { 
+  // ALWAYS try scraping for eBay items to get the full gallery
+  // The API often returns limited images (8-15) while the page has 30+
+  if (item.itemId) {
+    debugLog("EBAY_IMAGES_SCRAPING", { 
       itemId: item.itemId, 
       apiImageCount: apiImages.length,
-      reason: "Trying webpage scrape for additional images"
+      reason: "Always scrape to maximize gallery images"
     });
     
     const scrapedImages = await scrapeEbayImages(item.itemId);

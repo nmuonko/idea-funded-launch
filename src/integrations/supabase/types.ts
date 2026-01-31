@@ -4020,6 +4020,16 @@ export type Database = {
       }
     }
     Functions: {
+      admin_get_all_device_tokens: {
+        Args: never
+        Returns: {
+          created_at: string
+          id: string
+          last_used_at: string
+          platform: string
+          user_id: string
+        }[]
+      }
       can_view_customer_profiles: {
         Args: { user_id: string }
         Returns: boolean

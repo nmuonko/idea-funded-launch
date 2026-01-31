@@ -39,6 +39,18 @@ const PARTS_DENY_KEYWORDS = [
   "floor jack", "car jack", "lug wrench", "torque wrench",
   "oem", "aftermarket", "replacement", "compatible",
   "for", "fits", "compatible with", "replacement for",
+  // Automotive shop equipment
+  "automotive lift", "car lift", "vehicle lift", "two post lift", "four post lift",
+  "scissor lift", "alignment machine", "alignment rack", "wheel alignment",
+  "tire changer", "tire machine", "wheel balancer", "balancing machine",
+  "diagnostic scanner", "obd scanner", "obd2", "obdii", "code reader", "scan tool",
+  "diagnostic tool", "diagnostic computer", "engine analyzer",
+  "brake lathe", "rotor lathe", "parts washer", "spray booth", "paint booth",
+  "engine hoist", "engine crane", "transmission jack", "shop press", "hydraulic press",
+  "a/c machine", "ac machine", "refrigerant recovery", "fluid extractor",
+  "creeper", "mechanics creeper", "tool chest", "tool cabinet", "service cart",
+  "sandblaster", "bead blaster", "media blaster", "engine stand", "welder",
+  "dynamometer", "dyno", "rotisserie", "battery tester", "load tester",
 ];
 
 // Vehicle signal keywords (title should have these for vehicles)

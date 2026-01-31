@@ -75,15 +75,15 @@ const corsHeaders = {
 // ─── Vehicle Seed Queries ─────────────────────────────────────────────────────
 
 const VEHICLE_FALLBACK_QUERIES: Record<string, string[]> = {
-  vehicles: ["car for sale truck suv sedan coupe", "toyota camry", "honda accord"],
-  vehicles_all: ["car for sale truck suv sedan coupe", "toyota camry", "honda accord", "ford f150"],
-  vehicles_cars_trucks: ["used car for sale sedan suv", "toyota camry", "honda accord", "chevrolet silverado"],
-  vehicles_motorcycles: ["motorcycle for sale", "harley davidson", "honda goldwing", "yamaha"],
-  vehicles_powersports: ["atv quad 4 wheeler", "polaris sportsman", "side by side utv"],
-  vehicles_boats: ["boat for sale", "bass tracker", "pontoon boat", "fishing boat"],
-  vehicles_rvs_campers: ["rv motorhome", "travel trailer", "fifth wheel camper"],
-  vehicles_trailers_other: ["utility trailer", "cargo trailer", "enclosed trailer"],
-  vehicles_classic_cars: ["classic car for sale", "vintage mustang", "classic corvette"],
+  vehicles: ["car for sale truck suv sedan coupe", "used car for sale clean title", "pickup truck 4x4"],
+  vehicles_all: ["car for sale truck suv sedan coupe", "used car for sale clean title", "toyota honda ford chevrolet"],
+  vehicles_cars_trucks: ["sedan coupe for sale clean title", "used car low miles", "pickup truck 4x4 crew cab"],
+  vehicles_motorcycles: ["motorcycle for sale harley honda", "cruiser touring sportbike", "used motorcycle clean title"],
+  vehicles_powersports: ["atv quad 4 wheeler polaris", "side by side utv rzr", "can-am yamaha"],
+  vehicles_boats: ["boat for sale bass tracker", "pontoon boat fishing boat", "center console boat"],
+  vehicles_rvs_campers: ["rv motorhome for sale", "travel trailer fifth wheel", "class a class c camper"],
+  vehicles_trailers_other: ["utility trailer enclosed cargo", "flatbed trailer dump trailer", "car hauler trailer"],
+  vehicles_classic_cars: ["classic car for sale restored", "vintage mustang corvette camaro", "muscle car clean title"],
 };
 
 const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
@@ -552,11 +552,19 @@ Deno.serve(async (req) => {
           ? (VEHICLE_FALLBACK_QUERIES[canonicalKey] || VEHICLE_FALLBACK_QUERIES.vehicles_cars_trucks)
           : (CATEGORY_FALLBACK_QUERIES[canonicalKey] || CATEGORY_FALLBACK_QUERIES[parentTab] || ["electronics"]);
 
-        console.log(`[CATALOG] requestId=${requestId} eBay LIVE: category="${canonicalKey}" isVehicle=${isVehicle} sort=${sort}`);
+        // CRITICAL: For vehicle categories, ALWAYS use a vehicle-specific query
+        // Without a query, eBay category 6000 returns all Motors items (parts, equipment, etc.)
+        // The query forces search to actual vehicle listings
+        const vehicleQuery = isVehicle && !isParts
+          ? (VEHICLE_FALLBACK_QUERIES[canonicalKey]?.[0] || "car for sale truck suv sedan coupe")
+          : undefined;
+
+        console.log(`[CATALOG] requestId=${requestId} eBay LIVE: category="${canonicalKey}" isVehicle=${isVehicle} vehicleQuery="${vehicleQuery || 'none'}" sort=${sort}`);
 
         const searchResult = await searchEbayWithFallback(
           supabase,
           {
+            query: vehicleQuery, // Force query for vehicles to get real vehicle listings
             categoryId: ebayCategory || undefined,
             page,
             pageSize: limit,

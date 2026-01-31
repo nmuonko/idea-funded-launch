@@ -13,6 +13,12 @@ import {
   ProviderConfig,
 } from "./catalogProviders.ts";
 import { EnvironmentConfig } from "./environmentResolver.ts";
+import { 
+  SortOption, 
+  CatalogFilters, 
+  getRainforestSort,
+  postFilterItems,
+} from "./sortFilterNormalizer.ts";
 
 const RAINFOREST_BASE_URL = "https://api.rainforestapi.com/request";
 const DEFAULT_TIMEOUT_MS = 15000; // 15 second timeout for Rainforest API (product requests can be slow)
@@ -482,7 +488,9 @@ export async function searchRainforest(
   query: string,
   page: number = 1,
   pageSize: number = 20,
-  amazonDomain: string = "amazon.com"
+  amazonDomain: string = "amazon.com",
+  sort: SortOption = "relevance",
+  filters?: CatalogFilters
 ): Promise<{ products: CatalogProduct[]; total: number; hasMore: boolean; error: string | null }> {
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
   
@@ -492,6 +500,9 @@ export async function searchRainforest(
   }
 
   const startTime = Date.now();
+  
+  // Get provider-specific sort value
+  const sortBy = getRainforestSort(sort);
 
   try {
     const params: RainforestSearchParams = {
@@ -500,7 +511,7 @@ export async function searchRainforest(
       amazon_domain: amazonDomain,
       search_term: query,
       page,
-      sort_by: "featured",
+      sort_by: sortBy,
     };
 
     const url = new URL(RAINFOREST_BASE_URL);
@@ -515,6 +526,8 @@ export async function searchRainforest(
       page,
       pageSize,
       domain: amazonDomain,
+      sort: sortBy,
+      hasFilters: !!filters,
     }));
 
     const response = await fetchWithTimeout(
@@ -536,10 +549,15 @@ export async function searchRainforest(
       return { products: [], total: 0, hasMore: false, error: data.error.code || "API_ERROR" };
     }
 
-    const products = (data.search_results || [])
+    let products = (data.search_results || [])
       .filter((p: RainforestProduct) => p.asin && p.title)
       .slice(0, pageSize)
       .map((p: RainforestProduct) => normalizeProduct(p, amazonDomain));
+    
+    // Apply post-filters (Rainforest doesn't support all filters natively)
+    if (filters) {
+      products = postFilterItems(products, filters);
+    }
 
     console.log("[CATALOG_SEARCH]", JSON.stringify({
       q: query,

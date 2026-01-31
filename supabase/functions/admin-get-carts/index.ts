@@ -6,8 +6,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Valid sort fields for carts
+const VALID_SORT_FIELDS = ['updated_at', 'created_at', 'total_usd', 'item_count'] as const;
+type SortField = typeof VALID_SORT_FIELDS[number];
+
+// Valid sort orders
+type SortOrder = 'asc' | 'desc';
+
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function validateSortField(field: string | null): SortField {
+  if (field && VALID_SORT_FIELDS.includes(field as SortField)) {
+    return field as SortField;
+  }
+  return 'updated_at';
+}
+
+function validateSortOrder(order: string | null): SortOrder {
+  if (order === 'asc' || order === 'desc') {
+    return order;
+  }
+  return 'desc';
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -30,7 +51,21 @@ serve(async (req) => {
       });
     }
 
-    console.log('[admin-get-carts] Fetching active carts for admin:', user.id);
+    // Parse query params from URL
+    const url = new URL(req.url);
+    const sortBy = validateSortField(url.searchParams.get('sortBy'));
+    const sortOrder = validateSortOrder(url.searchParams.get('sortOrder'));
+    const statusFilter = url.searchParams.get('status'); // DRAFT, PENDING_PAYMENT, or null for all
+    const minTotal = url.searchParams.get('minTotal');
+    const userName = url.searchParams.get('userName');
+
+    console.log('[admin-get-carts] Fetching active carts for admin:', user.id, {
+      sortBy,
+      sortOrder,
+      statusFilter,
+      minTotal,
+      userName,
+    });
 
     // Get pricing settings for calculations
     const { data: settings } = await supabase
@@ -42,8 +77,13 @@ serve(async (req) => {
     const shippingFeeUsd = settings?.shipping_base_fee_usd || 10;
     const markupPercent = settings?.markup_percent ?? settings?.global_markup_percent ?? 15;
 
+    // Build status list
+    const statusList = statusFilter 
+      ? [statusFilter] 
+      : ['DRAFT', 'PENDING_PAYMENT'];
+
     // Get all DRAFT and PENDING_PAYMENT orders (active carts/non-finalized orders)
-    const { data: carts, error: cartsError } = await supabase
+    let query = supabase
       .from('orders')
       .select(`
         id,
@@ -63,8 +103,25 @@ serve(async (req) => {
           phone
         )
       `)
-      .in('status', ['DRAFT', 'PENDING_PAYMENT'])
-      .order('updated_at', { ascending: false });
+      .in('status', statusList);
+    
+    // Apply min total filter
+    if (minTotal) {
+      const minTotalNum = parseFloat(minTotal);
+      if (!isNaN(minTotalNum)) {
+        query = query.gte('total_usd', minTotalNum);
+      }
+    }
+    
+    // Apply sort - note: item_count is computed, so we sort client-side for that
+    if (sortBy !== 'item_count') {
+      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    } else {
+      // For item_count, we'll sort after fetching
+      query = query.order('updated_at', { ascending: false });
+    }
+
+    const { data: carts, error: cartsError } = await query;
 
     if (cartsError) {
       console.error('[admin-get-carts] Error fetching carts:', cartsError);
@@ -74,7 +131,7 @@ serve(async (req) => {
     console.log('[admin-get-carts] Found carts:', carts?.length || 0);
 
     // Get items for each cart and calculate totals
-    const cartsWithItems = await Promise.all(
+    let cartsWithItems = await Promise.all(
       (carts || []).map(async (cart) => {
         const { data: items, error: itemsError } = await supabase
           .from('order_items')
@@ -88,13 +145,13 @@ serve(async (req) => {
         const profile = Array.isArray(cart.profiles) ? cart.profiles[0] : cart.profiles;
         
         // Determine user display name
-        let userName = 'Guest';
+        let cartUserName = 'Guest';
         if (profile?.full_name) {
-          userName = profile.full_name;
+          cartUserName = profile.full_name;
         } else if (profile?.name) {
-          userName = profile.name;
+          cartUserName = profile.name;
         } else if (profile?.phone) {
-          userName = `User (${profile.phone})`;
+          cartUserName = `User (${profile.phone})`;
         }
 
         // Format items for response
@@ -168,7 +225,7 @@ serve(async (req) => {
         return {
           cartId: cart.id,
           userId: cart.user_id,
-          userName,
+          userName: cartUserName,
           userPhone: profile?.phone || '',
           status: cart.status,
           itemCount: formattedItems.length,
@@ -184,7 +241,35 @@ serve(async (req) => {
       })
     );
 
-    return new Response(JSON.stringify({ carts: cartsWithItems }), {
+    // Filter by userName if provided (client-side since it's a computed field)
+    if (userName) {
+      const lowerUserName = userName.toLowerCase();
+      cartsWithItems = cartsWithItems.filter(cart => 
+        cart.userName.toLowerCase().includes(lowerUserName)
+      );
+    }
+
+    // Sort by item_count if that was requested (client-side)
+    if (sortBy === 'item_count') {
+      cartsWithItems.sort((a, b) => {
+        return sortOrder === 'asc' 
+          ? a.itemCount - b.itemCount 
+          : b.itemCount - a.itemCount;
+      });
+    }
+
+    return new Response(JSON.stringify({ 
+      carts: cartsWithItems,
+      sort: {
+        field: sortBy,
+        order: sortOrder,
+      },
+      appliedFilters: {
+        status: statusFilter,
+        minTotal: minTotal ? parseFloat(minTotal) : null,
+        userName: userName || null,
+      },
+    }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

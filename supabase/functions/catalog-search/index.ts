@@ -49,6 +49,17 @@ import {
   AmazonLiveDecision,
   AmazonLiveReason,
 } from "../_shared/amazonLivePolicy.ts";
+import {
+  SortOption,
+  CatalogFilters,
+  validateSort,
+  parseFilters,
+  getDbSort,
+  postFilterItems,
+  postSortItems,
+  buildAppliedSortFilter,
+  AppliedSortFilter,
+} from "../_shared/sortFilterNormalizer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,7 +119,7 @@ interface SearchResponse {
   hasMore: boolean;
   total: number;
   facets?: unknown[];
-  appliedFilters?: Record<string, unknown>;
+  appliedFilters?: AppliedSortFilter;
   providerStats: ProviderStats & {
     amazonLiveUsed?: boolean;
     amazonLiveReason?: AmazonLiveReason;
@@ -275,6 +286,12 @@ Deno.serve(async (req: Request) => {
   const categoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
+  
+  // Parse sort and filters
+  const sortParam = url.searchParams.get("sort") || "relevance";
+  const sort = validateSort(sortParam);
+  const filtersParam = url.searchParams.get("filters") || null;
+  const catalogFilters = parseFilters(filtersParam);
 
   // Initialize search metadata (will be populated by rewriter)
   let searchMeta: SearchMeta = {

@@ -48,6 +48,16 @@ import {
   ProviderStats,
 } from "../_shared/providerMixer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
+import {
+  SortOption,
+  CatalogFilters,
+  validateSort,
+  parseFilters,
+  getDbSort,
+  postFilterItems,
+  postSortItems,
+  buildAppliedSortFilter,
+} from "../_shared/sortFilterNormalizer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 const DEFAULT_LIMIT = 24;
@@ -301,8 +311,10 @@ Deno.serve(async (req) => {
   const categoryRaw = url.searchParams.get("category") || url.searchParams.get("key") || "";
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
-  const sort = url.searchParams.get("sort") || "relevance";
+  const sortParam = url.searchParams.get("sort") || "relevance";
+  const sort = validateSort(sortParam);
   const filtersParam = url.searchParams.get("filters") || null;
+  const catalogFilters = parseFilters(filtersParam);
   const providerParam = url.searchParams.get("provider") || null;
 
   // Build empty provider stats helper
@@ -497,9 +509,12 @@ Deno.serve(async (req) => {
           }
 
           query = query.or("is_disallowed.is.null,is_disallowed.eq.false");
+          
+          // Apply sort based on user preference
+          const dbSort = getDbSort(sort);
 
           const { data: amazonData, count } = await query
-            .order("rating", { ascending: false, nullsFirst: false })
+            .order(dbSort.column, { ascending: dbSort.ascending, nullsFirst: false })
             .range(
               mixerCursor.amazonReturnedSoFar,
               mixerCursor.amazonReturnedSoFar + limit - 1
@@ -537,7 +552,7 @@ Deno.serve(async (req) => {
           ? (VEHICLE_FALLBACK_QUERIES[canonicalKey] || VEHICLE_FALLBACK_QUERIES.vehicles_cars_trucks)
           : (CATEGORY_FALLBACK_QUERIES[canonicalKey] || CATEGORY_FALLBACK_QUERIES[parentTab] || ["electronics"]);
 
-        console.log(`[CATALOG] requestId=${requestId} eBay LIVE: category="${canonicalKey}" isVehicle=${isVehicle}`);
+        console.log(`[CATALOG] requestId=${requestId} eBay LIVE: category="${canonicalKey}" isVehicle=${isVehicle} sort=${sort}`);
 
         const searchResult = await searchEbayWithFallback(
           supabase,
@@ -549,6 +564,8 @@ Deno.serve(async (req) => {
             isVehicle,
             isParts,
             marketplaceId: "EBAY_US",
+            sort,
+            filters: Object.keys(catalogFilters).length > 0 ? catalogFilters : undefined,
           },
           fallbackQueries,
           requestId

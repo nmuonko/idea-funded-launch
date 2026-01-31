@@ -51,6 +51,14 @@ const VEHICLE_SIGNAL_KEYWORDS = [
   "salvage", "rebuilt", "runs", "drives", "no reserve",
 ];
 
+import { 
+  SortOption, 
+  CatalogFilters, 
+  getEbaySort, 
+  buildEbayFilters,
+  postSortItems,
+} from "./sortFilterNormalizer.ts";
+
 export interface EbaySearchParams {
   query?: string;
   categoryId?: string;
@@ -61,6 +69,8 @@ export interface EbaySearchParams {
   isVehicle?: boolean;
   isParts?: boolean;
   marketplaceId?: string;
+  sort?: SortOption;
+  filters?: CatalogFilters;
 }
 
 export interface EbaySearchResult {
@@ -269,7 +279,7 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
 }
 
 /**
- * Build eBay search URL with filters
+ * Build eBay search URL with filters and sort
  */
 function buildSearchUrl(params: EbaySearchParams, offset: number): string {
   const url = new URL(EBAY_BROWSE_API);
@@ -289,19 +299,30 @@ function buildSearchUrl(params: EbaySearchParams, offset: number): string {
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("offset", String(offset));
   
+  // Sort - apply eBay-specific sort param
+  const sortParam = params.sort ? getEbaySort(params.sort) : null;
+  if (sortParam) {
+    url.searchParams.set("sort", sortParam);
+  }
+  
   // Build filter string
-  const filters: string[] = [];
+  let filters: string[] = [];
   
   // Buy It Now only (FIXED_PRICE) - exclude auctions
   filters.push("buyingOptions:{FIXED_PRICE}");
   
-  // Price filter
-  if (params.minPrice !== undefined && params.minPrice > 0) {
+  // Price filter from minPrice param (legacy support)
+  if (params.minPrice !== undefined && params.minPrice > 0 && !params.filters?.minPrice) {
     filters.push(`price:[${params.minPrice}..],priceCurrency:USD`);
   }
   
   // US items preferred
   filters.push("itemLocationCountry:US");
+  
+  // Apply additional filters from CatalogFilters
+  if (params.filters) {
+    filters = buildEbayFilters(params.filters, filters);
+  }
   
   if (filters.length > 0) {
     url.searchParams.set("filter", filters.join(","));
@@ -400,6 +421,12 @@ export async function searchEbay(
       if (blockedCount > 0) {
         console.log(`[EBAY_BROWSE] requestId=${requestId} VEHICLE_BLOCK blocked=${blockedCount} items with parts keywords`);
       }
+    }
+    
+    // Apply post-sort for sorts eBay doesn't support (e.g., rating)
+    if (params.sort === 'rating') {
+      items = postSortItems(items, 'rating') as NormalizedItem[];
+      console.log(`[EBAY_BROWSE] requestId=${requestId} Applied post-sort: rating`);
     }
     
     // Calculate pagination

@@ -2699,6 +2699,54 @@ export type Database = {
         }
         Relationships: []
       }
+      prewarm_jobs: {
+        Row: {
+          amazon_fetched: number | null
+          completed_at: string | null
+          created_at: string | null
+          current_section: string | null
+          ebay_fetched: number | null
+          error_message: string | null
+          id: string
+          mixed_total: number | null
+          rotation_key: string | null
+          sections_completed: number | null
+          sections_total: number | null
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          amazon_fetched?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          current_section?: string | null
+          ebay_fetched?: number | null
+          error_message?: string | null
+          id?: string
+          mixed_total?: number | null
+          rotation_key?: string | null
+          sections_completed?: number | null
+          sections_total?: number | null
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          amazon_fetched?: number | null
+          completed_at?: string | null
+          created_at?: string | null
+          current_section?: string | null
+          ebay_fetched?: number | null
+          error_message?: string | null
+          id?: string
+          mixed_total?: number | null
+          rotation_key?: string | null
+          sections_completed?: number | null
+          sections_total?: number | null
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       price_cache: {
         Row: {
           base_price: number

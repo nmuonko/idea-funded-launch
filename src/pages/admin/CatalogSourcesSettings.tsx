@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import { toast } from '@/hooks/use-toast';
 import { 
   Store, 
@@ -26,9 +27,27 @@ import {
   Flame,
   Home,
   Search,
-  Layers
+  Layers,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
+
+interface PrewarmJob {
+  id: string;
+  status: string;
+  rotation_key: string | null;
+  sections_total: number;
+  sections_completed: number;
+  current_section: string | null;
+  amazon_fetched: number;
+  ebay_fetched: number;
+  mixed_total: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
 
 interface CatalogSettings {
   catalog_provider_mode: string;
@@ -105,7 +124,11 @@ export default function CatalogSourcesSettings() {
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState<CatalogSettings>(DEFAULT_SETTINGS);
   const [isDirty, setIsDirty] = useState(false);
-
+  
+  // Prewarm job polling state
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [jobProgress, setJobProgress] = useState<PrewarmJob | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const { data: rawSettings, isLoading, refetch } = useQuery({
     queryKey: ['admin-catalog-settings'],
     queryFn: async () => {
@@ -217,6 +240,67 @@ export default function CatalogSourcesSettings() {
     saveMutation.mutate();
   };
 
+  // Poll for job status
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const { data: job, error } = await supabase
+        .from('prewarm_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (error || !job) {
+        console.error('Failed to fetch job status:', error);
+        setActiveJobId(null);
+        setJobProgress(null);
+        return;
+      }
+
+      setJobProgress(job as PrewarmJob);
+
+      // Check if job is complete
+      if (job.status === 'completed' || job.status === 'completed_with_errors' || job.status === 'failed') {
+        setActiveJobId(null);
+        
+        if (job.status === 'failed') {
+          toast({
+            title: language === 'fr' ? 'Erreur' : 'Error',
+            description: job.error_message || (language === 'fr' ? 'Le rafraîchissement a échoué' : 'Refresh failed'),
+            variant: 'destructive',
+          });
+        } else {
+          const totalFetched = (job.amazon_fetched || 0) + (job.ebay_fetched || 0);
+          toast({
+            title: language === 'fr' ? '✓ Accueil rafraîchi!' : '✓ Home refreshed!',
+            description: language === 'fr' 
+              ? `${job.sections_completed}/${job.sections_total} sections, ${totalFetched} produits`
+              : `${job.sections_completed}/${job.sections_total} sections, ${totalFetched} products`,
+          });
+        }
+        
+        // Clear progress after a delay
+        setTimeout(() => setJobProgress(null), 5000);
+        return;
+      }
+
+      // Continue polling if still processing
+      pollingRef.current = setTimeout(() => pollJobStatus(jobId), 2000);
+    } catch (err) {
+      console.error('Polling error:', err);
+      setActiveJobId(null);
+      setJobProgress(null);
+    }
+  }, [language]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearTimeout(pollingRef.current);
+      }
+    };
+  }, []);
+
   const prewarmMutation = useMutation({
     mutationFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -234,7 +318,6 @@ export default function CatalogSourcesSettings() {
 
       if (response.error) throw response.error;
       
-      // Validate response
       const result = response.data;
       if (!result?.ok) {
         throw new Error(result?.error || 'Prewarm failed');
@@ -243,21 +326,40 @@ export default function CatalogSourcesSettings() {
       return result;
     },
     onSuccess: (data) => {
-      const totalFetched = (data?.totalAmazonFetched || 0) + (data?.totalEbayFetched || 0);
-      const sectionsProcessed = data?.sectionsProcessed || 0;
-      const durationSec = Math.round((data?.durationMs || 0) / 1000);
-      
-      toast({
-        title: language === 'fr' ? '✓ Accueil rafraîchi!' : '✓ Home refreshed!',
-        description: language === 'fr' 
-          ? `${sectionsProcessed} sections, ${totalFetched} produits en ${durationSec}s`
-          : `${sectionsProcessed} sections, ${totalFetched} products in ${durationSec}s`,
-      });
+      // Start polling for job progress
+      if (data.jobId) {
+        setActiveJobId(data.jobId);
+        setJobProgress({
+          id: data.jobId,
+          status: 'pending',
+          rotation_key: data.rotationKey,
+          sections_total: data.sectionsTotal || 8,
+          sections_completed: 0,
+          current_section: null,
+          amazon_fetched: 0,
+          ebay_fetched: 0,
+          mixed_total: 0,
+          error_message: null,
+          started_at: null,
+          completed_at: null,
+          created_at: new Date().toISOString(),
+        });
+        
+        toast({
+          title: language === 'fr' ? 'Rafraîchissement démarré' : 'Refresh started',
+          description: language === 'fr' 
+            ? 'Traitement en arrière-plan...'
+            : 'Processing in background...',
+        });
+        
+        // Start polling
+        pollingRef.current = setTimeout(() => pollJobStatus(data.jobId), 1500);
+      }
     },
     onError: (error) => {
       toast({
         title: language === 'fr' ? 'Erreur' : 'Error',
-        description: error instanceof Error ? error.message : 'Failed to refresh home',
+        description: error instanceof Error ? error.message : 'Failed to start refresh',
         variant: 'destructive',
       });
     },
@@ -720,10 +822,10 @@ export default function CatalogSourcesSettings() {
               variant="default"
               size="lg"
               onClick={() => prewarmMutation.mutate()}
-              disabled={prewarmMutation.isPending}
+              disabled={prewarmMutation.isPending || !!activeJobId}
               className="gap-2 bg-primary hover:bg-primary/90"
             >
-              {prewarmMutation.isPending ? (
+              {(prewarmMutation.isPending || activeJobId) ? (
                 <RefreshCw className="h-5 w-5 animate-spin" />
               ) : (
                 <RefreshCw className="h-5 w-5" />
@@ -733,20 +835,68 @@ export default function CatalogSourcesSettings() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Manual Refresh Info */}
-          <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
-            <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
-            <div className="text-sm">
-              <p className="font-medium text-foreground">
-                {language === 'fr' ? 'Rafraîchissement manuel' : 'Manual Refresh'}
-              </p>
-              <p className="text-muted-foreground">
-                {language === 'fr' 
-                  ? "Cliquez sur 'Rafraîchir Maintenant' pour mettre à jour immédiatement les produits de la page d'accueil. La rotation automatique de 12h reste active."
-                  : "Click 'Refresh Home Now' to immediately update home page products. The automatic 12h rotation remains active."}
-              </p>
+          {/* Progress Display */}
+          {jobProgress && (
+            <div className="p-4 rounded-lg border bg-muted/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {jobProgress.status === 'completed' || jobProgress.status === 'completed_with_errors' ? (
+                    <CheckCircle2 className="h-5 w-5 text-green-500" />
+                  ) : jobProgress.status === 'failed' ? (
+                    <XCircle className="h-5 w-5 text-destructive" />
+                  ) : (
+                    <RefreshCw className="h-5 w-5 animate-spin text-primary" />
+                  )}
+                  <span className="font-medium">
+                    {jobProgress.status === 'pending' && (language === 'fr' ? 'Démarrage...' : 'Starting...')}
+                    {jobProgress.status === 'processing' && (language === 'fr' ? 'Traitement en cours...' : 'Processing...')}
+                    {jobProgress.status === 'completed' && (language === 'fr' ? 'Terminé!' : 'Complete!')}
+                    {jobProgress.status === 'completed_with_errors' && (language === 'fr' ? 'Terminé avec erreurs' : 'Completed with errors')}
+                    {jobProgress.status === 'failed' && (language === 'fr' ? 'Échec' : 'Failed')}
+                  </span>
+                </div>
+                <span className="text-sm text-muted-foreground">
+                  {jobProgress.sections_completed}/{jobProgress.sections_total} sections
+                </span>
+              </div>
+              
+              <Progress 
+                value={(jobProgress.sections_completed / jobProgress.sections_total) * 100} 
+                className="h-2"
+              />
+              
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>
+                  {jobProgress.current_section && (
+                    <>
+                      {language === 'fr' ? 'Section: ' : 'Section: '}
+                      <span className="font-medium text-foreground">{jobProgress.current_section}</span>
+                    </>
+                  )}
+                </span>
+                <span>
+                  Amazon: {jobProgress.amazon_fetched} | eBay: {jobProgress.ebay_fetched} | Mixed: {jobProgress.mixed_total}
+                </span>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Manual Refresh Info */}
+          {!jobProgress && (
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+              <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-foreground">
+                  {language === 'fr' ? 'Rafraîchissement manuel' : 'Manual Refresh'}
+                </p>
+                <p className="text-muted-foreground">
+                  {language === 'fr' 
+                    ? "Cliquez sur 'Rafraîchir Maintenant' pour mettre à jour immédiatement les produits de la page d'accueil. La rotation automatique de 12h reste active."
+                    : "Click 'Refresh Home Now' to immediately update home page products. The automatic 12h rotation remains active."}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid md:grid-cols-3 gap-4">
             <div className="space-y-2">

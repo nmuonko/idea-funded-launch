@@ -256,8 +256,15 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const envConfig = await getEnvironmentConfig(supabase, envName);
-    if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
+    // Check if this is an internal service role call (from mediaCache)
+    const authHeader = req.headers.get("authorization") || "";
+    const isServiceRoleCall = authHeader.includes(supabaseKey);
+
+    // Skip catalog enabled check for internal service calls (allows media enrichment to work)
+    if (!isServiceRoleCall) {
+      const envConfig = await getEnvironmentConfig(supabase, envName);
+      if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
+    }
 
     // ========== DB-FIRST: Check catalog_items ==========
     console.log(`[DETAIL_DB] id=${fullProductId} provider=${effectiveProvider} checking...`);

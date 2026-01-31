@@ -616,7 +616,7 @@ export async function getEbayItem(
   }
 
   const data = await response.json();
-  const item = await normalizeItemDetail(data);
+  const item = await normalizeItemDetail(data, supabase);
   
   debugLog("EBAY_ITEM_RES", { 
     status: response.status, 
@@ -688,7 +688,7 @@ async function getEbayItemWithToken(
   }
 
   const data = await response.json();
-  const item = await normalizeItemDetail(data);
+  const item = await normalizeItemDetail(data, null); // No supabase in token retry path
   
   return {
     item,
@@ -701,7 +701,7 @@ async function getEbayItemWithToken(
   };
 }
 
-async function normalizeItemDetail(item: any): Promise<CatalogItem> {
+async function normalizeItemDetail(item: any, supabase?: any): Promise<CatalogItem> {
   // Extract attributes from localizedAspects
   const attributes: Record<string, string> = {};
   if (item.localizedAspects) {
@@ -721,7 +721,7 @@ async function normalizeItemDetail(item: any): Promise<CatalogItem> {
   const mainImage = item.image?.imageUrl ? upgradeImageToHighRes(item.image.imageUrl) : null;
   
   // Use async image extraction to potentially scrape more images
-  const images = await extractDetailImagesAsync(item);
+  const images = await extractDetailImagesAsync(item, supabase);
   
   return {
     id: `ebay:${item.itemId}`,
@@ -809,14 +809,94 @@ function extractImages(item: any): string[] {
   return images.slice(0, 2); // Strictly limit to 2 images for lists
 }
 
+// ─── Scraping Safeguards ───────────────────────────────────────────────────
+
+// In-memory error tracking for auto-disable (reset on cold start)
+const scrapeErrorTracker = {
+  errorCount: 0,
+  successCount: 0,
+  windowStart: Date.now(),
+  windowMs: 5 * 60 * 1000, // 5-minute window
+  disabledUntil: 0,
+};
+
+// Reset error window if expired
+function maybeResetScrapeWindow() {
+  const now = Date.now();
+  if (now - scrapeErrorTracker.windowStart > scrapeErrorTracker.windowMs) {
+    scrapeErrorTracker.errorCount = 0;
+    scrapeErrorTracker.successCount = 0;
+    scrapeErrorTracker.windowStart = now;
+  }
+}
+
+// Check if scraping is currently auto-disabled due to high error rate
+function isScrapingAutoDisabled(): boolean {
+  const now = Date.now();
+  if (now < scrapeErrorTracker.disabledUntil) {
+    return true;
+  }
+  
+  maybeResetScrapeWindow();
+  
+  const totalRequests = scrapeErrorTracker.errorCount + scrapeErrorTracker.successCount;
+  // If error rate > 50% in window with at least 5 attempts, auto-disable for 10 minutes
+  if (totalRequests >= 5) {
+    const errorRate = scrapeErrorTracker.errorCount / totalRequests;
+    if (errorRate > 0.5) {
+      scrapeErrorTracker.disabledUntil = now + 10 * 60 * 1000; // 10 min backoff
+      console.warn(`[EBAY_SCRAPE] Auto-disabled for 10 min due to high error rate: ${(errorRate * 100).toFixed(0)}%`);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Check admin kill-switch from settings
+async function isScrapingEnabled(supabase: any): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "ebay_scraping_enabled")
+      .maybeSingle();
+    
+    // Default to enabled if setting doesn't exist
+    if (!data) return true;
+    return data.value !== "false" && data.value !== "0";
+  } catch {
+    return true; // Default enabled on error
+  }
+}
+
 /**
  * Scrape images directly from eBay item webpage
  * Used as fallback when Browse API returns limited images
  * Returns array of high-res image URLs
+ * 
+ * SAFEGUARDS:
+ * - Admin kill-switch via admin_settings.ebay_scraping_enabled
+ * - Auto-disable on high error rate (>50% in 5 min window)
+ * - 10-minute backoff when disabled
  */
-async function scrapeEbayImages(itemId: string): Promise<string[]> {
+async function scrapeEbayImages(itemId: string, supabase?: any): Promise<string[]> {
   const images: string[] = [];
   const seen = new Set<string>();
+  
+  // Check auto-disable first (no DB call needed)
+  if (isScrapingAutoDisabled()) {
+    debugLog("EBAY_SCRAPE_SKIPPED", { itemId, reason: "auto_disabled" });
+    return [];
+  }
+  
+  // Check admin kill-switch
+  if (supabase) {
+    const enabled = await isScrapingEnabled(supabase);
+    if (!enabled) {
+      debugLog("EBAY_SCRAPE_SKIPPED", { itemId, reason: "admin_disabled" });
+      return [];
+    }
+  }
   
   try {
     const url = `https://www.ebay.com/itm/${itemId}`;
@@ -831,6 +911,7 @@ async function scrapeEbayImages(itemId: string): Promise<string[]> {
     });
     
     if (!response.ok) {
+      scrapeErrorTracker.errorCount++;
       debugLog("EBAY_SCRAPE_FAILED", { itemId, status: response.status });
       return [];
     }
@@ -850,10 +931,13 @@ async function scrapeEbayImages(itemId: string): Promise<string[]> {
       }
     }
     
+    // Track success
+    scrapeErrorTracker.successCount++;
     debugLog("EBAY_SCRAPE_RESULT", { itemId, imagesFound: images.length });
     return images;
     
   } catch (err) {
+    scrapeErrorTracker.errorCount++;
     debugLog("EBAY_SCRAPE_ERROR", { itemId, error: err instanceof Error ? err.message : "Unknown" });
     return [];
   }
@@ -873,20 +957,20 @@ async function scrapeEbayImages(itemId: string): Promise<string[]> {
  * 
  * For multi-variation listings with many images, also tries scraping the webpage
  */
-async function extractDetailImagesAsync(item: any): Promise<string[]> {
+async function extractDetailImagesAsync(item: any, supabase?: any): Promise<string[]> {
   // First, get images from API response
   const apiImages = extractDetailImagesFromApi(item);
   
-  // ALWAYS try scraping for eBay items to get the full gallery
-  // The API often returns limited images (8-15) while the page has 30+
-  if (item.itemId) {
+  // Only attempt scraping if we have an item ID and API returned incomplete data
+  // Threshold: scrape if API returned fewer than 15 images (multi-variation listings often have 30+)
+  if (item.itemId && apiImages.length < 15) {
     debugLog("EBAY_IMAGES_SCRAPING", { 
       itemId: item.itemId, 
       apiImageCount: apiImages.length,
-      reason: "Always scrape to maximize gallery images"
+      reason: "API returned < 15 images, trying scrape for more"
     });
     
-    const scrapedImages = await scrapeEbayImages(item.itemId);
+    const scrapedImages = await scrapeEbayImages(item.itemId, supabase);
     
     if (scrapedImages.length > apiImages.length) {
       debugLog("EBAY_IMAGES_SCRAPED_MORE", { 

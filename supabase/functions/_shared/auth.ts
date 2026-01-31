@@ -99,7 +99,7 @@ const AUTH_CACHE_TTL = 30_000; // 30 seconds
  * Uses SERVICE_ROLE to validate the token server-side
  * Includes short-lived caching for performance (30s TTL)
  */
-export async function verifyAndGetUser(req: Request): Promise<{ user: User; supabase: SupabaseClient }> {
+export async function verifyAndGetUser(req: Request, _supabase?: any): Promise<{ user: User; supabase: SupabaseClient }> {
   const authHeader = req.headers.get('Authorization');
   const token = extractBearerToken(authHeader);
   
@@ -188,14 +188,45 @@ export class AuthError extends Error {
 }
 
 /**
- * Creates a JSON error response with CORS headers
+ * Creates a 401 Unauthorized response with CORS headers
  */
-export function errorResponse(message: string, status: number = 500): Response {
+export function unauthorizedResponse(headers: Record<string, string> = corsHeaders): Response {
   return new Response(
-    JSON.stringify({ code: status, message }),
+    JSON.stringify({ ok: false, error: "Unauthorized" }),
     { 
-      status, 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      status: 401, 
+      headers: { ...headers, 'Content-Type': 'application/json' } 
+    }
+  );
+}
+
+/**
+ * Creates a JSON error response with CORS headers
+ * @param message - Error message
+ * @param statusOrHeaders - Status code (number) or custom headers (object)
+ * @param status - Status code when headers are provided as second arg
+ */
+export function errorResponse(
+  message: string, 
+  statusOrHeaders: number | Record<string, string> = 500,
+  status: number = 500
+): Response {
+  let finalStatus: number;
+  let finalHeaders: Record<string, string>;
+  
+  if (typeof statusOrHeaders === 'number') {
+    finalStatus = statusOrHeaders;
+    finalHeaders = corsHeaders;
+  } else {
+    finalStatus = status;
+    finalHeaders = statusOrHeaders;
+  }
+  
+  return new Response(
+    JSON.stringify({ ok: false, code: finalStatus, message }),
+    { 
+      status: finalStatus, 
+      headers: { ...finalHeaders, 'Content-Type': 'application/json' } 
     }
   );
 }

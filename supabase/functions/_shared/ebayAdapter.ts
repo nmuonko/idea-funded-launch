@@ -616,7 +616,7 @@ export async function getEbayItem(
   }
 
   const data = await response.json();
-  const item = normalizeItemDetail(data);
+  const item = await normalizeItemDetail(data);
   
   debugLog("EBAY_ITEM_RES", { 
     status: response.status, 
@@ -688,7 +688,7 @@ async function getEbayItemWithToken(
   }
 
   const data = await response.json();
-  const item = normalizeItemDetail(data);
+  const item = await normalizeItemDetail(data);
   
   return {
     item,
@@ -701,7 +701,7 @@ async function getEbayItemWithToken(
   };
 }
 
-function normalizeItemDetail(item: any): CatalogItem {
+async function normalizeItemDetail(item: any): Promise<CatalogItem> {
   // Extract attributes from localizedAspects
   const attributes: Record<string, string> = {};
   if (item.localizedAspects) {
@@ -720,6 +720,9 @@ function normalizeItemDetail(item: any): CatalogItem {
   // Use high-res image for main display
   const mainImage = item.image?.imageUrl ? upgradeImageToHighRes(item.image.imageUrl) : null;
   
+  // Use async image extraction to potentially scrape more images
+  const images = await extractDetailImagesAsync(item);
+  
   return {
     id: `ebay:${item.itemId}`,
     provider: "ebay",
@@ -728,7 +731,7 @@ function normalizeItemDetail(item: any): CatalogItem {
     priceUsd: extractPrice(item.price),
     currency: item.price?.currency || "USD",
     imageUrl: mainImage,
-    images: extractDetailImages(item),
+    images,
     productUrl: item.itemWebUrl || "",
     inStock: item.estimatedAvailabilities?.[0]?.availabilityStatus !== "OUT_OF_STOCK",
     rating: null,
@@ -807,6 +810,56 @@ function extractImages(item: any): string[] {
 }
 
 /**
+ * Scrape images directly from eBay item webpage
+ * Used as fallback when Browse API returns limited images
+ * Returns array of high-res image URLs
+ */
+async function scrapeEbayImages(itemId: string): Promise<string[]> {
+  const images: string[] = [];
+  const seen = new Set<string>();
+  
+  try {
+    const url = `https://www.ebay.com/itm/${itemId}`;
+    debugLog("EBAY_SCRAPE_START", { itemId, url });
+    
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+    });
+    
+    if (!response.ok) {
+      debugLog("EBAY_SCRAPE_FAILED", { itemId, status: response.status });
+      return [];
+    }
+    
+    const html = await response.text();
+    
+    // Pattern 1: Match image URLs in the format https://i.ebayimg.com/images/g/{hash}/s-l{size}.{ext}
+    const imgPattern = /https:\/\/i\.ebayimg\.com\/images\/g\/[A-Za-z0-9~_-]+\/s-l\d+\.(jpg|webp|png)/gi;
+    const matches = html.match(imgPattern) || [];
+    
+    for (const imgUrl of matches) {
+      // Upgrade all to high-res s-l1600
+      const upgraded = imgUrl.replace(/s-l\d+/g, "s-l1600").replace(/\.webp$/, ".jpg");
+      if (!seen.has(upgraded)) {
+        seen.add(upgraded);
+        images.push(upgraded);
+      }
+    }
+    
+    debugLog("EBAY_SCRAPE_RESULT", { itemId, imagesFound: images.length });
+    return images;
+    
+  } catch (err) {
+    debugLog("EBAY_SCRAPE_ERROR", { itemId, error: err instanceof Error ? err.message : "Unknown" });
+    return [];
+  }
+}
+
+/**
  * Extract ALL images from eBay item detail for PRODUCT DETAIL view
  * NO LIMIT - returns all available images in high-res
  * Used by getItem for product detail pages
@@ -817,8 +870,42 @@ function extractImages(item: any): string[] {
  * - item.galleryImages[] - alternate gallery field (rare)
  * - item.images[] - sometimes a flat array of image objects
  * - item.pictureURLs[] - eBay-specific field in some responses (strings)
+ * 
+ * For multi-variation listings with many images, also tries scraping the webpage
  */
-function extractDetailImages(item: any): string[] {
+async function extractDetailImagesAsync(item: any): Promise<string[]> {
+  // First, get images from API response
+  const apiImages = extractDetailImagesFromApi(item);
+  
+  // If API returned fewer than 10 images, try scraping the webpage for more
+  // (eBay multi-variation listings often have 20-50+ images not exposed via API)
+  if (apiImages.length < 10 && item.itemId) {
+    debugLog("EBAY_IMAGES_SUPPLEMENTING", { 
+      itemId: item.itemId, 
+      apiImageCount: apiImages.length,
+      reason: "Trying webpage scrape for additional images"
+    });
+    
+    const scrapedImages = await scrapeEbayImages(item.itemId);
+    
+    if (scrapedImages.length > apiImages.length) {
+      debugLog("EBAY_IMAGES_SCRAPED_MORE", { 
+        itemId: item.itemId, 
+        apiCount: apiImages.length,
+        scrapedCount: scrapedImages.length,
+        using: "scraped"
+      });
+      return scrapedImages;
+    }
+  }
+  
+  return apiImages;
+}
+
+/**
+ * Extract images from API response only (synchronous, for backwards compat)
+ */
+function extractDetailImagesFromApi(item: any): string[] {
   const seen = new Set<string>();
   const images: string[] = [];
   

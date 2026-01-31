@@ -4,7 +4,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, ShoppingCart, Trash2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ExternalLink, ShoppingCart, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -48,6 +50,9 @@ interface Cart {
   items: CartItem[];
 }
 
+type SortField = 'updated_at' | 'total_usd' | 'item_count' | 'created_at';
+type SortOrder = 'asc' | 'desc';
+
 export default function ActiveCartsContent() {
   const [carts, setCarts] = useState<Cart[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,24 +61,110 @@ export default function ActiveCartsContent() {
   const { permissions } = useAdminPermissions();
   const { language } = useLanguage();
 
+  // Sort and filter state
+  const [sortField, setSortField] = useState<SortField>('updated_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
   useEffect(() => {
     loadCarts();
-  }, []);
+  }, [sortField, sortOrder, statusFilter]);
 
   const loadCarts = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase.functions.invoke('admin-get-carts');
+      
+      // Build query params
+      const params = new URLSearchParams();
+      params.set('sortBy', sortField);
+      params.set('sortOrder', sortOrder);
+      if (statusFilter !== 'all') {
+        params.set('status', statusFilter);
+      }
+      
+      const { data, error } = await supabase.functions.invoke('admin-get-carts', {
+        body: null,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
+      // Since we can't easily pass query params to invoke, we'll filter/sort client-side
+      // for now (the backend also supports it)
       if (error) throw error;
 
-      setCarts(data.carts || []);
+      let cartsData = data.carts || [];
+      
+      // Apply client-side sorting since supabase.functions.invoke doesn't support query params well
+      cartsData.sort((a: Cart, b: Cart) => {
+        let aVal: number | string;
+        let bVal: number | string;
+        
+        switch (sortField) {
+          case 'total_usd':
+            aVal = a.totalUsd;
+            bVal = b.totalUsd;
+            break;
+          case 'item_count':
+            aVal = a.itemCount;
+            bVal = b.itemCount;
+            break;
+          case 'created_at':
+            aVal = a.createdAt;
+            bVal = b.createdAt;
+            break;
+          default:
+            aVal = a.updatedAt;
+            bVal = b.updatedAt;
+        }
+        
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+          return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+        return sortOrder === 'asc' 
+          ? String(aVal).localeCompare(String(bVal))
+          : String(bVal).localeCompare(String(aVal));
+      });
+      
+      // Apply status filter
+      if (statusFilter !== 'all') {
+        cartsData = cartsData.filter((cart: Cart) => cart.status === statusFilter);
+      }
+
+      setCarts(cartsData);
     } catch (error) {
       console.error('Error loading carts:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
+  };
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 opacity-50" />;
+    }
+    return sortOrder === 'asc' 
+      ? <ArrowUp className="h-4 w-4 ml-1" />
+      : <ArrowDown className="h-4 w-4 ml-1" />;
+  };
+
+  const filteredCarts = carts.filter(cart => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return cart.userName.toLowerCase().includes(query) || 
+           cart.userPhone.includes(query) ||
+           cart.cartId.toLowerCase().includes(query);
+  });
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, 'default' | 'secondary' | 'outline'> = {
@@ -110,11 +201,36 @@ export default function ActiveCartsContent() {
     shippingFee: language === 'fr' ? 'Frais de livraison' : 'Shipping Fee',
     serviceFee: language === 'fr' ? 'Frais de service' : 'Service Fee',
     total: language === 'fr' ? 'Total' : 'Total',
+    searchPlaceholder: language === 'fr' ? 'Rechercher par nom ou téléphone...' : 'Search by name or phone...',
+    allStatuses: language === 'fr' ? 'Tous les statuts' : 'All Statuses',
+    draft: language === 'fr' ? 'Brouillon' : 'Draft',
+    pendingPayment: language === 'fr' ? 'Paiement en attente' : 'Pending Payment',
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex flex-col sm:flex-row gap-3 flex-1 w-full sm:w-auto">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={cartsText.searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder={cartsText.allStatuses} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{cartsText.allStatuses}</SelectItem>
+              <SelectItem value="DRAFT">{cartsText.draft}</SelectItem>
+              <SelectItem value="PENDING_PAYMENT">{cartsText.pendingPayment}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {permissions?.isSuperAdmin && (
           <Button 
             variant="destructive" 
@@ -137,12 +253,12 @@ export default function ActiveCartsContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{cartsText.activeCarts} ({carts.length})</CardTitle>
+          <CardTitle>{cartsText.activeCarts} ({filteredCarts.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-8">{cartsText.loading}</div>
-          ) : carts.length === 0 ? (
+          ) : filteredCarts.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">{cartsText.noActiveCarts}</div>
           ) : (
             <Table>
@@ -150,15 +266,39 @@ export default function ActiveCartsContent() {
                 <TableRow>
                   <TableHead>{cartsText.user}</TableHead>
                   <TableHead>{cartsText.status}</TableHead>
-                  <TableHead>{cartsText.items}</TableHead>
-                  <TableHead>{cartsText.totalUsd}</TableHead>
+                  <TableHead>
+                    <button 
+                      onClick={() => handleSort('item_count')}
+                      className="flex items-center hover:text-foreground transition-colors"
+                    >
+                      {cartsText.items}
+                      {getSortIcon('item_count')}
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button 
+                      onClick={() => handleSort('total_usd')}
+                      className="flex items-center hover:text-foreground transition-colors"
+                    >
+                      {cartsText.totalUsd}
+                      {getSortIcon('total_usd')}
+                    </button>
+                  </TableHead>
                   <TableHead>{cartsText.totalCdf}</TableHead>
-                  <TableHead>{cartsText.lastUpdated}</TableHead>
+                  <TableHead>
+                    <button 
+                      onClick={() => handleSort('updated_at')}
+                      className="flex items-center hover:text-foreground transition-colors"
+                    >
+                      {cartsText.lastUpdated}
+                      {getSortIcon('updated_at')}
+                    </button>
+                  </TableHead>
                   <TableHead>{cartsText.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {carts.map((cart) => (
+                {filteredCarts.map((cart) => (
                   <TableRow key={cart.cartId}>
                     <TableCell>
                       <div className="font-medium">{cart.userName}</div>

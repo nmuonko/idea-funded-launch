@@ -16,6 +16,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
+import { searchRainforest } from "../_shared/rainforestAdapter.ts";
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { mapCategoryAndSubcategory } from "../_shared/categoryMapper.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
@@ -40,6 +41,14 @@ import {
 } from "../_shared/catalogCache.ts";
 import { rewriteSearchQuery, SearchMeta } from "../_shared/searchRewriter.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
+import { 
+  getAmazonLiveSettings, 
+  shouldUseAmazonLive, 
+  buildAmazonCacheKey,
+  logMixerRequest,
+  AmazonLiveDecision,
+  AmazonLiveReason,
+} from "../_shared/amazonLivePolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -100,7 +109,10 @@ interface SearchResponse {
   total: number;
   facets?: unknown[];
   appliedFilters?: Record<string, unknown>;
-  providerStats: ProviderStats;
+  providerStats: ProviderStats & {
+    amazonLiveUsed?: boolean;
+    amazonLiveReason?: AmazonLiveReason;
+  };
   searchMeta?: SearchMeta;  // Query rewrite metadata
   mediaStats?: MediaEnrichmentStats;  // Media cache enrichment stats (dev only)
   durationMs: number;
@@ -380,8 +392,10 @@ Deno.serve(async (req: Request) => {
     let amazonCacheHit = false;
     let amazonBudgetRemaining: number | null = null;
     let amazonStatus: AmazonStatusInfo["status"] = "disabled";
+    let amazonLiveUsed = false;
+    let amazonLiveReason: AmazonLiveReason = "disabled";
 
-    // ─── Amazon (DB-cached only) ──────────────────────────────────────────────
+    // ─── Amazon (Smart Live + Cache) ──────────────────────────────────────────
     if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay") {
       try {
         // Check budget
@@ -394,53 +408,181 @@ Deno.serve(async (req: Request) => {
         );
         amazonBudgetRemaining = budgetStatus.remaining;
 
+        // Load live settings
+        const liveSettings = await getAmazonLiveSettings(supabase);
+
         // Check if cap hit for this query
         const queryCapHit = mixerCursor.amazonReturnedSoFar >= settings.amazonMaxResultsPerQuery;
 
         if (queryCapHit) {
           amazonStatus = "cap_exhausted";
+          amazonLiveReason = "cache_only";
           console.log(`[SEARCH] requestId=${requestId} Amazon cap exhausted: ${mixerCursor.amazonReturnedSoFar}/${settings.amazonMaxResultsPerQuery}`);
-        } else if (!budgetStatus.allowed) {
-          amazonStatus = "budget_exceeded";
-          console.log(`[AMAZON_BUDGET] requestId=${requestId} Budget exceeded`);
         } else {
-          // Fetch from DB (cached Amazon data)
-          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${qNorm}" category_key=${categoryKey}`);
+          // Determine if we should use live API
+          const liveDecision = shouldUseAmazonLive({
+            endpoint: "search",
+            query: qNorm,
+            amazonPage: mixerCursor.amazonPage,
+            amazonEnabled: effectiveMode.amazonActive,
+            budgetAllowed: budgetStatus.allowed,
+            budgetRemaining: budgetStatus.remaining,
+            liveSettings,
+            requestId,
+          });
 
-          let amazonQuery = supabase
-            .from("catalog_items")
-            .select("*", { count: "exact" })
-            .or("provider.eq.rainforest,provider.eq.amazon")
-            .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`);
+          amazonLiveReason = liveDecision.reason;
 
-          // Apply category filter if provided - but also include uncategorized items matching query
-          if (categoryKey) {
-            const parentCategory = categoryKey.split("_")[0];
-            // Include items matching category OR uncategorized (legacy data)
-            amazonQuery = amazonQuery.or(`unified_category.eq.${parentCategory},unified_category.is.null,unified_category.eq.uncategorized`);
+          if (liveDecision.useLive) {
+            // ─── LIVE RAINFOREST API ─────────────────────────────────────────
+            console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${qNorm}" page=${mixerCursor.amazonPage}`);
+            
+            const liveResult = await searchRainforest(qNorm, mixerCursor.amazonPage, limit, "amazon.com");
+            
+            if (!liveResult.error && liveResult.products.length > 0) {
+              amazonLiveUsed = true;
+              amazonStatus = "live";
+
+              // Increment budget after successful call
+              await incrementBudget(supabase, "amazon", settings.amazonBudgetWindow, requestId);
+              amazonBudgetRemaining = Math.max(0, (amazonBudgetRemaining || 0) - 1);
+
+              // Map live products to CatalogItem format
+              amazonItems = liveResult.products.map(p => ({
+                id: `amazon_${p.providerProductId}`,
+                provider: "rainforest",
+                providerProductId: p.providerProductId,
+                title: p.title,
+                priceUsd: p.priceUsd,
+                currency: "USD",
+                mainImageUrl: upgradeAmazonImage(p.imageUrl),
+                imageUrl: upgradeAmazonImage(p.imageUrl),
+                imageCount: 1,
+                productUrl: p.productUrl,
+                inStock: p.inStock ?? true,
+                rating: p.rating,
+                category: categoryKey || undefined,
+              }));
+              amazonHasMore = liveResult.hasMore;
+
+              // Cache the live results for future pages
+              const cacheKey = buildAmazonCacheKey({ query: qNorm, categoryKey, page: mixerCursor.amazonPage });
+              const now = new Date();
+              const cacheTtlSeconds = settings.searchCacheTtlSeconds || 172800;
+              const expiresAt = new Date(now.getTime() + cacheTtlSeconds * 1000);
+              const staleAt = new Date(now.getTime() + (cacheTtlSeconds / 2) * 1000);
+
+              supabase.from("catalog_cache").upsert({
+                cache_key: cacheKey,
+                cache_type: "search_amazon",
+                provider: "rainforest",
+                query: qNorm,
+                category: categoryKey,
+                page: mixerCursor.amazonPage,
+                response: { products: liveResult.products, total: liveResult.total, hasMore: liveResult.hasMore },
+                expires_at: expiresAt.toISOString(),
+                stale_at: staleAt.toISOString(),
+                updated_at: now.toISOString(),
+              }, { onConflict: "cache_key" });
+
+              // Upsert into catalog_items for future DB queries
+              const toUpsert = liveResult.products.map(p => {
+                const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
+                  title: p.title || "",
+                  provider: "rainforest",
+                  productUrl: p.productUrl || "",
+                });
+                return {
+                  id: `amazon_${p.providerProductId}`,
+                  provider: "rainforest",
+                  provider_product_id: p.providerProductId,
+                  title: p.title,
+                  price_usd: p.priceUsd,
+                  image_url: p.imageUrl,
+                  images: p.imageUrl ? [p.imageUrl] : [],
+                  product_url: p.productUrl,
+                  in_stock: p.inStock ?? true,
+                  rating: p.rating,
+                  unified_category: mappedCat !== "blocked" ? mappedCat : (categoryKey?.split("_")[0] || "electronics"),
+                  unified_subcategory: subcategory,
+                  updated_at: now.toISOString(),
+                };
+              });
+
+              supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+
+              console.log(`[SEARCH] requestId=${requestId} Amazon LIVE returned ${amazonItems.length} items`);
+            }
           }
 
-          const { data: amazonData, count } = await amazonQuery
-            .order("rating", { ascending: false, nullsFirst: false })
-            .range(
-              mixerCursor.amazonReturnedSoFar,
-              mixerCursor.amazonReturnedSoFar + limit - 1
-            );
+          // If no live results or live not used, fall back to cache/DB
+          if (amazonItems.length === 0) {
+            // Try cache first
+            const cacheKey = buildAmazonCacheKey({ query: qNorm, categoryKey, page: mixerCursor.amazonPage });
+            const { data: cachedData } = await supabase
+              .from("catalog_cache")
+              .select("response, expires_at")
+              .eq("cache_key", cacheKey)
+              .gt("expires_at", new Date().toISOString())
+              .single();
 
-          if (amazonData && amazonData.length > 0) {
-            // Force the resolved category on returned items if category_key was provided
-            amazonItems = amazonData.map(item => {
-              const mapped = mapDbItemToResponse(item as Record<string, unknown>);
-              // Override category if provided in request
+            if (cachedData?.response) {
+              const cached = cachedData.response as { products: Array<Record<string, unknown>>; hasMore: boolean };
+              amazonItems = cached.products.map(p => ({
+                id: `amazon_${p.providerProductId}`,
+                provider: "rainforest",
+                providerProductId: p.providerProductId as string,
+                title: p.title as string | null,
+                priceUsd: p.priceUsd as number | null,
+                currency: "USD",
+                mainImageUrl: upgradeAmazonImage(p.imageUrl as string | null),
+                imageUrl: upgradeAmazonImage(p.imageUrl as string | null),
+                imageCount: 1,
+                productUrl: p.productUrl as string | null,
+                inStock: (p.inStock as boolean | null) ?? true,
+                rating: p.rating as number | null,
+                category: categoryKey || undefined,
+              }));
+              amazonHasMore = cached.hasMore;
+              amazonCacheHit = true;
+              amazonStatus = "cached";
+              console.log(`[SEARCH] requestId=${requestId} Amazon CACHE hit: ${amazonItems.length} items`);
+            } else {
+              // Fall back to DB search
+              console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${qNorm}" category_key=${categoryKey}`);
+
+              let amazonQuery = supabase
+                .from("catalog_items")
+                .select("*", { count: "exact" })
+                .or("provider.eq.rainforest,provider.eq.amazon")
+                .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`);
+
               if (categoryKey) {
-                mapped.category = categoryKey;
+                const parentCategory = categoryKey.split("_")[0];
+                amazonQuery = amazonQuery.or(`unified_category.eq.${parentCategory},unified_category.is.null,unified_category.eq.uncategorized`);
               }
-              return mapped;
-            });
-            amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
-            amazonCacheHit = true;
-            amazonStatus = "cached";
-            console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${amazonItems.length} items`);
+
+              const { data: amazonData, count } = await amazonQuery
+                .order("rating", { ascending: false, nullsFirst: false })
+                .range(
+                  mixerCursor.amazonReturnedSoFar,
+                  mixerCursor.amazonReturnedSoFar + limit - 1
+                );
+
+              if (amazonData && amazonData.length > 0) {
+                amazonItems = amazonData.map(item => {
+                  const mapped = mapDbItemToResponse(item as Record<string, unknown>);
+                  if (categoryKey) {
+                    mapped.category = categoryKey;
+                  }
+                  return mapped;
+                });
+                amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
+                amazonCacheHit = true;
+                amazonStatus = "cached";
+                console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${amazonItems.length} items`);
+              }
+            }
           }
         }
       } catch (err) {
@@ -589,19 +731,36 @@ Deno.serve(async (req: Request) => {
     console.log(`[SEARCH_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
 
     // Build provider stats with mixing configuration for transparency
-    const providerStats = buildProviderStats({
+    const providerStats = {
+      ...buildProviderStats({
+        mode: effectiveMode.mode,
+        amazonEnabled: effectiveMode.amazonActive,
+        ebayEnabled: effectiveMode.ebayActive,
+        amazonCacheHit,
+        amazonBudgetRemaining,
+        amazonReturned: mixResult.amazonReturned,
+        amazonCap: settings.amazonMaxResultsPerQuery,
+        amazonStatus,
+        ebayReturned: mixResult.ebayReturned,
+        mixingPhase: mixResult.mixingPhase,
+        amazonFirstCount: settings.mixedAmazonFirstCount,
+        blendRatio: settings.mixedBlendRatio,
+      }),
+      amazonLiveUsed,
+      amazonLiveReason,
+    };
+
+    // Log mixer request summary
+    logMixerRequest({
       mode: effectiveMode.mode,
-      amazonEnabled: effectiveMode.amazonActive,
-      ebayEnabled: effectiveMode.ebayActive,
-      amazonCacheHit,
-      amazonBudgetRemaining,
+      query: qNorm,
+      amazonLiveUsed,
+      amazonLiveReason,
       amazonReturned: mixResult.amazonReturned,
-      amazonCap: settings.amazonMaxResultsPerQuery,
-      amazonStatus,
       ebayReturned: mixResult.ebayReturned,
-      mixingPhase: mixResult.mixingPhase,
-      amazonFirstCount: settings.mixedAmazonFirstCount,
-      blendRatio: settings.mixedBlendRatio,
+      budgetRemaining: amazonBudgetRemaining,
+      amazonCacheHit,
+      requestId,
     });
 
     // Build next cursor

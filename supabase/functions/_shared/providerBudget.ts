@@ -78,14 +78,15 @@ export async function incrementBudget(
   supabase: SupabaseClient,
   provider: string,
   windowType: BudgetWindow,
-  limit: number,
-  requestId: string
+  requestId: string,
+  limit?: number
 ): Promise<BudgetStatus> {
+  const effectiveLimit = limit ?? 100;
   const { data, error } = await supabase
     .rpc("increment_provider_budget", {
       p_provider: provider,
       p_window_type: windowType,
-      p_limit: limit,
+      p_limit: effectiveLimit,
     });
 
   if (error) {

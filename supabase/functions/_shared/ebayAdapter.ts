@@ -529,7 +529,14 @@ export async function getEbayItem(
   }
 
   // Clean the item ID (remove ebay: prefix if present)
-  const cleanId = itemId.startsWith("ebay:") ? itemId.slice(5) : itemId;
+  let cleanId = itemId.startsWith("ebay:") ? itemId.slice(5) : itemId;
+  
+  // If the ID doesn't contain pipes, convert to RESTful format v1|itemId|0
+  // The Browse API expects this format: v1|<itemId>|<variationId or 0>
+  if (!cleanId.includes("|") && /^\d+$/.test(cleanId)) {
+    cleanId = `v1|${cleanId}|0`;
+    debugLog("EBAY_ITEM_ID_CONVERTED", { original: itemId, converted: cleanId });
+  }
   
   // eBay item IDs need pipe encoding
   const encodedId = cleanId.replace(/\|/g, "%7C");
@@ -636,7 +643,12 @@ async function getEbayItemWithToken(
   environment: "production" | "sandbox",
   tokenDebug: EbayTokenDebug
 ): Promise<{ item: CatalogItem | null; debug: EbaySearchDebug }> {
-  const encodedId = itemId.replace(/\|/g, "%7C");
+  // If the ID doesn't contain pipes, convert to RESTful format v1|itemId|0
+  let cleanId = itemId;
+  if (!cleanId.includes("|") && /^\d+$/.test(cleanId)) {
+    cleanId = `v1|${cleanId}|0`;
+  }
+  const encodedId = cleanId.replace(/\|/g, "%7C");
   // Request PRODUCT fieldgroup to get additional images from product catalog
   const endpoint = `${EBAY_ENDPOINTS[environment].browse}/item/${encodedId}?fieldgroups=PRODUCT`;
 

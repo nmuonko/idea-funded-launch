@@ -149,6 +149,9 @@ export interface MixParams {
  * - Blend ratio is respected exactly (not approximated)
  * - Cursor preserves ALL mixer state for consistent pagination
  */
+// Maximum iterations to prevent infinite loops (3x limit as safety margin)
+const MAX_ITERATIONS_MULTIPLIER = 3;
+
 export function mixProviderItems(params: MixParams): MixerResult {
   const {
     amazonItems,
@@ -196,7 +199,26 @@ export function mixProviderItems(params: MixParams): MixerResult {
   // Track providers of returned items for debug
   const returnedProviders: string[] = [];
 
-  while (result.length < limit) {
+  // Iteration guard to prevent infinite loops
+  const maxIterations = limit * MAX_ITERATIONS_MULTIPLIER;
+  let iterations = 0;
+
+  // Early exit if no items available
+  if (amazonItems.length === 0 && ebayItems.length === 0) {
+    debugLog.push(`[MIX] No items available from either provider`);
+    return {
+      items: [],
+      nextCursor: null,
+      hasMore: false,
+      amazonReturned: cursor.amazonReturnedSoFar,
+      ebayReturned: cursor.ebayReturnedSoFar,
+      mixingPhase,
+      debugLog,
+    };
+  }
+
+  while (result.length < limit && iterations < maxIterations) {
+    iterations++;
     const hasAmazon = amazonIndex < amazonItems.length;
     const hasEbay = ebayIndex < ebayItems.length;
 
@@ -294,6 +316,12 @@ export function mixProviderItems(params: MixParams): MixerResult {
         break;
       }
     }
+  }
+
+  // Log warning if we hit iteration limit
+  if (iterations >= maxIterations) {
+    console.warn(`[MIX_WARNING] Hit max iterations (${maxIterations}) - possible infinite loop prevented. Results may be incomplete.`);
+    debugLog.push(`[MIX] WARNING: Hit iteration limit (${maxIterations})`);
   }
 
   // Log first 20 provider sequence

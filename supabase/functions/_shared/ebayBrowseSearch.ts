@@ -191,41 +191,21 @@ function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: st
   };
 }
 
+import { getCachedEbayToken, invalidateEbayTokenCache } from "./settingsMemoryCache.ts";
+
 /**
- * Get eBay OAuth token
+ * Get eBay OAuth token with caching
+ * Uses in-memory cache to avoid fetching token on every request
  */
 async function getEbayToken(): Promise<string | null> {
-  const clientId = Deno.env.get("EBAY_CLIENT_ID");
-  const clientSecret = Deno.env.get("EBAY_CLIENT_SECRET");
+  return getCachedEbayToken();
+}
 
-  if (!clientId || !clientSecret) {
-    console.error("[EBAY_BROWSE] Missing EBAY_CLIENT_ID or EBAY_CLIENT_SECRET");
-    return null;
-  }
-
-  try {
-    const credentials = btoa(`${clientId}:${clientSecret}`);
-    const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": `Basic ${credentials}`,
-      },
-      body: "grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope",
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[EBAY_BROWSE] Token error:", response.status, errorText);
-      return null;
-    }
-
-    const data = await response.json();
-    return data.access_token;
-  } catch (error) {
-    console.error("[EBAY_BROWSE] Token fetch error:", error);
-    return null;
-  }
+/**
+ * Invalidate eBay token cache (call on 401 errors)
+ */
+export function invalidateEbayToken(): void {
+  invalidateEbayTokenCache();
 }
 
 /**

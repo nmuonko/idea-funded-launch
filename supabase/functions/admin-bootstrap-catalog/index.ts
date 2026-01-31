@@ -342,6 +342,37 @@ const DEFAULT_SEEDS = [
   // ============ REFURBISHED ============
   { category: "refurbished", provider: "ebay", seed_key: "refurb_iphone", query: "refurbished iphone" },
   { category: "refurbished", provider: "ebay", seed_key: "refurb_laptop", query: "renewed laptop" },
+  
+  // ============ AMAZON/RAINFOREST SEEDS ============
+  // Phones
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_iphone_15", query: "iphone 15 unlocked", filters: { unifiedSubcategory: "phones" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_iphone_14", query: "iphone 14 unlocked", filters: { unifiedSubcategory: "phones" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_samsung_s24", query: "samsung galaxy s24", filters: { unifiedSubcategory: "phones" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_pixel", query: "google pixel unlocked", filters: { unifiedSubcategory: "phones" } },
+  // Gaming
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_ps5", query: "playstation 5 console", filters: { unifiedSubcategory: "gaming" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_xbox", query: "xbox series x", filters: { unifiedSubcategory: "gaming" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_nintendo", query: "nintendo switch", filters: { unifiedSubcategory: "gaming" } },
+  // Computers
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_macbook", query: "macbook pro", filters: { unifiedSubcategory: "computers" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_laptop", query: "laptop computer", filters: { unifiedSubcategory: "computers" } },
+  // Audio
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_airpods", query: "airpods pro", filters: { unifiedSubcategory: "audio" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_headphones", query: "wireless headphones", filters: { unifiedSubcategory: "audio" } },
+  // Tablets
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_ipad", query: "ipad tablet", filters: { unifiedSubcategory: "tablets" } },
+  { category: "electronics", provider: "rainforest", seed_key: "amazon_tab", query: "samsung galaxy tab", filters: { unifiedSubcategory: "tablets" } },
+  // Home & Garden
+  { category: "home_garden", provider: "rainforest", seed_key: "amazon_vacuum", query: "robot vacuum" },
+  { category: "home_garden", provider: "rainforest", seed_key: "amazon_airfryer", query: "air fryer" },
+  { category: "home_garden", provider: "rainforest", seed_key: "amazon_blender", query: "blender" },
+  // Clothing & Accessories
+  { category: "clothing_shoes_accessories", provider: "rainforest", seed_key: "amazon_sneakers", query: "sneakers" },
+  { category: "clothing_shoes_accessories", provider: "rainforest", seed_key: "amazon_running", query: "running shoes" },
+  // Sporting Goods
+  { category: "sporting_goods", provider: "rainforest", seed_key: "amazon_weights", query: "dumbbells weight set" },
+  // Toys
+  { category: "toys", provider: "rainforest", seed_key: "amazon_lego", query: "lego set" },
 ];
 
 Deno.serve(async (req) => {

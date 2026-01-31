@@ -713,8 +713,26 @@ function extractImages(product: RainforestProduct): string[] {
   const images: string[] = [];
   const rawProduct = product as any; // For accessing non-typed fields
   
+  // ENHANCED: Log raw image data for debugging
+  console.log("[RAINFOREST_IMAGES_RAW]", JSON.stringify({
+    asin: product.asin,
+    hasImages: !!rawProduct.images,
+    imagesType: Array.isArray(rawProduct.images) ? 'array' : typeof rawProduct.images,
+    imagesLen: rawProduct.images?.length || 0,
+    sampleImage: rawProduct.images?.[0] ? JSON.stringify(rawProduct.images[0]).slice(0, 150) : null,
+    hasGallery: !!rawProduct.image_gallery,
+    galleryLen: rawProduct.image_gallery?.length || 0,
+    hasHiRes: !!rawProduct.hi_res_images,
+    hiResLen: rawProduct.hi_res_images?.length || 0,
+    variantsLen: rawProduct.variants?.length || 0,
+    hasMainImage: !!rawProduct.main_image,
+    mainImageType: typeof rawProduct.main_image,
+    mainImageLink: rawProduct.main_image?.link?.slice(0, 80) || null,
+    imagesCount: rawProduct.images_count, // Rainforest sometimes reports expected count
+  }));
+
   /**
-   * Add image URL to array, normalizing to https
+   * Add image URL to array, normalizing to https and upgrading to high-res
    */
   const addImage = (url: string | undefined | null, prepend = false) => {
     if (!url || typeof url !== "string") return;
@@ -725,6 +743,19 @@ function extractImages(product: RainforestProduct): string[] {
       cleanUrl = `https:${cleanUrl}`;
     } else if (!cleanUrl.startsWith("http")) {
       cleanUrl = `https://${cleanUrl}`;
+    }
+    
+    // Upgrade Amazon image URLs to high resolution (SL1500 is max quality)
+    // Common patterns: _AC_SX425_, _AC_UL320_, _SL160_, etc.
+    if (cleanUrl.includes("m.media-amazon.com") || cleanUrl.includes("images-amazon.com")) {
+      // Replace resolution suffixes with high-res variant
+      cleanUrl = cleanUrl
+        .replace(/_AC_SX\d+_/g, "_AC_SL1500_")
+        .replace(/_AC_UL\d+_/g, "_AC_SL1500_")
+        .replace(/_SL\d+_/g, "_SL1500_")
+        .replace(/_SX\d+_/g, "_SL1500_")
+        .replace(/_UL\d+_/g, "_SL1500_")
+        .replace(/_SS\d+_/g, "_SL1500_");
     }
     
     // Skip invalid or already seen
@@ -792,16 +823,20 @@ function extractImages(product: RainforestProduct): string[] {
     }
   }
 
-  // === Source 7: variants with images ===
+  // === Source 7: variants with images (ENHANCED: limit 8 per variant, up from 3) ===
   if (rawProduct.variants && Array.isArray(rawProduct.variants)) {
-    for (const variant of rawProduct.variants) {
+    for (const variant of rawProduct.variants.slice(0, 10)) {
       if (variant.main_image) {
         addImage(typeof variant.main_image === "string" ? variant.main_image : variant.main_image?.link);
       }
       if (variant.images && Array.isArray(variant.images)) {
-        for (const img of variant.images.slice(0, 3)) { // Limit variant images
+        for (const img of variant.images.slice(0, 8)) { // ENHANCED: was 3, now 8
           addImage(extractUrl(img));
         }
+      }
+      // ENHANCED: Check for additional variant image fields
+      if (variant.image) {
+        addImage(typeof variant.image === "string" ? variant.image : variant.image?.link);
       }
     }
   }
@@ -827,7 +862,16 @@ function extractImages(product: RainforestProduct): string[] {
     addImage(typeof rawProduct.small_image === "string" ? rawProduct.small_image : rawProduct.small_image?.link);
   }
 
-  // Log for debugging (structured format requested)
+  // === Source 11: product.images_count mismatch detection ===
+  if (rawProduct.images_count && typeof rawProduct.images_count === 'number' && rawProduct.images_count > images.length) {
+    console.log("[RAINFOREST_IMAGE_MISMATCH]", JSON.stringify({
+      asin: product.asin,
+      reported: rawProduct.images_count,
+      extracted: images.length,
+    }));
+  }
+
+  // Log final extraction summary
   console.log("[CATALOG_PRODUCT_IMAGES]", JSON.stringify({
     asin: product.asin,
     imagesLen: images.length,
@@ -840,8 +884,8 @@ function extractImages(product: RainforestProduct): string[] {
     },
   }));
 
-  // Return max 10 images (deduplicated)
-  return images.slice(0, 10);
+  // ENHANCED: Return max 15 images (was 10)
+  return images.slice(0, 15);
 }
 
 /**

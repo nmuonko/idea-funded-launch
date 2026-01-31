@@ -5,7 +5,9 @@
 This comprehensive audit identifies and addresses critical performance bottlenecks in the Supabase Postgres backend to ensure stability at 10,000+ concurrent users. **No business logic or RLS policies were modified.**
 
 **Audit Date:** 2026-01-31  
-**Total Indexes Added:** 32 across 18 tables  
+**Phases Completed:** 3  
+**Total Indexes Added:** 47 across 24 tables  
+**Functions Optimized:** 4 RLS helper functions  
 **Expected Improvement:** 5-10x faster for hot paths
 
 ---
@@ -115,6 +117,73 @@ ON orders (user_id, created_at DESC) WHERE status = 'PENDING_PAYMENT';
 CREATE INDEX idx_order_items_cart_totals 
 ON order_items (order_id, is_saved_for_later) 
 INCLUDE (base_price_usd, markup_fee_usd, shipping_fee_usd, total_price_usd, quantity);
+```
+
+---
+
+## ✅ Phase 3 Fixes Applied
+
+### I. Statistics Update
+
+```sql
+-- Updated statistics for all critical tables
+ANALYZE user_roles, profiles, orders, order_items, admin_settings, 
+        settings, payment_providers, shipping_item_types, support_tickets, 
+        support_conversations, catalog_items, catalog_cache, checkout_sessions;
+```
+
+### J. Support & Admin Optimizations
+
+```sql
+-- Support inbox queries
+CREATE INDEX idx_support_conversations_status_updated 
+ON support_conversations (status, updated_at DESC);
+
+CREATE INDEX idx_support_conversations_active 
+ON support_conversations (status, last_message_at DESC) 
+WHERE status = 'active';
+
+-- Quote requests - 199k seq scans
+CREATE INDEX idx_quote_requests_user_status 
+ON quote_requests (user_id, status, created_at DESC);
+
+CREATE INDEX idx_quote_requests_pending 
+ON quote_requests (status, created_at DESC) 
+WHERE status = 'pending';
+
+-- Admin audit logs
+CREATE INDEX idx_admin_audit_logs_created 
+ON admin_audit_logs (created_at DESC);
+```
+
+### K. Payment & Checkout Optimizations
+
+```sql
+-- Payment order lookup
+CREATE INDEX idx_payments_order_provider 
+ON payments (order_id, provider_key);
+
+CREATE INDEX idx_payments_status_lookup 
+ON payments (order_id, status) 
+WHERE status IN ('pending', 'succeeded');
+
+-- Draft orders (most common user query)
+CREATE INDEX idx_orders_draft 
+ON orders (user_id) 
+WHERE status = 'DRAFT';
+
+-- Maisha reference lookup
+CREATE INDEX idx_checkout_sessions_maisha_ref 
+ON checkout_sessions (maisha_reference) 
+WHERE maisha_reference IS NOT NULL;
+```
+
+### L. RLS Function Optimizations
+
+```sql
+-- All RLS helper functions now include LIMIT 1 for early exit
+-- has_role(), is_admin_role(), is_super_admin_role(), can_view_customer_profiles()
+-- These use the covering index idx_user_roles_rls_optimized
 ```
 
 ---

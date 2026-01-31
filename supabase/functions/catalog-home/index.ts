@@ -120,8 +120,8 @@ interface HomeSectionConfig {
   seeAllQuery: string;
 }
 
-// Home sections configuration
-const HOME_SECTIONS: HomeSectionConfig[] = [
+// Default home sections fallback (used when DB is empty)
+const HOME_SECTIONS_FALLBACK: HomeSectionConfig[] = [
   {
     key: "phones",
     categoryKey: "electronics_phones",
@@ -207,6 +207,71 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     seeAllQuery: "parts",
   },
 ];
+
+/**
+ * Load home sections from the database, falling back to hardcoded defaults
+ */
+async function loadHomeSections(supabase: any): Promise<HomeSectionConfig[]> {
+  try {
+    // Fetch enabled sections ordered by sort_order
+    const { data: dbSections, error: sectionsError } = await supabase
+      .from("home_sections")
+      .select("*")
+      .eq("enabled", true)
+      .order("sort_order", { ascending: true });
+
+    if (sectionsError || !dbSections || dbSections.length === 0) {
+      console.log("[HOME] No DB sections found, using fallback");
+      return HOME_SECTIONS_FALLBACK;
+    }
+
+    // Fetch all seed queries for these sections
+    const sectionKeys = dbSections.map((s: Record<string, unknown>) => s.key);
+    const { data: seedsData } = await supabase
+      .from("home_section_seeds")
+      .select("section_key, query, weight")
+      .in("section_key", sectionKeys)
+      .eq("enabled", true)
+      .order("weight", { ascending: false });
+
+    // Group seeds by section
+    const seedsBySection = new Map<string, string[]>();
+    for (const seed of seedsData || []) {
+      const existing = seedsBySection.get(seed.section_key) || [];
+      existing.push(seed.query);
+      seedsBySection.set(seed.section_key, existing);
+    }
+
+    // Map DB sections to HomeSectionConfig
+    const configs: HomeSectionConfig[] = dbSections.map((s: Record<string, unknown>) => {
+      const key = s.key as string;
+      const seeds = seedsBySection.get(key) || [];
+      
+      // If no seeds from DB, use fallback seeds for this section
+      const fallbackConfig = HOME_SECTIONS_FALLBACK.find(f => f.key === key);
+      const seedQueries = seeds.length > 0 ? seeds.slice(0, 5) : (fallbackConfig?.seedQueries || [key]);
+
+      return {
+        key,
+        categoryKey: (s.default_category_key || key) as string,
+        parentTab: key.includes("_") ? key.split("_")[0] : key,
+        subtabKey: key.includes("_") ? key.split("_").slice(1).join("_") : null,
+        title: (s.title_en || key) as string,
+        isVehicle: (s.is_vehicle || false) as boolean,
+        minPrice: (s.min_price || 0) as number,
+        seedQueries,
+        ebayCategory: (s.ebay_category || "") as string,
+        seeAllQuery: (s.see_all_query || seedQueries[0] || key) as string,
+      };
+    });
+
+    console.log(`[HOME] Loaded ${configs.length} sections from DB with ${seedsData?.length || 0} total seeds`);
+    return configs;
+  } catch (err) {
+    console.error("[HOME] Error loading sections from DB:", err);
+    return HOME_SECTIONS_FALLBACK;
+  }
+}
 
 function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
@@ -448,6 +513,9 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[HOME] requestId=${requestId} rotationKey=${rotationKey}`);
 
+    // Load sections from database (with fallback to hardcoded)
+    const homeSections = await loadHomeSections(supabase);
+
     const tabs = buildTabs();
     const sections: Section[] = [];
     let sectionsFromCache = 0;
@@ -460,7 +528,7 @@ Deno.serve(async (req: Request) => {
     let totalMediaStats = { checked: 0, cacheHit: 0, fetched: 0, timedOut: 0 };
 
     // Fetch all cached sections in batch
-    const cacheKeys = HOME_SECTIONS.map(config => buildHomeSectionMixedCacheKey(config.key, rotationKey));
+    const cacheKeys = homeSections.map(config => buildHomeSectionMixedCacheKey(config.key, rotationKey));
     const { data: cachedSections } = await supabase
       .from("catalog_cache")
       .select("cache_key, response, expires_at")
@@ -472,7 +540,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // PARALLELIZED: Fetch all sections concurrently with Promise.allSettled
-    const sectionPromises = HOME_SECTIONS.map(async (config) => {
+    const sectionPromises = homeSections.map(async (config) => {
       const cacheKey = buildHomeSectionMixedCacheKey(config.key, rotationKey);
       const cached = cacheMap.get(cacheKey);
       

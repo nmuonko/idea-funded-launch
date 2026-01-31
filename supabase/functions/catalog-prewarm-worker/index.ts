@@ -279,7 +279,7 @@ function mapEbayToProviderItem(item: NormalizedItem, parentTab: string, subtabKe
 // Process a single section
 async function processSection(
   supabase: ReturnType<typeof createClient>,
-  section: typeof HOME_PREWARM_SECTIONS[0],
+  section: SectionConfig,
   catalogSettings: Awaited<ReturnType<typeof getCatalogSettings>>,
   liveSettings: Awaited<ReturnType<typeof getAmazonLiveSettings>>,
   rotationKey: string,
@@ -626,17 +626,34 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // Load section configuration from database (with fallback to defaults)
+    const { data: seedModeRow } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "home_seed_mode")
+      .single();
+    const seedMode = seedModeRow?.value || "manual";
+
+    const { data: maxQueriesRow } = await supabase
+      .from("admin_settings")
+      .select("value")
+      .eq("key", "home_seed_max_queries_per_section")
+      .single();
+    const maxQueriesPerSection = parseInt(maxQueriesRow?.value || "12", 10);
+
+    const sections = await loadSectionConfig(supabase, seedMode, maxQueriesPerSection);
+    const totalSections = sections.length;
+
     // Validate section index
-    if (sectionIndex < 0 || sectionIndex >= HOME_PREWARM_SECTIONS.length) {
-      console.error(`[WORKER] requestId=${requestId} Invalid sectionIndex: ${sectionIndex}`);
+    if (sectionIndex < 0 || sectionIndex >= totalSections) {
+      console.error(`[WORKER] requestId=${requestId} Invalid sectionIndex: ${sectionIndex}, totalSections: ${totalSections}`);
       return new Response(JSON.stringify({ ok: false, error: "Invalid sectionIndex" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const section = HOME_PREWARM_SECTIONS[sectionIndex];
-    const totalSections = HOME_PREWARM_SECTIONS.length;
+    const section = sections[sectionIndex];
 
     console.log(`[WORKER] requestId=${requestId} Processing job=${jobId} section=${section.key} (${sectionIndex + 1}/${totalSections})`);
 

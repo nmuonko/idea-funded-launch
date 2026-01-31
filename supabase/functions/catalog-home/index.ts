@@ -1,13 +1,20 @@
 /**
- * Catalog Home Endpoint - DB-First with eBay Live Top-Up
+ * Catalog Home Endpoint - 12-Hour Rotating Mixed Feed
+ * 
+ * Returns mixed Amazon+eBay sections from rotation cache.
+ * Falls back to eBay-only if cache is not prewarmed.
+ * 
  * Uses CANONICAL category keys from categoryRegistry
  * 
  * Returns:
  * {
  *   status: "success",
  *   env,
+ *   rotationKey,
  *   sections: [...],
  *   tabs: [...],
+ *   homeNeedsPrewarm: boolean,
+ *   providerStats: {...},
  *   error: null
  * }
  */
@@ -18,16 +25,22 @@ import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { normalizeAndValidateImageUrl } from "../_shared/imageValidation.ts";
+import { getCatalogSettings } from "../_shared/catalogSettings.ts";
 import { 
   CANONICAL_TABS, 
   CANONICAL_SUBTABS,
   getCategoryMeta,
-  getEbayCategoryId,
 } from "../_shared/categoryRegistry.ts";
 import { 
   enrichItemsWithMediaCounts, 
   getMediaCacheSettings,
 } from "../_shared/mediaCache.ts";
+import {
+  getRotationKey,
+  buildHomeSectionMixedCacheKey,
+  isCacheValid,
+  HomeSectionMetadata,
+} from "../_shared/homeRotation.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
 
@@ -49,9 +62,9 @@ interface CatalogItem {
   providerProductId: string;
   title: string | null;
   priceUsd: number | null;
-  mainImageUrl: string | null;    // Single best image for list performance
-  imageUrl: string | null;        // Backward compat (alias for mainImageUrl)
-  imageCount: number;             // Total images available from listing
+  mainImageUrl: string | null;
+  imageUrl: string | null;
+  imageCount: number;
   imageMissing: boolean;
   productUrl: string | null;
   inStock: boolean | null;
@@ -69,14 +82,15 @@ interface SeeAllMeta {
 interface Section {
   key: string;
   title: string;
-  categoryKey: string;       // CANONICAL key e.g. "electronics_phones"
-  parentTab: string;         // Parent tab key e.g. "electronics"
-  subtabKey: string | null;  // Subtab suffix e.g. "phones"
+  categoryKey: string;
+  parentTab: string;
+  subtabKey: string | null;
   items: CatalogItem[];
   hasMore: boolean;
-  dbCount: number;
-  liveTopUpCount: number;
-  see_all: SeeAllMeta;       // "See All" routing metadata
+  cacheHit: boolean;
+  amazonCount: number;
+  ebayCount: number;
+  see_all: SeeAllMeta;
 }
 
 interface Tab {
@@ -94,20 +108,19 @@ interface Tab {
 }
 
 interface HomeSectionConfig {
-  key: string;               // Section display key
-  categoryKey: string;       // CANONICAL category key (e.g., "electronics_phones")
-  parentTab: string;         // Parent tab key
-  subtabKey: string | null;  // Subtab suffix
+  key: string;
+  categoryKey: string;
+  parentTab: string;
+  subtabKey: string | null;
   title: string;
   isVehicle: boolean;
   minPrice: number;
   seedQueries: string[];
   ebayCategory?: string;
-  seeAllQuery: string;       // Query for "See All" mixed search
+  seeAllQuery: string;
 }
 
-// Home sections using CANONICAL keys with "see_all" queries
-// IMPORTANT: seeAllQuery MUST be non-empty to route to /catalog-search (mixed mode)
+// Home sections configuration
 const HOME_SECTIONS: HomeSectionConfig[] = [
   {
     key: "phones",
@@ -117,9 +130,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Phones",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["iphone 15", "samsung galaxy", "tecno camon", "infinix hot", "google pixel"],
+    seedQueries: ["iphone 15", "samsung galaxy", "tecno camon"],
     ebayCategory: "9355",
-    seeAllQuery: "iphone",  // → /catalog-search?q=iphone&category_key=electronics_phones
+    seeAllQuery: "iphone",
   },
   {
     key: "vehicles",
@@ -129,9 +142,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Vehicles",
     isVehicle: true,
     minPrice: 1500,
-    seedQueries: ["used car for sale", "toyota camry", "honda accord", "ford f150"],
+    seedQueries: ["used car for sale", "toyota camry"],
     ebayCategory: "6001",
-    seeAllQuery: "cars",  // → /catalog-search?q=cars&category_key=vehicles_cars_trucks
+    seeAllQuery: "cars",
   },
   {
     key: "gaming",
@@ -141,9 +154,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Gaming",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["ps5 console", "xbox series x", "nintendo switch", "gaming laptop"],
+    seedQueries: ["ps5 console", "xbox series x"],
     ebayCategory: "1249",
-    seeAllQuery: "ps5",  // → /catalog-search?q=ps5&category_key=electronics_gaming
+    seeAllQuery: "ps5",
   },
   {
     key: "clothing",
@@ -153,9 +166,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Clothing & Shoes",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["men sneakers", "women sneakers", "hoodie", "jacket", "handbag"],
+    seedQueries: ["men sneakers", "women sneakers"],
     ebayCategory: "63889",
-    seeAllQuery: "shoes",  // → /catalog-search?q=shoes&category_key=clothing_shoes_accessories
+    seeAllQuery: "shoes",
   },
   {
     key: "home_garden",
@@ -165,9 +178,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Home & Garden",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["cordless vacuum", "air fryer", "blender", "power tools"],
+    seedQueries: ["robot vacuum", "air fryer"],
     ebayCategory: "11700",
-    seeAllQuery: "sofa",  // → /catalog-search?q=sofa&category_key=home_garden
+    seeAllQuery: "sofa",
   },
   {
     key: "refurbished",
@@ -177,9 +190,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Refurbished",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["refurbished iphone", "refurbished laptop", "refurbished macbook"],
+    seedQueries: ["refurbished iphone", "refurbished laptop"],
     ebayCategory: "11800",
-    seeAllQuery: "refurbished",  // → /catalog-search?q=refurbished&category_key=refurbished
+    seeAllQuery: "refurbished",
   },
   {
     key: "parts_accessories",
@@ -189,9 +202,9 @@ const HOME_SECTIONS: HomeSectionConfig[] = [
     title: "Parts & Accessories",
     isVehicle: false,
     minPrice: 0,
-    seedQueries: ["car parts", "phone accessories", "laptop charger"],
+    seedQueries: ["car parts", "phone accessories"],
     ebayCategory: "6028",
-    seeAllQuery: "parts",  // → /catalog-search?q=parts&category_key=parts_accessories
+    seeAllQuery: "parts",
   },
 ];
 
@@ -199,53 +212,30 @@ function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
 
-function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
-  // For list views, we only need the single best image
-  const rawImageUrl = item.image_url as string | null;
-  const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.product_url as string);
-  
-  // Get images array for counting
-  const imagesArray = Array.isArray(item.images) ? item.images : [];
-  
-  // Fallback to first image in array if main image is null
-  let mainImage = validatedImageUrl;
-  if (!mainImage && imagesArray.length > 0) {
-    const firstImage = imagesArray.find((img): img is string => typeof img === "string" && img.length > 0);
-    if (firstImage) {
-      mainImage = normalizeAndValidateImageUrl(firstImage, item.product_url as string);
-    }
-  }
-
-  // Compute image count from stored images array or default to 1
-  const imageCount = imagesArray.length > 0 ? imagesArray.length : 1;
+function mapCacheItemToResponse(item: Record<string, unknown>): CatalogItem {
+  const rawImageUrl = (item.mainImageUrl || item.imageUrl || item.image_url) as string | null;
+  const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.productUrl as string || item.product_url as string);
 
   return {
     id: item.id as string,
     provider: (item.provider as string) || "unknown",
-    providerProductId: (item.provider_product_id as string) || (item.id as string),
-    title: item.title as string | null,
-    priceUsd: item.price_usd as number | null,
-    mainImageUrl: mainImage,
-    imageUrl: mainImage,  // Backward compat
-    imageCount,           // Total images available
-    imageMissing: !mainImage,
-    productUrl: item.product_url as string | null,
-    inStock: item.in_stock as boolean | null,
-    rating: item.rating as number | null,
-    unifiedCategory: (item.unified_category as string) || null,
-    unifiedSubcategory: (item.unified_subcategory as string) || null,
+    providerProductId: (item.providerProductId || item.provider_product_id || item.id) as string,
+    title: (item.title as string) || null,
+    priceUsd: (item.priceUsd || item.price_usd) as number | null,
+    mainImageUrl: validatedImageUrl,
+    imageUrl: validatedImageUrl,
+    imageCount: (item.imageCount || item.image_count || 1) as number,
+    imageMissing: !validatedImageUrl,
+    productUrl: (item.productUrl || item.product_url) as string | null,
+    inStock: (item.inStock ?? item.in_stock ?? true) as boolean,
+    rating: (item.rating as number) || null,
+    unifiedCategory: (item.unifiedCategory || item.unified_category) as string | null,
+    unifiedSubcategory: (item.unifiedSubcategory || item.unified_subcategory) as string | null,
   };
 }
 
 function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
-  // For list views, only use main image (no array)
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
-  
-  // Fallback to first image_url in array
-  let mainImage = validatedImageUrl;
-  if (!mainImage && item.image_urls && item.image_urls.length > 0) {
-    mainImage = normalizeAndValidateImageUrl(item.image_urls[0], item.product_url);
-  }
 
   return {
     id: item.id,
@@ -253,10 +243,10 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     providerProductId: item.provider_product_id,
     title: item.title,
     priceUsd: item.price_usd,
-    mainImageUrl: mainImage,
-    imageUrl: mainImage,  // Backward compat
-    imageCount: item.image_count || 1,  // Total images available
-    imageMissing: !mainImage,
+    mainImageUrl: validatedImageUrl,
+    imageUrl: validatedImageUrl,
+    imageCount: item.image_count || 1,
+    imageMissing: !validatedImageUrl,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -265,54 +255,18 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   };
 }
 
-async function getSectionFromDB(
+async function fetchEbayFallback(
   supabase: any,
   config: HomeSectionConfig,
-  maxItems: number
-): Promise<CatalogItem[]> {
-  let query = supabase
-    .from("catalog_items")
-    .select("*")
-    .eq("unified_category", config.parentTab)
-    .or("is_disallowed.is.null,is_disallowed.eq.false");
-
-  if (config.subtabKey) {
-    if (config.isVehicle) {
-      query = query.eq("vehicles_subkey", config.subtabKey);
-    } else {
-      query = query.eq("unified_subcategory", config.subtabKey);
-    }
-  }
-
-  if (config.isVehicle) {
-    query = query.gte("price_usd", config.minPrice);
-  }
-
-  const { data: rows, error } = await query
-    .order("updated_at", { ascending: false })
-    .limit(maxItems + 10);
-
-  if (error) {
-    console.error(`[HOME_DB] Query error for ${config.key}:`, error.message);
-    return [];
-  }
-
-  return (rows || []).map(row => mapDbItemToResponse(row as Record<string, unknown>));
-}
-
-async function fetchEbayLiveItems(
-  supabase: any,
-  config: HomeSectionConfig,
-  neededCount: number,
   requestId: string
 ): Promise<CatalogItem[]> {
-  console.log(`[HOME_EBAY] requestId=${requestId} section=${config.key} neededCount=${neededCount}`);
+  console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Fetching eBay fallback`);
 
   const allItems: CatalogItem[] = [];
   const seenIds = new Set<string>();
 
   for (const query of config.seedQueries.slice(0, 2)) {
-    if (allItems.length >= neededCount) break;
+    if (allItems.length >= HOME_PAGE_SIZE) break;
 
     try {
       const result = await searchEbay(
@@ -332,12 +286,10 @@ async function fetchEbayLiveItems(
       for (const ebayItem of result.items) {
         if (seenIds.has(ebayItem.id)) continue;
 
-        // Content filter
         if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.product_url }).isDisallowed) {
           continue;
         }
 
-        // Vehicle filter
         if (config.isVehicle) {
           const filterResult = isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.price_usd });
           if (!filterResult.isAllowed) continue;
@@ -346,39 +298,14 @@ async function fetchEbayLiveItems(
         seenIds.add(ebayItem.id);
         allItems.push(mapEbayItemToResponse(ebayItem));
       }
-
-      console.log(`[HOME_EBAY] requestId=${requestId} query="${query}" found=${result.items.length} filtered=${allItems.length}`);
     } catch (err) {
-      console.error(`[HOME_EBAY] requestId=${requestId} query="${query}" error:`, err);
+      console.error(`[HOME_FALLBACK] requestId=${requestId} query="${query}" error:`, err);
     }
-  }
-
-  // Upsert to DB
-  if (allItems.length > 0) {
-    const toUpsert = allItems.map(item => ({
-      id: item.id,
-      provider: item.provider,
-      provider_product_id: item.providerProductId,
-      title: item.title,
-      price_usd: item.priceUsd,
-      image_url: item.mainImageUrl,
-      images: item.mainImageUrl ? [item.mainImageUrl] : [], // Store single image as array
-      product_url: item.productUrl,
-      in_stock: item.inStock,
-      rating: item.rating,
-      unified_category: config.parentTab,
-      unified_subcategory: config.subtabKey,
-      vehicles_subkey: config.isVehicle ? config.subtabKey : null,
-      updated_at: new Date().toISOString(),
-    }));
-
-    await supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
   }
 
   return allItems;
 }
 
-// Build tabs from canonical registry
 function buildTabs(): Tab[] {
   return CANONICAL_TABS.map((tabKey, index) => {
     const meta = getCategoryMeta(tabKey);
@@ -452,63 +379,102 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Build tabs from canonical registry (single source of truth)
+    // Load settings and calculate rotation key
+    const catalogSettings = await getCatalogSettings(supabase);
+    const rotationKey = getRotationKey(catalogSettings.homeRotationIntervalMinutes);
+
+    console.log(`[HOME] requestId=${requestId} rotationKey=${rotationKey}`);
+
     const tabs = buildTabs();
-    console.log(`[NAV] requestId=${requestId} tabs=${tabs.length} subtabs=${tabs.reduce((a, t) => a + t.subtabs.length, 0)}`);
-
-    // Build sections
     const sections: Section[] = [];
+    let sectionsFromCache = 0;
+    let sectionsFromFallback = 0;
+    let totalAmazonItems = 0;
+    let totalEbayItems = 0;
 
-    // Get media cache settings once for all sections
+    // Get media cache settings once
     const mediaCacheSettings = await getMediaCacheSettings(supabase);
     let totalMediaStats = { checked: 0, cacheHit: 0, fetched: 0, timedOut: 0 };
 
-    for (const config of HOME_SECTIONS) {
-      let items = await getSectionFromDB(supabase, config, HOME_PAGE_SIZE);
+    // Fetch all cached sections in batch
+    const cacheKeys = HOME_SECTIONS.map(config => buildHomeSectionMixedCacheKey(config.key, rotationKey));
+    const { data: cachedSections } = await supabase
+      .from("catalog_cache")
+      .select("cache_key, response, expires_at")
+      .in("cache_key", cacheKeys);
 
-      // If DB has fewer than minimum, top-up from eBay live
-      let liveTopUpCount = 0;
-      if (items.length < HOME_MIN_PER_SECTION) {
-        console.log(`[HOME] requestId=${requestId} section=${config.key} dbCount=${items.length} < ${HOME_MIN_PER_SECTION}, fetching live`);
-        const liveItems = await fetchEbayLiveItems(supabase, config, HOME_PAGE_SIZE - items.length, requestId);
+    const cacheMap = new Map<string, { response: Record<string, unknown>; expires_at: string }>();
+    for (const entry of cachedSections || []) {
+      cacheMap.set(entry.cache_key, { response: entry.response, expires_at: entry.expires_at });
+    }
+
+    for (const config of HOME_SECTIONS) {
+      const cacheKey = buildHomeSectionMixedCacheKey(config.key, rotationKey);
+      const cached = cacheMap.get(cacheKey);
+      
+      let items: CatalogItem[] = [];
+      let cacheHit = false;
+      let amazonCount = 0;
+      let ebayCount = 0;
+
+      if (cached && isCacheValid(cached.expires_at)) {
+        // Use cached mixed items
+        const response = cached.response as { items?: unknown[]; metadata?: HomeSectionMetadata };
+        const rawItems = response.items || [];
+        items = rawItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
         
-        const seenIds = new Set(items.map(i => i.id));
-        const newItems = liveItems.filter(i => !seenIds.has(i.id));
-        items = [...items, ...newItems];
-        liveTopUpCount = newItems.length;
+        if (response.metadata) {
+          amazonCount = response.metadata.amazonCount || 0;
+          ebayCount = response.metadata.ebayCount || 0;
+        }
+        
+        cacheHit = true;
+        sectionsFromCache++;
+        console.log(`[HOME] requestId=${requestId} section=${config.key} cacheHit=true items=${items.length}`);
+      } else {
+        // Fallback: fetch eBay live
+        items = await fetchEbayFallback(supabase, config, requestId);
+        ebayCount = items.length;
+        sectionsFromFallback++;
+        console.log(`[HOME] requestId=${requestId} section=${config.key} cacheHit=false fallbackItems=${items.length}`);
       }
 
-      // Enrich items with exact image counts from media cache
+      // Limit to page size
       const slicedItems = items.slice(0, HOME_PAGE_SIZE);
+
+      // Enrich with media counts
       const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
         supabase,
         slicedItems as unknown as Record<string, unknown>[],
         mediaCacheSettings
       );
 
-      // Aggregate media stats
       totalMediaStats.checked += mediaStats.checked;
       totalMediaStats.cacheHit += mediaStats.cacheHit;
       totalMediaStats.fetched += mediaStats.fetched;
       totalMediaStats.timedOut += mediaStats.timedOut;
 
-      // Map enriched items back to CatalogItem type with updated counts
+      // Map enriched items
       const finalItems = slicedItems.map((item, idx) => ({
         ...item,
         imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
-        image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
       }));
+
+      // Count providers
+      totalAmazonItems += finalItems.filter(i => i.provider === "rainforest" || i.provider === "amazon").length;
+      totalEbayItems += finalItems.filter(i => i.provider === "ebay").length;
 
       sections.push({
         key: config.key,
         title: config.title,
-        categoryKey: config.categoryKey,      // CANONICAL key
+        categoryKey: config.categoryKey,
         parentTab: config.parentTab,
         subtabKey: config.subtabKey,
         items: finalItems,
         hasMore: items.length >= HOME_PAGE_SIZE,
-        dbCount: items.length - liveTopUpCount,
-        liveTopUpCount,
+        cacheHit,
+        amazonCount,
+        ebayCount,
         see_all: {
           type: "search",
           q: config.seeAllQuery,
@@ -517,17 +483,31 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    console.log(`[HOME_MEDIA] requestId=${requestId} checked=${totalMediaStats.checked} cacheHit=${totalMediaStats.cacheHit} fetched=${totalMediaStats.fetched} timeout=${totalMediaStats.timedOut}`);
-
+    const homeNeedsPrewarm = sectionsFromFallback > 0;
     const durationMs = Date.now() - startTime;
-    console.log(`[HOME] requestId=${requestId} sections=${sections.length} durationMs=${durationMs}`);
+
+    console.log(`[HOME] requestId=${requestId} sections=${sections.length} fromCache=${sectionsFromCache} fromFallback=${sectionsFromFallback} duration=${durationMs}ms`);
+    console.log(`[HOME_MEDIA] requestId=${requestId} checked=${totalMediaStats.checked} cacheHit=${totalMediaStats.cacheHit} fetched=${totalMediaStats.fetched}`);
 
     return new Response(
       JSON.stringify({
         status: "success",
         env: envName,
+        rotationKey,
         sections,
         tabs,
+        homeNeedsPrewarm,
+        providerStats: {
+          mode: catalogSettings.catalogProviderMode,
+          amazonEnabled: catalogSettings.amazonEnabled,
+          ebayEnabled: catalogSettings.ebayEnabled,
+          sectionsFromCache,
+          sectionsFromFallback,
+          totalAmazonItems,
+          totalEbayItems,
+          amazonFirstCount: catalogSettings.mixedAmazonFirstCount,
+          blendRatio: catalogSettings.mixedBlendRatio,
+        },
         error: null,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

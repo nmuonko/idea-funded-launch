@@ -42,6 +42,13 @@ export interface CatalogSettings {
   // Category rules
   amazonCategoryAllowlist: string[];
   enableCategoryRules: boolean;
+  
+  // Home rotation settings (12-hour rotating mixed feed)
+  homeRotationIntervalMinutes: number;
+  homeRotationMode: "timebucket" | "random";
+  homeAvoidRepeatDays: number;
+  homeItemsPerSection: number;
+  ebayHomeCacheTtlSeconds: number;
 }
 
 // ─── DEFAULT VALUES ───────────────────────────────────────────────────────────
@@ -56,7 +63,7 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   mixedAmazonFirstCount: 60,
   mixedBlendRatio: { amazon: 1, ebay: 2 },
   searchCacheTtlSeconds: 172800,  // 2 days
-  homeCacheTtlSeconds: 86400,     // 1 day
+  homeCacheTtlSeconds: 43200,     // 12 hours (matches rotation)
   offersCacheTtlSeconds: 43200,   // 12 hours
   negativeCacheTtlSeconds: 120,   // 2 minutes
   ebayCacheTtlSeconds: 0,         // disabled
@@ -69,6 +76,12 @@ const DEFAULT_SETTINGS: CatalogSettings = {
     "electronics_audio",
   ],
   enableCategoryRules: false,
+  // Home rotation settings
+  homeRotationIntervalMinutes: 720,  // 12 hours
+  homeRotationMode: "timebucket",
+  homeAvoidRepeatDays: 7,
+  homeItemsPerSection: 120,
+  ebayHomeCacheTtlSeconds: 1800,     // 30 minutes
 };
 
 // ─── PARSE HELPERS ────────────────────────────────────────────────────────────
@@ -118,6 +131,12 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
     "ebay_cache_ttl_seconds",
     "amazon_category_allowlist",
     "enable_category_rules",
+    // Home rotation settings
+    "home_rotation_interval_minutes",
+    "home_rotation_mode",
+    "home_avoid_repeat_days",
+    "home_items_per_section",
+    "ebay_home_cache_ttl_seconds",
   ];
 
   const { data, error } = await supabase
@@ -154,6 +173,12 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
     ebayCacheTtlSeconds: parseNumber(get("ebay_cache_ttl_seconds"), DEFAULT_SETTINGS.ebayCacheTtlSeconds),
     amazonCategoryAllowlist: parseJsonValue<string[]>(get("amazon_category_allowlist"), DEFAULT_SETTINGS.amazonCategoryAllowlist),
     enableCategoryRules: parseBoolean(get("enable_category_rules"), DEFAULT_SETTINGS.enableCategoryRules),
+    // Home rotation settings
+    homeRotationIntervalMinutes: parseNumber(get("home_rotation_interval_minutes"), DEFAULT_SETTINGS.homeRotationIntervalMinutes),
+    homeRotationMode: parseJsonValue<"timebucket" | "random">(get("home_rotation_mode"), DEFAULT_SETTINGS.homeRotationMode),
+    homeAvoidRepeatDays: parseNumber(get("home_avoid_repeat_days"), DEFAULT_SETTINGS.homeAvoidRepeatDays),
+    homeItemsPerSection: parseNumber(get("home_items_per_section"), DEFAULT_SETTINGS.homeItemsPerSection),
+    ebayHomeCacheTtlSeconds: parseNumber(get("ebay_home_cache_ttl_seconds"), DEFAULT_SETTINGS.ebayHomeCacheTtlSeconds),
   };
 }
 
@@ -237,6 +262,12 @@ export async function updateCatalogSetting(
     "mixed_blend_ratio",
     "search_cache_ttl_seconds",
     "home_cache_ttl_seconds",
+    // Home rotation settings
+    "home_rotation_interval_minutes",
+    "home_rotation_mode",
+    "home_avoid_repeat_days",
+    "home_items_per_section",
+    "ebay_home_cache_ttl_seconds",
     "offers_cache_ttl_seconds",
     "negative_cache_ttl_seconds",
     "ebay_cache_ttl_seconds",

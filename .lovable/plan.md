@@ -1,166 +1,402 @@
 
-# Fix: Home Rotation Stalls at 7/8 Sections
+# Admin-Curated Homepage Implementation Plan
 
-## Problem
+## Overview
 
-The background worker (`catalog-prewarm-worker`) processes all 8 sections in a single function invocation. Edge functions have a ~150 second timeout. When processing takes longer, the function dies mid-execution, leaving the job stuck in "processing" status forever.
+This plan implements an admin-controlled homepage system where each section (phones, vehicles, gaming, etc.) can be driven by:
+- **Manual seed queries** entered by admin
+- **Generate Suggestions** button that proposes curated queries per section  
+- **Approve & Publish** flow to control what appears on the homepage
+- **12-hour rotation prewarm** that uses approved seeds to fetch mixed Amazon+eBay items
 
-Current situation:
-- Job has been stuck for **883+ seconds** (15 minutes)
-- Status: `processing` on section `parts_accessories`
-- No way to detect or recover from this state
-
----
-
-## Solution: Self-Chaining Worker Pattern
-
-Split the work across multiple function invocations using a **self-chaining pattern**. Each invocation processes **one section only**, then triggers itself to process the next section.
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    SELF-CHAINING WORKER PATTERN                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  catalog-prewarm-home                                                   │
-│       │                                                                  │
-│       ▼                                                                  │
-│  Creates job → Triggers worker (sectionIndex=0)                         │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  Worker Invocation 1 (section: phones)                          │    │
-│  │  - Process phones section (~15-20s)                             │    │
-│  │  - Update job progress                                          │    │
-│  │  - Trigger self (sectionIndex=1) → exits                        │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  Worker Invocation 2 (section: vehicles)                        │    │
-│  │  - Process vehicles section                                     │    │
-│  │  - Update job progress                                          │    │
-│  │  - Trigger self (sectionIndex=2) → exits                        │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-│  ... continues for all 8 sections ...                                   │
-│                                                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  Worker Invocation 8 (section: parts_accessories)               │    │
-│  │  - Process final section                                        │    │
-│  │  - Mark job as completed                                        │    │
-│  │  - No more self-invocation                                      │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                          │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+The existing `/catalog-home` endpoint contract remains unchanged - it continues serving from cache.
 
 ---
 
-## Implementation Details
+## Phase 1: Database Schema
 
-### 1. Update Worker to Process One Section at a Time
+### New Tables
 
-**Modify `catalog-prewarm-worker/index.ts`**:
-
-- Accept `sectionIndex` parameter (default: 0)
-- Process only the section at that index
-- After completing, trigger itself with `sectionIndex + 1`
-- Mark job complete when `sectionIndex >= sections.length`
-
-```typescript
-// New request body
-interface WorkerRequest {
-  jobId: string;
-  sectionIndex?: number; // Which section to process (0-7)
-}
-
-// Main handler
-const { jobId, sectionIndex = 0 } = await req.json();
-
-// Process ONLY this one section
-const section = HOME_PREWARM_SECTIONS[sectionIndex];
-const result = await processSection(section, ...);
-
-// Update progress
-await supabase.from("prewarm_jobs").update({
-  sections_completed: sectionIndex + 1,
-  current_section: section.key,
-  ...
-}).eq("id", jobId);
-
-// Chain to next section if more remain
-const nextIndex = sectionIndex + 1;
-if (nextIndex < HOME_PREWARM_SECTIONS.length) {
-  // Fire-and-forget self-invocation
-  fetch(`${supabaseUrl}/functions/v1/catalog-prewarm-worker`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${serviceKey}` },
-    body: JSON.stringify({ jobId, sectionIndex: nextIndex })
-  });
-} else {
-  // Mark job as completed
-  await supabase.from("prewarm_jobs").update({
-    status: "completed",
-    completed_at: new Date().toISOString()
-  }).eq("id", jobId);
-}
-```
-
-### 2. Add Stall Detection and Auto-Recovery
-
-**Add to `prewarm_jobs` table**:
-- `last_heartbeat` column to track activity
-
-**Frontend changes**:
-- Detect stalled jobs (no progress for 60+ seconds)
-- Show "Stalled" status with retry option
-- Auto-timeout polling after 10 minutes
-
-```typescript
-// In pollJobStatus
-const stalledThreshold = 60; // seconds
-const secondsSinceStart = (Date.now() - new Date(job.started_at).getTime()) / 1000;
-const isStalled = job.status === 'processing' && 
-                  secondsSinceStart > stalledThreshold * (job.sections_completed + 1);
-
-if (isStalled) {
-  setJobProgress({ ...job, status: 'stalled' });
-  // Stop polling, show "Retry" button
-}
-```
-
-### 3. Clean Up Orphaned Jobs
-
-Add logic to detect and mark stuck jobs:
-
+**1. `home_sections`** - Section configuration
 ```sql
--- Mark jobs stuck in "processing" for > 10 minutes as failed
-UPDATE prewarm_jobs 
-SET status = 'failed', 
-    error_message = 'Timeout: Worker stopped responding'
-WHERE status = 'processing' 
-  AND started_at < NOW() - INTERVAL '10 minutes';
+CREATE TABLE home_sections (
+  key text PRIMARY KEY,
+  title_en text NOT NULL,
+  title_fr text NOT NULL,
+  enabled boolean DEFAULT true,
+  sort_order integer DEFAULT 0,
+  default_category_key text,
+  ebay_category text,
+  is_vehicle boolean DEFAULT false,
+  min_price numeric DEFAULT 0,
+  updated_at timestamptz DEFAULT now()
+);
+```
+
+**2. `home_section_seeds`** - Active seed queries for each section
+```sql
+CREATE TABLE home_section_seeds (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_key text NOT NULL REFERENCES home_sections(key) ON DELETE CASCADE,
+  query text NOT NULL,
+  enabled boolean DEFAULT true,
+  weight integer DEFAULT 100,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+```
+
+**3. `home_seed_suggestions`** - Pending suggestions awaiting approval
+```sql
+CREATE TABLE home_seed_suggestions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  section_key text NOT NULL REFERENCES home_sections(key) ON DELETE CASCADE,
+  query text NOT NULL,
+  source text NOT NULL,
+  score integer DEFAULT 0,
+  approved boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+```
+
+### Indexes
+- `home_section_seeds`: (section_key, enabled), (section_key, weight DESC)
+- `home_seed_suggestions`: (section_key, approved), (section_key, created_at DESC)
+- `home_seen_items`: (section_key, seen_at DESC) - already exists
+
+### Seed Initial Data
+Insert default sections matching current `HOME_SECTIONS` config with titles and category mappings.
+
+---
+
+## Phase 2: Admin Settings Keys
+
+Add to `admin_settings` table:
+- `home_seed_mode`: "manual" | "auto" | "hybrid" (default: "manual")
+- `home_seed_max_queries_per_section`: 12
+- `home_generate_suggestion_count`: 30
+
+Existing settings to leverage:
+- `home_rotation_interval_minutes`: 720
+- `home_cache_ttl_seconds`: 43200
+- `home_items_per_section`: 120
+- `home_avoid_repeat_days`: 7
+- `mixed_amazon_first_count`, `mixed_blend_amazon`, `mixed_blend_ebay`
+
+---
+
+## Phase 3: Edge Functions
+
+### 3.1 `admin-home-sections` (GET/POST)
+
+**GET**: Returns all home sections with seed counts
+```typescript
+// Response
+{
+  sections: [
+    { 
+      key: "phones", 
+      title_en: "Phones", 
+      enabled: true,
+      seed_count: 5,
+      suggestion_count: 12
+    },
+    ...
+  ],
+  seed_mode: "manual"
+}
+```
+
+**POST**: Update section (enabled, sort_order, titles)
+
+### 3.2 `admin-home-seeds` (GET/POST/DELETE)
+
+**GET `?section_key=phones`**: Returns seeds sorted by weight
+**POST**: Upsert seed query (add/edit)
+**DELETE**: Remove seed by ID
+
+### 3.3 `admin-home-seed-suggestions` (POST generate, POST approve, GET list)
+
+**POST /generate**: Generate suggestions using hardcoded TEMPLATE_LIBRARY
+```typescript
+const TEMPLATE_LIBRARY = {
+  phones: [
+    "iPhone 15 unlocked", "iPhone 14 unlocked", "Samsung Galaxy S24", 
+    "Google Pixel unlocked", "Tecno Spark", "Infinix Hot", "Redmi Note"
+  ],
+  vehicles: [
+    "Toyota RAV4", "Toyota Land Cruiser", "Honda CR-V", "Ford Explorer",
+    "Tesla Model 3", "Jeep Wrangler", "Toyota Hilux", "Nissan Patrol"
+  ],
+  gaming: [
+    "PlayStation 5 console", "Xbox Series X", "Nintendo Switch",
+    "gaming laptop", "gaming headset", "gaming monitor"
+  ],
+  clothing: [
+    "women sneakers", "men running shoes", "women handbag",
+    "men jeans", "baby clothes", "designer dress"
+  ],
+  // ... other sections
+};
+```
+
+**POST /approve**: Copy approved suggestions to `home_section_seeds`
+
+**GET `?section_key=phones`**: List pending suggestions
+
+### 3.4 Update `catalog-prewarm-worker`
+
+Modify to read seeds from database instead of hardcoded arrays:
+
+```typescript
+// Get active seeds based on mode
+async function getSectionQueries(supabase, sectionKey, mode, maxQueries) {
+  if (mode === "auto") {
+    return TEMPLATE_LIBRARY[sectionKey]?.slice(0, maxQueries) || [];
+  }
+  
+  // Manual or hybrid: fetch from home_section_seeds
+  const { data: seeds } = await supabase
+    .from("home_section_seeds")
+    .select("query, weight")
+    .eq("section_key", sectionKey)
+    .eq("enabled", true)
+    .order("weight", { ascending: false })
+    .limit(maxQueries);
+  
+  const dbQueries = seeds?.map(s => s.query) || [];
+  
+  if (mode === "hybrid" && dbQueries.length < maxQueries) {
+    // Fill remaining from template
+    const remaining = maxQueries - dbQueries.length;
+    const templates = TEMPLATE_LIBRARY[sectionKey] || [];
+    const fillers = templates
+      .filter(t => !dbQueries.includes(t))
+      .slice(0, remaining);
+    return [...dbQueries, ...fillers];
+  }
+  
+  return dbQueries;
+}
 ```
 
 ---
 
-## Files to Modify
+## Phase 4: Admin UI Page
+
+### New Page: `/admin/home-curation`
+
+Location: `src/pages/admin/HomeCuration.tsx`
+
+**Layout:**
+```text
++--------------------------------------------------+
+|  Home Curation                    [Publish Now]  |
++--------------------------------------------------+
+|  Section: [phones v]  Mode: [manual v]           |
++--------------------------------------------------+
+|  ACTIVE SEEDS                 | SUGGESTIONS      |
+|  +-------------------------+  | +---------------+|
+|  | iPhone 15 unlocked  [x] |  | | Generate [30] ||
+|  | Samsung Galaxy S24  [x] |  | +---------------+|
+|  | Google Pixel 8      [x] |  | [x] Tecno Spark ||
+|  +-------------------------+  | [x] Infinix Hot ||
+|  [+ Add Seed Query]           | [ ] Redmi Note  ||
+|                               | [Approve (2)]   ||
++--------------------------------------------------+
+|  Current Rotation: 2026-01-31-b0                 |
+|  Last Prewarm: 2026-01-31 14:32 (5 min ago)      |
++--------------------------------------------------+
+```
+
+**Components:**
+1. Section dropdown selector
+2. Seeds list with enable/disable toggle
+3. Add new seed input
+4. Generate Suggestions button
+5. Suggestions checklist with Approve button
+6. Publish Now button (triggers prewarm)
+7. Status display (rotation key, last prewarm time)
+
+### Add Route
+
+```typescript
+// App.tsx
+<Route path="home-curation" element={
+  <AdminRouteGuard requiredPermission="can_view_settings">
+    <HomeCuration />
+  </AdminRouteGuard>
+} />
+```
+
+### Add Sidebar Link
+
+```typescript
+// AdminLayout.tsx - System section
+{ 
+  to: '/admin/home-curation', 
+  icon: Home, 
+  label: language === 'fr' ? 'Curation Accueil' : 'Home Curation',
+  permission: 'can_view_settings' 
+}
+```
+
+---
+
+## Phase 5: Update catalog-home
+
+Minimal change - add section titles from database if available:
+
+```typescript
+// catalog-home/index.ts
+// Load enabled sections from home_sections table
+const { data: dbSections } = await supabase
+  .from("home_sections")
+  .select("*")
+  .eq("enabled", true)
+  .order("sort_order", { ascending: true });
+
+// Use db sections if available, else fall back to hardcoded HOME_SECTIONS
+const activeSections = dbSections?.length > 0 
+  ? dbSections.map(s => ({
+      key: s.key,
+      categoryKey: s.default_category_key,
+      title: s.title_en, // or based on locale
+      isVehicle: s.is_vehicle,
+      minPrice: s.min_price,
+      ebayCategory: s.ebay_category,
+      // ... map other fields
+    }))
+  : HOME_SECTIONS;
+```
+
+---
+
+## Files to Create/Modify
+
+### Database
+1. **Migration**: Create `home_sections`, `home_section_seeds`, `home_seed_suggestions` tables
+2. **Seed data**: Insert default sections
 
 ### Edge Functions
-1. **`supabase/functions/catalog-prewarm-worker/index.ts`**
-   - Accept `sectionIndex` parameter
-   - Process only one section per invocation
-   - Self-chain to next section
-   - Update heartbeat timestamp
+3. **Create**: `supabase/functions/admin-home-sections/index.ts`
+4. **Create**: `supabase/functions/admin-home-seeds/index.ts`
+5. **Create**: `supabase/functions/admin-home-seed-suggestions/index.ts`
+6. **Modify**: `supabase/functions/catalog-prewarm-worker/index.ts` - Read seeds from DB
+7. **Modify**: `supabase/functions/catalog-home/index.ts` - Read sections from DB
 
 ### Frontend
-2. **`src/pages/admin/CatalogSourcesSettings.tsx`**
-   - Add stall detection logic
-   - Show "Stalled - Retry?" UI state
-   - Add polling timeout (10 min max)
-   - Add "Cancel Job" button
+8. **Create**: `src/pages/admin/HomeCuration.tsx`
+9. **Modify**: `src/App.tsx` - Add route
+10. **Modify**: `src/components/layout/AdminLayout.tsx` - Add sidebar link
 
-### Database (Optional)
-3. **Add `last_heartbeat` column** to `prewarm_jobs`
-   - Helps detect stalled jobs more accurately
+### Shared
+11. **Create**: `supabase/functions/_shared/homeSeedTemplates.ts` - Hardcoded template library
+
+---
+
+## Technical Details
+
+### Template Library (Hardcoded Fallback)
+
+```typescript
+// _shared/homeSeedTemplates.ts
+export const TEMPLATE_LIBRARY: Record<string, string[]> = {
+  phones: [
+    "iPhone 15 unlocked", "iPhone 14 Pro Max", "Samsung Galaxy S24 Ultra",
+    "Samsung Galaxy A54", "Google Pixel 8 Pro", "Google Pixel 7a",
+    "Tecno Spark 20", "Tecno Camon 20", "Infinix Hot 40", "Infinix Note 30",
+    "Redmi Note 13", "Xiaomi 14", "OnePlus 12", "Motorola Edge"
+  ],
+  vehicles: [
+    "Toyota RAV4", "Toyota Land Cruiser", "Toyota Hilux pickup",
+    "Honda CR-V", "Honda Accord", "Ford Explorer", "Ford F-150",
+    "Tesla Model 3", "Tesla Model Y", "Jeep Wrangler", "Jeep Grand Cherokee",
+    "Nissan Patrol", "Mercedes GLE", "BMW X5", "Range Rover Sport"
+  ],
+  gaming: [
+    "PlayStation 5 console", "PS5 digital edition", "Xbox Series X",
+    "Xbox Series S", "Nintendo Switch OLED", "Nintendo Switch Lite",
+    "gaming laptop RTX", "ASUS ROG laptop", "gaming headset", "gaming monitor 144hz",
+    "gaming chair", "PS5 controller", "Xbox controller"
+  ],
+  computers: [
+    "MacBook Pro M3", "MacBook Air M2", "Dell XPS 15", "HP Spectre",
+    "ThinkPad X1 Carbon", "ASUS ZenBook", "gaming laptop", "Chromebook",
+    "iPad Pro", "Surface Pro", "desktop computer", "all-in-one PC"
+  ],
+  clothing: [
+    "Nike Air Max", "Nike sneakers women", "Adidas running shoes",
+    "Jordan sneakers", "women designer handbag", "men leather jacket",
+    "women summer dress", "men jeans Levis", "baby clothes organic",
+    "women workout leggings", "men hoodie", "winter jacket"
+  ],
+  home_garden: [
+    "robot vacuum Roomba", "air fryer Ninja", "Instant Pot",
+    "Dyson vacuum", "Nespresso coffee machine", "KitchenAid mixer",
+    "smart thermostat", "Ring doorbell", "outdoor furniture", "garden tools"
+  ],
+  refurbished: [
+    "refurbished iPhone 13", "refurbished MacBook Pro", "refurbished iPad",
+    "certified refurbished laptop", "refurbished Samsung Galaxy",
+    "refurbished Apple Watch", "refurbished AirPods"
+  ],
+  parts_accessories: [
+    "iPhone case", "Samsung phone case", "laptop charger USB-C",
+    "car phone mount", "wireless earbuds", "screen protector",
+    "laptop stand", "keyboard mouse combo", "USB hub", "webcam HD"
+  ],
+};
+```
+
+### Data Flow
+
+```text
+Admin clicks "Generate Suggestions"
+        │
+        ▼
+admin-home-seed-suggestions (POST /generate)
+        │ returns 30 suggestions from TEMPLATE_LIBRARY
+        ▼
+Admin selects 5 suggestions, clicks "Approve"
+        │
+        ▼
+admin-home-seed-suggestions (POST /approve)
+        │ copies to home_section_seeds
+        ▼
+Admin clicks "Publish Now"
+        │
+        ▼
+catalog-prewarm-home → catalog-prewarm-worker
+        │ reads from home_section_seeds
+        │ fetches Amazon + eBay items
+        │ mixes using providerMixer
+        ▼
+catalog_cache updated with new rotation
+        │
+        ▼
+catalog-home serves fresh mixed content
+```
+
+---
+
+## Testing Checklist
+
+1. Add 6 vehicle seed queries manually (Toyota, Tesla, Ford)
+2. Run "Publish Now"
+3. Verify `/catalog-home` vehicles section returns mixed results
+4. Disable a seed → next publish changes results
+5. Generate suggestions → approve 5 → publish shows new results
+6. Verify rotation key changes after 12h bucket
+7. Verify existing frontend continues working unchanged
+
+---
+
+## Security
+
+- All admin endpoints protected with `verifyAndGetUser` + admin role check
+- Audit logging for seed changes
+- RLS policies restrict table access to authenticated admins
 
 ---
 
@@ -168,24 +404,8 @@ WHERE status = 'processing'
 
 | Aspect | Before | After |
 |--------|--------|-------|
-| Max execution per invocation | ~120s (hits timeout) | ~15-25s per section |
-| Failure handling | Job stuck forever | Auto-detects stall, can retry |
-| Progress visibility | Stops updating at failure point | Continues showing progress |
-| Recovery | Manual DB fix required | UI retry button |
-| Total time | N/A (never completes) | ~2-3 minutes total |
-
----
-
-## Quick Fix for Current Stuck Job
-
-Before implementing the full solution, reset the stuck job:
-
-```sql
-UPDATE prewarm_jobs 
-SET status = 'failed', 
-    error_message = 'Timeout during parts_accessories section',
-    completed_at = NOW()
-WHERE id = '320725c6-8c27-4828-bf57-04c53991e3c5';
-```
-
-This will clear the UI and allow a new prewarm attempt.
+| Seed control | Hardcoded in worker | Admin-configurable |
+| Flexibility | Deploy to change | Real-time changes |
+| Suggestions | None | Template-based generation |
+| Visibility | No insight | Full dashboard |
+| Brand curation | Manual code edits | Point-and-click |

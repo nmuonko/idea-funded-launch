@@ -96,7 +96,17 @@ export function parseProviderKey(compositeId: string): { provider: "ebay" | "ama
 /**
  * Get media cache settings from admin_settings table
  */
+// In-memory settings cache to avoid repeated DB lookups
+let mediaSettingsCache: { settings: MediaCacheSettings; fetchedAt: number } | null = null;
+const SETTINGS_CACHE_TTL_MS = 60_000; // 1 minute
+
 export async function getMediaCacheSettings(supabase: SupabaseClient): Promise<MediaCacheSettings> {
+  // Use cached settings if still valid
+  const now = Date.now();
+  if (mediaSettingsCache && (now - mediaSettingsCache.fetchedAt) < SETTINGS_CACHE_TTL_MS) {
+    return mediaSettingsCache.settings;
+  }
+
   const keys = [
     "media_cache_ttl_days",
     "media_prefetch_enabled",
@@ -117,20 +127,26 @@ export async function getMediaCacheSettings(supabase: SupabaseClient): Promise<M
     }
   }
 
-  return {
+  const result: MediaCacheSettings = {
     ttlDays: parseInt(settings["media_cache_ttl_days"] || "30", 10),
     prefetchEnabled: settings["media_prefetch_enabled"] !== "false",
-    maxItemsPerPage: parseInt(settings["media_prefetch_max_items_per_page"] || "20", 10),
-    fetchTimeoutMs: parseInt(settings["media_fetch_timeout_ms"] || "1200", 10),
-    fetchConcurrency: parseInt(settings["media_fetch_concurrency"] || "6", 10),
+    maxItemsPerPage: parseInt(settings["media_prefetch_max_items_per_page"] || "12", 10), // Reduced from 20
+    fetchTimeoutMs: parseInt(settings["media_fetch_timeout_ms"] || "800", 10), // Reduced from 1200ms
+    fetchConcurrency: parseInt(settings["media_fetch_concurrency"] || "4", 10), // Reduced from 6
   };
+
+  // Cache the settings
+  mediaSettingsCache = { settings: result, fetchedAt: now };
+  
+  return result;
 }
 
 /**
  * Get cached media record if not expired
  * 
- * For Amazon items with image_count <= 1, we treat them as cache misses to force
- * a re-fetch from the product details API, which should return the full gallery.
+ * PERFORMANCE: Accept items with 1+ images as valid cache hits.
+ * This prevents unnecessary re-fetches for items that legitimately have few images.
+ * Only treat completely empty (0 images) as a cache miss.
  */
 export async function getCachedMedia(
   supabase: SupabaseClient,
@@ -139,7 +155,7 @@ export async function getCachedMedia(
 ): Promise<MediaCacheRecord | null> {
   const { data, error } = await supabase
     .from("catalog_item_media")
-    .select("*")
+    .select("provider, provider_item_id, image_urls, image_count, fetched_at, expires_at")
     .eq("provider", provider)
     .eq("provider_item_id", itemId)
     .gt("expires_at", new Date().toISOString())
@@ -150,12 +166,11 @@ export async function getCachedMedia(
   const imageCount = data.image_count || 0;
   const imageUrls = Array.isArray(data.image_urls) ? data.image_urls : [];
   
-  // Force re-fetch for ANY provider with poor image data (3 or fewer images)
-  // This ensures both eBay and Amazon products get their full gallery when available
-  // Most products have 4+ images, so items with <=3 likely have incomplete data
-  if (imageCount <= 3) {
+  // PERFORMANCE: Only force re-fetch for items with NO images at all
+  // Items with 1+ images are considered valid - many products genuinely have 1-3 images
+  if (imageCount === 0) {
     if (DEV) {
-      console.log(`[MEDIA_CACHE] Cache miss forced for ${provider}: itemId=${itemId} image_count=${imageCount} (needs refresh)`);
+      console.log(`[MEDIA_CACHE] Cache miss forced for ${provider}: itemId=${itemId} image_count=0`);
     }
     return null; // Treat as cache miss to trigger fresh fetch
   }
@@ -321,6 +336,10 @@ export async function fetchAndCacheMedia(
 /**
  * Enrich a list of catalog items with exact image counts
  * Returns the enriched items and stats
+ * 
+ * PERFORMANCE OPTIMIZED:
+ * - Uses batch DB lookup instead of sequential queries
+ * - Reduced prefetch limits and timeouts
  */
 export async function enrichItemsWithMediaCounts<T extends Record<string, unknown>>(
   supabase: SupabaseClient,
@@ -343,47 +362,62 @@ export async function enrichItemsWithMediaCounts<T extends Record<string, unknow
 
   const enrichedItems = [...items];
 
+  // Parse all item IDs upfront
+  const parsedItems: Array<{ index: number; parsed: { provider: "ebay" | "amazon"; itemId: string }; compositeId: string } | null> = 
+    enrichedItems.map((item, i) => {
+      const compositeId = (item.id as string) || "";
+      const parsed = parseProviderKey(compositeId);
+      if (!parsed) {
+        // Can't parse, use existing count or default
+        const existingCount = (item.image_count as number) || (item.imageCount as number) || 1;
+        (enrichedItems[i] as Record<string, unknown>).image_count = existingCount;
+        (enrichedItems[i] as Record<string, unknown>).imageCount = existingCount;
+        return null;
+      }
+      stats.checked++;
+      return { index: i, parsed, compositeId };
+    });
+
+  // Filter valid items for batch lookup
+  const validItems = parsedItems.filter((p): p is NonNullable<typeof p> => p !== null);
+  
+  if (validItems.length === 0) {
+    return { items: enrichedItems, stats };
+  }
+
+  // BATCH LOOKUP: Single query for all items instead of N queries
+  const cachedCounts = await batchLookupCachedMedia(
+    supabase,
+    validItems.map(v => v.compositeId)
+  );
+
   // Process items with concurrency limit
-  const maxPrefetch = Math.min(config.maxItemsPerPage, items.length);
-  const prefetchQueue: Array<{ index: number; parsed: { provider: "ebay" | "amazon"; itemId: string }; compositeId: string }> = [];
+  const maxPrefetch = Math.min(config.maxItemsPerPage, validItems.length);
+  const prefetchQueue: typeof validItems = [];
 
-  // First pass: check cache and build prefetch queue
-  for (let i = 0; i < enrichedItems.length; i++) {
-    const item = enrichedItems[i];
-    const compositeId = (item.id as string) || "";
-    const parsed = parseProviderKey(compositeId);
-
-    if (!parsed) {
-      // Can't parse, use existing count or default
-      const existingCount = (item.image_count as number) || (item.imageCount as number) || 1;
-      (enrichedItems[i] as Record<string, unknown>).image_count = existingCount;
-      (enrichedItems[i] as Record<string, unknown>).imageCount = existingCount;
-      continue;
-    }
-
-    stats.checked++;
-
-    // Check cache first
-    const cached = await getCachedMedia(supabase, parsed.provider, parsed.itemId);
-
-    if (cached) {
+  // Apply cached values and build prefetch queue
+  for (const entry of validItems) {
+    const cachedCount = cachedCounts.get(entry.compositeId);
+    
+    if (cachedCount !== undefined && cachedCount > 0) {
       stats.cacheHit++;
-      (enrichedItems[i] as Record<string, unknown>).image_count = cached.image_count;
-      (enrichedItems[i] as Record<string, unknown>).imageCount = cached.image_count;
-      (enrichedItems[i] as Record<string, unknown>).image_count_status = "cached";
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count = cachedCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).imageCount = cachedCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "cached";
     } else if (config.prefetchEnabled && prefetchQueue.length < maxPrefetch) {
       // Add to prefetch queue
-      prefetchQueue.push({ index: i, parsed, compositeId });
+      prefetchQueue.push(entry);
     } else {
       // Beyond prefetch limit or disabled - use fallback
+      const item = enrichedItems[entry.index];
       const fallbackCount = (item.image_count as number) || (item.imageCount as number) || 1;
-      (enrichedItems[i] as Record<string, unknown>).image_count = fallbackCount;
-      (enrichedItems[i] as Record<string, unknown>).imageCount = fallbackCount;
-      (enrichedItems[i] as Record<string, unknown>).image_count_status = "pending";
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count = fallbackCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).imageCount = fallbackCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "pending";
     }
   }
 
-  // Second pass: prefetch with concurrency limit
+  // Second pass: prefetch with concurrency limit (parallel batches)
   if (prefetchQueue.length > 0 && config.prefetchEnabled) {
     const concurrency = config.fetchConcurrency;
     const batches: typeof prefetchQueue[] = [];

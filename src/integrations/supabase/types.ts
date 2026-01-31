@@ -4073,6 +4073,7 @@ export type Database = {
       clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }
       clean_expired_product_cache: { Args: never; Returns: undefined }
+      cleanup_all_expired_data: { Args: never; Returns: Json }
       cleanup_catalog_cache: { Args: never; Returns: Json }
       cleanup_catalog_provider_data: { Args: never; Returns: Json }
       cleanup_expired_facets_cache: { Args: never; Returns: Json }
@@ -4218,8 +4219,10 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_admin_cached: { Args: never; Returns: boolean }
+      is_admin_role: { Args: never; Returns: boolean }
       is_email_verified: { Args: never; Returns: boolean }
       is_super_admin: { Args: never; Returns: boolean }
+      is_super_admin_role: { Args: never; Returns: boolean }
       match_faq: {
         Args: { lang?: string; user_text: string }
         Returns: {

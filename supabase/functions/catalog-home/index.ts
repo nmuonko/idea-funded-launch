@@ -255,6 +255,9 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   };
 }
 
+// Per-section timeout for fallback fetches (5 seconds)
+const SECTION_TIMEOUT_MS = 5000;
+
 async function fetchEbayFallback(
   supabase: any,
   config: HomeSectionConfig,
@@ -304,6 +307,66 @@ async function fetchEbayFallback(
   }
 
   return allItems;
+}
+
+/**
+ * Fetch a single section with timeout protection
+ */
+async function fetchSectionWithTimeout(
+  supabase: any,
+  config: HomeSectionConfig,
+  cached: { response: Record<string, unknown>; expires_at: string } | undefined,
+  requestId: string
+): Promise<{
+  items: CatalogItem[];
+  cacheHit: boolean;
+  amazonCount: number;
+  ebayCount: number;
+  timedOut: boolean;
+}> {
+  // Use cached mixed items if available
+  if (cached && isCacheValid(cached.expires_at)) {
+    const response = cached.response as { items?: unknown[]; metadata?: HomeSectionMetadata };
+    const rawItems = response.items || [];
+    const items = rawItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
+    
+    return {
+      items,
+      cacheHit: true,
+      amazonCount: response.metadata?.amazonCount || 0,
+      ebayCount: response.metadata?.ebayCount || 0,
+      timedOut: false,
+    };
+  }
+
+  // Fallback: fetch eBay live with timeout
+  try {
+    const timeoutPromise = new Promise<CatalogItem[]>((_, reject) => {
+      setTimeout(() => reject(new Error("TIMEOUT")), SECTION_TIMEOUT_MS);
+    });
+
+    const fetchPromise = fetchEbayFallback(supabase, config, requestId);
+    const items = await Promise.race([fetchPromise, timeoutPromise]);
+
+    return {
+      items,
+      cacheHit: false,
+      amazonCount: 0,
+      ebayCount: items.length,
+      timedOut: false,
+    };
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.message === "TIMEOUT";
+    console.error(`[HOME_SECTION] requestId=${requestId} section=${config.key} ${isTimeout ? "TIMEOUT" : "error"}:`, err);
+    
+    return {
+      items: [],
+      cacheHit: false,
+      amazonCount: 0,
+      ebayCount: 0,
+      timedOut: isTimeout,
+    };
+  }
 }
 
 function buildTabs(): Tab[] {
@@ -408,33 +471,39 @@ Deno.serve(async (req: Request) => {
       cacheMap.set(entry.cache_key, { response: entry.response, expires_at: entry.expires_at });
     }
 
-    for (const config of HOME_SECTIONS) {
+    // PARALLELIZED: Fetch all sections concurrently with Promise.allSettled
+    const sectionPromises = HOME_SECTIONS.map(async (config) => {
       const cacheKey = buildHomeSectionMixedCacheKey(config.key, rotationKey);
       const cached = cacheMap.get(cacheKey);
       
-      let items: CatalogItem[] = [];
-      let cacheHit = false;
-      let amazonCount = 0;
-      let ebayCount = 0;
+      const result = await fetchSectionWithTimeout(supabase, config, cached, requestId);
+      
+      return {
+        config,
+        ...result,
+      };
+    });
 
-      if (cached && isCacheValid(cached.expires_at)) {
-        // Use cached mixed items
-        const response = cached.response as { items?: unknown[]; metadata?: HomeSectionMetadata };
-        const rawItems = response.items || [];
-        items = rawItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
-        
-        if (response.metadata) {
-          amazonCount = response.metadata.amazonCount || 0;
-          ebayCount = response.metadata.ebayCount || 0;
-        }
-        
-        cacheHit = true;
+    const sectionResults = await Promise.allSettled(sectionPromises);
+    let sectionsTimedOut = 0;
+
+    for (const settledResult of sectionResults) {
+      if (settledResult.status === "rejected") {
+        console.error(`[HOME] requestId=${requestId} Section promise rejected:`, settledResult.reason);
+        continue;
+      }
+
+      const { config, items, cacheHit, amazonCount, ebayCount, timedOut } = settledResult.value;
+
+      if (timedOut) {
+        sectionsTimedOut++;
+        console.log(`[HOME] requestId=${requestId} section=${config.key} TIMEOUT`);
+      }
+
+      if (cacheHit) {
         sectionsFromCache++;
         console.log(`[HOME] requestId=${requestId} section=${config.key} cacheHit=true items=${items.length}`);
-      } else {
-        // Fallback: fetch eBay live
-        items = await fetchEbayFallback(supabase, config, requestId);
-        ebayCount = items.length;
+      } else if (!timedOut) {
         sectionsFromFallback++;
         console.log(`[HOME] requestId=${requestId} section=${config.key} cacheHit=false fallbackItems=${items.length}`);
       }
@@ -481,6 +550,11 @@ Deno.serve(async (req: Request) => {
           category_key: config.categoryKey,
         },
       });
+    }
+
+    // Log timeout stats
+    if (sectionsTimedOut > 0) {
+      console.log(`[HOME] requestId=${requestId} sectionsTimedOut=${sectionsTimedOut}`);
     }
 
     const homeNeedsPrewarm = sectionsFromFallback > 0;

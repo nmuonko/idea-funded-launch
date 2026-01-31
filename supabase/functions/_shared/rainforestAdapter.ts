@@ -884,8 +884,8 @@ function extractImages(product: RainforestProduct): string[] {
     },
   }));
 
-  // ENHANCED: Return max 15 images (was 10)
-  return images.slice(0, 15);
+  // Return ALL images - no artificial limit
+  return images;
 }
 
 /**

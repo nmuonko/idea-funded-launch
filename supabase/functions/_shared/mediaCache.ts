@@ -128,6 +128,9 @@ export async function getMediaCacheSettings(supabase: SupabaseClient): Promise<M
 
 /**
  * Get cached media record if not expired
+ * 
+ * For Amazon items with image_count <= 1, we treat them as cache misses to force
+ * a re-fetch from the product details API, which should return the full gallery.
  */
 export async function getCachedMedia(
   supabase: SupabaseClient,
@@ -144,11 +147,23 @@ export async function getCachedMedia(
 
   if (error || !data) return null;
 
+  const imageCount = data.image_count || 0;
+  const imageUrls = Array.isArray(data.image_urls) ? data.image_urls : [];
+  
+  // Force re-fetch for Amazon items with poor image data
+  // This ensures Amazon products get their full gallery when available
+  if (provider === "amazon" && imageCount <= 1) {
+    if (DEV) {
+      console.log(`[MEDIA_CACHE] Amazon cache miss forced: itemId=${itemId} image_count=${imageCount} (needs refresh)`);
+    }
+    return null; // Treat as cache miss to trigger fresh fetch
+  }
+
   return {
     provider: data.provider,
     provider_item_id: data.provider_item_id,
-    image_urls: Array.isArray(data.image_urls) ? data.image_urls : [],
-    image_count: data.image_count || 0,
+    image_urls: imageUrls,
+    image_count: imageCount,
     fetched_at: data.fetched_at,
     expires_at: data.expires_at,
   };

@@ -1,325 +1,351 @@
 
-# Backend Enhancement Plan for 10k+ Users
+# Backend Sort/Filter Enhancement Plan
 
-## Current System Analysis
+## Problem Summary
 
-After thorough analysis of the codebase and database statistics, I've identified both strengths and critical gaps that need addressing:
-
-### Existing Strengths
-- Circuit breaker pattern implemented for 5 services (pawaPay, Stripe, Resend, MaishaPay, OpenAI)
-- Load shedding with priority-based request management
-- In-memory settings cache (60s TTL)
-- Response cache with request coalescing and stale-while-revalidate
-- 4 cron jobs already scheduled (cart cleanup, abandoned recovery, saved cart reminders, payment reconciliation)
-- `cleanup_all_expired_data` RPC function covers 10 tables
-- 47 indexes applied across the database
-
-### Critical Issues Found
-
-| Table | Sequential Scans | Index Usage | Risk Level |
-|-------|-----------------|-------------|------------|
-| user_roles | 858,993 | 31% | CRITICAL |
-| orders | 570,503 | 15.1% | CRITICAL |
-| profiles | 492,005 | 1.7% | CRITICAL |
-| order_items | 478,834 | 28.7% | HIGH |
-| shipping_item_types | 295,092 | 41.5% | MEDIUM |
-| settings | 48,212 | 0% | HIGH |
-| admin_settings | 3,840 | 3.6% | MEDIUM |
-
-**Root Cause**: The Postgres query planner is still choosing sequential scans despite indexes existing. This indicates stale statistics requiring `ANALYZE` and potentially missing composite indexes for specific query patterns.
+The backend API **parses** sort and filter parameters but **does not use them**:
+- `catalog-category` and `catalog-search` accept `sort` and `filters` URL params but ignore them
+- Provider adapters (eBay, Rainforest) have hardcoded sort orders
+- No admin endpoints support sort/filter parameters
 
 ---
 
-## Implementation Plan (4 Phases)
+## Implementation Overview
 
-### Phase 1: Critical Database Fixes (Day 1)
+This plan adds full sort/filter support to catalog and admin endpoints.
 
-**1.1 Force Statistics Update**
-
-Run `ANALYZE` on all critical tables to update the query planner's statistics:
-
-```sql
-ANALYZE user_roles;
-ANALYZE orders;
-ANALYZE profiles;
-ANALYZE order_items;
-ANALYZE shipping_item_types;
-ANALYZE settings;
-ANALYZE admin_settings;
-ANALYZE maisha_payments;
-ANALYZE quote_requests;
-ANALYZE payment_providers;
-```
-
-**1.2 Add Missing Composite Indexes**
-
-The high sequential scan counts suggest queries are not matching existing indexes. Add:
-
-```sql
--- user_roles: Optimize RLS checks
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_roles_user_lookup 
-ON user_roles (user_id) INCLUDE (role, admin_role);
-
--- settings: Singleton optimization
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_settings_singleton_id 
-ON settings (id) WHERE id IS NOT NULL;
-
--- profiles: User lookup optimization
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profiles_user_id_unique 
-ON profiles (user_id) INCLUDE (email, full_name, country);
-
--- orders: Status-based queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_status_created 
-ON orders (status, created_at DESC);
-
--- admin_settings: Key lookup
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_admin_settings_key_btree 
-ON admin_settings USING btree (key);
-```
-
-**1.3 RLS Function Optimization**
-
-Update `is_admin()` and `is_admin_cached()` to use `EXISTS` with `LIMIT 1`:
-
-```sql
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS boolean
-LANGUAGE sql
-STABLE SECURITY DEFINER
-SET search_path TO 'public'
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.user_roles 
-    WHERE user_id = auth.uid() 
-    AND role = 'admin'
-    LIMIT 1
-  )
-$$;
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        SORT/FILTER FLOW                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Mobile/Web App                                                          │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ?sort=price_asc&filters={"brand":["apple"],"minPrice":100}             │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  catalog-category / catalog-search                               │    │
+│  │  ┌─────────────────────┐  ┌─────────────────────┐               │    │
+│  │  │ Parse sort param    │  │ Parse filters JSON  │               │    │
+│  │  │ ┌─────────────────┐ │  │ ┌─────────────────┐ │               │    │
+│  │  │ │ relevance       │ │  │ │ brand           │ │               │    │
+│  │  │ │ price_asc       │ │  │ │ minPrice        │ │               │    │
+│  │  │ │ price_desc      │ │  │ │ maxPrice        │ │               │    │
+│  │  │ │ newest          │ │  │ │ condition       │ │               │    │
+│  │  │ │ rating          │ │  │ │ rating          │ │               │    │
+│  │  │ └─────────────────┘ │  │ └─────────────────┘ │               │    │
+│  │  └─────────────────────┘  └─────────────────────┘               │    │
+│  │              │                       │                           │    │
+│  │              ▼                       ▼                           │    │
+│  │  ┌─────────────────────────────────────────────────────────┐    │    │
+│  │  │ Pass to Provider Adapters                                │    │    │
+│  │  │ ┌─────────────────┐  ┌─────────────────────────────┐    │    │    │
+│  │  │ │ eBay Browse API │  │ Rainforest (Amazon) API     │    │    │    │
+│  │  │ │ sort=price      │  │ sort_by=price_low_to_high   │    │    │    │
+│  │  │ │ filter=price:[] │  │ filters via search_term     │    │    │    │
+│  │  │ └─────────────────┘  └─────────────────────────────┘    │    │    │
+│  │  └─────────────────────────────────────────────────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ▼                                                                  │
+│  Merged & filtered results returned                                      │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Phase 2: Automated Maintenance via pg_cron (Day 2)
+## Phase 1: Catalog Sort Support
 
-**2.1 Add Comprehensive Cleanup Cron Job**
+### 1.1 Define Standard Sort Options
 
-Currently missing: a scheduled job for `cleanup-expired-data`. Add this cron job:
+Create a new shared module for sort/filter normalization:
 
-```sql
-SELECT cron.schedule(
-  'cleanup-all-expired-data-hourly',
-  '0 */6 * * *',  -- Every 6 hours
-  $$
-  SELECT net.http_post(
-    url := 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/cleanup-expired-data',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'x-cron-secret', current_setting('app.cron_secret', true)
-    ),
-    body := '{}'::jsonb
-  ) AS request_id;
-  $$
-);
-```
+| Sort Key | Display Label | eBay API Value | Rainforest Value |
+|----------|---------------|----------------|------------------|
+| `relevance` | Best Match | (default) | `featured` |
+| `price_asc` | Price: Low to High | `price` | `price_low_to_high` |
+| `price_desc` | Price: High to Low | `-price` | `price_high_to_low` |
+| `newest` | Newly Listed | `newlyListed` | `most_recent` |
+| `rating` | Top Rated | (post-filter) | `average_review` |
 
-**2.2 Add Catalog Refresh Cron (Home Rotation)**
+### 1.2 Update eBay Adapter
 
-Automate the home page product rotation every 12 hours:
-
-```sql
-SELECT cron.schedule(
-  'catalog-prewarm-home-12h',
-  '0 */12 * * *',  -- Every 12 hours
-  $$
-  SELECT net.http_post(
-    url := 'https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/catalog-prewarm-home',
-    headers := jsonb_build_object(
-      'Content-Type', 'application/json',
-      'x-cron-secret', current_setting('app.cron_secret', true)
-    ),
-    body := '{}'::jsonb
-  ) AS request_id;
-  $$
-);
-```
-
-**2.3 Add ANALYZE Cron Job**
-
-Ensure statistics stay fresh:
-
-```sql
-SELECT cron.schedule(
-  'analyze-critical-tables-daily',
-  '0 3 * * *',  -- Every day at 3 AM
-  $$
-  ANALYZE user_roles;
-  ANALYZE orders;
-  ANALYZE order_items;
-  ANALYZE profiles;
-  ANALYZE catalog_items;
-  ANALYZE catalog_cache;
-  $$
-);
-```
-
----
-
-### Phase 3: Admin Observability Dashboard (Day 3-4)
-
-**3.1 Enhanced System Health Page**
-
-Update `src/pages/admin/Health.tsx` to include:
-
-- **Circuit Breaker Status Widget**
-  - Real-time status for all 5 services (pawaPay, Stripe, Resend, MaishaPay, OpenAI)
-  - Visual indicators: CLOSED (green), HALF_OPEN (yellow), OPEN (red)
-  - "Reset Circuit" button for admins
-
-- **Load Level Indicator**
-  - Current load percentage (0-100%)
-  - Mode display: normal/high/critical
-  - Active feature toggles display
-
-- **Cache Hit Rate Dashboard**
-  - In-memory cache size and utilization
-  - In-flight request coalescing count
-  - Database cache table sizes
-
-- **Provider Health Cards**
-  - eBay API status (token validity)
-  - Amazon/Rainforest API budget remaining
-  - Payment provider connectivity
-
-**3.2 New Backend Health Endpoint**
-
-Create `supabase/functions/admin-system-health/index.ts`:
+Modify `ebayBrowseSearch.ts` to accept and apply sort:
 
 ```typescript
-// Returns comprehensive system diagnostics
+// Add to EbaySearchParams
+export interface EbaySearchParams {
+  // ... existing
+  sort?: 'relevance' | 'price_asc' | 'price_desc' | 'newest';
+}
+
+// Map to eBay API sort values
+const EBAY_SORT_MAP: Record<string, string> = {
+  'price_asc': 'price',
+  'price_desc': '-price',
+  'newest': 'newlyListed',
+  // 'relevance' = no sort param (default)
+};
+```
+
+### 1.3 Update Rainforest Adapter
+
+Modify `rainforestAdapter.ts` to use dynamic sort:
+
+```typescript
+const RAINFOREST_SORT_MAP: Record<string, string> = {
+  'relevance': 'featured',
+  'price_asc': 'price_low_to_high',
+  'price_desc': 'price_high_to_low',
+  'newest': 'most_recent',
+  'rating': 'average_review',
+};
+```
+
+### 1.4 Update catalog-category
+
+Wire the `sort` param through to provider calls:
+
+```typescript
+// Line ~304: Already parsing sort
+const sort = url.searchParams.get("sort") || "relevance";
+
+// NEW: Pass to eBay search
+const searchResult = await searchEbayWithFallback(
+  supabase,
+  {
+    // ... existing params
+    sort: sort as EbaySortOption,
+  },
+  fallbackQueries,
+  requestId
+);
+
+// NEW: Apply sort to DB query for Amazon cached items
+if (sort === 'price_asc') {
+  query = query.order("price_usd", { ascending: true, nullsFirst: false });
+} else if (sort === 'price_desc') {
+  query = query.order("price_usd", { ascending: false, nullsFirst: false });
+} else {
+  query = query.order("rating", { ascending: false, nullsFirst: false });
+}
+```
+
+---
+
+## Phase 2: Catalog Filter Support
+
+### 2.1 Parse Filters Parameter
+
+Both endpoints already accept `filters` as a JSON-encoded query param:
+
+```
+?filters={"brand":["apple","samsung"],"minPrice":100,"maxPrice":1000,"condition":"new"}
+```
+
+### 2.2 Apply Filters to eBay API
+
+eBay Browse API supports filters in the `filter` param:
+
+```typescript
+// Add filter building in ebayBrowseSearch.ts
+function buildFiltersForEbay(filters: AppliedFilters): string[] {
+  const parts: string[] = [];
+  
+  // Price range
+  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
+    const min = filters.minPrice || 0;
+    const max = filters.maxPrice || '';
+    parts.push(`price:[${min}..${max}],priceCurrency:USD`);
+  }
+  
+  // Condition
+  if (filters.condition) {
+    const conditionMap: Record<string, string> = {
+      'new': 'NEW',
+      'used': 'USED',
+      'refurbished': 'MANUFACTURER_REFURBISHED',
+    };
+    parts.push(`conditions:{${conditionMap[filters.condition as string]}}`);
+  }
+  
+  return parts;
+}
+```
+
+### 2.3 Apply Filters to DB Queries (Amazon cached)
+
+For DB-cached Amazon items, apply filters in the Supabase query:
+
+```typescript
+// In catalog-category
+if (filters?.minPrice) {
+  query = query.gte('price_usd', filters.minPrice);
+}
+if (filters?.maxPrice) {
+  query = query.lte('price_usd', filters.maxPrice);
+}
+if (filters?.brand && Array.isArray(filters.brand)) {
+  // Use ilike for brand matching
+  const brandFilters = filters.brand.map(b => `brand.ilike.%${b}%`);
+  query = query.or(brandFilters.join(','));
+}
+```
+
+### 2.4 Return Applied Filters in Response
+
+Already supported in the response type:
+
+```typescript
+interface SearchResponse {
+  // ... existing
+  appliedFilters?: Record<string, unknown>;
+}
+```
+
+---
+
+## Phase 3: Admin Endpoints Sort/Filter
+
+### 3.1 Enhance admin-get-carts
+
+Add query params for admin cart management:
+
+```typescript
+// Parse params
+const sortBy = url.searchParams.get("sortBy") || "updated_at";
+const sortOrder = url.searchParams.get("sortOrder") || "desc";
+const status = url.searchParams.get("status"); // DRAFT, PENDING_PAYMENT, or null for all
+const minTotal = url.searchParams.get("minTotal");
+const userName = url.searchParams.get("userName");
+
+// Apply to query
+let query = supabase
+  .from('orders')
+  .select(`...`)
+  .in('status', statusList);
+
+if (minTotal) {
+  query = query.gte('total_usd', parseFloat(minTotal));
+}
+
+query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+```
+
+### 3.2 Add Sorting Headers to Admin UI
+
+Update `ActiveCartsContent.tsx` to allow column sorting:
+
+```typescript
+const [sortField, setSortField] = useState<'updated_at' | 'total_usd' | 'item_count'>('updated_at');
+const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+// Pass to API call
+const { data } = await supabase.functions.invoke('admin-get-carts', {
+  body: { sortBy: sortField, sortOrder }
+});
+```
+
+---
+
+## Phase 4: Response Consistency
+
+### 4.1 Standard Sort Info in Response
+
+All endpoints should return applied sort in the response:
+
+```typescript
 {
-  circuits: {
-    pawapay: { state: 'CLOSED', failures: 0, isAvailable: true },
-    stripe: { state: 'CLOSED', failures: 0, isAvailable: true },
-    // ... other services
+  "status": "success",
+  "items": [...],
+  "sort": {
+    "field": "price_asc",
+    "applied": true
   },
-  load: {
-    currentLoad: 45,
-    maxLoad: 1000,
-    loadLevel: 0.045,
-    mode: 'normal',
-    features: { aiRecommendations: true, ... }
-  },
-  cache: {
-    size: 234,
-    maxSize: 1000,
-    inFlightCount: 2
-  },
-  database: {
-    connectionPoolUsage: 15,
-    slowQueriesLast5m: 0
-  },
-  cron: {
-    lastCleanup: '2026-01-31T06:00:00Z',
-    nextCatalogRefresh: '2026-01-31T12:00:00Z'
+  "appliedFilters": {
+    "minPrice": 100,
+    "brand": ["apple"]
   }
 }
 ```
 
 ---
 
-### Phase 4: Client-Side Resilience (Day 5)
-
-**4.1 Exponential Backoff Hook**
-
-Create `src/hooks/useResilientFetch.ts`:
-
-```typescript
-export function useResilientFetch<T>(
-  fetcher: () => Promise<T>,
-  options?: {
-    maxRetries?: number;
-    baseDelayMs?: number;
-    maxDelayMs?: number;
-  }
-): {
-  data: T | null;
-  error: Error | null;
-  isLoading: boolean;
-  retry: () => void;
-}
-```
-
-Features:
-- Automatic retry with exponential backoff (1s, 2s, 4s, 8s)
-- Jitter to prevent thundering herd
-- Circuit breaker integration (stop retrying if server says "CIRCUIT_OPEN")
-- Offline detection for mobile
-
-**4.2 Service Status Banner**
-
-Add a `NetworkBlockedBanner` enhancement that shows:
-- "System under heavy load - some features temporarily disabled"
-- "Payment service recovering - please wait"
-- Auto-dismiss when services recover
-
----
-
-## Expected Outcomes
-
-| Metric | Current | After Enhancement |
-|--------|---------|-------------------|
-| user_roles seq scans | 858k | <10k (99% reduction) |
-| orders seq scans | 570k | <20k (96% reduction) |
-| RLS check latency | ~5-10ms | <1ms |
-| Manual cleanup required | Yes | No (automated) |
-| Admin visibility into circuits | None | Full dashboard |
-| Mobile retry on failures | Basic | Exponential backoff |
-
----
-
-## File Changes Summary
+## Files to Create/Modify
 
 ### New Files
-1. `supabase/functions/admin-system-health/index.ts` - Comprehensive diagnostics endpoint
-2. `src/hooks/useResilientFetch.ts` - Client-side resilience hook
-3. `src/components/admin/SystemLoadWidget.tsx` - Load level visualization
-4. `src/components/admin/CircuitBreakerStatus.tsx` - Circuit breaker dashboard
+1. `supabase/functions/_shared/sortFilterNormalizer.ts` - Standard sort/filter type definitions and mapping
 
 ### Modified Files
-1. `src/pages/admin/Health.tsx` - Add circuit breaker and load widgets
-2. `supabase/config.toml` - Add new edge function config
+1. `supabase/functions/_shared/ebayBrowseSearch.ts` - Add sort param support
+2. `supabase/functions/_shared/rainforestAdapter.ts` - Use dynamic sort_by
+3. `supabase/functions/catalog-category/index.ts` - Wire sort/filter through
+4. `supabase/functions/catalog-search/index.ts` - Wire sort/filter through
+5. `supabase/functions/admin-get-carts/index.ts` - Add sort/filter params
 
-### Database Changes
-1. Migration for additional composite indexes
-2. SQL insert for new cron job schedules
-3. RLS function optimizations
+### Frontend Updates (optional, for admin)
+1. `src/pages/admin/ActiveCartsContent.tsx` - Add sortable column headers
+
+---
+
+## Technical Details
+
+### Sort Parameter Validation
+
+```typescript
+const VALID_SORTS = ['relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
+type SortOption = typeof VALID_SORTS[number];
+
+function validateSort(sort: string | null): SortOption {
+  if (sort && VALID_SORTS.includes(sort as SortOption)) {
+    return sort as SortOption;
+  }
+  return 'relevance';
+}
+```
+
+### Filter Parameter Schema
+
+```typescript
+interface CatalogFilters {
+  minPrice?: number;
+  maxPrice?: number;
+  brand?: string[];
+  condition?: 'new' | 'used' | 'refurbished';
+  rating?: number; // minimum rating (1-5)
+  freeShipping?: boolean;
+}
+
+function parseFilters(filtersParam: string | null): CatalogFilters {
+  if (!filtersParam) return {};
+  try {
+    return JSON.parse(filtersParam);
+  } catch {
+    return {};
+  }
+}
+```
 
 ---
 
 ## Rollback Plan
 
-Each phase has independent rollback:
+Each phase is independent:
 
-**Phase 1 (Indexes)**: 
-```sql
-DROP INDEX CONCURRENTLY IF EXISTS idx_user_roles_user_lookup;
--- ... other indexes
-```
+**Phase 1 (Sort)**: Revert changes to adapters, endpoints continue to work with default sort
 
-**Phase 2 (Cron Jobs)**:
-```sql
-SELECT cron.unschedule('cleanup-all-expired-data-hourly');
-SELECT cron.unschedule('catalog-prewarm-home-12h');
-SELECT cron.unschedule('analyze-critical-tables-daily');
-```
+**Phase 2 (Filters)**: Remove filter application, filters param is ignored (current behavior)
 
-**Phase 3 & 4 (Code)**: Git revert of component files
+**Phase 3 (Admin)**: Revert admin-get-carts, continue using hardcoded sort
 
 ---
 
-## Technical Notes
+## Expected Outcomes
 
-- All `CREATE INDEX CONCURRENTLY` operations are non-blocking
-- Cron jobs use `x-cron-secret` header (already configured as `CRON_SECRET`)
-- Circuit breaker state is per-edge-function-instance (not shared)
-- Load shedding is request-scoped (per-invocation fresh)
+| Feature | Before | After |
+|---------|--------|-------|
+| Catalog sort options | 1 (hardcoded) | 5 (user-selectable) |
+| Filter application | Client-side only | Server-side (faster) |
+| Admin cart sorting | Fixed (updated_at) | Flexible (any column) |
+| API response clarity | Missing sort info | Explicit sort/filter in response |

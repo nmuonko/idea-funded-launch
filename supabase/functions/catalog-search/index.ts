@@ -68,14 +68,37 @@ const corsHeaders = {
 };
 
 const VEHICLE_QUERY_KEYWORDS = [
-  "car", "cars", "truck", "trucks", "suv", "sedan", "pickup",
+  // Vehicle types
+  "car", "cars", "truck", "trucks", "suv", "sedan", "coupe", "pickup", "van", "minivan",
+  "hatchback", "convertible", "wagon", "crossover",
+  // Popular car brands
   "toyota", "honda", "jeep", "bmw", "mercedes", "ford", "chevy", "chevrolet",
   "nissan", "kia", "hyundai", "lexus", "audi", "tesla", "mazda", "subaru",
-  "motorcycle", "harley", "yamaha", "kawasaki", "ducati",
-  "boat", "pontoon", "yacht", "rv", "camper", "trailer",
-  "atv", "utv", "quad", "polaris", "can-am",
+  "volkswagen", "vw", "dodge", "ram", "gmc", "cadillac", "buick", "lincoln",
+  "acura", "infiniti", "genesis", "porsche", "jaguar", "land rover", "range rover",
+  "volvo", "mini", "fiat", "alfa romeo", "maserati", "ferrari", "lamborghini",
+  "bentley", "rolls royce", "aston martin", "mclaren", "bugatti",
+  // Specific popular models
+  "camry", "corolla", "rav4", "highlander", "tacoma", "tundra", "4runner", "prius",
+  "civic", "accord", "cr-v", "pilot", "odyssey", "hr-v",
+  "f-150", "f150", "mustang", "explorer", "escape", "bronco", "ranger",
+  "silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro",
+  "wrangler", "grand cherokee", "gladiator", "compass", "renegade",
+  "model 3", "model s", "model x", "model y", "cybertruck",
+  "3 series", "5 series", "x3", "x5", "m3", "m5",
+  "c-class", "e-class", "s-class", "gle", "glc", "amg",
+  "a4", "a6", "q5", "q7", "r8", "rs",
+  "altima", "sentra", "rogue", "pathfinder", "frontier", "titan",
+  "elantra", "sonata", "tucson", "santa fe", "palisade",
+  "forte", "optima", "k5", "sportage", "telluride", "sorento",
+  // Motorcycles
+  "motorcycle", "harley", "yamaha", "kawasaki", "ducati", "suzuki", "triumph", "indian",
+  "sportster", "softail", "road king", "street glide",
+  // Other vehicles
+  "boat", "pontoon", "yacht", "rv", "camper", "trailer", "motorhome",
+  "atv", "utv", "quad", "polaris", "can-am", "side by side", "rzr",
   // French vehicle terms
-  "voiture", "voitures", "moto", "camion", "vehicule",
+  "voiture", "voitures", "moto", "camion", "vehicule", "automobile",
 ];
 
 const DEFAULT_LIMIT = 24;
@@ -631,12 +654,33 @@ Deno.serve(async (req: Request) => {
           ebayCategory = categoryMapping[categoryKey];
         }
 
-        console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${qNorm}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
+        // ═══════════════════════════════════════════════════════════════════════════
+        // VEHICLE SEARCH FIX: When searching for car makes/models, force eBay Motors
+        // category and enhance the query to get actual vehicles, not parts
+        // ═══════════════════════════════════════════════════════════════════════════
+        let enhancedQuery = qNorm;
+        if (isVehicle && !ebayCategory) {
+          // Force eBay Motors > Cars & Trucks category for vehicle searches
+          ebayCategory = "6001"; // Cars & Trucks category
+          
+          // Enhance query to prioritize actual vehicles over parts
+          // Add "for sale" qualifier to get actual vehicle listings
+          const vehicleSaleTerms = ["for sale", "clean title", "runs", "drives"];
+          const hasVehicleTerm = vehicleSaleTerms.some(term => qNorm.toLowerCase().includes(term));
+          
+          if (!hasVehicleTerm) {
+            enhancedQuery = `${qNorm} car for sale`;
+          }
+          
+          console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001, enhancedQuery="${enhancedQuery}"`);
+        }
+
+        console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
 
         const ebayResult = await searchEbay(
           supabase,
           {
-            query: qNorm,
+            query: enhancedQuery,
             page,
             pageSize: limit,
             minPrice,

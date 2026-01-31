@@ -434,8 +434,9 @@ async function processSection(
 
     // Cache Amazon items separately
     if (amazonItems.length > 0) {
-      await supabase.from("catalog_cache").upsert({
-        cache_key: buildHomeSectionAmazonCacheKey(section.key, rotationKey),
+      const amazonCacheKey = buildHomeSectionAmazonCacheKey(section.key, rotationKey);
+      const { error: amazonCacheError } = await supabase.from("catalog_cache").upsert({
+        cache_key: amazonCacheKey,
         cache_type: "home_amazon",
         provider: "rainforest",
         query: section.amazonQueries[0],
@@ -445,12 +446,19 @@ async function processSection(
         stale_at: staleAt.toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: "cache_key" });
+      
+      if (amazonCacheError) {
+        console.error(`[WORKER] requestId=${requestId} section=${section.key} Amazon cache upsert FAILED:`, amazonCacheError.message, amazonCacheError.code);
+      } else {
+        console.log(`[WORKER] requestId=${requestId} section=${section.key} Amazon cache saved: ${amazonCacheKey}`);
+      }
     }
 
     // Cache eBay items separately
     if (ebayItems.length > 0) {
-      await supabase.from("catalog_cache").upsert({
-        cache_key: buildHomeSectionEbayCacheKey(section.key, rotationKey),
+      const ebayCacheKey = buildHomeSectionEbayCacheKey(section.key, rotationKey);
+      const { error: ebayCacheError } = await supabase.from("catalog_cache").upsert({
+        cache_key: ebayCacheKey,
         cache_type: "home_ebay",
         provider: "ebay",
         query: section.ebayQueries[0],
@@ -460,12 +468,19 @@ async function processSection(
         stale_at: staleAt.toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: "cache_key" });
+      
+      if (ebayCacheError) {
+        console.error(`[WORKER] requestId=${requestId} section=${section.key} eBay cache upsert FAILED:`, ebayCacheError.message, ebayCacheError.code);
+      } else {
+        console.log(`[WORKER] requestId=${requestId} section=${section.key} eBay cache saved: ${ebayCacheKey}`);
+      }
     }
 
     // Cache mixed result
     if (mixedItems.length > 0) {
-      await supabase.from("catalog_cache").upsert({
-        cache_key: buildHomeSectionMixedCacheKey(section.key, rotationKey),
+      const mixedCacheKey = buildHomeSectionMixedCacheKey(section.key, rotationKey);
+      const { error: mixedCacheError } = await supabase.from("catalog_cache").upsert({
+        cache_key: mixedCacheKey,
         cache_type: "home_mixed",
         provider: "mixed",
         query: `${section.amazonQueries[0]}|${section.ebayQueries[0]}`,
@@ -481,6 +496,12 @@ async function processSection(
         stale_at: staleAt.toISOString(),
         updated_at: new Date().toISOString(),
       }, { onConflict: "cache_key" });
+      
+      if (mixedCacheError) {
+        console.error(`[WORKER] requestId=${requestId} section=${section.key} Mixed cache upsert FAILED:`, mixedCacheError.message, mixedCacheError.code);
+      } else {
+        console.log(`[WORKER] requestId=${requestId} section=${section.key} Mixed cache saved: ${mixedCacheKey}`);
+      }
 
       // Record seen items
       const seenInserts = mixedItems.map(item => ({

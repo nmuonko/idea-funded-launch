@@ -1,148 +1,89 @@
 
-# Fix eBay Product Images - Complete ID Format Normalization
 
-## Problem Summary
+# Fix eBay Images - Enable Catalog for Internal Fetch Calls
 
-eBay items are showing only 1 image instead of 25+ because of ID format mismatches:
+## Problem Identified
 
-1. **`catalog-product` only handles colon format** (`ebay:v1|...`), NOT underscore format (`EBAY_V1|...`)
-2. **mediaCache passes original ID unchanged** to catalog-product, which defaults to rainforest provider for unrecognized formats
-3. **Log evidence**: `provider=rainforest error=INVALID_ID` for eBay IDs
+The root cause of the persistent image issue has been found:
 
-## Technical Solution
+**The `production` environment in the database has `catalog_enabled = false`**
 
-### Step 1: Fix ID Parsing in catalog-product/index.ts
+This means when `mediaCache.ts` makes internal calls to `catalog-product` (even with the `x-afrishop-environment: production` header), the request is immediately rejected with `CATALOG_DISABLED` before any eBay API call is made.
 
-Update `parseProductId` to handle underscore separator in addition to colon:
-
-```typescript
-function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null } {
-  let provider: string | null = null;
-  let productId: string | null = null;
-
-  const id = (url.searchParams.get("id") || "").trim();
-  const lowerCaseId = id.toLowerCase();
-  
-  // Handle colon separator: "ebay:v1|..."
-  if (id && id.includes(":")) {
-    const parts = id.split(":", 2);
-    provider = (parts[0] || "").trim().toLowerCase() || null;
-    productId = (parts[1] || "").trim() || null;
-  }
-  // Handle underscore separator: "ebay_v1|..." or "EBAY_V1|..."
-  else if (lowerCaseId.startsWith("ebay_")) {
-    provider = "ebay";
-    productId = id.slice(5); // Keep original case for item ID
-  }
-  else if (lowerCaseId.startsWith("rainforest_")) {
-    provider = "rainforest";
-    productId = id.slice(11);
-  }
-  else if (lowerCaseId.startsWith("amazon_")) {
-    provider = "rainforest"; // Treat amazon as rainforest
-    productId = id.slice(7);
-  }
-  // Fallback to query params or default
-  else {
-    provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
-    productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
-    if (!productId && id) {
-      productId = id.toUpperCase();
-      provider = "rainforest";
-    }
-  }
-
-  // Normalize for rainforest
-  if (provider === "rainforest" && productId) {
-    productId = productId.toUpperCase();
-  }
-
-  const rawId = provider && productId ? `${provider}:${productId}` : productId || id || "";
-  
-  // Validation
-  let idError: string | null = null;
-  if (!productId) {
-    idError = "Product ID is required";
-  } else if (provider === "rainforest") {
-    idError = validateAsin(productId);
-  }
-
-  return { provider, productId, rawId, idError };
-}
+Evidence from logs:
+```
+[CATALOG_PRODUCT] id=v1|157299757552|458921765069 provider=ebay error=CATALOG_DISABLED
 ```
 
-### Step 2: Normalize ID in mediaCache before calling catalog-product
+Current database state:
+- `production`: `catalog_enabled = false`
+- `staging`: `catalog_enabled = true`
 
-Update `fetchAndCacheMedia` to construct a normalized ID with colon format:
+## Solution Options
 
-```typescript
-export async function fetchAndCacheMedia(
-  supabase: SupabaseClient,
-  provider: string,
-  itemId: string,
-  compositeId: string,
-  settings: MediaCacheSettings
-): Promise<MediaCacheRecord | null> {
-  // ...existing code...
-  
-  // Normalize composite ID to colon format for catalog-product
-  const normalizedId = `${provider}:${itemId}`;
-  
-  const productUrl = `${supabaseUrl}/functions/v1/catalog-product?id=${encodeURIComponent(normalizedId)}`;
-  // ...rest of function
-}
+### Option A: Enable catalog for production (Recommended)
+Update the `environments` table to enable catalog for production. This is likely the intended state since your app is actively using the catalog.
+
+### Option B: Bypass catalog check for internal service calls
+Modify `catalog-product` to skip the `CATALOG_DISABLED` check when the request is made with a service role key (internal call from mediaCache).
+
+## Recommended Solution: Option A
+
+We will:
+1. **Update the database** to set `catalog_enabled = true` for the production environment
+2. **Clear stale media cache entries** to force re-fetch with the working configuration
+3. **Verify** by opening the specific eBay item
+
+## Technical Changes
+
+### Step 1: Database Migration
+Update the `environments` table:
+```sql
+UPDATE environments 
+SET catalog_enabled = true, updated_at = now() 
+WHERE name = 'production';
 ```
 
-### Step 3: Clear Stale Media Cache Entries
-
-Run SQL to delete incorrect cache entries:
-
+### Step 2: Clear Stale Cache Entries
+Delete media cache entries that were incorrectly cached with only 1-2 images:
 ```sql
 DELETE FROM catalog_item_media 
 WHERE provider = 'ebay' 
   AND image_count <= 2;
 ```
 
-### Step 4: Add Environment Header to mediaCache Fetch
-
-Add the required environment header to bypass catalog disabled checks:
+### Step 3: (Optional) Add Service Role Bypass
+As a defensive measure, we can also update `catalog-product` to bypass the catalog check for internal service calls. This ensures the media enrichment continues to work even if catalog is disabled for end-user requests.
 
 ```typescript
-const response = await fetch(productUrl, {
-  method: "GET",
-  headers: {
-    Authorization: `Bearer ${serviceKey}`,
-    "Content-Type": "application/json",
-    "x-afrishop-environment": "production", // Required to bypass catalog disabled check
-  },
-  signal: controller.signal,
-});
+// In catalog-product/index.ts
+const authHeader = req.headers.get("authorization") || "";
+const isServiceRoleCall = authHeader.includes(Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "");
+
+// Skip catalog enabled check for internal service calls
+if (!isServiceRoleCall) {
+  const envConfig = await getEnvironmentConfig(supabase, envName);
+  if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
+}
 ```
 
-## Files to Modify
+## Why Frontend Wasn't the Issue
 
-1. **`supabase/functions/catalog-product/index.ts`**
-   - Update `parseProductId()` to handle underscore separator format
-   - Support uppercase variants (EBAY_V1|...)
-
-2. **`supabase/functions/_shared/mediaCache.ts`**
-   - Normalize composite ID to colon format before API call
-   - Add environment header to fetch request
+The frontend code is correctly handling images:
+- It displays whatever `imageUrls` array is returned from the API
+- The issue was that the API was never successfully fetching from eBay - it was failing immediately with `CATALOG_DISABLED`
 
 ## Expected Outcome
 
-After these fixes:
-- eBay items with 25+ photos will correctly show all images
-- Media cache will properly store all image URLs
-- Product detail pages will display full galleries
-- The `catalog-product` endpoint will correctly route eBay IDs regardless of input format
+After enabling catalog for production:
+1. Internal media cache calls to `catalog-product` will succeed
+2. eBay API will be called and return full image galleries (up to 12+ images)
+3. Media cache will store all image URLs
+4. Frontend will display the complete gallery
 
-## Testing Plan
+## Files to Modify
 
-1. Deploy fixes
-2. Clear stale media cache entries with SQL
-3. Open the specific eBay item (157299757552)
-4. Verify:
-   - `catalog-product` logs show `provider=ebay` (not rainforest)
-   - Response includes `imageCount > 1`
-   - Frontend displays multiple images in gallery
+1. **Database**: Update `environments` table to enable catalog
+2. **Database**: Clear stale `catalog_item_media` entries
+3. **(Optional) `supabase/functions/catalog-product/index.ts`**: Add service role bypass
+

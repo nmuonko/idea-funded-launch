@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { 
   WifiOff, 
   RefreshCw, 
@@ -11,24 +12,44 @@ import {
   Globe, 
   Loader2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  AlertTriangle,
+  Server
 } from 'lucide-react';
 import { testSupabaseHealth, checkForBlockers, getSupabaseConfig } from '@/lib/supabaseHealth';
 import { useToast } from '@/hooks/use-toast';
 
 interface NetworkBlockedBannerProps {
   onRetrySuccess?: () => void;
+  serviceMessage?: string;
+  isLoadShedding?: boolean;
 }
 
-export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerProps) {
+export function NetworkBlockedBanner({ 
+  onRetrySuccess, 
+  serviceMessage,
+  isLoadShedding = false 
+}: NetworkBlockedBannerProps) {
   const [isRetrying, setIsRetrying] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [retryResult, setRetryResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [autoRetryCount, setAutoRetryCount] = useState(0);
   const { toast } = useToast();
   
   const config = getSupabaseConfig();
   const supabaseDomain = config.url ? new URL(config.url).hostname : 'supabase.co';
+
+  // Auto-retry with exponential backoff for load shedding scenarios
+  useEffect(() => {
+    if (isLoadShedding && autoRetryCount < 3) {
+      const delay = Math.pow(2, autoRetryCount) * 5000; // 5s, 10s, 20s
+      const timer = setTimeout(() => {
+        handleRetry(true);
+      }, delay);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoadShedding, autoRetryCount]);
 
   const handleCopyDomain = async () => {
     try {
@@ -48,15 +69,12 @@ export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerPro
     }
   };
 
-  const handleRetry = async () => {
+  const handleRetry = async (isAutoRetry = false) => {
     setIsRetrying(true);
     setRetryResult(null);
     
     try {
-      // First check if external requests work at all
       const blockerCheck = await checkForBlockers();
-      
-      // Then test Supabase specifically
       const healthResult = await testSupabaseHealth();
       
       if (healthResult.success) {
@@ -74,17 +92,91 @@ export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerPro
           ? 'All external requests are blocked. Check your network connection or firewall.'
           : `Supabase specifically blocked. ${blockerCheck.reason}`;
         setRetryResult({ success: false, message });
+        
+        if (isAutoRetry) {
+          setAutoRetryCount(prev => prev + 1);
+        }
       }
     } catch (error: any) {
       setRetryResult({ 
         success: false, 
         message: `Retry failed: ${error.message}` 
       });
+      if (isAutoRetry) {
+        setAutoRetryCount(prev => prev + 1);
+      }
     } finally {
       setIsRetrying(false);
     }
   };
 
+  // Load shedding variant
+  if (isLoadShedding) {
+    return (
+      <Card className="bg-yellow-500/5 border-yellow-500/30 shadow-lg animate-fade-in">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-full bg-yellow-500/20">
+                <Server className="h-5 w-5 text-yellow-500" />
+              </div>
+              <CardTitle className="text-lg text-yellow-500">
+                High System Load
+              </CardTitle>
+            </div>
+            <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/20">
+              {autoRetryCount < 3 ? 'Auto-retrying...' : 'Manual retry needed'}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Alert className="bg-yellow-500/10 border-yellow-500/20">
+            <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            <AlertTitle className="text-yellow-600">Service Temporarily Limited</AlertTitle>
+            <AlertDescription className="mt-2">
+              {serviceMessage || 'Some features are temporarily disabled due to high demand. We\'re automatically retrying.'}
+            </AlertDescription>
+          </Alert>
+
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              {autoRetryCount < 3 
+                ? `Auto-retry ${autoRetryCount + 1}/3 in ${Math.pow(2, autoRetryCount) * 5}s...`
+                : 'Auto-retries exhausted'}
+            </span>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => handleRetry(false)}
+              disabled={isRetrying}
+            >
+              {isRetrying ? (
+                <>
+                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-3 w-3" />
+                  Retry Now
+                </>
+              )}
+            </Button>
+          </div>
+
+          {retryResult && (
+            <Alert variant={retryResult.success ? 'default' : 'destructive'} 
+                   className={retryResult.success ? 'bg-emerald-500/10 border-emerald-500/30' : ''}>
+              <Globe className="h-4 w-4" />
+              <AlertDescription>{retryResult.message}</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Standard network blocked variant
   return (
     <Card className="bg-destructive/5 border-destructive/30 shadow-lg animate-fade-in">
       <CardHeader className="pb-3">
@@ -111,7 +203,7 @@ export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerPro
         <div className="grid grid-cols-2 gap-3">
           <Button 
             variant="outline" 
-            onClick={handleRetry}
+            onClick={() => handleRetry(false)}
             disabled={isRetrying}
             className="w-full"
           >
@@ -134,7 +226,7 @@ export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerPro
           >
             {copied ? (
               <>
-                <Check className="mr-2 h-4 w-4 text-green-500" />
+                <Check className="mr-2 h-4 w-4 text-emerald-500" />
                 Copied!
               </>
             ) : (
@@ -148,7 +240,7 @@ export function NetworkBlockedBanner({ onRetrySuccess }: NetworkBlockedBannerPro
 
         {/* Retry Result */}
         {retryResult && (
-          <Alert variant={retryResult.success ? 'default' : 'destructive'} className={retryResult.success ? 'bg-green-500/10 border-green-500/30' : ''}>
+          <Alert variant={retryResult.success ? 'default' : 'destructive'} className={retryResult.success ? 'bg-emerald-500/10 border-emerald-500/30' : ''}>
             <Globe className="h-4 w-4" />
             <AlertDescription>{retryResult.message}</AlertDescription>
           </Alert>

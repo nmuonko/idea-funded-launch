@@ -7,7 +7,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { verifyAndGetUser, unauthorizedResponse, errorResponse } from "../_shared/auth.ts";
+import { verifyAndGetUser, unauthorizedResponse, errorResponse, AuthError } from "../_shared/auth.ts";
 import { logAdminAction } from "../_shared/auditLog.ts";
 
 const corsHeaders = {
@@ -26,7 +26,16 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Verify admin
-    const authResult = await verifyAndGetUser(req, supabase);
+    let authResult;
+    try {
+      authResult = await verifyAndGetUser(req, supabase);
+    } catch (authError) {
+      if (authError instanceof AuthError) {
+        return unauthorizedResponse(corsHeaders);
+      }
+      throw authError;
+    }
+    
     if (!authResult.user) {
       return unauthorizedResponse(corsHeaders);
     }

@@ -1,13 +1,14 @@
 /**
  * catalog-prewarm-worker
  * 
- * Background worker for home feed prewarming
+ * Self-chaining background worker for home feed prewarming
  * 
- * Processes sections one at a time with progress updates:
- * 1. Receives jobId from catalog-prewarm-home
- * 2. Processes each section sequentially
- * 3. Updates prewarm_jobs.sections_completed after each section
- * 4. Marks job as completed/failed when done
+ * Processes ONE section per invocation to avoid timeout:
+ * 1. Receives jobId + sectionIndex from caller
+ * 2. Processes only the section at that index
+ * 3. Updates prewarm_jobs progress + heartbeat
+ * 4. Self-chains to next section (fire-and-forget)
+ * 5. Marks job complete when all sections done
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -36,7 +37,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Home sections to prewarm
+// Home sections to prewarm (8 total)
 const HOME_PREWARM_SECTIONS = [
   { 
     key: "phones", 
@@ -174,7 +175,7 @@ function mapEbayToProviderItem(item: NormalizedItem, parentTab: string, subtabKe
   };
 }
 
-// Process a single section with timeout
+// Process a single section
 async function processSection(
   supabase: ReturnType<typeof createClient>,
   section: typeof HOME_PREWARM_SECTIONS[0],
@@ -435,6 +436,35 @@ async function processSection(
   }
 }
 
+// Trigger self for next section (fire-and-forget)
+async function chainToNextSection(
+  supabaseUrl: string,
+  serviceKey: string,
+  jobId: string,
+  nextSectionIndex: number,
+  requestId: string
+): Promise<void> {
+  try {
+    const workerUrl = `${supabaseUrl}/functions/v1/catalog-prewarm-worker`;
+    
+    // Fire-and-forget: don't await the response
+    fetch(workerUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ jobId, sectionIndex: nextSectionIndex }),
+    }).catch(err => {
+      console.error(`[WORKER] requestId=${requestId} Failed to chain to section ${nextSectionIndex}:`, err);
+    });
+    
+    console.log(`[WORKER] requestId=${requestId} Chained to section ${nextSectionIndex}`);
+  } catch (err) {
+    console.error(`[WORKER] requestId=${requestId} Chain error:`, err);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -443,7 +473,7 @@ Deno.serve(async (req: Request) => {
   const requestId = generateRequestId();
   const startTime = Date.now();
 
-  console.log(`[WORKER] requestId=${requestId} Background worker started`);
+  console.log(`[WORKER] requestId=${requestId} Worker invocation started`);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -456,9 +486,10 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Get jobId from request body
+    // Get jobId and sectionIndex from request body
     const body = await req.json().catch(() => ({}));
     const jobId = body.jobId;
+    const sectionIndex = body.sectionIndex ?? 0;
 
     if (!jobId) {
       console.error(`[WORKER] requestId=${requestId} Missing jobId`);
@@ -485,89 +516,138 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Mark job as processing
-    await supabase
-      .from("prewarm_jobs")
-      .update({ status: "processing", started_at: new Date().toISOString() })
-      .eq("id", jobId);
+    // Check if job was cancelled or already completed
+    if (job.status === 'cancelled' || job.status === 'completed' || job.status === 'failed') {
+      console.log(`[WORKER] requestId=${requestId} Job ${jobId} already ${job.status}, skipping`);
+      return new Response(JSON.stringify({ ok: true, skipped: true, reason: job.status }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-    console.log(`[WORKER] requestId=${requestId} Processing job: ${jobId}, rotationKey: ${job.rotation_key}`);
+    // Validate section index
+    if (sectionIndex < 0 || sectionIndex >= HOME_PREWARM_SECTIONS.length) {
+      console.error(`[WORKER] requestId=${requestId} Invalid sectionIndex: ${sectionIndex}`);
+      return new Response(JSON.stringify({ ok: false, error: "Invalid sectionIndex" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const section = HOME_PREWARM_SECTIONS[sectionIndex];
+    const totalSections = HOME_PREWARM_SECTIONS.length;
+
+    console.log(`[WORKER] requestId=${requestId} Processing job=${jobId} section=${section.key} (${sectionIndex + 1}/${totalSections})`);
+
+    // Mark job as processing and update heartbeat
+    if (sectionIndex === 0) {
+      await supabase
+        .from("prewarm_jobs")
+        .update({ 
+          status: "processing", 
+          started_at: new Date().toISOString(),
+          current_section: section.key,
+          last_heartbeat: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+    } else {
+      // Just update current section and heartbeat
+      await supabase
+        .from("prewarm_jobs")
+        .update({ 
+          current_section: section.key,
+          last_heartbeat: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+    }
 
     // Load settings
     const catalogSettings = await getCatalogSettings(supabase);
     const liveSettings = await getAmazonLiveSettings(supabase);
     const avoidRepeatDays = catalogSettings.homeAvoidRepeatDays;
 
-    let totalAmazonFetched = 0;
-    let totalEbayFetched = 0;
-    let totalMixed = 0;
-    let sectionsCompleted = 0;
-    let lastError: string | null = null;
+    // Process THIS section only
+    const result = await processSection(
+      supabase,
+      section,
+      catalogSettings,
+      liveSettings,
+      job.rotation_key,
+      avoidRepeatDays,
+      requestId
+    );
 
-    // Process each section sequentially
-    for (const section of HOME_PREWARM_SECTIONS) {
-      console.log(`[WORKER] requestId=${requestId} Processing section: ${section.key} (${sectionsCompleted + 1}/${HOME_PREWARM_SECTIONS.length})`);
+    // Calculate running totals
+    const newAmazonTotal = (job.amazon_fetched || 0) + result.amazonFetched;
+    const newEbayTotal = (job.ebay_fetched || 0) + result.ebayFetched;
+    const newMixedTotal = (job.mixed_total || 0) + result.mixedTotal;
+    const newSectionsCompleted = sectionIndex + 1;
 
-      // Update current section
-      await supabase
-        .from("prewarm_jobs")
-        .update({ current_section: section.key })
-        .eq("id", jobId);
-
-      const result = await processSection(
-        supabase,
-        section,
-        catalogSettings,
-        liveSettings,
-        job.rotation_key,
-        avoidRepeatDays,
-        requestId
-      );
-
-      totalAmazonFetched += result.amazonFetched;
-      totalEbayFetched += result.ebayFetched;
-      totalMixed += result.mixedTotal;
-      sectionsCompleted++;
-
-      if (result.error) {
-        lastError = result.error;
-      }
-
-      // Update progress after each section
-      await supabase
-        .from("prewarm_jobs")
-        .update({
-          sections_completed: sectionsCompleted,
-          amazon_fetched: totalAmazonFetched,
-          ebay_fetched: totalEbayFetched,
-          mixed_total: totalMixed,
-        })
-        .eq("id", jobId);
-
-      console.log(`[WORKER] requestId=${requestId} Section ${section.key} completed: amazon=${result.amazonFetched}, ebay=${result.ebayFetched}, mixed=${result.mixedTotal}`);
-    }
-
-    // Mark job as completed
-    const durationMs = Date.now() - startTime;
+    // Update progress in database
     await supabase
       .from("prewarm_jobs")
       .update({
-        status: lastError ? "completed_with_errors" : "completed",
-        completed_at: new Date().toISOString(),
-        error_message: lastError,
-        current_section: null,
+        sections_completed: newSectionsCompleted,
+        amazon_fetched: newAmazonTotal,
+        ebay_fetched: newEbayTotal,
+        mixed_total: newMixedTotal,
+        last_heartbeat: new Date().toISOString(),
       })
       .eq("id", jobId);
 
-    console.log(`[WORKER] requestId=${requestId} Job completed in ${durationMs}ms: sections=${sectionsCompleted}, amazon=${totalAmazonFetched}, ebay=${totalEbayFetched}, mixed=${totalMixed}`);
+    console.log(`[WORKER] requestId=${requestId} Section ${section.key} completed: amazon=${result.amazonFetched}, ebay=${result.ebayFetched}, mixed=${result.mixedTotal}`);
+
+    const durationMs = Date.now() - startTime;
+
+    // Check if more sections remain
+    const nextSectionIndex = sectionIndex + 1;
+
+    if (nextSectionIndex < totalSections) {
+      // Chain to next section (fire-and-forget)
+      await chainToNextSection(supabaseUrl, supabaseKey, jobId, nextSectionIndex, requestId);
+
+      return new Response(JSON.stringify({
+        ok: true,
+        jobId,
+        sectionProcessed: section.key,
+        sectionIndex,
+        sectionsCompleted: newSectionsCompleted,
+        totalSections,
+        chainedToNext: true,
+        durationMs,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // All sections complete - mark job as done
+    const hasErrors = result.error !== null;
+    
+    await supabase
+      .from("prewarm_jobs")
+      .update({
+        status: hasErrors ? "completed_with_errors" : "completed",
+        completed_at: new Date().toISOString(),
+        error_message: result.error,
+        current_section: null,
+        last_heartbeat: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+
+    console.log(`[WORKER] requestId=${requestId} Job completed: sections=${newSectionsCompleted}, amazon=${newAmazonTotal}, ebay=${newEbayTotal}, mixed=${newMixedTotal}, durationMs=${durationMs}`);
 
     return new Response(JSON.stringify({
       ok: true,
       jobId,
-      sectionsCompleted,
-      totalAmazonFetched,
-      totalEbayFetched,
-      totalMixed,
+      sectionProcessed: section.key,
+      sectionIndex,
+      sectionsCompleted: newSectionsCompleted,
+      totalSections,
+      jobComplete: true,
+      totalAmazonFetched: newAmazonTotal,
+      totalEbayFetched: newEbayTotal,
+      totalMixed: newMixedTotal,
       durationMs,
     }), {
       status: 200,

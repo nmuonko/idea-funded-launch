@@ -2708,6 +2708,7 @@ export type Database = {
           ebay_fetched: number | null
           error_message: string | null
           id: string
+          last_heartbeat: string | null
           mixed_total: number | null
           rotation_key: string | null
           sections_completed: number | null
@@ -2723,6 +2724,7 @@ export type Database = {
           ebay_fetched?: number | null
           error_message?: string | null
           id?: string
+          last_heartbeat?: string | null
           mixed_total?: number | null
           rotation_key?: string | null
           sections_completed?: number | null
@@ -2738,6 +2740,7 @@ export type Database = {
           ebay_fetched?: number | null
           error_message?: string | null
           id?: string
+          last_heartbeat?: string | null
           mixed_total?: number | null
           rotation_key?: string | null
           sections_completed?: number | null

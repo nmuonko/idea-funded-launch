@@ -47,6 +47,7 @@ interface PrewarmJob {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  last_heartbeat: string | null;
 }
 
 interface CatalogSettings {
@@ -240,7 +241,7 @@ export default function CatalogSourcesSettings() {
     saveMutation.mutate();
   };
 
-  // Poll for job status
+  // Poll for job status with stall detection
   const pollJobStatus = useCallback(async (jobId: string) => {
     try {
       const { data: job, error } = await supabase
@@ -253,6 +254,48 @@ export default function CatalogSourcesSettings() {
         console.error('Failed to fetch job status:', error);
         setActiveJobId(null);
         setJobProgress(null);
+        return;
+      }
+
+      // Stall detection: check if job has been stuck for too long
+      const STALL_THRESHOLD_SECONDS = 90; // 90 seconds without heartbeat = stalled
+      const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes max polling
+      
+      const heartbeatTime = job.last_heartbeat ? new Date(job.last_heartbeat).getTime() : null;
+      const startedTime = job.started_at ? new Date(job.started_at).getTime() : Date.now();
+      const now = Date.now();
+      
+      const secondsSinceHeartbeat = heartbeatTime ? (now - heartbeatTime) / 1000 : 0;
+      const msSinceStart = now - startedTime;
+      
+      // Check for stall
+      if (job.status === 'processing' && heartbeatTime && secondsSinceHeartbeat > STALL_THRESHOLD_SECONDS) {
+        console.log(`Job ${jobId} appears stalled - ${secondsSinceHeartbeat}s since last heartbeat`);
+        setJobProgress({ ...job, status: 'stalled' } as PrewarmJob);
+        setActiveJobId(null);
+        
+        toast({
+          title: language === 'fr' ? 'Job bloqué' : 'Job stalled',
+          description: language === 'fr'
+            ? `Pas de progression depuis ${Math.round(secondsSinceHeartbeat)}s. Vous pouvez réessayer.`
+            : `No progress for ${Math.round(secondsSinceHeartbeat)}s. You can retry.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      
+      // Check for max polling duration
+      if (msSinceStart > MAX_POLL_DURATION_MS) {
+        console.log(`Job ${jobId} polling timed out after ${msSinceStart}ms`);
+        setActiveJobId(null);
+        
+        toast({
+          title: language === 'fr' ? 'Délai dépassé' : 'Timeout',
+          description: language === 'fr'
+            ? 'Le job prend trop de temps. Vérifiez les logs.'
+            : 'Job is taking too long. Check logs.',
+          variant: 'destructive',
+        });
         return;
       }
 
@@ -343,6 +386,7 @@ export default function CatalogSourcesSettings() {
           started_at: null,
           completed_at: null,
           created_at: new Date().toISOString(),
+          last_heartbeat: null,
         });
         
         toast({
@@ -837,13 +881,17 @@ export default function CatalogSourcesSettings() {
         <CardContent className="space-y-6">
           {/* Progress Display */}
           {jobProgress && (
-            <div className="p-4 rounded-lg border bg-muted/30 space-y-3">
+            <div className={`p-4 rounded-lg border space-y-3 ${
+              jobProgress.status === 'stalled' ? 'bg-destructive/10 border-destructive/30' : 'bg-muted/30'
+            }`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {jobProgress.status === 'completed' || jobProgress.status === 'completed_with_errors' ? (
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
                   ) : jobProgress.status === 'failed' ? (
                     <XCircle className="h-5 w-5 text-destructive" />
+                  ) : jobProgress.status === 'stalled' ? (
+                    <AlertCircle className="h-5 w-5 text-destructive" />
                   ) : (
                     <RefreshCw className="h-5 w-5 animate-spin text-primary" />
                   )}
@@ -853,16 +901,34 @@ export default function CatalogSourcesSettings() {
                     {jobProgress.status === 'completed' && (language === 'fr' ? 'Terminé!' : 'Complete!')}
                     {jobProgress.status === 'completed_with_errors' && (language === 'fr' ? 'Terminé avec erreurs' : 'Completed with errors')}
                     {jobProgress.status === 'failed' && (language === 'fr' ? 'Échec' : 'Failed')}
+                    {jobProgress.status === 'stalled' && (language === 'fr' ? 'Bloqué - Réessayer?' : 'Stalled - Retry?')}
                   </span>
                 </div>
-                <span className="text-sm text-muted-foreground">
-                  {jobProgress.sections_completed}/{jobProgress.sections_total} sections
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    {jobProgress.sections_completed}/{jobProgress.sections_total} sections
+                  </span>
+                  {jobProgress.status === 'stalled' && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        setJobProgress(null);
+                        prewarmMutation.mutate();
+                      }}
+                      disabled={prewarmMutation.isPending}
+                      className="gap-1"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      {language === 'fr' ? 'Réessayer' : 'Retry'}
+                    </Button>
+                  )}
+                </div>
               </div>
               
               <Progress 
                 value={(jobProgress.sections_completed / jobProgress.sections_total) * 100} 
-                className="h-2"
+                className={`h-2 ${jobProgress.status === 'stalled' ? 'bg-destructive/20' : ''}`}
               />
               
               <div className="flex justify-between text-xs text-muted-foreground">
@@ -872,6 +938,11 @@ export default function CatalogSourcesSettings() {
                       {language === 'fr' ? 'Section: ' : 'Section: '}
                       <span className="font-medium text-foreground">{jobProgress.current_section}</span>
                     </>
+                  )}
+                  {jobProgress.status === 'stalled' && (
+                    <span className="text-destructive ml-2">
+                      {language === 'fr' ? '(pas de réponse)' : '(no response)'}
+                    </span>
                   )}
                 </span>
                 <span>

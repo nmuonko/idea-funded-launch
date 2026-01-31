@@ -33,8 +33,13 @@ import {
 import {
   createPaymentIntent,
   getStripeConfig,
+  getStripeConfigFromEnv,
   StripeConfig,
 } from "../_shared/stripeAdapter.ts";
+import { 
+  resolveAndLogStripeKey,
+  getKeyDiagnostics,
+} from "../_shared/stripeKeyResolver.ts";
 
 interface RequestBody {
   order_id: string;
@@ -523,13 +528,47 @@ Deno.serve(async (req) => {
       // === STRIPE FLOW ===
       // Provider already validated by selectProviderByLimits
       let stripeConfig: StripeConfig;
-      try {
-        stripeConfig = getStripeConfig(providerRecord);
-      } catch (err: any) {
-        console.error('[payments-create-intent] Stripe config error:', err.message);
+      
+      // Use enhanced key resolution with diagnostics
+      const keyResult = resolveAndLogStripeKey('payments-create-intent', undefined, {
+        orderId: order_id,
+        amountUsd: payableAmount,
+        requestId,
+      });
+      
+      if (!keyResult.success || !keyResult.keyInfo) {
+        console.error('[STRIPE_PI_CREATE_FAIL] Key resolution failed:', {
+          requestId,
+          orderId: order_id,
+          error: keyResult.error,
+          error_code: keyResult.error_code,
+        });
         return new Response(
           JSON.stringify({ 
             success: false, 
+            requestId,
+            error: keyResult.error || 'Card payment service is not configured',
+            error_code: keyResult.error_code || 'STRIPE_NOT_CONFIGURED'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      try {
+        stripeConfig = getStripeConfig(providerRecord);
+        // Override with resolved key for consistency
+        stripeConfig.secretKey = keyResult.keyInfo.secretKey;
+        stripeConfig.keyInfo = keyResult.keyInfo;
+      } catch (err: any) {
+        console.error('[STRIPE_PI_CREATE_FAIL] Stripe config error:', {
+          requestId,
+          orderId: order_id,
+          error: err.message,
+        });
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            requestId,
             error: 'Card payment service is not configured',
             error_code: 'STRIPE_NOT_CONFIGURED'
           }),
@@ -550,16 +589,19 @@ Deno.serve(async (req) => {
 
       if (!paymentRecord) {
         return new Response(
-          JSON.stringify({ success: false, error: 'Failed to create payment record', error_code: 'DB_ERROR' }),
+          JSON.stringify({ success: false, requestId, error: 'Failed to create payment record', error_code: 'DB_ERROR' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
       console.log('[STRIPE_PI_CREATE_REQ]', {
+        requestId,
         orderId: order_id,
         intentId: paymentRecord.id,
         amountUsd: payableAmount,
         currency: selectedCurrency,
+        key_mode: keyResult.keyInfo.mode,
+        key_prefix: keyResult.keyInfo.keyPrefix,
       });
 
       // Create Stripe PaymentIntent
@@ -571,17 +613,51 @@ Deno.serve(async (req) => {
         description: `AfriShop Order ${order_id.slice(0, 8)}`,
       });
 
-      if (!stripeResult.success || !stripeResult.client_secret) {
+      // CRITICAL: Validate client_secret exists before proceeding
+      // Never return 200 with missing clientSecret
+      if (!stripeResult.success) {
         console.error('[STRIPE_PI_CREATE_FAIL]', {
+          requestId,
           orderId: order_id,
           error: stripeResult.error,
+          error_code: stripeResult.error_code,
+          key_mode: stripeResult.keyMode,
           rawResponse: stripeResult.raw_response,
         });
         return new Response(
           JSON.stringify({ 
-            success: false, 
-            error: stripeResult.error || 'Failed to create payment',
-            error_code: 'STRIPE_ERROR'
+            success: false,
+            requestId,
+            ok: false,
+            error: {
+              code: stripeResult.error_code || 'STRIPE_CREATE_INTENT_FAILED',
+              message: stripeResult.error || 'Payment temporarily unavailable',
+            },
+            // Legacy field for backward compatibility
+            error_code: stripeResult.error_code || 'STRIPE_ERROR',
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // CRITICAL: Double-check client_secret exists
+      if (!stripeResult.client_secret) {
+        console.error('[STRIPE_PI_CREATE_FAIL] Missing client_secret', {
+          requestId,
+          orderId: order_id,
+          stripePaymentIntentId: stripeResult.provider_deposit_id,
+          hasClientSecret: false,
+        });
+        return new Response(
+          JSON.stringify({ 
+            success: false,
+            requestId,
+            ok: false,
+            error: {
+              code: 'STRIPE_CREATE_INTENT_FAILED',
+              message: 'Payment temporarily unavailable',
+            },
+            error_code: 'STRIPE_ERROR',
           }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
@@ -605,9 +681,12 @@ Deno.serve(async (req) => {
         .eq('id', order_id);
 
       console.log('[STRIPE_PI_CREATE_RES]', {
+        requestId,
         intentId: paymentRecord.id,
         stripePaymentIntentId: stripeResult.provider_deposit_id,
-        clientSecretPreview: stripeResult.client_secret?.slice(0, 20) + '...',
+        clientSecretPreview: stripeResult.client_secret.slice(0, 20) + '...',
+        hasClientSecret: true,
+        key_mode: stripeResult.keyMode,
       });
 
       console.log('[STRIPE_INTENT_SUMMARY]', {
@@ -615,9 +694,12 @@ Deno.serve(async (req) => {
         orderId: order_id,
         amountCents: Math.round(payableAmount * 100),
         currency: selectedCurrency,
-        hasClientSecret: !!stripeResult.client_secret,
+        hasClientSecret: true,
+        key_mode: stripeResult.keyMode,
       });
 
+      // Build response with guaranteed clientSecret
+      // CRITICAL: nextAction.clientSecret MUST be present for iOS/Android PaymentSheet
       result = {
         success: true,
         requestId,
@@ -628,10 +710,11 @@ Deno.serve(async (req) => {
         status: 'processing',
         currency: selectedCurrency,
         amount: payableAmount,
+        payment_flow: 'STRIPE',
         clientSecret: stripeResult.client_secret, // Top-level for mobile SDK
         nextAction: {
           type: 'PAYMENT_SHEET', // Mobile SDK expects PAYMENT_SHEET
-          clientSecret: stripeResult.client_secret,
+          clientSecret: stripeResult.client_secret, // CRITICAL: Must be present
         },
       };
 

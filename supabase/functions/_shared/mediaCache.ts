@@ -150,11 +150,11 @@ export async function getCachedMedia(
   const imageCount = data.image_count || 0;
   const imageUrls = Array.isArray(data.image_urls) ? data.image_urls : [];
   
-  // Force re-fetch for Amazon items with poor image data
-  // This ensures Amazon products get their full gallery when available
-  if (provider === "amazon" && imageCount <= 1) {
+  // Force re-fetch for ANY provider with poor image data (only 1 image)
+  // This ensures both eBay and Amazon products get their full gallery when available
+  if (imageCount <= 1) {
     if (DEV) {
-      console.log(`[MEDIA_CACHE] Amazon cache miss forced: itemId=${itemId} image_count=${imageCount} (needs refresh)`);
+      console.log(`[MEDIA_CACHE] Cache miss forced for ${provider}: itemId=${itemId} image_count=${imageCount} (needs refresh)`);
     }
     return null; // Treat as cache miss to trigger fresh fetch
   }

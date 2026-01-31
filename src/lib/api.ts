@@ -214,8 +214,8 @@ export const api = {
   patch: <T = any>(endpoint: string, body?: any, headers?: Record<string, string>) => 
     apiRequest<T>(endpoint, { method: 'PATCH', body, headers }),
     
-  delete: <T = any>(endpoint: string, headers?: Record<string, string>) => 
-    apiRequest<T>(endpoint, { method: 'DELETE', headers }),
+  delete: <T = any>(endpoint: string, body?: any, headers?: Record<string, string>) => 
+    apiRequest<T>(endpoint, { method: 'DELETE', body, headers }),
 };
 
 /**

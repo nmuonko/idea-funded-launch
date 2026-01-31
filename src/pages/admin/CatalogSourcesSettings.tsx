@@ -233,20 +233,31 @@ export default function CatalogSourcesSettings() {
       });
 
       if (response.error) throw response.error;
-      return response.data;
+      
+      // Validate response
+      const result = response.data;
+      if (!result?.ok) {
+        throw new Error(result?.error || 'Prewarm failed');
+      }
+      
+      return result;
     },
     onSuccess: (data) => {
+      const totalFetched = (data?.totalAmazonFetched || 0) + (data?.totalEbayFetched || 0);
+      const sectionsProcessed = data?.sectionsProcessed || 0;
+      const durationSec = Math.round((data?.durationMs || 0) / 1000);
+      
       toast({
-        title: language === 'fr' ? 'Cache Amazon rafraîchi' : 'Amazon cache refreshed',
+        title: language === 'fr' ? '✓ Accueil rafraîchi!' : '✓ Home refreshed!',
         description: language === 'fr' 
-          ? `${data?.totalFetched || 0} produits récupérés, ${data?.totalUpserted || 0} mis en cache.`
-          : `${data?.totalFetched || 0} products fetched, ${data?.totalUpserted || 0} cached.`,
+          ? `${sectionsProcessed} sections, ${totalFetched} produits en ${durationSec}s`
+          : `${sectionsProcessed} sections, ${totalFetched} products in ${durationSec}s`,
       });
     },
     onError: (error) => {
       toast({
         title: language === 'fr' ? 'Erreur' : 'Error',
-        description: error instanceof Error ? error.message : 'Failed to prewarm cache',
+        description: error instanceof Error ? error.message : 'Failed to refresh home',
         variant: 'destructive',
       });
     },

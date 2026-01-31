@@ -3,9 +3,20 @@
  * 
  * Implements Stripe Payment Intents API for card payments.
  * Used for vehicle orders and high-value transactions.
+ * 
+ * ENHANCED 2026-01:
+ * - Centralized key resolution via stripeKeyResolver
+ * - Consistent logging with [STRIPE_PI_*] markers
+ * - Never returns 200 with missing clientSecret
+ * - Proper error codes for iOS/Android handling
  */
 
 import { PaymentProvider, getSecretValue } from "./paymentProviders.ts";
+import { 
+  resolveAndLogStripeKey, 
+  checkDualKeySetup,
+  type StripeKeyInfo,
+} from "./stripeKeyResolver.ts";
 
 // ==================== Types ====================
 
@@ -13,6 +24,7 @@ export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
   mode: 'sandbox' | 'live';
+  keyInfo?: StripeKeyInfo;
 }
 
 export interface StripePaymentIntentRequest {
@@ -52,6 +64,7 @@ export interface CreatePaymentIntentParams {
   intentId: string;
   amount: number; // USD (will be converted to cents)
   description?: string;
+  requestedMode?: 'live' | 'test'; // Optional: force specific mode
 }
 
 export interface CreatePaymentIntentResult {
@@ -60,8 +73,10 @@ export interface CreatePaymentIntentResult {
   provider_deposit_id?: string;
   status: 'pending' | 'processing' | 'succeeded' | 'failed';
   error?: string;
+  error_code?: 'STRIPE_NOT_CONFIGURED' | 'STRIPE_AUTH_FAILED' | 'STRIPE_API_ERROR' | 'STRIPE_CREATE_INTENT_FAILED';
   raw_request?: any;
   raw_response?: any;
+  keyMode?: 'live' | 'test';
 }
 
 export interface VerifyPaymentIntentResult {
@@ -108,23 +123,28 @@ export function getStripeConfig(provider: PaymentProvider): StripeConfig {
 }
 
 /**
- * Get Stripe config directly from env (for functions without provider lookup)
+ * Get Stripe config directly from env with enhanced key resolution
+ * Uses centralized stripeKeyResolver for consistent behavior
  */
-export function getStripeConfigFromEnv(): StripeConfig {
-  const secretKey = Deno.env.get('STRIPE_SECRET_KEY');
-  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
-
-  if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY not configured');
+export function getStripeConfigFromEnv(requestedMode?: 'live' | 'test'): StripeConfig {
+  const keyResult = resolveAndLogStripeKey('getStripeConfigFromEnv', requestedMode);
+  
+  if (!keyResult.success || !keyResult.keyInfo) {
+    throw new Error(keyResult.error || 'STRIPE_SECRET_KEY not configured');
   }
+
+  const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET');
   if (!webhookSecret) {
     throw new Error('STRIPE_WEBHOOK_SECRET not configured');
   }
 
+  const mode: 'sandbox' | 'live' = keyResult.keyInfo.mode === 'live' ? 'live' : 'sandbox';
+
   return {
-    secretKey,
+    secretKey: keyResult.keyInfo.secretKey,
     webhookSecret,
-    mode: 'live', // Default to live
+    mode,
+    keyInfo: keyResult.keyInfo,
   };
 }
 
@@ -134,18 +154,38 @@ const STRIPE_API_BASE = 'https://api.stripe.com/v1';
 
 /**
  * Create a Stripe Payment Intent
+ * 
+ * CRITICAL: This function MUST return client_secret when success=true
+ * iOS/Android PaymentSheet will fail silently if clientSecret is missing
  */
 export async function createPaymentIntent(
   config: StripeConfig,
   params: CreatePaymentIntentParams
 ): Promise<CreatePaymentIntentResult> {
   const amountCents = Math.round(params.amount * 100);
+  const keyMode = config.keyInfo?.mode || (config.secretKey.startsWith('sk_live_') ? 'live' : 'test');
   
-  console.log('[Stripe] Creating PaymentIntent:', {
+  // Log request with diagnostics
+  console.log('[STRIPE_PI_CREATE_REQ]', {
     orderId: params.orderId,
+    intentId: params.intentId,
     amountCents,
     currency: 'usd',
+    key_mode: keyMode,
+    key_prefix: config.secretKey.slice(0, 8) + '...',
   });
+
+  // Validate amount
+  if (amountCents < 50) {
+    console.error('[STRIPE_PI_CREATE_FAIL] Amount too small:', { amountCents, minCents: 50 });
+    return {
+      success: false,
+      status: 'failed',
+      error: 'Amount must be at least $0.50',
+      error_code: 'STRIPE_CREATE_INTENT_FAILED',
+      keyMode,
+    };
+  }
 
   const body = new URLSearchParams({
     amount: amountCents.toString(),
@@ -172,20 +212,65 @@ export async function createPaymentIntent(
 
     const data = await response.json();
 
+    // Handle auth failures explicitly
+    if (response.status === 401) {
+      console.error('[STRIPE_PI_CREATE_FAIL] Auth failed (401):', {
+        orderId: params.orderId,
+        key_mode: keyMode,
+        key_prefix: config.secretKey.slice(0, 8),
+      });
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Stripe authentication failed. Check API key configuration.',
+        error_code: 'STRIPE_AUTH_FAILED',
+        raw_response: { status: 401, type: data.error?.type },
+        keyMode,
+      };
+    }
+
     if (!response.ok) {
-      console.error('[Stripe] API error:', data);
+      console.error('[STRIPE_PI_CREATE_FAIL] API error:', {
+        orderId: params.orderId,
+        status: response.status,
+        errorType: data.error?.type,
+        errorMessage: data.error?.message,
+        key_mode: keyMode,
+      });
       return {
         success: false,
         status: 'failed',
         error: data.error?.message || 'Failed to create payment intent',
+        error_code: 'STRIPE_API_ERROR',
         raw_response: data,
+        keyMode,
       };
     }
 
-    console.log('[Stripe] PaymentIntent created:', {
-      id: data.id,
+    // CRITICAL: Verify client_secret exists
+    if (!data.client_secret) {
+      console.error('[STRIPE_PI_CREATE_FAIL] Missing client_secret in response:', {
+        orderId: params.orderId,
+        intentId: data.id,
+        hasClientSecret: false,
+      });
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Stripe returned PaymentIntent without client_secret',
+        error_code: 'STRIPE_API_ERROR',
+        raw_response: { id: data.id, status: data.status, hasClientSecret: false },
+        keyMode,
+      };
+    }
+
+    console.log('[STRIPE_PI_CREATE_RES]', {
+      intentId: params.intentId,
+      stripePaymentIntentId: data.id,
       status: data.status,
-      clientSecretPreview: data.client_secret?.slice(0, 20) + '...',
+      clientSecretPreview: data.client_secret.slice(0, 20) + '...',
+      hasClientSecret: true,
+      key_mode: keyMode,
     });
 
     return {
@@ -195,14 +280,21 @@ export async function createPaymentIntent(
       status: mapStripeStatus(data.status),
       raw_request: { amount: amountCents, currency: 'usd', metadata: params },
       raw_response: { id: data.id, status: data.status },
+      keyMode,
     };
 
   } catch (error: any) {
-    console.error('[Stripe] Request error:', error.message);
+    console.error('[STRIPE_PI_CREATE_FAIL] Network error:', {
+      orderId: params.orderId,
+      error: error.message,
+      key_mode: keyMode,
+    });
     return {
       success: false,
       status: 'failed',
-      error: error.message,
+      error: `Network error: ${error.message}`,
+      error_code: 'STRIPE_API_ERROR',
+      keyMode,
     };
   }
 }

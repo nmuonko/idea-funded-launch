@@ -3,6 +3,11 @@
  * 
  * Verifies payment status of a Stripe Checkout Session and updates DB accordingly.
  * 
+ * ENHANCED 2026-01:
+ * - Uses centralized stripeKeyResolver for consistent key selection
+ * - Enhanced diagnostics logging with [STRIPE_VERIFY_*] markers
+ * - Proper error codes for mobile handling
+ * 
  * POST /functions/v1/stripe-verify-checkout-session
  * Input: { "order_id": "uuid", "session_id": "cs_..." }
  * 
@@ -11,6 +16,10 @@
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { 
+  resolveAndLogStripeKey, 
+  getKeyDiagnostics 
+} from "../_shared/stripeKeyResolver.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,6 +34,7 @@ interface RequestBody {
 }
 
 interface VerifyResponse {
+  ok: boolean; // Added for consistency with other endpoints
   success: boolean;
   order_id: string;
   session_id: string;
@@ -33,6 +43,7 @@ interface VerifyResponse {
   payment_status?: string;
   payment_intent?: string;
   paid_at?: string;
+  key_mode?: 'live' | 'test';
   error?: string;
   error_code?: string;
 }
@@ -126,18 +137,43 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Get Stripe config
-    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (!stripeSecretKey) {
-      console.error(`[STRIPE_VERIFY] Missing STRIPE_SECRET_KEY`);
+    // Use enhanced key resolution
+    const keyResult = resolveAndLogStripeKey('stripe-verify-checkout-session', undefined, {
+      requestId,
+      orderId: order_id,
+      sessionId: session_id,
+    });
+
+    if (!keyResult.success || !keyResult.keyInfo) {
+      console.error(`[STRIPE_VERIFY] Key resolution failed:`, { 
+        requestId, 
+        error: keyResult.error,
+        error_code: keyResult.error_code,
+      });
       return new Response(
-        JSON.stringify({ success: false, order_id, session_id, status: 'pending', error: 'Stripe not configured', error_code: 'CONFIG_ERROR' }),
+        JSON.stringify({ 
+          ok: false,
+          success: false, 
+          order_id, 
+          session_id, 
+          status: 'pending', 
+          error: keyResult.error || 'Stripe not configured', 
+          error_code: keyResult.error_code || 'CONFIG_ERROR' 
+        }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    const stripeSecretKey = keyResult.keyInfo.secretKey;
+    const keyMode = keyResult.keyInfo.mode;
+
     // Retrieve Checkout Session from Stripe
-    console.log(`[STRIPE_VERIFY] Fetching Stripe session`, { requestId, sessionId: session_id });
+    console.log(`[STRIPE_VERIFY] Fetching Stripe session`, { 
+      requestId, 
+      sessionId: session_id,
+      key_mode: keyMode,
+      key_prefix: keyResult.keyInfo.keyPrefix,
+    });
 
     const stripeResponse = await fetch(`${STRIPE_API_BASE}/checkout/sessions/${session_id}`, {
       method: 'GET',
@@ -271,9 +307,11 @@ serve(async (req: Request): Promise<Response> => {
       paymentStatus,
       stripeStatus,
       paymentIntent: paymentIntent || null,
+      key_mode: keyMode,
     });
 
     const response: VerifyResponse = {
+      ok: normalizedStatus === 'succeeded',
       success: normalizedStatus === 'succeeded',
       order_id,
       session_id,
@@ -282,6 +320,7 @@ serve(async (req: Request): Promise<Response> => {
       payment_status: paymentStatus,
       payment_intent: paymentIntent || undefined,
       paid_at: normalizedStatus === 'succeeded' ? now : undefined,
+      key_mode: keyMode,
     };
 
     return new Response(

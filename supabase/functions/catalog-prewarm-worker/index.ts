@@ -9,6 +9,9 @@
  * 3. Updates prewarm_jobs progress + heartbeat
  * 4. Self-chains to next section (fire-and-forget)
  * 5. Marks job complete when all sections done
+ * 
+ * UPDATED: Now reads seed queries from home_section_seeds database table
+ * with fallback to TEMPLATE_LIBRARY for hybrid/auto modes.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -31,103 +34,201 @@ import {
   ProviderItem,
   getInitialCursor,
 } from "../_shared/providerMixer.ts";
+import { getTemplateQueries } from "../_shared/homeSeedTemplates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Home sections to prewarm (8 total)
-const HOME_PREWARM_SECTIONS = [
-  { 
-    key: "phones", 
-    categoryKey: "electronics_phones", 
-    parentTab: "electronics",
-    subtabKey: "phones",
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["iphone 15", "samsung galaxy s24", "google pixel 8"],
-    ebayCategory: "9355",
-    ebayQueries: ["iphone", "samsung galaxy", "google pixel"],
-  },
-  { 
-    key: "vehicles", 
-    categoryKey: "vehicles_cars_trucks", 
-    parentTab: "vehicles",
-    subtabKey: "cars_trucks",
-    isVehicle: true,
-    minPrice: 1500,
-    amazonQueries: ["car accessories", "car parts"],
-    ebayCategory: "6001",
-    ebayQueries: ["used car", "toyota", "honda"],
-  },
-  { 
-    key: "gaming", 
-    categoryKey: "electronics_gaming", 
-    parentTab: "electronics",
-    subtabKey: "gaming",
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["ps5 console", "xbox series x", "nintendo switch"],
-    ebayCategory: "1249",
-    ebayQueries: ["ps5", "xbox", "nintendo switch"],
-  },
-  { 
-    key: "computers", 
-    categoryKey: "electronics_computers", 
-    parentTab: "electronics",
-    subtabKey: "computers",
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["laptop", "macbook", "gaming laptop"],
-    ebayCategory: "58058",
-    ebayQueries: ["laptop", "macbook pro", "gaming laptop"],
-  },
-  { 
-    key: "clothing", 
-    categoryKey: "clothing_shoes_accessories", 
-    parentTab: "clothing_shoes_accessories",
-    subtabKey: null,
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["sneakers men", "running shoes", "hoodie"],
-    ebayCategory: "63889",
-    ebayQueries: ["nike shoes", "adidas sneakers", "hoodie"],
-  },
-  { 
-    key: "home_garden", 
-    categoryKey: "home_garden", 
-    parentTab: "home_garden",
-    subtabKey: null,
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["robot vacuum", "air fryer", "blender"],
-    ebayCategory: "11700",
-    ebayQueries: ["vacuum cleaner", "air fryer", "kitchen appliance"],
-  },
-  { 
-    key: "refurbished", 
-    categoryKey: "refurbished", 
-    parentTab: "refurbished",
-    subtabKey: null,
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["refurbished iphone", "refurbished laptop"],
-    ebayCategory: "11800",
-    ebayQueries: ["refurbished", "certified refurbished"],
-  },
-  { 
-    key: "parts_accessories", 
-    categoryKey: "parts_accessories", 
-    parentTab: "parts_accessories",
-    subtabKey: null,
-    isVehicle: false,
-    minPrice: 0,
-    amazonQueries: ["phone case", "laptop charger", "car phone mount"],
-    ebayCategory: "6028",
-    ebayQueries: ["phone accessories", "laptop accessories"],
-  },
-];
+// Section configuration type (loaded from DB)
+interface SectionConfig {
+  key: string;
+  categoryKey: string;
+  parentTab: string;
+  subtabKey: string | null;
+  isVehicle: boolean;
+  minPrice: number;
+  amazonQueries: string[];
+  ebayQueries: string[];
+  ebayCategory: string;
+}
+
+/**
+ * Load section configuration from home_sections table
+ * and merge with seed queries from home_section_seeds
+ */
+async function loadSectionConfig(
+  supabase: ReturnType<typeof createClient>,
+  seedMode: string,
+  maxQueriesPerSection: number
+): Promise<SectionConfig[]> {
+  // Get all enabled sections from DB
+  const { data: sections, error } = await supabase
+    .from("home_sections")
+    .select("*")
+    .eq("enabled", true)
+    .order("sort_order", { ascending: true });
+
+  if (error || !sections || sections.length === 0) {
+    console.warn("[WORKER] No sections found in home_sections, using fallback");
+    return getDefaultSections();
+  }
+
+  const configs: SectionConfig[] = [];
+
+  for (const section of sections) {
+    // Get seeds from DB
+    const { data: seeds } = await supabase
+      .from("home_section_seeds")
+      .select("query, weight")
+      .eq("section_key", section.key)
+      .eq("enabled", true)
+      .order("weight", { ascending: false })
+      .limit(maxQueriesPerSection);
+
+    const dbQueries = (seeds || []).map(s => s.query);
+    
+    // Determine queries based on seed mode
+    let finalQueries: string[] = [];
+    
+    if (seedMode === "auto") {
+      // Use only template library
+      finalQueries = getTemplateQueries(section.key).slice(0, maxQueriesPerSection);
+    } else if (seedMode === "hybrid") {
+      // Use DB seeds first, fill with templates
+      finalQueries = [...dbQueries];
+      if (finalQueries.length < maxQueriesPerSection) {
+        const templates = getTemplateQueries(section.key);
+        const fillers = templates
+          .filter(t => !finalQueries.includes(t))
+          .slice(0, maxQueriesPerSection - finalQueries.length);
+        finalQueries = [...finalQueries, ...fillers];
+      }
+    } else {
+      // Manual mode: use only DB seeds
+      finalQueries = dbQueries.length > 0 
+        ? dbQueries 
+        : getTemplateQueries(section.key).slice(0, 3); // Fallback minimum
+    }
+
+    // Determine parent tab from category key
+    const parentTab = section.default_category_key?.split("_")[0] || section.key;
+    const subtabKey = section.default_category_key?.includes("_") 
+      ? section.default_category_key.split("_").slice(1).join("_")
+      : null;
+
+    configs.push({
+      key: section.key,
+      categoryKey: section.default_category_key || section.key,
+      parentTab,
+      subtabKey,
+      isVehicle: section.is_vehicle || false,
+      minPrice: section.min_price || 0,
+      amazonQueries: finalQueries,
+      ebayQueries: finalQueries, // Use same queries for eBay
+      ebayCategory: section.ebay_category || "",
+    });
+  }
+
+  return configs;
+}
+
+/**
+ * Default sections fallback (used when DB is empty)
+ */
+function getDefaultSections(): SectionConfig[] {
+  return [
+    { 
+      key: "phones", 
+      categoryKey: "electronics_phones", 
+      parentTab: "electronics",
+      subtabKey: "phones",
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["iphone 15", "samsung galaxy s24", "google pixel 8"],
+      ebayCategory: "9355",
+      ebayQueries: ["iphone", "samsung galaxy", "google pixel"],
+    },
+    { 
+      key: "vehicles", 
+      categoryKey: "vehicles_cars_trucks", 
+      parentTab: "vehicles",
+      subtabKey: "cars_trucks",
+      isVehicle: true,
+      minPrice: 1500,
+      amazonQueries: ["car accessories", "car parts"],
+      ebayCategory: "6001",
+      ebayQueries: ["used car", "toyota", "honda"],
+    },
+    { 
+      key: "gaming", 
+      categoryKey: "electronics_gaming", 
+      parentTab: "electronics",
+      subtabKey: "gaming",
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["ps5 console", "xbox series x", "nintendo switch"],
+      ebayCategory: "1249",
+      ebayQueries: ["ps5", "xbox", "nintendo switch"],
+    },
+    { 
+      key: "computers", 
+      categoryKey: "electronics_computers", 
+      parentTab: "electronics",
+      subtabKey: "computers",
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["laptop", "macbook", "gaming laptop"],
+      ebayCategory: "58058",
+      ebayQueries: ["laptop", "macbook pro", "gaming laptop"],
+    },
+    { 
+      key: "clothing", 
+      categoryKey: "clothing_shoes_accessories", 
+      parentTab: "clothing_shoes_accessories",
+      subtabKey: null,
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["sneakers men", "running shoes", "hoodie"],
+      ebayCategory: "63889",
+      ebayQueries: ["nike shoes", "adidas sneakers", "hoodie"],
+    },
+    { 
+      key: "home_garden", 
+      categoryKey: "home_garden", 
+      parentTab: "home_garden",
+      subtabKey: null,
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["robot vacuum", "air fryer", "blender"],
+      ebayCategory: "11700",
+      ebayQueries: ["vacuum cleaner", "air fryer", "kitchen appliance"],
+    },
+    { 
+      key: "refurbished", 
+      categoryKey: "refurbished", 
+      parentTab: "refurbished",
+      subtabKey: null,
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["refurbished iphone", "refurbished laptop"],
+      ebayCategory: "11800",
+      ebayQueries: ["refurbished", "certified refurbished"],
+    },
+    { 
+      key: "parts_accessories", 
+      categoryKey: "parts_accessories", 
+      parentTab: "parts_accessories",
+      subtabKey: null,
+      isVehicle: false,
+      minPrice: 0,
+      amazonQueries: ["phone case", "laptop charger", "car phone mount"],
+      ebayCategory: "6028",
+      ebayQueries: ["phone accessories", "laptop accessories"],
+    },
+  ];
+}
 
 function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);

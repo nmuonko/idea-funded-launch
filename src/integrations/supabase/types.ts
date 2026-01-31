@@ -1804,6 +1804,124 @@ export type Database = {
         }
         Relationships: []
       }
+      home_section_seeds: {
+        Row: {
+          created_at: string | null
+          enabled: boolean | null
+          id: string
+          query: string
+          section_key: string
+          updated_at: string | null
+          weight: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          enabled?: boolean | null
+          id?: string
+          query: string
+          section_key: string
+          updated_at?: string | null
+          weight?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          enabled?: boolean | null
+          id?: string
+          query?: string
+          section_key?: string
+          updated_at?: string | null
+          weight?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "home_section_seeds_section_key_fkey"
+            columns: ["section_key"]
+            isOneToOne: false
+            referencedRelation: "home_sections"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
+      home_sections: {
+        Row: {
+          default_category_key: string | null
+          ebay_category: string | null
+          enabled: boolean | null
+          is_vehicle: boolean | null
+          key: string
+          min_price: number | null
+          see_all_query: string | null
+          sort_order: number | null
+          title_en: string
+          title_fr: string
+          updated_at: string | null
+        }
+        Insert: {
+          default_category_key?: string | null
+          ebay_category?: string | null
+          enabled?: boolean | null
+          is_vehicle?: boolean | null
+          key: string
+          min_price?: number | null
+          see_all_query?: string | null
+          sort_order?: number | null
+          title_en: string
+          title_fr: string
+          updated_at?: string | null
+        }
+        Update: {
+          default_category_key?: string | null
+          ebay_category?: string | null
+          enabled?: boolean | null
+          is_vehicle?: boolean | null
+          key?: string
+          min_price?: number | null
+          see_all_query?: string | null
+          sort_order?: number | null
+          title_en?: string
+          title_fr?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      home_seed_suggestions: {
+        Row: {
+          approved: boolean | null
+          created_at: string | null
+          id: string
+          query: string
+          score: number | null
+          section_key: string
+          source: string
+        }
+        Insert: {
+          approved?: boolean | null
+          created_at?: string | null
+          id?: string
+          query: string
+          score?: number | null
+          section_key: string
+          source?: string
+        }
+        Update: {
+          approved?: boolean | null
+          created_at?: string | null
+          id?: string
+          query?: string
+          score?: number | null
+          section_key?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "home_seed_suggestions_section_key_fkey"
+            columns: ["section_key"]
+            isOneToOne: false
+            referencedRelation: "home_sections"
+            referencedColumns: ["key"]
+          },
+        ]
+      }
       home_seen_items: {
         Row: {
           id: string

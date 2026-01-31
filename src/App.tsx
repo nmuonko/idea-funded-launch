@@ -49,6 +49,7 @@ import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import CacheSettings from "./pages/admin/CacheSettings";
 import CatalogSourcesSettings from "./pages/admin/CatalogSourcesSettings";
 import CarsSettings from "./pages/admin/CarsSettings";
+import HomeCuration from "./pages/admin/HomeCuration";
 import Cars from "./pages/Cars";
 
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
@@ -294,6 +295,11 @@ const App = () => {
               <Route path="catalog-sources" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CatalogSourcesSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="home-curation" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <HomeCuration />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

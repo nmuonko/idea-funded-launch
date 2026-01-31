@@ -691,19 +691,52 @@ export default function CatalogSourcesSettings() {
       </Card>
 
       {/* Home Rotation Settings */}
-      <Card>
+      <Card className="border-primary/20">
         <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <RefreshCw className="h-5 w-5" />
-            {language === 'fr' ? 'Rotation Accueil (12h)' : 'Home Rotation (12h)'}
-          </CardTitle>
-          <CardDescription>
-            {language === 'fr'
-              ? "Contrôlez la rotation automatique du contenu de la page d'accueil."
-              : 'Control automatic home page content rotation.'}
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <RefreshCw className="h-5 w-5" />
+                {language === 'fr' ? 'Rotation Accueil (12h)' : 'Home Rotation (12h)'}
+              </CardTitle>
+              <CardDescription>
+                {language === 'fr'
+                  ? "Contrôlez la rotation automatique du contenu de la page d'accueil."
+                  : 'Control automatic home page content rotation.'}
+              </CardDescription>
+            </div>
+            <Button
+              variant="default"
+              size="lg"
+              onClick={() => prewarmMutation.mutate()}
+              disabled={prewarmMutation.isPending}
+              className="gap-2 bg-primary hover:bg-primary/90"
+            >
+              {prewarmMutation.isPending ? (
+                <RefreshCw className="h-5 w-5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-5 w-5" />
+              )}
+              {language === 'fr' ? 'Rafraîchir Maintenant' : 'Refresh Home Now'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Manual Refresh Info */}
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+            <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">
+                {language === 'fr' ? 'Rafraîchissement manuel' : 'Manual Refresh'}
+              </p>
+              <p className="text-muted-foreground">
+                {language === 'fr' 
+                  ? "Cliquez sur 'Rafraîchir Maintenant' pour mettre à jour immédiatement les produits de la page d'accueil. La rotation automatique de 12h reste active."
+                  : "Click 'Refresh Home Now' to immediately update home page products. The automatic 12h rotation remains active."}
+              </p>
+            </div>
+          </div>
+
           <div className="grid md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>

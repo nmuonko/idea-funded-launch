@@ -1,351 +1,194 @@
 
-# Backend Sort/Filter Enhancement Plan
+# Fix: Vehicles Category Showing Wrong Products
 
 ## Problem Summary
 
-The backend API **parses** sort and filter parameters but **does not use them**:
-- `catalog-category` and `catalog-search` accept `sort` and `filters` URL params but ignore them
-- Provider adapters (eBay, Rainforest) have hardcoded sort orders
-- No admin endpoints support sort/filter parameters
+The Vehicles category tab is displaying automotive equipment (lifts, diagnostic tools, parts) instead of actual vehicles (cars, trucks, motorcycles). This happens because:
+
+1. **Wrong eBay Category ID**: The top-level `vehicles` and `vehicles_all` use eBay category `6000` ("eBay Motors"), which is a parent category containing both vehicles AND automotive equipment/parts
+2. **Insufficient Filtering**: The parts keyword filter doesn't catch automotive equipment like "automotive lift" or "diagnostic scanner"
+3. **Missing Search Query**: For vehicle categories, the API uses category_id alone without a query, returning everything in that broad category
 
 ---
 
-## Implementation Overview
+## Solution Overview
 
-This plan adds full sort/filter support to catalog and admin endpoints.
+Three-pronged approach to ensure only real vehicles appear:
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        SORT/FILTER FLOW                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Mobile/Web App                                                          │
-│       │                                                                  │
-│       ▼                                                                  │
-│  ?sort=price_asc&filters={"brand":["apple"],"minPrice":100}             │
-│       │                                                                  │
-│       ▼                                                                  │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  catalog-category / catalog-search                               │    │
-│  │  ┌─────────────────────┐  ┌─────────────────────┐               │    │
-│  │  │ Parse sort param    │  │ Parse filters JSON  │               │    │
-│  │  │ ┌─────────────────┐ │  │ ┌─────────────────┐ │               │    │
-│  │  │ │ relevance       │ │  │ │ brand           │ │               │    │
-│  │  │ │ price_asc       │ │  │ │ minPrice        │ │               │    │
-│  │  │ │ price_desc      │ │  │ │ maxPrice        │ │               │    │
-│  │  │ │ newest          │ │  │ │ condition       │ │               │    │
-│  │  │ │ rating          │ │  │ │ rating          │ │               │    │
-│  │  │ └─────────────────┘ │  │ └─────────────────┘ │               │    │
-│  │  └─────────────────────┘  └─────────────────────┘               │    │
-│  │              │                       │                           │    │
-│  │              ▼                       ▼                           │    │
-│  │  ┌─────────────────────────────────────────────────────────┐    │    │
-│  │  │ Pass to Provider Adapters                                │    │    │
-│  │  │ ┌─────────────────┐  ┌─────────────────────────────┐    │    │    │
-│  │  │ │ eBay Browse API │  │ Rainforest (Amazon) API     │    │    │    │
-│  │  │ │ sort=price      │  │ sort_by=price_low_to_high   │    │    │    │
-│  │  │ │ filter=price:[] │  │ filters via search_term     │    │    │    │
-│  │  │ └─────────────────┘  └─────────────────────────────┘    │    │    │
-│  │  └─────────────────────────────────────────────────────────┘    │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│       │                                                                  │
-│       ▼                                                                  │
-│  Merged & filtered results returned                                      │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                    VEHICLE FILTERING STRATEGY                         │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  1. CORRECT CATEGORY IDS                                             │
+│     vehicles_all → Use subcategory union, NOT 6000                   │
+│     vehicles → Use explicit vehicle-only categories                   │
+│                                                                       │
+│  2. MANDATORY SEARCH QUERY                                           │
+│     Always include vehicle-specific keywords                         │
+│     "car for sale" OR "truck" OR "sedan" etc.                        │
+│                                                                       │
+│  3. EXPANDED EQUIPMENT BLOCKLIST                                     │
+│     Add: "automotive lift", "car lift", "diagnostic",                │
+│     "scanner", "obd", "alignment machine", "tire changer"            │
+│                                                                       │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phase 1: Catalog Sort Support
+## Technical Implementation
 
-### 1.1 Define Standard Sort Options
+### Phase 1: Update eBay Category Mappings
 
-Create a new shared module for sort/filter normalization:
+**File**: `supabase/functions/_shared/categoryRegistry.ts`
 
-| Sort Key | Display Label | eBay API Value | Rainforest Value |
-|----------|---------------|----------------|------------------|
-| `relevance` | Best Match | (default) | `featured` |
-| `price_asc` | Price: Low to High | `price` | `price_low_to_high` |
-| `price_desc` | Price: High to Low | `-price` | `price_high_to_low` |
-| `newest` | Newly Listed | `newlyListed` | `most_recent` |
-| `rating` | Top Rated | (post-filter) | `average_review` |
+Update the `CATEGORY_META` with correct vehicle-specific category IDs:
 
-### 1.2 Update eBay Adapter
+| Category | Current ID | Corrected ID | Description |
+|----------|------------|--------------|-------------|
+| `vehicles` | 6000 | 6000 (keep) | Parent, but will use query |
+| `vehicles_all` | 6000 | 6000 (keep) | Parent, but will use query |
+| `vehicles_cars_trucks` | 6001 | 6001 | Cars & Trucks (correct) |
+| `vehicles_motorcycles` | 6024 | 6024 | Motorcycles (correct) |
+| `vehicles_powersports` | 66466 | 66466 | ATVs/UTVs (correct) |
+| `vehicles_boats` | 26429 | 26429 | Boats (correct) |
+| `vehicles_rvs_campers` | 50054 | 50054 | RVs (correct) |
+| `vehicles_trailers_other` | 6038 | 6038 | Trailers (correct) |
+| `vehicles_classic_cars` | 6001 | 6001 | Uses Cars category (correct) |
 
-Modify `ebayBrowseSearch.ts` to accept and apply sort:
+The category IDs are mostly correct - the issue is that category 6000 is too broad.
 
-```typescript
-// Add to EbaySearchParams
-export interface EbaySearchParams {
-  // ... existing
-  sort?: 'relevance' | 'price_asc' | 'price_desc' | 'newest';
-}
+### Phase 2: Force Query for Vehicle Searches
 
-// Map to eBay API sort values
-const EBAY_SORT_MAP: Record<string, string> = {
-  'price_asc': 'price',
-  'price_desc': '-price',
-  'newest': 'newlyListed',
-  // 'relevance' = no sort param (default)
-};
-```
+**File**: `supabase/functions/catalog-category/index.ts`
 
-### 1.3 Update Rainforest Adapter
-
-Modify `rainforestAdapter.ts` to use dynamic sort:
+Update the eBay search call to ALWAYS include a query for vehicle categories:
 
 ```typescript
-const RAINFOREST_SORT_MAP: Record<string, string> = {
-  'relevance': 'featured',
-  'price_asc': 'price_low_to_high',
-  'price_desc': 'price_high_to_low',
-  'newest': 'most_recent',
-  'rating': 'average_review',
-};
-```
+// Lines ~550-572: Update searchEbayWithFallback call
+const vehicleQuery = isVehicle && !isParts
+  ? VEHICLE_FALLBACK_QUERIES[canonicalKey]?.[0] || "car for sale truck suv sedan"
+  : undefined;
 
-### 1.4 Update catalog-category
-
-Wire the `sort` param through to provider calls:
-
-```typescript
-// Line ~304: Already parsing sort
-const sort = url.searchParams.get("sort") || "relevance";
-
-// NEW: Pass to eBay search
 const searchResult = await searchEbayWithFallback(
   supabase,
   {
-    // ... existing params
-    sort: sort as EbaySortOption,
+    query: vehicleQuery, // ADD THIS - force query for vehicles
+    categoryId: ebayCategory || undefined,
+    page,
+    pageSize: limit,
+    minPrice: minPrice > 0 ? minPrice : undefined,
+    isVehicle,
+    isParts,
+    marketplaceId: "EBAY_US",
+    sort,
+    filters: Object.keys(catalogFilters).length > 0 ? catalogFilters : undefined,
   },
   fallbackQueries,
   requestId
 );
+```
 
-// NEW: Apply sort to DB query for Amazon cached items
-if (sort === 'price_asc') {
-  query = query.order("price_usd", { ascending: true, nullsFirst: false });
-} else if (sort === 'price_desc') {
-  query = query.order("price_usd", { ascending: false, nullsFirst: false });
-} else {
-  query = query.order("rating", { ascending: false, nullsFirst: false });
-}
+### Phase 3: Expand Equipment Blocklist
+
+**File**: `supabase/functions/_shared/motorsFilter.ts`
+
+Add automotive equipment keywords to the block list (~line 50-230):
+
+```typescript
+// Add to MOTORS_PARTS_KEYWORDS array:
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTOMOTIVE EQUIPMENT (shop/garage equipment - NOT vehicles)
+// ═══════════════════════════════════════════════════════════════════════════
+"automotive lift", "car lift", "vehicle lift", "two post lift", "four post lift",
+"scissor lift", "motorcycle lift", "atv lift", "alignment rack", "alignment machine",
+"tire changer", "tire machine", "wheel balancer", "balancing machine",
+"diagnostic scanner", "obd scanner", "obd2", "obdii", "code reader",
+"scan tool", "diagnostic tool", "diagnostic computer", "diagnostic kit",
+"engine analyzer", "compression tester", "leak down tester",
+"brake lathe", "drum lathe", "rotor lathe",
+"parts washer", "solvent tank", "spray booth", "paint booth",
+"engine hoist", "engine crane", "transmission jack", "floor jack",
+"shop press", "hydraulic press", "bearing press",
+"a/c machine", "ac machine", "refrigerant recovery", "evacuation machine",
+"fluid extractor", "oil extractor", "brake bleeder",
+"creeper", "mechanics creeper", "shop stool", "work bench",
+"tool chest", "tool cabinet", "service cart", "parts cart",
+"air compressor shop", "shop compressor",
+"sandblaster", "bead blaster", "media blaster",
+```
+
+### Phase 4: Update Fallback Queries
+
+**File**: `supabase/functions/catalog-category/index.ts`
+
+Improve the `VEHICLE_FALLBACK_QUERIES` to be more specific about actual vehicles for sale:
+
+```typescript
+const VEHICLE_FALLBACK_QUERIES: Record<string, string[]> = {
+  vehicles: [
+    "car for sale clean title runs drives", 
+    "truck for sale v8 automatic",
+    "suv for sale awd 4wd",
+  ],
+  vehicles_all: [
+    "car for sale clean title",
+    "used car for sale low miles",
+    "truck for sale one owner",
+  ],
+  vehicles_cars_trucks: [
+    "sedan for sale clean title",
+    "used car for sale low mileage",
+    "pickup truck for sale 4x4",
+  ],
+  // ... existing entries are fine
+};
 ```
 
 ---
 
-## Phase 2: Catalog Filter Support
+## Files to Modify
 
-### 2.1 Parse Filters Parameter
+1. **`supabase/functions/_shared/motorsFilter.ts`**
+   - Add ~50 new automotive equipment keywords to `MOTORS_PARTS_KEYWORDS`
+   - Add new section for shop/garage equipment
 
-Both endpoints already accept `filters` as a JSON-encoded query param:
+2. **`supabase/functions/catalog-category/index.ts`**
+   - Force query parameter for vehicle categories (lines ~555-570)
+   - Update `VEHICLE_FALLBACK_QUERIES` to be more specific
 
-```
-?filters={"brand":["apple","samsung"],"minPrice":100,"maxPrice":1000,"condition":"new"}
-```
-
-### 2.2 Apply Filters to eBay API
-
-eBay Browse API supports filters in the `filter` param:
-
-```typescript
-// Add filter building in ebayBrowseSearch.ts
-function buildFiltersForEbay(filters: AppliedFilters): string[] {
-  const parts: string[] = [];
-  
-  // Price range
-  if (filters.minPrice !== undefined || filters.maxPrice !== undefined) {
-    const min = filters.minPrice || 0;
-    const max = filters.maxPrice || '';
-    parts.push(`price:[${min}..${max}],priceCurrency:USD`);
-  }
-  
-  // Condition
-  if (filters.condition) {
-    const conditionMap: Record<string, string> = {
-      'new': 'NEW',
-      'used': 'USED',
-      'refurbished': 'MANUFACTURER_REFURBISHED',
-    };
-    parts.push(`conditions:{${conditionMap[filters.condition as string]}}`);
-  }
-  
-  return parts;
-}
-```
-
-### 2.3 Apply Filters to DB Queries (Amazon cached)
-
-For DB-cached Amazon items, apply filters in the Supabase query:
-
-```typescript
-// In catalog-category
-if (filters?.minPrice) {
-  query = query.gte('price_usd', filters.minPrice);
-}
-if (filters?.maxPrice) {
-  query = query.lte('price_usd', filters.maxPrice);
-}
-if (filters?.brand && Array.isArray(filters.brand)) {
-  // Use ilike for brand matching
-  const brandFilters = filters.brand.map(b => `brand.ilike.%${b}%`);
-  query = query.or(brandFilters.join(','));
-}
-```
-
-### 2.4 Return Applied Filters in Response
-
-Already supported in the response type:
-
-```typescript
-interface SearchResponse {
-  // ... existing
-  appliedFilters?: Record<string, unknown>;
-}
-```
-
----
-
-## Phase 3: Admin Endpoints Sort/Filter
-
-### 3.1 Enhance admin-get-carts
-
-Add query params for admin cart management:
-
-```typescript
-// Parse params
-const sortBy = url.searchParams.get("sortBy") || "updated_at";
-const sortOrder = url.searchParams.get("sortOrder") || "desc";
-const status = url.searchParams.get("status"); // DRAFT, PENDING_PAYMENT, or null for all
-const minTotal = url.searchParams.get("minTotal");
-const userName = url.searchParams.get("userName");
-
-// Apply to query
-let query = supabase
-  .from('orders')
-  .select(`...`)
-  .in('status', statusList);
-
-if (minTotal) {
-  query = query.gte('total_usd', parseFloat(minTotal));
-}
-
-query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-```
-
-### 3.2 Add Sorting Headers to Admin UI
-
-Update `ActiveCartsContent.tsx` to allow column sorting:
-
-```typescript
-const [sortField, setSortField] = useState<'updated_at' | 'total_usd' | 'item_count'>('updated_at');
-const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-
-// Pass to API call
-const { data } = await supabase.functions.invoke('admin-get-carts', {
-  body: { sortBy: sortField, sortOrder }
-});
-```
-
----
-
-## Phase 4: Response Consistency
-
-### 4.1 Standard Sort Info in Response
-
-All endpoints should return applied sort in the response:
-
-```typescript
-{
-  "status": "success",
-  "items": [...],
-  "sort": {
-    "field": "price_asc",
-    "applied": true
-  },
-  "appliedFilters": {
-    "minPrice": 100,
-    "brand": ["apple"]
-  }
-}
-```
-
----
-
-## Files to Create/Modify
-
-### New Files
-1. `supabase/functions/_shared/sortFilterNormalizer.ts` - Standard sort/filter type definitions and mapping
-
-### Modified Files
-1. `supabase/functions/_shared/ebayBrowseSearch.ts` - Add sort param support
-2. `supabase/functions/_shared/rainforestAdapter.ts` - Use dynamic sort_by
-3. `supabase/functions/catalog-category/index.ts` - Wire sort/filter through
-4. `supabase/functions/catalog-search/index.ts` - Wire sort/filter through
-5. `supabase/functions/admin-get-carts/index.ts` - Add sort/filter params
-
-### Frontend Updates (optional, for admin)
-1. `src/pages/admin/ActiveCartsContent.tsx` - Add sortable column headers
-
----
-
-## Technical Details
-
-### Sort Parameter Validation
-
-```typescript
-const VALID_SORTS = ['relevance', 'price_asc', 'price_desc', 'newest', 'rating'] as const;
-type SortOption = typeof VALID_SORTS[number];
-
-function validateSort(sort: string | null): SortOption {
-  if (sort && VALID_SORTS.includes(sort as SortOption)) {
-    return sort as SortOption;
-  }
-  return 'relevance';
-}
-```
-
-### Filter Parameter Schema
-
-```typescript
-interface CatalogFilters {
-  minPrice?: number;
-  maxPrice?: number;
-  brand?: string[];
-  condition?: 'new' | 'used' | 'refurbished';
-  rating?: number; // minimum rating (1-5)
-  freeShipping?: boolean;
-}
-
-function parseFilters(filtersParam: string | null): CatalogFilters {
-  if (!filtersParam) return {};
-  try {
-    return JSON.parse(filtersParam);
-  } catch {
-    return {};
-  }
-}
-```
-
----
-
-## Rollback Plan
-
-Each phase is independent:
-
-**Phase 1 (Sort)**: Revert changes to adapters, endpoints continue to work with default sort
-
-**Phase 2 (Filters)**: Remove filter application, filters param is ignored (current behavior)
-
-**Phase 3 (Admin)**: Revert admin-get-carts, continue using hardcoded sort
+3. **`supabase/functions/_shared/ebayBrowseSearch.ts`**
+   - Update `PARTS_DENY_KEYWORDS` with equipment terms
+   - Add `EQUIPMENT_DENY_KEYWORDS` for automotive shop equipment
 
 ---
 
 ## Expected Outcomes
 
-| Feature | Before | After |
-|---------|--------|-------|
-| Catalog sort options | 1 (hardcoded) | 5 (user-selectable) |
-| Filter application | Client-side only | Server-side (faster) |
-| Admin cart sorting | Fixed (updated_at) | Flexible (any column) |
-| API response clarity | Missing sort info | Explicit sort/filter in response |
+| Before | After |
+|--------|-------|
+| Category shows lifts, scanners, diagnostic tools | Category shows cars, trucks, SUVs |
+| Parts filter misses equipment keywords | Equipment keywords blocked |
+| No query for category browse | Query forces vehicle-specific results |
+| 50% parts/equipment in results | <5% irrelevant items |
+
+---
+
+## Rollback Plan
+
+If vehicle results become too restrictive:
+1. Remove equipment keywords from blocklist
+2. Remove forced query parameter
+3. Deploy previous version of edge functions
+
+---
+
+## Testing Verification
+
+After deployment, verify:
+1. Browse `vehicles` tab - should show cars/trucks/SUVs
+2. Browse `vehicles_motorcycles` - should show actual motorcycles
+3. No automotive lifts, diagnostic scanners, or shop equipment in results
+4. Price filter ($1500+) still applies
+5. Pagination continues to work correctly

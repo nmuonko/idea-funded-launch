@@ -234,6 +234,38 @@ export const MOTORS_PARTS_KEYWORDS = [
   "additive", "fuel additive", "oil additive", "treatment",
   "grease", "lubricant", "penetrating oil", "wd-40",
   "adhesive", "sealant", "gasket maker", "rtv",
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AUTOMOTIVE SHOP EQUIPMENT (garage/shop equipment - NOT vehicles)
+  // ═══════════════════════════════════════════════════════════════════════════
+  "automotive lift", "car lift", "vehicle lift", "two post lift", "four post lift",
+  "2 post lift", "4 post lift", "scissor lift", "motorcycle lift", "atv lift",
+  "alignment rack", "alignment machine", "wheel alignment", "alignment system",
+  "tire changer", "tire machine", "wheel balancer", "balancing machine", "tire bead",
+  "diagnostic scanner", "obd scanner", "obd2", "obdii", "code reader", "scan tool",
+  "diagnostic tool", "diagnostic computer", "diagnostic kit", "diagnostic equipment",
+  "engine analyzer", "compression tester", "leak down tester", "smoke tester",
+  "brake lathe", "drum lathe", "rotor lathe", "disc lathe",
+  "parts washer", "solvent tank", "spray booth", "paint booth", "prep station",
+  "engine hoist", "engine crane", "cherry picker", "transmission jack", "floor jack",
+  "shop press", "hydraulic press", "bearing press", "arbor press",
+  "a/c machine", "ac machine", "refrigerant recovery", "evacuation machine", "ac recharge",
+  "fluid extractor", "oil extractor", "brake bleeder", "coolant flush",
+  "creeper", "mechanics creeper", "shop stool", "work bench", "workbench",
+  "tool chest", "tool cabinet", "service cart", "parts cart", "tool box",
+  "shop compressor", "air compressor shop", "industrial compressor",
+  "sandblaster", "bead blaster", "media blaster", "abrasive blaster",
+  "engine stand", "engine dolly", "transmission stand", "axle stand",
+  "pipe bender", "exhaust bender", "tubing bender",
+  "welder", "welding machine", "mig welder", "tig welder", "plasma cutter",
+  "spring compressor", "coil compressor", "strut compressor",
+  "ball joint press", "bushing press", "bearing installer",
+  "headlight aimer", "headlight alignment", "alignment head",
+  "smoke machine", "evap smoke", "leak detector",
+  "battery tester", "battery analyzer", "load tester", "conductance tester",
+  "fuel injector cleaner machine", "injector flow bench",
+  "dynamometer", "dyno", "chassis dyno", "engine dyno",
+  "car rotisserie", "auto rotisserie", "restoration rotisserie",
 ];
 
 // ─── Auction Keywords (BLOCK for vehicles) ───────────────────────────────────

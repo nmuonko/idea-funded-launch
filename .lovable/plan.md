@@ -1,194 +1,249 @@
 
-# Fix: Vehicles Category Showing Wrong Products
+# Fix: Home Rotation Button Times Out and Doesn't Update
 
-## Problem Summary
+## Problem Analysis
 
-The Vehicles category tab is displaying automotive equipment (lifts, diagnostic tools, parts) instead of actual vehicles (cars, trucks, motorcycles). This happens because:
+The "Refresh Now" button (Home Rotation) triggers the `catalog-prewarm-home` edge function, which:
 
-1. **Wrong eBay Category ID**: The top-level `vehicles` and `vehicles_all` use eBay category `6000` ("eBay Motors"), which is a parent category containing both vehicles AND automotive equipment/parts
-2. **Insufficient Filtering**: The parts keyword filter doesn't catch automotive equipment like "automotive lift" or "diagnostic scanner"
-3. **Missing Search Query**: For vehicle categories, the API uses category_id alone without a query, returning everything in that broad category
+1. **Processes 8 sections sequentially** (phones, vehicles, gaming, computers, clothing, home_garden, refurbished, parts_accessories)
+2. **Each section makes multiple API calls**:
+   - 3 Amazon/Rainforest API calls per section
+   - 3 eBay API calls per section
+   - Database reads/writes for caching, seen items, and catalog_items
+3. **Total operations**: ~48 API calls + ~24 database operations = easily 60-120 seconds
+
+Edge Functions have strict timeouts (typically 150s on Supabase), and network latency compounds the issue. The function times out before completing, so:
+- The cache is never fully populated
+- The home page continues showing stale/fallback data
+- Users see no change
 
 ---
 
-## Solution Overview
+## Solution: Async Queue-Based Architecture
 
-Three-pronged approach to ensure only real vehicles appear:
+Instead of waiting for the prewarm to complete, implement an **immediate-return pattern** where:
+
+1. **Edge Function returns immediately** after queuing the job
+2. **Background processing** handles the actual prewarming (in smaller chunks or via scheduled execution)
+3. **Status tracking** allows the admin to see progress
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│                    VEHICLE FILTERING STRATEGY                         │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│  1. CORRECT CATEGORY IDS                                             │
-│     vehicles_all → Use subcategory union, NOT 6000                   │
-│     vehicles → Use explicit vehicle-only categories                   │
-│                                                                       │
-│  2. MANDATORY SEARCH QUERY                                           │
-│     Always include vehicle-specific keywords                         │
-│     "car for sale" OR "truck" OR "sedan" etc.                        │
-│                                                                       │
-│  3. EXPANDED EQUIPMENT BLOCKLIST                                     │
-│     Add: "automotive lift", "car lift", "diagnostic",                │
-│     "scanner", "obd", "alignment machine", "tire changer"            │
-│                                                                       │
-└──────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    ASYNC PREWARM ARCHITECTURE                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  Admin clicks "Refresh Now"                                             │
+│       │                                                                  │
+│       ▼                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  catalog-prewarm-home (FAST - returns in <1 second)              │    │
+│  │                                                                   │    │
+│  │  1. Insert job into prewarm_jobs table with status='pending'     │    │
+│  │  2. Return immediately with job_id                               │    │
+│  │                                                                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│       │                                                                  │
+│       ▼                                                                  │
+│  UI shows "Prewarm started" immediately                                 │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  OPTION A: Trigger background worker                            │    │
+│  │  catalog-prewarm-worker (separate edge function)                │    │
+│  │  - Processes 1-2 sections per invocation                        │    │
+│  │  - Chains to next worker via pg_cron or self-invocation         │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  OPTION B: Process sections in parallel                         │    │
+│  │  - Each section runs independently with shorter timeout         │    │
+│  │  - Promise.allSettled with per-section error handling           │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Technical Implementation
+## Implementation Plan
 
-### Phase 1: Update eBay Category Mappings
+### Phase 1: Immediate Return with Job Tracking
 
-**File**: `supabase/functions/_shared/categoryRegistry.ts`
+**Create new table: `prewarm_jobs`**
 
-Update the `CATEGORY_META` with correct vehicle-specific category IDs:
-
-| Category | Current ID | Corrected ID | Description |
-|----------|------------|--------------|-------------|
-| `vehicles` | 6000 | 6000 (keep) | Parent, but will use query |
-| `vehicles_all` | 6000 | 6000 (keep) | Parent, but will use query |
-| `vehicles_cars_trucks` | 6001 | 6001 | Cars & Trucks (correct) |
-| `vehicles_motorcycles` | 6024 | 6024 | Motorcycles (correct) |
-| `vehicles_powersports` | 66466 | 66466 | ATVs/UTVs (correct) |
-| `vehicles_boats` | 26429 | 26429 | Boats (correct) |
-| `vehicles_rvs_campers` | 50054 | 50054 | RVs (correct) |
-| `vehicles_trailers_other` | 6038 | 6038 | Trailers (correct) |
-| `vehicles_classic_cars` | 6001 | 6001 | Uses Cars category (correct) |
-
-The category IDs are mostly correct - the issue is that category 6000 is too broad.
-
-### Phase 2: Force Query for Vehicle Searches
-
-**File**: `supabase/functions/catalog-category/index.ts`
-
-Update the eBay search call to ALWAYS include a query for vehicle categories:
-
-```typescript
-// Lines ~550-572: Update searchEbayWithFallback call
-const vehicleQuery = isVehicle && !isParts
-  ? VEHICLE_FALLBACK_QUERIES[canonicalKey]?.[0] || "car for sale truck suv sedan"
-  : undefined;
-
-const searchResult = await searchEbayWithFallback(
-  supabase,
-  {
-    query: vehicleQuery, // ADD THIS - force query for vehicles
-    categoryId: ebayCategory || undefined,
-    page,
-    pageSize: limit,
-    minPrice: minPrice > 0 ? minPrice : undefined,
-    isVehicle,
-    isParts,
-    marketplaceId: "EBAY_US",
-    sort,
-    filters: Object.keys(catalogFilters).length > 0 ? catalogFilters : undefined,
-  },
-  fallbackQueries,
-  requestId
+```sql
+CREATE TABLE prewarm_jobs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  status text NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed
+  rotation_key text,
+  sections_total integer DEFAULT 0,
+  sections_completed integer DEFAULT 0,
+  amazon_fetched integer DEFAULT 0,
+  ebay_fetched integer DEFAULT 0,
+  mixed_total integer DEFAULT 0,
+  error_message text,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz DEFAULT now()
 );
 ```
 
-### Phase 3: Expand Equipment Blocklist
-
-**File**: `supabase/functions/_shared/motorsFilter.ts`
-
-Add automotive equipment keywords to the block list (~line 50-230):
+**Update `catalog-prewarm-home` to return immediately**
 
 ```typescript
-// Add to MOTORS_PARTS_KEYWORDS array:
-// ═══════════════════════════════════════════════════════════════════════════
-// AUTOMOTIVE EQUIPMENT (shop/garage equipment - NOT vehicles)
-// ═══════════════════════════════════════════════════════════════════════════
-"automotive lift", "car lift", "vehicle lift", "two post lift", "four post lift",
-"scissor lift", "motorcycle lift", "atv lift", "alignment rack", "alignment machine",
-"tire changer", "tire machine", "wheel balancer", "balancing machine",
-"diagnostic scanner", "obd scanner", "obd2", "obdii", "code reader",
-"scan tool", "diagnostic tool", "diagnostic computer", "diagnostic kit",
-"engine analyzer", "compression tester", "leak down tester",
-"brake lathe", "drum lathe", "rotor lathe",
-"parts washer", "solvent tank", "spray booth", "paint booth",
-"engine hoist", "engine crane", "transmission jack", "floor jack",
-"shop press", "hydraulic press", "bearing press",
-"a/c machine", "ac machine", "refrigerant recovery", "evacuation machine",
-"fluid extractor", "oil extractor", "brake bleeder",
-"creeper", "mechanics creeper", "shop stool", "work bench",
-"tool chest", "tool cabinet", "service cart", "parts cart",
-"air compressor shop", "shop compressor",
-"sandblaster", "bead blaster", "media blaster",
+// NEW FLOW:
+// 1. Create pending job record
+// 2. Return immediately with job ID
+// 3. Trigger background processing (via Edge Function or self-chain)
+
+const { data: job } = await supabase
+  .from('prewarm_jobs')
+  .insert({
+    status: 'pending',
+    rotation_key: rotationKey,
+    sections_total: HOME_PREWARM_SECTIONS.length,
+  })
+  .select()
+  .single();
+
+// Trigger background worker (fire-and-forget)
+fetch(`${supabaseUrl}/functions/v1/catalog-prewarm-worker`, {
+  method: 'POST',
+  headers: { 
+    'Authorization': `Bearer ${supabaseKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ jobId: job.id })
+}).catch(() => {}); // Fire and forget
+
+// Return immediately
+return new Response(JSON.stringify({
+  ok: true,
+  jobId: job.id,
+  status: 'queued',
+  message: 'Home prewarm started in background',
+}), ...);
 ```
 
-### Phase 4: Update Fallback Queries
+### Phase 2: Background Worker Function
 
-**File**: `supabase/functions/catalog-category/index.ts`
+**Create `catalog-prewarm-worker/index.ts`**
 
-Improve the `VEHICLE_FALLBACK_QUERIES` to be more specific about actual vehicles for sale:
+Processes sections one at a time with progress updates:
 
 ```typescript
-const VEHICLE_FALLBACK_QUERIES: Record<string, string[]> = {
-  vehicles: [
-    "car for sale clean title runs drives", 
-    "truck for sale v8 automatic",
-    "suv for sale awd 4wd",
-  ],
-  vehicles_all: [
-    "car for sale clean title",
-    "used car for sale low miles",
-    "truck for sale one owner",
-  ],
-  vehicles_cars_trucks: [
-    "sedan for sale clean title",
-    "used car for sale low mileage",
-    "pickup truck for sale 4x4",
-  ],
-  // ... existing entries are fine
+// Receives jobId, processes each section sequentially or in small batches
+// Updates prewarm_jobs.sections_completed after each section
+// Handles timeout by resuming from last completed section
+```
+
+### Phase 3: UI Updates for Progress Tracking
+
+**Update `CatalogSourcesSettings.tsx`**
+
+1. Show "Starting..." immediately when button clicked
+2. Poll job status every 3-5 seconds
+3. Display progress bar: "3/8 sections completed"
+4. Show completion message when done
+
+```typescript
+// After prewarm call returns jobId
+const pollJobStatus = async (jobId: string) => {
+  const { data: job } = await supabase
+    .from('prewarm_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .single();
+  
+  if (job.status === 'completed') {
+    // Show success
+  } else if (job.status === 'failed') {
+    // Show error
+  } else {
+    // Update progress UI
+    setProgress(`${job.sections_completed}/${job.sections_total} sections`);
+    setTimeout(() => pollJobStatus(jobId), 3000);
+  }
 };
 ```
 
 ---
 
-## Files to Modify
+## Files to Create/Modify
 
-1. **`supabase/functions/_shared/motorsFilter.ts`**
-   - Add ~50 new automotive equipment keywords to `MOTORS_PARTS_KEYWORDS`
-   - Add new section for shop/garage equipment
+### Database Changes
+1. **New table**: `prewarm_jobs` for job tracking
 
-2. **`supabase/functions/catalog-category/index.ts`**
-   - Force query parameter for vehicle categories (lines ~555-570)
-   - Update `VEHICLE_FALLBACK_QUERIES` to be more specific
+### Edge Functions
+1. **Modify**: `supabase/functions/catalog-prewarm-home/index.ts`
+   - Return immediately after creating job
+   - Fire background worker
 
-3. **`supabase/functions/_shared/ebayBrowseSearch.ts`**
-   - Update `PARTS_DENY_KEYWORDS` with equipment terms
-   - Add `EQUIPMENT_DENY_KEYWORDS` for automotive shop equipment
+2. **Create**: `supabase/functions/catalog-prewarm-worker/index.ts`
+   - Process sections one at a time
+   - Update job progress
+   - Handle resumption on timeout
+
+### Frontend
+1. **Modify**: `src/pages/admin/CatalogSourcesSettings.tsx`
+   - Handle async response with jobId
+   - Add polling for job status
+   - Show progress indicator
+
+---
+
+## Alternative Simpler Approach: Parallel Processing with Short Timeouts
+
+If the queue approach is too complex, a simpler fix:
+
+1. **Process all sections in parallel** using `Promise.allSettled`
+2. **Add per-section timeout of 10 seconds**
+3. **Reduce API calls per section** (1 query instead of 3)
+4. **Return partial results** even if some sections fail
+
+This reduces total time from ~120s to ~15-20s.
+
+---
+
+## Technical Details
+
+### Current Flow (Broken)
+```
+Button Click → Edge Function (60-120s) → Timeout → No update
+```
+
+### New Flow (Queue-Based)
+```
+Button Click → Edge Function (200ms) → Job Queued → Background Worker → Cache Updated
+                 ↓
+           UI: "Started!" → Poll Status → "3/8 sections..." → "Complete!"
+```
+
+### New Flow (Parallel Simplification)
+```
+Button Click → Edge Function (15-20s) → Partial Success → Cache Updated
+                                              ↓
+                                       UI: "5/8 sections refreshed"
+```
+
+---
+
+## Recommended Approach
+
+**Implement the simpler Parallel Processing fix first**:
+1. Faster to implement
+2. No new infrastructure (no job table)
+3. Significantly reduces total time
+4. Acceptable partial success behavior
+
+If that's still too slow, then implement the full queue architecture.
 
 ---
 
 ## Expected Outcomes
 
-| Before | After |
-|--------|-------|
-| Category shows lifts, scanners, diagnostic tools | Category shows cars, trucks, SUVs |
-| Parts filter misses equipment keywords | Equipment keywords blocked |
-| No query for category browse | Query forces vehicle-specific results |
-| 50% parts/equipment in results | <5% irrelevant items |
-
----
-
-## Rollback Plan
-
-If vehicle results become too restrictive:
-1. Remove equipment keywords from blocklist
-2. Remove forced query parameter
-3. Deploy previous version of edge functions
-
----
-
-## Testing Verification
-
-After deployment, verify:
-1. Browse `vehicles` tab - should show cars/trucks/SUVs
-2. Browse `vehicles_motorcycles` - should show actual motorcycles
-3. No automotive lifts, diagnostic scanners, or shop equipment in results
-4. Price filter ($1500+) still applies
-5. Pagination continues to work correctly
+| Metric | Before | After (Parallel) | After (Queue) |
+|--------|--------|------------------|---------------|
+| Response time | 60-120s (timeout) | 15-20s | <1s |
+| User feedback | None (hangs) | Immediate result | Immediate + progress |
+| Success rate | 0% (always times out) | ~80% (partial) | 100% |
+| Home page update | Never | After button returns | After background completes |

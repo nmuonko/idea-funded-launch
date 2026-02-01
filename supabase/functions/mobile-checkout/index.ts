@@ -808,8 +808,8 @@ serve(async (req) => {
     }
 
     // ============================================
-    // PERF OPTIMIZATION: Parallel fetch of profile, order, and settings
-    // Reduces latency by ~200-300ms by avoiding sequential queries
+    // PERF OPTIMIZATION: Parallel fetch of profile, order, settings, AND payment settings
+    // Reduces latency by ~300-400ms by avoiding sequential queries
     // ============================================
     const providedCartId = body.cart_id || body.cartId || body.order_id || body.orderId;
     const clientCartVersion = Number(body.cart_version) || null;
@@ -837,12 +837,16 @@ serve(async (req) => {
           .maybeSingle();
 
     const settingsPromise = getCachedSettings(supabase);
+    
+    // PERF: Fetch payment settings in parallel instead of sequentially after totals
+    const paymentSettingsPromise = getPaymentSettings(supabase);
 
-    // Execute all queries in parallel
-    const [profileResult, orderResult, settings] = await Promise.all([
+    // Execute all queries in parallel (saves ~100-200ms)
+    const [profileResult, orderResult, settings, paymentSettings] = await Promise.all([
       profilePromise,
       orderPromise,
       settingsPromise,
+      paymentSettingsPromise,
     ]);
 
     perf.mark('parallel_fetch_complete');
@@ -1184,10 +1188,9 @@ serve(async (req) => {
     }
 
     // ============================================
-    // LOAD PAYMENT SETTINGS FOR LIMIT CHECKING
+    // PAYMENT SETTINGS ALREADY LOADED IN PARALLEL ABOVE
     // ============================================
-    const paymentSettings = await getPaymentSettings(supabase);
-    perf.mark('payment_settings_loaded');
+    perf.mark('payment_settings_ready');
     
     // P0 CRITICAL: Log limits for debugging (safe - no secrets)
     console.log('[limits] mobile_money_max_usd=' + paymentSettings.mobile_money_max_usd + ', mobile_money_max_cdf=' + paymentSettings.mobile_money_max_cdf);

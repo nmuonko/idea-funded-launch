@@ -1,93 +1,115 @@
 
-# Fix: Home Curation Seeds and Vehicles Search Issues
 
-## Problem Summary
+# Fix: Vehicles Section Showing Accessories Instead of Real Cars
 
-You've identified two issues:
+## Problem
 
-1. **Seeds cannot be deleted/updated** - Admin operations fail silently
-2. **"See All" on Vehicles shows toys** - The search displays toy vehicles instead of real cars/trucks
+The "Véhicules" (Vehicles) section on the homepage is displaying phone holders, accessories, and toy vehicles instead of real cars. The cached data confirms this:
 
----
+- First cached item: **"UGREEN Phone Holder for Tesla Model 3 and Y Accessories"** - $19.99
+- This is an Amazon result for the seed query "Tesla Model Y"
 
-## Root Cause Analysis
+## Root Cause
 
-### Issue 1: Seed Operations Failing
+**Amazon does not sell real vehicles.** When the prewarm worker searches Amazon with queries like "Tesla Model 3", it returns accessories (phone holders, floor mats, etc.) because that's what Amazon has.
 
-The edge functions `admin-home-seeds`, `admin-home-sections`, and `admin-home-seed-suggestions` are returning 404 errors from the gateway, even though the code exists and logs show the functions booting successfully.
+The prewarm worker applies the `isAllowedMotorListing()` filter only to eBay items (line 371-374), but **NOT** to Amazon items. The Amazon items go straight into the mix without any vehicle validation.
 
-**Diagnosis**: There appears to be a deployment synchronization issue where the functions need to be force-redeployed to ensure they're properly registered with the gateway.
-
-### Issue 2: Vehicles Showing Toys
-
-When you click "See All" on the Vehicles section, the query "Vehicles" is sent to the search endpoint. However, the vehicle detection logic fails because:
-
-**The `VEHICLE_QUERY_KEYWORDS` list is missing English "vehicle" and "vehicles"!**
-
-```typescript
-// Current list (line 100-101 in catalog-search):
-"voiture", "voitures", "moto", "camion", "vehicule", "automobile"
-//                                        ^^^^ French only!
+```text
+Current Flow:
+┌─────────────────────────────────────────────────────────────────┐
+│ Prewarm Worker: section=vehicles                                │
+├─────────────────────────────────────────────────────────────────┤
+│ Amazon: "Tesla Model 3" → Phone holders, accessories            │
+│   ↓ Only checks: isDisallowedItem() ✗ (content blocker)         │
+│   ↓ Missing: isAllowedMotorListing() ❌                          │
+│   → All accessories pass through!                               │
+├─────────────────────────────────────────────────────────────────┤
+│ eBay: "Tesla Model 3" → Real cars                               │
+│   ↓ Checks: isDisallowedItem() ✓                                │
+│   ↓ Checks: isAllowedMotorListing() ✓                           │
+│   → Only real vehicles pass through                             │
+├─────────────────────────────────────────────────────────────────┤
+│ Mixer: Amazon first (N items) → Blend → eBay                    │
+│ Result: Homepage shows phone holders FIRST, then real cars      │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
-The list has the French term `"vehicule"` but not the English terms `"vehicle"` or `"vehicles"`. When a user searches for "Vehicles", the `isVehicleQuery()` function returns `false`, allowing the query to go to Amazon, which returns toy vehicles.
-
----
 
 ## Solution
 
-### Fix 1: Add Missing English Vehicle Keywords
+**Skip Amazon entirely for vehicle sections.** Real vehicles only come from eBay Motors. Amazon results for vehicle-related queries will always be accessories.
 
-Update `supabase/functions/catalog-search/index.ts` to include "vehicle" and "vehicles" in the keyword list:
+### Changes Required
 
+1. **`catalog-prewarm-worker/index.ts`**: Skip Amazon fetching when `section.isVehicle === true`
+2. **`catalog-home/index.ts`**: Skip Amazon cache lookup for vehicle sections
+
+### Code Changes
+
+#### File: `supabase/functions/catalog-prewarm-worker/index.ts`
+
+Before (line ~303):
 ```typescript
-// French vehicle terms + English
-"voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
+// ─── FETCH AMAZON ITEMS ─────────────────────────────────────────────────────
+if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled) {
+  for (const query of section.amazonQueries) {
 ```
 
-### Fix 2: Redeploy All Affected Edge Functions
+After:
+```typescript
+// ─── FETCH AMAZON ITEMS ─────────────────────────────────────────────────────
+// Skip Amazon for vehicles - Amazon only sells accessories, not real cars
+if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled && !section.isVehicle) {
+  for (const query of section.amazonQueries) {
+```
 
-Force redeploy these functions to fix the 404 gateway issues:
-- `admin-home-seeds`
-- `admin-home-sections`
-- `admin-home-seed-suggestions`
-- `catalog-search`
+This single-line change ensures that for vehicle sections:
+- Amazon is skipped entirely
+- Only eBay Motors results are fetched
+- The motors filter (price minimum $1,500, parts blocklist) is applied
 
----
+#### File: `supabase/functions/catalog-home/index.ts`
+
+The home endpoint should also skip Amazon cache lookups for vehicle sections to avoid stale accessory data.
+
+## Expected Behavior After Fix
+
+```text
+Fixed Flow:
+┌─────────────────────────────────────────────────────────────────┐
+│ Prewarm Worker: section=vehicles, isVehicle=true                │
+├─────────────────────────────────────────────────────────────────┤
+│ Amazon: SKIPPED (isVehicle=true)                                │
+│   → No accessories stored                                       │
+├─────────────────────────────────────────────────────────────────┤
+│ eBay: "Tesla Model 3" → Real cars from eBay Motors              │
+│   ↓ Checks: isAllowedMotorListing() ✓                           │
+│   ↓ minPrice: $1,500 ✓                                          │
+│   → Only real vehicles pass through                             │
+├─────────────────────────────────────────────────────────────────┤
+│ Mixer: eBay only for vehicles                                   │
+│ Result: Homepage shows real Tesla Model 3 cars ($15,000+)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Testing After Fix
+
+1. Deploy the updated edge functions
+2. Go to Home Curation → Click "Publish Now"
+3. Wait for the job to complete
+4. Refresh the homepage
+5. The Vehicles section should now show real cars with prices $1,500+ from eBay Motors
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-search/index.ts` | Add `"vehicle"`, `"vehicles"` to `VEHICLE_QUERY_KEYWORDS` (line 101) |
+| `supabase/functions/catalog-prewarm-worker/index.ts` | Add `&& !section.isVehicle` to Amazon fetch condition (line ~304) |
+| `supabase/functions/catalog-home/index.ts` | Skip Amazon cache for vehicle sections in fallback logic |
 
----
+## Why This is the Correct Fix
 
-## Expected Behavior After Fix
+1. **Amazon doesn't sell cars** - This is a fundamental limitation, not a filtering issue
+2. **Parts blocklist can't help** - The accessories ("phone holder for Tesla") would need every brand/model blocked, which is impractical
+3. **eBay Motors is the right source** - It has real vehicles with proper listings
 
-1. **Seed management**: Add, edit, and delete seed queries in Home Curation will work
-2. **Vehicles "See All"**: Will search eBay Motors exclusively, returning real cars and trucks instead of toy vehicles
-
----
-
-## Data Flow After Fix
-
-```text
-User clicks "See All" on Vehicles section
-       │
-       ▼
-Frontend sends: q="Vehicles" category_key=vehicles_cars_trucks
-       │
-       ▼
-catalog-search receives query
-       │
-       ▼
-isVehicleQuery("vehicles") → TRUE (now matches "vehicles" keyword)
-       │
-       ▼
-Amazon SKIPPED (only sells parts/toys)
-eBay Motors searched exclusively
-       │
-       ▼
-Returns real cars, trucks, SUVs with $1,500+ prices
-```

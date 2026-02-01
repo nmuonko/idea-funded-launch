@@ -55,6 +55,25 @@ const corsHeaders = {
 
 const HOME_MIN_PER_SECTION = 6;
 const HOME_PAGE_SIZE = 12;
+const HOME_LOAD_MORE_SIZE = 12;
+
+// Cursor encoding/decoding for infinite scroll
+interface HomeCursor {
+  section: string;
+  offset: number;
+}
+
+function encodeHomeCursor(cursor: HomeCursor): string {
+  return btoa(JSON.stringify(cursor));
+}
+
+function decodeHomeCursor(encoded: string): HomeCursor | null {
+  try {
+    return JSON.parse(atob(encoded));
+  } catch {
+    return null;
+  }
+}
 
 interface CatalogItem {
   id: string;
@@ -87,6 +106,7 @@ interface Section {
   subtabKey: string | null;
   items: CatalogItem[];
   hasMore: boolean;
+  nextCursor: string | null;
   cacheHit: boolean;
   amazonCount: number;
   ebayCount: number;
@@ -475,6 +495,7 @@ Deno.serve(async (req: Request) => {
 
   const requestId = generateRequestId();
   const startTime = Date.now();
+  const url = new URL(req.url);
 
   let envName: EnvironmentName = "production";
   try {
@@ -483,7 +504,12 @@ Deno.serve(async (req: Request) => {
     envName = "production";
   }
 
-  console.log(`[HOME] requestId=${requestId} env=${envName}`);
+  // Parse query params for infinite scroll support
+  const sectionParam = url.searchParams.get("section");
+  const cursorParam = url.searchParams.get("cursor");
+  const isLoadMore = !!(sectionParam && cursorParam);
+
+  console.log(`[HOME] requestId=${requestId} env=${envName} isLoadMore=${isLoadMore} section=${sectionParam || 'all'}`);
 
   if (!ALLOWED_ENVS.includes(envName)) {
     return new Response(
@@ -526,6 +552,104 @@ Deno.serve(async (req: Request) => {
     // Load sections from database (with fallback to hardcoded)
     const homeSections = await loadHomeSections(supabase);
 
+    // ─── INFINITE SCROLL: LOAD MORE FOR SPECIFIC SECTION ────────────────────────
+    if (isLoadMore && sectionParam && cursorParam) {
+      const decoded = decodeHomeCursor(cursorParam);
+      if (!decoded || decoded.section !== sectionParam) {
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            env: envName,
+            sections: [],
+            tabs: [],
+            error: { message: "Invalid cursor", code: "INVALID_CURSOR" },
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const sectionConfig = homeSections.find(s => s.key === sectionParam);
+      if (!sectionConfig) {
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            env: envName,
+            sections: [],
+            tabs: [],
+            error: { message: `Section not found: ${sectionParam}`, code: "SECTION_NOT_FOUND" },
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Fetch more items for this section using eBay with offset
+      try {
+        const result = await searchEbay(
+          supabase,
+          {
+            query: sectionConfig.seedQueries[0] || sectionConfig.key,
+            categoryId: sectionConfig.ebayCategory,
+            page: Math.floor(decoded.offset / HOME_LOAD_MORE_SIZE) + 1,
+            pageSize: HOME_LOAD_MORE_SIZE,
+            minPrice: sectionConfig.minPrice > 0 ? sectionConfig.minPrice : undefined,
+            isVehicle: sectionConfig.isVehicle,
+            marketplaceId: "EBAY_US",
+          },
+          requestId
+        );
+
+        // Filter and map items
+        const items: CatalogItem[] = [];
+        for (const ebayItem of result.items) {
+          if (isDisallowedItem({ title: ebayItem.title, productUrl: ebayItem.product_url }).isDisallowed) {
+            continue;
+          }
+
+          if (sectionConfig.isVehicle) {
+            const filterResult = isAllowedMotorListing({ title: ebayItem.title, priceUsd: ebayItem.price_usd });
+            if (!filterResult.isAllowed) continue;
+          }
+
+          items.push(mapEbayItemToResponse(ebayItem));
+        }
+
+        // Calculate next cursor
+        const newOffset = decoded.offset + items.length;
+        const hasMore = result.hasMore && items.length > 0;
+        const nextCursor = hasMore ? encodeHomeCursor({ section: sectionParam, offset: newOffset }) : null;
+
+        console.log(`[HOME_LOAD_MORE] requestId=${requestId} section=${sectionParam} offset=${decoded.offset} returned=${items.length} hasMore=${hasMore}`);
+
+        return new Response(
+          JSON.stringify({
+            status: "success",
+            env: envName,
+            section: {
+              key: sectionConfig.key,
+              title: sectionConfig.title,
+              items,
+              hasMore,
+              nextCursor,
+            },
+            error: null,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (err) {
+        console.error(`[HOME_LOAD_MORE] requestId=${requestId} error:`, err);
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            env: envName,
+            section: null,
+            error: { message: "Failed to load more items", code: "LOAD_MORE_ERROR" },
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // ─── NORMAL HOME PAGE LOAD (ALL SECTIONS) ───────────────────────────────────
     const tabs = buildTabs();
     const sections: Section[] = [];
     let sectionsFromCache = 0;
@@ -611,6 +735,12 @@ Deno.serve(async (req: Request) => {
       totalAmazonItems += finalItems.filter(i => i.provider === "rainforest" || i.provider === "amazon").length;
       totalEbayItems += finalItems.filter(i => i.provider === "ebay").length;
 
+      // Calculate next cursor for infinite scroll
+      const hasMoreItems = items.length >= HOME_PAGE_SIZE;
+      const nextCursor = hasMoreItems 
+        ? encodeHomeCursor({ section: config.key, offset: HOME_PAGE_SIZE })
+        : null;
+
       sections.push({
         key: config.key,
         title: config.title,
@@ -618,7 +748,8 @@ Deno.serve(async (req: Request) => {
         parentTab: config.parentTab,
         subtabKey: config.subtabKey,
         items: finalItems,
-        hasMore: items.length >= HOME_PAGE_SIZE,
+        hasMore: hasMoreItems,
+        nextCursor,  // NEW: cursor for loading more
         cacheHit,
         amazonCount,
         ebayCount,

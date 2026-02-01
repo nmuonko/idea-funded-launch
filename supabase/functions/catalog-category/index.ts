@@ -22,7 +22,7 @@ import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environme
 import { isDisallowedItem, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { searchEbay, searchEbayWithFallback, upsertItemsToDb, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
-import { extractBrand, applyBrandDiversity } from "../_shared/brandExtractor.ts";
+import { extractBrand, applyBrandDiversity, applyItemDiversity } from "../_shared/brandExtractor.ts";
 import { 
   resolveCategory, 
   resolveCategoryOrError,
@@ -649,9 +649,25 @@ Deno.serve(async (req) => {
     const allowedIds = new Set(filteredItems.map(i => i.id));
     let filteredFinalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogProduct[];
 
-    // Apply brand diversity for clothing
-    if (parentTab === "clothing_shoes_accessories" && mixerCursor.totalReturned === 0 && filteredFinalItems.length > 5) {
-      filteredFinalItems = applyBrandDiversity(filteredFinalItems, 2, limit) as CatalogProduct[];
+    // Apply brand diversity to ALL categories (not just clothing)
+    // Use category-specific diversity rules:
+    // - Electronics (phones, computers, gaming): max 2 per brand for variety
+    // - Clothing: max 2 per brand
+    // - Vehicles: no diversity (each car is unique)
+    // - Other: max 3 per brand (looser diversity)
+    if (!isVehicle && mixerCursor.totalReturned === 0 && filteredFinalItems.length > 5) {
+      const diversityMaxPerBrand = parentTab.startsWith("electronics") ? 2 
+        : parentTab === "clothing_shoes_accessories" ? 2 
+        : 3;
+      
+      filteredFinalItems = applyItemDiversity(filteredFinalItems, {
+        maxPerBrand: diversityMaxPerBrand,
+        targetCount: limit,
+        categoryHint: canonicalKey,
+        shuffle: false, // Keep relevance order within brands
+      }) as CatalogProduct[];
+      
+      console.log(`[CATALOG_DIVERSITY] requestId=${requestId} applied diversity maxPerBrand=${diversityMaxPerBrand} items=${filteredFinalItems.length}`);
     }
 
     // Enrich items with exact image counts from media cache

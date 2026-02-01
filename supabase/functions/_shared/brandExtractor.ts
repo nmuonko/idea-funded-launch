@@ -1,7 +1,42 @@
 /**
  * Brand Extractor - Extract brand names from product titles
  * Used for diversity enforcement in category results
+ * 
+ * ENHANCED: Now includes electronics brands for phone/computer diversity
  */
+
+// ─── ELECTRONICS BRANDS ───────────────────────────────────────────────────────
+// Phone brands (ordered by global market share / popularity)
+export const PHONE_BRANDS = [
+  "apple", "iphone", "samsung", "galaxy", "google", "pixel",
+  "oneplus", "oppo", "vivo", "xiaomi", "redmi", "poco",
+  "realme", "motorola", "moto", "nokia", "huawei", "honor",
+  "tecno", "infinix", "itel", "lg", "sony", "asus", "rog",
+  "nothing", "fairphone", "blackberry", "zte",
+];
+
+// Computer / Laptop brands
+export const COMPUTER_BRANDS = [
+  "apple", "macbook", "imac", "dell", "hp", "lenovo", "thinkpad",
+  "asus", "acer", "msi", "razer", "alienware", "microsoft", "surface",
+  "samsung", "lg", "toshiba", "gigabyte", "aorus", "chromebook",
+];
+
+// Gaming brands
+export const GAMING_BRANDS = [
+  "sony", "playstation", "ps5", "ps4", "microsoft", "xbox",
+  "nintendo", "switch", "steam", "valve", "razer", "logitech",
+  "corsair", "hyperx", "steelseries", "roccat", "asus", "rog",
+  "alienware", "msi", "scuf", "8bitdo", "powera",
+];
+
+// Audio / Headphones brands
+export const AUDIO_BRANDS = [
+  "apple", "airpods", "bose", "sony", "jbl", "samsung", "beats",
+  "sennheiser", "audio-technica", "beyerdynamic", "skullcandy",
+  "anker", "soundcore", "jabra", "marshall", "harman", "bang olufsen",
+  "shure", "akg", "klipsch", "denon", "sonos",
+];
 
 // Common fashion and accessory brands (ordered by popularity/recognition)
 export const KNOWN_BRANDS = [
@@ -34,14 +69,35 @@ export const KNOWN_BRANDS = [
   "anthropologie", "free people", "madewell", "everlane", "cos", "massimo dutti",
 ];
 
+// Combine all electronics brands
+export const ELECTRONICS_BRANDS = [
+  ...new Set([...PHONE_BRANDS, ...COMPUTER_BRANDS, ...GAMING_BRANDS, ...AUDIO_BRANDS])
+];
+
+// Combine all known brands (fashion + electronics)
+export const ALL_BRANDS = [
+  ...new Set([...KNOWN_BRANDS, ...ELECTRONICS_BRANDS])
+];
+
 // Create lookup set for faster matching
-const BRAND_SET = new Set(KNOWN_BRANDS);
+const BRAND_SET = new Set(ALL_BRANDS);
 
 // Create regex patterns for each brand (for word boundary matching)
-const BRAND_PATTERNS: { brand: string; pattern: RegExp }[] = KNOWN_BRANDS.map(brand => ({
+const BRAND_PATTERNS: { brand: string; pattern: RegExp }[] = ALL_BRANDS.map(brand => ({
   brand,
   // Match brand name with word boundaries, handling special chars
   pattern: new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]?')}\\b`, 'i')
+}));
+
+// Category-specific brand patterns for faster matching
+const PHONE_PATTERNS = PHONE_BRANDS.map(brand => ({
+  brand,
+  pattern: new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+}));
+
+const GAMING_PATTERNS = GAMING_BRANDS.map(brand => ({
+  brand,
+  pattern: new RegExp(`\\b${brand.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
 }));
 
 /**
@@ -64,11 +120,50 @@ export function extractBrand(title: string): string {
       if (brand === "yves saint laurent" || brand === "ysl") return "ysl";
       if (brand === "polo ralph lauren") return "ralph lauren";
       if (brand === "north face") return "the north face";
+      // Normalize electronics brands
+      if (brand === "iphone") return "apple";
+      if (brand === "galaxy") return "samsung";
+      if (brand === "pixel") return "google";
+      if (brand === "macbook" || brand === "imac") return "apple";
+      if (brand === "thinkpad") return "lenovo";
+      if (brand === "surface") return "microsoft";
+      if (brand === "rog" || brand === "aorus") return "asus";
+      if (brand === "playstation" || brand === "ps5" || brand === "ps4") return "sony";
+      if (brand === "xbox") return "microsoft";
+      if (brand === "switch") return "nintendo";
+      if (brand === "airpods" || brand === "beats") return "apple";
+      if (brand === "soundcore") return "anker";
+      if (brand === "redmi" || brand === "poco") return "xiaomi";
+      if (brand === "moto") return "motorola";
       return brand;
     }
   }
   
   return "other";
+}
+
+/**
+ * Extract brand specifically for electronics (phones, computers, gaming)
+ * More aggressive matching for electronics brands
+ */
+export function extractElectronicsBrand(title: string): string {
+  if (!title) return "other";
+  
+  // Check phone-specific patterns first
+  for (const { brand, pattern } of PHONE_PATTERNS) {
+    if (pattern.test(title)) {
+      // Normalize
+      if (brand === "iphone") return "apple";
+      if (brand === "galaxy") return "samsung";
+      if (brand === "pixel") return "google";
+      if (brand === "redmi" || brand === "poco") return "xiaomi";
+      if (brand === "moto") return "motorola";
+      return brand;
+    }
+  }
+  
+  // Fall back to general extraction
+  return extractBrand(title);
 }
 
 /**
@@ -181,6 +276,110 @@ export function applyBrandDiversity<T extends { title: string }>(
     }
   }
   
+  return result;
+}
+
+/**
+ * Universal item diversity function
+ * Works for any category: electronics, clothing, vehicles, etc.
+ * Interleaves items by detected brand to avoid clusters
+ * 
+ * @param items Array of items with title property
+ * @param options Configuration options
+ * @returns Diversified array of items
+ */
+export interface ItemDiversityOptions {
+  maxPerBrand?: number;       // Max consecutive items from same brand (default: 2)
+  targetCount?: number;       // Target number of items to return
+  categoryHint?: string;      // Category hint for better brand detection
+  shuffle?: boolean;          // Shuffle brand order for randomness (default: false)
+}
+
+export function applyItemDiversity<T extends { title: string }>(
+  items: T[],
+  options: ItemDiversityOptions = {}
+): T[] {
+  const {
+    maxPerBrand = 2,
+    targetCount = items.length,
+    categoryHint,
+    shuffle = false,
+  } = options;
+
+  if (items.length <= maxPerBrand) return items;
+
+  // Use category-specific brand extraction if available
+  const extractFn = categoryHint?.startsWith("electronics") 
+    ? extractElectronicsBrand 
+    : extractBrand;
+
+  // Group items by brand
+  const brandBuckets: Map<string, T[]> = new Map();
+  
+  for (const item of items) {
+    const brand = extractFn(item.title);
+    if (!brandBuckets.has(brand)) {
+      brandBuckets.set(brand, []);
+    }
+    brandBuckets.get(brand)!.push(item);
+  }
+
+  // Get brand list (optionally shuffle for randomness)
+  let brands = Array.from(brandBuckets.keys());
+  
+  // Move "other" to end to prioritize known brands
+  const otherIdx = brands.indexOf("other");
+  if (otherIdx > -1) {
+    brands.splice(otherIdx, 1);
+    brands.push("other");
+  }
+
+  // Optionally shuffle (but keep "other" at end)
+  if (shuffle && brands.length > 2) {
+    const shuffleable = brands.slice(0, -1);
+    for (let i = shuffleable.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffleable[i], shuffleable[j]] = [shuffleable[j], shuffleable[i]];
+    }
+    brands = [...shuffleable, "other"];
+  }
+
+  const result: T[] = [];
+  const brandIndices: Map<string, number> = new Map();
+  
+  // Initialize indices
+  for (const brand of brands) {
+    brandIndices.set(brand, 0);
+  }
+
+  // Round-robin through brands
+  let roundsWithNoProgress = 0;
+  
+  while (result.length < targetCount && roundsWithNoProgress < 2) {
+    let madeProgress = false;
+    
+    for (const brand of brands) {
+      if (result.length >= targetCount) break;
+      
+      const bucket = brandBuckets.get(brand)!;
+      const idx = brandIndices.get(brand)!;
+      
+      // Take up to maxPerBrand items from this brand
+      for (let i = 0; i < maxPerBrand && idx + i < bucket.length && result.length < targetCount; i++) {
+        result.push(bucket[idx + i]);
+        madeProgress = true;
+      }
+      
+      brandIndices.set(brand, idx + maxPerBrand);
+    }
+    
+    if (!madeProgress) {
+      roundsWithNoProgress++;
+    } else {
+      roundsWithNoProgress = 0;
+    }
+  }
+
   return result;
 }
 

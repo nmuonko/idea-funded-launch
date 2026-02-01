@@ -21,6 +21,7 @@ import { getAmazonLiveSettings } from "../_shared/amazonLivePolicy.ts";
 import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
+import { applyItemDiversity, logBrandDistribution } from "../_shared/brandExtractor.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { normalizeAndValidateImageUrl } from "../_shared/imageValidation.ts";
 import {
@@ -426,7 +427,29 @@ async function processSection(
       requestId,
     });
 
-    const mixedItems = mixResult.items;
+    let mixedItems = mixResult.items;
+
+    // ─── APPLY ITEM DIVERSITY (INTERLEAVE BY BRAND) ─────────────────────────────
+    // Skip diversity for vehicles (each car is unique) and when few items
+    if (!section.isVehicle && mixedItems.length > 4) {
+      // Determine diversity settings based on category
+      const maxPerBrand = section.categoryKey.startsWith("electronics") ? 2 : 3;
+      
+      // Log distribution before diversity
+      logBrandDistribution(mixedItems, `[WORKER_DIVERSITY_BEFORE] section=${section.key}`);
+      
+      mixedItems = applyItemDiversity(mixedItems, {
+        maxPerBrand,
+        targetCount: maxItemsPerSection,
+        categoryHint: section.categoryKey,
+        shuffle: true, // Shuffle for variety on each prewarm
+      });
+      
+      // Log distribution after diversity
+      logBrandDistribution(mixedItems, `[WORKER_DIVERSITY_AFTER] section=${section.key}`);
+      
+      console.log(`[WORKER] requestId=${requestId} section=${section.key} diversity applied maxPerBrand=${maxPerBrand}`);
+    }
 
     console.log(`[WORKER] requestId=${requestId} section=${section.key} mixed=${mixedItems.length}`);
 

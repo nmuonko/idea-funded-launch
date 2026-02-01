@@ -158,12 +158,27 @@ function countTotalImages(item: Record<string, unknown>): number {
 }
 
 /**
- * Extract and normalize eBay images for LIST views (limited to 2)
- * For product detail views, use the full images from getItem API
+ * Extract and normalize eBay images
+ * For LIST views (default): limited to 2 images for performance
+ * For VEHICLES: returns ALL images for full gallery display
+ * 
+ * @param item Raw eBay item data
+ * @param options.isVehicle If true, returns all images (no limit)
  */
-function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: string | null; imageUrls: string[]; imageCount: number } {
+interface ExtractImagesOptions {
+  isVehicle?: boolean;
+}
+
+function extractHighResImages(
+  item: Record<string, unknown>, 
+  options: ExtractImagesOptions = {}
+): { mainImageUrl: string | null; imageUrls: string[]; imageCount: number } {
+  const { isVehicle = false } = options;
   const seen = new Set<string>();
   const images: string[] = [];
+  
+  // For vehicles: no limit; for list views: limit to 2
+  const maxImages = isVehicle ? 100 : 2;
 
   // Primary image (highest priority)
   const image = item.image as Record<string, unknown> | undefined;
@@ -175,11 +190,11 @@ function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: st
     }
   }
 
-  // Additional images (secondary) - limit to 2 total for LIST views
+  // Additional images - get more for vehicles
   const additionalImages = item.additionalImages as Array<Record<string, unknown>> | undefined;
   if (additionalImages) {
     for (const img of additionalImages) {
-      if (images.length >= 2) break; // Limit to 2 for list
+      if (images.length >= maxImages) break;
       const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
       if (upgraded && !seen.has(upgraded)) {
         seen.add(upgraded);
@@ -193,7 +208,7 @@ function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: st
     const thumbnailImages = item.thumbnailImages as Array<Record<string, unknown>> | undefined;
     if (thumbnailImages) {
       for (const img of thumbnailImages) {
-        if (images.length >= 2) break;
+        if (images.length >= maxImages) break;
         const upgraded = upgradeEbayImageUrl(img.imageUrl as string);
         if (upgraded && !seen.has(upgraded)) {
           seen.add(upgraded);
@@ -208,7 +223,7 @@ function extractHighResImages(item: Record<string, unknown>): { mainImageUrl: st
 
   return {
     mainImageUrl: images[0] || null,
-    imageUrls: images.slice(0, 2), // Strictly limit to 2 for LIST views
+    imageUrls: images, // All collected images (limited by maxImages)
     imageCount,
   };
 }
@@ -248,14 +263,27 @@ function hasVehicleSignals(title: string): boolean {
 
 /**
  * Normalize eBay item to standard format with high-res images
+ * @param item Raw eBay item data
+ * @param categoryKey Category key for classification
+ * @param options.isVehicle If true, includes all images for gallery display
  */
-function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | null): NormalizedItem {
+interface NormalizeOptions {
+  isVehicle?: boolean;
+}
+
+function normalizeEbayItem(
+  item: Record<string, unknown>, 
+  categoryKey: string | null,
+  options: NormalizeOptions = {}
+): NormalizedItem {
+  const { isVehicle = false } = options;
+  
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value ? parseFloat(price.value as string) : null;
   const currency = (price?.currency as string) || "USD";
 
-  // Use new high-res image extraction (limited for list views)
-  const { mainImageUrl, imageUrls, imageCount } = extractHighResImages(item);
+  // Use image extraction with vehicle flag for full galleries
+  const { mainImageUrl, imageUrls, imageCount } = extractHighResImages(item, { isVehicle });
 
   const buyingOptions = (item.buyingOptions as string[]) || [];
   const itemWebUrl = item.itemWebUrl as string || "";
@@ -267,8 +295,8 @@ function normalizeEbayItem(item: Record<string, unknown>, categoryKey: string | 
     price_usd: currency === "USD" ? priceValue : priceValue, // TODO: convert other currencies
     currency,
     image_url: mainImageUrl,
-    images: imageUrls, // For backward compatibility
-    image_urls: imageUrls, // Limited to 2 for list views
+    images: imageUrls, // All images (more for vehicles)
+    image_urls: imageUrls, // All collected images
     image_count: imageCount, // Total images available from listing
     product_url: itemWebUrl,
     provider: "ebay",
@@ -396,6 +424,20 @@ export async function searchEbay(
       },
     });
     
+    // Handle rate limiting (429) with graceful degradation
+    if (response.status === 429) {
+      console.warn(`[EBAY_BROWSE] requestId=${requestId} RATE_LIMITED (429) - returning empty with warning`);
+      return {
+        items: [],
+        total: 0,
+        page,
+        pageSize,
+        hasMore: false,
+        nextOffset: null,
+        warning: { message: "eBay rate limit exceeded, please retry later", code: "RATE_LIMITED" },
+      };
+    }
+    
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[EBAY_BROWSE] requestId=${requestId} API error: ${response.status} ${errorText}`);
@@ -416,11 +458,14 @@ export async function searchEbay(
     
     console.log(`[EBAY_BROWSE] requestId=${requestId} rawCount=${rawItems.length} total=${total}`);
     
-    // Filter and normalize items
-    let items = rawItems.map(item => normalizeEbayItem(item, params.categoryId || null));
+    // Determine if this is a vehicle search (for full image galleries)
+    const isVehicle = params.isVehicle && !params.isParts;
+    
+    // Filter and normalize items with vehicle flag for full image galleries
+    let items = rawItems.map(item => normalizeEbayItem(item, params.categoryId || null, { isVehicle }));
     
     // Apply vehicle-specific filtering
-    if (params.isVehicle && !params.isParts) {
+    if (isVehicle) {
       const beforeCount = items.length;
       items = items.filter(item => {
         // Exclude items with parts keywords
@@ -444,6 +489,12 @@ export async function searchEbay(
     // Calculate pagination
     const nextOffset = offset + pageSize;
     const hasMore = nextOffset < Math.min(total, EBAY_MAX_OFFSET) && items.length > 0;
+    
+    // Log vehicle image stats
+    if (isVehicle && items.length > 0) {
+      const avgImages = items.reduce((sum, i) => sum + i.image_urls.length, 0) / items.length;
+      console.log(`[EBAY_BROWSE] requestId=${requestId} VEHICLE_IMAGES avgPerItem=${avgImages.toFixed(1)}`);
+    }
     
     console.log(`[EBAY_BROWSE] requestId=${requestId} finalCount=${items.length} page=${page} hasMore=${hasMore} nextOffset=${hasMore ? nextOffset : null}`);
     

@@ -393,13 +393,23 @@ async function fetchSectionWithTimeout(
   if (cached && isCacheValid(cached.expires_at)) {
     const response = cached.response as { items?: unknown[]; metadata?: HomeSectionMetadata };
     const rawItems = response.items || [];
-    const items = rawItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
+    
+    // For vehicle sections, filter out any Amazon items from cache (they're accessories, not real cars)
+    let filteredItems = rawItems;
+    if (config.isVehicle) {
+      filteredItems = rawItems.filter((item: unknown) => {
+        const i = item as Record<string, unknown>;
+        return i.provider !== "rainforest" && i.provider !== "amazon";
+      });
+    }
+    
+    const items = filteredItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
     
     return {
       items,
       cacheHit: true,
-      amazonCount: response.metadata?.amazonCount || 0,
-      ebayCount: response.metadata?.ebayCount || 0,
+      amazonCount: config.isVehicle ? 0 : (response.metadata?.amazonCount || 0),
+      ebayCount: response.metadata?.ebayCount || items.length,
       timedOut: false,
     };
   }

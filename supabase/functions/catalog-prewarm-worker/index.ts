@@ -301,7 +301,8 @@ async function processSection(
 
   try {
     // ─── FETCH AMAZON ITEMS ─────────────────────────────────────────────────────
-    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled) {
+    // Skip Amazon for vehicle sections - Amazon only sells accessories, not real cars/trucks
+    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled && !section.isVehicle) {
       for (const query of section.amazonQueries) {
         const budgetCheck = await checkBudget(
           supabase,

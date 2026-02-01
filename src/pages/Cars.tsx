@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Car, Search, ShoppingCart, MessageCircle, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Car, Search, ShoppingCart, MessageCircle, AlertTriangle, ChevronLeft, ChevronRight, ImageIcon } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface CarListing {
@@ -21,6 +21,7 @@ interface CarListing {
   model: string | null;
   location: string | null;
   imageUrl: string | null;
+  images?: string[]; // Full gallery of images
   listingUrl: string | null;
   vin: string | null;
 }
@@ -69,21 +70,37 @@ export default function Cars() {
       
       if (error) throw error;
       
-      return (data || []).map((row: any) => ({
-        id: `${row.provider}:${row.provider_listing_id}`,
-        provider: row.provider,
-        providerListingId: row.provider_listing_id,
-        title: row.title,
-        price: row.price ? Number(row.price) : null,
-        mileage: row.mileage,
-        year: row.year,
-        make: row.make,
-        model: row.model,
-        location: row.location,
-        imageUrl: row.image_url,
-        listingUrl: row.listing_url,
-        vin: row.vin,
-      })) as CarListing[];
+      return (data || []).map((row: any) => {
+        // Parse images from JSON
+        let images: string[] = [];
+        if (row.images) {
+          try {
+            images = Array.isArray(row.images) ? row.images : [];
+          } catch {
+            images = [];
+          }
+        }
+        if (images.length === 0 && row.image_url) {
+          images = [row.image_url];
+        }
+        
+        return {
+          id: `${row.provider}:${row.provider_listing_id}`,
+          provider: row.provider,
+          providerListingId: row.provider_listing_id,
+          title: row.title,
+          price: row.price ? Number(row.price) : null,
+          mileage: row.mileage,
+          year: row.year,
+          make: row.make,
+          model: row.model,
+          location: row.location,
+          imageUrl: row.image_url,
+          images,
+          listingUrl: row.listing_url,
+          vin: row.vin,
+        };
+      }) as CarListing[];
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -215,21 +232,81 @@ export default function Cars() {
     return new Intl.NumberFormat("en-US").format(mileage) + " mi";
   };
 
-  const renderCarCard = (car: CarListing) => (
-    <Card key={car.id} className="overflow-hidden hover:shadow-lg transition-shadow">
-      <div className="aspect-video relative bg-muted">
-        {car.imageUrl ? (
-          <img 
-            src={car.imageUrl} 
-            alt={car.title || "Car"} 
-            className="w-full h-full object-cover"
-          />
+  // Car image gallery component
+  const CarImageGallery = ({ car }: { car: CarListing }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const images = car.images && car.images.length > 0 ? car.images : (car.imageUrl ? [car.imageUrl] : []);
+    const hasMultiple = images.length > 1;
+
+    const handlePrev = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setCurrentIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+    };
+
+    const handleNext = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setCurrentIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
+    };
+
+    return (
+      <div className="aspect-video relative bg-muted group">
+        {images.length > 0 ? (
+          <>
+            <img 
+              src={images[currentIndex]} 
+              alt={car.title || "Car"} 
+              className="w-full h-full object-cover"
+            />
+            {hasMultiple && (
+              <>
+                {/* Navigation arrows */}
+                <button
+                  onClick={handlePrev}
+                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleNext}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                {/* Image counter badge */}
+                <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                  <ImageIcon className="w-3 h-3" />
+                  {currentIndex + 1}/{images.length}
+                </div>
+                {/* Dot indicators */}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+                  {images.slice(0, 5).map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={(e) => { e.stopPropagation(); setCurrentIndex(idx); }}
+                      className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                        idx === currentIndex ? 'bg-white' : 'bg-white/50'
+                      }`}
+                    />
+                  ))}
+                  {images.length > 5 && (
+                    <span className="text-white/70 text-xs ml-1">+{images.length - 5}</span>
+                  )}
+                </div>
+              </>
+            )}
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Car className="w-12 h-12 text-muted-foreground" />
           </div>
         )}
       </div>
+    );
+  };
+
+  const renderCarCard = (car: CarListing) => (
+    <Card key={car.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+      <CarImageGallery car={car} />
       <CardContent className="p-4">
         <h3 className="font-semibold text-lg line-clamp-2 mb-2">
           {car.title || `${car.year} ${car.make} ${car.model}`}

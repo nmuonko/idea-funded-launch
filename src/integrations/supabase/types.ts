@@ -500,6 +500,7 @@ export type Database = {
           created_at: string
           id: string
           image_url: string | null
+          images: Json | null
           is_trending: boolean | null
           listing_url: string | null
           location: string | null
@@ -518,6 +519,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          images?: Json | null
           is_trending?: boolean | null
           listing_url?: string | null
           location?: string | null
@@ -536,6 +538,7 @@ export type Database = {
           created_at?: string
           id?: string
           image_url?: string | null
+          images?: Json | null
           is_trending?: boolean | null
           listing_url?: string | null
           location?: string | null

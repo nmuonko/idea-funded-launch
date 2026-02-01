@@ -43,6 +43,7 @@ interface CarListing {
   model: string | null;
   location: string | null;
   imageUrl: string | null;
+  images: string[]; // Full gallery of images
   listingUrl: string | null;
   vin: string | null;
 }
@@ -250,21 +251,52 @@ async function fetchFromExternalApi(params: Record<string, string>): Promise<Car
     const data = await response.json();
     const records = data.records || data.listings || [];
     
-    return records.map((item: any) => ({
-      id: `auto_dev:${item.id || item.vin}`,
-      provider: "auto_dev",
-      providerListingId: String(item.id || item.vin),
-      title: item.title || `${item.year} ${item.make} ${item.model}`,
-      price: item.price ? Number(item.price) : null,
-      mileage: item.mileage ? Number(item.mileage) : null,
-      year: item.year ? Number(item.year) : null,
-      make: item.make || null,
-      model: item.model || null,
-      location: item.city ? `${item.city}, ${item.state}` : null,
-      imageUrl: item.primaryPhotoUrl || item.photoUrls?.[0] || null,
-      listingUrl: item.url || item.listingUrl || null,
-      vin: item.vin || null,
-    }));
+    // Extract full image gallery from API response
+    const extractImages = (item: any): string[] => {
+      const images: string[] = [];
+      // Primary photo first if available
+      if (item.primaryPhotoUrl) images.push(item.primaryPhotoUrl);
+      // Add all photo URLs
+      if (Array.isArray(item.photoUrls)) {
+        for (const url of item.photoUrls) {
+          if (url && !images.includes(url)) images.push(url);
+        }
+      }
+      // Alternative photo array names
+      if (Array.isArray(item.photos)) {
+        for (const photo of item.photos) {
+          const url = typeof photo === 'string' ? photo : photo?.url || photo?.href;
+          if (url && !images.includes(url)) images.push(url);
+        }
+      }
+      if (Array.isArray(item.images)) {
+        for (const img of item.images) {
+          const url = typeof img === 'string' ? img : img?.url || img?.href;
+          if (url && !images.includes(url)) images.push(url);
+        }
+      }
+      return images;
+    };
+
+    return records.map((item: any) => {
+      const images = extractImages(item);
+      return {
+        id: `auto_dev:${item.id || item.vin}`,
+        provider: "auto_dev",
+        providerListingId: String(item.id || item.vin),
+        title: item.title || `${item.year} ${item.make} ${item.model}`,
+        price: item.price ? Number(item.price) : null,
+        mileage: item.mileage ? Number(item.mileage) : null,
+        year: item.year ? Number(item.year) : null,
+        make: item.make || null,
+        model: item.model || null,
+        location: item.city ? `${item.city}, ${item.state}` : null,
+        imageUrl: images[0] || null,
+        images, // Full gallery
+        listingUrl: item.url || item.listingUrl || null,
+        vin: item.vin || null,
+      };
+    });
   } catch (err) {
     console.error("[cars-search] Fetch error:", err);
     return [];
@@ -444,6 +476,7 @@ Deno.serve(async (req: Request) => {
             model: item.model,
             location: item.location,
             image_url: item.imageUrl,
+            images: item.images, // Store full gallery
             listing_url: item.listingUrl,
             vin: item.vin,
             is_trending: false,
@@ -486,6 +519,19 @@ Deno.serve(async (req: Request) => {
 });
 
 function mapDbListing(row: any): CarListing {
+  // Parse images from JSON if available, otherwise use single image
+  let images: string[] = [];
+  if (row.images) {
+    try {
+      images = Array.isArray(row.images) ? row.images : JSON.parse(row.images);
+    } catch {
+      images = [];
+    }
+  }
+  if (images.length === 0 && row.image_url) {
+    images = [row.image_url];
+  }
+  
   return {
     id: `${row.provider}:${row.provider_listing_id}`,
     provider: row.provider,
@@ -498,6 +544,7 @@ function mapDbListing(row: any): CarListing {
     model: row.model,
     location: row.location,
     imageUrl: row.image_url,
+    images,
     listingUrl: row.listing_url,
     vin: row.vin,
   };

@@ -320,6 +320,7 @@ export type Database = {
         Row: {
           blocks: Json
           env: string
+          filters: Json
           home: Json
           id: string
           providers: Json
@@ -331,6 +332,7 @@ export type Database = {
         Insert: {
           blocks?: Json
           env: string
+          filters?: Json
           home?: Json
           id?: string
           providers?: Json
@@ -342,6 +344,7 @@ export type Database = {
         Update: {
           blocks?: Json
           env?: string
+          filters?: Json
           home?: Json
           id?: string
           providers?: Json

@@ -423,12 +423,14 @@ Deno.serve(async (req: Request) => {
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // VEHICLE SEARCH: Skip Amazon entirely for vehicle queries
-    // Amazon sells car PARTS and accessories, not actual cars/trucks/motorcycles
-    // eBay Motors is the correct source for actual vehicle listings
+    // VEHICLE SEARCH: Use Amazon Automotive category for vehicle-related products
+    // Amazon Auto has car parts, accessories, and automotive products
+    // eBay Motors is primary source for actual vehicle listings
     // ═══════════════════════════════════════════════════════════════════════════
+    // For vehicle searches, enhance the Amazon query to target automotive category
+    const amazonVehicleQuery = isVehicle ? `${qNorm} automotive` : qNorm;
     if (isVehicle) {
-      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - skipping Amazon (parts only), using eBay Motors exclusively`);
+      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Automotive`);
     }
 
     // ─── FETCH FROM PROVIDERS ─────────────────────────────────────────────────
@@ -445,8 +447,8 @@ Deno.serve(async (req: Request) => {
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
     // ─── Amazon (Smart Live + Cache) ──────────────────────────────────────────
-    // SKIP AMAZON FOR VEHICLE SEARCHES - Amazon sells parts, not actual vehicles
-    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay" && !isVehicle) {
+    // Include Amazon for all searches including vehicles (Amazon Automotive)
+    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay") {
       try {
         // Check budget
         const budgetStatus = await checkBudget(
@@ -485,9 +487,11 @@ Deno.serve(async (req: Request) => {
 
           if (liveDecision.useLive) {
             // ─── LIVE RAINFOREST API ─────────────────────────────────────────
-            console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${qNorm}" page=${mixerCursor.amazonPage}`);
+            // Use vehicle-enhanced query for automotive searches
+            const amazonSearchQuery = isVehicle ? amazonVehicleQuery : qNorm;
+            console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${amazonSearchQuery}" page=${mixerCursor.amazonPage}`);
             
-            const liveResult = await searchRainforest(qNorm, mixerCursor.amazonPage, limit, "amazon.com");
+            const liveResult = await searchRainforest(amazonSearchQuery, mixerCursor.amazonPage, limit, "amazon.com");
             
             if (!liveResult.error && liveResult.products.length > 0) {
               amazonLiveUsed = true;
@@ -567,8 +571,11 @@ Deno.serve(async (req: Request) => {
 
           // If no live results or live not used, fall back to cache/DB
           if (amazonItems.length === 0) {
+            // Use vehicle-enhanced query for cache/DB lookups
+            const amazonSearchQuery = isVehicle ? amazonVehicleQuery : qNorm;
+            
             // Try cache first
-            const cacheKey = buildAmazonCacheKey({ query: qNorm, categoryKey, page: mixerCursor.amazonPage });
+            const cacheKey = buildAmazonCacheKey({ query: amazonSearchQuery, categoryKey, page: mixerCursor.amazonPage });
             const { data: cachedData } = await supabase
               .from("catalog_cache")
               .select("response, expires_at")
@@ -598,14 +605,15 @@ Deno.serve(async (req: Request) => {
               amazonStatus = "cached";
               console.log(`[SEARCH] requestId=${requestId} Amazon CACHE hit: ${amazonItems.length} items`);
             } else {
-              // Fall back to DB search
-              console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${qNorm}" category_key=${categoryKey}`);
+              // Fall back to DB search - for vehicles include automotive category
+              const dbSearchQuery = isVehicle ? `${qNorm}|automotive|car parts|auto` : qNorm;
+              console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${dbSearchQuery}" category_key=${categoryKey}`);
 
               let amazonQuery = supabase
                 .from("catalog_items")
                 .select("*", { count: "exact" })
                 .or("provider.eq.rainforest,provider.eq.amazon")
-                .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%`);
+                .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%${isVehicle ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
 
               if (categoryKey) {
                 const parentCategory = categoryKey.split("_")[0];

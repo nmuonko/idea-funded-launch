@@ -344,7 +344,8 @@ export async function fetchAndCacheMedia(
 export async function enrichItemsWithMediaCounts<T extends Record<string, unknown>>(
   supabase: SupabaseClient,
   items: T[],
-  settings?: MediaCacheSettings
+  settings?: MediaCacheSettings,
+  options?: { skipPrefetch?: boolean }
 ): Promise<{ items: T[]; stats: MediaEnrichmentStats }> {
   if (!items || items.length === 0) {
     return { items, stats: { checked: 0, cacheHit: 0, fetched: 0, timedOut: 0 } };
@@ -394,6 +395,30 @@ export async function enrichItemsWithMediaCounts<T extends Record<string, unknow
   // Process items with concurrency limit
   const maxPrefetch = Math.min(config.maxItemsPerPage, validItems.length);
   const prefetchQueue: typeof validItems = [];
+
+  // skipPrefetch mode: return cached counts or fallback immediately, no blocking fetches
+  if (options?.skipPrefetch) {
+    for (const entry of validItems) {
+      const cachedCount = cachedCounts.get(entry.compositeId);
+      if (cachedCount !== undefined && cachedCount > 0) {
+        stats.cacheHit++;
+        (enrichedItems[entry.index] as Record<string, unknown>).image_count = cachedCount;
+        (enrichedItems[entry.index] as Record<string, unknown>).imageCount = cachedCount;
+        (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "cached";
+      } else {
+        // Use fallback - don't block on fetch
+        const item = enrichedItems[entry.index];
+        const fallbackCount = (item.image_count as number) || (item.imageCount as number) || 1;
+        (enrichedItems[entry.index] as Record<string, unknown>).image_count = fallbackCount;
+        (enrichedItems[entry.index] as Record<string, unknown>).imageCount = fallbackCount;
+        (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "pending";
+      }
+    }
+    if (DEV) {
+      console.log(`[MEDIA] skipPrefetch=true cacheHit=${stats.cacheHit} fallback=${stats.checked - stats.cacheHit}`);
+    }
+    return { items: enrichedItems, stats };
+  }
 
   // Apply cached values and build prefetch queue
   for (const entry of validItems) {

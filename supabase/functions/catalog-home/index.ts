@@ -724,11 +724,12 @@ Deno.serve(async (req: Request) => {
       // Limit to page size
       const slicedItems = items.slice(0, HOME_PAGE_SIZE);
 
-      // Enrich with media counts
+      // Enrich with media counts (skipPrefetch=true to avoid blocking fetches)
       const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
         supabase,
         slicedItems as unknown as Record<string, unknown>[],
-        mediaCacheSettings
+        mediaCacheSettings,
+        { skipPrefetch: true }
       );
 
       totalMediaStats.checked += mediaStats.checked;

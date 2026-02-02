@@ -805,11 +805,31 @@ Deno.serve(async (req: Request) => {
     );
 
     // Map enriched items back to CatalogItem type with updated counts
-    const finalItems = filteredFinalItems.map((item, idx) => ({
+    let finalItems = filteredFinalItems.map((item, idx) => ({
       ...item,
       imageCount: (enrichedItems[idx] as Record<string, unknown>).image_count as number || item.imageCount,
       image_count_status: (enrichedItems[idx] as Record<string, unknown>).image_count_status as string | undefined,
     }));
+
+    // ─── APPLY USER FILTERS ────────────────────────────────────────────────────
+    // Apply post-filters for price, brand, rating that weren't applied at provider level
+    const hasFilters = catalogFilters.minPrice !== undefined || 
+                       catalogFilters.maxPrice !== undefined || 
+                       catalogFilters.brand !== undefined || 
+                       catalogFilters.rating !== undefined;
+    
+    if (hasFilters) {
+      const beforeFilterCount = finalItems.length;
+      finalItems = postFilterItems(finalItems, catalogFilters) as typeof finalItems;
+      console.log(`[SEARCH] requestId=${requestId} PostFilter: ${beforeFilterCount} → ${finalItems.length} items, filters=${JSON.stringify(catalogFilters)}`);
+    }
+
+    // ─── APPLY USER SORT ───────────────────────────────────────────────────────
+    // Apply post-sort if user requested a specific sort order
+    if (sort !== 'relevance') {
+      finalItems = postSortItems(finalItems, sort) as typeof finalItems;
+      console.log(`[SEARCH] requestId=${requestId} PostSort applied: ${sort}`);
+    }
 
     console.log(`[SEARCH_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
 
@@ -862,6 +882,7 @@ Deno.serve(async (req: Request) => {
       nextCursor,
       hasMore: mixResult.hasMore,
       total: Math.max(ebayTotal, amazonItems.length, finalItems.length),
+      appliedFilters: buildAppliedSortFilter(sort, catalogFilters, sort !== 'relevance'),
       providerStats,
       searchMeta, // Include query rewrite metadata
       mediaStats: DEV ? mediaStats : undefined, // Include media stats in dev only

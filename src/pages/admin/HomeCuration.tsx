@@ -216,7 +216,8 @@ export default function HomeCuration() {
 
   const handleDeleteSeed = async (seedId: string) => {
     try {
-      const response = await apiDelete("admin-home-seeds", { id: seedId });
+      // Use POST with action: "delete" to avoid DELETE body issues
+      const response = await post("admin-home-seeds", { action: "delete", id: seedId });
       console.log("[HomeCuration] Single delete response:", response);
       
       if (response.data?.ok) {
@@ -359,7 +360,9 @@ export default function HomeCuration() {
     
     setDeletingSeeds(true);
     try {
-      const response = await apiDelete("admin-home-seeds", { 
+      // Use POST with action: "delete" to avoid DELETE body issues
+      const response = await post("admin-home-seeds", { 
+        action: "delete",
         ids: Array.from(selectedSeeds) 
       });
       

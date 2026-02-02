@@ -4232,6 +4232,11 @@ export type Database = {
           user_id: string
         }[]
       }
+      can_access_ticket: {
+        Args: { p_ticket_assigned_to: string; p_user_id: string }
+        Returns: boolean
+      }
+      can_view_all_tickets: { Args: { p_user_id: string }; Returns: boolean }
       can_view_customer_profiles: {
         Args: { user_id: string }
         Returns: boolean

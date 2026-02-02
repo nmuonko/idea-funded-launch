@@ -1,157 +1,222 @@
 
-# Plan: Fix False Positive Content Blocking for MacBook/Chromebook Products
+# Plan: Add Bulk Delete Functionality to Home Curation
 
-## Problem Summary
+## Overview
 
-When searching for "macbook pro" (or any product with "book" in its name), all results are incorrectly filtered out because the content blocker matches "book" within the product name/URL.
+Add the ability to select multiple seed queries and delete them in bulk from the Home Curation admin page. This will allow admins to quickly clean up old seeds and refresh homepage content with new queries.
 
-**Evidence from logs:**
-- `amazonReturned: 10` but `items: []` in API response  
-- `[SEARCH] removed=9 remaining=0 reasons={"keyword_url":9}`
+## Current State
 
-## Root Cause
+- Individual seed deletion exists via the trash icon button (calls `handleDeleteSeed`)
+- Backend `admin-home-seeds` DELETE endpoint only supports deleting one seed at a time by `id`
+- No checkbox selection UI for seeds (unlike the Suggestions panel which has selection)
 
-In `supabase/functions/_shared/contentBlocker.ts`, the URL keyword check at **lines 187-191** uses a simple `includes()` without word boundaries:
+## Changes Required
 
+### 1. Backend: Update `admin-home-seeds` DELETE endpoint
+
+**File:** `supabase/functions/admin-home-seeds/index.ts`
+
+Add support for bulk delete by accepting an array of IDs:
+
+```text
+Current: { id: string }
+New: { id?: string, ids?: string[] }
+```
+
+- If `ids` array is provided, delete all matching seeds in a single operation
+- Log bulk delete action to audit log with count and details
+- Return count of deleted items
+
+### 2. Frontend: Add selection state for seeds
+
+**File:** `src/pages/admin/HomeCuration.tsx`
+
+Add new state variable:
 ```typescript
-// Line 187-191 (BUG)
-for (const keyword of BLOCKED_KEYWORDS) {
-  if (urlLower.includes(keyword.replace(/\s+/g, ""))) {  // ← No word boundary!
-    return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
-  }
+const [selectedSeeds, setSelectedSeeds] = useState<Set<string>>(new Set());
+```
+
+### 3. Frontend: Add checkbox to each seed row
+
+Update the seed row UI to include a checkbox for selection:
+- Checkbox appears before the drag handle
+- Clicking checkbox toggles selection
+- Visual highlighting when selected (similar to suggestions panel)
+
+### 4. Frontend: Add bulk action toolbar
+
+Add a toolbar above the seeds list with:
+- "Select All / Deselect All" button
+- "Delete Selected (N)" button (destructive, only visible when items selected)
+- Confirmation dialog before bulk delete
+
+### 5. Frontend: Add bulk delete handler
+
+New function to handle bulk deletion:
+```typescript
+const handleBulkDeleteSeeds = async () => {
+  // Show confirmation
+  // Call DELETE endpoint with ids array
+  // Clear selection
+  // Refresh seeds list
 }
 ```
 
-This causes "book" to match within "macbook", blocking legitimate products like:
-- MacBook Pro
-- MacBook Air  
-- Chromebook
-- Facebook Portal
-- Notebook laptops (title contains "notebook")
+## UI Mockup
 
-## Solution
-
-Add product name exceptions to the URL keyword check that prevent false positives for legitimate electronics brands. The fix ensures "book" only matches when it's a standalone word or part of actual book-related terms (e.g., "ebook", "audiobook").
-
-## Technical Changes
-
-### File: `supabase/functions/_shared/contentBlocker.ts`
-
-**Change 1: Add allowlist of product terms containing blocked keywords (new constant, ~line 61)**
-
-```typescript
-// ALLOWLIST: Products containing blocked keywords but are NOT blocked content
-// These override keyword matches when found in title/URL
-const ALLOWLIST_PATTERNS = [
-  "macbook",
-  "chromebook", 
-  "notebook",      // Laptop computers
-  "facebook",      // Facebook products (Portal, etc.)
-  "playbook",      // BlackBerry PlayBook, business software
-  "scrapbook",     // Physical scrapbooks (craft supplies)
-  "cookbook",      // Physical cookbooks are OK (not ebooks)
-  "yearbook",      // Physical yearbooks
-  "logbook",       // Stationery items
-  "guestbook",     // Physical guestbooks
-  "checkbook",     // Financial accessories
-];
-```
-
-**Change 2: Update URL keyword check to skip allowlisted terms (~lines 186-191)**
-
-Before:
-```typescript
-for (const keyword of BLOCKED_KEYWORDS) {
-  if (urlLower.includes(keyword.replace(/\s+/g, ""))) {
-    return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
-  }
-}
-```
-
-After:
-```typescript
-for (const keyword of BLOCKED_KEYWORDS) {
-  const keywordNormalized = keyword.replace(/\s+/g, "");
-  if (urlLower.includes(keywordNormalized)) {
-    // Check if this match is part of an allowlisted product term
-    const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
-      urlLower.includes(pattern)
-    );
-    if (!isAllowlisted) {
-      return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
-    }
-  }
-}
-```
-
-**Change 3: Update title keyword check with same allowlist logic (~lines 169-184)**
-
-Before:
-```typescript
-for (const keyword of BLOCKED_KEYWORDS) {
-  if (keyword.length <= 5) {
-    const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
-    if (regex.test(titleLower)) {
-      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
-    }
-  } else {
-    if (titleLower.includes(keyword)) {
-      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
-    }
-  }
-}
-```
-
-After:
-```typescript
-for (const keyword of BLOCKED_KEYWORDS) {
-  let matches = false;
-  
-  if (keyword.length <= 5) {
-    const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
-    matches = regex.test(titleLower);
-  } else {
-    matches = titleLower.includes(keyword);
-  }
-  
-  if (matches) {
-    // Check if this match is part of an allowlisted product term
-    const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
-      titleLower.includes(pattern)
-    );
-    if (!isAllowlisted) {
-      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
-    }
-  }
-}
+```text
+┌─────────────────────────────────────────────────────────┐
+│ Active Seeds                                        20  │
+│ Queries used to populate this section                   │
+├─────────────────────────────────────────────────────────┤
+│ ┌───────────────────────────────────────────────────┐   │
+│ │ New query...                                  [+] │   │
+│ └───────────────────────────────────────────────────┘   │
+│                                                         │
+│ [Select All]                    [🗑 Delete Selected (3)]│ ← NEW toolbar
+│ ─────────────────────────────────────────────────────── │
+│ [☑] ⋮⋮ Samsung Galaxy A54           [toggle] [🗑]       │ ← checkbox added
+│ [☑] ⋮⋮ Google Pixel 7a              [toggle] [🗑]       │
+│ [☑] ⋮⋮ iPhone 14 unlocked           [toggle] [🗑]       │
+│ [ ] ⋮⋮ Samsung Galaxy S24 Ultra     [toggle] [🗑]       │
+│ [ ] ⋮⋮ Motorola Edge                [toggle] [🗑]       │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `supabase/functions/_shared/contentBlocker.ts` | Add ALLOWLIST_PATTERNS constant and update title/URL checks |
+| File | Changes |
+|------|---------|
+| `supabase/functions/admin-home-seeds/index.ts` | Add bulk delete support for `ids[]` parameter |
+| `src/pages/admin/HomeCuration.tsx` | Add selection state, checkboxes, toolbar, bulk delete handler, confirmation dialog |
 
-## Expected Results After Fix
+## Technical Details
 
-| Search Query | Before | After |
-|--------------|--------|-------|
-| "macbook pro" | 0 items (all filtered) | 10+ items |
-| "mackoook pro" (typo) | 0 items | 10+ items |
-| "chromebook" | 0 items | 10+ items |
-| "notebook laptop" | 0 items | 10+ items |
-| "kindle ebook" | 0 items (correct) | 0 items (correct) |
-| "audiobook" | 0 items (correct) | 0 items (correct) |
+### Backend DELETE Handler Updates
+
+```typescript
+// In DELETE method handler
+const body = await req.json();
+const { id, ids } = body;
+
+// Support both single and bulk delete
+const idsToDelete = ids ? ids : (id ? [id] : []);
+
+if (idsToDelete.length === 0) {
+  return error response;
+}
+
+// Get seed info before deleting for audit
+const { data: seedsInfo } = await supabase
+  .from("home_section_seeds")
+  .select("id, section_key, query")
+  .in("id", idsToDelete);
+
+// Bulk delete
+const { error: deleteError } = await supabase
+  .from("home_section_seeds")
+  .delete()
+  .in("id", idsToDelete);
+
+// Log bulk action
+await logAdminAction(..., {
+  actionType: idsToDelete.length > 1 ? "BULK_DELETE_HOME_SEEDS" : "DELETE_HOME_SEED",
+  details: { count: idsToDelete.length, seeds: seedsInfo }
+});
+```
+
+### Frontend State and Handlers
+
+```typescript
+// New state
+const [selectedSeeds, setSelectedSeeds] = useState<Set<string>>(new Set());
+const [deletingSeeds, setDeletingSeeds] = useState(false);
+
+// Toggle individual seed selection
+const toggleSeedSelection = (seedId: string) => {
+  setSelectedSeeds(prev => {
+    const next = new Set(prev);
+    if (next.has(seedId)) next.delete(seedId);
+    else next.add(seedId);
+    return next;
+  });
+};
+
+// Select/deselect all seeds
+const selectAllSeeds = () => {
+  if (selectedSeeds.size === seeds.length) {
+    setSelectedSeeds(new Set());
+  } else {
+    setSelectedSeeds(new Set(seeds.map(s => s.id)));
+  }
+};
+
+// Bulk delete handler
+const handleBulkDeleteSeeds = async () => {
+  if (selectedSeeds.size === 0) return;
+  
+  setDeletingSeeds(true);
+  try {
+    const response = await apiDelete("admin-home-seeds", { 
+      ids: Array.from(selectedSeeds) 
+    });
+    
+    if (response.data?.ok) {
+      toast({ title: "Deleted", description: `${response.data.count} seeds removed` });
+      setSelectedSeeds(new Set());
+      fetchSeeds(selectedSection);
+      fetchSections();
+    }
+  } catch (error) {
+    toast({ title: "Error", variant: "destructive" });
+  } finally {
+    setDeletingSeeds(false);
+  }
+};
+```
+
+### Confirmation Dialog
+
+Use AlertDialog to confirm bulk deletion:
+```typescript
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive" disabled={selectedSeeds.size === 0}>
+      <Trash2 className="h-4 w-4 mr-2" />
+      Delete Selected ({selectedSeeds.size})
+    </Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Delete {selectedSeeds.size} seeds?</AlertDialogTitle>
+      <AlertDialogDescription>
+        This action cannot be undone. The selected queries will be permanently removed.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction onClick={handleBulkDeleteSeeds}>Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+## Edge Cases Handled
+
+1. **Clear selection on section change**: Reset `selectedSeeds` when switching sections
+2. **Disable bulk delete while loading**: Prevent double-clicks during API calls
+3. **Handle partial failures**: If some deletes fail, show appropriate error message
+4. **Refresh counts after delete**: Update the section seed counts in the dropdown
 
 ## Testing Steps
 
-After deployment, verify:
-1. Search "macbook pro" returns Apple MacBook products
-2. Search "chromebook" returns laptop results  
-3. Search "notebook" returns laptop results
-4. Search "kindle" still returns 0 results (blocked correctly)
-5. Search "ebook reader" still returns 0 results (blocked correctly)
-
-## Alternative Considered
-
-**Regex word boundary for all URL checks**: This would require significant refactoring and might break legitimate blocks like `/books` path. The allowlist approach is safer and more targeted.
+1. Navigate to Admin → System → Home Curation
+2. Select a section with seeds (e.g., Phones)
+3. Check individual seed checkboxes - verify selection highlighting
+4. Click "Select All" - verify all seeds are selected
+5. Click "Deselect All" - verify all cleared
+6. Select 3-5 seeds, click "Delete Selected"
+7. Verify confirmation dialog appears
+8. Confirm deletion - verify seeds removed and count updates
+9. Check audit log for bulk delete entry

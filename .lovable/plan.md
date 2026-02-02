@@ -1,200 +1,141 @@
 
-# Plan: Faster Infinite Scroll + Full Image Galleries for All Items
+# Plan: Fix Full Image Galleries for All Items (Amazon + eBay)
 
-## Overview
+## Problem Summary
 
-This plan addresses two issues:
-1. **Slow Loading**: Increase batch sizes and optimize fetching for faster infinite scroll
-2. **Single Image Problem**: Return full image galleries for ALL items (not just vehicles)
+The Rainforest adapter correctly extracts **all images** from Amazon products (up to 100), but the catalog endpoints ignore the `p.images` array and only use `p.imageUrl` (single image). This results in all items showing just 1 image.
 
----
+## Root Cause
 
-## Root Cause Analysis
+In **catalog-search/index.ts**, when mapping Rainforest products:
 
-### Problem 1: Slow Infinite Scroll
-Current configuration:
-- `HOME_PAGE_SIZE = 12` - Only 12 items per section on initial load
-- `HOME_LOAD_MORE_SIZE = 12` - Only 12 items fetched when loading more
-- `DEFAULT_LIMIT = 24` in search/category (reasonable)
-- eBay API has 5-second timeout per section
-
-**Why it feels slow**: Each "load more" fetches only 12 items, requiring more requests for the same content.
-
-### Problem 2: Missing Full Gallery
-In `ebayBrowseSearch.ts`, line 181:
 ```typescript
-const maxImages = isVehicle ? 100 : 2;  // ← Only 2 images for non-vehicles!
+// Lines 521-523 (CURRENT - BUG)
+images: p.imageUrl ? [p.imageUrl] : [],      // Ignores p.images!
+imageUrls: p.imageUrl ? [p.imageUrl] : [],
+imageCount: 1,
 ```
 
-In response mapping functions:
-- `mapEbayItemToResponse` returns `mainImageUrl` and `imageCount` but NOT the `images` array
-- `mapDbItemToResponse` returns `mainImageUrl` and `imageCount` but NOT the `images` array
+The same pattern exists in cache mapping and DB upsert logic.
 
-**Result**: List views only show 1-2 images even though more exist on the listing.
+Similarly, **catalog-prewarm-worker/index.ts** doesn't pass the images array to cached items.
 
----
+## Technical Changes
 
-## Technical Implementation
+### File 1: `supabase/functions/catalog-search/index.ts`
 
-### Phase 1: Faster Loading (Increase Batch Sizes)
+**Change 1: Fix live Rainforest mapping (lines 511-528)**
 
-**File: `supabase/functions/catalog-home/index.ts`**
+```typescript
+// BEFORE (lines 521-523):
+images: p.imageUrl ? [p.imageUrl] : [],
+imageUrls: p.imageUrl ? [p.imageUrl] : [],
+imageCount: 1,
 
-```text
-Changes:
-Line 57: HOME_PAGE_SIZE = 12 → 18 (50% more items per section initially)
-Line 58: HOME_LOAD_MORE_SIZE = 12 → 24 (double the items per load-more request)
+// AFTER:
+images: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+imageUrls: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+imageCount: p.imageCount || (p.images?.length || 1),
 ```
 
-**File: `supabase/functions/catalog-search/index.ts`**
+**Change 2: Fix DB upsert (line 565)**
 
-```text
-Changes:
-Line 104: DEFAULT_LIMIT = 24 → 36 (50% more items per page)
-Line 105: MAX_LIMIT = 60 → 100 (allow larger requests)
+```typescript
+// BEFORE:
+images: p.imageUrl ? [p.imageUrl] : [],
+
+// AFTER:
+images: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
 ```
 
-**File: `supabase/functions/catalog-category/index.ts`**
+**Change 3: Fix cache hit mapping (lines 606-608)**
 
-```text
-Changes:
-Line 63: DEFAULT_LIMIT = 24 → 36 (50% more items per page)
-Line 64: MAX_LIMIT = 60 → 100 (allow larger requests)
+```typescript
+// BEFORE:
+images: p.imageUrl ? [p.imageUrl as string] : [],
+imageUrls: p.imageUrl ? [p.imageUrl as string] : [],
+imageCount: 1,
+
+// AFTER:
+images: (p.images && Array.isArray(p.images) && p.images.length > 0) 
+  ? p.images as string[] 
+  : (p.imageUrl ? [p.imageUrl as string] : []),
+imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) 
+  ? p.images as string[] 
+  : (p.imageUrl ? [p.imageUrl as string] : []),
+imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
 ```
 
-### Phase 2: Full Image Galleries for All Items
+### File 2: `supabase/functions/catalog-prewarm-worker/index.ts`
 
-**File: `supabase/functions/_shared/ebayBrowseSearch.ts`**
+**Change 1: Fix mapAmazonToProviderItem (lines 239-256)**
 
-```text
-Changes:
-Line 181: const maxImages = isVehicle ? 100 : 2;
-       →  const maxImages = 100;  // Full gallery for ALL items
+```typescript
+// BEFORE (lines 246-249):
+imageCount: 1,
+imageMissing: !imageUrl,
 
-This ensures ALL eBay items get their complete image array.
+// AFTER - add images array:
+images: (p.images && Array.isArray(p.images) && p.images.length > 0) 
+  ? p.images as string[] 
+  : (imageUrl ? [imageUrl] : []),
+imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) 
+  ? p.images as string[] 
+  : (imageUrl ? [imageUrl] : []),
+imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
+imageMissing: !imageUrl,
 ```
 
-**File: `supabase/functions/catalog-search/index.ts`**
+**Change 2: Fix mapEbayToProviderItem (lines 260-277)**
 
-```text
-Changes to mapEbayItemToResponse (lines 223-246):
-- Add images field: images: item.images || item.image_urls || [],
-- Add imageUrls field: imageUrls: item.images || item.image_urls || [],
+```typescript
+// BEFORE (lines 268-270):
+imageCount: item.image_count || 1,
+imageMissing: !imageUrl,
 
-This returns the full gallery in search results.
+// AFTER - add images array:
+images: item.images || item.image_urls || (imageUrl ? [imageUrl] : []),
+imageUrls: item.images || item.image_urls || (imageUrl ? [imageUrl] : []),
+imageCount: item.image_count || (item.images?.length || item.image_urls?.length || 1),
+imageMissing: !imageUrl,
 ```
-
-**File: `supabase/functions/catalog-category/index.ts`**
-
-```text
-Changes to normalizeEbayItem (lines 216-249):
-- Add images field with all available images
-- Add imageUrls field for backward compatibility
-
-Changes to normalizeDbItem (lines 251-290):
-- Add images field from DB record
-- Add imageUrls field for backward compatibility
-```
-
-**File: `supabase/functions/catalog-home/index.ts`**
-
-```text
-Changes to mapEbayItemToResponse (lines 322-341):
-- Add images field: images: item.images || item.image_urls || [],
-- Add imageUrls field: imageUrls: item.images || item.image_urls || [],
-
-Changes to mapCacheItemToResponse (lines 300-320):
-- Extract images array from cached items
-- Add images and imageUrls fields
-```
-
----
-
-## Data Flow After Changes
-
-```text
-eBay API Response:
-┌─────────────────────────────────────────────────────────────────┐
-│ extractHighResImages(item, { isVehicle: false })                │
-├─────────────────────────────────────────────────────────────────┤
-│ Before: maxImages = 2   → returns [main, additional]            │
-│ After:  maxImages = 100 → returns [all images]           [NEW]  │
-└─────────────────────────────────────────────────────────────────┘
-                             ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Response Item Structure                                         │
-├─────────────────────────────────────────────────────────────────┤
-│ Before:                                                         │
-│   mainImageUrl: "https://..."                                   │
-│   imageCount: 5                                                 │
-│                                                                 │
-│ After:                                             [NEW]        │
-│   mainImageUrl: "https://..."                                   │
-│   imageCount: 5                                                 │
-│   images: ["https://...", "https://...", ...]                   │
-│   imageUrls: ["https://...", "https://...", ...]                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
 
 ## Files to Modify
 
-| File | Change Type | Description |
-|------|-------------|-------------|
-| `supabase/functions/catalog-home/index.ts` | Enhance | Increase batch sizes (12→18, 12→24), add images arrays to response |
-| `supabase/functions/catalog-search/index.ts` | Enhance | Increase limits (24→36), add images arrays to response |
-| `supabase/functions/catalog-category/index.ts` | Enhance | Increase limits (24→36), add images arrays to response |
-| `supabase/functions/_shared/ebayBrowseSearch.ts` | Fix | Remove 2-image limit for non-vehicles (allow full gallery) |
+| File | Lines | Change |
+|------|-------|--------|
+| `supabase/functions/catalog-search/index.ts` | 521-523 | Use p.images array for live Rainforest |
+| `supabase/functions/catalog-search/index.ts` | 565 | Use p.images array for DB upsert |
+| `supabase/functions/catalog-search/index.ts` | 606-608 | Use p.images array for cache mapping |
+| `supabase/functions/catalog-prewarm-worker/index.ts` | 246-249 | Add images arrays to Amazon items |
+| `supabase/functions/catalog-prewarm-worker/index.ts` | 268-270 | Add images arrays to eBay items |
 
----
+## Data Flow After Fix
 
-## Response Type Changes
-
-Updated CatalogItem interface (all endpoints):
-```typescript
-interface CatalogItem {
-  id: string;
-  provider: string;
-  providerProductId: string;
-  title: string | null;
-  priceUsd: number | null;
-  mainImageUrl: string | null;   // Best single image
-  imageUrl: string | null;       // Backward compat
-  images: string[];              // NEW: Full gallery array
-  imageUrls: string[];           // NEW: Full gallery array (alias)
-  imageCount: number;            // Total images available
-  imageMissing: boolean;
-  productUrl: string | null;
-  inStock: boolean | null;
-  rating: number | null;
-  // ... other fields
-}
+```text
+Rainforest API
+     ↓
+extractImages() → images: ["url1", "url2", "url3", "url4", "url5"]
+     ↓
+normalizeProduct() → { images: [...], imageCount: 5 }
+     ↓ (FIXED)
+catalog-search mapping → { images: [...], imageCount: 5 }  ← NOW PRESERVED
+     ↓
+API Response → Full gallery available
 ```
-
----
 
 ## Expected Results
 
-After implementation:
-- **Faster Loading**: 50-100% more items per request, fewer round trips
-- **Full Galleries**: All items (phones, clothing, electronics, etc.) show complete image galleries
-- **Backward Compatible**: `mainImageUrl` and `imageCount` fields unchanged
+- **Amazon items**: Show 5-10+ images per product (from Rainforest API)
+- **eBay items**: Continue showing full galleries (already working)
+- **Cached items**: Will preserve all images going forward
+- **Homepage**: New prewarmed items will have full galleries
 
----
+## Note on Existing Cache
 
-## Performance Considerations
+Items already cached with only 1 image will continue to show 1 image until:
+1. Cache expires (TTL-based)
+2. Next prewarm cycle runs
+3. User views product detail (fetches fresh data)
 
-- **Bandwidth**: Larger image arrays increase response size (~500-1000 bytes per additional URL)
-- **Mitigation**: eBay typically provides 5-10 images per listing, so impact is modest
-- **Benefit**: Eliminates need for separate product detail fetch just to see images
-
----
-
-## Implementation Order
-
-1. Increase batch sizes (immediate speed improvement)
-2. Remove 2-image limit in eBay adapter
-3. Add images arrays to all response mappers
-4. Deploy and test
-
+New searches and prewarmed content will have full galleries immediately.

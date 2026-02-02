@@ -30,6 +30,7 @@ import {
 } from "../_shared/paymentProviders.ts";
 import { createDeposit, getPawaPayConfig, ConfigMissingError } from "../_shared/pawapayAdapter.ts";
 import { round2 } from "../_shared/settings-cache.ts";
+import { sanitizePaymentError } from "../_shared/errorSanitizer.ts";
 
 // Valid provider selections
 type ProviderSelection = 'pawapay' | 'stripe' | 'bank_transfer';
@@ -481,7 +482,7 @@ serve(async (req) => {
           // pawaPay rejected
           await supabase
             .from('payment_attempts')
-            .update({ status: 'failed', last_error: depositResult.error })
+            .update({ status: 'failed', last_error: sanitizePaymentError(depositResult.error) })
             .eq('id', paymentAttempt!.id);
 
           console.error('[PAYMENT_FLOW] PAWAPAY_DEPOSIT_FAILED', {
@@ -501,7 +502,7 @@ serve(async (req) => {
       } catch (pawaError: any) {
         await supabase
           .from('payment_attempts')
-          .update({ status: 'failed', last_error: pawaError.message })
+          .update({ status: 'failed', last_error: sanitizePaymentError(pawaError.message) })
           .eq('id', paymentAttempt!.id);
 
         console.error('[PAYMENT_FLOW] PAWAPAY_EXCEPTION', {
@@ -637,7 +638,7 @@ serve(async (req) => {
         } else {
           await supabase
             .from('payment_attempts')
-            .update({ status: 'failed', last_error: stripeResult.error })
+            .update({ status: 'failed', last_error: sanitizePaymentError(stripeResult.error) })
             .eq('id', paymentAttempt!.id);
 
           console.error('[PAYMENT_FLOW] STRIPE_INTENT_FAILED', {
@@ -655,7 +656,7 @@ serve(async (req) => {
       } catch (stripeError: any) {
         await supabase
           .from('payment_attempts')
-          .update({ status: 'failed', last_error: stripeError.message })
+          .update({ status: 'failed', last_error: sanitizePaymentError(stripeError.message) })
           .eq('id', paymentAttempt!.id);
 
         console.error('[PAYMENT_FLOW] STRIPE_EXCEPTION', {

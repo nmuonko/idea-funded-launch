@@ -88,3 +88,109 @@ export function createErrorResponse(
     { status: statusCode, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
 }
+
+/**
+ * Sanitizes payment error messages for storage in payment_attempts.last_error
+ * Removes sensitive debugging info (stack traces, internal API keys, paths, etc.)
+ * while preserving actionable error categories for debugging.
+ * 
+ * IMPORTANT: This is used to sanitize errors BEFORE storing them in the database
+ * to prevent exposing sensitive payment flow debugging information.
+ */
+export function sanitizePaymentError(rawError: string | null | undefined): string {
+  if (!rawError) {
+    return 'Payment processing error';
+  }
+
+  const errorLower = rawError.toLowerCase();
+
+  // Strip potentially sensitive patterns first
+  let sanitized = rawError
+    // Remove file paths
+    .replace(/\/[^\s]+\.(ts|js|json)/gi, '[path]')
+    // Remove stack traces
+    .replace(/at\s+\S+\s+\([^)]+\)/g, '')
+    .replace(/\s+at\s+\S+/g, '')
+    // Remove API keys/tokens that might leak
+    .replace(/sk_[a-zA-Z0-9_]+/gi, '[key]')
+    .replace(/pk_[a-zA-Z0-9_]+/gi, '[key]')
+    .replace(/Bearer\s+[a-zA-Z0-9._-]+/gi, 'Bearer [token]')
+    .replace(/[a-f0-9]{32,}/gi, '[hash]')
+    // Remove internal error codes that reveal implementation
+    .replace(/PGRST\d+/g, 'DB_ERROR')
+    .replace(/PostgrestError/gi, 'Database error')
+    // Remove IP addresses
+    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g, '[ip]')
+    // Remove URLs that might contain tokens
+    .replace(/https?:\/\/[^\s]+/gi, '[url]')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Map to safe categories based on error content
+  // pawaPay specific errors
+  if (errorLower.includes('insufficient') || errorLower.includes('balance')) {
+    return 'INSUFFICIENT_FUNDS: Mobile money account has insufficient balance';
+  }
+  if (errorLower.includes('invalid phone') || errorLower.includes('phone number')) {
+    return 'INVALID_PHONE: The phone number format is invalid';
+  }
+  if (errorLower.includes('rejected') || errorLower.includes('declined')) {
+    return 'PAYMENT_DECLINED: Payment was declined by the provider';
+  }
+  if (errorLower.includes('timeout') || errorLower.includes('timed out')) {
+    return 'TIMEOUT: Payment request timed out';
+  }
+  if (errorLower.includes('not supported') || errorLower.includes('unsupported')) {
+    return 'UNSUPPORTED: Payment method not supported in this region';
+  }
+  if (errorLower.includes('limit exceeded') || errorLower.includes('daily limit')) {
+    return 'LIMIT_EXCEEDED: Transaction limit exceeded';
+  }
+  if (errorLower.includes('duplicate') || errorLower.includes('already processed')) {
+    return 'DUPLICATE: This payment has already been processed';
+  }
+
+  // Stripe specific errors
+  if (errorLower.includes('card_declined') || errorLower.includes('card declined')) {
+    return 'CARD_DECLINED: Your card was declined';
+  }
+  if (errorLower.includes('expired_card') || errorLower.includes('card expired')) {
+    return 'CARD_EXPIRED: Your card has expired';
+  }
+  if (errorLower.includes('incorrect_cvc') || errorLower.includes('cvc')) {
+    return 'INVALID_CVC: Card security code is incorrect';
+  }
+  if (errorLower.includes('processing_error')) {
+    return 'PROCESSING_ERROR: Payment processing error occurred';
+  }
+  if (errorLower.includes('rate_limit')) {
+    return 'RATE_LIMITED: Too many payment attempts, please wait';
+  }
+  if (errorLower.includes('authentication_required') || errorLower.includes('3d secure')) {
+    return 'AUTH_REQUIRED: Additional authentication required';
+  }
+
+  // Network/connectivity errors
+  if (errorLower.includes('network') || errorLower.includes('connection')) {
+    return 'NETWORK_ERROR: Network connection issue';
+  }
+  if (errorLower.includes('unavailable') || errorLower.includes('service')) {
+    return 'SERVICE_UNAVAILABLE: Payment service temporarily unavailable';
+  }
+
+  // If the sanitized string is too long, truncate it
+  if (sanitized.length > 100) {
+    sanitized = sanitized.substring(0, 97) + '...';
+  }
+
+  // If we couldn't categorize it, return a generic but sanitized version
+  // Only keep alphanumeric, spaces, and basic punctuation
+  const safeSanitized = sanitized.replace(/[^a-zA-Z0-9\s.,!?:-]/g, '');
+  
+  if (safeSanitized.length < 10) {
+    return 'PAYMENT_ERROR: Payment processing failed';
+  }
+
+  return `PAYMENT_ERROR: ${safeSanitized}`;
+}

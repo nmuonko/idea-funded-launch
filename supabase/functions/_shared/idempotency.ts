@@ -4,6 +4,7 @@
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sanitizePaymentError } from "./errorSanitizer.ts";
 
 export interface PaymentAttempt {
   id: string;
@@ -189,7 +190,8 @@ export async function updatePaymentAttempt(
   if (updates.checkoutSessionId) updateData.checkout_session_id = updates.checkoutSessionId;
   if (updates.status) updateData.status = updates.status;
   if (updates.providerRef) updateData.provider_ref = updates.providerRef;
-  if (updates.lastError) updateData.last_error = updates.lastError;
+  // Sanitize error messages before storing to prevent leaking sensitive debugging info
+  if (updates.lastError) updateData.last_error = sanitizePaymentError(updates.lastError);
 
   const { error } = await supabase
     .from('payment_attempts')

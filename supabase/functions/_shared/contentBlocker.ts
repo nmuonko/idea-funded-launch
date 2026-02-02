@@ -59,6 +59,23 @@ const BLOCKED_KEYWORDS = new Set([
   "activation code",
 ]);
 
+// ==================== ALLOWLIST PATTERNS ====================
+// Products containing blocked keywords but are NOT blocked content
+// These override keyword matches when found in title/URL
+const ALLOWLIST_PATTERNS = [
+  "macbook",
+  "chromebook",
+  "notebook",      // Laptop computers
+  "facebook",      // Facebook products (Portal, etc.)
+  "playbook",      // BlackBerry PlayBook, business software
+  "scrapbook",     // Physical scrapbooks (craft supplies)
+  "cookbook",      // Physical cookbooks are OK (not ebooks)
+  "yearbook",      // Physical yearbooks
+  "logbook",       // Stationery items
+  "guestbook",     // Physical guestbooks
+  "checkbook",     // Financial accessories
+];
+
 // ==================== BLOCKED CATEGORY PATHS ====================
 // Applied when provider returns category path/hierarchy
 const BLOCKED_CATEGORY_PATTERNS = [
@@ -168,16 +185,24 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
 
   // 1. Check keywords in title
   for (const keyword of BLOCKED_KEYWORDS) {
+    let matches = false;
+    
     // Word boundary matching for shorter keywords to avoid false positives
     if (keyword.length <= 5) {
       // Use word boundary regex for short keywords like "book"
       const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
-      if (regex.test(titleLower)) {
-        return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
-      }
+      matches = regex.test(titleLower);
     } else {
       // For longer keywords, simple includes is fine
-      if (titleLower.includes(keyword)) {
+      matches = titleLower.includes(keyword);
+    }
+    
+    if (matches) {
+      // Check if this match is part of an allowlisted product term
+      const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
+        titleLower.includes(pattern)
+      );
+      if (!isAllowlisted) {
         return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
       }
     }
@@ -185,8 +210,15 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
 
   // 2. Check keywords in URL
   for (const keyword of BLOCKED_KEYWORDS) {
-    if (urlLower.includes(keyword.replace(/\s+/g, ""))) {
-      return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
+    const keywordNormalized = keyword.replace(/\s+/g, "");
+    if (urlLower.includes(keywordNormalized)) {
+      // Check if this match is part of an allowlisted product term
+      const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
+        urlLower.includes(pattern)
+      );
+      if (!isAllowlisted) {
+        return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
+      }
     }
   }
 

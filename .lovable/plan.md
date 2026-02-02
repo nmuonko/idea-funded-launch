@@ -1,161 +1,156 @@
 
+# Plan: Fix Catalog-Home API Timeout Issue
 
-# Plan: Optimize Payment Flow Response
+## Problem Analysis
 
-## Problem Summary
+The mobile app is experiencing 20-second timeout errors when calling the `catalog-home` API endpoint. Based on the edge function logs:
 
-The mobile checkout flow has a minor inefficiency: after `mobile-checkout` returns, the frontend may need to call `payment-decision` or `getAvailablePaymentMethods` to get structured payment method information with enabled/disabled reasons.
+```
+duration=46501ms (over 46 seconds!)
+checked=144 cacheHit=0 fetched=132
+```
 
-### Current Performance Analysis
+### Root Cause
+The `catalog-home` endpoint performs **synchronous media enrichment** for all items before returning a response. When the media cache is cold (0 cache hits):
 
-Based on edge function logs, `mobile-checkout` is already well-optimized:
+1. **8 sections × 18 items = 144 items** need media count lookups
+2. Each uncached item triggers a `fetchAndCacheMedia()` call to `/catalog-product`
+3. Even with concurrency of 4, fetching 132 items serially blocks the response
+4. Total time: **46+ seconds** (far exceeding the 20-second client timeout)
 
-| Step | Time (ms) | Notes |
-|------|-----------|-------|
-| Auth + body parse | 163-192ms | JWT verification |
-| Parallel fetch | 315-337ms | Profile, order, settings, payment_settings |
-| Items fetch | 452-465ms | Order items query |
-| Totals computed | 466ms | Server-side total calculation |
+### Architecture Flow
 
-**Total checkout time: ~500ms** - This is good performance.
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│                         catalog-home                               │
+├────────────────────────────────────────────────────────────────────┤
+│  1. Load sections from DB                             ~10ms        │
+│  2. Batch fetch cached sections                       ~50ms        │
+│  3. For each section:                                              │
+│     └─ enrichItemsWithMediaCounts() ◀── BLOCKING!                  │
+│        └─ For each uncached item:                                  │
+│           └─ fetchAndCacheMedia() → catalog-product  ~800ms each   │
+│  4. Return response                                                │
+└────────────────────────────────────────────────────────────────────┘
 
-The issue is the **response doesn't include structured `available_methods`**, forcing a second API call.
+Timeline with cold cache:
+├─ Sections loaded ─┼── Media enrichment (blocking) ──┼─ Response ─┤
+        ~60ms                   45,000ms+                   ~1ms
+```
 
 ## Solution
 
-Add the `buildAvailableMethods` function (already in `payment-decision`) to `mobile-checkout` and include `available_methods` in the response.
+### Strategy: Non-Blocking Media Enrichment
 
-## Changes Required
+Instead of waiting for all media to be fetched before responding, we will:
 
-### File: `supabase/functions/mobile-checkout/index.ts`
+1. **Return cached counts immediately** - Use whatever is in the media cache
+2. **Return fallback counts** for uncached items (imageCount from the item itself, or 1)
+3. **Skip synchronous fetching entirely** - Let the existing prewarm job handle populating the cache
+4. **Add a background queue mechanism** (optional enhancement) to trigger async prefetch
 
-**1. Add type definition (near line 26)**
+This approach follows the "fail-safe" pattern already documented in the project's memory:
+> "All catalog endpoints must always return HTTP 200 with status: 'success', even during provider failures"
 
-Add the `AvailableMethod` type that matches `payment-decision`:
+### Changes Required
+
+#### File: `supabase/functions/_shared/mediaCache.ts`
+
+Modify `enrichItemsWithMediaCounts()` to be cache-only (no live fetching):
+
+1. Add a new parameter `skipPrefetch: boolean` (default: `true` for catalog-home)
+2. When `skipPrefetch=true`:
+   - Do batch cache lookup only
+   - Return fallback counts for uncached items immediately
+   - Skip the entire prefetch queue processing
+3. Log stats for monitoring
 
 ```typescript
-interface AvailableMethod {
-  method: 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
-  enabled: boolean;
-  disabledReason: string | null;
-}
-```
+// Line ~344 - Update function signature
+export async function enrichItemsWithMediaCounts<T extends Record<string, unknown>>(
+  supabase: SupabaseClient,
+  items: T[],
+  settings?: MediaCacheSettings,
+  options?: { skipPrefetch?: boolean }  // NEW
+): Promise<{ items: T[]; stats: MediaEnrichmentStats }>
 
-**2. Add `buildAvailableMethods` helper function (near line 100)**
-
-Port the function from `payment-decision/index.ts`:
-
-```typescript
-function buildAvailableMethods(
-  paymentSettings: PaymentSettings,
-  totalUsdDollars: number,
-  isVehicle: boolean
-): AvailableMethod[] {
-  const methods: AvailableMethod[] = [];
-  const isOverLimit = totalUsdDollars > paymentSettings.mobile_money_max_usd;
-  const isLargeOrder = isOverLimit || isVehicle;
-
-  // MOBILE_MONEY (pawaPay)
-  if (paymentSettings.pawapay_enabled) {
-    if (isVehicle) {
-      methods.push({
-        method: 'MOBILE_MONEY',
-        enabled: false,
-        disabledReason: 'Not available for vehicle purchases',
-      });
-    } else if (isOverLimit) {
-      methods.push({
-        method: 'MOBILE_MONEY',
-        enabled: false,
-        disabledReason: `Maximum $${paymentSettings.mobile_money_max_usd.toLocaleString()} per transaction`,
-      });
+// Line ~420 - Replace prefetch logic with early return when skipPrefetch=true
+if (options?.skipPrefetch || !config.prefetchEnabled) {
+  // No prefetching - use fallback counts for all uncached items
+  for (const entry of validItems) {
+    const cachedCount = cachedCounts.get(entry.compositeId);
+    if (cachedCount !== undefined && cachedCount > 0) {
+      stats.cacheHit++;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count = cachedCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).imageCount = cachedCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "cached";
     } else {
-      methods.push({
-        method: 'MOBILE_MONEY',
-        enabled: true,
-        disabledReason: null,
-      });
+      // Use fallback - don't block on fetch
+      const item = enrichedItems[entry.index];
+      const fallbackCount = (item.image_count as number) || (item.imageCount as number) || 1;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count = fallbackCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).imageCount = fallbackCount;
+      (enrichedItems[entry.index] as Record<string, unknown>).image_count_status = "pending";
     }
   }
-
-  // CARD (Stripe) - always available if enabled
-  if (paymentSettings.stripe_enabled) {
-    methods.push({
-      method: 'CARD',
-      enabled: true,
-      disabledReason: null,
-    });
-  }
-
-  // BANK_TRANSFER - only show for large orders
-  if (paymentSettings.bank_transfer_enabled && isLargeOrder) {
-    methods.push({
-      method: 'BANK_TRANSFER',
-      enabled: true,
-      disabledReason: null,
-    });
-  }
-
-  return methods;
+  return { items: enrichedItems, stats };
 }
 ```
 
-**3. Build and include `available_methods` in the response**
+#### File: `supabase/functions/catalog-home/index.ts`
 
-Before the final `jsonResponse` (around line 2090), compute the structured methods:
+Update the call to `enrichItemsWithMediaCounts()` to skip prefetch:
 
 ```typescript
-// Build structured available methods for frontend
-const available_methods = buildAvailableMethods(
-  paymentSettings,
-  totalsBreakdown.grand_total,
-  containsVehicle
+// Line ~728-732
+const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
+  supabase,
+  slicedItems as unknown as Record<string, unknown>[],
+  mediaCacheSettings,
+  { skipPrefetch: true }  // NEW: Don't block on media fetches
 );
 ```
 
-**4. Add to response object (lines 2119-2165)**
+## Expected Impact
 
-Add `available_methods` to the response alongside `available_providers`:
+| Metric | Before (Cold Cache) | After |
+|--------|---------------------|-------|
+| Response time | 46+ seconds | ~500ms |
+| Cache misses | Blocking fetch | Return fallback |
+| Image counts | Always accurate | Cached or fallback |
+| User experience | Timeout errors | Fast loading |
 
-```typescript
-return jsonResponse({
-  success: true,
-  order_id: checkoutOrder.id,
-  // ... existing fields ...
-  available_providers: availableProviders,
-  available_methods,  // NEW: Structured payment methods with enabled/disabled reasons
-  // ... rest of response ...
-});
-```
+### Trade-offs
 
-Also add to the CHOICE_REQUIRED response (around line 1350-1400) for large orders.
+| Aspect | Trade-off |
+|--------|-----------|
+| Image counts | May show fallback (1) until cache is warmed |
+| Data freshness | Relies on prewarm job to populate cache |
+| Complexity | Minimal - adds one parameter |
 
-## Impact
+### Why This Works
 
-| Metric | Before | After |
-|--------|--------|-------|
-| API calls for checkout | 2 (checkout + payment methods) | 1 (checkout only) |
-| Time saved | ~200-300ms | Eliminated second call |
-| Code complexity | Minimal | Adds ~50 lines |
+1. **Existing prewarm jobs** already populate the media cache periodically
+2. **Fallback of 1** is acceptable - users can see more images when they tap a product
+3. **Mobile app won't crash** - fast response times prevent timeouts
+4. **Progressive enhancement** - cache will fill over time, improving accuracy
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `supabase/functions/mobile-checkout/index.ts` | Add `AvailableMethod` type, `buildAvailableMethods` function, include in response |
-
-## Technical Notes
-
-1. The function is copied (not shared via import) because edge functions work best with self-contained code
-2. No database schema changes required
-3. Backward compatible - `available_providers` array is still returned
-4. Mobile app can use `available_methods` if present, fallback to separate call if not
+| `supabase/functions/_shared/mediaCache.ts` | Add `skipPrefetch` option to `enrichItemsWithMediaCounts()` |
+| `supabase/functions/catalog-home/index.ts` | Pass `{ skipPrefetch: true }` when calling enrichment |
 
 ## Testing
 
-1. Call `mobile-checkout` endpoint
-2. Verify response includes both `available_providers` (strings) and `available_methods` (structured objects)
-3. Test with vehicle orders (MOBILE_MONEY should show `enabled: false`)
-4. Test with large orders exceeding limit (MOBILE_MONEY disabled with reason)
-5. Confirm frontend no longer makes secondary payment method call
+1. Call `catalog-home` endpoint after clearing media cache
+2. Verify response time is under 2 seconds
+3. Confirm items have `image_count_status: "pending"` or `"cached"`
+4. Verify no timeout errors in mobile app
 
+## Future Enhancements (Out of Scope)
+
+- Add async background job to pre-populate media cache for new items
+- Add real-time cache warming when items are first displayed
+- Consider client-side lazy-loading of accurate image counts

@@ -257,6 +257,10 @@ interface PublicConfigResponse {
   
   // NEW: Runtime config for backend-controlled UI + providers
   runtime: RuntimeConfig;
+  
+  // NEW: Support contact info (backend-configurable)
+  support_whatsapp: string;
+  support_email: string;
 }
 
 // Provider display names for Stores section
@@ -633,6 +637,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNavVersion,
       envDetails: envInfo,
       runtime: runtimeConfig,
+      support_whatsapp: "243973141627",
+      support_email: "nkadimisha@afrishop-usa.com",
     };
   }
 
@@ -669,6 +675,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNavVersion,
       envDetails: envInfo,
       runtime: runtimeConfig,
+      support_whatsapp: "243973141627",
+      support_email: "nkadimisha@afrishop-usa.com",
     };
   }
 
@@ -792,6 +800,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogNavVersion,
     envDetails: envInfo,
     runtime: runtimeConfig,
+    support_whatsapp: "243973141627",
+    support_email: "nkadimisha@afrishop-usa.com",
   };
 }
 

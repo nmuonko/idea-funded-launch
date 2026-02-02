@@ -1,144 +1,111 @@
 
-# Implementation Plan: Infinite Scroll + Item Diversity + Full Car Galleries + Fix Category API Issues
+# Plan: Faster Infinite Scroll + Full Image Galleries for All Items
 
 ## Overview
 
-This plan addresses four improvements:
-1. **Fix 0-products categories** - Expand Amazon category allowlist and add eBay rate-limit resilience
-2. **Add item diversity/shuffling** - Show variety (iPhone, Galaxy, Pixel, etc.) instead of same-brand clusters
-3. **Full image galleries for vehicles** - Remove 2-image limit for car listings
-4. **Homepage infinite scroll** - Allow loading more items per section
+This plan addresses two issues:
+1. **Slow Loading**: Increase batch sizes and optimize fetching for faster infinite scroll
+2. **Single Image Problem**: Return full image galleries for ALL items (not just vehicles)
 
-## Root Cause Analysis: 0-Products Issue
+---
 
-The logs reveal two problems:
+## Root Cause Analysis
 
-### Problem 1: eBay API Rate Limiting (HTTP 429)
+### Problem 1: Slow Infinite Scroll
+Current configuration:
+- `HOME_PAGE_SIZE = 12` - Only 12 items per section on initial load
+- `HOME_LOAD_MORE_SIZE = 12` - Only 12 items fetched when loading more
+- `DEFAULT_LIMIT = 24` in search/category (reasonable)
+- eBay API has 5-second timeout per section
+
+**Why it feels slow**: Each "load more" fetches only 12 items, requiring more requests for the same content.
+
+### Problem 2: Missing Full Gallery
+In `ebayBrowseSearch.ts`, line 181:
+```typescript
+const maxImages = isVehicle ? 100 : 2;  // ← Only 2 images for non-vehicles!
 ```
-[EBAY_BROWSE] API error: 429 "Too many requests"
-```
-The eBay Browse API is returning rate limit errors, causing all live searches to fail.
 
-### Problem 2: Amazon Category Restrictions
-Current `amazon_category_allowlist` only includes:
-- `electronics`, `electronics_phones`, `electronics_computers`, `electronics_gaming`, `electronics_cameras`, `electronics_audio`
+In response mapping functions:
+- `mapEbayItemToResponse` returns `mainImageUrl` and `imageCount` but NOT the `images` array
+- `mapDbItemToResponse` returns `mainImageUrl` and `imageCount` but NOT the `images` array
 
-Categories like `clothing_women`, `toys`, `business_industrial`, `jewelry_watches` are **excluded**, so Amazon shows `"amazonStatus": "disabled"`.
-
-### Combined Effect
-- eBay: Rate limited → 0 items
-- Amazon: Disabled for non-electronics → 0 items
-- Result: Empty categories
+**Result**: List views only show 1-2 images even though more exist on the listing.
 
 ---
 
 ## Technical Implementation
 
-### Phase 1: Fix 0-Products Issue
+### Phase 1: Faster Loading (Increase Batch Sizes)
 
-#### 1.1 Expand Amazon Category Allowlist (Database Update)
-Update `admin_settings` to include all categories in the allowlist:
-
-```sql
-UPDATE admin_settings 
-SET value = '["electronics","electronics_phones","electronics_computers","electronics_gaming","electronics_cameras","electronics_audio","clothing_shoes_accessories","clothing_men","clothing_women","clothing_shoes","clothing_bags","toys","sporting_goods","business_industrial","jewelry_watches","home_garden","refurbished","parts_accessories"]',
-    updated_at = now()
-WHERE key = 'amazon_category_allowlist';
-```
-
-#### 1.2 Add eBay Rate Limit Backoff (ebayBrowseSearch.ts)
-Add exponential backoff and caching for rate-limited responses:
+**File: `supabase/functions/catalog-home/index.ts`**
 
 ```text
-File: supabase/functions/_shared/ebayBrowseSearch.ts
-
 Changes:
-- Detect 429 responses
-- Return cached results if available on rate limit
-- Add circuit breaker pattern to avoid hammering rate-limited API
-- Log rate limit events for monitoring
+Line 57: HOME_PAGE_SIZE = 12 → 18 (50% more items per section initially)
+Line 58: HOME_LOAD_MORE_SIZE = 12 → 24 (double the items per load-more request)
 ```
 
----
-
-### Phase 2: Item Diversity (Brand Shuffling)
-
-#### 2.1 Extend Brand Extractor for Electronics (brandExtractor.ts)
-Add phone and electronics brand detection:
+**File: `supabase/functions/catalog-search/index.ts`**
 
 ```text
-File: supabase/functions/_shared/brandExtractor.ts
-
-Add brands:
-- Phone brands: Apple, Samsung, Google, Tecno, Infinix, itel, Oppo, Xiaomi
-- Gaming: Sony, Microsoft, Nintendo
-- Computers: Dell, HP, Lenovo, ASUS, Acer, MSI
-
-New function: applyItemDiversity(items, options)
-- Interleave by brand/type using round-robin
-- Support configurable maxPerBrand (default: 2)
-- Apply to all categories, not just clothing
-```
-
-#### 2.2 Apply Diversity in Prewarm Worker (catalog-prewarm-worker/index.ts)
-```text
-File: supabase/functions/catalog-prewarm-worker/index.ts
-
 Changes:
-- After mixing Amazon + eBay items, apply applyItemDiversity()
-- Randomize seed query order for variety each prewarm cycle
-- Log diversity distribution for debugging
+Line 104: DEFAULT_LIMIT = 24 → 36 (50% more items per page)
+Line 105: MAX_LIMIT = 60 → 100 (allow larger requests)
 ```
 
-#### 2.3 Apply Diversity in catalog-category (catalog-category/index.ts)
-```text
-File: supabase/functions/catalog-category/index.ts
+**File: `supabase/functions/catalog-category/index.ts`**
 
+```text
 Changes:
-- Apply applyItemDiversity() after provider mixing (not just for clothing)
-- Use category-specific diversity rules (phones: max 2 per brand)
+Line 63: DEFAULT_LIMIT = 24 → 36 (50% more items per page)
+Line 64: MAX_LIMIT = 60 → 100 (allow larger requests)
 ```
 
----
+### Phase 2: Full Image Galleries for All Items
 
-### Phase 3: Full Vehicle Image Galleries
+**File: `supabase/functions/_shared/ebayBrowseSearch.ts`**
 
-#### 3.1 Remove 2-Image Limit for Vehicles (ebayBrowseSearch.ts)
 ```text
-File: supabase/functions/_shared/ebayBrowseSearch.ts
+Changes:
+Line 181: const maxImages = isVehicle ? 100 : 2;
+       →  const maxImages = 100;  // Full gallery for ALL items
 
-Changes to extractHighResImages():
-- Add isVehicle parameter
-- When isVehicle=true, return ALL images (no slice(0,2))
-- Keep 2-image limit for non-vehicle categories (performance)
-
-New function signature:
-extractHighResImages(item, { isVehicle?: boolean })
+This ensures ALL eBay items get their complete image array.
 ```
 
-#### 3.2 Pass Vehicle Flag in Search (searchEbay, searchEbayWithFallback)
+**File: `supabase/functions/catalog-search/index.ts`**
+
 ```text
-Ensure isVehicle param is passed through the chain:
-- catalog-category → searchEbay → extractHighResImages
-- Return full images array for vehicle listings
+Changes to mapEbayItemToResponse (lines 223-246):
+- Add images field: images: item.images || item.image_urls || [],
+- Add imageUrls field: imageUrls: item.images || item.image_urls || [],
+
+This returns the full gallery in search results.
 ```
 
----
+**File: `supabase/functions/catalog-category/index.ts`**
 
-### Phase 4: Homepage Infinite Scroll
-
-#### 4.1 Add Cursor Pagination to catalog-home (catalog-home/index.ts)
 ```text
-File: supabase/functions/catalog-home/index.ts
+Changes to normalizeEbayItem (lines 216-249):
+- Add images field with all available images
+- Add imageUrls field for backward compatibility
 
-New query parameters:
-- section: string (section key for loading more)
-- cursor: string (encoded offset)
+Changes to normalizeDbItem (lines 251-290):
+- Add images field from DB record
+- Add imageUrls field for backward compatibility
+```
 
-Behavior:
-- If cursor present: return next batch for specific section
-- Return next_cursor and has_more per section
-- Support infinite scroll without full page reload
+**File: `supabase/functions/catalog-home/index.ts`**
+
+```text
+Changes to mapEbayItemToResponse (lines 322-341):
+- Add images field: images: item.images || item.image_urls || [],
+- Add imageUrls field: imageUrls: item.images || item.image_urls || [],
+
+Changes to mapCacheItemToResponse (lines 300-320):
+- Extract images array from cached items
+- Add images and imageUrls fields
 ```
 
 ---
@@ -146,35 +113,26 @@ Behavior:
 ## Data Flow After Changes
 
 ```text
-Homepage Load (Initial):
+eBay API Response:
 ┌─────────────────────────────────────────────────────────────────┐
-│ catalog-home (GET /)                                            │
+│ extractHighResImages(item, { isVehicle: false })                │
 ├─────────────────────────────────────────────────────────────────┤
-│ Returns all sections with 12 items each                         │
-│ Each section includes:                                          │
-│   - items[]                                                     │
-│   - hasMore: boolean                                            │
-│   - nextCursor: string | null     [NEW]                         │
+│ Before: maxImages = 2   → returns [main, additional]            │
+│ After:  maxImages = 100 → returns [all images]           [NEW]  │
 └─────────────────────────────────────────────────────────────────┘
-
-Load More (Infinite Scroll):
+                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ catalog-home?section=phones&cursor=abc                [NEW]     │
+│ Response Item Structure                                         │
 ├─────────────────────────────────────────────────────────────────┤
-│ Returns next batch for that section only                        │
-│ Returns updated cursor for further pagination                   │
-└─────────────────────────────────────────────────────────────────┘
-
-Item Diversity (Applied at Prewarm + Live):
-┌─────────────────────────────────────────────────────────────────┐
-│ Before: [iPhone, iPhone, iPhone, Galaxy, Galaxy, Pixel]         │
-│ After:  [iPhone, Galaxy, Pixel, iPhone, Galaxy, iPhone]   [NEW] │
-└─────────────────────────────────────────────────────────────────┘
-
-Vehicle Images:
-┌─────────────────────────────────────────────────────────────────┐
-│ Before: images: [main, additional] (max 2)                      │
-│ After:  images: [all images from listing]              [NEW]    │
+│ Before:                                                         │
+│   mainImageUrl: "https://..."                                   │
+│   imageCount: 5                                                 │
+│                                                                 │
+│ After:                                             [NEW]        │
+│   mainImageUrl: "https://..."                                   │
+│   imageCount: 5                                                 │
+│   images: ["https://...", "https://...", ...]                   │
+│   imageUrls: ["https://...", "https://...", ...]                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -184,40 +142,59 @@ Vehicle Images:
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| **Database** | Update | Expand `amazon_category_allowlist` to include all categories |
-| `supabase/functions/_shared/brandExtractor.ts` | Enhance | Add electronics brands, make diversity work for all categories |
-| `supabase/functions/_shared/ebayBrowseSearch.ts` | Enhance | Add rate-limit resilience, full images for vehicles |
-| `supabase/functions/catalog-category/index.ts` | Enhance | Apply diversity to all categories (not just clothing) |
-| `supabase/functions/catalog-prewarm-worker/index.ts` | Enhance | Apply diversity after mixing, randomize seed order |
-| `supabase/functions/catalog-home/index.ts` | Enhance | Add cursor pagination for infinite scroll |
+| `supabase/functions/catalog-home/index.ts` | Enhance | Increase batch sizes (12→18, 12→24), add images arrays to response |
+| `supabase/functions/catalog-search/index.ts` | Enhance | Increase limits (24→36), add images arrays to response |
+| `supabase/functions/catalog-category/index.ts` | Enhance | Increase limits (24→36), add images arrays to response |
+| `supabase/functions/_shared/ebayBrowseSearch.ts` | Fix | Remove 2-image limit for non-vehicles (allow full gallery) |
 
 ---
 
-## Implementation Order
+## Response Type Changes
 
-1. **Database update** - Expand Amazon allowlist (immediate fix for 0-products)
-2. **eBay rate limit handling** - Add resilience for API errors
-3. **Brand extractor** - Add electronics brands and universal diversity
-4. **catalog-category diversity** - Apply to all categories
-5. **Vehicle full images** - Remove 2-image limit for cars
-6. **Homepage infinite scroll** - Add cursor support
+Updated CatalogItem interface (all endpoints):
+```typescript
+interface CatalogItem {
+  id: string;
+  provider: string;
+  providerProductId: string;
+  title: string | null;
+  priceUsd: number | null;
+  mainImageUrl: string | null;   // Best single image
+  imageUrl: string | null;       // Backward compat
+  images: string[];              // NEW: Full gallery array
+  imageUrls: string[];           // NEW: Full gallery array (alias)
+  imageCount: number;            // Total images available
+  imageMissing: boolean;
+  productUrl: string | null;
+  inStock: boolean | null;
+  rating: number | null;
+  // ... other fields
+}
+```
 
 ---
 
 ## Expected Results
 
 After implementation:
-- **All categories return products** - Amazon enabled for all, eBay with rate-limit resilience
-- **Diverse results** - iPhone, Galaxy, Pixel interleaved instead of clusters
-- **Full vehicle galleries** - All car images available for navigation
-- **Infinite scroll** - Users can load more items in each section
+- **Faster Loading**: 50-100% more items per request, fewer round trips
+- **Full Galleries**: All items (phones, clothing, electronics, etc.) show complete image galleries
+- **Backward Compatible**: `mainImageUrl` and `imageCount` fields unchanged
 
 ---
 
-## Technical Notes
+## Performance Considerations
 
-- No frontend contract changes required (items array structure unchanged)
-- Changes are backward compatible
-- Diversity applies at both cache-generation time AND live requests
-- Car gallery uses existing eBay API data (no additional API calls)
-- Database update is safe and reversible
+- **Bandwidth**: Larger image arrays increase response size (~500-1000 bytes per additional URL)
+- **Mitigation**: eBay typically provides 5-10 images per listing, so impact is modest
+- **Benefit**: Eliminates need for separate product detail fetch just to see images
+
+---
+
+## Implementation Order
+
+1. Increase batch sizes (immediate speed improvement)
+2. Remove 2-image limit in eBay adapter
+3. Add images arrays to all response mappers
+4. Deploy and test
+

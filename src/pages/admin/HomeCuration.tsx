@@ -216,12 +216,20 @@ export default function HomeCuration() {
 
   const handleDeleteSeed = async (seedId: string) => {
     try {
-      await apiDelete("admin-home-seeds", { id: seedId });
-      toast({ title: "Deleted", description: "Seed removed" });
-      fetchSeeds(selectedSection);
-      fetchSections(); // Refresh counts
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to delete seed", variant: "destructive" });
+      const response = await apiDelete("admin-home-seeds", { id: seedId });
+      console.log("[HomeCuration] Single delete response:", response);
+      
+      if (response.data?.ok) {
+        toast({ title: "Deleted", description: "Seed removed" });
+        fetchSeeds(selectedSection);
+        fetchSections(); // Refresh counts
+      } else {
+        const errorMessage = response.data?.error || response.data?.message || response.error || "Failed to delete seed";
+        toast({ title: "Error", description: errorMessage, variant: "destructive" });
+      }
+    } catch (error: any) {
+      console.error("[HomeCuration] Delete seed exception:", error);
+      toast({ title: "Error", description: error.message || "Failed to delete seed", variant: "destructive" });
     }
   };
 
@@ -355,6 +363,8 @@ export default function HomeCuration() {
         ids: Array.from(selectedSeeds) 
       });
       
+      console.log("[HomeCuration] Delete response:", response);
+      
       if (response.data?.ok) {
         toast({ 
           title: "Deleted", 
@@ -364,10 +374,14 @@ export default function HomeCuration() {
         fetchSeeds(selectedSection);
         fetchSections(); // Refresh counts
       } else {
-        toast({ title: "Error", description: response.data?.error || "Failed to delete seeds", variant: "destructive" });
+        // Handle error response - check both 'error' and 'message' fields
+        const errorMessage = response.data?.error || response.data?.message || response.error || "Failed to delete seeds";
+        console.error("[HomeCuration] Delete failed:", errorMessage);
+        toast({ title: "Error", description: errorMessage, variant: "destructive" });
       }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to delete seeds", variant: "destructive" });
+    } catch (error: any) {
+      console.error("[HomeCuration] Delete exception:", error);
+      toast({ title: "Error", description: error.message || "Failed to delete seeds", variant: "destructive" });
     } finally {
       setDeletingSeeds(false);
     }

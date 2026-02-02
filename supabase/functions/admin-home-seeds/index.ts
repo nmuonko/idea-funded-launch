@@ -153,11 +153,23 @@ Deno.serve(async (req: Request) => {
     }
 
     if (req.method === "DELETE") {
-      const body = await req.json();
+      let body;
+      try {
+        body = await req.json();
+      } catch (parseError) {
+        console.error("[ADMIN_HOME_SEEDS] Error parsing DELETE body:", parseError);
+        return new Response(
+          JSON.stringify({ ok: false, error: "Invalid request body" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      
       const { id, ids } = body;
 
       // Support both single and bulk delete
       const idsToDelete: string[] = ids ? ids : (id ? [id] : []);
+
+      console.log("[ADMIN_HOME_SEEDS] Delete request for", idsToDelete.length, "seeds:", idsToDelete);
 
       if (idsToDelete.length === 0) {
         return new Response(
@@ -166,33 +178,59 @@ Deno.serve(async (req: Request) => {
         );
       }
 
+      // Validate UUIDs
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const invalidIds = idsToDelete.filter(id => !uuidRegex.test(id));
+      if (invalidIds.length > 0) {
+        console.error("[ADMIN_HOME_SEEDS] Invalid UUIDs:", invalidIds);
+        return new Response(
+          JSON.stringify({ ok: false, error: "Invalid seed ID format" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       // Get seed info before deleting for audit log
-      const { data: seedsInfo } = await supabase
+      const { data: seedsInfo, error: fetchError } = await supabase
         .from("home_section_seeds")
         .select("id, section_key, query")
         .in("id", idsToDelete);
 
-      const { error: deleteError, count } = await supabase
+      if (fetchError) {
+        console.error("[ADMIN_HOME_SEEDS] Error fetching seeds for delete:", fetchError);
+      }
+
+      console.log("[ADMIN_HOME_SEEDS] Found", seedsInfo?.length || 0, "seeds to delete");
+
+      const { error: deleteError } = await supabase
         .from("home_section_seeds")
         .delete()
         .in("id", idsToDelete);
 
       if (deleteError) {
         console.error("[ADMIN_HOME_SEEDS] Error deleting seed(s):", deleteError);
-        return errorResponse("Failed to delete seed(s)", corsHeaders);
+        return new Response(
+          JSON.stringify({ ok: false, error: `Failed to delete: ${deleteError.message}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
+
+      console.log("[ADMIN_HOME_SEEDS] Successfully deleted seeds");
 
       // Log bulk or single delete action
       const isBulk = idsToDelete.length > 1;
-      await logAdminAction(supabase, {
-        adminId: authResult.user.id,
-        actionType: isBulk ? "BULK_DELETE_HOME_SEEDS" : "DELETE_HOME_SEED",
-        targetSection: "home_section_seeds",
-        targetId: isBulk ? null : idsToDelete[0],
-        details: isBulk 
-          ? { count: idsToDelete.length, seeds: seedsInfo || [] }
-          : (seedsInfo?.[0] || {}),
-      });
+      try {
+        await logAdminAction(supabase, {
+          adminId: authResult.user.id,
+          actionType: isBulk ? "BULK_DELETE_HOME_SEEDS" : "DELETE_HOME_SEED",
+          targetSection: "home_section_seeds",
+          targetId: isBulk ? null : idsToDelete[0],
+          details: isBulk 
+            ? { count: idsToDelete.length, seeds: seedsInfo || [] }
+            : (seedsInfo?.[0] || {}),
+        });
+      } catch (auditError) {
+        console.error("[ADMIN_HOME_SEEDS] Audit log error (non-fatal):", auditError);
+      }
 
       return new Response(
         JSON.stringify({ 

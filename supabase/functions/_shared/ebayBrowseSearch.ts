@@ -177,8 +177,8 @@ function extractHighResImages(
   const seen = new Set<string>();
   const images: string[] = [];
   
-  // For vehicles: no limit; for list views: limit to 2
-  const maxImages = isVehicle ? 100 : 2;
+  // Return full gallery for ALL items (removed 2-image limit)
+  const maxImages = 100;
 
   // Primary image (highest priority)
   const image = item.image as Record<string, unknown> | undefined;

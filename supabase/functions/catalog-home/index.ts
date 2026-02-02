@@ -54,8 +54,8 @@ const corsHeaders = {
 };
 
 const HOME_MIN_PER_SECTION = 6;
-const HOME_PAGE_SIZE = 12;
-const HOME_LOAD_MORE_SIZE = 12;
+const HOME_PAGE_SIZE = 18;
+const HOME_LOAD_MORE_SIZE = 24;
 
 // Cursor encoding/decoding for infinite scroll
 interface HomeCursor {
@@ -83,6 +83,8 @@ interface CatalogItem {
   priceUsd: number | null;
   mainImageUrl: string | null;
   imageUrl: string | null;
+  images: string[];
+  imageUrls: string[];
   imageCount: number;
   imageMissing: boolean;
   productUrl: string | null;
@@ -300,6 +302,10 @@ function generateRequestId(): string {
 function mapCacheItemToResponse(item: Record<string, unknown>): CatalogItem {
   const rawImageUrl = (item.mainImageUrl || item.imageUrl || item.image_url) as string | null;
   const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, item.productUrl as string || item.product_url as string);
+  
+  // Extract full images array
+  const rawImages = (item.images || item.image_urls || item.imageUrls || []) as string[];
+  const imagesArray = Array.isArray(rawImages) ? rawImages : [];
 
   return {
     id: item.id as string,
@@ -309,7 +315,9 @@ function mapCacheItemToResponse(item: Record<string, unknown>): CatalogItem {
     priceUsd: (item.priceUsd || item.price_usd) as number | null,
     mainImageUrl: validatedImageUrl,
     imageUrl: validatedImageUrl,
-    imageCount: (item.imageCount || item.image_count || 1) as number,
+    images: imagesArray,
+    imageUrls: imagesArray,
+    imageCount: (item.imageCount || item.image_count || imagesArray.length || 1) as number,
     imageMissing: !validatedImageUrl,
     productUrl: (item.productUrl || item.product_url) as string | null,
     inStock: (item.inStock ?? item.in_stock ?? true) as boolean,
@@ -321,6 +329,7 @@ function mapCacheItemToResponse(item: Record<string, unknown>): CatalogItem {
 
 function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
+  const imagesArray = item.images || item.image_urls || [];
 
   return {
     id: item.id,
@@ -330,7 +339,9 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     priceUsd: item.price_usd,
     mainImageUrl: validatedImageUrl,
     imageUrl: validatedImageUrl,
-    imageCount: item.image_count || 1,
+    images: imagesArray,
+    imageUrls: imagesArray,
+    imageCount: item.image_count || imagesArray.length || 1,
     imageMissing: !validatedImageUrl,
     productUrl: item.product_url,
     inStock: item.in_stock,

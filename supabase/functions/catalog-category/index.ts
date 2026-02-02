@@ -60,8 +60,8 @@ import {
 } from "../_shared/sortFilterNormalizer.ts";
 
 const ALLOWED_ENVS: EnvironmentName[] = ["production", "staging"];
-const DEFAULT_LIMIT = 24;
-const MAX_LIMIT = 60;
+const DEFAULT_LIMIT = 36;
+const MAX_LIMIT = 100;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -160,6 +160,8 @@ interface CatalogProduct extends ProviderItem {
   priceUsd: number | null;
   mainImageUrl: string | null;   // Single best image for list performance
   imageUrl: string | null;       // Backward compat
+  images: string[];              // Full image gallery
+  imageUrls: string[];           // Full image gallery (alias)
   imageCount: number;            // Total images available from listing
   imageMissing: boolean;
   productUrl: string;
@@ -218,9 +220,12 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
   const validatedImageUrl = normalizeAndValidateImageUrl(item.image_url, item.product_url);
   let mainImage = validatedImageUrl;
   
+  // Get full images array
+  const imagesArray = item.images || item.image_urls || [];
+  
   // Fallback to first in image_urls
-  if (!mainImage && item.image_urls?.length > 0) {
-    mainImage = normalizeAndValidateImageUrl(item.image_urls[0], item.product_url);
+  if (!mainImage && imagesArray.length > 0) {
+    mainImage = normalizeAndValidateImageUrl(imagesArray[0], item.product_url);
   }
   
   const metadata = item.metadata || {};
@@ -233,7 +238,9 @@ function normalizeEbayItem(item: NormalizedItem, category: string, subcategory: 
     priceUsd: item.price_usd,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
-    imageCount: item.image_count || 1,  // Total images available
+    images: imagesArray,
+    imageUrls: imagesArray,
+    imageCount: item.image_count || imagesArray.length || 1,
     imageMissing: !mainImage,
     productUrl: item.product_url,
     inStock: item.in_stock,
@@ -255,15 +262,12 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
   
   let mainImage = validatedImageUrl;
   
-  // Get images array for counting
-  const imagesArray = Array.isArray(row.images) ? row.images : [];
+  // Get full images array
+  const imagesArray = Array.isArray(row.images) ? row.images.filter((img): img is string => typeof img === "string") : [];
   
   // Fallback to first in images array
   if (!mainImage && imagesArray.length > 0) {
-    const firstImg = imagesArray.find((img): img is string => typeof img === "string");
-    if (firstImg) {
-      mainImage = normalizeAndValidateImageUrl(firstImg, row.product_url as string);
-    }
+    mainImage = normalizeAndValidateImageUrl(imagesArray[0], row.product_url as string);
   }
 
   // Compute image count from stored images array or default to 1
@@ -277,6 +281,8 @@ function normalizeDbItem(row: Record<string, unknown>, category: string, subcate
     priceUsd: row.price_usd as number | null,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    images: imagesArray,
+    imageUrls: imagesArray,
     imageCount,           // Total images available
     imageMissing: !mainImage,
     productUrl: (row.product_url as string) || "",

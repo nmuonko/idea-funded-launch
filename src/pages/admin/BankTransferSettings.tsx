@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Save, Building2, Phone, Mail, FileText, AlertCircle, ExternalLink } from "lucide-react";
+import { Loader2, Save, Building2, FileText, AlertCircle, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,6 @@ const bankDetailsSchema = z.object({
   swift_bic: z.string().optional(),
   instructions_fr: z.string().optional(),
   instructions_en: z.string().optional(),
-  support_whatsapp: z.string().optional(),
-  support_email: z.string().email().optional().or(z.literal("")),
 });
 
 type BankDetailsForm = z.infer<typeof bankDetailsSchema>;
@@ -39,8 +37,6 @@ const BankTransferSettings = () => {
       swift_bic: "",
       instructions_fr: "",
       instructions_en: "",
-      support_whatsapp: "",
-      support_email: "",
     },
   });
 
@@ -70,8 +66,6 @@ const BankTransferSettings = () => {
             swift_bic: data.swift_bic || "",
             instructions_fr: data.instructions_fr || "",
             instructions_en: data.instructions_en || "",
-            support_whatsapp: data.support_whatsapp || "",
-            support_email: data.support_email || "",
           });
         }
       } catch (err) {
@@ -280,52 +274,6 @@ const BankTransferSettings = () => {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Support Contact</CardTitle>
-              <CardDescription>
-                How customers can reach you for help with their transfer
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FormField
-                control={form.control}
-                name="support_whatsapp"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <Phone className="h-4 w-4" />
-                      WhatsApp Number
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="+1234567890" {...field} />
-                    </FormControl>
-                    <FormDescription>
-                      Include country code (e.g., +243 for DR Congo)
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="support_email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <Mail className="h-4 w-4" />
-                      Support Email
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="support@afrishop-usa.com" type="email" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </CardContent>
-          </Card>
 
           <div className="flex justify-end">
             <Button type="submit" disabled={saving} className="gap-2">

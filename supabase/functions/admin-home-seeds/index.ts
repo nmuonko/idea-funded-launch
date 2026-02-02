@@ -154,42 +154,52 @@ Deno.serve(async (req: Request) => {
 
     if (req.method === "DELETE") {
       const body = await req.json();
-      const { id } = body;
+      const { id, ids } = body;
 
-      if (!id) {
+      // Support both single and bulk delete
+      const idsToDelete: string[] = ids ? ids : (id ? [id] : []);
+
+      if (idsToDelete.length === 0) {
         return new Response(
-          JSON.stringify({ ok: false, error: "Seed ID is required" }),
+          JSON.stringify({ ok: false, error: "Seed ID(s) required" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Get seed info before deleting
-      const { data: seedInfo } = await supabase
+      // Get seed info before deleting for audit log
+      const { data: seedsInfo } = await supabase
         .from("home_section_seeds")
-        .select("section_key, query")
-        .eq("id", id)
-        .single();
+        .select("id, section_key, query")
+        .in("id", idsToDelete);
 
-      const { error: deleteError } = await supabase
+      const { error: deleteError, count } = await supabase
         .from("home_section_seeds")
         .delete()
-        .eq("id", id);
+        .in("id", idsToDelete);
 
       if (deleteError) {
-        console.error("[ADMIN_HOME_SEEDS] Error deleting seed:", deleteError);
-        return errorResponse("Failed to delete seed", corsHeaders);
+        console.error("[ADMIN_HOME_SEEDS] Error deleting seed(s):", deleteError);
+        return errorResponse("Failed to delete seed(s)", corsHeaders);
       }
 
+      // Log bulk or single delete action
+      const isBulk = idsToDelete.length > 1;
       await logAdminAction(supabase, {
         adminId: authResult.user.id,
-        actionType: "DELETE_HOME_SEED",
+        actionType: isBulk ? "BULK_DELETE_HOME_SEEDS" : "DELETE_HOME_SEED",
         targetSection: "home_section_seeds",
-        targetId: id,
-        details: seedInfo || {},
+        targetId: isBulk ? null : idsToDelete[0],
+        details: isBulk 
+          ? { count: idsToDelete.length, seeds: seedsInfo || [] }
+          : (seedsInfo?.[0] || {}),
       });
 
       return new Response(
-        JSON.stringify({ ok: true, message: "Seed deleted" }),
+        JSON.stringify({ 
+          ok: true, 
+          message: isBulk ? `${idsToDelete.length} seeds deleted` : "Seed deleted",
+          count: idsToDelete.length 
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

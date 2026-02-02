@@ -11,6 +11,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { useAuthenticatedApi } from "@/hooks/useAuthenticatedApi";
 import { 
@@ -75,6 +86,7 @@ export default function HomeCuration() {
   const [seedMode, setSeedMode] = useState<string>("manual");
   const [newSeedQuery, setNewSeedQuery] = useState("");
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+  const [selectedSeeds, setSelectedSeeds] = useState<Set<string>>(new Set());
   const [lastPrewarmJob, setLastPrewarmJob] = useState<PrewarmJob | null>(null);
   
   // Loading states
@@ -85,6 +97,7 @@ export default function HomeCuration() {
   const [approvingSuggestions, setApprovingSuggestions] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [addingSeed, setAddingSeed] = useState(false);
+  const [deletingSeeds, setDeletingSeeds] = useState(false);
 
   // Fetch sections on mount
   useEffect(() => {
@@ -92,9 +105,10 @@ export default function HomeCuration() {
     fetchLastPrewarmJob();
   }, []);
 
-  // Fetch seeds when section changes
+  // Fetch seeds when section changes - also clear seed selection
   useEffect(() => {
     if (selectedSection) {
+      setSelectedSeeds(new Set());
       fetchSeeds(selectedSection);
       fetchSuggestions(selectedSection);
     }
@@ -311,6 +325,54 @@ export default function HomeCuration() {
     }
   };
 
+  // Seed selection handlers
+  const toggleSeedSelection = (seedId: string) => {
+    setSelectedSeeds(prev => {
+      const next = new Set(prev);
+      if (next.has(seedId)) {
+        next.delete(seedId);
+      } else {
+        next.add(seedId);
+      }
+      return next;
+    });
+  };
+
+  const selectAllSeeds = () => {
+    if (selectedSeeds.size === seeds.length) {
+      setSelectedSeeds(new Set());
+    } else {
+      setSelectedSeeds(new Set(seeds.map(s => s.id)));
+    }
+  };
+
+  const handleBulkDeleteSeeds = async () => {
+    if (selectedSeeds.size === 0) return;
+    
+    setDeletingSeeds(true);
+    try {
+      const response = await apiDelete("admin-home-seeds", { 
+        ids: Array.from(selectedSeeds) 
+      });
+      
+      if (response.data?.ok) {
+        toast({ 
+          title: "Deleted", 
+          description: `${response.data.count || selectedSeeds.size} seeds removed` 
+        });
+        setSelectedSeeds(new Set());
+        fetchSeeds(selectedSection);
+        fetchSections(); // Refresh counts
+      } else {
+        toast({ title: "Error", description: response.data?.error || "Failed to delete seeds", variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to delete seeds", variant: "destructive" });
+    } finally {
+      setDeletingSeeds(false);
+    }
+  };
+
   const currentSection = sections.find(s => s.key === selectedSection);
 
   return (
@@ -449,6 +511,63 @@ export default function HomeCuration() {
 
             <Separator />
 
+            {/* Bulk action toolbar for seeds */}
+            {seeds.length > 0 && (
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectAllSeeds}
+                  disabled={loadingSeeds}
+                >
+                  {selectedSeeds.size === seeds.length 
+                    ? (language === "fr" ? "Désélectionner tout" : "Deselect All")
+                    : (language === "fr" ? "Tout sélectionner" : "Select All")}
+                </Button>
+                
+                {selectedSeeds.size > 0 && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deletingSeeds}
+                      >
+                        {deletingSeeds ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4 mr-2" />
+                        )}
+                        {language === "fr" ? "Supprimer" : "Delete"} ({selectedSeeds.size})
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {language === "fr" 
+                            ? `Supprimer ${selectedSeeds.size} requêtes ?`
+                            : `Delete ${selectedSeeds.size} seeds?`}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {language === "fr"
+                            ? "Cette action est irréversible. Les requêtes sélectionnées seront définitivement supprimées."
+                            : "This action cannot be undone. The selected queries will be permanently removed."}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>
+                          {language === "fr" ? "Annuler" : "Cancel"}
+                        </AlertDialogCancel>
+                        <AlertDialogAction onClick={handleBulkDeleteSeeds}>
+                          {language === "fr" ? "Supprimer" : "Delete"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+              </div>
+            )}
+
             {/* Seeds list */}
             <ScrollArea className="h-[300px]">
               {loadingSeeds ? (
@@ -466,15 +585,23 @@ export default function HomeCuration() {
                   {seeds.map(seed => (
                     <div 
                       key={seed.id} 
-                      className={`flex items-center justify-between p-3 rounded-lg border ${
-                        seed.enabled ? "bg-background" : "bg-muted/50 opacity-60"
+                      className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedSeeds.has(seed.id) 
+                          ? "bg-primary/10 border-primary" 
+                          : seed.enabled ? "bg-background hover:bg-muted/50" : "bg-muted/50 opacity-60"
                       }`}
+                      onClick={() => toggleSeedSelection(seed.id)}
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Checkbox
+                          checked={selectedSeeds.has(seed.id)}
+                          onCheckedChange={() => toggleSeedSelection(seed.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
                         <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
                         <span className="truncate">{seed.query}</span>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Switch
                           checked={seed.enabled}
                           onCheckedChange={() => handleToggleSeed(seed)}

@@ -101,8 +101,8 @@ const VEHICLE_QUERY_KEYWORDS = [
   "voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
 ];
 
-const DEFAULT_LIMIT = 24;
-const MAX_LIMIT = 60;
+const DEFAULT_LIMIT = 36;
+const MAX_LIMIT = 100;
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +115,8 @@ interface CatalogItem extends ProviderItem {
   currency: string;
   mainImageUrl: string | null;   // Single best image for list performance
   imageUrl: string | null;       // Backward compat
+  images: string[];              // Full image gallery
+  imageUrls: string[];           // Full image gallery (alias)
   imageCount: number;            // Total images available from listing
   productUrl: string | null;
   inStock: boolean | null;
@@ -225,6 +227,7 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   // Upgrade eBay images to high-res
   const rawMainImage = item.image_url || (item.image_urls?.length > 0 ? item.image_urls[0] : null);
   const mainImage = upgradeEbayImage(rawMainImage);
+  const imagesArray = item.images || item.image_urls || [];
   
   return {
     id: item.id,
@@ -235,7 +238,9 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
     currency: item.currency,
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
-    imageCount: item.image_count || 1,  // Total images available
+    images: imagesArray,
+    imageUrls: imagesArray,
+    imageCount: item.image_count || imagesArray.length || 1,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -251,8 +256,8 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   // For list views, only return single main image
   let rawImageUrl = item.image_url as string | null;
   
-  // Fallback to first in images array
-  const imagesArray = Array.isArray(item.images) ? item.images : [];
+  // Get full images array
+  const imagesArray = Array.isArray(item.images) ? item.images as string[] : [];
   if (!rawImageUrl && imagesArray.length > 0) {
     rawImageUrl = imagesArray[0] as string;
   }
@@ -279,6 +284,8 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
     currency: "USD",
     mainImageUrl: mainImage,
     imageUrl: mainImage,  // Backward compat
+    images: imagesArray,
+    imageUrls: imagesArray,
     imageCount,           // Total images available
     productUrl: item.product_url as string | null,
     inStock: item.in_stock as boolean | null,
@@ -511,6 +518,8 @@ Deno.serve(async (req: Request) => {
                 currency: "USD",
                 mainImageUrl: upgradeAmazonImage(p.imageUrl),
                 imageUrl: upgradeAmazonImage(p.imageUrl),
+                images: p.imageUrl ? [p.imageUrl] : [],
+                imageUrls: p.imageUrl ? [p.imageUrl] : [],
                 imageCount: 1,
                 productUrl: p.productUrl,
                 inStock: p.inStock ?? true,
@@ -594,6 +603,8 @@ Deno.serve(async (req: Request) => {
                 currency: "USD",
                 mainImageUrl: upgradeAmazonImage(p.imageUrl as string | null),
                 imageUrl: upgradeAmazonImage(p.imageUrl as string | null),
+                images: p.imageUrl ? [p.imageUrl as string] : [],
+                imageUrls: p.imageUrl ? [p.imageUrl as string] : [],
                 imageCount: 1,
                 productUrl: p.productUrl as string | null,
                 inStock: (p.inStock as boolean | null) ?? true,

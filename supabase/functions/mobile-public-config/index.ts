@@ -339,8 +339,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Fetch settings, environment config, providers, categories, nav settings, AND runtime config in parallel
-  const [settingsResult, envConfig, providersResult, categoriesResult, navSettingsResult, runtimeConfigResult] = await Promise.all([
+  // Fetch settings, environment config, providers, categories, nav settings, runtime config, AND support contact in parallel
+  const [settingsResult, envConfig, providersResult, categoriesResult, navSettingsResult, runtimeConfigResult, supportContactResult] = await Promise.all([
     supabase
       .from("settings")
       .select(`
@@ -379,7 +379,20 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       .select("version, ui, providers, search, home, blocks")
       .eq("env", envName)
       .maybeSingle(),
+    // Fetch support contact from bank_transfer_settings
+    supabase
+      .from("bank_transfer_settings")
+      .select("support_whatsapp, support_email")
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
+  
+  // Extract support contact with fallbacks
+  const supportContact = supportContactResult.data;
+  const supportWhatsapp = supportContact?.support_whatsapp || "243973141627";
+  const supportEmail = supportContact?.support_email || "nkadimisha@afrishop-usa.com";
 
   const { data: settings, error } = settingsResult;
   const rawProviders = providersResult.data || [];
@@ -637,8 +650,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNavVersion,
       envDetails: envInfo,
       runtime: runtimeConfig,
-      support_whatsapp: "243973141627",
-      support_email: "nkadimisha@afrishop-usa.com",
+      support_whatsapp: supportWhatsapp,
+      support_email: supportEmail,
     };
   }
 
@@ -675,8 +688,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
       catalogNavVersion,
       envDetails: envInfo,
       runtime: runtimeConfig,
-      support_whatsapp: "243973141627",
-      support_email: "nkadimisha@afrishop-usa.com",
+      support_whatsapp: supportWhatsapp,
+      support_email: supportEmail,
     };
   }
 
@@ -800,8 +813,8 @@ async function fetchConfig(envName: "production" | "staging"): Promise<PublicCon
     catalogNavVersion,
     envDetails: envInfo,
     runtime: runtimeConfig,
-    support_whatsapp: "243973141627",
-    support_email: "nkadimisha@afrishop-usa.com",
+    support_whatsapp: supportWhatsapp,
+    support_email: supportEmail,
   };
 }
 

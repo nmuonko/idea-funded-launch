@@ -1,141 +1,157 @@
 
-# Plan: Fix Full Image Galleries for All Items (Amazon + eBay)
+# Plan: Fix False Positive Content Blocking for MacBook/Chromebook Products
 
 ## Problem Summary
 
-The Rainforest adapter correctly extracts **all images** from Amazon products (up to 100), but the catalog endpoints ignore the `p.images` array and only use `p.imageUrl` (single image). This results in all items showing just 1 image.
+When searching for "macbook pro" (or any product with "book" in its name), all results are incorrectly filtered out because the content blocker matches "book" within the product name/URL.
+
+**Evidence from logs:**
+- `amazonReturned: 10` but `items: []` in API response  
+- `[SEARCH] removed=9 remaining=0 reasons={"keyword_url":9}`
 
 ## Root Cause
 
-In **catalog-search/index.ts**, when mapping Rainforest products:
+In `supabase/functions/_shared/contentBlocker.ts`, the URL keyword check at **lines 187-191** uses a simple `includes()` without word boundaries:
 
 ```typescript
-// Lines 521-523 (CURRENT - BUG)
-images: p.imageUrl ? [p.imageUrl] : [],      // Ignores p.images!
-imageUrls: p.imageUrl ? [p.imageUrl] : [],
-imageCount: 1,
+// Line 187-191 (BUG)
+for (const keyword of BLOCKED_KEYWORDS) {
+  if (urlLower.includes(keyword.replace(/\s+/g, ""))) {  // ← No word boundary!
+    return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
+  }
+}
 ```
 
-The same pattern exists in cache mapping and DB upsert logic.
+This causes "book" to match within "macbook", blocking legitimate products like:
+- MacBook Pro
+- MacBook Air  
+- Chromebook
+- Facebook Portal
+- Notebook laptops (title contains "notebook")
 
-Similarly, **catalog-prewarm-worker/index.ts** doesn't pass the images array to cached items.
+## Solution
+
+Add product name exceptions to the URL keyword check that prevent false positives for legitimate electronics brands. The fix ensures "book" only matches when it's a standalone word or part of actual book-related terms (e.g., "ebook", "audiobook").
 
 ## Technical Changes
 
-### File 1: `supabase/functions/catalog-search/index.ts`
+### File: `supabase/functions/_shared/contentBlocker.ts`
 
-**Change 1: Fix live Rainforest mapping (lines 511-528)**
+**Change 1: Add allowlist of product terms containing blocked keywords (new constant, ~line 61)**
 
 ```typescript
-// BEFORE (lines 521-523):
-images: p.imageUrl ? [p.imageUrl] : [],
-imageUrls: p.imageUrl ? [p.imageUrl] : [],
-imageCount: 1,
-
-// AFTER:
-images: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
-imageUrls: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
-imageCount: p.imageCount || (p.images?.length || 1),
+// ALLOWLIST: Products containing blocked keywords but are NOT blocked content
+// These override keyword matches when found in title/URL
+const ALLOWLIST_PATTERNS = [
+  "macbook",
+  "chromebook", 
+  "notebook",      // Laptop computers
+  "facebook",      // Facebook products (Portal, etc.)
+  "playbook",      // BlackBerry PlayBook, business software
+  "scrapbook",     // Physical scrapbooks (craft supplies)
+  "cookbook",      // Physical cookbooks are OK (not ebooks)
+  "yearbook",      // Physical yearbooks
+  "logbook",       // Stationery items
+  "guestbook",     // Physical guestbooks
+  "checkbook",     // Financial accessories
+];
 ```
 
-**Change 2: Fix DB upsert (line 565)**
+**Change 2: Update URL keyword check to skip allowlisted terms (~lines 186-191)**
 
+Before:
 ```typescript
-// BEFORE:
-images: p.imageUrl ? [p.imageUrl] : [],
-
-// AFTER:
-images: (p.images && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+for (const keyword of BLOCKED_KEYWORDS) {
+  if (urlLower.includes(keyword.replace(/\s+/g, ""))) {
+    return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
+  }
+}
 ```
 
-**Change 3: Fix cache hit mapping (lines 606-608)**
-
+After:
 ```typescript
-// BEFORE:
-images: p.imageUrl ? [p.imageUrl as string] : [],
-imageUrls: p.imageUrl ? [p.imageUrl as string] : [],
-imageCount: 1,
-
-// AFTER:
-images: (p.images && Array.isArray(p.images) && p.images.length > 0) 
-  ? p.images as string[] 
-  : (p.imageUrl ? [p.imageUrl as string] : []),
-imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) 
-  ? p.images as string[] 
-  : (p.imageUrl ? [p.imageUrl as string] : []),
-imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
+for (const keyword of BLOCKED_KEYWORDS) {
+  const keywordNormalized = keyword.replace(/\s+/g, "");
+  if (urlLower.includes(keywordNormalized)) {
+    // Check if this match is part of an allowlisted product term
+    const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
+      urlLower.includes(pattern)
+    );
+    if (!isAllowlisted) {
+      return { isDisallowed: true, reason: "keyword_url", matchedPattern: keyword };
+    }
+  }
+}
 ```
 
-### File 2: `supabase/functions/catalog-prewarm-worker/index.ts`
+**Change 3: Update title keyword check with same allowlist logic (~lines 169-184)**
 
-**Change 1: Fix mapAmazonToProviderItem (lines 239-256)**
-
+Before:
 ```typescript
-// BEFORE (lines 246-249):
-imageCount: 1,
-imageMissing: !imageUrl,
-
-// AFTER - add images array:
-images: (p.images && Array.isArray(p.images) && p.images.length > 0) 
-  ? p.images as string[] 
-  : (imageUrl ? [imageUrl] : []),
-imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) 
-  ? p.images as string[] 
-  : (imageUrl ? [imageUrl] : []),
-imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
-imageMissing: !imageUrl,
+for (const keyword of BLOCKED_KEYWORDS) {
+  if (keyword.length <= 5) {
+    const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
+    if (regex.test(titleLower)) {
+      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
+    }
+  } else {
+    if (titleLower.includes(keyword)) {
+      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
+    }
+  }
+}
 ```
 
-**Change 2: Fix mapEbayToProviderItem (lines 260-277)**
-
+After:
 ```typescript
-// BEFORE (lines 268-270):
-imageCount: item.image_count || 1,
-imageMissing: !imageUrl,
-
-// AFTER - add images array:
-images: item.images || item.image_urls || (imageUrl ? [imageUrl] : []),
-imageUrls: item.images || item.image_urls || (imageUrl ? [imageUrl] : []),
-imageCount: item.image_count || (item.images?.length || item.image_urls?.length || 1),
-imageMissing: !imageUrl,
+for (const keyword of BLOCKED_KEYWORDS) {
+  let matches = false;
+  
+  if (keyword.length <= 5) {
+    const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
+    matches = regex.test(titleLower);
+  } else {
+    matches = titleLower.includes(keyword);
+  }
+  
+  if (matches) {
+    // Check if this match is part of an allowlisted product term
+    const isAllowlisted = ALLOWLIST_PATTERNS.some(pattern => 
+      titleLower.includes(pattern)
+    );
+    if (!isAllowlisted) {
+      return { isDisallowed: true, reason: "keyword_title", matchedPattern: keyword };
+    }
+  }
+}
 ```
 
 ## Files to Modify
 
-| File | Lines | Change |
-|------|-------|--------|
-| `supabase/functions/catalog-search/index.ts` | 521-523 | Use p.images array for live Rainforest |
-| `supabase/functions/catalog-search/index.ts` | 565 | Use p.images array for DB upsert |
-| `supabase/functions/catalog-search/index.ts` | 606-608 | Use p.images array for cache mapping |
-| `supabase/functions/catalog-prewarm-worker/index.ts` | 246-249 | Add images arrays to Amazon items |
-| `supabase/functions/catalog-prewarm-worker/index.ts` | 268-270 | Add images arrays to eBay items |
+| File | Change |
+|------|--------|
+| `supabase/functions/_shared/contentBlocker.ts` | Add ALLOWLIST_PATTERNS constant and update title/URL checks |
 
-## Data Flow After Fix
+## Expected Results After Fix
 
-```text
-Rainforest API
-     ↓
-extractImages() → images: ["url1", "url2", "url3", "url4", "url5"]
-     ↓
-normalizeProduct() → { images: [...], imageCount: 5 }
-     ↓ (FIXED)
-catalog-search mapping → { images: [...], imageCount: 5 }  ← NOW PRESERVED
-     ↓
-API Response → Full gallery available
-```
+| Search Query | Before | After |
+|--------------|--------|-------|
+| "macbook pro" | 0 items (all filtered) | 10+ items |
+| "mackoook pro" (typo) | 0 items | 10+ items |
+| "chromebook" | 0 items | 10+ items |
+| "notebook laptop" | 0 items | 10+ items |
+| "kindle ebook" | 0 items (correct) | 0 items (correct) |
+| "audiobook" | 0 items (correct) | 0 items (correct) |
 
-## Expected Results
+## Testing Steps
 
-- **Amazon items**: Show 5-10+ images per product (from Rainforest API)
-- **eBay items**: Continue showing full galleries (already working)
-- **Cached items**: Will preserve all images going forward
-- **Homepage**: New prewarmed items will have full galleries
+After deployment, verify:
+1. Search "macbook pro" returns Apple MacBook products
+2. Search "chromebook" returns laptop results  
+3. Search "notebook" returns laptop results
+4. Search "kindle" still returns 0 results (blocked correctly)
+5. Search "ebook reader" still returns 0 results (blocked correctly)
 
-## Note on Existing Cache
+## Alternative Considered
 
-Items already cached with only 1 image will continue to show 1 image until:
-1. Cache expires (TTL-based)
-2. Next prewarm cycle runs
-3. User views product detail (fetches fresh data)
-
-New searches and prewarmed content will have full galleries immediately.
+**Regex word boundary for all URL checks**: This would require significant refactoring and might break legitimate blocks like `/books` path. The allowlist approach is safer and more targeted.

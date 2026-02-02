@@ -32,6 +32,13 @@ type PaymentFlow = 'PAWAPAY' | 'STRIPE' | 'BANK_TRANSFER' | 'CHOICE_REQUIRED';
 type PaymentMethodPreference = 'CARD' | 'BANK_TRANSFER';
 const VALID_PAYMENT_PREFERENCES: readonly string[] = ['CARD', 'BANK_TRANSFER'];
 
+// Structured available method for frontend (eliminates secondary API call)
+interface AvailableMethod {
+  method: 'MOBILE_MONEY' | 'CARD' | 'BANK_TRANSFER';
+  enabled: boolean;
+  disabledReason: string | null;
+}
+
 // Payment settings from database
 interface PaymentSettings {
   mobile_money_max_usd: number;
@@ -103,6 +110,60 @@ function getLargeOrderOptions(paymentSettings: PaymentSettings): ('STRIPE' | 'BA
   if (paymentSettings.stripe_enabled) options.push('STRIPE');
   if (paymentSettings.bank_transfer_enabled) options.push('BANK_TRANSFER');
   return options;
+}
+
+// Build structured available methods for frontend (eliminates secondary API call)
+function buildAvailableMethods(
+  paymentSettings: PaymentSettings,
+  totalUsdDollars: number,
+  isVehicle: boolean
+): AvailableMethod[] {
+  const methods: AvailableMethod[] = [];
+  const isOverLimit = totalUsdDollars > paymentSettings.mobile_money_max_usd;
+  const isLargeOrder = isOverLimit || isVehicle;
+
+  // MOBILE_MONEY (pawaPay)
+  if (paymentSettings.pawapay_enabled) {
+    if (isVehicle) {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: false,
+        disabledReason: 'Not available for vehicle purchases',
+      });
+    } else if (isOverLimit) {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: false,
+        disabledReason: `Maximum $${paymentSettings.mobile_money_max_usd.toLocaleString()} per transaction`,
+      });
+    } else {
+      methods.push({
+        method: 'MOBILE_MONEY',
+        enabled: true,
+        disabledReason: null,
+      });
+    }
+  }
+
+  // CARD (Stripe) - always available if enabled
+  if (paymentSettings.stripe_enabled) {
+    methods.push({
+      method: 'CARD',
+      enabled: true,
+      disabledReason: null,
+    });
+  }
+
+  // BANK_TRANSFER - only show for large orders
+  if (paymentSettings.bank_transfer_enabled && isLargeOrder) {
+    methods.push({
+      method: 'BANK_TRANSFER',
+      enabled: true,
+      disabledReason: null,
+    });
+  }
+
+  return methods;
 }
 
 /**
@@ -1358,6 +1419,13 @@ serve(async (req) => {
           total_ms: perf.total(),
         });
         
+        // Build structured available methods for frontend
+        const available_methods = buildAvailableMethods(
+          paymentSettings,
+          totalsBreakdown.grand_total,
+          containsVehicle
+        );
+
         return jsonResponse({
           success: true,
           order_id: existingOrder.id,
@@ -1368,6 +1436,7 @@ serve(async (req) => {
           required_currency: 'USD', // Required for large orders
           cdf_equivalent: totalsBreakdown.cdf_equivalent,
           options: availableOptions,
+          available_methods, // NEW: Structured payment methods with enabled/disabled reasons
           reason: containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit',
           message: 'This order requires Card or Bank Transfer payment in USD.',
           message_fr: 'Cette commande nécessite un paiement par carte ou virement bancaire en USD.',
@@ -2114,6 +2183,13 @@ serve(async (req) => {
       provider_called: 'NONE', // CRITICAL: No provider API called
     });
 
+    // Build structured available methods for frontend (eliminates secondary API call)
+    const available_methods = buildAvailableMethods(
+      paymentSettings,
+      totalsBreakdown.grand_total,
+      containsVehicle
+    );
+
     // Return session ready for provider selection
     // Mobile app should call /select-payment-provider with chosen provider
     return jsonResponse({
@@ -2126,6 +2202,7 @@ serve(async (req) => {
       currency: payable_currency,
       cdf_equivalent: totalsBreakdown.cdf_equivalent,
       available_providers: availableProviders,
+      available_methods, // NEW: Structured payment methods with enabled/disabled reasons
       is_large_order: isLargeOrder,
       reason: isLargeOrder 
         ? (containsVehicle ? 'vehicle_order' : 'over_mobile_money_limit')

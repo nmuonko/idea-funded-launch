@@ -148,6 +148,18 @@ const VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS = [
   "1:64", "1:43", "1:24", "1:18", "1:12", "1/64", "1/43", "1/24", "1/18",
   "toy", "lego", "rc car", "remote control", "model car", "toy car", "scale model",
   "miniature", "collectible", "replica", "playset",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CLOTHING & MERCH: Brand-name apparel - NOT vehicles
+  // ═══════════════════════════════════════════════════════════════════════════
+  "shirt", "t-shirt", "tshirt", "hoodie", "sweatshirt", "sweater", "jacket",
+  "hat", "cap", "beanie", "snapback", "trucker hat",
+  "polo", "jersey", "vest", "coat", "windbreaker",
+  "pants", "shorts", "jeans", "joggers",
+  "shoes", "sneakers", "slippers", "sandals", "boots",
+  "bag", "backpack", "duffel", "tote", "messenger bag",
+  "watch", "sunglasses", "glasses", "belt", "wallet", "purse",
+  "mug", "cup", "tumbler", "bottle", "water bottle",
+  "blanket", "towel", "flag", "banner",
   // Vehicle accessories
   "floor mat", "floor mats", "mat set", "all weather mat",
   "key fob", "key cover", "fob cover", "remote cover", "key chain", "keychain",

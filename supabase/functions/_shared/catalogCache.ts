@@ -114,8 +114,18 @@ export function normalizeQuery(q: string): string {
 }
 
 /**
- * Build deterministic cache key
+ * Build deterministic cache key with SHA-256 hash for stability
  * CRITICAL: All search-affecting parameters must be included to prevent cache collisions
+ * 
+ * Cache key components for search:
+ * - normalizedQ: The final query string used to call providers
+ * - provider/source: mixed, ebay, amazon, all
+ * - page + pageSize: Pagination parameters
+ * - sort: Sort order
+ * - category_key: Category filter
+ * - filters: minPrice, maxPrice, brand, rating, condition (JSON with sorted keys)
+ * - vehicleMode: Boolean flag for vehicle search behavior
+ * - country + currency: Regional variations
  */
 export function buildCacheKey(
   type: CacheType,
@@ -136,7 +146,7 @@ export function buildCacheKey(
     rating?: number;
     condition?: string;
     sort?: string;
-    // Vehicle mode flag
+    // Vehicle mode flag - CRITICAL for vehicle vs accessory results
     vehicleMode?: boolean;
     // Country/currency for regional variations
     country?: string;
@@ -159,25 +169,54 @@ export function buildCacheKey(
       }
       const expand = params.expand ? 1 : 0;
       
-      // Build filter suffix for cache key differentiation
-      // Only include filters that are actually set to avoid unnecessary cache fragmentation
-      const filterParts: string[] = [];
-      if (params.minPrice !== undefined) filterParts.push(`min=${params.minPrice}`);
-      if (params.maxPrice !== undefined) filterParts.push(`max=${params.maxPrice}`);
-      if (params.brand) filterParts.push(`brand=${params.brand}`);
-      if (params.rating !== undefined) filterParts.push(`rating=${params.rating}`);
-      if (params.condition) filterParts.push(`cond=${params.condition}`);
-      if (params.sort && params.sort !== "relevance") filterParts.push(`sort=${params.sort}`);
-      // CRITICAL: Include vehicleMode in cache key to prevent vehicle/non-vehicle cache collisions
-      if (params.vehicleMode) filterParts.push(`veh=1`);
-      // Include country/currency if set
-      if (params.country && params.country !== "US") filterParts.push(`co=${params.country}`);
-      if (params.currency && params.currency !== "USD") filterParts.push(`cu=${params.currency}`);
+      // Build filter object with sorted keys for deterministic JSON
+      const filterObj: Record<string, unknown> = {};
+      if (params.minPrice !== undefined) filterObj.minPrice = params.minPrice;
+      if (params.maxPrice !== undefined) filterObj.maxPrice = params.maxPrice;
+      if (params.brand) filterObj.brand = params.brand;
+      if (params.rating !== undefined) filterObj.rating = params.rating;
+      if (params.condition) filterObj.condition = params.condition;
+      if (params.sort && params.sort !== "relevance") filterObj.sort = params.sort;
+      // CRITICAL: Include vehicleMode to prevent vehicle/accessory cache collisions
+      if (params.vehicleMode) filterObj.vehicleMode = true;
+      if (params.country && params.country !== "US") filterObj.country = params.country;
+      if (params.currency && params.currency !== "USD") filterObj.currency = params.currency;
       
-      const filterSuffix = filterParts.length > 0 ? `:f=${filterParts.join("_")}` : "";
+      // Create stable JSON with sorted keys
+      const sortedKeys = Object.keys(filterObj).sort();
+      const stableFilterJson = sortedKeys.length > 0 
+        ? JSON.stringify(Object.fromEntries(sortedKeys.map(k => [k, filterObj[k]])))
+        : "";
       
-      // Include AMAZON_CACHE_VERSION in cache key to invalidate old entries with uncategorized items
-      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}${filterSuffix}`;
+      // Build cache key with all components
+      const keyComponents = [
+        `search:${AMAZON_CACHE_VERSION}`,
+        `q=${qCanon}`,
+        `p=${params.provider || "all"}`,
+        `cat=${params.category || ""}`,
+        `pg=${params.page || 1}`,
+        `sz=${params.pageSize || 20}`,
+        `ex=${expand}`,
+      ];
+      
+      // Add filter suffix only if filters exist
+      if (stableFilterJson) {
+        keyComponents.push(`f=${stableFilterJson}`);
+      }
+      
+      const fullKey = keyComponents.join(":");
+      
+      // Log cache key components for debugging
+      console.log(`[CACHE] buildCacheKey search:`, JSON.stringify({
+        normalizedQ: qCanon,
+        provider: params.provider || "all",
+        page: params.page || 1,
+        pageSize: params.pageSize || 20,
+        filters: filterObj,
+        cache_key_preview: fullKey.substring(0, 80) + "...",
+      }));
+      
+      return fullKey;
     
     case "product":
       return `product:v1:domain=${domain}:env=${env}:id=${params.productId || ""}`;

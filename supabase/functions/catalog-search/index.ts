@@ -175,14 +175,26 @@ const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
 /**
  * Check if a query contains a known vehicle make+model combination
  * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
+ * 
+ * IMPORTANT: This function uses strict matching - both brand AND model must be present
+ * Examples:
+ *   "infiniti qx80" → true (brand + model)
+ *   "infiniti" → false (brand only)
+ *   "qx80" → false (model only)
+ *   "infiniti qx80 floor mats" → true (but hasVehicleBuyingIntent will return false due to accessory keyword)
  */
 function isVehicleMakeModelQuery(query: string): boolean {
-  const lower = query.toLowerCase();
+  const lower = query.toLowerCase().trim();
   
   for (const { brand, models } of VEHICLE_MODEL_PATTERNS) {
-    if (lower.includes(brand)) {
+    // Check if brand is present as a word boundary (not just substring)
+    // This prevents false positives like "infinitix" matching "infiniti"
+    const brandRegex = new RegExp(`\\b${brand}\\b`, 'i');
+    if (brandRegex.test(lower)) {
       for (const model of models) {
+        // Check if model is present (models can be substrings like "qx80")
         if (lower.includes(model)) {
+          console.log(`[VEHICLE_DETECT] Make+Model detected: brand="${brand}" model="${model}" in query="${query}"`);
           return true;
         }
       }
@@ -195,31 +207,44 @@ function isVehicleMakeModelQuery(query: string): boolean {
  * Check if a query indicates explicit vehicle-BUYING intent
  * (as opposed to wanting accessories/parts for a vehicle)
  * 
- * NEW LOGIC: Make+model combinations (e.g., "infiniti qx80") are treated as vehicle buying intent
- * since users searching for specific vehicle models want the vehicle, not parts
+ * VEHICLE MODE LOGIC:
+ * 1. If query has accessory keywords (floor mats, key fob, etc.) → NOT vehicle buying intent
+ * 2. If query has explicit buying keywords (for sale, buy, etc.) → vehicle buying intent
+ * 3. If query has make+model (infiniti qx80, toyota camry) → vehicle buying intent
+ * 4. Brand-only queries (just "infiniti") → NOT vehicle buying intent (allow accessories)
+ * 
+ * When vehicleMode=true:
+ * - Enforce minPrice >= $1000 to filter out accessories
+ * - Force eBay to Motors category 6001
+ * - Use Amazon Autos category for Amazon
  */
 function hasVehicleBuyingIntent(query: string): boolean {
-  const lower = query.toLowerCase();
+  const lower = query.toLowerCase().trim();
   
-  // First check: If query contains accessory/parts keywords, definitely NOT buying a vehicle
+  // FIRST: Check for accessory/parts keywords - these override everything
+  // If user searches "infiniti qx80 floor mats", they want floor mats, not a vehicle
   const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
   if (hasAccessoryKeywords) {
+    console.log(`[VEHICLE_DETECT] Accessory keywords found in "${query}" - NOT vehicle buying intent`);
     return false;
   }
   
-  // Second check: If query has explicit buying intent keywords, it's vehicle buying intent
+  // SECOND: Check for explicit buying intent keywords
   const hasExplicitBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
   if (hasExplicitBuyingIntent) {
+    console.log(`[VEHICLE_DETECT] Explicit buying intent in "${query}" - IS vehicle buying intent`);
     return true;
   }
   
-  // NEW: If query contains a known make+model combination, treat as vehicle buying intent
-  // e.g., "infiniti qx80" = user wants to buy that vehicle, not accessories
+  // THIRD: Check for make+model combinations (e.g., "infiniti qx80")
+  // These strongly indicate the user wants to find a vehicle, not accessories
   if (isVehicleMakeModelQuery(query)) {
+    console.log(`[VEHICLE_DETECT] Make+Model detected in "${query}" - IS vehicle buying intent`);
     return true;
   }
   
-  // For brand-only queries without model (e.g., just "infiniti"), don't assume vehicle intent
+  // For brand-only queries (e.g., just "infiniti"), don't assume vehicle intent
+  // User might be looking for accessories or general products
   return false;
 }
 
@@ -708,9 +733,15 @@ async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult>
   }
 
   try {
-    // SMART VEHICLE INTENT: Only enforce minPrice when user explicitly wants to BUY a vehicle
-    // For brand-only queries like "infiniti qx80", allow all prices to show accessories AND vehicles
-    const minPrice = hasBuyingIntent ? 1500 : undefined;
+    // VEHICLE MODE LOGIC: Enforce minPrice ONLY when user has buying intent
+    // hasBuyingIntent = true for:
+    //   - "infiniti qx80" (make+model detected)
+    //   - "toyota camry for sale" (explicit buying keywords)
+    // hasBuyingIntent = false for:
+    //   - "infiniti qx80 floor mats" (accessory keyword detected)
+    //   - "infiniti" (brand only, no model)
+    const minPrice = hasBuyingIntent ? 1000 : undefined;
+    console.log(`[SEARCH] requestId=${requestId} eBay minPrice=${minPrice} (hasBuyingIntent=${hasBuyingIntent})`);
     
     // Map category_key to eBay category ID if applicable
     let ebayCategory: string | undefined;

@@ -128,6 +128,13 @@ export function buildCacheKey(
     page?: number;
     pageSize?: number;
     productId?: string;
+    // Filter parameters for search cache key differentiation
+    minPrice?: number;
+    maxPrice?: number;
+    brand?: string;
+    rating?: number;
+    condition?: string;
+    sort?: string;
   }
 ): string {
   const domain = params.domain || "amazon.com";
@@ -145,8 +152,20 @@ export function buildCacheKey(
         console.log(`[CACHE] Canonicalized query: "${qNorm}" → "${qCanon}"`);
       }
       const expand = params.expand ? 1 : 0;
+      
+      // Build filter suffix for cache key differentiation
+      // Only include filters that are actually set to avoid unnecessary cache fragmentation
+      const filterParts: string[] = [];
+      if (params.minPrice !== undefined) filterParts.push(`min=${params.minPrice}`);
+      if (params.maxPrice !== undefined) filterParts.push(`max=${params.maxPrice}`);
+      if (params.brand) filterParts.push(`brand=${params.brand}`);
+      if (params.rating !== undefined) filterParts.push(`rating=${params.rating}`);
+      if (params.condition) filterParts.push(`cond=${params.condition}`);
+      if (params.sort && params.sort !== "relevance") filterParts.push(`sort=${params.sort}`);
+      const filterSuffix = filterParts.length > 0 ? `:f=${filterParts.join("_")}` : "";
+      
       // Include AMAZON_CACHE_VERSION in cache key to invalidate old entries with uncategorized items
-      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}`;
+      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}${filterSuffix}`;
     
     case "product":
       return `product:v1:domain=${domain}:env=${env}:id=${params.productId || ""}`;

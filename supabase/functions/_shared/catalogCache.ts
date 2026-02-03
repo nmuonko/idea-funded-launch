@@ -10,7 +10,7 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v2"; // Bump to invalidate old uncategorized Amazon entries
+export const AMAZON_CACHE_VERSION = "v3"; // v3: Added explicit vm/mp to cache key for vehicle mode
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
@@ -188,6 +188,11 @@ export function buildCacheKey(
         ? JSON.stringify(Object.fromEntries(sortedKeys.map(k => [k, filterObj[k]])))
         : "";
       
+      // VEHICLE MODE EXPLICIT MARKERS (v3): Add vm and mp as separate key components
+      // This ensures old v2 cache entries (without vm/mp) are never matched
+      const vehicleModeMarker = params.vehicleMode ? 1 : 0;
+      const minPriceUsed = params.vehicleMode ? (params.minPrice || 1000) : 0;
+      
       // Build cache key with all components
       const keyComponents = [
         `search:${AMAZON_CACHE_VERSION}`,
@@ -196,6 +201,8 @@ export function buildCacheKey(
         `cat=${params.category || ""}`,
         `pg=${params.page || 1}`,
         `sz=${params.pageSize || 20}`,
+        `vm=${vehicleModeMarker}`,      // Explicit vehicle mode flag
+        `mp=${minPriceUsed}`,           // Explicit minPrice used
         `ex=${expand}`,
       ];
       
@@ -212,8 +219,10 @@ export function buildCacheKey(
         provider: params.provider || "all",
         page: params.page || 1,
         pageSize: params.pageSize || 20,
+        vehicleMode: params.vehicleMode || false,
+        minPriceUsed,
         filters: filterObj,
-        cache_key_preview: fullKey.substring(0, 80) + "...",
+        cache_key_preview: fullKey.substring(0, 100) + "...",
       }));
       
       return fullKey;

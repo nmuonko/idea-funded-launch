@@ -1093,8 +1093,21 @@ Deno.serve(async (req: Request) => {
       vehicleMode: hasBuyingIntent,
     });
 
-    const cacheResult = await getCache(supabase, globalCacheKey);
+    let cacheResult = await getCache(supabase, globalCacheKey);
     perfLog.cache_ms = Date.now() - cacheStart;
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CACHE MISMATCH DETECTION (v3 POISON FIX):
+    // Force cache miss if vehicleMode=true but cache key lacks vm=1 marker
+    // This catches old v2 cache entries that didn't have proper vehicle filtering
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (cacheResult.hit && hasBuyingIntent) {
+      const cacheKeyHasVehicleMode = cacheResult.cacheKey.includes("vm=1");
+      if (!cacheKeyHasVehicleMode) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} CACHE_MISMATCH: vehicleMode=true but cache key lacks vm=1. Forcing miss. key=${cacheResult.cacheKey.substring(0, 80)}...`);
+        cacheResult = { ...cacheResult, hit: false, stale: true };
+      }
+    }
 
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       // INSTANT RETURN: Fresh cache hit
@@ -1113,6 +1126,39 @@ Deno.serve(async (req: Request) => {
         const beforeCount = cachedItems.length;
         cachedItems = postFilterItems(cachedItems, catalogFilters);
         console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_postfilter: ${beforeCount} → ${cachedItems.length}`);
+      }
+      
+      // ═══════════════════════════════════════════════════════════════════════════
+      // VEHICLE CACHE POISONING FIX (DEFENSIVE FILTER):
+      // Always enforce minPrice for vehicle searches even on cache hits
+      // This catches any old cache entries that don't have proper vehicle filtering
+      // ═══════════════════════════════════════════════════════════════════════════
+      if (hasBuyingIntent && cachedItems.length > 0) {
+        const beforeVehicleFilter = cachedItems.length;
+        cachedItems = cachedItems.filter((item: any) => {
+          const price = item.priceUsd ?? item.price_usd ?? 0;
+          return price >= 1000;
+        });
+        if (beforeVehicleFilter !== cachedItems.length) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} vehicle_cache_filter: ${beforeVehicleFilter} → ${cachedItems.length} (enforced minPrice=1000)`);
+        }
+        
+        // ACCESSORY KEYWORD FILTER: Remove obvious toy/accessory results from vehicle cache
+        const ACCESSORY_TITLE_KEYWORDS = [
+          "matchbox", "diecast", "1:64", "1:43", "1:24", "1:18", "hot wheels",
+          "floor mat", "key fob", "fob cover", "key cover", "remote cover",
+          "phone case", "phone holder", "car mount", "decal", "sticker",
+          "poster", "wall art", "canvas", "model car", "toy car",
+          "scale model", "die cast", "die-cast", "miniature"
+        ];
+        const beforeAccessoryFilter = cachedItems.length;
+        cachedItems = cachedItems.filter((item: any) => {
+          const title = (item.title || "").toLowerCase();
+          return !ACCESSORY_TITLE_KEYWORDS.some(kw => title.includes(kw));
+        });
+        if (beforeAccessoryFilter !== cachedItems.length) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} accessory_title_filter: ${beforeAccessoryFilter} → ${cachedItems.length}`);
+        }
       }
       
       return new Response(JSON.stringify({

@@ -4270,6 +4270,7 @@ export type Database = {
       }
     }
     Functions: {
+      admin_clear_search_cache: { Args: never; Returns: Json }
       admin_get_all_device_tokens: {
         Args: never
         Returns: {

@@ -249,11 +249,44 @@ const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
 // STANDALONE VEHICLE NAMES: These trigger vehicle mode by themselves
 // These are complete vehicle identifiers that don't need a brand prefix
 // e.g., "Range Rover", "F-150", "Model 3", "Mustang", "Corvette"
+// 
+// ALSO INCLUDES: Luxury/premium brands that are SO strongly associated with
+// vehicles that a standalone brand name indicates vehicle intent
+// e.g., "Cadillac", "Lexus", "Porsche", "Ferrari", "Lamborghini"
 // ══════════════════════════════════════════════════════════════════════════════
 const STANDALONE_VEHICLE_PATTERNS: RegExp[] = [
-  // Land Rover / Range Rover models
-  /\brange\s*rover\b/i,
+  // ═══════════════════════════════════════════════════════════════════════════
+  // LUXURY/PREMIUM BRANDS: Single brand name = vehicle intent
+  // These brands are so strongly associated with vehicles that standalone
+  // searches like "cadillac" or "porsche" clearly indicate vehicle intent
+  // ═══════════════════════════════════════════════════════════════════════════
+  /\bcadillac\b/i,
+  /\blincoln\b/i,
+  /\bbuick\b/i,
+  /\binfiniti\b/i,
+  /\bacura\b/i,
+  /\blexus\b/i,
+  /\bgenesis\b/i,
+  /\bporsche\b/i,
+  /\bjaguar\b/i,
   /\bland\s*rover\b/i,
+  /\brange\s*rover\b/i,
+  /\bbentley\b/i,
+  /\bmaserati\b/i,
+  /\bferrari\b/i,
+  /\blamborghini\b/i,
+  /\brolls\s*royce\b/i,
+  /\baston\s*martin\b/i,
+  /\bmclaren\b/i,
+  /\bbugatti\b/i,
+  /\blotus\b/i,
+  /\balfa\s*romeo\b/i,
+  /\btesla\b/i,  // Tesla as a brand = vehicle intent
+  /\bjeep\b/i,   // Jeep as a brand = vehicle intent
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ICONIC VEHICLE NAMES: Well-known models that stand alone
+  // ═══════════════════════════════════════════════════════════════════════════
   // Tesla models (often searched without "tesla" prefix)
   /\bmodel\s*3\b/i,
   /\bmodel\s*s\b/i,

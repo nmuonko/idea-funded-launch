@@ -1,148 +1,108 @@
 
 
-# Fix Vehicle Search: Complete the Smart Intent Detection
+# Create Debug Search Endpoint for Provider Transparency
 
-## Problem Identified
-
-The previous fix only updated ONE location. There's a SECOND hardcoded $1500 minPrice filter in `fetchEbayItems()`:
-
-```typescript
-// Line 621 - This BYPASSES our smart intent fix!
-const minPrice = isVehicle ? 1500 : undefined;
-```
-
-**Result**: Even though `hasVehicleBuyingIntent("infiniti qx80")` correctly returns `false`, the eBay API is STILL called with `price:[1500..]` filter because `isVehicle=true` triggers line 621.
-
-The eBay API URL from logs confirms this:
-```
-filter=buyingOptions%3A%7BFIXED_PRICE%7D%2Cprice%3A%5B1500..%5D
-```
-→ Translated: `price:[1500..]` = minimum $1500
-
-## Additional Issue: Category Lock
-
-The code also forces eBay category `6001` (Cars & Trucks) for vehicle-detected queries:
-```typescript
-// Lines 643-645
-if (isVehicle && !ebayCategory) {
-  ebayCategory = "6001"; // Cars & Trucks category
-}
-```
-
-Your eBay link shows results in **category 0 (All Categories)**, not 6001. The actual Infiniti QX80 vehicles might be listed in different eBay Motors subcategories.
-
----
+## Problem
+You want to see exactly what eBay and Amazon return for a search query, without mixing or filtering, to verify the backend is getting the right data.
 
 ## Solution
+Create a new `catalog-debug-search` edge function that:
+1. Calls both eBay and Amazon APIs in parallel
+2. Returns RAW results from each provider separately
+3. Shows counts, titles, prices without any mixing or filtering
 
-### 1. Pass buying intent flag to fetchEbayItems
+---
 
-Update the function call to include the `hasBuyingIntent` status:
+## Technical Implementation
 
-```typescript
-// In the parallel fetch call (~line 975)
-fetchEbayItems({
-  supabase,
-  query: qNorm,
-  effectiveMode,
-  isVehicle,
-  hasBuyingIntent,  // NEW: Pass the smart intent flag
-  categoryKey: categoryKey || undefined,
-  page,
-  limit,
-  catalogFilters,
-  requestId,
-}),
-```
-
-### 2. Fix fetchEbayItems to use smart intent
-
-Replace the hardcoded logic:
+### File: `supabase/functions/catalog-debug-search/index.ts`
 
 ```typescript
-// BEFORE (Line 621):
-const minPrice = isVehicle ? 1500 : undefined;
+// Simple debug endpoint to show raw provider results
+// GET /catalog-debug-search?q=infiniti+qx80
 
-// AFTER:
-// Only enforce minPrice for explicit vehicle-buying intent (e.g., "infiniti qx80 for sale")
-// For brand-only searches like "infiniti qx80", allow all prices to show accessories AND vehicles
-const minPrice = hasBuyingIntent ? 1500 : undefined;
-```
+Deno.serve(async (req: Request) => {
+  const url = new URL(req.url);
+  const query = url.searchParams.get("q") || "";
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "10"), 20);
 
-### 3. Don't force category 6001 for non-buying queries
+  // Parallel fetch from both providers
+  const [ebayResult, amazonResult] = await Promise.allSettled([
+    searchEbay(query, limit),   // Returns raw eBay items
+    searchAmazon(query, limit)  // Returns raw Amazon items
+  ]);
 
-```typescript
-// BEFORE (Lines 641-645):
-if (isVehicle && !ebayCategory) {
-  ebayCategory = "6001";
-}
-
-// AFTER:
-// Only force eBay Motors category when user explicitly wants to buy a vehicle
-if (hasBuyingIntent && !ebayCategory) {
-  ebayCategory = "6001"; // Cars & Trucks category
-  console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
-}
+  return {
+    query,
+    ebay: {
+      status: ebayResult.status,
+      count: ebayResult.value?.items?.length || 0,
+      items: ebayResult.value?.items?.map(i => ({
+        title: i.title,
+        price: i.price_usd,
+        provider: "ebay",
+        url: i.product_url
+      })) || [],
+      rawTotal: ebayResult.value?.total || 0
+    },
+    amazon: {
+      status: amazonResult.status,
+      count: amazonResult.value?.items?.length || 0,
+      items: amazonResult.value?.items?.map(i => ({
+        title: i.title,
+        price: i.price_usd,
+        provider: "amazon",
+        url: i.product_url
+      })) || [],
+      rawTotal: amazonResult.value?.total || 0
+    }
+  };
+});
 ```
 
 ---
 
-## Files to Modify
+## Expected Response Format
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/catalog-search/index.ts` | Add `hasBuyingIntent` to EbayFetchParams interface, pass it to fetchEbayItems, update minPrice and category logic |
-
----
-
-## Expected Results After Fix
-
-| Query | isVehicle | hasBuyingIntent | minPrice | eBay Category | Expected Results |
-|-------|-----------|-----------------|----------|---------------|------------------|
-| "infiniti qx80" | true | **false** | **none** | **none (all)** | Accessories + any vehicles |
-| "infiniti qx80 for sale" | true | true | $1500 | 6001 | Vehicle listings only |
-| "toyota camry floor mats" | true | false | none | none | Floor mats |
-| "used honda civic" | true | true | $1500 | 6001 | Vehicle listings only |
-
----
-
-## Technical Details
-
-**Interface update:**
-```typescript
-interface EbayFetchParams {
-  supabase: SupabaseClientAny;
-  query: string;
-  effectiveMode: { ebayActive: boolean; mode: string };
-  isVehicle: boolean;
-  hasBuyingIntent: boolean;  // NEW
-  categoryKey: string | undefined;
-  page: number;
-  limit: number;
-  catalogFilters: CatalogFilters;
-  requestId: string;
-}
-```
-
-**Updated logic in fetchEbayItems:**
-```typescript
-async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
-  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, categoryKey, page, limit, catalogFilters, requestId } = params;
-
-  // ... existing code ...
-
-  // SMART VEHICLE INTENT: Only enforce minPrice when buying a vehicle
-  const minPrice = hasBuyingIntent ? 1500 : undefined;
-  
-  // ... existing code ...
-
-  // Only force eBay Motors for explicit buying intent
-  if (hasBuyingIntent && !ebayCategory) {
-    ebayCategory = "6001";
-    console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
+```json
+{
+  "query": "infiniti qx80",
+  "ebay": {
+    "status": "fulfilled",
+    "count": 28,
+    "rawTotal": 59505,
+    "items": [
+      { "title": "2024 Infiniti QX80 Luxe 4WD", "price": 72500, "provider": "ebay" },
+      { "title": "Infiniti QX80 Floor Mat Set", "price": 89.99, "provider": "ebay" }
+    ]
+  },
+  "amazon": {
+    "status": "fulfilled", 
+    "count": 36,
+    "rawTotal": 10000,
+    "items": [
+      { "title": "Infiniti QX80 Key Fob Cover", "price": 12.99, "provider": "amazon" },
+      { "title": "Custom Floor Mats for QX80", "price": 149.00, "provider": "amazon" }
+    ]
   }
-  
-  // ... rest of function ...
 }
 ```
+
+---
+
+## Files to Create
+
+| File | Description |
+|------|-------------|
+| `supabase/functions/catalog-debug-search/index.ts` | New debug endpoint showing raw provider results |
+
+---
+
+## Usage
+
+```
+GET /catalog-debug-search?q=infiniti+qx80&limit=10
+```
+
+This gives you complete transparency into what each provider returns, without any mixing, filtering, or blocking applied.
 

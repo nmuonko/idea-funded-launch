@@ -681,3 +681,76 @@ export function addCacheMetadata(
   
   return metadata;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADMIN CACHE MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ClearCacheParams {
+  cacheType?: string;
+  provider?: string;
+  category?: string;
+  query?: string;
+  all?: boolean;
+}
+
+export interface ClearCacheResult {
+  deleted: number;
+  error?: string;
+}
+
+/**
+ * Clear cache entries from catalog_cache based on filters
+ * Used by admin-cache-clear edge function
+ */
+export async function clearDbCache(
+  supabase: SupabaseClient,
+  params: ClearCacheParams,
+  requestId: string
+): Promise<ClearCacheResult> {
+  try {
+    // Build delete query with filters
+    let query = supabase.from("catalog_cache").delete();
+    
+    if (params.all) {
+      // Delete all entries - use a condition that matches everything
+      query = query.neq("cache_key", "");
+    } else {
+      // Apply specific filters
+      if (params.cacheType) {
+        query = query.eq("cache_type", params.cacheType);
+      }
+      if (params.provider) {
+        query = query.eq("provider", params.provider);
+      }
+      if (params.category) {
+        query = query.eq("category", params.category);
+      }
+      if (params.query) {
+        query = query.ilike("query", `%${params.query}%`);
+      }
+    }
+    
+    // Execute delete and get count
+    const { data, error, count } = await query.select("cache_key");
+    
+    if (error) {
+      console.error(`[ADMIN_CACHE] requestId=${requestId} Clear failed:`, error.message);
+      return { deleted: 0, error: error.message };
+    }
+    
+    const deleted = data?.length || 0;
+    console.log(JSON.stringify({
+      event: "[ADMIN_CACHE] clear_cache",
+      requestId,
+      params,
+      deleted,
+    }));
+    
+    return { deleted };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error(`[ADMIN_CACHE] requestId=${requestId} Exception:`, msg);
+    return { deleted: 0, error: msg };
+  }
+}

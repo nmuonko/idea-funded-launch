@@ -8,8 +8,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/hooks/use-toast';
-import { Database, RefreshCw, Zap, Scale, Gauge, Clock, AlertCircle } from 'lucide-react';
+import { Database, RefreshCw, Zap, Scale, Gauge, Clock, AlertCircle, Trash2, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface CacheSettings {
   key: string;
@@ -89,6 +101,7 @@ const PRESETS = {
 
 export default function CacheSettings() {
   const { language } = useLanguage();
+  const { session } = useAuth();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<FormData>({
     home_stale_minutes: 180,
@@ -100,6 +113,53 @@ export default function CacheSettings() {
     negative_expires_seconds: 120,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Mutation for clearing search cache
+  const clearCacheMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc('admin_clear_search_cache');
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      const result = data as { 
+        ok: boolean; 
+        deleted_catalog_cache: number; 
+        deleted_search_proxy_cache: number;
+        cleared_at: string;
+      };
+      
+      console.log(JSON.stringify({
+        event: "[ADMIN_CACHE] clear_cache",
+        userId: session?.user?.id,
+        result,
+      }));
+      
+      toast({
+        title: language === 'fr' ? 'Cache vidé' : 'Cache cleared',
+        description: language === 'fr'
+          ? `Supprimé: catalog=${result.deleted_catalog_cache}, proxy=${result.deleted_search_proxy_cache}`
+          : `Cleared: catalog=${result.deleted_catalog_cache}, proxy=${result.deleted_search_proxy_cache}`,
+      });
+    },
+    onError: (error) => {
+      console.warn(JSON.stringify({
+        event: "[ADMIN_CACHE] clear_cache_error",
+        userId: session?.user?.id,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }));
+      
+      toast({
+        title: language === 'fr' ? 'Erreur' : 'Error',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleClearCache = () => {
+    clearCacheMutation.mutate();
+  };
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['catalog-cache-settings'],
@@ -292,6 +352,62 @@ export default function CacheSettings() {
               {format(new Date(settings.updated_at), 'PPpp')}
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Clear Search Cache Tool */}
+      <Card className="border-orange-200 bg-orange-50/50 dark:border-orange-800 dark:bg-orange-950/20">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2 text-orange-700 dark:text-orange-400">
+            <Trash2 className="h-5 w-5" />
+            {language === 'fr' ? 'Vider le Cache de Recherche' : 'Clear Search Cache'}
+          </CardTitle>
+          <CardDescription>
+            {language === 'fr'
+              ? 'Supprimez immédiatement tous les résultats de recherche en cache. Utilisez ceci pour corriger les résultats erronés.'
+              : 'Immediately remove all cached search results. Use this to fix incorrect results.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button 
+                variant="outline" 
+                className="gap-2 border-orange-300 text-orange-700 hover:bg-orange-100 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/50"
+                disabled={clearCacheMutation.isPending}
+              >
+                {clearCacheMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                {language === 'fr' ? 'Vider le Cache' : 'Clear Search Cache'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {language === 'fr' ? 'Vider le cache de recherche ?' : 'Clear search cache?'}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {language === 'fr'
+                    ? 'Cela supprimera tous les résultats de recherche en cache. Les nouvelles recherches peuvent être plus lentes pendant quelques minutes.'
+                    : 'This will remove cached search results immediately. New searches may be slower for a few minutes.'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  {language === 'fr' ? 'Annuler' : 'Cancel'}
+                </AlertDialogCancel>
+                <AlertDialogAction 
+                  onClick={handleClearCache}
+                  className="bg-orange-600 hover:bg-orange-700 text-white"
+                >
+                  {language === 'fr' ? 'Vider le Cache' : 'Clear Cache'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </CardContent>
       </Card>
 

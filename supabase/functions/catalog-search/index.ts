@@ -434,13 +434,7 @@ Deno.serve(async (req: Request) => {
       console.log(`[SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
 
-    // Load settings
-    const settings = await getCatalogSettings(supabase);
-    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
-
-    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`);
-
-    // Decode cursor
+    // Decode cursor first (needed for cache key)
     let mixerCursor = getInitialCursor();
     if (cursor) {
       const decoded = decodeMixerCursor(cursor);
@@ -448,6 +442,51 @@ Deno.serve(async (req: Request) => {
         mixerCursor = decoded;
       }
     }
+
+    // ─── GLOBAL CACHE CHECK (EARLY) ───────────────────────────────────────────
+    // Check for cached search results BEFORE calling providers for instant response
+    const globalCacheKey = buildCacheKey("search", {
+      env: envName,
+      query: qNorm,
+      provider: providerParam || "all",
+      category: categoryKey || undefined,
+      page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+      pageSize: limit,
+    });
+
+    const cacheResult = await getCache(supabase, globalCacheKey);
+
+    if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
+      // INSTANT RETURN: Fresh cache hit
+      console.log(`[SEARCH] requestId=${requestId} GLOBAL CACHE HIT (${cacheResult.cacheAgeSec}s old) key=${globalCacheKey.substring(0, 60)}...`);
+      
+      const cachedResponse = cacheResult.data;
+      const instantDuration = Date.now() - startTime;
+      
+      return new Response(JSON.stringify({
+        ...cachedResponse,
+        query: qOriginal, // Use original query for display
+        env: envName,
+        durationMs: instantDuration,
+        _cacheHit: true,
+        _cacheAgeSec: cacheResult.cacheAgeSec,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Track if we should do stale-while-revalidate
+    const isStaleCache = cacheResult.hit && cacheResult.stale && !cacheResult.negativeCached;
+    if (isStaleCache) {
+      console.log(`[SEARCH] requestId=${requestId} STALE CACHE (${cacheResult.cacheAgeSec}s old) - will refresh`);
+    }
+
+    // Load settings
+    const settings = await getCatalogSettings(supabase);
+    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
+
+    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`)
 
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
@@ -917,6 +956,22 @@ Deno.serve(async (req: Request) => {
       durationMs,
       error: null,
     };
+
+    // ─── CACHE FINAL RESPONSE ──────────────────────────────────────────────────
+    // Store for instant retrieval by subsequent users (async, don't wait)
+    // Only cache if we have results (positive cache)
+    if (finalItems.length > 0) {
+      setCache(supabase, "search", globalCacheKey, response, {
+        provider: "mixed",
+        query: qNorm,
+        category: categoryKey || undefined,
+        page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+        pageSize: limit,
+        amazonDomain: "amazon.com",
+      }).catch(err => console.warn(`[SEARCH] requestId=${requestId} Cache write failed:`, err));
+      
+      console.log(`[SEARCH] requestId=${requestId} Cached response for key=${globalCacheKey.substring(0, 60)}...`);
+    }
 
     return new Response(JSON.stringify(response), {
       status: 200,

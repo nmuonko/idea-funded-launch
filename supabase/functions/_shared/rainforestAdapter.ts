@@ -490,7 +490,8 @@ export async function searchRainforest(
   pageSize: number = 20,
   amazonDomain: string = "amazon.com",
   sort: SortOption = "relevance",
-  filters?: CatalogFilters
+  filters?: CatalogFilters,
+  amazonCategoryId?: string  // Optional Amazon category ID (e.g., Amazon Autos: 10677469011)
 ): Promise<{ products: CatalogProduct[]; total: number; hasMore: boolean; error: string | null }> {
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
   
@@ -513,6 +514,11 @@ export async function searchRainforest(
       page,
       sort_by: sortBy,
     };
+    
+    // Add category_id if provided (e.g., for Amazon Autos vehicle searches)
+    if (amazonCategoryId) {
+      params.category_id = amazonCategoryId;
+    }
 
     const url = new URL(RAINFOREST_BASE_URL);
     Object.entries(params).forEach(([key, value]) => {
@@ -528,6 +534,7 @@ export async function searchRainforest(
       domain: amazonDomain,
       sort: sortBy,
       hasFilters: !!filters,
+      categoryId: amazonCategoryId || null,
     }));
 
     const response = await fetchWithTimeout(

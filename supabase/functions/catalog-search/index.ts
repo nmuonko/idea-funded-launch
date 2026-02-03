@@ -430,14 +430,13 @@ Deno.serve(async (req: Request) => {
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // VEHICLE SEARCH: Use Amazon Automotive category for vehicle-related products
-    // Amazon Auto has car parts, accessories, and automotive products
-    // eBay Motors is primary source for actual vehicle listings
+    // VEHICLE SEARCH POLICY:
+    // - Amazon is SKIPPED for vehicle searches (it only sells accessories, not vehicles)
+    // - eBay Motors category 6001 (Cars & Trucks) is used for actual vehicle listings
+    // - This prevents floor mats, wipers, and car parts from polluting vehicle search results
     // ═══════════════════════════════════════════════════════════════════════════
-    // For vehicle searches, enhance the Amazon query to target automotive category
-    const amazonVehicleQuery = isVehicle ? `${qNorm} automotive` : qNorm;
     if (isVehicle) {
-      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Automotive`);
+      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors ONLY (Amazon skipped)`);
     }
 
     // ─── FETCH FROM PROVIDERS ─────────────────────────────────────────────────
@@ -454,8 +453,12 @@ Deno.serve(async (req: Request) => {
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
     // ─── Amazon (Smart Live + Cache) ──────────────────────────────────────────
-    // Include Amazon for all searches including vehicles (Amazon Automotive)
-    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay") {
+    // VEHICLE SEARCH FIX: Skip Amazon entirely for vehicle searches
+    // Amazon doesn't sell actual vehicles (only parts/accessories) so including it
+    // pollutes vehicle search results with floor mats, wipers, etc.
+    // Only eBay Motors has real vehicle listings.
+    const skipAmazonForVehicles = isVehicle;
+    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay" && !skipAmazonForVehicles) {
       try {
         // Check budget
         const budgetStatus = await checkBudget(
@@ -494,8 +497,8 @@ Deno.serve(async (req: Request) => {
 
           if (liveDecision.useLive) {
             // ─── LIVE RAINFOREST API ─────────────────────────────────────────
-            // Use vehicle-enhanced query for automotive searches
-            const amazonSearchQuery = isVehicle ? amazonVehicleQuery : qNorm;
+            // Note: For vehicle searches, this block is skipped (Amazon excluded)
+            const amazonSearchQuery = qNorm;
             console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${amazonSearchQuery}" page=${mixerCursor.amazonPage}`);
             
             const liveResult = await searchRainforest(amazonSearchQuery, mixerCursor.amazonPage, limit, "amazon.com");
@@ -580,8 +583,8 @@ Deno.serve(async (req: Request) => {
 
           // If no live results or live not used, fall back to cache/DB
           if (amazonItems.length === 0) {
-            // Use vehicle-enhanced query for cache/DB lookups
-            const amazonSearchQuery = isVehicle ? amazonVehicleQuery : qNorm;
+            // Note: For vehicle searches, this block is skipped (Amazon excluded)
+            const amazonSearchQuery = qNorm;
             
             // Try cache first
             const cacheKey = buildAmazonCacheKey({ query: amazonSearchQuery, categoryKey, page: mixerCursor.amazonPage });

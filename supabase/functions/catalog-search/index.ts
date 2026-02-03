@@ -162,6 +162,33 @@ const VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS = [
   "poster", "wall art", "canvas", "print", "artwork",
 ];
 
+// ══════════════════════════════════════════════════════════════════════════════
+// VEHICLE BRAND ALIASES: Used for brand-fallback detection
+// If query contains any of these AND has 2+ tokens → vehicleMode=true
+// This allows ANY brand + model combo to trigger vehicle mode (e.g., "mercedes c300")
+// ══════════════════════════════════════════════════════════════════════════════
+const VEHICLE_BRAND_ALIASES: string[] = [
+  // American
+  "ford", "chevrolet", "chevy", "gmc", "dodge", "ram", "jeep", "chrysler",
+  "buick", "cadillac", "lincoln", "tesla",
+  // Japanese
+  "toyota", "honda", "nissan", "mazda", "subaru", "lexus", "acura", "infiniti",
+  "mitsubishi", "suzuki", "daihatsu", "isuzu",
+  // Korean
+  "hyundai", "kia", "genesis",
+  // German
+  "bmw", "mercedes", "audi", "volkswagen", "vw", "porsche", "mini",
+  // European
+  "volvo", "jaguar", "land rover", "range rover", "alfa romeo", "fiat", "maserati",
+  "ferrari", "lamborghini", "bentley", "rolls royce", "aston martin", "mclaren", "peugeot", "renault", "citroen",
+  // British
+  "mini", "lotus", "mgb",
+  // Motorcycles
+  "harley", "harley davidson", "yamaha", "kawasaki", "ducati", "triumph", "indian", "ktm", "aprilia",
+  // Other vehicles (trucks, commercial)
+  "freightliner", "peterbilt", "kenworth", "mack", "international",
+];
+
 // Specific vehicle models that indicate vehicle search intent (brand + model = vehicle mode)
 // These are FULL VEHICLE MODELS (not shared with other products)
 const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
@@ -311,6 +338,35 @@ function isVehicleMakeModelQuery(query: string): boolean {
       }
     }
   }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // C) BRAND FALLBACK: Brand + 2+ tokens AND no accessory keywords = vehicle intent
+  // This catches queries like "mercedes c300", "bmw x5", "nissan patrol"
+  // even when the specific model isn't in VEHICLE_MODEL_PATTERNS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const tokens = lower.split(/\s+/);
+  if (tokens.length >= 2) {
+    for (const brand of VEHICLE_BRAND_ALIASES) {
+      // Check if brand is in the query (exact word match)
+      const brandRegex = new RegExp(`\\b${brand.replace(/\s+/g, "\\s+")}\\b`, 'i');
+      if (brandRegex.test(lower)) {
+        console.log(JSON.stringify({
+          event: "[VEHICLE_DETECT] brand_fallback",
+          brand,
+          tokenCount: tokens.length,
+          query,
+        }));
+        return true;
+      }
+    }
+  }
+  
+  console.log(JSON.stringify({
+    event: "[VEHICLE_DETECT] result",
+    query,
+    vehicleMode: false,
+    reason: "no_vehicle_indicators",
+  }));
   
   return false;
 }

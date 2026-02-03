@@ -1,120 +1,118 @@
 
-
-# Fix Home & Garden Category: Block Seeds, Vegetables & Plants
+# Fix Price USD Filter: Include Filters in Cache Key + Pass to Providers
 
 ## Problem
 
-When users browse or search "Home & Garden", they're seeing irrelevant items like:
-- "Marketmore 76 Cucumber Seeds"
-- "Heirloom Vegetable Seeds Survival Garden Kit"
-- Various plant seeds and gardening seeds
+When applying the Price USD filter (e.g., min=0, max=$150), search results still show items over $150. This is caused by three interconnected issues:
 
-**AfriShop should show**: Home appliances, furniture, vacuum cleaners, air fryers, kitchen tools, garden watering systems, outdoor furniture — NOT edible seeds, vegetables, or live plants.
-
----
-
-## Root Cause
-
-1. eBay's "Home & Garden" category (ID: 11700) includes subcategories for seeds, plants, and gardening supplies
-2. The existing `contentBlocker.ts` blocks books/subscriptions but has no rules for seeds/vegetables
-3. Searches like "home garden" return raw eBay results without filtering out these items
+1. **Cache key ignores filters**: Different filter combinations return the same cached results
+2. **eBay search doesn't receive filters**: The `catalogFilters` object is not passed to the eBay API call
+3. **Cached responses bypass post-filter**: When returning cached data, the post-filter step is skipped
 
 ---
 
-## Solution: Extend Content Blocker
+## Solution Overview
 
-Add blocked keywords for seeds, vegetables, and plants to `contentBlocker.ts`. This is the cleanest solution because:
-- All catalog endpoints already use `filterDisallowedItems()`
-- Changes apply globally (search, category browse, home sections)
-- Consistent with existing book/subscription blocking pattern
+```text
+Current Flow (Broken):
+User searches "iphone" (maxPrice=150)
+  → Cache key: "search:iphone:all:page1" (no filters!)
+  → Returns cached results from unfiltered search
+  → Items over $150 appear ❌
+
+Fixed Flow:
+User searches "iphone" (maxPrice=150)
+  → Cache key: "search:iphone:all:page1:maxPrice=150" 
+  → Cache miss (first request with this filter)
+  → eBay API called with price:[0..150] filter
+  → Results saved to cache WITH filter info
+  → Post-filter applied as backup
+  → Only items ≤$150 appear ✓
+```
 
 ---
 
 ## Technical Changes
 
-### File: `supabase/functions/_shared/contentBlocker.ts`
+### 1. Include Filters in Cache Key
 
-**1. Add new blocked keywords for Home & Garden irrelevant content:**
+**File:** `supabase/functions/catalog-search/index.ts` (lines 462-469)
+
+Add filter parameters to the cache key so different filter combinations have separate cached results:
 
 ```typescript
-// ==================== HOME & GARDEN EXCLUSIONS ====================
-// Seeds, vegetables, plants - NOT appropriate for AfriShop
-// (AfriShop sells appliances, furniture, tools - not food/plants)
-const HOME_GARDEN_BLOCKED_KEYWORDS = new Set([
-  // Seeds
-  "seeds",
-  "seed",
-  "seed packet",
-  "seed packets",
-  "heirloom seeds",
-  "vegetable seeds",
-  "flower seeds",
-  "garden seeds",
-  "herb seeds",
-  "organic seeds",
-  "non-gmo seeds",
-  
-  // Plants & Growing
-  "seedling",
-  "seedlings",
-  "live plant",
-  "live plants",
-  "potted plant",
-  "bulbs",
-  "plant bulbs",
-  "flower bulbs",
-  "growing kit",
-  "seed starter",
-  
-  // Vegetables & Produce (not selling food)
-  "vegetable",
-  "vegetables",
-  "tomato plant",
-  "pepper plant",
-  "cucumber plant",
-  "lettuce seeds",
-  
-  // Fertilizers & Chemicals (low margin, shipping issues)
-  "fertilizer",
-  "pesticide",
-  "herbicide",
-  "plant food",
-  "potting soil",
-  "garden soil",
-  "mulch",
-  "compost",
-]);
+const globalCacheKey = buildCacheKey("search", {
+  env: envName,
+  query: qNorm,
+  provider: providerParam || "all",
+  category: categoryKey || undefined,
+  page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+  pageSize: limit,
+  // NEW: Include filters in cache key
+  minPrice: catalogFilters.minPrice,
+  maxPrice: catalogFilters.maxPrice,
+  brand: catalogFilters.brand?.join(","),
+  rating: catalogFilters.rating,
+  condition: catalogFilters.condition,
+});
 ```
 
-**2. Update `isDisallowedItem()` to check these new keywords:**
+### 2. Pass Filters to eBay API Call
+
+**File:** `supabase/functions/catalog-search/index.ts` (lines 780-792)
+
+Add the `filters` parameter to the eBay search call so price filtering happens at the API level:
 
 ```typescript
-// After existing blocked keyword checks, add:
-// 8. Check HOME & GARDEN exclusions
-for (const keyword of HOME_GARDEN_BLOCKED_KEYWORDS) {
-  if (keyword.length <= 5) {
-    const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
-    if (regex.test(titleLower)) {
-      return { isDisallowed: true, reason: "home_garden_exclusion", matchedPattern: keyword };
-    }
-  } else {
-    if (titleLower.includes(keyword)) {
-      return { isDisallowed: true, reason: "home_garden_exclusion", matchedPattern: keyword };
-    }
+const ebayResult = await searchEbay(
+  supabase,
+  {
+    query: enhancedQuery,
+    page,
+    pageSize: limit,
+    minPrice,
+    isVehicle,
+    categoryId: ebayCategory,
+    marketplaceId: "EBAY_US",
+    // NEW: Pass filters to eBay for API-level filtering
+    filters: catalogFilters,
+  },
+  requestId
+);
+```
+
+### 3. Apply Post-Filter to Cached Results
+
+**File:** `supabase/functions/catalog-search/index.ts` (lines 474-492)
+
+Apply filters to cached responses as a safety net:
+
+```typescript
+if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
+  console.log(`[SEARCH] requestId=${requestId} GLOBAL CACHE HIT`);
+  
+  const cachedResponse = cacheResult.data;
+  
+  // Apply post-filter to cached results (in case filters differ)
+  let cachedItems = cachedResponse.items || [];
+  const hasFilters = catalogFilters.minPrice !== undefined || 
+                     catalogFilters.maxPrice !== undefined;
+  if (hasFilters && cachedItems.length > 0) {
+    cachedItems = postFilterItems(cachedItems, catalogFilters);
+    console.log(`[SEARCH] requestId=${requestId} Cache post-filter: ${cachedResponse.items.length} → ${cachedItems.length}`);
   }
+  
+  return new Response(JSON.stringify({
+    ...cachedResponse,
+    items: cachedItems, // Use filtered items
+    total: cachedItems.length,
+    query: qOriginal,
+    env: envName,
+    durationMs: Date.now() - startTime,
+    _cacheHit: true,
+    _cacheAgeSec: cacheResult.cacheAgeSec,
+  }), { ... });
 }
-```
-
-**3. Add allowlist for false positives:**
-
-```typescript
-// Allowlist for Home & Garden (prevent blocking legitimate products)
-const HOME_GARDEN_ALLOWLIST = [
-  "seed spreader",     // Lawn equipment
-  "seed dispenser",    // Garden tool
-  "vacuum seeder",     // Machinery
-  "seed drill",        // Agricultural equipment
-];
 ```
 
 ---
@@ -123,41 +121,30 @@ const HOME_GARDEN_ALLOWLIST = [
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/_shared/contentBlocker.ts` | Add blocked keywords for seeds/vegetables/plants, update filter function |
+| `supabase/functions/catalog-search/index.ts` | Include filters in cache key, pass filters to eBay, post-filter cached results |
 
 ---
 
 ## Expected Results
 
-### Before (Current Behavior)
-Searching "home garden" returns:
-- ❌ "Marketmore 76 Cucumber Seeds"
-- ❌ "Heirloom Vegetable Seeds Survival Garden Kit"
-- ✅ Air fryers
-- ✅ Robot vacuums
+### Before (Broken)
+- Search "iphone" with maxPrice=$150 → Shows items at $800, $1200, etc.
+- Same cached results regardless of filter
 
-### After (Fixed Behavior)
-Searching "home garden" returns:
-- ✅ Air fryers
-- ✅ Robot vacuums
-- ✅ Blenders
-- ✅ Outdoor furniture
-- ✅ Garden hose reels
-- ✅ Pressure washers
-- ✅ Lawn mowers
-
-Seeds, vegetables, and plants will be automatically filtered out.
+### After (Fixed)
+- Search "iphone" with maxPrice=$150 → Only shows items ≤$150
+- Each filter combination has its own cache entry
+- eBay API returns pre-filtered results (faster)
+- Post-filter catches any edge cases
 
 ---
 
-## Testing
+## Testing Checklist
 
-After implementation, verify with:
+After implementation, verify:
 
-1. Search "home garden" → No seeds/vegetables in results
-2. Browse Home & Garden category → Only appliances, furniture, tools
-3. Search "garden tools" → Shows hose reels, sprinklers, NOT seeds
-4. Verify legitimate products not blocked:
-   - "Seed spreader" (lawn equipment) → Should appear
-   - "Vacuum seeder" (machinery) → Should appear
-
+1. Search "iphone" with no filters → Mix of prices
+2. Search "iphone" with maxPrice=150 → All items ≤$150
+3. Search "iphone" with minPrice=500, maxPrice=1000 → Only items in that range
+4. Repeat search with same filter → Cache hit, still filtered correctly
+5. Change filter → Cache miss, new filtered results

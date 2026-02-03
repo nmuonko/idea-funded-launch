@@ -60,6 +60,12 @@ import {
   buildAppliedSortFilter,
   AppliedSortFilter,
 } from "../_shared/sortFilterNormalizer.ts";
+import { getEnabledProviders, getClientPlatform, ClientPlatform } from "../_shared/featureFlags.ts";
+import { getClientIp } from "../_shared/rateLimiter.ts";
+import { 
+  getProxyCacheSettings, 
+  ProxyCacheSettings,
+} from "../_shared/proxyCache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -784,7 +790,7 @@ Deno.serve(async (req: Request) => {
     categoryKey,
   };
 
-  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam} lang=${lang} isVehicle=${isVehicleEarly}`);
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang, isVehicle: isVehicleEarly }));
 
   // Build empty response helper
   const buildEmptyResponse = (error?: { code: string; message: string }): SearchResponse => ({
@@ -821,7 +827,7 @@ Deno.serve(async (req: Request) => {
 
   // Blocked content check (use original before rewrite)
   if (isBlockedSearchQuery(qOriginal)) {
-    console.log(`[SEARCH] requestId=${requestId} BLOCKED query: "${qOriginal}"`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} BLOCKED query: "${qOriginal}"`);
     return new Response(JSON.stringify({
       ...buildEmptyResponse(),
       warning: { message: getBlockedSearchMessage(lang), code: "BLOCKED_CONTENT" },
@@ -848,7 +854,50 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // ─── PERF TRACKING ──────────────────────────────────────────────────────────
-    const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, amazon_ms: 0, ebay_ms: 0, mix_ms: 0 };
+    const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, amazon_ms: 0, ebay_ms: 0, mix_ms: 0, flags_ms: 0 };
+
+    // ─── PLATFORM-AWARE FEATURE FLAGS (Proxy Engine Integration) ─────────────────
+    // Check feature_flags table for platform-specific provider gating (iOS, Android, web)
+    const flagsStart = Date.now();
+    const clientPlatform = getClientPlatform(req);
+    const enabledProviders = await getEnabledProviders(supabase, clientPlatform, providerParam);
+    perfLog.flags_ms = Date.now() - flagsStart;
+    
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} feature_check`, JSON.stringify({
+      amazon: enabledProviders.amazon,
+      ebay: enabledProviders.ebay,
+      platform: clientPlatform || "all",
+      requestedProvider: providerParam,
+    }));
+
+    // ─── RATE LIMITING (Proxy Engine Integration) ────────────────────────────────
+    // Use same rate limit keys as market-search-proxy for consistency
+    const clientIp = getClientIp(req);
+    const rateLimitKey = `ip:${clientIp}:catalog-search`;
+    const RATE_LIMIT_IP = 60;
+    const RATE_LIMIT_WINDOW_MINUTES = 5;
+    
+    const { data: rateLimitResult, error: rateLimitError } = await supabase.rpc("check_rate_limit", {
+      p_key: rateLimitKey,
+      p_limit: RATE_LIMIT_IP,
+      p_window_minutes: RATE_LIMIT_WINDOW_MINUTES,
+    });
+    
+    if (!rateLimitError && rateLimitResult && !rateLimitResult.allowed) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} rate_limited key=${rateLimitKey}`);
+      return new Response(JSON.stringify({
+        ...buildEmptyResponse({ code: "RATE_LIMIT_EXCEEDED", message: "Too many requests. Please wait before trying again." }),
+        retry_after: rateLimitResult.reset_at,
+      }), {
+        status: 200, // Keep 200 for mobile app compatibility
+        headers: { 
+          ...corsHeaders, 
+          "Content-Type": "application/json",
+          "X-RateLimit-Remaining": "0",
+          "X-RateLimit-Reset": rateLimitResult.reset_at || "",
+        },
+      });
+    }
 
     // ─── PARALLEL: REWRITE QUERY + LOAD SETTINGS ─────────────────────────────────
     // Run query rewrite and settings load concurrently (saves ~30-50ms)
@@ -869,10 +918,18 @@ Deno.serve(async (req: Request) => {
     const qNorm = searchMeta.rewrittenQuery; // Use rewritten query for searches
     
     if (searchMeta.rewriteApplied) {
-      console.log(`[SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
 
-    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
+    // ─── EFFECTIVE MODE (Merge settings + feature flags) ─────────────────────────
+    // Use feature_flags to override provider availability (platform-specific gating)
+    const baseEffectiveMode = getEffectiveMode(settings, providerParam || undefined);
+    const effectiveMode = {
+      ...baseEffectiveMode,
+      // Feature flags can disable providers, but cannot enable them if settings disable them
+      amazonActive: baseEffectiveMode.amazonActive && enabledProviders.amazon,
+      ebayActive: baseEffectiveMode.ebayActive && enabledProviders.ebay,
+    };
 
     // Decode cursor first (needed for cache key)
     let mixerCursor = getInitialCursor();
@@ -906,7 +963,7 @@ Deno.serve(async (req: Request) => {
 
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       // INSTANT RETURN: Fresh cache hit
-      console.log(`[SEARCH] requestId=${requestId} GLOBAL CACHE HIT (${cacheResult.cacheAgeSec}s old) key=${globalCacheKey.substring(0, 60)}...`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_hit fresh (${cacheResult.cacheAgeSec}s old) key=${globalCacheKey.substring(0, 60)}...`);
       
       const cachedResponse = cacheResult.data;
       const instantDuration = Date.now() - startTime;
@@ -920,7 +977,7 @@ Deno.serve(async (req: Request) => {
       if (hasFiltersForCache && cachedItems.length > 0) {
         const beforeCount = cachedItems.length;
         cachedItems = postFilterItems(cachedItems, catalogFilters);
-        console.log(`[SEARCH] requestId=${requestId} Cache post-filter: ${beforeCount} → ${cachedItems.length}`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_postfilter: ${beforeCount} → ${cachedItems.length}`);
       }
       
       return new Response(JSON.stringify({
@@ -941,10 +998,10 @@ Deno.serve(async (req: Request) => {
     // Track if we should do stale-while-revalidate
     const isStaleCache = cacheResult.hit && cacheResult.stale && !cacheResult.negativeCached;
     if (isStaleCache) {
-      console.log(`[SEARCH] requestId=${requestId} STALE CACHE (${cacheResult.cacheAgeSec}s old) - will refresh`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_stale (${cacheResult.cacheAgeSec}s old) - will refresh`);
     }
 
-    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} effective_mode`, JSON.stringify({ mode: effectiveMode.mode, amazon: effectiveMode.amazonActive, ebay: effectiveMode.ebayActive }));
 
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
@@ -957,7 +1014,7 @@ Deno.serve(async (req: Request) => {
     // ═══════════════════════════════════════════════════════════════════════════
     
     if (isVehicle) {
-      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Autos`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} vehicle_query: "${qNorm}" - using eBay Motors + Amazon Autos`);
     }
 
     // ─── PARALLEL PROVIDER FETCH ──────────────────────────────────────────────
@@ -1013,7 +1070,7 @@ Deno.serve(async (req: Request) => {
       amazonLiveUsed = result.liveUsed;
       amazonLiveReason = result.liveReason;
     } else {
-      console.error(`[SEARCH] requestId=${requestId} Amazon fetch failed:`, amazonSettled.reason);
+      console.error(`[CATALOG_SEARCH] requestId=${requestId} amazon_err:`, amazonSettled.reason);
       amazonStatus = "error";
     }
 
@@ -1028,10 +1085,10 @@ Deno.serve(async (req: Request) => {
       ebayHasMore = result.hasMore;
       ebayTotal = result.total;
     } else {
-      console.error(`[SEARCH] requestId=${requestId} eBay fetch failed:`, ebaySettled.reason);
+      console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebaySettled.reason);
     }
 
-    console.log(`[SEARCH_PERF] requestId=${requestId} provider_parallel_ms=${providerMs} amazon=${amazonItems.length} ebay=${ebayItems.length}`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     // UNIFIED: Use same mixer as catalog-category for consistent behavior
@@ -1102,7 +1159,12 @@ Deno.serve(async (req: Request) => {
       console.log(`[SEARCH] requestId=${requestId} PostSort applied: ${sort}`);
     }
 
-    console.log(`[SEARCH_MEDIA] requestId=${requestId} checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} media_stats checked=${mediaStats.checked} cacheHit=${mediaStats.cacheHit} fetched=${mediaStats.fetched} timeout=${mediaStats.timedOut}`);
+
+    // Build sourceServed array (matches market-search-proxy format)
+    const sourceServed: ("ebay" | "amazon")[] = [];
+    if (ebayItems.length > 0) sourceServed.push("ebay");
+    if (amazonItems.length > 0) sourceServed.push("amazon");
 
     // Build provider stats with mixing configuration for transparency
     const providerStats = {
@@ -1122,6 +1184,14 @@ Deno.serve(async (req: Request) => {
       }),
       amazonLiveUsed,
       amazonLiveReason,
+      // Add sourceServed for proxy engine compatibility
+      sourceServed,
+      sourceRequested: providerParam || "mixed",
+      platformGating: {
+        clientPlatform: clientPlatform || "all",
+        amazonGated: !enabledProviders.amazon,
+        ebayGated: !enabledProviders.ebay,
+      },
     };
 
     // Log mixer request summary
@@ -1142,8 +1212,9 @@ Deno.serve(async (req: Request) => {
 
     const durationMs = Date.now() - startTime;
     
-    // Log detailed performance breakdown
-    console.log(`[SEARCH_PERF] requestId=${requestId}`, JSON.stringify({
+    // Log detailed performance breakdown (with flags_ms from proxy engine integration)
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} perf`, JSON.stringify({
+      flags_ms: perfLog.flags_ms,
       rewrite_settings_ms: perfLog.rewrite_ms,
       cache_check_ms: perfLog.cache_ms,
       provider_parallel_ms: providerMs,
@@ -1153,9 +1224,10 @@ Deno.serve(async (req: Request) => {
       total_ms: durationMs,
       items_returned: finalItems.length,
       cache_hit: false,
+      sourceServed,
     }));
     
-    console.log(`[SEARCH] requestId=${requestId} Done: ${finalItems.length} items, mode=${effectiveMode.mode}, phase=${mixResult.mixingPhase}, durationMs=${durationMs}`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} response items=${finalItems.length} mode=${effectiveMode.mode} phase=${mixResult.mixingPhase} durationMs=${durationMs}`);
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";
 
@@ -1186,9 +1258,9 @@ Deno.serve(async (req: Request) => {
         page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
         pageSize: limit,
         amazonDomain: "amazon.com",
-      }).catch(err => console.warn(`[SEARCH] requestId=${requestId} Cache write failed:`, err));
+      }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
       
-      console.log(`[SEARCH] requestId=${requestId} Cached response for key=${globalCacheKey.substring(0, 60)}...`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_write key=${globalCacheKey.substring(0, 60)}...`);
     }
 
     return new Response(JSON.stringify(response), {
@@ -1198,7 +1270,7 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[SEARCH] requestId=${requestId} error:`, errorMessage);
+    console.error(`[CATALOG_SEARCH] requestId=${requestId} error:`, errorMessage);
 
     return new Response(JSON.stringify(buildEmptyResponse({
       code: "INTERNAL_ERROR",

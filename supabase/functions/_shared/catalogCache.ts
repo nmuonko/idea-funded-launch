@@ -10,7 +10,7 @@ import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v3"; // v3: Added explicit vm/mp to cache key for vehicle mode
+export const AMAZON_CACHE_VERSION = "v4"; // v4: Added _meta payload signature for mismatch detection
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
@@ -314,10 +314,41 @@ export function normalizeOffer(offer: any): NormalizedOffer {
 }
 
 /**
+ * Cache payload metadata for mismatch detection (v4)
+ * Stored in _meta field of cached search responses
+ */
+export interface CachePayloadMeta {
+  qNorm: string;
+  provider?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: string;
+  category_key?: string;
+  vehicleMode: boolean;
+  minPriceUsed: number;
+  cachedAt: string;
+}
+
+/**
  * Normalize cache payload based on type
  * UPGRADE B: Strip raw provider data, keep only normalized fields
+ * UPGRADE v4: Accept optional meta for search payload signature validation
  */
-export function normalizeCachePayload(type: CacheType, data: any, pageSize: number = 20): any {
+export function normalizeCachePayload(
+  type: CacheType, 
+  data: any, 
+  pageSize: number = 20,
+  meta?: {
+    qNorm?: string;
+    provider?: string;
+    page?: number;
+    pageSize?: number;
+    sort?: string;
+    category_key?: string;
+    vehicleMode?: boolean;
+    minPriceUsed?: number;
+  }
+): any {
   switch (type) {
     case "home":
       return {
@@ -334,6 +365,18 @@ export function normalizeCachePayload(type: CacheType, data: any, pageSize: numb
           : [],
         total: data.total ?? null,
         usedVariantCount: data.usedVariantCount || 1,
+        // v4: Embed query signature for mismatch detection on read
+        _meta: meta ? {
+          qNorm: meta.qNorm,
+          provider: meta.provider,
+          page: meta.page,
+          pageSize: meta.pageSize,
+          sort: meta.sort,
+          category_key: meta.category_key,
+          vehicleMode: meta.vehicleMode ?? false,
+          minPriceUsed: meta.minPriceUsed ?? 0,
+          cachedAt: new Date().toISOString(),
+        } : undefined,
       };
     
     case "product":

@@ -1,91 +1,229 @@
 
 
-# Fix: Query Canonicalizer Breaking "Range Rover" → "Range Router"
+# URGENT BUGFIX: Cache Key/Payload Mismatch Protection (v4)
 
-## Root Cause
+## Problem Summary
 
-The canonicalizer has a **critical bug** in its token processing logic:
+Searches like "range rover" sometimes return completely unrelated results (phones, accessories) due to **cache key/payload mismatch**. This happens when:
 
-| Step | What Happens | Problem |
-|------|--------------|---------|
-| 1 | Query: "range rover" | - |
-| 2 | Split into tokens: `["range", "rover"]` | Multi-word keys like `"range rover"` are never checked |
-| 3 | `canonicalizeToken("rover")` | No direct match |
-| 4 | `fuzzyMatch("rover", threshold=2)` | Levenshtein distance to "router" is 2 |
-| 5 | Returns "router" | **Wrong!** "rover" is not a typo for "router" |
-| 6 | Final output: "range router" | Vehicle detection fails |
+1. A query is cached with `vehicleMode=false` (returning accessories)
+2. Later, with updated vehicle detection logic, the same query now triggers `vehicleMode=true`
+3. But the cache key still matches an old entry with wrong results (poisoned cache)
 
-**Evidence from logs:**
+**Evidence:** The cache contains entries like:
 ```
-[CACHE] Canonicalized query: "range rover" → "range router"
-[CATALOG_SEARCH] request {"hasBuyingIntent":false,"hasMakeModel":false}
+cache_key: search:v3:q=range rover:...:vm=0:mp=0:...
 ```
+When it SHOULD have been stored with `vm=1:mp=1000`.
 
-## Solution
+---
 
-Two fixes are needed:
+## Solution: Cache Version Bump + Payload Signature Validation
 
-### 1. Add "rover" to Protected Vehicle Terms
+### 1. Bump Cache Version from v3 to v4
 
-Add "rover" as a canonical term that maps to itself, preventing fuzzy matching to "router":
+**File: `supabase/functions/_shared/catalogCache.ts`**
+
+Change the cache version constant to invalidate all existing search cache entries:
 
 ```typescript
-// Add to CANONICAL_TERMS (vehicle section):
-"rover": [], // Protected - prevent fuzzy match to "router"
+// Line 13
+export const AMAZON_CACHE_VERSION = "v4"; // v4: Added _meta payload signature for mismatch detection
 ```
 
-By adding "rover" with an empty typo array, the direct lookup succeeds and fuzzy matching is skipped.
+This ensures:
+- All existing `search:v3:...` keys are automatically missed
+- Fresh fetches with correct vehicle detection
 
-### 2. Match Multi-Word Phrases BEFORE Splitting into Tokens
+---
 
-Update `canonicalizeQuery()` to check for multi-word canonical terms (like "range rover", "grand cherokee") before tokenizing:
+### 2. Add `_meta` Signature to Cache Payload
+
+**File: `supabase/functions/_shared/catalogCache.ts`**
+
+Update `normalizeCachePayload()` to accept and embed metadata for mismatch detection:
 
 ```typescript
-export function canonicalizeQuery(normalized: string): string {
-  if (!normalized || normalized.trim().length === 0) {
-    return normalized;
+// Update function signature (around line 320)
+export function normalizeCachePayload(
+  type: CacheType, 
+  data: any, 
+  pageSize: number = 20,
+  meta?: {
+    qNorm?: string;
+    provider?: string;
+    page?: number;
+    pageSize?: number;
+    sort?: string;
+    category_key?: string;
+    vehicleMode?: boolean;
+    minPriceUsed?: number;
   }
-  
-  let result = normalized;
-  
-  // FIRST: Check multi-word canonical terms (e.g., "range rover", "grand cherokee")
-  // Sort by length descending to match longer phrases first
-  const multiWordTerms = Object.entries(CANONICAL_TERMS)
-    .filter(([canonical]) => canonical.includes(" "))
-    .sort((a, b) => b[0].length - a[0].length);
-  
-  for (const [canonical, typos] of multiWordTerms) {
-    // Check if query contains the canonical form (keep it as-is)
-    if (result.includes(canonical)) {
-      continue; // Already canonical
-    }
-    // Check if query contains any typo variant
-    for (const typo of typos) {
-      if (result.includes(typo)) {
-        result = result.replace(typo, canonical);
-        break;
-      }
-    }
+): any {
+  switch (type) {
+    case "search":
+      return {
+        items: Array.isArray(data.items)
+          ? data.items.slice(0, pageSize).map(normalizeCatalogItem)
+          : [],
+        total: data.total ?? null,
+        usedVariantCount: data.usedVariantCount || 1,
+        // NEW: Embed query signature for mismatch detection on read
+        _meta: meta ? {
+          qNorm: meta.qNorm,
+          provider: meta.provider,
+          page: meta.page,
+          pageSize: meta.pageSize,
+          sort: meta.sort,
+          category_key: meta.category_key,
+          vehicleMode: meta.vehicleMode,
+          minPriceUsed: meta.minPriceUsed,
+          cachedAt: new Date().toISOString(),
+        } : undefined,
+      };
+    // ... other cases unchanged
   }
-  
-  // THEN: Process remaining tokens individually
-  const tokens = result.split(/\s+/);
-  const canonicalized = tokens.map(canonicalizeToken);
-  return canonicalized.join(" ");
 }
 ```
 
-### 3. Add Vehicle-Specific Protected Terms
+---
 
-Add these terms to `CANONICAL_TERMS` to prevent fuzzy matching to electronics:
+### 3. Update Cache Write to Include `_meta`
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Update the cache write section (around line 1556) to pass metadata:
 
 ```typescript
-// Protected vehicle terms - prevent fuzzy matching to similar electronics
-"rover": [],           // Prevent "rover" → "router"
-"cherokee": [],        // Prevent unwanted fuzzy matches
-"silverado": [],       // Prevent unwanted fuzzy matches
-"escalade": [],        // Prevent unwanted fuzzy matches
-"bronco": [],          // Prevent unwanted fuzzy matches
+// Build _meta signature for cache validation
+const cacheMeta = {
+  qNorm,
+  provider: providerParam || "mixed",
+  page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+  pageSize: limit,
+  sort,
+  category_key: categoryKey || undefined,
+  vehicleMode: hasBuyingIntent,
+  minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
+};
+
+// Store for instant retrieval with embedded signature
+if (finalItems.length > 0) {
+  setCache(supabase, "search", globalCacheKey, 
+    { ...response, _meta: cacheMeta }, // Embed meta in response
+    {
+      provider: "mixed",
+      query: qNorm,
+      category: categoryKey || undefined,
+      page: cacheMeta.page,
+      pageSize: limit,
+      amazonDomain: "amazon.com",
+    }
+  ).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
+  
+  console.log(JSON.stringify({
+    event: "[CATALOG_SEARCH] cache_write",
+    cache_key: globalCacheKey.substring(0, 80),
+    qNorm,
+    vehicleMode: hasBuyingIntent,
+    minPriceUsed: cacheMeta.minPriceUsed,
+    requestId,
+  }));
+}
+```
+
+---
+
+### 4. Add Cache Mismatch Detection on Read
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Expand the existing cache mismatch detection (around line 1218-1229) to validate `_meta` signature:
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// CACHE MISMATCH DETECTION (v4 POISON FIX):
+// Validate cached payload._meta matches current request parameters
+// Force cache miss if any critical parameter differs (prevents cache poisoning)
+// ═══════════════════════════════════════════════════════════════════════════
+if (cacheResult.hit && cacheResult.data?._meta) {
+  const cachedMeta = cacheResult.data._meta;
+  const currentMeta = {
+    qNorm,
+    vehicleMode: hasBuyingIntent,
+    minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
+  };
+  
+  // Check for critical mismatches
+  const qMismatch = cachedMeta.qNorm && cachedMeta.qNorm !== currentMeta.qNorm;
+  const vmMismatch = cachedMeta.vehicleMode !== undefined && cachedMeta.vehicleMode !== currentMeta.vehicleMode;
+  const mpMismatch = cachedMeta.minPriceUsed !== undefined && cachedMeta.minPriceUsed !== currentMeta.minPriceUsed;
+  
+  if (qMismatch || vmMismatch || mpMismatch) {
+    console.warn(JSON.stringify({
+      event: "[CATALOG_SEARCH] cache_mismatch",
+      cache_key: cacheResult.cacheKey.substring(0, 80),
+      cachedQ: cachedMeta.qNorm,
+      currentQ: currentMeta.qNorm,
+      cachedVM: cachedMeta.vehicleMode,
+      currentVM: currentMeta.vehicleMode,
+      cachedMP: cachedMeta.minPriceUsed,
+      currentMP: currentMeta.minPriceUsed,
+      action: "forcing_miss",
+      requestId,
+    }));
+    cacheResult = { ...cacheResult, hit: false, stale: true };
+  }
+}
+
+// Keep existing vm=1 fallback check for legacy entries without _meta
+if (cacheResult.hit && hasBuyingIntent) {
+  const cacheKeyHasVehicleMode = cacheResult.cacheKey.includes("vm=1");
+  if (!cacheKeyHasVehicleMode) {
+    console.warn(`[CATALOG_SEARCH] requestId=${requestId} CACHE_MISMATCH: vehicleMode=true but cache key lacks vm=1. Forcing miss.`);
+    cacheResult = { ...cacheResult, hit: false, stale: true };
+  }
+}
+```
+
+---
+
+### 5. Add Cache Hit Logging
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Update the fresh cache hit log (around line 1233) to include qNorm:
+
+```typescript
+if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
+  console.log(JSON.stringify({
+    event: "[CATALOG_SEARCH] cache_hit",
+    cache_key: globalCacheKey.substring(0, 80),
+    qNorm,
+    vehicleMode: hasBuyingIntent,
+    cacheAgeSec: cacheResult.cacheAgeSec,
+    requestId,
+  }));
+  // ... rest of cache hit handling
+}
+```
+
+---
+
+### 6. Purge All v3 Search Cache Entries
+
+Execute SQL migration to remove all old `search:v3:` entries:
+
+```sql
+-- Purge v3 search cache entries (now using v4)
+DELETE FROM public.catalog_cache 
+WHERE cache_type = 'search' 
+  AND cache_key LIKE 'search:v3:%';
+
+-- Also purge any legacy v2 entries that might still exist
+DELETE FROM public.catalog_cache 
+WHERE cache_type = 'search' 
+  AND cache_key LIKE 'search:v2:%';
 ```
 
 ---
@@ -94,43 +232,44 @@ Add these terms to `CANONICAL_TERMS` to prevent fuzzy matching to electronics:
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/_shared/queryCanonicalizer.ts` | Add protected vehicle terms, implement multi-word phrase matching before tokenization |
+| `supabase/functions/_shared/catalogCache.ts` | Bump version to v4, add `_meta` to payload normalization |
+| `supabase/functions/catalog-search/index.ts` | Add `_meta` validation on cache read, enhanced logging on cache hit/write |
+| Database | Purge v2 and v3 search cache entries |
 
 ---
 
 ## Expected Behavior After Fix
 
-| Input Query | Current (Broken) | After Fix |
-|-------------|------------------|-----------|
-| "range rover" | "range router" ❌ | "range rover" ✅ |
-| "rangerover" | "rangerover" | "range rover" ✅ |
-| "rang rover" | "rang router" ❌ | "range rover" ✅ |
-| "grand cherokee" | "grand cherokee" | "grand cherokee" ✅ |
-| "grandcherokee" | "grandcherokee" | "grand cherokee" ✅ |
-| "f150" | "f150" | "f-150" ✅ |
-| "infiniti qx80" | "infiniti qx80" ✅ | "infiniti qx80" ✅ |
+### Cache Write
+```json
+{"event":"[CATALOG_SEARCH] cache_write","cache_key":"search:v4:q=range rover:...","qNorm":"range rover","vehicleMode":true,"minPriceUsed":1000}
+```
+
+### Cache Hit (Valid)
+```json
+{"event":"[CATALOG_SEARCH] cache_hit","cache_key":"search:v4:q=range rover:...","qNorm":"range rover","vehicleMode":true,"cacheAgeSec":42}
+```
+
+### Cache Mismatch (Forced Miss)
+```json
+{"event":"[CATALOG_SEARCH] cache_mismatch","cachedQ":"range rover","currentQ":"range rover","cachedVM":false,"currentVM":true,"action":"forcing_miss"}
+```
 
 ---
 
-## Technical Details
+## Technical Summary
 
-### Why This Bug Happened
+| Component | Change |
+|-----------|--------|
+| Cache Version | v3 → v4 |
+| Cache Key | Already includes `vm=` and `mp=` markers |
+| Cache Payload | NEW: `_meta` object with qNorm, vehicleMode, minPriceUsed |
+| Cache Read | NEW: Validate `_meta` matches current request before returning |
+| Cache Write | NEW: Embed `_meta` in payload for future validation |
+| Logging | Enhanced structured JSON logs for cache_hit, cache_mismatch, cache_write |
 
-The canonicalizer was designed for **single-word** brand names (iPhone, Samsung, Toyota). When multi-word canonical terms like "range rover" were added, the system still processes tokens individually:
-
-```typescript
-// Current implementation (line 226-228):
-const tokens = normalized.split(/\s+/);           // ["range", "rover"]
-const canonicalized = tokens.map(canonicalizeToken);  // ["range", "router"] ❌
-return canonicalized.join(" ");                    // "range router"
-```
-
-The multi-word keys in `CANONICAL_TERMS` (lines 74-84) are never checked because they contain spaces but we split by spaces first.
-
-### Fix Strategy
-
-1. **Short-term (immediate)**: Add "rover" as a protected term to prevent fuzzy matching
-2. **Long-term (in this fix)**: Process multi-word phrases before tokenization
-
-This ensures both the immediate problem is solved AND future multi-word canonicalizations work correctly.
+This **defense-in-depth** approach ensures:
+1. **Version bump** → Immediate invalidation of all potentially poisoned entries
+2. **Payload signature** → Runtime detection of any future mismatches
+3. **Logging** → Full visibility for debugging cache behavior
 

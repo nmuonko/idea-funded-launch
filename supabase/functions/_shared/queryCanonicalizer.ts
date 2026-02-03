@@ -70,6 +70,30 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "infiniti": ["infinti", "infinty", "inifiniti", "infintii", "infniti", "infinitie"], // Luxury vehicle brand - NOT infinix (phone)
   "acura": ["accura", "acurra", "acur"],
   "genesis": ["genisis", "gensis", "genesi"],
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROTECTED VEHICLE TERMS: Prevent fuzzy matching to electronics
+  // These terms have empty arrays - they exist only to block fuzzy matches
+  // e.g., "rover" must NOT fuzzy-match to "router" (Levenshtein distance 2)
+  // ═══════════════════════════════════════════════════════════════════════════
+  "rover": [],        // Prevent "rover" → "router"
+  "cherokee": [],     // Prevent unwanted fuzzy matches
+  "silverado": [],    // Prevent unwanted fuzzy matches
+  "escalade": [],     // Prevent unwanted fuzzy matches
+  "bronco": [],       // Prevent unwanted fuzzy matches
+  "mustang": [],      // Prevent unwanted fuzzy matches
+  "corvette": [],     // Prevent unwanted fuzzy matches
+  "camaro": [],       // Prevent unwanted fuzzy matches
+  "challenger": [],   // Prevent unwanted fuzzy matches (Dodge Challenger)
+  // Note: "charger" is in General Products section for battery chargers
+  "navigator": [],    // Prevent unwanted fuzzy matches
+  "tahoe": [],        // Prevent unwanted fuzzy matches
+  "suburban": [],     // Prevent unwanted fuzzy matches
+  "wrangler": [],     // Prevent unwanted fuzzy matches
+  "gladiator": [],    // Prevent unwanted fuzzy matches
+  "prius": [],        // Prevent unwanted fuzzy matches
+  "miata": [],        // Prevent unwanted fuzzy matches
+  
   // Range Rover / Land Rover (commonly searched vehicle names)
   "range rover": ["rangerover", "range rove", "rang rover", "rnage rover", "range rver"],
   "land rover": ["landrover", "land rove", "lanr rover", "lnad rover"],
@@ -79,7 +103,6 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "f-350": ["f350", "f 350"],
   // Jeep models
   "grand cherokee": ["grandcherokee", "grand cheroki", "grand cheroke"],
-  "wrangler": ["wranler", "wranglr", "wrangeler"],
   // Tesla models
   "cybertruck": ["cyber truck", "cybertruk", "cybertuck"],
   
@@ -223,8 +246,44 @@ export function canonicalizeQuery(normalized: string): string {
     return normalized;
   }
   
-  const tokens = normalized.split(/\s+/);
-  const canonicalized = tokens.map(canonicalizeToken);
+  let result = normalized;
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FIRST: Check multi-word canonical terms (e.g., "range rover", "grand cherokee")
+  // This MUST happen BEFORE tokenization to prevent "rover" → "router" fuzzy match
+  // Sort by length descending to match longer phrases first
+  // ═══════════════════════════════════════════════════════════════════════════
+  const multiWordTerms = Object.entries(CANONICAL_TERMS)
+    .filter(([canonical]) => canonical.includes(" "))
+    .sort((a, b) => b[0].length - a[0].length);
+  
+  for (const [canonical, typos] of multiWordTerms) {
+    // Check if query contains the canonical form (keep it as-is)
+    if (result.includes(canonical)) {
+      // Mark this phrase to skip tokenization by replacing spaces with a placeholder
+      result = result.replace(canonical, canonical.replace(/ /g, "\x00"));
+      continue;
+    }
+    // Check if query contains any typo variant
+    for (const typo of typos) {
+      if (result.includes(typo)) {
+        // Replace typo with canonical (using placeholder for spaces)
+        result = result.replace(typo, canonical.replace(/ /g, "\x00"));
+        break;
+      }
+    }
+  }
+  
+  // THEN: Process remaining tokens individually
+  const tokens = result.split(/\s+/);
+  const canonicalized = tokens.map(token => {
+    // If token contains placeholder, restore spaces and skip canonicalization
+    if (token.includes("\x00")) {
+      return token.replace(/\x00/g, " ");
+    }
+    return canonicalizeToken(token);
+  });
+  
   return canonicalized.join(" ");
 }
 

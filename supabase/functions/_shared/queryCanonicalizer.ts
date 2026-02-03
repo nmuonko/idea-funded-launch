@@ -254,17 +254,17 @@ function fuzzyMatch(token: string, threshold: number = 2): string | null {
   // These patterns are common in vehicle models (qx80, f-150, x5, c300, 4runner)
   // ═══════════════════════════════════════════════════════════════════════════
   
-  // Skip tokens containing ANY digit (qx80, c300, a4, 4runner, cx5, 530i, etc.)
-  // This prevents vehicle model identifiers from being corrupted by fuzzy matching
-  if (/\d/.test(token)) {
-    console.log(`[CANONICALIZER] Skipping fuzzy match for digit-token: "${token}"`);
+  // Skip hyphenated identifiers (f-150, cr-v, cx-5, e-tron)
+  if (token.includes("-")) {
+    console.log(`[CANONICALIZER] Skipping fuzzy match for hyphen-token: "${token}"`);
     return null;
   }
   
-  // Skip tokens containing hyphens (f-150, cr-v, cx-5, e-tron, etc.)
-  // Vehicle models frequently use hyphens in their identifiers
-  if (token.includes("-")) {
-    console.log(`[CANONICALIZER] Skipping fuzzy match for hyphen-token: "${token}"`);
+  // Skip alphanumeric identifiers (letters+digits OR digits+letters)
+  // Examples: qx80, c300, 4runner, cx5, x5, 530i, a4
+  // This regex checks: does token have BOTH letters AND digits?
+  if (/[a-z]/i.test(token) && /\d/.test(token)) {
+    console.log(`[CANONICALIZER] Skipping fuzzy match for alphanumeric-token: "${token}"`);
     return null;
   }
   

@@ -1,195 +1,195 @@
 
 
-# Smarter Caching with Fuzzy Query Matching
+# Make Search Instant with Global Result Caching
 
-## Current State
+## Problem Analysis
 
-The caching system already handles:
-- **Case insensitivity**: "iphone" = "IPHONE" = "iPhone" ✅
-- **Accent normalization**: "café" = "cafe" ✅  
-- **Whitespace**: "iphone  15" = "iphone 15" ✅
-- **French translations**: "téléphone" → "smartphone" ✅
-
-**Missing**: Typo tolerance and fuzzy matching. Currently, "iphon" and "iphone" are treated as completely separate queries, causing unnecessary API calls.
-
----
-
-## Solution: Query Canonicalization Layer
-
-Add a **canonicalization step** that corrects common typos and variations before the cache key is generated. This ensures that "iphon", "iphonne", and "iphone" all resolve to the same cache entry.
-
-### Architecture
+Currently, every search request performs the full provider flow:
 
 ```text
-User Query: "iphon 15 pro"
+User Search: "iphone 15"
             ↓
-Step 1: Normalize (lowercase, remove accents)
-        → "iphon 15 pro"
+1. Parse params, vehicle detection (~5ms)
+2. Query rewrite + DB lookup (~20-50ms)
+3. Load catalog settings (~20-50ms)
+4. Amazon API or cache lookup (~100-500ms)
+5. eBay LIVE API call (~300-800ms)  ← ALWAYS LIVE!
+6. Mix results + filter (~10ms)
+7. Media enrichment (~50-100ms)
             ↓
-Step 2: Canonicalize (fuzzy match popular products)
-        → "iphone 15 pro"  ← CORRECTED
-            ↓
-Step 3: Generate Cache Key
-        → "search:v2:q=iphone 15 pro:..."
-            ↓
-Step 4: Cache Hit! (same key as "iPhone 15 Pro")
+Total: 500ms - 1500ms per request
 ```
+
+**Key finding**: The `buildCacheKey`, `getCache`, and `setCache` functions are imported but **never used** for the final mixed response. This means even if 100 users search for "iphone 15", each one triggers fresh eBay API calls.
 
 ---
 
-## Implementation Details
+## Solution: Add Global Search Cache Layer
 
-### 1. Create Query Canonicalization Module
+Add an early cache check that returns instantly when a recent search exists:
 
-**File:** `supabase/functions/_shared/queryCanonicalizer.ts`
+```text
+User Search: "iphone 15"
+            ↓
+1. Normalize + canonicalize query (~1ms)
+2. Build cache key
+3. Check catalog_cache → CACHE HIT!
+            ↓
+Return cached response (~10ms total)
+```
 
-A lightweight module that:
-- Uses a **dictionary of popular product terms** with common typos
-- Applies **Levenshtein distance** matching for unknown queries
-- Preserves numbers and model identifiers
+### Performance Improvement
+
+| Scenario | Before | After |
+|----------|--------|-------|
+| First search for "iphone 15" | ~800ms | ~800ms (same - cache miss) |
+| Second user searches "iphone 15" | ~800ms | **~10-20ms** (cache hit) |
+| "iphon 15" (typo) | ~800ms | **~10-20ms** (canonicalized + cache hit) |
+| Popular search (100 users) | 100 API calls | 1 API call + 99 cache hits |
+
+---
+
+## Technical Implementation
+
+### 1. Add Early Cache Check (before any provider calls)
+
+**File:** `supabase/functions/catalog-search/index.ts`
+
+After query rewriting completes (line ~435), add:
 
 ```typescript
-// Popular search terms with common misspellings
-const CANONICAL_TERMS: Record<string, string[]> = {
-  "iphone": ["iphon", "iphonne", "ipone", "ifonee", "ifone", "iphn"],
-  "samsung": ["samsun", "sumsung", "samung", "samsumg"],
-  "airpods": ["airpod", "airpds", "airpood", "earpods"],
-  "macbook": ["mackbook", "macbok", "mcbook", "macbuk"],
-  "playstation": ["playstaion", "playstaton", "pleystation"],
-  "xbox": ["xbx", "x box", "x-box"],
-  "nintendo": ["nintedo", "nitendo", "nentendo"],
-  "tesla": ["tesle", "tsla", "telsa"],
-  "toyota": ["toyata", "toyoto", "toyta"],
-  "honda": ["hond", "hunda"],
-  // ... 50+ common product terms
-};
+// ─── GLOBAL CACHE CHECK ────────────────────────────────────────────────────
+// Check for cached search results BEFORE calling providers
+const globalCacheKey = buildCacheKey("search", {
+  env: envName,
+  query: qNorm,
+  provider: providerParam || "all",
+  category: categoryKey,
+  page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+  pageSize: limit,
+});
 
-export function canonicalizeQuery(normalized: string): string {
-  // Split into tokens, canonicalize each, rejoin
-  const tokens = normalized.split(/\s+/);
-  const canonicalized = tokens.map(token => {
-    // Check direct matches first
-    for (const [canonical, typos] of Object.entries(CANONICAL_TERMS)) {
-      if (typos.includes(token) || token === canonical) {
-        return canonical;
-      }
-    }
-    // Fuzzy match if no direct hit
-    return fuzzyMatch(token) || token;
+const cacheResult = await getCache(supabase, globalCacheKey);
+
+if (cacheResult.hit && !cacheResult.stale) {
+  // INSTANT RETURN: Fresh cache hit
+  console.log(`[SEARCH] requestId=${requestId} GLOBAL CACHE HIT (${cacheResult.cacheAgeSec}s old)`);
+  
+  const cachedResponse = cacheResult.data;
+  return new Response(JSON.stringify({
+    ...cachedResponse,
+    durationMs: Date.now() - startTime,
+    _cacheHit: true,
+    _cacheAgeSec: cacheResult.cacheAgeSec,
+  }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-  return canonicalized.join(" ");
 }
+
+// If stale, continue but background-refresh after responding
+const shouldBackgroundRefresh = cacheResult.hit && cacheResult.stale;
 ```
 
-### 2. Integrate into Cache Key Generation
+### 2. Cache the Final Response
 
-**File:** `supabase/functions/_shared/catalogCache.ts`
-
-Update `buildCacheKey` to canonicalize the query before generating the key:
+At the end of the handler (before returning), cache the mixed results:
 
 ```typescript
-import { canonicalizeQuery } from "./queryCanonicalizer.ts";
+// ─── CACHE FINAL RESPONSE ──────────────────────────────────────────────────
+// Store for instant retrieval by subsequent users
+setCache(supabase, "search", globalCacheKey, response, {
+  provider: "mixed",
+  query: qNorm,
+  category: categoryKey || undefined,
+  page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+  pageSize: limit,
+  amazonDomain: "amazon.com",
+});
+```
 
-export function buildCacheKey(type: CacheType, params: {...}): string {
-  // ... existing code ...
+### 3. Implement Stale-While-Revalidate (Optional Enhancement)
+
+For even better UX, return stale data immediately while refreshing in the background:
+
+```typescript
+if (cacheResult.hit && cacheResult.stale) {
+  // Return stale data IMMEDIATELY
+  console.log(`[SEARCH] requestId=${requestId} STALE CACHE (${cacheResult.cacheAgeSec}s old) - returning + background refresh`);
   
-  case "search":
-    // Step 1: Normalize (lowercase, accents, whitespace)
-    const qNorm = params.query ? normalizeQuery(params.query) : "";
-    
-    // Step 2: Canonicalize (typo correction)
-    const qCanon = canonicalizeQuery(qNorm);
-    
-    // Step 3: Use canonicalized query for cache key
-    return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:...`;
-}
-```
-
-### 3. Add Logging for Canonicalization
-
-When a query is corrected, log it for debugging:
-
-```typescript
-if (qCanon !== qNorm) {
-  console.log(`[CACHE] Canonicalized query: "${qNorm}" → "${qCanon}"`);
-}
-```
-
----
-
-## Dictionary of Common Typos
-
-The canonicalization dictionary will include:
-
-| Category | Examples |
-|----------|----------|
-| **Phones** | iphone, samsung, galaxy, airpods, tecno, infinix, xiaomi |
-| **Computers** | macbook, laptop, lenovo, dell, thinkpad |
-| **Gaming** | playstation, xbox, nintendo, controller |
-| **Vehicles** | toyota, honda, tesla, ford, chevrolet, bmw, mercedes |
-| **Electronics** | television, headphones, bluetooth, speaker |
-| **Fashion** | adidas, nike, puma, gucci, louis vuitton |
-
-Total: ~100 high-frequency product terms with 3-5 common typos each.
-
----
-
-## Fuzzy Matching Fallback
-
-For queries not in the dictionary, use **Levenshtein distance**:
-
-```typescript
-function fuzzyMatch(token: string, threshold = 2): string | null {
-  // Skip short tokens (less than 4 chars) - too many false positives
-  if (token.length < 4) return null;
+  // Trigger background refresh (don't await)
+  EdgeRuntime.waitUntil(refreshSearchInBackground(supabase, qNorm, globalCacheKey, ...));
   
-  for (const [canonical, _] of Object.entries(CANONICAL_TERMS)) {
-    const distance = levenshteinDistance(token, canonical);
-    // Match if distance is at most 2 and token is similar length
-    if (distance <= threshold && Math.abs(token.length - canonical.length) <= 2) {
-      return canonical;
-    }
-  }
-  return null;
+  // Return stale immediately
+  return new Response(JSON.stringify({
+    ...cacheResult.data,
+    durationMs: Date.now() - startTime,
+    _staleCache: true,
+  }), { ... });
 }
 ```
 
 ---
 
-## Files to Create/Modify
+## Files to Modify
 
-| File | Action | Description |
-|------|--------|-------------|
-| `supabase/functions/_shared/queryCanonicalizer.ts` | **Create** | New module with typo dictionary and fuzzy matching |
-| `supabase/functions/_shared/catalogCache.ts` | **Modify** | Import and use canonicalizer in `buildCacheKey` |
-| `supabase/functions/catalog-search/index.ts` | **Modify** | Log canonicalization in search endpoint |
-
----
-
-## Expected Behavior After Implementation
-
-| User Searches | Before | After |
-|---------------|--------|-------|
-| "iphon 15" | Cache MISS, new API call | Cache HIT (resolves to "iphone 15") |
-| "IPHONE 15" | Cache HIT ✅ | Cache HIT ✅ |
-| "samsun galaxy" | Cache MISS | Cache HIT (resolves to "samsung galaxy") |
-| "tesle model 3" | Cache MISS | Cache HIT (resolves to "tesla model 3") |
-| "airpod pro" | Cache MISS | Cache HIT (resolves to "airpods pro") |
+| File | Changes |
+|------|---------|
+| `supabase/functions/catalog-search/index.ts` | Add early cache check + cache final response |
+| `supabase/functions/_shared/catalogCache.ts` | (Optional) Add search-specific TTL config if needed |
 
 ---
 
-## Performance Impact
+## Cache TTL Configuration
 
-- **Negligible overhead**: Dictionary lookup is O(1), fuzzy matching only triggers for unrecognized terms
-- **Reduced API calls**: Fewer duplicate searches to Amazon/eBay for typo variations
-- **Better cache hit rate**: More users benefit from cached results
-- **No database changes required**: Pure in-memory logic
+Using existing settings from `catalogCache.ts`:
+
+| Metric | Value |
+|--------|-------|
+| **Stale After** | 10 minutes |
+| **Expires After** | 30 minutes |
+| **Typo Tolerance** | Already implemented via canonicalization |
+
+This means:
+- 0-10 minutes: Instant cache hit
+- 10-30 minutes: Stale-while-revalidate (instant return + background refresh)
+- 30+ minutes: Cache miss, full provider flow
 
 ---
 
-## Future Enhancements (Optional)
+## Expected Results
 
-1. **Learning from searches**: Track frequently-searched terms that produce results, add them to the dictionary
-2. **Phonetic matching**: Use Soundex/Metaphone for brand names that sound similar
-3. **User language detection**: Apply different typo patterns for French vs English keyboard layouts
+### Speed Improvement
+- **Cache hits**: ~10-20ms (vs 500-1500ms before) = **50-100x faster**
+- **Cache hit rate**: Estimated 70-85% for popular searches
+
+### Cost Reduction
+- **Fewer eBay API calls**: Only 1 call per unique query per 30 minutes
+- **Fewer Amazon API calls**: Already somewhat cached, but this adds another layer
+
+### User Experience
+- **Instant results** for popular searches (iphone, samsung, playstation, etc.)
+- **Consistent results** across users searching the same thing
+- **Typo-tolerant**: "iphon" and "iphone" share the same cache
+
+---
+
+## Implementation Order
+
+1. **Add early cache check** with instant return for fresh cache hits
+2. **Add cache write** for final response after provider calls complete
+3. **Add stale-while-revalidate** for smoother transitions
+4. **Deploy and monitor** cache hit rate via logs
+
+---
+
+## Monitoring
+
+Add logging to track cache performance:
+
+```typescript
+console.log(`[SEARCH_CACHE] requestId=${requestId} hit=${cacheResult.hit} stale=${cacheResult.stale} age=${cacheResult.cacheAgeSec}s key=${globalCacheKey.substring(0, 60)}...`);
+```
+
+This will help optimize TTL values based on real traffic patterns.
 

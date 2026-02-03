@@ -1,131 +1,195 @@
 
-# Integrate Amazon Autos for Vehicle Searches
 
-## Discovery
+# Smarter Caching with Fuzzy Query Matching
 
-You're right! Amazon does sell actual vehicles through **Amazon Autos** (https://www.amazon.com/Amazon-Autos/b?node=10677469011). This is a dedicated storefront where users can buy or lease new and used vehicles from local dealerships.
+## Current State
 
-The current system skips Amazon entirely for vehicle searches because the general Amazon catalog only has parts and accessories. However, the Rainforest API **does support** category-specific searches via a `category_id` parameter, which means we can target the Amazon Autos category specifically.
+The caching system already handles:
+- **Case insensitivity**: "iphone" = "IPHONE" = "iPhone" ✅
+- **Accent normalization**: "café" = "cafe" ✅  
+- **Whitespace**: "iphone  15" = "iphone 15" ✅
+- **French translations**: "téléphone" → "smartphone" ✅
 
-### Amazon Autos Category IDs
-| Category | Node ID |
-|----------|---------|
-| Amazon Autos (Primary) | `10677469011` |
-| Vehicles (General) | `202278846011` |
-
----
-
-## Solution Overview
-
-Instead of skipping Amazon for vehicle searches, we'll **include Amazon but restrict it to the Amazon Autos category**. This way, vehicle searches will return:
-1. **eBay Motors** listings (Cars & Trucks category 6001)
-2. **Amazon Autos** listings (Node ID 10677469011)
-
-Both sources will provide actual vehicle listings, not parts or accessories.
+**Missing**: Typo tolerance and fuzzy matching. Currently, "iphon" and "iphone" are treated as completely separate queries, causing unnecessary API calls.
 
 ---
 
-## Technical Implementation
+## Solution: Query Canonicalization Layer
 
-### 1. Update Rainforest Adapter to Support Category ID
+Add a **canonicalization step** that corrects common typos and variations before the cache key is generated. This ensures that "iphon", "iphonne", and "iphone" all resolve to the same cache entry.
 
-**File:** `supabase/functions/_shared/rainforestAdapter.ts`
+### Architecture
 
-Modify the `search()` method to accept an optional `categoryId` parameter:
+```text
+User Query: "iphon 15 pro"
+            ↓
+Step 1: Normalize (lowercase, remove accents)
+        → "iphon 15 pro"
+            ↓
+Step 2: Canonicalize (fuzzy match popular products)
+        → "iphone 15 pro"  ← CORRECTED
+            ↓
+Step 3: Generate Cache Key
+        → "search:v2:q=iphone 15 pro:..."
+            ↓
+Step 4: Cache Hit! (same key as "iPhone 15 Pro")
+```
+
+---
+
+## Implementation Details
+
+### 1. Create Query Canonicalization Module
+
+**File:** `supabase/functions/_shared/queryCanonicalizer.ts`
+
+A lightweight module that:
+- Uses a **dictionary of popular product terms** with common typos
+- Applies **Levenshtein distance** matching for unknown queries
+- Preserves numbers and model identifiers
 
 ```typescript
-// Update SearchFilters interface or add to params
-interface RainforestSearchParams {
-  // ... existing params
-  category_id?: string;  // Already defined at line 32
-}
-
-// In the search method, add category_id to params when provided
-const params: RainforestSearchParams = {
-  api_key: apiKey,
-  type: "search",
-  amazon_domain: amazonDomain,
-  search_term: query,
-  page,
-  sort_by: "featured",
-  category_id: filters?.amazonCategoryId,  // NEW: pass Amazon Autos category
+// Popular search terms with common misspellings
+const CANONICAL_TERMS: Record<string, string[]> = {
+  "iphone": ["iphon", "iphonne", "ipone", "ifonee", "ifone", "iphn"],
+  "samsung": ["samsun", "sumsung", "samung", "samsumg"],
+  "airpods": ["airpod", "airpds", "airpood", "earpods"],
+  "macbook": ["mackbook", "macbok", "mcbook", "macbuk"],
+  "playstation": ["playstaion", "playstaton", "pleystation"],
+  "xbox": ["xbx", "x box", "x-box"],
+  "nintendo": ["nintedo", "nitendo", "nentendo"],
+  "tesla": ["tesle", "tsla", "telsa"],
+  "toyota": ["toyata", "toyoto", "toyta"],
+  "honda": ["hond", "hunda"],
+  // ... 50+ common product terms
 };
-```
 
-### 2. Update SearchFilters Interface
-
-**File:** `supabase/functions/_shared/catalogProviders.ts`
-
-Add `amazonCategoryId` to the `SearchFilters` interface:
-
-```typescript
-export interface SearchFilters {
-  minPrice?: number;
-  maxPrice?: number;
-  category?: string;
-  brand?: string;
-  inStockOnly?: boolean;
-  amazonCategoryId?: string;  // NEW: For Amazon Autos integration
+export function canonicalizeQuery(normalized: string): string {
+  // Split into tokens, canonicalize each, rejoin
+  const tokens = normalized.split(/\s+/);
+  const canonicalized = tokens.map(token => {
+    // Check direct matches first
+    for (const [canonical, typos] of Object.entries(CANONICAL_TERMS)) {
+      if (typos.includes(token) || token === canonical) {
+        return canonical;
+      }
+    }
+    // Fuzzy match if no direct hit
+    return fuzzyMatch(token) || token;
+  });
+  return canonicalized.join(" ");
 }
 ```
 
-### 3. Update Catalog Search to Include Amazon Autos
+### 2. Integrate into Cache Key Generation
 
-**File:** `supabase/functions/catalog-search/index.ts`
+**File:** `supabase/functions/_shared/catalogCache.ts`
 
-Instead of skipping Amazon for vehicle searches, pass the Amazon Autos category ID:
+Update `buildCacheKey` to canonicalize the query before generating the key:
 
 ```typescript
-// Define Amazon Autos category constant
-const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
+import { canonicalizeQuery } from "./queryCanonicalizer.ts";
 
-// In the vehicle search logic (around line 483):
-// REMOVE: const skipAmazonForVehicles = isVehicle;
-// REPLACE with:
-const amazonVehicleFilter = isVehicle 
-  ? { ...catalogFilters, amazonCategoryId: AMAZON_AUTOS_CATEGORY_ID } 
-  : catalogFilters;
-
-// Use amazonVehicleFilter when calling Rainforest for vehicle searches
-// This ensures Amazon returns actual vehicles from Amazon Autos, not parts
+export function buildCacheKey(type: CacheType, params: {...}): string {
+  // ... existing code ...
+  
+  case "search":
+    // Step 1: Normalize (lowercase, accents, whitespace)
+    const qNorm = params.query ? normalizeQuery(params.query) : "";
+    
+    // Step 2: Canonicalize (typo correction)
+    const qCanon = canonicalizeQuery(qNorm);
+    
+    // Step 3: Use canonicalized query for cache key
+    return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:...`;
+}
 ```
 
-### 4. Logging Updates
+### 3. Add Logging for Canonicalization
 
-Add logging to track Amazon Autos usage:
+When a query is corrected, log it for debugging:
 
 ```typescript
-if (isVehicle) {
-  console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Autos (category=${AMAZON_AUTOS_CATEGORY_ID})`);
+if (qCanon !== qNorm) {
+  console.log(`[CACHE] Canonicalized query: "${qNorm}" → "${qCanon}"`);
 }
 ```
 
 ---
 
-## Files to Modify
+## Dictionary of Common Typos
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/_shared/catalogProviders.ts` | Add `amazonCategoryId` to `SearchFilters` |
-| `supabase/functions/_shared/rainforestAdapter.ts` | Pass `category_id` param when provided in filters |
-| `supabase/functions/catalog-search/index.ts` | Remove Amazon skip, use Amazon Autos category for vehicles |
+The canonicalization dictionary will include:
 
----
+| Category | Examples |
+|----------|----------|
+| **Phones** | iphone, samsung, galaxy, airpods, tecno, infinix, xiaomi |
+| **Computers** | macbook, laptop, lenovo, dell, thinkpad |
+| **Gaming** | playstation, xbox, nintendo, controller |
+| **Vehicles** | toyota, honda, tesla, ford, chevrolet, bmw, mercedes |
+| **Electronics** | television, headphones, bluetooth, speaker |
+| **Fashion** | adidas, nike, puma, gucci, louis vuitton |
 
-## Expected Results After Implementation
-
-| Search Query | Before | After |
-|--------------|--------|-------|
-| "toyota rav4" | Only eBay results | eBay Motors + Amazon Autos |
-| "tesla model 3" | Only eBay results | eBay Motors + Amazon Autos |
-| "GM Yukon" | Only eBay results | eBay Motors + Amazon Autos |
-| "iphone 15" | Amazon + eBay (normal) | Amazon + eBay (unchanged) |
+Total: ~100 high-frequency product terms with 3-5 common typos each.
 
 ---
 
-## Benefits
+## Fuzzy Matching Fallback
 
-1. **More inventory**: Users see vehicles from both Amazon Autos and eBay Motors
-2. **Faster results**: Amazon Autos may return faster than eBay in some cases
-3. **Better prices**: Competition between sources benefits users
-4. **No parts pollution**: Amazon Autos category only contains actual vehicles, not accessories
+For queries not in the dictionary, use **Levenshtein distance**:
+
+```typescript
+function fuzzyMatch(token: string, threshold = 2): string | null {
+  // Skip short tokens (less than 4 chars) - too many false positives
+  if (token.length < 4) return null;
+  
+  for (const [canonical, _] of Object.entries(CANONICAL_TERMS)) {
+    const distance = levenshteinDistance(token, canonical);
+    // Match if distance is at most 2 and token is similar length
+    if (distance <= threshold && Math.abs(token.length - canonical.length) <= 2) {
+      return canonical;
+    }
+  }
+  return null;
+}
+```
+
+---
+
+## Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `supabase/functions/_shared/queryCanonicalizer.ts` | **Create** | New module with typo dictionary and fuzzy matching |
+| `supabase/functions/_shared/catalogCache.ts` | **Modify** | Import and use canonicalizer in `buildCacheKey` |
+| `supabase/functions/catalog-search/index.ts` | **Modify** | Log canonicalization in search endpoint |
+
+---
+
+## Expected Behavior After Implementation
+
+| User Searches | Before | After |
+|---------------|--------|-------|
+| "iphon 15" | Cache MISS, new API call | Cache HIT (resolves to "iphone 15") |
+| "IPHONE 15" | Cache HIT ✅ | Cache HIT ✅ |
+| "samsun galaxy" | Cache MISS | Cache HIT (resolves to "samsung galaxy") |
+| "tesle model 3" | Cache MISS | Cache HIT (resolves to "tesla model 3") |
+| "airpod pro" | Cache MISS | Cache HIT (resolves to "airpods pro") |
+
+---
+
+## Performance Impact
+
+- **Negligible overhead**: Dictionary lookup is O(1), fuzzy matching only triggers for unrecognized terms
+- **Reduced API calls**: Fewer duplicate searches to Amazon/eBay for typo variations
+- **Better cache hit rate**: More users benefit from cached results
+- **No database changes required**: Pure in-memory logic
+
+---
+
+## Future Enhancements (Optional)
+
+1. **Learning from searches**: Track frequently-searched terms that produce results, add them to the dictionary
+2. **Phonetic matching**: Use Soundex/Metaphone for brand names that sound similar
+3. **User language detection**: Apply different typo patterns for French vs English keyboard layouts
+

@@ -1,177 +1,131 @@
 
-# Fix Vehicle Search to Return Actual Vehicles
+# Integrate Amazon Autos for Vehicle Searches
 
-## Problem Analysis
+## Discovery
 
-When users search for vehicles (e.g., "toyota rav4", "tesla model 3", "GM Yukon") from the mobile app's search bar, the search returns **0 results** instead of actual vehicle listings.
+You're right! Amazon does sell actual vehicles through **Amazon Autos** (https://www.amazon.com/Amazon-Autos/b?node=10677469011). This is a dedicated storefront where users can buy or lease new and used vehicles from local dealerships.
 
-### Root Cause
+The current system skips Amazon entirely for vehicle searches because the general Amazon catalog only has parts and accessories. However, the Rainforest API **does support** category-specific searches via a `category_id` parameter, which means we can target the Amazon Autos category specifically.
 
-Based on the edge function logs:
-```
-[SEARCH] requestId=e49beb03 PostFilter: 32 → 0 items, filters={"maxPrice":1650}
-```
-
-1. **eBay returned 66 vehicle listings** successfully
-2. **After filtering, 32 items remained** (passed the vehicle quality checks)
-3. **A `maxPrice: 1650` filter was applied**, reducing results from 32 → 0
-
-The issue is a **conflicting price filter**:
-- The backend correctly enforces a **minimum price of $1,500** for vehicles (to exclude parts/accessories)
-- The mobile app is sending a **maxPrice of $1,650** as a default filter
-- This creates an effective price range of **$1,500 - $1,650**, which excludes almost all actual vehicles
-
-Real vehicle prices typically start at $3,000+ for used cars and can go up to $100,000+.
-
-### Current Flow
-```text
-Mobile App Search → catalog-search API
-                   ↓
-           Parse filters={"maxPrice":1650}
-                   ↓
-           Fetch from eBay Motors (66 items)
-                   ↓
-           Apply vehicle quality filter (32 remain)
-                   ↓
-           Apply maxPrice filter → 0 items!
-```
+### Amazon Autos Category IDs
+| Category | Node ID |
+|----------|---------|
+| Amazon Autos (Primary) | `10677469011` |
+| Vehicles (General) | `202278846011` |
 
 ---
 
-## Solution
+## Solution Overview
 
-Modify the `catalog-search` edge function to **override restrictive price filters for vehicle searches**. When a vehicle intent is detected, any `maxPrice` filter below a reasonable vehicle threshold should be ignored or overridden.
+Instead of skipping Amazon for vehicle searches, we'll **include Amazon but restrict it to the Amazon Autos category**. This way, vehicle searches will return:
+1. **eBay Motors** listings (Cars & Trucks category 6001)
+2. **Amazon Autos** listings (Node ID 10677469011)
 
-### Changes Required
+Both sources will provide actual vehicle listings, not parts or accessories.
 
-#### 1. Edge Function: `supabase/functions/catalog-search/index.ts`
+---
 
-Add vehicle-aware price filter logic after parsing filters:
+## Technical Implementation
+
+### 1. Update Rainforest Adapter to Support Category ID
+
+**File:** `supabase/functions/_shared/rainforestAdapter.ts`
+
+Modify the `search()` method to accept an optional `categoryId` parameter:
 
 ```typescript
-// After line 324 (where catalogFilters is parsed)
-// Override restrictive maxPrice for vehicle searches
-if (isVehicle && catalogFilters.maxPrice !== undefined) {
-  const VEHICLE_MAX_PRICE_FLOOR = 5000; // Minimum maxPrice for vehicle searches
-  if (catalogFilters.maxPrice < VEHICLE_MAX_PRICE_FLOOR) {
-    console.log(`[SEARCH] requestId=${requestId} Vehicle search: overriding restrictive maxPrice=${catalogFilters.maxPrice} (removed)`);
-    delete catalogFilters.maxPrice; // Remove the restrictive filter
-  }
+// Update SearchFilters interface or add to params
+interface RainforestSearchParams {
+  // ... existing params
+  category_id?: string;  // Already defined at line 32
+}
+
+// In the search method, add category_id to params when provided
+const params: RainforestSearchParams = {
+  api_key: apiKey,
+  type: "search",
+  amazon_domain: amazonDomain,
+  search_term: query,
+  page,
+  sort_by: "featured",
+  category_id: filters?.amazonCategoryId,  // NEW: pass Amazon Autos category
+};
+```
+
+### 2. Update SearchFilters Interface
+
+**File:** `supabase/functions/_shared/catalogProviders.ts`
+
+Add `amazonCategoryId` to the `SearchFilters` interface:
+
+```typescript
+export interface SearchFilters {
+  minPrice?: number;
+  maxPrice?: number;
+  category?: string;
+  brand?: string;
+  inStockOnly?: boolean;
+  amazonCategoryId?: string;  // NEW: For Amazon Autos integration
 }
 ```
 
-However, since `isVehicle` is calculated later (line 429), we need to restructure the logic. The fix will:
+### 3. Update Catalog Search to Include Amazon Autos
 
-1. **Move the vehicle detection earlier** (before filter parsing impact)
-2. **Add a vehicle price filter override** that removes or adjusts maxPrice when it's too restrictive for vehicle searches
+**File:** `supabase/functions/catalog-search/index.ts`
 
-#### Code Changes
-
-**In `catalog-search/index.ts`:**
+Instead of skipping Amazon for vehicle searches, pass the Amazon Autos category ID:
 
 ```typescript
-// After parsing filters (around line 324):
-const catalogFilters = parseFilters(filtersParam);
+// Define Amazon Autos category constant
+const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
 
-// Detect vehicle query early (move this check earlier in the flow)
-const isVehicle = isVehicleQuery(qNorm);
+// In the vehicle search logic (around line 483):
+// REMOVE: const skipAmazonForVehicles = isVehicle;
+// REPLACE with:
+const amazonVehicleFilter = isVehicle 
+  ? { ...catalogFilters, amazonCategoryId: AMAZON_AUTOS_CATEGORY_ID } 
+  : catalogFilters;
 
-// VEHICLE SEARCH FIX: Override restrictive price filters
-// Mobile apps may send default maxPrice filters that are too low for vehicles
-const VEHICLE_REASONABLE_MIN_MAX_PRICE = 5000; // Vehicles cost more than $5k typically
+// Use amazonVehicleFilter when calling Rainforest for vehicle searches
+// This ensures Amazon returns actual vehicles from Amazon Autos, not parts
+```
 
-if (isVehicle && catalogFilters.maxPrice !== undefined) {
-  if (catalogFilters.maxPrice < VEHICLE_REASONABLE_MIN_MAX_PRICE) {
-    console.log(`[SEARCH] requestId=${requestId} Vehicle search: removing restrictive maxPrice=${catalogFilters.maxPrice} (vehicles typically cost $5,000+)`);
-    delete catalogFilters.maxPrice;
-  }
-}
+### 4. Logging Updates
 
-// Also ensure minPrice is at least $1500 for vehicles
-if (isVehicle && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
-  catalogFilters.minPrice = 1500;
-  console.log(`[SEARCH] requestId=${requestId} Vehicle search: enforcing minPrice=$1500`);
+Add logging to track Amazon Autos usage:
+
+```typescript
+if (isVehicle) {
+  console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Autos (category=${AMAZON_AUTOS_CATEGORY_ID})`);
 }
 ```
 
-#### Why This Works
+---
 
-1. **Detects vehicle intent** from the query (e.g., "toyota rav4", "GM Yukon")
-2. **Removes restrictive maxPrice** filters that would exclude vehicles
-3. **Enforces minimum price** of $1,500 to continue excluding parts
-4. **Preserves user's intent** for high maxPrice filters (if user sets maxPrice=$50,000, it's respected)
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `supabase/functions/_shared/catalogProviders.ts` | Add `amazonCategoryId` to `SearchFilters` |
+| `supabase/functions/_shared/rainforestAdapter.ts` | Pass `category_id` param when provided in filters |
+| `supabase/functions/catalog-search/index.ts` | Remove Amazon skip, use Amazon Autos category for vehicles |
 
 ---
 
-## Implementation Steps
+## Expected Results After Implementation
 
-### Step 1: Move Vehicle Detection Earlier
-
-The `isVehicleQuery()` call is currently at line 429. We need to call it earlier (around line 325) so we can adjust filters before they're used.
-
-### Step 2: Add Price Filter Override Logic
-
-Add conditional logic to:
-- Remove `maxPrice` if it's below $5,000 for vehicle searches
-- Set `minPrice` to $1,500 for vehicle searches (already enforced in eBay call, but this ensures consistency)
-
-### Step 3: Add Logging
-
-Log when filters are overridden for debugging and transparency.
+| Search Query | Before | After |
+|--------------|--------|-------|
+| "toyota rav4" | Only eBay results | eBay Motors + Amazon Autos |
+| "tesla model 3" | Only eBay results | eBay Motors + Amazon Autos |
+| "GM Yukon" | Only eBay results | eBay Motors + Amazon Autos |
+| "iphone 15" | Amazon + eBay (normal) | Amazon + eBay (unchanged) |
 
 ---
 
-## Technical Details
+## Benefits
 
-### Files to Modify
-
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-search/index.ts` | Add vehicle-aware price filter override logic |
-
-### Constants to Add
-
-```typescript
-// Minimum maxPrice allowed for vehicle searches
-// Any maxPrice below this is removed to prevent filtering out all vehicles
-const VEHICLE_REASONABLE_MIN_MAX_PRICE = 5000;
-```
-
-### Expected Behavior After Fix
-
-| Search Query | Before Fix | After Fix |
-|--------------|------------|-----------|
-| "toyota rav4" | 0 results (maxPrice=$1650 filtered everything) | 30+ vehicle listings |
-| "tesla model 3" | 0 results | Tesla Model 3 vehicle listings |
-| "GM Yukon" | 0 results | GMC Yukon vehicle listings |
-| "iphone 15" | Works normally | Works normally (no vehicle intent) |
-
-### Performance Impact
-
-- **None** - only adds a simple conditional check
-- **Faster perceived results** because users will see actual vehicles instead of empty results
-
----
-
-## Additional Considerations
-
-### Mobile App Side (Optional Future Enhancement)
-
-The mobile app should ideally not send a default `maxPrice` filter for searches. However, fixing the backend is the priority since:
-1. It's a single point of change
-2. It protects against any client sending restrictive filters
-3. It can be deployed immediately
-
-### Amazon Integration
-
-Currently, Amazon is skipped for vehicle searches because Amazon Auto only sells parts/accessories, not actual vehicles. This is correct behavior and should remain unchanged.
-
----
-
-## Summary
-
-This is a critical fix that will restore vehicle search functionality by:
-1. Detecting vehicle search intent early in the request flow
-2. Removing restrictive `maxPrice` filters that conflict with vehicle pricing norms
-3. Maintaining the $1,500 minimum price floor to exclude parts/accessories
-4. Allowing users to find actual vehicles when searching for car makes and models
+1. **More inventory**: Users see vehicles from both Amazon Autos and eBay Motors
+2. **Faster results**: Amazon Autos may return faster than eBay in some cases
+3. **Better prices**: Competition between sources benefits users
+4. **No parts pollution**: Amazon Autos category only contains actual vehicles, not accessories

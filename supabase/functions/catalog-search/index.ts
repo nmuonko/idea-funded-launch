@@ -593,6 +593,7 @@ interface EbayFetchParams {
   query: string;
   effectiveMode: { ebayActive: boolean; mode: string };
   isVehicle: boolean;
+  hasBuyingIntent: boolean;  // Smart intent: true only when user explicitly wants to BUY a vehicle
   categoryKey: string | undefined;
   page: number;
   limit: number;
@@ -607,7 +608,7 @@ interface EbayFetchResult {
 }
 
 async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
-  const { supabase, query, effectiveMode, isVehicle, categoryKey, page, limit, catalogFilters, requestId } = params;
+  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, categoryKey, page, limit, catalogFilters, requestId } = params;
 
   let items: CatalogItem[] = [];
   let hasMore = false;
@@ -618,7 +619,9 @@ async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult>
   }
 
   try {
-    const minPrice = isVehicle ? 1500 : undefined;
+    // SMART VEHICLE INTENT: Only enforce minPrice when user explicitly wants to BUY a vehicle
+    // For brand-only queries like "infiniti qx80", allow all prices to show accessories AND vehicles
+    const minPrice = hasBuyingIntent ? 1500 : undefined;
     
     // Map category_key to eBay category ID if applicable
     let ebayCategory: string | undefined;
@@ -638,14 +641,17 @@ async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult>
       ebayCategory = categoryMapping[categoryKey];
     }
 
-    // Force eBay Motors category for vehicle searches
+    // Only force eBay Motors category when user explicitly wants to BUY a vehicle
+    // For brand-only queries, let eBay search all categories to find accessories
     let enhancedQuery = query;
-    if (isVehicle && !ebayCategory) {
+    if (hasBuyingIntent && !ebayCategory) {
       ebayCategory = "6001"; // Cars & Trucks category
-      console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001 for query="${query}"`);
+      console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent detected, forcing category=6001 for query="${query}"`);
+    } else if (isVehicle && !hasBuyingIntent) {
+      console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - searching all eBay categories for accessories`);
     }
 
-    console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
+    console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} hasBuyingIntent=${hasBuyingIntent} minPrice=${minPrice} ebayCategory=${ebayCategory}`);
 
     const ebayResult = await searchEbay(
       supabase,
@@ -977,6 +983,7 @@ Deno.serve(async (req: Request) => {
         query: qNorm,
         effectiveMode,
         isVehicle,
+        hasBuyingIntent,  // Pass smart intent flag to control minPrice and category
         categoryKey: categoryKey || undefined,
         page,
         limit,

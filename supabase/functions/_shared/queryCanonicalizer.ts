@@ -94,6 +94,55 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "prius": [],        // Prevent unwanted fuzzy matches
   "miata": [],        // Prevent unwanted fuzzy matches
   
+  // Toyota models - prevent "camry" → "camaro" fuzzy match
+  "camry": [],        // CRITICAL: Prevent "camry" → "camaro"
+  "corolla": [],      // Prevent unwanted fuzzy matches
+  "rav4": [],         // Prevent unwanted fuzzy matches
+  "highlander": [],   // Prevent unwanted fuzzy matches
+  "tacoma": [],       // Prevent unwanted fuzzy matches
+  "tundra": [],       // Prevent unwanted fuzzy matches
+  "sienna": [],       // Prevent unwanted fuzzy matches
+  "4runner": [],      // Prevent unwanted fuzzy matches
+  "avalon": [],       // Prevent unwanted fuzzy matches
+  "supra": [],        // Prevent unwanted fuzzy matches
+  
+  // Honda models
+  "civic": [],        // Prevent unwanted fuzzy matches
+  "accord": [],       // Prevent unwanted fuzzy matches
+  "pilot": [],        // Prevent unwanted fuzzy matches
+  "odyssey": [],      // Prevent unwanted fuzzy matches
+  "crv": [],          // Prevent unwanted fuzzy matches
+  "hrv": [],          // Prevent unwanted fuzzy matches
+  
+  // Nissan models
+  "altima": [],       // Prevent unwanted fuzzy matches
+  "sentra": [],       // Prevent unwanted fuzzy matches
+  "rogue": [],        // Prevent unwanted fuzzy matches
+  "pathfinder": [],   // Prevent unwanted fuzzy matches
+  "frontier": [],     // Prevent unwanted fuzzy matches
+  "maxima": [],       // Prevent unwanted fuzzy matches
+  "murano": [],       // Prevent unwanted fuzzy matches
+  "patrol": [],       // Prevent unwanted fuzzy matches
+  
+  // Hyundai/Kia models
+  "elantra": [],      // Prevent unwanted fuzzy matches
+  "sonata": [],       // Prevent unwanted fuzzy matches
+  "tucson": [],       // Prevent unwanted fuzzy matches
+  "sportage": [],     // Prevent unwanted fuzzy matches
+  "telluride": [],    // Prevent unwanted fuzzy matches
+  "sorento": [],      // Prevent unwanted fuzzy matches
+  "optima": [],       // Prevent unwanted fuzzy matches
+  "stinger": [],      // Prevent unwanted fuzzy matches
+  
+  // BMW/Mercedes/Audi models
+  "x5": [],           // Prevent unwanted fuzzy matches
+  "x3": [],           // Prevent unwanted fuzzy matches
+  "x7": [],           // Prevent unwanted fuzzy matches
+  "q5": [],           // Prevent unwanted fuzzy matches
+  "q7": [],           // Prevent unwanted fuzzy matches
+  "gle": [],          // Prevent unwanted fuzzy matches
+  "glc": [],          // Prevent unwanted fuzzy matches
+  
   // Range Rover / Land Rover (commonly searched vehicle names)
   "range rover": ["rangerover", "range rove", "rang rover", "rnage rover", "range rver"],
   "land rover": ["landrover", "land rove", "lanr rover", "lnad rover"],

@@ -18,7 +18,9 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "huawei": ["huwaei", "hauwei", "huawai", "hawei", "huwei"],
   "xiaomi": ["xiomi", "xaomi", "xiaom", "xiami", "xioami"],
   "tecno": ["techno", "tekno", "tecn"],
-  "infinix": ["infnix", "infinx", "infiniix", "infiniks"],
+  // IMPORTANT: "infinix" typos should NOT include "infiniti"-like typos
+  // "infiniti" is a vehicle brand and must be protected (see vehicle brands section below)
+  "infinix": ["infiniix", "infiniks", "infinx"], // NOT "infnix" - too close to "infiniti"
   "realme": ["relme", "reame", "realmi"],
   "oneplus": ["one plus", "onplus", "onepls"],
   "motorola": ["motorla", "motorolla", "moto"],
@@ -63,7 +65,9 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "ferrari": ["ferari", "ferrri", "ferarri"],
   "lamborghini": ["lambo", "lamborgini", "lamborghni", "lamborghin"],
   // IMPORTANT: Vehicle brands that should NOT be confused with phone brands
-  "infiniti": ["infinti", "infinty", "inifiniti", "infintii"], // Luxury vehicle brand - NOT infinix (phone)
+  // CRITICAL: "infiniti" MUST NOT be canonicalized to "infinix" (phone brand)
+  // These are protected vehicle brand names that should never be typo-corrected to phone brands
+  "infiniti": ["infinti", "infinty", "inifiniti", "infintii", "infniti", "infinitie"], // Luxury vehicle brand - NOT infinix (phone)
   "acura": ["accura", "acurra", "acur"],
   "genesis": ["genisis", "gensis", "genesi"],
   

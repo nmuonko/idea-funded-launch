@@ -1216,10 +1216,38 @@ Deno.serve(async (req: Request) => {
     perfLog.cache_ms = Date.now() - cacheStart;
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // CACHE MISMATCH DETECTION (v3 POISON FIX):
-    // Force cache miss if vehicleMode=true but cache key lacks vm=1 marker
-    // This catches old v2 cache entries that didn't have proper vehicle filtering
+    // CACHE MISMATCH DETECTION (v4 POISON FIX):
+    // Validate cached payload._meta matches current request parameters
+    // Force cache miss if any critical parameter differs (prevents cache poisoning)
     // ═══════════════════════════════════════════════════════════════════════════
+    const currentMinPriceUsed = hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0;
+    
+    if (cacheResult.hit && cacheResult.data?._meta) {
+      const cachedMeta = cacheResult.data._meta;
+      
+      // Check for critical mismatches
+      const qMismatch = cachedMeta.qNorm && cachedMeta.qNorm !== qNorm;
+      const vmMismatch = cachedMeta.vehicleMode !== undefined && cachedMeta.vehicleMode !== hasBuyingIntent;
+      const mpMismatch = cachedMeta.minPriceUsed !== undefined && cachedMeta.minPriceUsed !== currentMinPriceUsed;
+      
+      if (qMismatch || vmMismatch || mpMismatch) {
+        console.warn(JSON.stringify({
+          event: "[CATALOG_SEARCH] cache_mismatch",
+          cache_key: cacheResult.cacheKey.substring(0, 80),
+          cachedQ: cachedMeta.qNorm,
+          currentQ: qNorm,
+          cachedVM: cachedMeta.vehicleMode,
+          currentVM: hasBuyingIntent,
+          cachedMP: cachedMeta.minPriceUsed,
+          currentMP: currentMinPriceUsed,
+          action: "forcing_miss",
+          requestId,
+        }));
+        cacheResult = { ...cacheResult, hit: false, stale: true };
+      }
+    }
+
+    // Keep legacy vm=1 fallback check for entries without _meta (pre-v4)
     if (cacheResult.hit && hasBuyingIntent) {
       const cacheKeyHasVehicleMode = cacheResult.cacheKey.includes("vm=1");
       if (!cacheKeyHasVehicleMode) {
@@ -1230,7 +1258,14 @@ Deno.serve(async (req: Request) => {
 
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       // INSTANT RETURN: Fresh cache hit
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_hit fresh (${cacheResult.cacheAgeSec}s old) key=${globalCacheKey.substring(0, 60)}...`);
+      console.log(JSON.stringify({
+        event: "[CATALOG_SEARCH] cache_hit",
+        cache_key: globalCacheKey.substring(0, 80),
+        qNorm,
+        vehicleMode: hasBuyingIntent,
+        cacheAgeSec: cacheResult.cacheAgeSec,
+        requestId,
+      }));
       
       const cachedResponse = cacheResult.data;
       const instantDuration = Date.now() - startTime;
@@ -1552,17 +1587,45 @@ Deno.serve(async (req: Request) => {
     // ─── CACHE FINAL RESPONSE ──────────────────────────────────────────────────
     // Store for instant retrieval by subsequent users (async, don't wait)
     // Only cache if we have results (positive cache)
+    // v4: Include _meta signature for mismatch detection on read
+    const cacheMeta = {
+      qNorm,
+      provider: providerParam || "mixed",
+      page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+      pageSize: limit,
+      sort,
+      category_key: categoryKey || undefined,
+      vehicleMode: hasBuyingIntent,
+      minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
+    };
+    
     if (finalItems.length > 0) {
-      setCache(supabase, "search", globalCacheKey, response, {
+      // Embed _meta in response for future cache validation
+      const responseWithMeta = {
+        ...response,
+        _meta: {
+          ...cacheMeta,
+          cachedAt: new Date().toISOString(),
+        },
+      };
+      
+      setCache(supabase, "search", globalCacheKey, responseWithMeta, {
         provider: "mixed",
         query: qNorm,
         category: categoryKey || undefined,
-        page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+        page: cacheMeta.page,
         pageSize: limit,
         amazonDomain: "amazon.com",
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
       
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_write key=${globalCacheKey.substring(0, 60)}...`);
+      console.log(JSON.stringify({
+        event: "[CATALOG_SEARCH] cache_write",
+        cache_key: globalCacheKey.substring(0, 80),
+        qNorm,
+        vehicleMode: hasBuyingIntent,
+        minPriceUsed: cacheMeta.minPriceUsed,
+        requestId,
+      }));
     }
 
     return new Response(JSON.stringify(response), {

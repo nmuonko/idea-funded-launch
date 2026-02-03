@@ -44,12 +44,13 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "honda": ["hond", "hunda", "hnoda", "honada"],
   "tesla": ["tesle", "tsla", "telsa", "tesela", "teslla"],
   "ford": ["frod", "fodr"],
-  "chevrolet": ["chevorlet", "chevrolete", "chevy", "chevolet", "chevrollet"],
+  "chevrolet": ["chevorlet", "chevrolete", "chevolet", "chevrollet"],
+  "chevy": [], // Keep chevy as-is, don't map to chevrolet
   "bmw": ["bwm", "bm"],
   "mercedes": ["mercedez", "merceds", "merceedes", "mercedees"],
   "hyundai": ["hundai", "hyundia", "hyunda", "hundayi", "hyudai"],
-  "nissan": ["nisan", "nisaan", "nisson", "nisan"],
-  "volkswagen": ["volswagen", "volkswagon", "vw", "volkwagen", "volkswagn"],
+  "nissan": ["nisan", "nisaan", "nisson"],
+  "volkswagen": ["volswagen", "volkswagon", "volkwagen", "volkswagn"],
   "audi": ["audie", "audo"],
   "lexus": ["lexis", "lexux", "laxus"],
   "mazda": ["mazada", "mazzda", "mazd"],
@@ -61,6 +62,10 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "porsche": ["porshe", "porsh", "porcshe", "porscha"],
   "ferrari": ["ferari", "ferrri", "ferarri"],
   "lamborghini": ["lambo", "lamborgini", "lamborghni", "lamborghin"],
+  // IMPORTANT: Vehicle brands that should NOT be confused with phone brands
+  "infiniti": ["infinti", "infinty", "inifiniti", "infintii"], // Luxury vehicle brand - NOT infinix (phone)
+  "acura": ["accura", "acurra", "acur"],
+  "genesis": ["genisis", "gensis", "genesi"],
   
   // Electronics
   "television": ["televisn", "televison", "televsion", "tv"],

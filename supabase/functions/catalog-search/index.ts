@@ -130,25 +130,96 @@ const VEHICLE_ACCESSORY_KEYWORDS = [
   "mirror", "antenna", "wiper", "wipers",
   "charger", "adapter", "mount", "holder",
   "emblem", "badge", "decal", "sticker",
+  "radio", "stereo", "speaker", "amplifier", "subwoofer",
+  "gps", "dash cam", "camera", "sensor",
+  "floor", "carpet", "trunk", "cargo net",
+  "phone", "tablet", "iphone", "samsung", "android",
 ];
+
+// Specific vehicle models that indicate vehicle search intent (brand + model = vehicle mode)
+// These are FULL VEHICLE MODELS (not shared with other products)
+const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
+  { brand: "infiniti", models: ["qx80", "qx60", "qx55", "qx50", "q50", "q60", "q70", "fx35", "fx45", "g35", "g37", "m35", "m37", "m45", "m56"] },
+  { brand: "lexus", models: ["rx350", "rx450", "es350", "es300", "ls460", "ls500", "gx460", "gx470", "lx570", "lx600", "nx350", "ux250", "is350", "is300", "is250", "gs350", "gs300", "rc350"] },
+  { brand: "acura", models: ["mdx", "rdx", "tlx", "ilx", "nsx", "integra", "rlx", "zdx"] },
+  { brand: "bmw", models: ["x5", "x3", "x7", "x1", "x6", "m3", "m5", "m4", "330i", "530i", "540i", "750i", "840i"] },
+  { brand: "mercedes", models: ["gle", "glc", "gls", "amg", "c300", "e350", "s550", "g550", "g63", "cla", "cls"] },
+  { brand: "audi", models: ["q5", "q7", "q8", "a4", "a6", "a8", "s4", "s5", "rs7", "rs6", "tt", "r8", "e-tron", "etron"] },
+  { brand: "porsche", models: ["cayenne", "macan", "panamera", "taycan", "911", "718", "cayman", "boxster"] },
+  { brand: "toyota", models: ["camry", "corolla", "rav4", "highlander", "tacoma", "tundra", "4runner", "prius", "sienna", "venza", "sequoia", "supra", "gr86", "land cruiser", "landcruiser"] },
+  { brand: "honda", models: ["civic", "accord", "cr-v", "crv", "pilot", "odyssey", "hr-v", "hrv", "ridgeline", "passport", "fit", "insight"] },
+  { brand: "ford", models: ["f-150", "f150", "f-250", "f250", "mustang", "explorer", "escape", "bronco", "ranger", "expedition", "edge", "maverick", "raptor"] },
+  { brand: "chevrolet", models: ["silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro", "corvette", "traverse", "blazer", "trax", "bolt"] },
+  { brand: "chevy", models: ["silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro", "corvette", "traverse", "blazer", "trax", "bolt"] },
+  { brand: "jeep", models: ["wrangler", "grand cherokee", "cherokee", "gladiator", "compass", "renegade", "wagoneer", "grand wagoneer"] },
+  { brand: "tesla", models: ["model 3", "model s", "model x", "model y", "cybertruck"] },
+  { brand: "nissan", models: ["altima", "sentra", "rogue", "pathfinder", "frontier", "titan", "maxima", "murano", "armada", "kicks", "leaf", "z", "370z", "350z"] },
+  { brand: "hyundai", models: ["elantra", "sonata", "tucson", "santa fe", "palisade", "kona", "ioniq", "venue", "genesis"] },
+  { brand: "kia", models: ["forte", "optima", "k5", "sportage", "telluride", "sorento", "seltos", "carnival", "niro", "ev6", "stinger"] },
+  { brand: "dodge", models: ["charger", "challenger", "durango", "ram", "journey", "hornet"] },
+  { brand: "ram", models: ["1500", "2500", "3500", "promaster"] },
+  { brand: "gmc", models: ["sierra", "yukon", "acadia", "terrain", "canyon", "denali", "hummer"] },
+  { brand: "subaru", models: ["outback", "forester", "crosstrek", "impreza", "wrx", "brz", "ascent", "legacy"] },
+  { brand: "mazda", models: ["cx-5", "cx5", "cx-9", "cx9", "cx-30", "cx30", "mazda3", "mazda6", "mx-5", "miata"] },
+  { brand: "volkswagen", models: ["jetta", "passat", "tiguan", "atlas", "golf", "gti", "id.4", "id4", "taos", "arteon"] },
+  { brand: "vw", models: ["jetta", "passat", "tiguan", "atlas", "golf", "gti", "id.4", "id4", "taos", "arteon"] },
+  { brand: "volvo", models: ["xc90", "xc60", "xc40", "s60", "s90", "v60", "v90"] },
+  { brand: "cadillac", models: ["escalade", "xt5", "xt6", "ct5", "ct4", "lyriq"] },
+  { brand: "lincoln", models: ["navigator", "aviator", "corsair", "nautilus"] },
+  { brand: "genesis", models: ["g80", "g70", "g90", "gv80", "gv70", "gv60"] },
+  { brand: "jaguar", models: ["f-pace", "e-pace", "i-pace", "xe", "xf", "xj", "f-type"] },
+  { brand: "land rover", models: ["range rover", "discovery", "defender", "evoque", "velar"] },
+  { brand: "range rover", models: ["sport", "velar", "evoque", "autobiography"] },
+];
+
+/**
+ * Check if a query contains a known vehicle make+model combination
+ * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
+ */
+function isVehicleMakeModelQuery(query: string): boolean {
+  const lower = query.toLowerCase();
+  
+  for (const { brand, models } of VEHICLE_MODEL_PATTERNS) {
+    if (lower.includes(brand)) {
+      for (const model of models) {
+        if (lower.includes(model)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * Check if a query indicates explicit vehicle-BUYING intent
  * (as opposed to wanting accessories/parts for a vehicle)
+ * 
+ * NEW LOGIC: Make+model combinations (e.g., "infiniti qx80") are treated as vehicle buying intent
+ * since users searching for specific vehicle models want the vehicle, not parts
  */
 function hasVehicleBuyingIntent(query: string): boolean {
   const lower = query.toLowerCase();
   
-  // Check if query has explicit buying intent keywords
-  const hasBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasBuyingIntent) return true;
-  
-  // Check if query has accessory/parts keywords - definitely NOT buying intent
+  // First check: If query contains accessory/parts keywords, definitely NOT buying a vehicle
   const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasAccessoryKeywords) return false;
+  if (hasAccessoryKeywords) {
+    return false;
+  }
   
-  // For brand-only queries like "infiniti qx80", don't assume vehicle buying intent
-  // Let them see all products (accessories + vehicles if any exist)
+  // Second check: If query has explicit buying intent keywords, it's vehicle buying intent
+  const hasExplicitBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
+  if (hasExplicitBuyingIntent) {
+    return true;
+  }
+  
+  // NEW: If query contains a known make+model combination, treat as vehicle buying intent
+  // e.g., "infiniti qx80" = user wants to buy that vehicle, not accessories
+  if (isVehicleMakeModelQuery(query)) {
+    return true;
+  }
+  
+  // For brand-only queries without model (e.g., just "infiniti"), don't assume vehicle intent
   return false;
 }
 
@@ -358,8 +429,10 @@ interface AmazonFetchParams {
   effectiveMode: { amazonActive: boolean; mode: string };
   mixerCursor: MixerCursor;
   isVehicle: boolean;
+  hasBuyingIntent: boolean;  // NEW: Pass buying intent for minPrice enforcement
   categoryKey: string | undefined;
   limit: number;
+  catalogFilters: CatalogFilters;  // NEW: Pass filters for minPrice/maxPrice
   requestId: string;
 }
 
@@ -374,7 +447,7 @@ interface AmazonFetchResult {
 }
 
 async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchResult> {
-  const { supabase, query, settings, effectiveMode, mixerCursor, isVehicle, categoryKey, limit, requestId } = params;
+  const { supabase, query, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey, limit, catalogFilters, requestId } = params;
   
   const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
   
@@ -429,9 +502,12 @@ async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchR
       if (liveDecision.useLive) {
         // ─── LIVE RAINFOREST API ─────────────────────────────────────────
         const vehicleCategoryId = isVehicle ? AMAZON_AUTOS_CATEGORY_ID : undefined;
-        console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${query}" page=${mixerCursor.amazonPage}${vehicleCategoryId ? ` category=${vehicleCategoryId}` : ""}`);
         
-        const liveResult = await searchRainforest(query, mixerCursor.amazonPage, limit, "amazon.com", "relevance", undefined, vehicleCategoryId);
+        // CRITICAL: Pass minPrice filter to Rainforest for vehicle searches
+        const minPriceFilter = hasBuyingIntent && catalogFilters.minPrice ? catalogFilters.minPrice : undefined;
+        console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${query}" page=${mixerCursor.amazonPage}${vehicleCategoryId ? ` category=${vehicleCategoryId}` : ""}${minPriceFilter ? ` minPrice=${minPriceFilter}` : ""}`);
+        
+        const liveResult = await searchRainforest(query, mixerCursor.amazonPage, limit, "amazon.com", "relevance", { minPrice: minPriceFilter }, vehicleCategoryId);
         
         if (!liveResult.error && liveResult.products.length > 0) {
           liveUsed = true;
@@ -547,14 +623,21 @@ async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchR
           console.log(`[SEARCH] requestId=${requestId} Amazon CACHE hit: ${items.length} items`);
         } else {
           // Fall back to DB search
-          const dbSearchQuery = isVehicle ? `${query}|automotive|car parts|auto` : query;
-          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${dbSearchQuery}" category_key=${categoryKey}`);
+          // CRITICAL: For vehicle searches, don't search for parts/accessories
+          const dbSearchQuery = isVehicle && hasBuyingIntent ? query : (isVehicle ? `${query}|automotive|car parts|auto` : query);
+          const minPriceForDb = hasBuyingIntent && catalogFilters.minPrice ? catalogFilters.minPrice : undefined;
+          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${dbSearchQuery}" category_key=${categoryKey} minPrice=${minPriceForDb}`);
 
           let amazonQuery = supabase
             .from("catalog_items")
             .select("*", { count: "exact" })
             .or("provider.eq.rainforest,provider.eq.amazon")
-            .or(`title.ilike.%${query}%,search_text.ilike.%${query}%${isVehicle ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
+            .or(`title.ilike.%${query}%,search_text.ilike.%${query}%${isVehicle && !hasBuyingIntent ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
+
+          // CRITICAL: Apply minPrice filter for vehicle buying intent
+          if (minPriceForDb) {
+            amazonQuery = amazonQuery.gte("price_usd", minPriceForDb);
+          }
 
           if (categoryKey) {
             const parentCategory = categoryKey.split("_")[0];
@@ -579,7 +662,7 @@ async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchR
             hasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
             cacheHit = true;
             status = "cached";
-            console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${items.length} items`);
+            console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${items.length} items (minPrice filter=${minPriceForDb})`);
           }
         }
       }
@@ -768,14 +851,18 @@ Deno.serve(async (req: Request) => {
     }
   }
   
-  // SMART VEHICLE INTENT: Only enforce minPrice when user explicitly wants to BUY a vehicle
-  // For brand-only queries like "infiniti qx80", allow accessories (no minPrice filter)
+  // SMART VEHICLE INTENT: Enforce minPrice when user wants to BUY a vehicle
+  // This now includes make+model combinations like "infiniti qx80" (detected by isVehicleMakeModelQuery)
   const hasBuyingIntent = hasVehicleBuyingIntent(qOriginal);
+  const hasMakeModel = isVehicleMakeModelQuery(qOriginal);
   
-  if (hasBuyingIntent && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
-    catalogFilters.minPrice = 1500;
-    console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent detected: enforcing minPrice=$1500`);
-  } else if (isVehicleEarly && !hasBuyingIntent) {
+  if (hasBuyingIntent) {
+    // Enforce minPrice of $1000 for vehicle searches (lower than $1500 to capture more listings)
+    if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1000) {
+      catalogFilters.minPrice = 1000;
+    }
+    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: hasBuyingIntent=${hasBuyingIntent} hasMakeModel=${hasMakeModel} enforcing minPrice=${catalogFilters.minPrice}`);
+  } else if (isVehicleEarly) {
     console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices for accessories`);
   }
 
@@ -790,7 +877,7 @@ Deno.serve(async (req: Request) => {
     categoryKey,
   };
 
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang, isVehicle: isVehicleEarly }));
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang, isVehicle: isVehicleEarly, hasBuyingIntent, hasMakeModel }));
 
   // Build empty response helper
   const buildEmptyResponse = (error?: { code: string; message: string }): SearchResponse => ({
@@ -943,6 +1030,20 @@ Deno.serve(async (req: Request) => {
     // ─── GLOBAL CACHE CHECK (EARLY) ───────────────────────────────────────────
     // Check for cached search results BEFORE calling providers for instant response
     const cacheStart = Date.now();
+    
+    // CRITICAL: Log cache key components for debugging cache misses
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_key_params`, JSON.stringify({
+      q: qNorm,
+      provider: providerParam || "all",
+      category: categoryKey || undefined,
+      page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+      pageSize: limit,
+      minPrice: catalogFilters.minPrice,
+      maxPrice: catalogFilters.maxPrice,
+      sort,
+      vehicleMode: hasBuyingIntent,
+    }));
+    
     const globalCacheKey = buildCacheKey("search", {
       env: envName,
       query: qNorm,
@@ -956,6 +1057,9 @@ Deno.serve(async (req: Request) => {
       brand: catalogFilters.brand?.join(","),
       rating: catalogFilters.rating,
       condition: catalogFilters.condition,
+      // CRITICAL: Include sort and vehicleMode to prevent cache collisions
+      sort,
+      vehicleMode: hasBuyingIntent,
     });
 
     const cacheResult = await getCache(supabase, globalCacheKey);
@@ -1030,8 +1134,10 @@ Deno.serve(async (req: Request) => {
         effectiveMode,
         mixerCursor,
         isVehicle,
+        hasBuyingIntent,  // NEW: Pass buying intent for minPrice enforcement at Amazon level
         categoryKey: categoryKey || undefined,
         limit,
+        catalogFilters,   // NEW: Pass filters for minPrice/maxPrice at Amazon level
         requestId,
       }),
       // eBay fetch (only if active)

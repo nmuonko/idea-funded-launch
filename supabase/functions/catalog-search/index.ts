@@ -420,19 +420,32 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // ─── REWRITE QUERY ────────────────────────────────────────────────────────
-    // Rewrite French queries to English for better provider results
-    searchMeta = await rewriteSearchQuery(supabase, qOriginal, {
-      lang,
-      categoryKey,
-      requestId,
-    });
+    // ─── PERF TRACKING ──────────────────────────────────────────────────────────
+    const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, amazon_ms: 0, ebay_ms: 0, mix_ms: 0 };
+
+    // ─── PARALLEL: REWRITE QUERY + LOAD SETTINGS ─────────────────────────────────
+    // Run query rewrite and settings load concurrently (saves ~30-50ms)
+    const rewriteStart = Date.now();
+    const [searchMetaResult, settings] = await Promise.all([
+      rewriteSearchQuery(supabase, qOriginal, {
+        lang,
+        categoryKey,
+        requestId,
+      }),
+      getCatalogSettings(supabase),
+    ]);
+    
+    searchMeta = searchMetaResult;
+    perfLog.rewrite_ms = Date.now() - rewriteStart;
+    perfLog.settings_ms = perfLog.rewrite_ms; // Ran in parallel
     
     const qNorm = searchMeta.rewrittenQuery; // Use rewritten query for searches
     
     if (searchMeta.rewriteApplied) {
       console.log(`[SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
+
+    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
 
     // Decode cursor first (needed for cache key)
     let mixerCursor = getInitialCursor();
@@ -445,6 +458,7 @@ Deno.serve(async (req: Request) => {
 
     // ─── GLOBAL CACHE CHECK (EARLY) ───────────────────────────────────────────
     // Check for cached search results BEFORE calling providers for instant response
+    const cacheStart = Date.now();
     const globalCacheKey = buildCacheKey("search", {
       env: envName,
       query: qNorm,
@@ -455,6 +469,7 @@ Deno.serve(async (req: Request) => {
     });
 
     const cacheResult = await getCache(supabase, globalCacheKey);
+    perfLog.cache_ms = Date.now() - cacheStart;
 
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       // INSTANT RETURN: Fresh cache hit
@@ -481,10 +496,6 @@ Deno.serve(async (req: Request) => {
     if (isStaleCache) {
       console.log(`[SEARCH] requestId=${requestId} STALE CACHE (${cacheResult.cacheAgeSec}s old) - will refresh`);
     }
-
-    // Load settings
-    const settings = await getCatalogSettings(supabase);
-    const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
 
     console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`);
 
@@ -937,6 +948,16 @@ Deno.serve(async (req: Request) => {
     const nextCursor = mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null;
 
     const durationMs = Date.now() - startTime;
+    
+    // Log detailed performance breakdown
+    console.log(`[SEARCH_PERF] requestId=${requestId}`, JSON.stringify({
+      rewrite_settings_ms: perfLog.rewrite_ms,
+      cache_check_ms: perfLog.cache_ms,
+      total_ms: durationMs,
+      items_returned: finalItems.length,
+      cache_hit: false,
+    }));
+    
     console.log(`[SEARCH] requestId=${requestId} Done: ${finalItems.length} items, mode=${effectiveMode.mode}, phase=${mixResult.mixingPhase}, durationMs=${durationMs}`);
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";

@@ -4,7 +4,8 @@
  * 
  * Features:
  * - Platform gating via feature_flags table
- * - Per-source caching with SHA-256 keys
+ * - Per-source caching with SHA-256 keys + stale-while-revalidate
+ * - Admin-controlled TTL via admin_settings
  * - Rate limiting (60/5min per IP, 120/5min per user)
  * - Normalized response format
  * - Structured logging
@@ -16,7 +17,7 @@
  * - Pagination: ?q=laptop&page=1&limit=24 then ?q=laptop&page=2&limit=24
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { 
   searchEbayNormalized, 
   searchAmazonNormalized, 
@@ -27,10 +28,13 @@ import {
 } from "../_shared/proxyProviders.ts";
 import {
   generateCacheKey,
-  getCachedResult,
+  getCacheWithAge,
   setCachedResult,
+  getProxyCacheSettings,
   SearchParams as CacheSearchParams,
   CachedPayload,
+  ProxyCacheSettings,
+  CacheResult,
 } from "../_shared/proxyCache.ts";
 import { getClientIp } from "../_shared/rateLimiter.ts";
 
@@ -45,7 +49,6 @@ const CORS_HEADERS = {
 const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_IP = 60;
 const RATE_LIMIT_USER = 120;
-const CACHE_TTL_SECONDS = 900; // 15 minutes
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +83,8 @@ interface SearchResponse {
   cache: {
     hit: boolean;
     ttlSeconds: number;
+    stale?: boolean;
+    ageSeconds?: number;
   };
   errors: { source: string; message: string }[];
 }
@@ -113,6 +118,14 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Load cache settings from admin_settings
+    const cacheSettings = await getProxyCacheSettings(supabase);
+    
+    console.log("[SEARCH_PROXY] settings", JSON.stringify({
+      ttlFresh: cacheSettings.searchTtlSeconds,
+      ttlStaleMax: cacheSettings.staleMaxSeconds,
+    }));
 
     // 1. Parse and validate request
     const params = parseRequest(req);
@@ -188,7 +201,7 @@ Deno.serve(async (req) => {
         hasMore: false,
         items: [],
         timingsMs: { ebay: 0, amazon: 0, total: Date.now() - startTime },
-        cache: { hit: false, ttlSeconds: CACHE_TTL_SECONDS },
+        cache: { hit: false, ttlSeconds: cacheSettings.searchTtlSeconds },
         errors: [{ source: "all", message: "No search providers available" }],
       };
       return new Response(JSON.stringify(response), { headers: CORS_HEADERS });
@@ -209,11 +222,12 @@ Deno.serve(async (req) => {
       clientPlatform: params.clientPlatform,
     };
 
-    // 5. Check cache and fetch from providers
-    const results = await fetchFromProviders(
+    // 5. Check cache and fetch from providers with stale-while-revalidate
+    const results = await fetchFromProvidersWithSWR(
       supabase,
       enabledSources,
-      searchParams
+      searchParams,
+      cacheSettings
     );
 
     // 6. Build response
@@ -222,13 +236,21 @@ Deno.serve(async (req) => {
     const errors: { source: string; message: string }[] = [];
     let hasAnyMore = false;
     let anyCacheHit = false;
+    let anyStale = false;
+    let maxAgeSeconds = 0;
 
     for (const [source, result] of Object.entries(results)) {
       if (result.items.length > 0 || !result.error) {
         sourceServed.push(source as "ebay" | "amazon");
         allItems.push(...result.items);
         if (result.hasMore) hasAnyMore = true;
-        if (result.cacheHit) anyCacheHit = true;
+        if (result.cacheHit) {
+          anyCacheHit = true;
+          if (result.stale) anyStale = true;
+          if (result.ageSeconds && result.ageSeconds > maxAgeSeconds) {
+            maxAgeSeconds = result.ageSeconds;
+          }
+        }
       }
       if (result.error) {
         errors.push({ source, message: result.error });
@@ -253,10 +275,18 @@ Deno.serve(async (req) => {
       },
       cache: {
         hit: anyCacheHit,
-        ttlSeconds: CACHE_TTL_SECONDS,
+        ttlSeconds: cacheSettings.searchTtlSeconds,
+        ...(anyCacheHit && { stale: anyStale }),
+        ...(anyCacheHit && maxAgeSeconds > 0 && { ageSeconds: maxAgeSeconds }),
       },
       errors,
     };
+
+    console.log("[SEARCH_PROXY] cache_returned", JSON.stringify({
+      hit: anyCacheHit,
+      stale: anyStale,
+      ageSeconds: maxAgeSeconds || undefined,
+    }));
 
     console.log("[SEARCH_PROXY] response", JSON.stringify({
       items: sortedItems.length,
@@ -587,7 +617,7 @@ async function getEnabledSources(
   }
 }
 
-// ─── Provider Fetching ───────────────────────────────────────────────────────
+// ─── Provider Fetching with Stale-While-Revalidate ───────────────────────────
 
 interface ProviderFetchResult {
   items: NormalizedItem[];
@@ -596,13 +626,15 @@ interface ProviderFetchResult {
   durationMs: number;
   error: string | null;
   cacheHit: boolean;
+  stale?: boolean;
+  ageSeconds?: number;
 }
 
-async function fetchFromProviders(
-  // deno-lint-ignore no-explicit-any
-  supabase: any,
+async function fetchFromProvidersWithSWR(
+  supabase: SupabaseClient,
   enabledSources: ("ebay" | "amazon")[],
-  params: CacheSearchParams
+  params: CacheSearchParams,
+  settings: ProxyCacheSettings
 ): Promise<Record<"ebay" | "amazon", ProviderFetchResult>> {
   const results: Record<"ebay" | "amazon", ProviderFetchResult> = {
     ebay: { items: [], total: 0, hasMore: false, durationMs: 0, error: null, cacheHit: false },
@@ -617,22 +649,51 @@ async function fetchFromProviders(
       (async () => {
         const cacheKey = await generateCacheKey(source, params);
         
-        // Check cache first
-        const cached = await getCachedResult(supabase, cacheKey);
-        if (cached) {
+        // Check cache with stale-while-revalidate
+        const cacheResult = await getCacheWithAge(
+          supabase,
+          cacheKey,
+          settings.searchTtlSeconds,
+          settings.staleMaxSeconds
+        );
+        
+        if (cacheResult) {
+          // Cache hit (fresh or stale)
           console.log("[SEARCH_PROXY] cache_hit", JSON.stringify({
             source,
             cacheKey: cacheKey.slice(0, 20),
+            stale: cacheResult.isStale,
+            ageSeconds: cacheResult.ageSeconds,
           }));
           
           results[source] = {
-            items: cached.items as NormalizedItem[],
-            total: cached.total,
-            hasMore: cached.hasMore,
+            items: cacheResult.payload.items as NormalizedItem[],
+            total: cacheResult.payload.total,
+            hasMore: cacheResult.payload.hasMore,
             durationMs: 0,
             error: null,
             cacheHit: true,
+            stale: cacheResult.isStale,
+            ageSeconds: cacheResult.ageSeconds,
           };
+          
+          // If stale, trigger background refresh (don't await)
+          if (cacheResult.isStale) {
+            console.log("[SEARCH_PROXY] refresh_started", JSON.stringify({
+              source,
+              cacheKey: cacheKey.slice(0, 20),
+            }));
+            
+            // Fire and forget - background refresh
+            triggerBackgroundRefresh(
+              supabase,
+              source,
+              params,
+              cacheKey,
+              settings.searchTtlSeconds
+            );
+          }
+          
           return;
         }
 
@@ -642,6 +703,7 @@ async function fetchFromProviders(
         }));
 
         // Fetch from provider
+        const startTime = Date.now();
         let providerResult;
         if (source === "ebay") {
           providerResult = await searchEbayNormalized(supabase, {
@@ -673,6 +735,7 @@ async function fetchFromProviders(
 
         results[source] = {
           ...providerResult,
+          durationMs: Date.now() - startTime,
           cacheHit: false,
         };
 
@@ -684,7 +747,7 @@ async function fetchFromProviders(
             hasMore: providerResult.hasMore,
             fetchedAt: new Date().toISOString(),
           };
-          await setCachedResult(supabase, cacheKey, source, cachePayload, CACHE_TTL_SECONDS);
+          await setCachedResult(supabase, cacheKey, source, cachePayload, settings.searchTtlSeconds);
         }
       })()
     );
@@ -693,6 +756,80 @@ async function fetchFromProviders(
   await Promise.all(fetchPromises);
 
   return results;
+}
+
+/**
+ * Trigger a background refresh for stale cache entries
+ * This is fire-and-forget - we don't wait for it to complete
+ */
+function triggerBackgroundRefresh(
+  supabase: SupabaseClient,
+  source: "ebay" | "amazon",
+  params: CacheSearchParams,
+  cacheKey: string,
+  ttlSeconds: number
+): void {
+  // Execute refresh without blocking
+  (async () => {
+    try {
+      const startTime = Date.now();
+      let providerResult;
+      
+      if (source === "ebay") {
+        providerResult = await searchEbayNormalized(supabase, {
+          q: params.q,
+          minPrice: params.minPrice,
+          maxPrice: params.maxPrice,
+          condition: params.condition as ConditionType,
+          sort: params.sort as SortType,
+          limit: params.limit,
+          page: params.page,
+          currency: params.currency,
+          country: params.country,
+          category: params.category,
+        });
+      } else {
+        providerResult = await searchAmazonNormalized({
+          q: params.q,
+          minPrice: params.minPrice,
+          maxPrice: params.maxPrice,
+          condition: params.condition as ConditionType,
+          sort: params.sort as SortType,
+          limit: params.limit,
+          page: params.page,
+          currency: params.currency,
+          country: params.country,
+          category: params.category,
+        });
+      }
+      
+      const durationMs = Date.now() - startTime;
+      
+      if (!providerResult.error && providerResult.items.length > 0) {
+        const cachePayload: CachedPayload = {
+          items: providerResult.items,
+          total: providerResult.total,
+          hasMore: providerResult.hasMore,
+          fetchedAt: new Date().toISOString(),
+        };
+        await setCachedResult(supabase, cacheKey, source, cachePayload, ttlSeconds);
+        
+        console.log("[SEARCH_PROXY] refresh_done", JSON.stringify({
+          source,
+          items: providerResult.items.length,
+          durationMs,
+        }));
+      } else {
+        console.log("[SEARCH_PROXY] refresh_failed", JSON.stringify({
+          source,
+          error: providerResult.error?.slice(0, 100),
+          durationMs,
+        }));
+      }
+    } catch (err) {
+      console.error("[SEARCH_PROXY] refresh_error", err);
+    }
+  })();
 }
 
 // ─── Result Interleaving ─────────────────────────────────────────────────────

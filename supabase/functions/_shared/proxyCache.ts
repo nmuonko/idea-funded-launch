@@ -1,6 +1,6 @@
 /**
  * Market Search Proxy - Cache Helper
- * SHA-256 based cache key generation and cache operations
+ * SHA-256 based cache key generation, cache operations, and stale-while-revalidate logic
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -26,7 +26,74 @@ export interface CachedPayload {
   fetchedAt: string;
 }
 
-const DEFAULT_TTL_SECONDS = 900; // 15 minutes
+export interface CacheResult {
+  payload: CachedPayload;
+  createdAt: Date;
+  expiresAt: Date;
+  ageSeconds: number;
+  isExpired: boolean;
+  isStale: boolean;
+}
+
+export interface ProxyCacheSettings {
+  searchTtlSeconds: number;
+  itemTtlSeconds: number;
+  staleMaxSeconds: number;
+}
+
+// Default values if settings are missing
+const DEFAULT_SEARCH_TTL = 900;      // 15 minutes
+const DEFAULT_ITEM_TTL = 300;        // 5 minutes
+const DEFAULT_STALE_MAX = 21600;     // 6 hours
+
+/**
+ * Fetch proxy cache settings from admin_settings table
+ * Falls back to defaults if settings are missing
+ */
+export async function getProxyCacheSettings(
+  supabase: SupabaseClient
+): Promise<ProxyCacheSettings> {
+  try {
+    const { data, error } = await supabase
+      .from("admin_settings")
+      .select("key, value")
+      .in("key", [
+        "proxy_search_cache_ttl_seconds",
+        "proxy_item_cache_ttl_seconds",
+        "proxy_stale_max_seconds",
+      ]);
+
+    if (error) {
+      console.log("[PROXY_CACHE] settings_error", JSON.stringify({ error: error.message }));
+      return {
+        searchTtlSeconds: DEFAULT_SEARCH_TTL,
+        itemTtlSeconds: DEFAULT_ITEM_TTL,
+        staleMaxSeconds: DEFAULT_STALE_MAX,
+      };
+    }
+
+    const settings: Record<string, number> = {};
+    for (const row of data || []) {
+      const parsed = parseInt(row.value, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        settings[row.key] = parsed;
+      }
+    }
+
+    return {
+      searchTtlSeconds: settings["proxy_search_cache_ttl_seconds"] || DEFAULT_SEARCH_TTL,
+      itemTtlSeconds: settings["proxy_item_cache_ttl_seconds"] || DEFAULT_ITEM_TTL,
+      staleMaxSeconds: settings["proxy_stale_max_seconds"] || DEFAULT_STALE_MAX,
+    };
+  } catch (err) {
+    console.error("[PROXY_CACHE] settings_exception", err);
+    return {
+      searchTtlSeconds: DEFAULT_SEARCH_TTL,
+      itemTtlSeconds: DEFAULT_ITEM_TTL,
+      staleMaxSeconds: DEFAULT_STALE_MAX,
+    };
+  }
+}
 
 /**
  * Generate a SHA-256 hash of the search parameters
@@ -66,6 +133,66 @@ export async function generateCacheKey(
 }
 
 /**
+ * Get cached result with age information for stale-while-revalidate
+ * Returns null if not found, or CacheResult with freshness info
+ */
+export async function getCacheWithAge(
+  supabase: SupabaseClient,
+  cacheKey: string,
+  ttlFreshSeconds: number,
+  staleMaxSeconds: number
+): Promise<CacheResult | null> {
+  try {
+    const { data, error } = await supabase
+      .from("search_proxy_cache")
+      .select("payload, expires_at, created_at")
+      .eq("cache_key", cacheKey)
+      .maybeSingle();
+    
+    if (error) {
+      console.log("[PROXY_CACHE] cache_error", JSON.stringify({ 
+        cacheKey: cacheKey.slice(0, 20), 
+        error: error.message 
+      }));
+      return null;
+    }
+    
+    if (!data) {
+      return null;
+    }
+    
+    const now = new Date();
+    const createdAt = new Date(data.created_at);
+    const expiresAt = new Date(data.expires_at);
+    const ageSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+    const isExpired = expiresAt <= now;
+    
+    // Check if cache is too old (beyond stale max)
+    if (ageSeconds > staleMaxSeconds) {
+      console.log("[PROXY_CACHE] cache_too_old", JSON.stringify({ 
+        cacheKey: cacheKey.slice(0, 20),
+        ageSeconds,
+        staleMaxSeconds,
+      }));
+      return null;
+    }
+    
+    return {
+      payload: data.payload as CachedPayload,
+      createdAt,
+      expiresAt,
+      ageSeconds,
+      isExpired,
+      isStale: isExpired, // Stale if past expires_at but within staleMax
+    };
+  } catch (err) {
+    console.error("[PROXY_CACHE] cache_lookup_error", err);
+    return null;
+  }
+}
+
+/**
+ * Legacy function for backward compatibility
  * Get cached result from search_proxy_cache
  * Returns null if not found or expired
  */
@@ -116,10 +243,11 @@ export async function setCachedResult(
   cacheKey: string,
   source: "ebay" | "amazon",
   payload: CachedPayload,
-  ttlSeconds: number = DEFAULT_TTL_SECONDS
+  ttlSeconds: number
 ): Promise<void> {
   try {
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
     
     const { error } = await supabase
       .from("search_proxy_cache")
@@ -128,7 +256,7 @@ export async function setCachedResult(
         source,
         payload,
         expires_at: expiresAt.toISOString(),
-        created_at: new Date().toISOString(),
+        created_at: now.toISOString(),
       }, { onConflict: "cache_key" });
     
     if (error) {

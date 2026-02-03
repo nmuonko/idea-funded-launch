@@ -4,7 +4,7 @@
  * 
  * Features:
  * - Returns ALL item images (imageUrls array)
- * - Per-item caching with 5min TTL
+ * - Per-item caching with admin-controlled TTL + stale-while-revalidate
  * - Rate limiting (60/5min per IP)
  * - Normalized response format
  * - Structured logging
@@ -14,12 +14,13 @@
  * - Amazon item: /market-item-details-proxy?source=amazon&id=B09V3KXJPB
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import {
   getEbayItemNormalized,
   getAmazonItemNormalized,
   NormalizedItemDetail,
 } from "../_shared/proxyProviders.ts";
+import { getProxyCacheSettings, ProxyCacheSettings } from "../_shared/proxyCache.ts";
 import { getClientIp } from "../_shared/rateLimiter.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -32,7 +33,6 @@ const CORS_HEADERS = {
 
 const RATE_LIMIT_WINDOW_MINUTES = 5;
 const RATE_LIMIT_IP = 60;
-const CACHE_TTL_SECONDS = 300; // 5 minutes for item details
 const MAX_IMAGES = 20; // Limit imageUrls to avoid huge payloads
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -62,12 +62,23 @@ interface ItemDetailsResponse {
   cache: {
     hit: boolean;
     ttlSeconds: number;
+    stale?: boolean;
+    ageSeconds?: number;
   };
 }
 
 interface CachedItemDetail {
   item: NormalizedItemDetail;
   fetchedAt: string;
+}
+
+interface CacheResultWithAge {
+  payload: CachedItemDetail;
+  createdAt: Date;
+  expiresAt: Date;
+  ageSeconds: number;
+  isExpired: boolean;
+  isStale: boolean;
 }
 
 // ─── Main Handler ────────────────────────────────────────────────────────────
@@ -93,6 +104,14 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Load cache settings from admin_settings
+    const cacheSettings = await getProxyCacheSettings(supabase);
+    
+    console.log("[ITEM_DETAILS_PROXY] settings", JSON.stringify({
+      ttlFresh: cacheSettings.itemTtlSeconds,
+      ttlStaleMax: cacheSettings.staleMaxSeconds,
+    }));
 
     // 1. Parse and validate request
     const params = parseRequest(req);
@@ -131,16 +150,42 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 3. Check cache
-    const cacheKey = `${params.source}:${params.id}`;
-    const cached = await getCachedItem(supabase, cacheKey);
+    // 3. Check cache with stale-while-revalidate
+    const cacheKey = `detail:${params.source}:${params.id}`;
+    const cacheResult = await getCacheWithAge(supabase, cacheKey, cacheSettings);
     
-    if (cached) {
+    if (cacheResult) {
       console.log("[ITEM_DETAILS_PROXY] cache_hit", JSON.stringify({
         cacheKey: cacheKey.slice(0, 40),
+        stale: cacheResult.isStale,
+        ageSeconds: cacheResult.ageSeconds,
       }));
       
-      const response = buildResponse(cached.item, Date.now() - startTime, true);
+      const response = buildResponse(
+        cacheResult.payload.item, 
+        Date.now() - startTime, 
+        true,
+        cacheResult.isStale,
+        cacheResult.ageSeconds,
+        cacheSettings.itemTtlSeconds
+      );
+      
+      // If stale, trigger background refresh
+      if (cacheResult.isStale) {
+        console.log("[ITEM_DETAILS_PROXY] refresh_started", JSON.stringify({
+          source: params.source,
+          id: params.id.slice(0, 20),
+        }));
+        
+        triggerBackgroundRefresh(
+          supabase,
+          params.source,
+          params.id,
+          cacheKey,
+          cacheSettings.itemTtlSeconds
+        );
+      }
+      
       return new Response(JSON.stringify(response), { headers: CORS_HEADERS });
     }
 
@@ -183,10 +228,10 @@ Deno.serve(async (req) => {
     }));
 
     // 5. Cache the result
-    await setCachedItem(supabase, cacheKey, params.source, item);
+    await setCachedItem(supabase, cacheKey, params.source, item, cacheSettings.itemTtlSeconds);
 
     // 6. Build and return response
-    const response = buildResponse(item, durationMs, false);
+    const response = buildResponse(item, durationMs, false, false, 0, cacheSettings.itemTtlSeconds);
     return new Response(JSON.stringify(response), { headers: CORS_HEADERS });
 
   } catch (err) {
@@ -280,18 +325,19 @@ async function checkRateLimit(
   }
 }
 
-// ─── Caching ─────────────────────────────────────────────────────────────────
+// ─── Caching with Stale-While-Revalidate ─────────────────────────────────────
 
-async function getCachedItem(
+async function getCacheWithAge(
   // deno-lint-ignore no-explicit-any
   supabase: any,
-  cacheKey: string
-): Promise<CachedItemDetail | null> {
+  cacheKey: string,
+  settings: ProxyCacheSettings
+): Promise<CacheResultWithAge | null> {
   try {
     const { data, error } = await supabase
       .from("search_proxy_cache")
-      .select("payload, expires_at")
-      .eq("cache_key", `detail:${cacheKey}`)
+      .select("payload, expires_at, created_at")
+      .eq("cache_key", cacheKey)
       .maybeSingle();
     
     if (error) {
@@ -306,13 +352,30 @@ async function getCachedItem(
       return null;
     }
     
-    // Check expiration
+    const now = new Date();
+    const createdAt = new Date(data.created_at);
     const expiresAt = new Date(data.expires_at);
-    if (expiresAt <= new Date()) {
+    const ageSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+    const isExpired = expiresAt <= now;
+    
+    // Check if cache is too old (beyond stale max)
+    if (ageSeconds > settings.staleMaxSeconds) {
+      console.log("[ITEM_DETAILS_PROXY] cache_too_old", JSON.stringify({ 
+        cacheKey: cacheKey.slice(0, 30),
+        ageSeconds,
+        staleMaxSeconds: settings.staleMaxSeconds,
+      }));
       return null;
     }
     
-    return data.payload as CachedItemDetail;
+    return {
+      payload: data.payload as CachedItemDetail,
+      createdAt,
+      expiresAt,
+      ageSeconds,
+      isExpired,
+      isStale: isExpired,
+    };
   } catch (err) {
     console.error("[ITEM_DETAILS_PROXY] cache_lookup_error", err);
     return null;
@@ -324,23 +387,25 @@ async function setCachedItem(
   supabase: any,
   cacheKey: string,
   source: "ebay" | "amazon",
-  item: NormalizedItemDetail
+  item: NormalizedItemDetail,
+  ttlSeconds: number
 ): Promise<void> {
   try {
-    const expiresAt = new Date(Date.now() + CACHE_TTL_SECONDS * 1000);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
     const payload: CachedItemDetail = {
       item,
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: now.toISOString(),
     };
     
     const { error } = await supabase
       .from("search_proxy_cache")
       .upsert({
-        cache_key: `detail:${cacheKey}`,
+        cache_key: cacheKey,
         source,
         payload,
         expires_at: expiresAt.toISOString(),
-        created_at: new Date().toISOString(),
+        created_at: now.toISOString(),
       }, { onConflict: "cache_key" });
     
     if (error) {
@@ -354,12 +419,66 @@ async function setCachedItem(
   }
 }
 
+/**
+ * Trigger a background refresh for stale cache entries
+ * This is fire-and-forget - we don't wait for it to complete
+ */
+function triggerBackgroundRefresh(
+  supabase: SupabaseClient,
+  source: "ebay" | "amazon",
+  itemId: string,
+  cacheKey: string,
+  ttlSeconds: number
+): void {
+  // Execute refresh without blocking
+  (async () => {
+    try {
+      const startTime = Date.now();
+      let item: NormalizedItemDetail | null = null;
+      let error: string | null = null;
+      
+      if (source === "ebay") {
+        const result = await getEbayItemNormalized(supabase, itemId);
+        item = result.item;
+        error = result.error;
+      } else {
+        const result = await getAmazonItemNormalized(itemId);
+        item = result.item;
+        error = result.error;
+      }
+      
+      const durationMs = Date.now() - startTime;
+      
+      if (item && !error) {
+        await setCachedItem(supabase, cacheKey, source, item, ttlSeconds);
+        
+        console.log("[ITEM_DETAILS_PROXY] refresh_done", JSON.stringify({
+          source,
+          id: itemId.slice(0, 20),
+          durationMs,
+        }));
+      } else {
+        console.log("[ITEM_DETAILS_PROXY] refresh_failed", JSON.stringify({
+          source,
+          error: error?.slice(0, 100),
+          durationMs,
+        }));
+      }
+    } catch (err) {
+      console.error("[ITEM_DETAILS_PROXY] refresh_error", err);
+    }
+  })();
+}
+
 // ─── Response Building ───────────────────────────────────────────────────────
 
 function buildResponse(
   item: NormalizedItemDetail,
   durationMs: number,
-  cacheHit: boolean
+  cacheHit: boolean,
+  stale: boolean,
+  ageSeconds: number,
+  ttlSeconds: number
 ): ItemDetailsResponse {
   // Validate and limit imageUrls
   const validatedUrls = item.imageUrls
@@ -388,7 +507,9 @@ function buildResponse(
     timingsMs: durationMs,
     cache: {
       hit: cacheHit,
-      ttlSeconds: CACHE_TTL_SECONDS,
+      ttlSeconds,
+      ...(cacheHit && { stale }),
+      ...(cacheHit && ageSeconds > 0 && { ageSeconds }),
     },
   };
 }

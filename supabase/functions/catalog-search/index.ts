@@ -297,6 +297,36 @@ const STANDALONE_VEHICLE_PATTERNS: RegExp[] = [
   /\bjeep\b/i,   // Jeep as a brand = vehicle intent
   
   // ═══════════════════════════════════════════════════════════════════════════
+  // MAINSTREAM BRANDS: Major car manufacturers - standalone = vehicle intent
+  // A single-word search for these brands strongly indicates vehicle intent
+  // ═══════════════════════════════════════════════════════════════════════════
+  /\btoyota\b/i,
+  /\bhonda\b/i,
+  /\bnissan\b/i,
+  /\bford\b/i,
+  /\bchevrolet\b/i,
+  /\bchevy\b/i,
+  /\bdodge\b/i,
+  /\bram\b/i,
+  /\bgmc\b/i,
+  /\bbmw\b/i,
+  /\bmercedes\b/i,
+  /\baudi\b/i,
+  /\bvolkswagen\b/i,
+  /\bvw\b/i,
+  /\bhyundai\b/i,
+  /\bkia\b/i,
+  /\bmazda\b/i,
+  /\bsubaru\b/i,
+  /\bvolvo\b/i,
+  /\bchrysler\b/i,
+  /\bpeugeot\b/i,
+  /\brenault\b/i,
+  /\bcitroen\b/i,
+  /\bmitsubishi\b/i,
+  /\bfiat\b/i,
+  
+  // ═══════════════════════════════════════════════════════════════════════════
   // ICONIC VEHICLE NAMES: Well-known models that stand alone
   // ═══════════════════════════════════════════════════════════════════════════
   // Tesla models (often searched without "tesla" prefix)
@@ -540,8 +570,9 @@ async function probeEbayVehicleCategory(
     reason: vehicleMode ? "probe_vehicles_found" : "probe_insufficient_vehicles",
   };
   
-  // Cache probe result for 24 hours (fire-and-forget)
-  if (probeSuccess) {
+  // Cache probe result for 24 hours ONLY if probe succeeded and we got valid data
+  // Do NOT cache failed probes to avoid poisoning with incorrect vehicleMode=false
+  if (probeSuccess && typeof vehiclesFound === "number") {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const staleAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
     
@@ -554,14 +585,34 @@ async function probeEbayVehicleCategory(
       updated_at: new Date().toISOString(),
     }, { onConflict: "cache_key" }).then(() => {
       console.log(JSON.stringify({
-        event: "[VEHICLE_PROBE] cached",
-        query,
-        vehicleMode,
+        event: "[VEHICLE_PROBE]",
+        qNorm: query,
+        ok: true,
         vehiclesFound,
-        ttl: "24h",
+        decision: vehicleMode ? "vehicle" : "non_vehicle",
+        cached: true,
+        requestId,
+      }));
+    }).catch((err: Error) => {
+      console.error(JSON.stringify({
+        event: "[VEHICLE_PROBE] cache_write_error",
+        query,
+        error: String(err),
         requestId,
       }));
     });
+  } else {
+    // Log that we're NOT caching due to probe failure
+    console.log(JSON.stringify({
+      event: "[VEHICLE_PROBE]",
+      qNorm: query,
+      ok: false,
+      vehiclesFound: vehiclesFound ?? 0,
+      decision: "fallback_non_vehicle",
+      cached: false,
+      reason: "probe_failed_or_unparsed",
+      requestId,
+    }));
   }
   
   return result;

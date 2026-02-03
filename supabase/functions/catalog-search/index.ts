@@ -466,6 +466,12 @@ Deno.serve(async (req: Request) => {
       category: categoryKey || undefined,
       page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
       pageSize: limit,
+      // Include filters in cache key so different filter combinations have separate cached results
+      minPrice: catalogFilters.minPrice,
+      maxPrice: catalogFilters.maxPrice,
+      brand: catalogFilters.brand?.join(","),
+      rating: catalogFilters.rating,
+      condition: catalogFilters.condition,
     });
 
     const cacheResult = await getCache(supabase, globalCacheKey);
@@ -478,8 +484,22 @@ Deno.serve(async (req: Request) => {
       const cachedResponse = cacheResult.data;
       const instantDuration = Date.now() - startTime;
       
+      // Apply post-filter to cached results as safety net (in case filters differ from cached version)
+      let cachedItems = cachedResponse.items || [];
+      const hasFiltersForCache = catalogFilters.minPrice !== undefined || 
+                                 catalogFilters.maxPrice !== undefined ||
+                                 catalogFilters.brand !== undefined ||
+                                 catalogFilters.rating !== undefined;
+      if (hasFiltersForCache && cachedItems.length > 0) {
+        const beforeCount = cachedItems.length;
+        cachedItems = postFilterItems(cachedItems, catalogFilters);
+        console.log(`[SEARCH] requestId=${requestId} Cache post-filter: ${beforeCount} → ${cachedItems.length}`);
+      }
+      
       return new Response(JSON.stringify({
         ...cachedResponse,
+        items: cachedItems, // Use filtered items
+        total: cachedItems.length,
         query: qOriginal, // Use original query for display
         env: envName,
         durationMs: instantDuration,
@@ -787,6 +807,8 @@ Deno.serve(async (req: Request) => {
             isVehicle,
             categoryId: ebayCategory,
             marketplaceId: "EBAY_US",
+            // Pass filters for API-level filtering (price range, condition, etc.)
+            filters: catalogFilters,
           },
           requestId
         );

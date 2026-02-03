@@ -274,6 +274,57 @@ const STANDALONE_VEHICLE_PATTERNS: RegExp[] = [
   /\b911\b/i,  // Porsche 911
 ];
 
+// ══════════════════════════════════════════════════════════════════════════════
+// VEHICLE SIGNALS: Indicators that distinguish vehicle queries from accessories
+// Used to require an extra signal for brand fallback (prevents "bmw keychain" false positive)
+// ══════════════════════════════════════════════════════════════════════════════
+const VEHICLE_SIGNAL_PATTERNS = {
+  // Year patterns (1990-2029)
+  year: /(19|20)\d{2}/,
+  
+  // Alphanumeric model codes (qx80, c300, x5, 530i, etc.)
+  // Matches: letters+digits or digits+letters
+  alphanumeric: /\b[a-z]+\d+[a-z]?\b|\b\d+[a-z]+[a-z0-9]*\b/i,
+  
+  // Vehicle-specific terminology
+  keywords: [
+    "suv", "truck", "pickup", "sedan", "coupe", "4x4", "awd", "4wd", "2wd", "fwd", "rwd",
+    "miles", "mileage", "vin", "engine", "transmission", "v6", "v8", "v4", "turbo",
+    "hybrid", "electric", "diesel", "automatic", "manual", "convertible", "wagon",
+    "hatchback", "crossover", "for sale", "buy", "used", "certified", "preowned",
+    "pre-owned", "cpo", "dealer", "financing", "lease",
+  ],
+};
+
+/**
+ * Check if query contains a vehicle-specific signal
+ * Used to validate brand fallback detection (prevents false positives like "bmw keychain")
+ */
+function hasVehicleSignal(query: string): { hasSignal: boolean; signal: string | null } {
+  const lower = query.toLowerCase();
+  
+  // Check for year (1990-2029)
+  if (VEHICLE_SIGNAL_PATTERNS.year.test(lower)) {
+    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.year);
+    return { hasSignal: true, signal: `year:${match?.[0]}` };
+  }
+  
+  // Check for alphanumeric model codes (qx80, c300, x5, etc.)
+  if (VEHICLE_SIGNAL_PATTERNS.alphanumeric.test(lower)) {
+    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.alphanumeric);
+    return { hasSignal: true, signal: `alphanumeric:${match?.[0]}` };
+  }
+  
+  // Check for vehicle-specific keywords
+  for (const keyword of VEHICLE_SIGNAL_PATTERNS.keywords) {
+    if (lower.includes(keyword)) {
+      return { hasSignal: true, signal: `keyword:${keyword}` };
+    }
+  }
+  
+  return { hasSignal: false, signal: null };
+}
+
 /**
  * Check if a query contains a known vehicle make+model combination
  * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
@@ -340,23 +391,39 @@ function isVehicleMakeModelQuery(query: string): boolean {
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // C) BRAND FALLBACK: Brand + 2+ tokens AND no accessory keywords = vehicle intent
-  // This catches queries like "mercedes c300", "bmw x5", "nissan patrol"
-  // even when the specific model isn't in VEHICLE_MODEL_PATTERNS
+  // C) BRAND FALLBACK: Brand + 2+ tokens + vehicle signal = vehicle intent
+  // This catches queries like "mercedes c300", "bmw x5 2023", "nissan patrol 4x4"
+  // BUT requires a vehicle signal to prevent false positives like "bmw keychain"
   // ═══════════════════════════════════════════════════════════════════════════
   const tokens = lower.split(/\s+/);
   if (tokens.length >= 2) {
+    // Check for vehicle signal BEFORE checking brands
+    const vehicleSignal = hasVehicleSignal(lower);
+    
     for (const brand of VEHICLE_BRAND_ALIASES) {
       // Check if brand is in the query (exact word match)
       const brandRegex = new RegExp(`\\b${brand.replace(/\s+/g, "\\s+")}\\b`, 'i');
       if (brandRegex.test(lower)) {
-        console.log(JSON.stringify({
-          event: "[VEHICLE_DETECT] brand_fallback",
-          brand,
-          tokenCount: tokens.length,
-          query,
-        }));
-        return true;
+        // Brand found - check if we have a vehicle signal
+        if (vehicleSignal.hasSignal) {
+          console.log(JSON.stringify({
+            event: "[VEHICLE_DETECT] brand_fallback",
+            brand,
+            tokenCount: tokens.length,
+            signal: vehicleSignal.signal,
+            query,
+          }));
+          return true;
+        } else {
+          // Brand without vehicle signal - log and continue
+          console.log(JSON.stringify({
+            event: "[VEHICLE_DETECT] brand_no_signal",
+            brand,
+            tokenCount: tokens.length,
+            query,
+            note: "Brand found but no vehicle signal - not triggering vehicleMode",
+          }));
+        }
       }
     }
   }
@@ -393,26 +460,51 @@ function hasVehicleBuyingIntent(query: string): boolean {
   // If user searches "infiniti qx80 floor mats", they want floor mats, not a vehicle
   const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
   if (hasAccessoryKeywords) {
-    console.log(`[VEHICLE_DETECT] Accessory keywords found in "${query}" - NOT vehicle buying intent`);
+    const matchedKeyword = VEHICLE_ACCESSORY_KEYWORDS.find(kw => lower.includes(kw));
+    console.log(JSON.stringify({
+      event: "[VEHICLE_DETECT] result",
+      qNorm: query,
+      vehicleMode: false,
+      reason: "accessory_override",
+      keyword: matchedKeyword,
+    }));
     return false;
   }
   
   // SECOND: Check for explicit buying intent keywords
   const hasExplicitBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
   if (hasExplicitBuyingIntent) {
-    console.log(`[VEHICLE_DETECT] Explicit buying intent in "${query}" - IS vehicle buying intent`);
+    const matchedKeyword = VEHICLE_BUYING_INTENT_KEYWORDS.find(kw => lower.includes(kw));
+    console.log(JSON.stringify({
+      event: "[VEHICLE_DETECT] result",
+      qNorm: query,
+      vehicleMode: true,
+      reason: "explicit_buying_intent",
+      keyword: matchedKeyword,
+    }));
     return true;
   }
   
   // THIRD: Check for make+model combinations (e.g., "infiniti qx80")
   // These strongly indicate the user wants to find a vehicle, not accessories
   if (isVehicleMakeModelQuery(query)) {
-    console.log(`[VEHICLE_DETECT] Make+Model detected in "${query}" - IS vehicle buying intent`);
+    console.log(JSON.stringify({
+      event: "[VEHICLE_DETECT] result",
+      qNorm: query,
+      vehicleMode: true,
+      reason: "make_model_or_pattern",
+    }));
     return true;
   }
   
   // For brand-only queries (e.g., just "infiniti"), don't assume vehicle intent
   // User might be looking for accessories or general products
+  console.log(JSON.stringify({
+    event: "[VEHICLE_DETECT] result",
+    qNorm: query,
+    vehicleMode: false,
+    reason: "no_vehicle_indicators",
+  }));
   return false;
 }
 

@@ -7,6 +7,7 @@
  */
 
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
 export const AMAZON_CACHE_VERSION = "v2"; // Bump to invalidate old uncategorized Amazon entries
@@ -138,9 +139,14 @@ export function buildCacheKey(
     
     case "search":
       const qNorm = params.query ? normalizeQuery(params.query) : "";
+      // Canonicalize query to correct common typos for better cache hits
+      const qCanon = canonicalizeQuery(qNorm);
+      if (wasQueryCanonicalized(qNorm, qCanon)) {
+        console.log(`[CACHE] Canonicalized query: "${qNorm}" → "${qCanon}"`);
+      }
       const expand = params.expand ? 1 : 0;
       // Include AMAZON_CACHE_VERSION in cache key to invalidate old entries with uncategorized items
-      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qNorm}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}`;
+      return `search:${AMAZON_CACHE_VERSION}:domain=${domain}:env=${env}:q=${qCanon}:expand=${expand}:provider=${params.provider || "all"}:cat=${params.category || ""}:page=${params.page || 1}:size=${params.pageSize || 20}`;
     
     case "product":
       return `product:v1:domain=${domain}:env=${env}:id=${params.productId || ""}`;

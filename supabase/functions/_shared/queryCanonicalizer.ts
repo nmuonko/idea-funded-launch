@@ -70,6 +70,18 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "infiniti": ["infinti", "infinty", "inifiniti", "infintii", "infniti", "infinitie"], // Luxury vehicle brand - NOT infinix (phone)
   "acura": ["accura", "acurra", "acur"],
   "genesis": ["genisis", "gensis", "genesi"],
+  // Range Rover / Land Rover (commonly searched vehicle names)
+  "range rover": ["rangerover", "range rove", "rang rover", "rnage rover", "range rver"],
+  "land rover": ["landrover", "land rove", "lanr rover", "lnad rover"],
+  // Ford trucks
+  "f-150": ["f150", "f 150"],
+  "f-250": ["f250", "f 250"],
+  "f-350": ["f350", "f 350"],
+  // Jeep models
+  "grand cherokee": ["grandcherokee", "grand cheroki", "grand cheroke"],
+  "wrangler": ["wranler", "wranglr", "wrangeler"],
+  // Tesla models
+  "cybertruck": ["cyber truck", "cybertruk", "cybertuck"],
   
   // Electronics
   "television": ["televisn", "televison", "televsion", "tv"],

@@ -1,183 +1,143 @@
 
-# Admin-controlled TTL Caching + Instant Search Response
+# Cache Poisoning Fix for Vehicle Searches
 
-## Overview
+## Problem Summary
+Vehicle searches like "infiniti qx80" are returning accessories (phone cases, diecast models, floor mats) instead of actual vehicles because:
+1. Old cache entries were created **before** the vehicle detection and `vehicleMode` fixes were implemented
+2. These poisoned entries have cache keys using `search:v2` prefix that don't include `vehicleMode` flag
+3. When the iOS app requests `pageSize=36`, it hits these old cached results
 
-Add stale-while-revalidate caching to `market-search-proxy` and `market-item-details-proxy` for near-instant responses, with TTL values controllable from the admin portal.
+## Solution Overview
 
-## What Changes
+### 1. Cache Version Bump (v2 → v3)
+Change the cache key prefix from `search:v2` to `search:v3` to ensure all old poisoned cache entries are never matched again.
 
-| Component | Change |
-|-----------|--------|
-| `admin_settings` table | Add 3 new keys for proxy cache TTLs |
-| `proxyCache.ts` | Add stale-while-revalidate logic |
-| `market-search-proxy` | Read TTLs from admin_settings, implement cache-first pattern |
-| `market-item-details-proxy` | Same cache-first pattern with item TTL |
-| Response schema | Add optional `stale` and `ageSeconds` to cache object |
-
-## Why Use Existing admin_settings
-
-The project already has a well-established pattern using the `admin_settings` table for cache TTLs (search, home, offers, etc.) accessed via `getCatalogSettings()`. Creating a new `app_settings` table would duplicate infrastructure. Instead, we'll add three new keys to the existing table:
-
-- `proxy_search_cache_ttl_seconds` (default: 900 = 15 min)
-- `proxy_item_cache_ttl_seconds` (default: 300 = 5 min)  
-- `proxy_stale_max_seconds` (default: 21600 = 6 hours)
-
----
-
-## Database Changes
-
-### Migration: Add proxy cache settings to admin_settings
-
-```sql
--- Add proxy cache TTL settings
-INSERT INTO public.admin_settings (key, value) VALUES
-  ('proxy_search_cache_ttl_seconds', '900'),
-  ('proxy_item_cache_ttl_seconds', '300'),
-  ('proxy_stale_max_seconds', '21600')
-ON CONFLICT (key) DO NOTHING;
+**File: `supabase/functions/_shared/catalogCache.ts`**
+```text
+Line 13: export const AMAZON_CACHE_VERSION = "v2"; 
+      →  export const AMAZON_CACHE_VERSION = "v3";
 ```
 
-This uses the existing `admin_settings` table structure rather than creating a new table.
-
----
-
-## Cache-First Logic (Stale-While-Revalidate)
+Also explicitly include `vehicleMode` and `minPriceUsed` as separate key components (not just inside filters JSON) for clarity:
 
 ```text
-Request arrives
-    │
-    ▼
-┌─────────────────┐
-│ Load TTL from   │
-│ admin_settings  │
-└─────────────────┘
-    │
-    ▼
-┌─────────────────┐
-│ Check cache     │
-└─────────────────┘
-    │
-    ├── Cache exists AND not expired ──► Return immediately (hit=true, stale=false)
-    │
-    ├── Cache exists AND expired      
-    │   BUT age < staleMax ──────────► Return immediately (hit=true, stale=true)
-    │                                   + Start background refresh (don't wait)
-    │
-    └── No cache OR too old ─────────► Fetch live, store, return (hit=false)
+Lines 192-206: Update cache key format to:
+search:v3:q=...:p=...:cat=...:pg=...:sz=...:vm={0|1}:mp={minPriceUsed}:f=...
 ```
 
----
+### 2. One-Time Cache Purge Migration
+Execute SQL to delete all v2 search cache entries across all relevant cache tables:
 
-## Response Schema Updates
+```sql
+-- Purge all v2 search cache entries (poisoned)
+DELETE FROM public.catalog_cache 
+WHERE cache_type = 'search' AND cache_key LIKE 'search:v2:%';
 
-Keep backward compatibility, add optional fields:
+-- Purge proxy cache if it exists
+DELETE FROM public.search_proxy_cache 
+WHERE cache_key LIKE 'search:v2:%';
 
+-- Purge catalog_search_cache if it has v2 entries
+DELETE FROM public.catalog_search_cache 
+WHERE cache_key LIKE 'search:v2:%';
+```
+
+### 3. Defensive Cache-Hit Filtering
+Add post-filter safety net in the cache hit return path to filter out obvious toys/accessories even if a poisoned entry is somehow hit:
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Add after line 1107 (where cached items are processed):
 ```typescript
-cache: {
-  hit: boolean;
-  ttlSeconds: number;
-  stale?: boolean;      // NEW: true if returned stale data
-  ageSeconds?: number;  // NEW: how old the cached data is
+// VEHICLE CACHE POISONING FIX: Always enforce minPrice for vehicle searches
+// This catches any old cache entries that don't have proper vehicle filtering
+if (hasBuyingIntent && cachedItems.length > 0) {
+  const beforeVehicleFilter = cachedItems.length;
+  cachedItems = cachedItems.filter((item: any) => {
+    const price = item.priceUsd ?? item.price_usd ?? 0;
+    return price >= 1000;
+  });
+  if (beforeVehicleFilter !== cachedItems.length) {
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} vehicle_cache_filter: ${beforeVehicleFilter} → ${cachedItems.length} (enforced minPrice=1000)`);
+  }
+}
+
+// ACCESSORY KEYWORD FILTER: Remove obvious toy/accessory results from vehicle cache
+const ACCESSORY_TITLE_KEYWORDS = [
+  'matchbox', 'diecast', '1:64', '1:43', '1:24', '1:18', 'hot wheels',
+  'floor mat', 'key fob', 'fob cover', 'key cover', 'remote cover',
+  'phone case', 'phone holder', 'car mount', 'decal', 'sticker',
+  'poster', 'wall art', 'canvas', 'model car', 'toy car'
+];
+if (hasBuyingIntent && cachedItems.length > 0) {
+  const beforeAccessoryFilter = cachedItems.length;
+  cachedItems = cachedItems.filter((item: any) => {
+    const title = (item.title || '').toLowerCase();
+    return !ACCESSORY_TITLE_KEYWORDS.some(kw => title.includes(kw));
+  });
+  if (beforeAccessoryFilter !== cachedItems.length) {
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} accessory_title_filter: ${beforeAccessoryFilter} → ${cachedItems.length}`);
+  }
 }
 ```
 
----
+### 4. Cache Key Mismatch Detection
+Force cache miss if vehicle intent is detected but cache key lacks `vehicleMode` marker:
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Add before line 1099 (cache hit check):
+```typescript
+// CACHE MISMATCH DETECTION: Force miss if vehicleMode not in cache key
+if (cacheResult.hit && hasBuyingIntent) {
+  const cacheKeyHasVehicleMode = cacheResult.cacheKey.includes('vm=1') || 
+                                  cacheResult.cacheKey.includes('vehicleMode');
+  if (!cacheKeyHasVehicleMode) {
+    console.warn(`[CATALOG_SEARCH] requestId=${requestId} CACHE_MISMATCH: vehicleMode=true but cache key lacks vm=1. Forcing miss.`);
+    cacheResult.hit = false;
+    cacheResult.stale = true;
+  }
+}
+```
 
 ## Files to Modify
 
-### 1. SQL Migration
+| File | Changes |
+|------|---------|
+| `supabase/functions/_shared/catalogCache.ts` | Bump `AMAZON_CACHE_VERSION` to "v3", add explicit `vm` and `mp` to cache key format |
+| `supabase/functions/catalog-search/index.ts` | Add defensive post-filtering for vehicle cache hits, cache mismatch detection |
+| Database | Execute purge migration for v2 entries |
 
-Add new settings to existing `admin_settings` table.
+## Technical Details
 
-### 2. `_shared/proxyCache.ts`
-
-Add new functions:
-
-- `getCacheWithAge()` - Returns cache entry with age info
-- `CachedResult` type with `created_at` timestamp
-- `triggerBackgroundRefresh()` - Non-blocking refresh
-
-Update `CachedPayload` to include creation timestamp.
-
-### 3. `market-search-proxy/index.ts`
-
-Changes:
-- Load TTL settings at start of request
-- Replace cache lookup with stale-aware version
-- Return stale data immediately when within staleMax window
-- Fire background refresh for stale entries
-- Add new logging for settings and stale returns
-
-### 4. `market-item-details-proxy/index.ts`
-
-Same pattern:
-- Load `proxy_item_cache_ttl_seconds` from settings
-- Cache-first with stale-while-revalidate
-- Background refresh for expired-but-usable entries
-
----
-
-## New Logging
-
+### Updated Cache Key Format (v3)
 ```
-[SEARCH_PROXY] settings {"ttlFresh":900,"ttlStaleMax":21600}
-[SEARCH_PROXY] cache_returned {"hit":true,"stale":false,"ageSeconds":120}
-[SEARCH_PROXY] cache_returned {"hit":true,"stale":true,"ageSeconds":1800}
-[SEARCH_PROXY] refresh_started {"source":"ebay","cacheKey":"ebay:abc..."}
-[SEARCH_PROXY] refresh_done {"source":"ebay","items":24,"durationMs":340}
+search:v3:q={canonicalizedQuery}:p={provider}:cat={category}:pg={page}:sz={pageSize}:vm={0|1}:mp={minPriceUsed}:f={filtersJSON}
 ```
 
----
-
-## Settings Helper Update
-
-Add to `_shared/proxyCache.ts`:
-
-```typescript
-interface ProxyCacheSettings {
-  searchTtlSeconds: number;
-  itemTtlSeconds: number;
-  staleMaxSeconds: number;
-}
-
-async function getProxyCacheSettings(supabase): Promise<ProxyCacheSettings> {
-  // Fetch from admin_settings with defaults
-}
+Example for "infiniti qx80" with vehicle mode:
+```
+search:v3:q=infiniti qx80:p=all:cat=:pg=1:sz=36:vm=1:mp=1000:f={"minPrice":1000,"vehicleMode":true}
 ```
 
----
+### Accessory Keywords Blocklist for Title Filtering
+- Toy/diecast: `matchbox`, `diecast`, `1:64`, `1:43`, `1:24`, `1:18`, `hot wheels`, `model car`, `toy car`
+- Vehicle accessories: `floor mat`, `key fob`, `fob cover`, `key cover`, `remote cover`
+- Phone accessories: `phone case`, `phone holder`, `car mount`
+- Decorative: `decal`, `sticker`, `poster`, `wall art`, `canvas`
 
-## Background Refresh Pattern
+## Expected Behavior After Fix
 
-For stale-while-revalidate, we need to trigger a refresh without blocking:
+| Query | vehicleMode | minPrice Enforced | Expected Results |
+|-------|-------------|-------------------|------------------|
+| "infiniti qx80" | true | $1,000 | Actual vehicles ($11k+) |
+| "infiniti qx80 floor mats" | false | none | Floor mat accessories |
+| "toyota camry for sale" | true | $1,000 | Actual vehicles |
+| "infiniti" (brand only) | false | none | Mixed results |
 
-```typescript
-// Don't await - fire and forget
-triggerBackgroundRefresh(supabase, source, params, cacheKey, ttlFresh);
-
-// Immediately return stale data
-return response;
+## Logging Added
 ```
-
-The refresh function will:
-1. Fetch from provider
-2. Update cache with new `expires_at`
-3. Log completion
-
-Edge Functions can handle this because they don't terminate immediately after returning a response - Deno keeps the process alive for pending promises.
-
----
-
-## Edge Cases
-
-1. **Settings missing**: Use hardcoded defaults (900s search, 300s item, 21600s stale)
-2. **Cache read error**: Fall back to live fetch
-3. **Background refresh fails**: Silent failure, cache remains stale until next request
-4. **Very old cache (age > staleMax)**: Treat as cache miss, fetch live
-
----
-
-## Admin Portal Integration
-
-The settings will be editable via the existing `CatalogSourcesSettings.tsx` page or can be added to a dedicated "Proxy Settings" section. The `admin_settings` table already supports any key-value pair, so no schema changes are needed beyond seeding defaults.
+[CATALOG_SEARCH] vehicle_cache_filter: {before} → {after} (enforced minPrice=1000)
+[CATALOG_SEARCH] accessory_title_filter: {before} → {after}
+[CATALOG_SEARCH] CACHE_MISMATCH: vehicleMode=true but cache key lacks vm=1. Forcing miss.
+```

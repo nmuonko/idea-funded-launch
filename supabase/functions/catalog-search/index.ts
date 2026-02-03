@@ -137,6 +137,31 @@ const VEHICLE_ACCESSORY_KEYWORDS = [
   "phone", "tablet", "iphone", "samsung", "android",
 ];
 
+// ══════════════════════════════════════════════════════════════════════════════
+// EXTENDED TOY/ACCESSORY KEYWORDS: Used for detecting non-vehicle intent AND post-filtering
+// If a query contains these, it's NOT a vehicle buying intent (even with make+model)
+// Also used to filter toy/accessory results from vehicle cache hits
+// ══════════════════════════════════════════════════════════════════════════════
+const VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS = [
+  // Toys and models
+  "matchbox", "diecast", "die-cast", "die cast", "hot wheels", "hotwheels",
+  "1:64", "1:43", "1:24", "1:18", "1:12", "1/64", "1/43", "1/24", "1/18",
+  "toy", "lego", "rc", "remote control", "model car", "toy car", "scale model",
+  "miniature", "collectible", "replica",
+  // Vehicle accessories
+  "floor mat", "floor mats", "mat set",
+  "key fob", "key cover", "fob cover", "remote cover",
+  "wiper", "wipers", "wiper blade",
+  "sunshade", "sun shade", "windshield cover",
+  "car cover", "seat cover", "seat covers",
+  "emblem", "badge", "decal", "sticker",
+  "led", "light", "lights", "headlight", "taillight", "bulb",
+  // Phone accessories often have car names
+  "phone case", "phone holder", "car mount", "phone mount",
+  // Decorative items
+  "poster", "wall art", "canvas", "print", "artwork",
+];
+
 // Specific vehicle models that indicate vehicle search intent (brand + model = vehicle mode)
 // These are FULL VEHICLE MODELS (not shared with other products)
 const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
@@ -173,6 +198,55 @@ const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
   { brand: "range rover", models: ["sport", "velar", "evoque", "autobiography"] },
 ];
 
+// ══════════════════════════════════════════════════════════════════════════════
+// STANDALONE VEHICLE NAMES: These trigger vehicle mode by themselves
+// These are complete vehicle identifiers that don't need a brand prefix
+// e.g., "Range Rover", "F-150", "Model 3", "Mustang", "Corvette"
+// ══════════════════════════════════════════════════════════════════════════════
+const STANDALONE_VEHICLE_PATTERNS: RegExp[] = [
+  // Land Rover / Range Rover models
+  /\brange\s*rover\b/i,
+  /\bland\s*rover\b/i,
+  // Tesla models (often searched without "tesla" prefix)
+  /\bmodel\s*3\b/i,
+  /\bmodel\s*s\b/i,
+  /\bmodel\s*x\b/i,
+  /\bmodel\s*y\b/i,
+  /\bcybertruck\b/i,
+  // Ford trucks
+  /\bf[-\s]?150\b/i,
+  /\bf[-\s]?250\b/i,
+  /\bf[-\s]?350\b/i,
+  // Jeep models
+  /\bgrand\s*cherokee\b/i,
+  /\bwrangler\b/i,
+  /\bgladiator\b/i,
+  // Chevrolet trucks/SUVs
+  /\bsilverado\b/i,
+  /\btahoe\b/i,
+  /\bsuburban\b/i,
+  // Dodge/Ram
+  /\bram\s*1500\b/i,
+  /\bram\s*2500\b/i,
+  /\bram\s*3500\b/i,
+  /\bchallenger\b/i,
+  /\bcharger\b/i,
+  // Sports cars
+  /\bmustang\b/i,
+  /\bcorvette\b/i,
+  /\bcamaro\b/i,
+  /\bgt[-\s]?r\b/i,
+  // Luxury SUVs
+  /\bescalade\b/i,
+  /\bnavigator\b/i,
+  /\bg[-\s]?wagon\b/i,
+  // Classic/iconic
+  /\bbronco\b/i,
+  /\bprius\b/i,
+  /\bmiata\b/i,
+  /\b911\b/i,  // Porsche 911
+];
+
 /**
  * Check if a query contains a known vehicle make+model combination
  * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
@@ -184,23 +258,60 @@ const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
  *   "qx80" → false (model only)
  *   "infiniti qx80 floor mats" → true (but hasVehicleBuyingIntent will return false due to accessory keyword)
  */
+/**
+ * Check if a query indicates vehicle buying intent using:
+ * A) Standalone vehicle names (Range Rover, F-150, etc.)
+ * B) Brand + model combinations (Infiniti QX80, Toyota Camry)
+ * 
+ * Returns TRUE only if:
+ * - Query matches a standalone pattern OR brand+model combination
+ * - AND query does NOT contain accessory/toy keywords
+ */
 function isVehicleMakeModelQuery(query: string): boolean {
   const lower = query.toLowerCase().trim();
   
+  // Check for accessory/toy keywords FIRST - these override everything
+  const hasAccessoryKeywords = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => lower.includes(kw));
+  if (hasAccessoryKeywords) {
+    const matchedKeyword = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.find(kw => lower.includes(kw));
+    console.log(JSON.stringify({
+      event: "[VEHICLE_DETECT] accessory_override",
+      query,
+      keyword: matchedKeyword,
+    }));
+    return false;
+  }
+  
+  // A) Check for standalone vehicle names (Range Rover, F-150, Model 3, etc.)
+  for (const pattern of STANDALONE_VEHICLE_PATTERNS) {
+    if (pattern.test(lower)) {
+      console.log(JSON.stringify({
+        event: "[VEHICLE_DETECT] standalone_match",
+        pattern: pattern.source,
+        query,
+      }));
+      return true;
+    }
+  }
+  
+  // B) Check for brand + model combinations (existing logic)
   for (const { brand, models } of VEHICLE_MODEL_PATTERNS) {
-    // Check if brand is present as a word boundary (not just substring)
-    // This prevents false positives like "infinitix" matching "infiniti"
     const brandRegex = new RegExp(`\\b${brand}\\b`, 'i');
     if (brandRegex.test(lower)) {
       for (const model of models) {
-        // Check if model is present (models can be substrings like "qx80")
         if (lower.includes(model)) {
-          console.log(`[VEHICLE_DETECT] Make+Model detected: brand="${brand}" model="${model}" in query="${query}"`);
+          console.log(JSON.stringify({
+            event: "[VEHICLE_DETECT] make_model_match",
+            brand,
+            model,
+            query,
+          }));
           return true;
         }
       }
     }
   }
+  
   return false;
 }
 
@@ -1152,20 +1263,20 @@ Deno.serve(async (req: Request) => {
         }
         
         // ACCESSORY KEYWORD FILTER: Remove obvious toy/accessory results from vehicle cache
-        const ACCESSORY_TITLE_KEYWORDS = [
-          "matchbox", "diecast", "1:64", "1:43", "1:24", "1:18", "hot wheels",
-          "floor mat", "key fob", "fob cover", "key cover", "remote cover",
-          "phone case", "phone holder", "car mount", "decal", "sticker",
-          "poster", "wall art", "canvas", "model car", "toy car",
-          "scale model", "die cast", "die-cast", "miniature"
-        ];
+        // Uses the extended VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS list for comprehensive filtering
         const beforeAccessoryFilter = cachedItems.length;
         cachedItems = cachedItems.filter((item: any) => {
           const title = (item.title || "").toLowerCase();
-          return !ACCESSORY_TITLE_KEYWORDS.some(kw => title.includes(kw));
+          return !VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => title.includes(kw));
         });
         if (beforeAccessoryFilter !== cachedItems.length) {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} accessory_title_filter: ${beforeAccessoryFilter} → ${cachedItems.length}`);
+          console.log(JSON.stringify({
+            event: "[CATALOG_SEARCH] vehicle_post_filter",
+            before: beforeAccessoryFilter,
+            after: cachedItems.length,
+            minPriceUsed: 1000,
+            requestId,
+          }));
         }
       }
       

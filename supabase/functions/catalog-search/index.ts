@@ -138,7 +138,7 @@ const VEHICLE_ACCESSORY_KEYWORDS = [
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
-// EXTENDED TOY/ACCESSORY KEYWORDS: Used for detecting non-vehicle intent AND post-filtering
+// EXTENDED TOY/ACCESSORY/PARTS KEYWORDS: Used for detecting non-vehicle intent AND post-filtering
 // If a query contains these, it's NOT a vehicle buying intent (even with make+model)
 // Also used to filter toy/accessory results from vehicle cache hits
 // ══════════════════════════════════════════════════════════════════════════════
@@ -146,20 +146,40 @@ const VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS = [
   // Toys and models
   "matchbox", "diecast", "die-cast", "die cast", "hot wheels", "hotwheels",
   "1:64", "1:43", "1:24", "1:18", "1:12", "1/64", "1/43", "1/24", "1/18",
-  "toy", "lego", "rc", "remote control", "model car", "toy car", "scale model",
-  "miniature", "collectible", "replica",
+  "toy", "lego", "rc car", "remote control", "model car", "toy car", "scale model",
+  "miniature", "collectible", "replica", "playset",
   // Vehicle accessories
-  "floor mat", "floor mats", "mat set",
-  "key fob", "key cover", "fob cover", "remote cover",
-  "wiper", "wipers", "wiper blade",
-  "sunshade", "sun shade", "windshield cover",
-  "car cover", "seat cover", "seat covers",
-  "emblem", "badge", "decal", "sticker",
-  "led", "light", "lights", "headlight", "taillight", "bulb",
+  "floor mat", "floor mats", "mat set", "all weather mat",
+  "key fob", "key cover", "fob cover", "remote cover", "key chain", "keychain",
+  "wiper", "wipers", "wiper blade", "wiper blades",
+  "sunshade", "sun shade", "windshield cover", "windshield shade",
+  "car cover", "seat cover", "seat covers", "cargo liner",
+  "emblem", "badge", "decal", "sticker", "logo",
+  "led", "light", "lights", "headlight", "taillight", "bulb", "bulbs",
   // Phone accessories often have car names
-  "phone case", "phone holder", "car mount", "phone mount",
+  "phone case", "phone holder", "car mount", "phone mount", "cup holder",
   // Decorative items
-  "poster", "wall art", "canvas", "print", "artwork",
+  "poster", "wall art", "canvas", "print", "artwork", "framed",
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PARTS KEYWORDS: OEM/aftermarket parts - NOT vehicles
+  // ═══════════════════════════════════════════════════════════════════════════
+  "oem", "aftermarket", "replacement", "fitment", "fits", "compatible", "kit",
+  "bumper", "grille", "grill", "headlight", "taillight", "fog light",
+  "brake", "brakes", "brake pad", "brake pads", "brake rotor", "rotor", "caliper",
+  "filter", "oil filter", "air filter", "cabin filter", "fuel filter",
+  "sensor", "oxygen sensor", "o2 sensor", "mass air flow", "maf",
+  "spark plug", "spark plugs", "ignition coil", "coil pack",
+  "belt", "serpentine belt", "timing belt", "timing chain",
+  "alternator", "starter", "water pump", "fuel pump", "power steering",
+  "radiator", "thermostat", "hose", "coolant",
+  "suspension", "strut", "struts", "shock", "shocks", "spring", "springs",
+  "control arm", "ball joint", "tie rod", "sway bar", "bushing",
+  "exhaust", "muffler", "catalytic converter", "cat converter",
+  "clutch", "transmission", "flywheel", "axle", "cv joint", "cv axle",
+  "bearing", "hub", "wheel bearing", "hub assembly",
+  "gasket", "head gasket", "valve cover", "intake manifold",
+  "mirror", "side mirror", "door handle", "window regulator",
+  "antenna", "radio", "stereo", "amplifier", "subwoofer", "speaker",
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1635,6 +1655,37 @@ Deno.serve(async (req: Request) => {
       const beforeFilterCount = finalItems.length;
       finalItems = postFilterItems(finalItems, catalogFilters) as typeof finalItems;
       console.log(`[SEARCH] requestId=${requestId} PostFilter: ${beforeFilterCount} → ${finalItems.length} items, filters=${JSON.stringify(catalogFilters)}`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // VEHICLE MODE POST-FILTER: Enforce minPrice + remove toy/accessory results
+    // This runs on FRESH results (not just cache hits) for complete protection
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (hasBuyingIntent && finalItems.length > 0) {
+      // 1) Price floor enforcement: Remove items < $1000
+      const beforeVehicleFilter = finalItems.length;
+      finalItems = finalItems.filter((item: any) => {
+        const price = item.priceUsd ?? item.price_usd ?? 0;
+        return price >= 1000;
+      });
+      if (beforeVehicleFilter !== finalItems.length) {
+        console.log(`[SEARCH] requestId=${requestId} vehicle_price_filter: ${beforeVehicleFilter} → ${finalItems.length} (enforced minPrice=1000)`);
+      }
+      
+      // 2) Toy/accessory keyword filter: Remove diecast, matchbox, floor mats, etc.
+      const beforeAccessoryFilter = finalItems.length;
+      finalItems = finalItems.filter((item: any) => {
+        const title = ((item.title || "") as string).toLowerCase();
+        return !VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => title.includes(kw));
+      });
+      if (beforeAccessoryFilter !== finalItems.length) {
+        console.log(JSON.stringify({
+          event: "[CATALOG_SEARCH] vehicle_accessory_filter",
+          before: beforeAccessoryFilter,
+          after: finalItems.length,
+          requestId,
+        }));
+      }
     }
 
     // ─── APPLY USER SORT ───────────────────────────────────────────────────────

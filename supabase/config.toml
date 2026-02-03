@@ -419,3 +419,6 @@ verify_jwt = false
 
 [functions.catalog-categories]
 verify_jwt = false
+
+[functions.market-search-proxy]
+verify_jwt = false

@@ -1789,6 +1789,30 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_flags: {
+        Row: {
+          description: string | null
+          enabled: boolean
+          key: string
+          platform: string
+          updated_at: string
+        }
+        Insert: {
+          description?: string | null
+          enabled?: boolean
+          key: string
+          platform?: string
+          updated_at?: string
+        }
+        Update: {
+          description?: string | null
+          enabled?: boolean
+          key?: string
+          platform?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       guest_cart_snapshots: {
         Row: {
           cart_json: Json
@@ -3514,6 +3538,30 @@ export type Database = {
           next_retry_at?: string | null
           product_url?: string
           store?: string | null
+        }
+        Relationships: []
+      }
+      search_proxy_cache: {
+        Row: {
+          cache_key: string
+          created_at: string
+          expires_at: string
+          payload: Json
+          source: string
+        }
+        Insert: {
+          cache_key: string
+          created_at?: string
+          expires_at: string
+          payload: Json
+          source: string
+        }
+        Update: {
+          cache_key?: string
+          created_at?: string
+          expires_at?: string
+          payload?: Json
+          source?: string
         }
         Relationships: []
       }

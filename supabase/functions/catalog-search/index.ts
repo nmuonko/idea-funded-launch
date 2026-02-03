@@ -390,6 +390,183 @@ function hasVehicleSignal(query: string): { hasSignal: boolean; signal: string |
   return { hasSignal: false, signal: null };
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// DYNAMIC VEHICLE DETECTION: "Probe then Commit" Strategy
+// For ambiguous queries (1-2 tokens without clear signals), probe eBay's vehicle
+// category to dynamically determine if the query refers to vehicles
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Check if a query is "ambiguous" - could be vehicles OR electronics/merch
+ * Returns true when:
+ * - tokenCount == 1 (single word like "Cadillac", "Samsung", "Peugeot")
+ * - tokenCount == 2 with no digits/year/vehicle keywords (e.g., "Ford Fusion" vs "Ford 2024")
+ */
+function isAmbiguousQuery(query: string): boolean {
+  const lower = query.toLowerCase().trim();
+  const tokens = lower.split(/\s+/).filter(t => t.length > 0);
+  
+  if (tokens.length === 1) {
+    return true; // Single word is always ambiguous
+  }
+  
+  if (tokens.length === 2) {
+    // Check if we have vehicle signals (year, alphanumeric, keywords)
+    const signal = hasVehicleSignal(lower);
+    if (signal.hasSignal) {
+      return false; // Has clear signal, not ambiguous
+    }
+    return true; // 2 tokens without signals = ambiguous
+  }
+  
+  // 3+ tokens: usually have enough context, not ambiguous
+  return false;
+}
+
+/**
+ * Probe cache key for vehicle detection results
+ * Cached for 24 hours to minimize redundant API calls
+ */
+function buildVehicleProbeKey(query: string): string {
+  const qNorm = query.toLowerCase().trim().replace(/\s+/g, "_");
+  return `vehicle_probe:v1:${qNorm}`;
+}
+
+interface VehicleProbeResult {
+  vehicleMode: boolean;
+  vehiclesFound: number;
+  probeSource: "cache" | "live";
+  reason: string;
+}
+
+/**
+ * Probe eBay's vehicle category to check if query returns real vehicles
+ * Makes a lightweight request (limit=10) to category 6001 (Cars & Trucks)
+ * If >=3 items have price >= $1000, conclude vehicleMode=true
+ */
+// deno-lint-ignore no-explicit-any
+async function probeEbayVehicleCategory(
+  supabase: any,
+  query: string,
+  requestId: string
+): Promise<VehicleProbeResult> {
+  const probeKey = buildVehicleProbeKey(query);
+  
+  // Check probe cache first (24h TTL)
+  try {
+    const { data: cachedProbe } = await supabase
+      .from("catalog_cache")
+      .select("response")
+      .eq("cache_key", probeKey)
+      .gt("expires_at", new Date().toISOString())
+      .single();
+    
+    if (cachedProbe?.response) {
+      const cached = cachedProbe.response as VehicleProbeResult;
+      console.log(JSON.stringify({
+        event: "[VEHICLE_PROBE] cache_hit",
+        query,
+        vehicleMode: cached.vehicleMode,
+        vehiclesFound: cached.vehiclesFound,
+        requestId,
+      }));
+      return { ...cached, probeSource: "cache" };
+    }
+  } catch {
+    // Cache miss, proceed with live probe
+  }
+  
+  // Make lightweight eBay probe request
+  const PROBE_LIMIT = 10;
+  const VEHICLE_PRICE_THRESHOLD = 1000;
+  const VEHICLE_COUNT_THRESHOLD = 3; // Need at least 3 high-priced items
+  
+  let vehiclesFound = 0;
+  let probeSuccess = false;
+  
+  try {
+    const ebayResult = await searchEbay(
+      supabase,
+      {
+        query,
+        page: 1,
+        pageSize: PROBE_LIMIT,
+        minPrice: undefined, // Don't filter, we want to count
+        isVehicle: true, // Force vehicle category
+        categoryId: "6001", // Cars & Trucks
+        marketplaceId: "EBAY_US",
+        filters: {},
+      },
+      `${requestId}_probe`
+    );
+    
+    probeSuccess = true;
+    
+    // Count items with price >= $1000
+    vehiclesFound = ebayResult.items.filter(item => 
+      (item.price_usd ?? 0) >= VEHICLE_PRICE_THRESHOLD
+    ).length;
+    
+    console.log(JSON.stringify({
+      event: "[VEHICLE_PROBE] live_result",
+      query,
+      totalReturned: ebayResult.items.length,
+      vehiclesFound,
+      threshold: VEHICLE_COUNT_THRESHOLD,
+      requestId,
+    }));
+    
+  } catch (err) {
+    console.error(JSON.stringify({
+      event: "[VEHICLE_PROBE] error",
+      query,
+      error: String(err),
+      requestId,
+    }));
+    // On error, default to NOT vehicle mode (safe fallback)
+    return {
+      vehicleMode: false,
+      vehiclesFound: 0,
+      probeSource: "live",
+      reason: "probe_error",
+    };
+  }
+  
+  const vehicleMode = vehiclesFound >= VEHICLE_COUNT_THRESHOLD;
+  const result: VehicleProbeResult = {
+    vehicleMode,
+    vehiclesFound,
+    probeSource: "live",
+    reason: vehicleMode ? "probe_vehicles_found" : "probe_insufficient_vehicles",
+  };
+  
+  // Cache probe result for 24 hours (fire-and-forget)
+  if (probeSuccess) {
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const staleAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    
+    supabase.from("catalog_cache").upsert({
+      cache_key: probeKey,
+      cache_type: "search", // Use 'search' type which is allowed
+      response: result,
+      expires_at: expiresAt,
+      stale_at: staleAt,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "cache_key" }).then(() => {
+      console.log(JSON.stringify({
+        event: "[VEHICLE_PROBE] cached",
+        query,
+        vehicleMode,
+        vehiclesFound,
+        ttl: "24h",
+        requestId,
+      }));
+    });
+  }
+  
+  return result;
+}
+
 /**
  * Check if a query contains a known vehicle make+model combination
  * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
@@ -1216,15 +1393,59 @@ Deno.serve(async (req: Request) => {
   
   // SMART VEHICLE INTENT: Enforce minPrice when user wants to BUY a vehicle
   // Use CANONICALIZED query so typos like "inifiniti" still match "infiniti" brand
-  const hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
+  // 
+  // PHASE 1: Check existing heuristics (fast path)
+  let hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
   const hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
+  let vehicleProbeResult: VehicleProbeResult | null = null;
+  
+  // PHASE 2: Dynamic probe for ambiguous queries (slow path, cached)
+  // Only probe if:
+  // - Existing heuristics didn't detect vehicle intent
+  // - Query is ambiguous (1-2 tokens without signals)
+  // - Query contains accessory keywords (skip probe)
+  const hasAccessoryInQuery = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => 
+    qCanonicalized.toLowerCase().includes(kw)
+  );
+  
+  if (!hasBuyingIntent && !hasAccessoryInQuery && isAmbiguousQuery(qCanonicalized)) {
+    // Need to initialize supabase early for probe (normally done later)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    
+    if (supabaseUrl && supabaseKey) {
+      const supabaseForProbe = createClient(supabaseUrl, supabaseKey);
+      
+      console.log(JSON.stringify({
+        event: "[VEHICLE_PROBE] triggered",
+        query: qCanonicalized,
+        reason: "ambiguous_query",
+        requestId,
+      }));
+      
+      vehicleProbeResult = await probeEbayVehicleCategory(supabaseForProbe, qCanonicalized, requestId);
+      
+      if (vehicleProbeResult.vehicleMode) {
+        hasBuyingIntent = true;
+        console.log(JSON.stringify({
+          event: "[VEHICLE_DETECT] result",
+          qNorm: qCanonicalized,
+          vehicleMode: true,
+          reason: vehicleProbeResult.reason,
+          vehiclesFound: vehicleProbeResult.vehiclesFound,
+          probeSource: vehicleProbeResult.probeSource,
+        }));
+      }
+    }
+  }
   
   if (hasBuyingIntent) {
     // Enforce minPrice of $1000 for vehicle searches (lower than $1500 to capture more listings)
     if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1000) {
       catalogFilters.minPrice = 1000;
     }
-    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: hasBuyingIntent=${hasBuyingIntent} hasMakeModel=${hasMakeModel} enforcing minPrice=${catalogFilters.minPrice} (canonicalized="${qCanonicalized}")`);
+    const probeInfo = vehicleProbeResult ? ` probe=${vehicleProbeResult.reason}` : "";
+    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: hasBuyingIntent=${hasBuyingIntent} hasMakeModel=${hasMakeModel}${probeInfo} enforcing minPrice=${catalogFilters.minPrice} (canonicalized="${qCanonicalized}")`);
   } else if (isVehicleEarly) {
     console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices for accessories`);
   }

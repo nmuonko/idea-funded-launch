@@ -38,6 +38,7 @@ export interface SearchFilters {
   category?: string;
   brand?: string;
   inStockOnly?: boolean;
+  amazonCategoryId?: string;  // For targeting specific Amazon categories (e.g., Amazon Autos: 10677469011)
 }
 
 export interface SearchResult {

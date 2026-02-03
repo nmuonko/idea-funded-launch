@@ -323,18 +323,41 @@ Deno.serve(async (req: Request) => {
   const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
 
+  // ─── EARLY VEHICLE DETECTION & PRICE FILTER OVERRIDE ────────────────────────
+  // Detect vehicle intent BEFORE filters are applied to override restrictive price limits
+  const qNormEarly = qOriginal.toLowerCase().replace(/\s+/g, " ");
+  const isVehicleEarly = isVehicleQuery(qNormEarly);
+  
+  // VEHICLE SEARCH FIX: Override restrictive price filters for vehicle searches
+  // Mobile apps may send default maxPrice filters (e.g., $1650) that are too low for vehicles
+  // Real vehicles typically cost $3,000 - $100,000+, so a maxPrice < $5,000 would exclude most/all results
+  const VEHICLE_REASONABLE_MIN_MAX_PRICE = 5000;
+  
+  if (isVehicleEarly && catalogFilters.maxPrice !== undefined) {
+    if (catalogFilters.maxPrice < VEHICLE_REASONABLE_MIN_MAX_PRICE) {
+      console.log(`[SEARCH] requestId=${requestId} Vehicle search: removing restrictive maxPrice=${catalogFilters.maxPrice} (vehicles typically cost $5,000+)`);
+      delete catalogFilters.maxPrice;
+    }
+  }
+  
+  // Ensure minPrice is at least $1500 for vehicles to exclude parts/accessories
+  if (isVehicleEarly && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
+    catalogFilters.minPrice = 1500;
+    console.log(`[SEARCH] requestId=${requestId} Vehicle search: enforcing minPrice=$1500 to exclude parts`);
+  }
+
   // Initialize search metadata (will be populated by rewriter)
   let searchMeta: SearchMeta = {
     originalQuery: qOriginal,
-    normalizedQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
-    rewrittenQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
+    normalizedQuery: qNormEarly,
+    rewrittenQuery: qNormEarly,
     rewriteApplied: false,
     ruleId: null,
     rulePriority: null,
     categoryKey,
   };
 
-  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam} lang=${lang}`);
+  console.log(`[SEARCH] requestId=${requestId} q="${qOriginal}" category_key=${categoryKey} cursor=${cursor} limit=${limit} provider=${providerParam} lang=${lang} isVehicle=${isVehicleEarly}`);
 
   // Build empty response helper
   const buildEmptyResponse = (error?: { code: string; message: string }): SearchResponse => ({

@@ -59,6 +59,83 @@ const BLOCKED_KEYWORDS = new Set([
   "activation code",
 ]);
 
+// ==================== HOME & GARDEN EXCLUSIONS ====================
+// Seeds, vegetables, plants - NOT appropriate for AfriShop
+// (AfriShop sells appliances, furniture, tools - not food/plants)
+const HOME_GARDEN_BLOCKED_KEYWORDS = new Set([
+  // Seeds
+  "seeds",
+  "seed packet",
+  "seed packets",
+  "heirloom seeds",
+  "vegetable seeds",
+  "flower seeds",
+  "garden seeds",
+  "herb seeds",
+  "organic seeds",
+  "non-gmo seeds",
+  "seed lot",
+  "seed mix",
+  
+  // Plants & Growing
+  "seedling",
+  "seedlings",
+  "live plant",
+  "live plants",
+  "potted plant",
+  "plant bulbs",
+  "flower bulbs",
+  "growing kit",
+  "seed starter",
+  "starter plants",
+  
+  // Vegetables & Produce (not selling food)
+  "tomato seeds",
+  "pepper seeds",
+  "cucumber seeds",
+  "lettuce seeds",
+  "carrot seeds",
+  "bean seeds",
+  "squash seeds",
+  "melon seeds",
+  "pumpkin seeds",
+  "corn seeds",
+  "onion seeds",
+  "spinach seeds",
+  "kale seeds",
+  "broccoli seeds",
+  "cabbage seeds",
+  "radish seeds",
+  "beet seeds",
+  "pea seeds",
+  "tomato plant",
+  "pepper plant",
+  "cucumber plant",
+  
+  // Fertilizers & Chemicals (low margin, shipping issues)
+  "fertilizer",
+  "pesticide",
+  "herbicide",
+  "plant food",
+  "potting soil",
+  "garden soil",
+  "potting mix",
+  "mulch",
+  "compost",
+  "weed killer",
+  "insecticide",
+]);
+
+// Allowlist for Home & Garden (prevent blocking legitimate products)
+const HOME_GARDEN_ALLOWLIST = [
+  "seed spreader",     // Lawn equipment
+  "seed dispenser",    // Garden tool
+  "vacuum seeder",     // Machinery
+  "seed drill",        // Agricultural equipment
+  "broadcast spreader", // Lawn equipment
+  "lawn spreader",     // Garden tool
+];
+
 // ==================== ALLOWLIST PATTERNS ====================
 // Products containing blocked keywords but are NOT blocked content
 // These override keyword matches when found in title/URL
@@ -259,6 +336,41 @@ export function isDisallowedItem(input: ContentFilterInput): DisallowedResult {
   for (const indicator of streamingIndicators) {
     if (descLower.includes(indicator)) {
       return { isDisallowed: true, reason: "description_streaming", matchedPattern: indicator };
+    }
+  }
+
+  // 8. Check HOME & GARDEN exclusions (seeds, vegetables, plants)
+  // First check allowlist to avoid blocking legitimate garden equipment
+  const isHomeGardenAllowlisted = HOME_GARDEN_ALLOWLIST.some(pattern => 
+    titleLower.includes(pattern)
+  );
+  
+  if (!isHomeGardenAllowlisted) {
+    for (const keyword of HOME_GARDEN_BLOCKED_KEYWORDS) {
+      let matches = false;
+      
+      // Word boundary matching for shorter keywords to avoid false positives
+      if (keyword.length <= 5) {
+        const regex = new RegExp(`\\b${escapeRegex(keyword)}\\b`, "i");
+        matches = regex.test(titleLower);
+      } else {
+        matches = titleLower.includes(keyword);
+      }
+      
+      if (matches) {
+        return { isDisallowed: true, reason: "home_garden_exclusion", matchedPattern: keyword };
+      }
+    }
+    
+    // Also check for standalone "seed" as a word (singular) - common in product titles
+    const seedRegex = /\bseed\b/i;
+    if (seedRegex.test(titleLower)) {
+      return { isDisallowed: true, reason: "home_garden_exclusion", matchedPattern: "seed" };
+    }
+    
+    // Block items with "bulb" when in gardening context (not light bulbs)
+    if (/\bbulbs?\b/i.test(titleLower) && !titleLower.includes("light") && !titleLower.includes("led") && !titleLower.includes("lamp")) {
+      return { isDisallowed: true, reason: "home_garden_exclusion", matchedPattern: "bulb (gardening)" };
     }
   }
 

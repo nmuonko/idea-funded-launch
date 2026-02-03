@@ -1,297 +1,193 @@
 
+# Fix Toyota Vehicle Search (Backend Only)
 
-# Enhanced Dynamic Vehicle Search Implementation
+## Problem Summary
+When users search for "Toyota", the system returns phones/electronics instead of vehicles. Other brands like BMW, Mercedes, and Cadillac work correctly.
 
-## Overview
-Refine the vehicle detection system to require an extra "vehicle signal" for brand fallback detection, preventing false positives like "bmw keychain" while still catching legitimate vehicle queries like "mercedes c300".
+## Root Cause Analysis
+
+After examining the codebase, I found **two issues**:
+
+### 1. Poisoned Cache Entry
+There is a cached entry with `vm=0` (vehicleMode=false) for Toyota:
+```
+cache_key: search:v4:q=toyota:p=mixed:cat=:pg=1:sz=36:vm=0:mp=0:ex=0
+```
+This was created before the dynamic probe system was in place, and it's being served instead of triggering fresh vehicle detection.
+
+### 2. Toyota Not in STANDALONE_VEHICLE_PATTERNS
+Looking at line 269-297 of `catalog-search/index.ts`, only **luxury/premium brands** are listed in `STANDALONE_VEHICLE_PATTERNS`:
+- Cadillac, Lincoln, Lexus, Porsche, Tesla, Jeep, Ferrari, etc.
+
+**Toyota, Honda, Ford, Nissan** (mainstream brands) are NOT in this list. So:
+- Single-word query "toyota" → relies on dynamic probe
+- Probe was cached incorrectly → returns vm=0 → phones shown
 
 ---
 
-## Current State Analysis
+## Technical Implementation Plan
 
-The codebase already has:
-- **Canonicalizer hardening**: Skips fuzzy matching for tokens with digits or hyphens ✅
-- **Standalone patterns**: 25+ regex patterns for iconic vehicle names ✅
-- **Brand+model detection**: 30+ brand entries with 200+ model names ✅
-- **Brand fallback**: Triggers on brand + 2+ tokens ⚠️ (missing vehicle signal check)
-- **Accessory override**: Checks for toy/accessory keywords first ✅
+### Step 1: Purge All Toyota Cache Entries (SQL Migration)
 
-**Gap identified**: The brand fallback currently activates for ANY "brand + 2 tokens" without requiring a vehicle-specific signal. This causes false positives:
-- "bmw keychain" → would trigger vehicleMode (wrong)
-- "toyota gift card" → would trigger vehicleMode (wrong)
+Delete poisoned cache entries from **both** cache tables:
 
----
+```sql
+-- Delete Toyota search cache entries
+DELETE FROM public.catalog_cache 
+WHERE cache_key ILIKE '%toyota%';
 
-## Implementation Plan
+-- Delete Toyota probe cache entries  
+DELETE FROM public.catalog_cache
+WHERE cache_key ILIKE 'vehicle_probe%toyota%';
 
-### 1. Canonicalizer Hardening (Already Done - Minor Enhancement)
+-- Delete from search_proxy_cache if exists
+DELETE FROM public.search_proxy_cache 
+WHERE cache_key ILIKE '%toyota%';
 
-**File: `supabase/functions/_shared/queryCanonicalizer.ts`**
-
-The current implementation already has:
-```typescript
-// Skip tokens containing ANY digit (qx80, c300, a4, 4runner, cx5, 530i, etc.)
-if (/\d/.test(token)) return null;
-
-// Skip tokens containing hyphens (f-150, cr-v, cx-5, e-tron, etc.)
-if (token.includes("-")) return null;
+-- Also clear other mainstream brands that might be poisoned
+DELETE FROM public.catalog_cache
+WHERE cache_type = 'search'
+AND (
+  cache_key ILIKE '%honda%' OR
+  cache_key ILIKE '%nissan%' OR
+  cache_key ILIKE '%ford%' OR
+  cache_key ILIKE '%chevrolet%' OR
+  cache_key ILIKE '%chevy%' OR
+  cache_key ILIKE '%hyundai%' OR
+  cache_key ILIKE '%kia%' OR
+  cache_key ILIKE '%mazda%' OR
+  cache_key ILIKE '%subaru%'
+);
 ```
 
-**Enhancement**: Add a clearer comment explaining the alphanumeric rule:
-```typescript
-// VEHICLE TOKEN PROTECTION:
-// Skip hyphenated identifiers (f-150, cx-5, e-tron)
-if (token.includes("-")) return null;
+### Step 2: Add Mainstream Brands to STANDALONE_VEHICLE_PATTERNS
 
-// Skip alphanumeric identifiers (letters+digits OR digits+letters)
-// Examples: qx80, c300, 4runner, cx5, x5, 530i, a4
-// This regex checks: does token have BOTH letters AND digits?
-if (/[a-z]/i.test(token) && /\d/.test(token)) return null;
-```
+**File:** `supabase/functions/catalog-search/index.ts`
 
-This is already covered by `/\d/.test(token)` but we can make it more explicit.
-
----
-
-### 2. Add Vehicle Signal Detection for Brand Fallback
-
-**File: `supabase/functions/catalog-search/index.ts`**
-
-Add a new helper to detect vehicle-specific signals that distinguish vehicle queries from accessory queries:
-
-```typescript
-// ══════════════════════════════════════════════════════════════════════════════
-// VEHICLE SIGNALS: Indicators that distinguish vehicle queries from accessories
-// Used to require an extra signal for brand fallback (prevents "bmw keychain" false positive)
-// ══════════════════════════════════════════════════════════════════════════════
-const VEHICLE_SIGNAL_PATTERNS = {
-  // Year patterns (1990-2029)
-  year: /(19|20)\d{2}/,
-  
-  // Alphanumeric model codes (qx80, c300, x5, 530i, etc.)
-  alphanumeric: /\b[a-z]+\d+[a-z]?\b|\b\d+[a-z]+\b/i,
-  
-  // Vehicle-specific terminology
-  keywords: [
-    "suv", "truck", "pickup", "sedan", "coupe", "4x4", "awd", "4wd", "2wd", "fwd", "rwd",
-    "miles", "mileage", "vin", "engine", "transmission", "v6", "v8", "turbo",
-    "hybrid", "electric", "diesel", "automatic", "manual", "convertible", "wagon",
-    "hatchback", "crossover", "for sale", "buy", "used", "mileage", "certified",
-  ],
-};
-
-/**
- * Check if query contains a vehicle-specific signal
- * Used to validate brand fallback detection (prevents false positives like "bmw keychain")
- */
-function hasVehicleSignal(query: string): { hasSignal: boolean; signal: string | null } {
-  const lower = query.toLowerCase();
-  
-  // Check for year (1990-2029)
-  if (VEHICLE_SIGNAL_PATTERNS.year.test(lower)) {
-    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.year);
-    return { hasSignal: true, signal: `year:${match?.[0]}` };
-  }
-  
-  // Check for alphanumeric model codes (qx80, c300, x5, etc.)
-  if (VEHICLE_SIGNAL_PATTERNS.alphanumeric.test(lower)) {
-    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.alphanumeric);
-    return { hasSignal: true, signal: `alphanumeric:${match?.[0]}` };
-  }
-  
-  // Check for vehicle-specific keywords
-  for (const keyword of VEHICLE_SIGNAL_PATTERNS.keywords) {
-    if (lower.includes(keyword)) {
-      return { hasSignal: true, signal: `keyword:${keyword}` };
-    }
-  }
-  
-  return { hasSignal: false, signal: null };
-}
-```
-
----
-
-### 3. Update `isVehicleMakeModelQuery` with Vehicle Signal Requirement
-
-**File: `supabase/functions/catalog-search/index.ts`**
-
-Modify the brand fallback section (around lines 342-362) to require a vehicle signal:
+Add a new section after the luxury brands (around line 297):
 
 ```typescript
 // ═══════════════════════════════════════════════════════════════════════════
-// C) BRAND FALLBACK: Brand + 2+ tokens + vehicle signal = vehicle intent
-// This catches queries like "mercedes c300", "bmw x5 2023", "nissan patrol"
-// BUT requires a vehicle signal to prevent false positives like "bmw keychain"
+// MAINSTREAM BRANDS: Major car manufacturers - standalone = vehicle intent
+// These brands are strongly associated with vehicles
 // ═══════════════════════════════════════════════════════════════════════════
-const tokens = lower.split(/\s+/);
-if (tokens.length >= 2) {
-  // Check for vehicle signal BEFORE checking brands
-  const vehicleSignal = hasVehicleSignal(lower);
-  
-  for (const brand of VEHICLE_BRAND_ALIASES) {
-    const brandRegex = new RegExp(`\\b${brand.replace(/\s+/g, "\\s+")}\\b`, 'i');
-    if (brandRegex.test(lower)) {
-      // Brand found - check if we have a vehicle signal
-      if (vehicleSignal.hasSignal) {
-        console.log(JSON.stringify({
-          event: "[VEHICLE_DETECT] brand_fallback",
-          brand,
-          tokenCount: tokens.length,
-          signal: vehicleSignal.signal,
-          query,
-        }));
-        return true;
-      } else {
-        // Brand without vehicle signal - log and continue
-        console.log(JSON.stringify({
-          event: "[VEHICLE_DETECT] brand_no_signal",
-          brand,
-          tokenCount: tokens.length,
-          query,
-          note: "Brand found but no vehicle signal - not triggering vehicleMode",
-        }));
-      }
-    }
-  }
-}
+/\btoyota\b/i,
+/\bhonda\b/i,
+/\bnissan\b/i,
+/\bford\b/i,
+/\bchevrolet\b/i,
+/\bchevy\b/i,
+/\bdodge\b/i,
+/\bram\b/i,
+/\bgmc\b/i,
+/\bbmw\b/i,
+/\bmercedes\b/i,
+/\baudi\b/i,
+/\bvolkswagen\b/i,
+/\bvw\b/i,
+/\bhyundai\b/i,
+/\bkia\b/i,
+/\bmazda\b/i,
+/\bsubaru\b/i,
+/\bvolvo\b/i,
+/\bchrysler\b/i,
+/\bpeugeot\b/i,
+/\brenault\b/i,
 ```
 
----
+### Step 3: Improve Probe Caching Reliability
 
-### 4. Enhanced Final Logging in `hasVehicleBuyingIntent`
+**File:** `supabase/functions/catalog-search/index.ts` (function `probeEbayVehicleCategory`)
 
-**File: `supabase/functions/catalog-search/index.ts`**
-
-Update the function to include structured result logging:
+Only cache probe results when the probe **succeeds** and items can be parsed:
 
 ```typescript
-function hasVehicleBuyingIntent(query: string): boolean {
-  const lower = query.toLowerCase().trim();
+// Around lines 544-565, replace with:
+
+// Cache probe result for 24 hours ONLY if probe succeeded
+if (probeSuccess && vehiclesFound !== undefined) {
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const staleAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
   
-  // FIRST: Check for accessory/parts keywords
-  const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasAccessoryKeywords) {
-    const matchedKeyword = VEHICLE_ACCESSORY_KEYWORDS.find(kw => lower.includes(kw));
+  supabase.from("catalog_cache").upsert({
+    cache_key: probeKey,
+    cache_type: "search",
+    response: result,
+    expires_at: expiresAt,
+    stale_at: staleAt,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "cache_key" }).then(() => {
     console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
+      event: "[VEHICLE_PROBE]",
       qNorm: query,
-      vehicleMode: false,
-      reason: "accessory_override",
-      keyword: matchedKeyword,
+      ok: true,
+      vehiclesFound,
+      decision: vehicleMode ? "vehicle" : "non_vehicle",
+      cached: true,
+      requestId,
     }));
-    return false;
-  }
-  
-  // SECOND: Check for explicit buying intent keywords
-  const hasExplicitBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasExplicitBuyingIntent) {
-    const matchedKeyword = VEHICLE_BUYING_INTENT_KEYWORDS.find(kw => lower.includes(kw));
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
-      qNorm: query,
-      vehicleMode: true,
-      reason: "explicit_buying_intent",
-      keyword: matchedKeyword,
-    }));
-    return true;
-  }
-  
-  // THIRD: Check for make+model combinations (includes standalone + brand fallback)
-  if (isVehicleMakeModelQuery(query)) {
-    // Reason already logged by isVehicleMakeModelQuery
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
-      qNorm: query,
-      vehicleMode: true,
-      reason: "make_model_or_pattern",
-    }));
-    return true;
-  }
-  
-  // No vehicle indicators found
+  });
+} else {
   console.log(JSON.stringify({
-    event: "[VEHICLE_DETECT] result",
+    event: "[VEHICLE_PROBE]",
     qNorm: query,
-    vehicleMode: false,
-    reason: "no_vehicle_indicators",
+    ok: false,
+    vehiclesFound: 0,
+    decision: "fallback_non_vehicle",
+    cached: false,
+    reason: "probe_failed_or_unparsed",
+    requestId,
   }));
-  return false;
 }
 ```
+
+### Step 4: Add Toyota to Protected Terms (Canonicalizer)
+
+**File:** `supabase/functions/_shared/queryCanonicalizer.ts`
+
+Toyota is already in the file with typo corrections (line 45). This is correct - no changes needed. The existing entry already protects "toyota" from fuzzy matching to other terms.
+
+### Step 5: Deploy Edge Function
+
+Redeploy `catalog-search` after making the code changes.
 
 ---
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/_shared/queryCanonicalizer.ts` | Minor comment enhancement for alphanumeric rule clarity |
-| `supabase/functions/catalog-search/index.ts` | Add `VEHICLE_SIGNAL_PATTERNS`, `hasVehicleSignal()`, update brand fallback logic, enhance result logging |
+| File | Change |
+|------|--------|
+| `supabase/migrations/YYYYMMDD_fix_toyota_cache.sql` | SQL migration to purge poisoned cache |
+| `supabase/functions/catalog-search/index.ts` | Add mainstream brands to STANDALONE_VEHICLE_PATTERNS |
+| `supabase/functions/catalog-search/index.ts` | Improve probe caching to only cache on success |
 
 ---
 
-## Expected Behavior After Fix
+## Verification Tests
 
-### Brand Fallback with Vehicle Signal Requirement
+After implementation, verify in the app:
 
-| Query | Has Brand | Has Signal | vehicleMode | Reason |
-|-------|-----------|------------|-------------|--------|
-| "mercedes c300" | ✅ mercedes | ✅ alphanumeric:c300 | true | brand_fallback |
-| "bmw x5 2023" | ✅ bmw | ✅ year:2023, alphanumeric:x5 | true | brand_fallback |
-| "nissan patrol 4x4" | ✅ nissan | ✅ keyword:4x4 | true | brand_fallback |
-| "toyota camry" | ✅ toyota | — | true | make_model_match |
-| "toyota camry for sale" | ✅ toyota | ✅ keyword:for sale | true | make_model_match |
-| **"bmw keychain"** | ✅ bmw | ❌ no signal | **false** | brand_no_signal |
-| **"toyota gift card"** | ✅ toyota | ❌ no signal | **false** | brand_no_signal |
-| "toyota floor mats" | ✅ toyota | — | false | accessory_override |
-| "range rover" | — | — | true | standalone_match |
+**Should Show Vehicles:**
+- "toyota" → vehicles
+- "honda" → vehicles  
+- "nissan" → vehicles
+- "ford" → vehicles
+- "peugeot" → vehicles
+- "toyota camry" → vehicles
 
----
-
-## Technical Details
-
-### Vehicle Signal Types
-
-1. **Year patterns**: `/(19|20)\d{2}/` matches 1990-2029
-   - "bmw x5 2023" → signal: `year:2023`
-
-2. **Alphanumeric codes**: `/\b[a-z]+\d+[a-z]?\b|\b\d+[a-z]+\b/i`
-   - "mercedes c300" → signal: `alphanumeric:c300`
-   - "infiniti qx80" → signal: `alphanumeric:qx80`
-   - "bmw 530i" → signal: `alphanumeric:530i`
-
-3. **Vehicle keywords**: suv, truck, 4x4, awd, miles, vin, transmission, etc.
-   - "nissan patrol 4x4" → signal: `keyword:4x4`
-   - "honda civic used" → signal: `keyword:used`
-
-### Logging Output Examples
-
-**Success (brand fallback with signal):**
-```json
-{"event":"[VEHICLE_DETECT] brand_fallback","brand":"mercedes","tokenCount":2,"signal":"alphanumeric:c300","query":"mercedes c300"}
-{"event":"[VEHICLE_DETECT] result","qNorm":"mercedes c300","vehicleMode":true,"reason":"make_model_or_pattern"}
-```
-
-**Prevented false positive (brand without signal):**
-```json
-{"event":"[VEHICLE_DETECT] brand_no_signal","brand":"bmw","tokenCount":2,"query":"bmw keychain","note":"Brand found but no vehicle signal - not triggering vehicleMode"}
-{"event":"[VEHICLE_DETECT] result","qNorm":"bmw keychain","vehicleMode":false,"reason":"no_vehicle_indicators"}
-```
+**Should Show Accessories/Merch (NOT vehicles):**
+- "toyota floor mats" → floor mats
+- "toyota shirt" → clothing
+- "toyota keychain" → keychains
+- "honda phone case" → phone cases
+- "ford hat" → hats
 
 ---
 
-## Why This Works
+## Why This Approach Works
 
-1. **Canonicalizer hardening** is already in place - tokens like `c300`, `qx80`, `f-150` are protected from fuzzy matching
-
-2. **Standalone patterns** catch iconic vehicle names that don't need a brand prefix (Range Rover, Mustang, Corvette)
-
-3. **Brand+model patterns** catch explicit combinations in `VEHICLE_MODEL_PATTERNS` (Toyota Camry, Infiniti QX80)
-
-4. **Brand fallback with vehicle signal** catches dynamic brand+model queries (Mercedes C300, BMW 530i) while rejecting brand+accessory queries (BMW keychain, Toyota gift card)
-
-5. **Accessory override** always runs first to handle explicit accessory queries (Toyota floor mats)
-
-This creates a robust, layered detection system that handles new vehicle models automatically while preventing false positives.
-
+1. **Standalone patterns** trigger vehicle mode IMMEDIATELY for brand-only queries - no probe needed
+2. **Accessory keywords still override** - checked FIRST in `isVehicleMakeModelQuery()`
+3. **Cache purge** removes old poisoned entries
+4. **Reliable probe caching** prevents future poisoning if probe fails
+5. **No frontend changes** - all logic is backend-only

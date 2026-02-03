@@ -101,6 +101,51 @@ const VEHICLE_QUERY_KEYWORDS = [
   "voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
 ];
 
+// Keywords that indicate user wants to BUY a vehicle (not parts/accessories)
+const VEHICLE_BUYING_INTENT_KEYWORDS = [
+  "for sale", "à vendre", "buy", "acheter", "purchase",
+  "used car", "new car", "certified pre-owned", "cpo",
+  "dealer", "dealership", "financing", "lease",
+  "used", "pre-owned", "preowned",
+];
+
+// Keywords that indicate user wants vehicle accessories/parts (NOT the vehicle itself)
+const VEHICLE_ACCESSORY_KEYWORDS = [
+  "floor mat", "floor mats", "mat", "mats", "cover", "covers", "case",
+  "filter", "oil filter", "air filter", "cabin filter",
+  "brake", "brakes", "brake pad", "brake pads",
+  "part", "parts", "accessory", "accessories",
+  "key fob", "key", "remote", "fob",
+  "battery", "batteries",
+  "tire", "tires", "wheel", "wheels", "rim", "rims",
+  "seat cover", "seat covers", "cargo", "liner", "liners",
+  "sunshade", "visor", "windshield",
+  "headlight", "taillight", "bulb", "led",
+  "mirror", "antenna", "wiper", "wipers",
+  "charger", "adapter", "mount", "holder",
+  "emblem", "badge", "decal", "sticker",
+];
+
+/**
+ * Check if a query indicates explicit vehicle-BUYING intent
+ * (as opposed to wanting accessories/parts for a vehicle)
+ */
+function hasVehicleBuyingIntent(query: string): boolean {
+  const lower = query.toLowerCase();
+  
+  // Check if query has explicit buying intent keywords
+  const hasBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
+  if (hasBuyingIntent) return true;
+  
+  // Check if query has accessory/parts keywords - definitely NOT buying intent
+  const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
+  if (hasAccessoryKeywords) return false;
+  
+  // For brand-only queries like "infiniti qx80", don't assume vehicle buying intent
+  // Let them see all products (accessories + vehicles if any exist)
+  return false;
+}
+
 const DEFAULT_LIMIT = 36;
 const MAX_LIMIT = 100;
 
@@ -711,10 +756,15 @@ Deno.serve(async (req: Request) => {
     }
   }
   
-  // Ensure minPrice is at least $1500 for vehicles to exclude parts/accessories
-  if (isVehicleEarly && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
+  // SMART VEHICLE INTENT: Only enforce minPrice when user explicitly wants to BUY a vehicle
+  // For brand-only queries like "infiniti qx80", allow accessories (no minPrice filter)
+  const hasBuyingIntent = hasVehicleBuyingIntent(qOriginal);
+  
+  if (hasBuyingIntent && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
     catalogFilters.minPrice = 1500;
-    console.log(`[SEARCH] requestId=${requestId} Vehicle search: enforcing minPrice=$1500 to exclude parts`);
+    console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent detected: enforcing minPrice=$1500`);
+  } else if (isVehicleEarly && !hasBuyingIntent) {
+    console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices for accessories`);
   }
 
   // Initialize search metadata (will be populated by rewriter)

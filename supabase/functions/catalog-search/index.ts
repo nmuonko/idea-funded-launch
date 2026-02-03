@@ -295,7 +295,378 @@ function mapDbItemToResponse(item: Record<string, unknown>): CatalogItem {
   };
 }
 
-// ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
+// ─── AMAZON FETCH HELPER ──────────────────────────────────────────────────────
+
+// deno-lint-ignore no-explicit-any
+type SupabaseClientAny = ReturnType<typeof createClient<any, any>>;
+
+interface AmazonFetchParams {
+  supabase: SupabaseClientAny;
+  query: string;
+  settings: CatalogSettings;
+  effectiveMode: { amazonActive: boolean; mode: string };
+  mixerCursor: MixerCursor;
+  isVehicle: boolean;
+  categoryKey: string | undefined;
+  limit: number;
+  requestId: string;
+}
+
+interface AmazonFetchResult {
+  items: CatalogItem[];
+  hasMore: boolean;
+  cacheHit: boolean;
+  budgetRemaining: number | null;
+  status: AmazonStatusInfo["status"];
+  liveUsed: boolean;
+  liveReason: AmazonLiveReason;
+}
+
+async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchResult> {
+  const { supabase, query, settings, effectiveMode, mixerCursor, isVehicle, categoryKey, limit, requestId } = params;
+  
+  const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
+  
+  let items: CatalogItem[] = [];
+  let hasMore = false;
+  let cacheHit = false;
+  let budgetRemaining: number | null = null;
+  let status: AmazonStatusInfo["status"] = "disabled";
+  let liveUsed = false;
+  let liveReason: AmazonLiveReason = "disabled";
+
+  if (!effectiveMode.amazonActive || effectiveMode.mode === "ebay") {
+    return { items, hasMore, cacheHit, budgetRemaining, status, liveUsed, liveReason };
+  }
+
+  try {
+    // Check budget
+    const budgetStatus = await checkBudget(
+      supabase,
+      "amazon",
+      settings.amazonBudgetWindow,
+      settings.amazonMaxCallsPerHour,
+      requestId
+    );
+    budgetRemaining = budgetStatus.remaining;
+
+    // Load live settings
+    const liveSettings = await getAmazonLiveSettings(supabase);
+
+    // Check if cap hit for this query
+    const queryCapHit = mixerCursor.amazonReturnedSoFar >= settings.amazonMaxResultsPerQuery;
+
+    if (queryCapHit) {
+      status = "cap_exhausted";
+      liveReason = "cache_only";
+      console.log(`[SEARCH] requestId=${requestId} Amazon cap exhausted: ${mixerCursor.amazonReturnedSoFar}/${settings.amazonMaxResultsPerQuery}`);
+    } else {
+      // Determine if we should use live API
+      const liveDecision = shouldUseAmazonLive({
+        endpoint: "search",
+        query,
+        amazonPage: mixerCursor.amazonPage,
+        amazonEnabled: effectiveMode.amazonActive,
+        budgetAllowed: budgetStatus.allowed,
+        budgetRemaining: budgetStatus.remaining,
+        liveSettings,
+        requestId,
+      });
+
+      liveReason = liveDecision.reason;
+
+      if (liveDecision.useLive) {
+        // ─── LIVE RAINFOREST API ─────────────────────────────────────────
+        const vehicleCategoryId = isVehicle ? AMAZON_AUTOS_CATEGORY_ID : undefined;
+        console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${query}" page=${mixerCursor.amazonPage}${vehicleCategoryId ? ` category=${vehicleCategoryId}` : ""}`);
+        
+        const liveResult = await searchRainforest(query, mixerCursor.amazonPage, limit, "amazon.com", "relevance", undefined, vehicleCategoryId);
+        
+        if (!liveResult.error && liveResult.products.length > 0) {
+          liveUsed = true;
+          status = "live";
+
+          // Increment budget after successful call
+          await incrementBudget(supabase, "amazon", settings.amazonBudgetWindow, requestId);
+          budgetRemaining = Math.max(0, (budgetRemaining || 0) - 1);
+
+          // Map live products to CatalogItem format
+          items = liveResult.products.map(p => ({
+            id: `amazon_${p.providerProductId}`,
+            provider: "rainforest",
+            providerProductId: p.providerProductId,
+            title: p.title,
+            priceUsd: p.priceUsd,
+            currency: "USD",
+            mainImageUrl: upgradeAmazonImage(p.imageUrl),
+            imageUrl: upgradeAmazonImage(p.imageUrl),
+            images: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+            imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+            imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
+            productUrl: p.productUrl,
+            inStock: p.inStock ?? true,
+            rating: p.rating,
+            category: categoryKey || undefined,
+          }));
+          hasMore = liveResult.hasMore;
+
+          // Cache the live results (async, don't wait)
+          const cacheKey = buildAmazonCacheKey({ query, categoryKey, page: mixerCursor.amazonPage });
+          const now = new Date();
+          const cacheTtlSeconds = settings.searchCacheTtlSeconds || 172800;
+          const expiresAt = new Date(now.getTime() + cacheTtlSeconds * 1000);
+          const staleAt = new Date(now.getTime() + (cacheTtlSeconds / 2) * 1000);
+
+          supabase.from("catalog_cache").upsert({
+            cache_key: cacheKey,
+            cache_type: "search_amazon",
+            provider: "rainforest",
+            query,
+            category: categoryKey,
+            page: mixerCursor.amazonPage,
+            response: { products: liveResult.products, total: liveResult.total, hasMore: liveResult.hasMore },
+            expires_at: expiresAt.toISOString(),
+            stale_at: staleAt.toISOString(),
+            updated_at: now.toISOString(),
+          }, { onConflict: "cache_key" });
+
+          // Upsert into catalog_items (async, don't wait)
+          const toUpsert = liveResult.products.map(p => {
+            const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
+              title: p.title || "",
+              provider: "rainforest",
+              productUrl: p.productUrl || "",
+            });
+            return {
+              id: `amazon_${p.providerProductId}`,
+              provider: "rainforest",
+              provider_product_id: p.providerProductId,
+              title: p.title,
+              price_usd: p.priceUsd,
+              image_url: p.imageUrl,
+              images: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
+              product_url: p.productUrl,
+              in_stock: p.inStock ?? true,
+              rating: p.rating,
+              unified_category: mappedCat !== "blocked" ? mappedCat : (categoryKey?.split("_")[0] || "electronics"),
+              unified_subcategory: subcategory,
+              updated_at: now.toISOString(),
+            };
+          });
+
+          supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+
+          console.log(`[SEARCH] requestId=${requestId} Amazon LIVE returned ${items.length} items`);
+        }
+      }
+
+      // If no live results or live not used, fall back to cache/DB
+      if (items.length === 0) {
+        // Try cache first
+        const cacheKey = buildAmazonCacheKey({ query, categoryKey, page: mixerCursor.amazonPage });
+        const { data: cachedData } = await supabase
+          .from("catalog_cache")
+          .select("response, expires_at")
+          .eq("cache_key", cacheKey)
+          .gt("expires_at", new Date().toISOString())
+          .single();
+
+        if (cachedData?.response) {
+          const cached = cachedData.response as { products: Array<Record<string, unknown>>; hasMore: boolean };
+          items = cached.products.map(p => ({
+            id: `amazon_${p.providerProductId}`,
+            provider: "rainforest",
+            providerProductId: p.providerProductId as string,
+            title: p.title as string | null,
+            priceUsd: p.priceUsd as number | null,
+            currency: "USD",
+            mainImageUrl: upgradeAmazonImage(p.imageUrl as string | null),
+            imageUrl: upgradeAmazonImage(p.imageUrl as string | null),
+            images: (p.images && Array.isArray(p.images) && (p.images as string[]).length > 0) ? p.images as string[] : (p.imageUrl ? [p.imageUrl as string] : []),
+            imageUrls: (p.images && Array.isArray(p.images) && (p.images as string[]).length > 0) ? p.images as string[] : (p.imageUrl ? [p.imageUrl as string] : []),
+            imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
+            productUrl: p.productUrl as string | null,
+            inStock: (p.inStock as boolean | null) ?? true,
+            rating: p.rating as number | null,
+            category: categoryKey || undefined,
+          }));
+          hasMore = cached.hasMore;
+          cacheHit = true;
+          status = "cached";
+          console.log(`[SEARCH] requestId=${requestId} Amazon CACHE hit: ${items.length} items`);
+        } else {
+          // Fall back to DB search
+          const dbSearchQuery = isVehicle ? `${query}|automotive|car parts|auto` : query;
+          console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${dbSearchQuery}" category_key=${categoryKey}`);
+
+          let amazonQuery = supabase
+            .from("catalog_items")
+            .select("*", { count: "exact" })
+            .or("provider.eq.rainforest,provider.eq.amazon")
+            .or(`title.ilike.%${query}%,search_text.ilike.%${query}%${isVehicle ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
+
+          if (categoryKey) {
+            const parentCategory = categoryKey.split("_")[0];
+            amazonQuery = amazonQuery.or(`unified_category.eq.${parentCategory},unified_category.is.null,unified_category.eq.uncategorized`);
+          }
+
+          const { data: amazonData, count } = await amazonQuery
+            .order("rating", { ascending: false, nullsFirst: false })
+            .range(
+              mixerCursor.amazonReturnedSoFar,
+              mixerCursor.amazonReturnedSoFar + limit - 1
+            );
+
+          if (amazonData && amazonData.length > 0) {
+            items = amazonData.map(item => {
+              const mapped = mapDbItemToResponse(item as Record<string, unknown>);
+              if (categoryKey) {
+                mapped.category = categoryKey;
+              }
+              return mapped;
+            });
+            hasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
+            cacheHit = true;
+            status = "cached";
+            console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${items.length} items`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[SEARCH] requestId=${requestId} Amazon error:`, err);
+    status = "error";
+  }
+
+  return { items, hasMore, cacheHit, budgetRemaining, status, liveUsed, liveReason };
+}
+
+// ─── EBAY FETCH HELPER ────────────────────────────────────────────────────────
+
+interface EbayFetchParams {
+  supabase: SupabaseClientAny;
+  query: string;
+  effectiveMode: { ebayActive: boolean; mode: string };
+  isVehicle: boolean;
+  categoryKey: string | undefined;
+  page: number;
+  limit: number;
+  catalogFilters: CatalogFilters;
+  requestId: string;
+}
+
+interface EbayFetchResult {
+  items: CatalogItem[];
+  hasMore: boolean;
+  total: number;
+}
+
+async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
+  const { supabase, query, effectiveMode, isVehicle, categoryKey, page, limit, catalogFilters, requestId } = params;
+
+  let items: CatalogItem[] = [];
+  let hasMore = false;
+  let total = 0;
+
+  if (!effectiveMode.ebayActive || effectiveMode.mode === "amazon") {
+    return { items, hasMore, total };
+  }
+
+  try {
+    const minPrice = isVehicle ? 1500 : undefined;
+    
+    // Map category_key to eBay category ID if applicable
+    let ebayCategory: string | undefined;
+    if (categoryKey) {
+      const categoryMapping: Record<string, string> = {
+        electronics_phones: "9355",
+        electronics_gaming: "1249",
+        electronics_computers: "58058",
+        electronics_cameras: "625",
+        electronics_audio: "3253",
+        clothing_shoes_accessories: "63889",
+        home_garden: "11700",
+        vehicles_cars_trucks: "6001",
+        refurbished: "11800",
+        parts_accessories: "6028",
+      };
+      ebayCategory = categoryMapping[categoryKey];
+    }
+
+    // Force eBay Motors category for vehicle searches
+    let enhancedQuery = query;
+    if (isVehicle && !ebayCategory) {
+      ebayCategory = "6001"; // Cars & Trucks category
+      console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001 for query="${query}"`);
+    }
+
+    console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
+
+    const ebayResult = await searchEbay(
+      supabase,
+      {
+        query: enhancedQuery,
+        page,
+        pageSize: limit,
+        minPrice,
+        isVehicle,
+        categoryId: ebayCategory,
+        marketplaceId: "EBAY_US",
+        filters: catalogFilters,
+      },
+      requestId
+    );
+
+    if (ebayResult.items.length > 0) {
+      let filteredItems = ebayResult.items;
+
+      // Filter vehicles
+      if (isVehicle) {
+        filteredItems = filteredItems.filter(item => {
+          const result = isAllowedMotorListing({ title: item.title, priceUsd: item.price_usd });
+          return result.isAllowed;
+        });
+      }
+
+      items = filteredItems.map(mapEbayItemToResponse);
+      total = ebayResult.total;
+      hasMore = ebayResult.hasMore;
+
+      console.log(`[SEARCH] requestId=${requestId} eBay returned ${items.length} items, total=${total}`);
+
+      // Upsert to DB (async, don't wait)
+      const toUpsert = filteredItems.map(item => {
+        const { category, subcategory } = mapCategoryAndSubcategory({
+          title: item.title,
+          provider: "ebay",
+          productUrl: item.product_url,
+        });
+
+        return {
+          id: item.id,
+          provider: "ebay",
+          provider_product_id: item.provider_product_id,
+          title: item.title,
+          price_usd: item.price_usd,
+          image_url: item.image_url,
+          images: item.images,
+          product_url: item.product_url,
+          in_stock: item.in_stock,
+          rating: item.rating,
+          unified_category: category !== "blocked" ? category : "electronics",
+          unified_subcategory: subcategory,
+          updated_at: new Date().toISOString(),
+        };
+      });
+
+      supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+    }
+  } catch (err) {
+    console.error(`[SEARCH] requestId=${requestId} eBay error:`, err);
+  }
+
+  return { items, hasMore, total };
+}
 
 // ─── MAIN HANDLER ─────────────────────────────────────────────────────────────
 
@@ -529,338 +900,81 @@ Deno.serve(async (req: Request) => {
     // - This ensures both providers return real vehicles, not parts/accessories
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // Amazon Autos category ID for vehicle-specific searches
-    const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
-    
     if (isVehicle) {
-      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Autos (category=${AMAZON_AUTOS_CATEGORY_ID})`);
+      console.log(`[SEARCH] requestId=${requestId} Vehicle query detected: "${qNorm}" - using eBay Motors + Amazon Autos`);
     }
 
-    // ─── FETCH FROM PROVIDERS ─────────────────────────────────────────────────
+    // ─── PARALLEL PROVIDER FETCH ──────────────────────────────────────────────
+    // Run Amazon and eBay fetches concurrently for ~50% faster initial searches
+    const providerStartMs = Date.now();
 
+    const [amazonSettled, ebaySettled] = await Promise.allSettled([
+      // Amazon fetch (only if active)
+      fetchAmazonItems({
+        supabase,
+        query: qNorm,
+        settings,
+        effectiveMode,
+        mixerCursor,
+        isVehicle,
+        categoryKey: categoryKey || undefined,
+        limit,
+        requestId,
+      }),
+      // eBay fetch (only if active)
+      fetchEbayItems({
+        supabase,
+        query: qNorm,
+        effectiveMode,
+        isVehicle,
+        categoryKey: categoryKey || undefined,
+        page,
+        limit,
+        catalogFilters,
+        requestId,
+      }),
+    ]);
+
+    const providerMs = Date.now() - providerStartMs;
+
+    // Extract Amazon results safely
     let amazonItems: CatalogItem[] = [];
-    let ebayItems: CatalogItem[] = [];
     let amazonHasMore = false;
-    let ebayHasMore = false;
-    let ebayTotal = 0;
     let amazonCacheHit = false;
     let amazonBudgetRemaining: number | null = null;
     let amazonStatus: AmazonStatusInfo["status"] = "disabled";
     let amazonLiveUsed = false;
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
-    // ─── Amazon (Smart Live + Cache) ──────────────────────────────────────────
-    // VEHICLE SEARCH: Use Amazon Autos category to get actual vehicle listings
-    // instead of skipping Amazon entirely
-    if (effectiveMode.amazonActive && effectiveMode.mode !== "ebay") {
-      try {
-        // Check budget
-        const budgetStatus = await checkBudget(
-          supabase,
-          "amazon",
-          settings.amazonBudgetWindow,
-          settings.amazonMaxCallsPerHour,
-          requestId
-        );
-        amazonBudgetRemaining = budgetStatus.remaining;
-
-        // Load live settings
-        const liveSettings = await getAmazonLiveSettings(supabase);
-
-        // Check if cap hit for this query
-        const queryCapHit = mixerCursor.amazonReturnedSoFar >= settings.amazonMaxResultsPerQuery;
-
-        if (queryCapHit) {
-          amazonStatus = "cap_exhausted";
-          amazonLiveReason = "cache_only";
-          console.log(`[SEARCH] requestId=${requestId} Amazon cap exhausted: ${mixerCursor.amazonReturnedSoFar}/${settings.amazonMaxResultsPerQuery}`);
-        } else {
-          // Determine if we should use live API
-          const liveDecision = shouldUseAmazonLive({
-            endpoint: "search",
-            query: qNorm,
-            amazonPage: mixerCursor.amazonPage,
-            amazonEnabled: effectiveMode.amazonActive,
-            budgetAllowed: budgetStatus.allowed,
-            budgetRemaining: budgetStatus.remaining,
-            liveSettings,
-            requestId,
-          });
-
-          amazonLiveReason = liveDecision.reason;
-
-          if (liveDecision.useLive) {
-            // ─── LIVE RAINFOREST API ─────────────────────────────────────────
-            // For vehicle searches, use Amazon Autos category to get actual vehicles
-            const amazonSearchQuery = qNorm;
-            const vehicleCategoryId = isVehicle ? AMAZON_AUTOS_CATEGORY_ID : undefined;
-            console.log(`[SEARCH] requestId=${requestId} Amazon LIVE search: "${amazonSearchQuery}" page=${mixerCursor.amazonPage}${vehicleCategoryId ? ` category=${vehicleCategoryId}` : ""}`);
-            
-            const liveResult = await searchRainforest(amazonSearchQuery, mixerCursor.amazonPage, limit, "amazon.com", "relevance", undefined, vehicleCategoryId);
-            
-            if (!liveResult.error && liveResult.products.length > 0) {
-              amazonLiveUsed = true;
-              amazonStatus = "live";
-
-              // Increment budget after successful call
-              await incrementBudget(supabase, "amazon", settings.amazonBudgetWindow, requestId);
-              amazonBudgetRemaining = Math.max(0, (amazonBudgetRemaining || 0) - 1);
-
-              // Map live products to CatalogItem format
-              amazonItems = liveResult.products.map(p => ({
-                id: `amazon_${p.providerProductId}`,
-                provider: "rainforest",
-                providerProductId: p.providerProductId,
-                title: p.title,
-                priceUsd: p.priceUsd,
-                currency: "USD",
-                mainImageUrl: upgradeAmazonImage(p.imageUrl),
-                imageUrl: upgradeAmazonImage(p.imageUrl),
-                images: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
-                imageUrls: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
-                imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
-                productUrl: p.productUrl,
-                inStock: p.inStock ?? true,
-                rating: p.rating,
-                category: categoryKey || undefined,
-              }));
-              amazonHasMore = liveResult.hasMore;
-
-              // Cache the live results for future pages
-              const cacheKey = buildAmazonCacheKey({ query: qNorm, categoryKey, page: mixerCursor.amazonPage });
-              const now = new Date();
-              const cacheTtlSeconds = settings.searchCacheTtlSeconds || 172800;
-              const expiresAt = new Date(now.getTime() + cacheTtlSeconds * 1000);
-              const staleAt = new Date(now.getTime() + (cacheTtlSeconds / 2) * 1000);
-
-              supabase.from("catalog_cache").upsert({
-                cache_key: cacheKey,
-                cache_type: "search_amazon",
-                provider: "rainforest",
-                query: qNorm,
-                category: categoryKey,
-                page: mixerCursor.amazonPage,
-                response: { products: liveResult.products, total: liveResult.total, hasMore: liveResult.hasMore },
-                expires_at: expiresAt.toISOString(),
-                stale_at: staleAt.toISOString(),
-                updated_at: now.toISOString(),
-              }, { onConflict: "cache_key" });
-
-              // Upsert into catalog_items for future DB queries
-              const toUpsert = liveResult.products.map(p => {
-                const { category: mappedCat, subcategory } = mapCategoryAndSubcategory({
-                  title: p.title || "",
-                  provider: "rainforest",
-                  productUrl: p.productUrl || "",
-                });
-                return {
-                  id: `amazon_${p.providerProductId}`,
-                  provider: "rainforest",
-                  provider_product_id: p.providerProductId,
-                  title: p.title,
-                  price_usd: p.priceUsd,
-                  image_url: p.imageUrl,
-                  images: (p.images && Array.isArray(p.images) && p.images.length > 0) ? p.images : (p.imageUrl ? [p.imageUrl] : []),
-                  product_url: p.productUrl,
-                  in_stock: p.inStock ?? true,
-                  rating: p.rating,
-                  unified_category: mappedCat !== "blocked" ? mappedCat : (categoryKey?.split("_")[0] || "electronics"),
-                  unified_subcategory: subcategory,
-                  updated_at: now.toISOString(),
-                };
-              });
-
-              supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
-
-              console.log(`[SEARCH] requestId=${requestId} Amazon LIVE returned ${amazonItems.length} items`);
-            }
-          }
-
-          // If no live results or live not used, fall back to cache/DB
-          if (amazonItems.length === 0) {
-            // Note: For vehicle searches, this block is skipped (Amazon excluded)
-            const amazonSearchQuery = qNorm;
-            
-            // Try cache first
-            const cacheKey = buildAmazonCacheKey({ query: amazonSearchQuery, categoryKey, page: mixerCursor.amazonPage });
-            const { data: cachedData } = await supabase
-              .from("catalog_cache")
-              .select("response, expires_at")
-              .eq("cache_key", cacheKey)
-              .gt("expires_at", new Date().toISOString())
-              .single();
-
-            if (cachedData?.response) {
-              const cached = cachedData.response as { products: Array<Record<string, unknown>>; hasMore: boolean };
-              amazonItems = cached.products.map(p => ({
-                id: `amazon_${p.providerProductId}`,
-                provider: "rainforest",
-                providerProductId: p.providerProductId as string,
-                title: p.title as string | null,
-                priceUsd: p.priceUsd as number | null,
-                currency: "USD",
-                mainImageUrl: upgradeAmazonImage(p.imageUrl as string | null),
-                imageUrl: upgradeAmazonImage(p.imageUrl as string | null),
-                images: (p.images && Array.isArray(p.images) && (p.images as string[]).length > 0) ? p.images as string[] : (p.imageUrl ? [p.imageUrl as string] : []),
-                imageUrls: (p.images && Array.isArray(p.images) && (p.images as string[]).length > 0) ? p.images as string[] : (p.imageUrl ? [p.imageUrl as string] : []),
-                imageCount: (p.imageCount as number) || ((p.images as string[])?.length || 1),
-                productUrl: p.productUrl as string | null,
-                inStock: (p.inStock as boolean | null) ?? true,
-                rating: p.rating as number | null,
-                category: categoryKey || undefined,
-              }));
-              amazonHasMore = cached.hasMore;
-              amazonCacheHit = true;
-              amazonStatus = "cached";
-              console.log(`[SEARCH] requestId=${requestId} Amazon CACHE hit: ${amazonItems.length} items`);
-            } else {
-              // Fall back to DB search - for vehicles include automotive category
-              const dbSearchQuery = isVehicle ? `${qNorm}|automotive|car parts|auto` : qNorm;
-              console.log(`[SEARCH] requestId=${requestId} Amazon DB search: "${dbSearchQuery}" category_key=${categoryKey}`);
-
-              let amazonQuery = supabase
-                .from("catalog_items")
-                .select("*", { count: "exact" })
-                .or("provider.eq.rainforest,provider.eq.amazon")
-                .or(`title.ilike.%${qNorm}%,search_text.ilike.%${qNorm}%${isVehicle ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
-
-              if (categoryKey) {
-                const parentCategory = categoryKey.split("_")[0];
-                amazonQuery = amazonQuery.or(`unified_category.eq.${parentCategory},unified_category.is.null,unified_category.eq.uncategorized`);
-              }
-
-              const { data: amazonData, count } = await amazonQuery
-                .order("rating", { ascending: false, nullsFirst: false })
-                .range(
-                  mixerCursor.amazonReturnedSoFar,
-                  mixerCursor.amazonReturnedSoFar + limit - 1
-                );
-
-              if (amazonData && amazonData.length > 0) {
-                amazonItems = amazonData.map(item => {
-                  const mapped = mapDbItemToResponse(item as Record<string, unknown>);
-                  if (categoryKey) {
-                    mapped.category = categoryKey;
-                  }
-                  return mapped;
-                });
-                amazonHasMore = (count || 0) > mixerCursor.amazonReturnedSoFar + amazonData.length;
-                amazonCacheHit = true;
-                amazonStatus = "cached";
-                console.log(`[SEARCH] requestId=${requestId} Amazon DB returned ${amazonItems.length} items`);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`[SEARCH] requestId=${requestId} Amazon error:`, err);
-        amazonStatus = "error";
-      }
+    if (amazonSettled.status === "fulfilled") {
+      const result = amazonSettled.value;
+      amazonItems = result.items;
+      amazonHasMore = result.hasMore;
+      amazonCacheHit = result.cacheHit;
+      amazonBudgetRemaining = result.budgetRemaining;
+      amazonStatus = result.status;
+      amazonLiveUsed = result.liveUsed;
+      amazonLiveReason = result.liveReason;
+    } else {
+      console.error(`[SEARCH] requestId=${requestId} Amazon fetch failed:`, amazonSettled.reason);
+      amazonStatus = "error";
     }
 
-    // ─── eBay LIVE Search ─────────────────────────────────────────────────────
-    if (effectiveMode.ebayActive && effectiveMode.mode !== "amazon") {
-      try {
-        const minPrice = isVehicle ? 1500 : undefined;
-        
-        // Map category_key to eBay category ID if applicable
-        let ebayCategory: string | undefined;
-        if (categoryKey) {
-          const categoryMapping: Record<string, string> = {
-            electronics_phones: "9355",
-            electronics_gaming: "1249",
-            electronics_computers: "58058",
-            electronics_cameras: "625",
-            electronics_audio: "3253",
-            clothing_shoes_accessories: "63889",
-            home_garden: "11700",
-            vehicles_cars_trucks: "6001",
-            refurbished: "11800",
-            parts_accessories: "6028",
-          };
-          ebayCategory = categoryMapping[categoryKey];
-        }
+    // Extract eBay results safely
+    let ebayItems: CatalogItem[] = [];
+    let ebayHasMore = false;
+    let ebayTotal = 0;
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        // VEHICLE SEARCH FIX: When searching for car makes/models, force eBay Motors
-        // category to get actual vehicles, not parts from general search
-        // ═══════════════════════════════════════════════════════════════════════════
-        let enhancedQuery = qNorm;
-        if (isVehicle && !ebayCategory) {
-          // Force eBay Motors > Cars & Trucks category for vehicle searches
-          ebayCategory = "6001"; // Cars & Trucks category
-          
-          // DON'T modify the query for specific car models - just use the category filter
-          // Adding "car for sale" to "tesla model 3" makes results too restrictive
-          console.log(`[SEARCH] requestId=${requestId} Vehicle search detected, forcing category=6001 for query="${qNorm}"`);
-        }
-
-        console.log(`[SEARCH] requestId=${requestId} eBay LIVE: q="${enhancedQuery}" isVehicle=${isVehicle} ebayCategory=${ebayCategory}`);
-
-        const ebayResult = await searchEbay(
-          supabase,
-          {
-            query: enhancedQuery,
-            page,
-            pageSize: limit,
-            minPrice,
-            isVehicle,
-            categoryId: ebayCategory,
-            marketplaceId: "EBAY_US",
-            // Pass filters for API-level filtering (price range, condition, etc.)
-            filters: catalogFilters,
-          },
-          requestId
-        );
-
-        if (ebayResult.items.length > 0) {
-          let filteredItems = ebayResult.items;
-
-          // Filter vehicles
-          if (isVehicle) {
-            filteredItems = filteredItems.filter(item => {
-              const result = isAllowedMotorListing({ title: item.title, priceUsd: item.price_usd });
-              return result.isAllowed;
-            });
-          }
-
-          ebayItems = filteredItems.map(mapEbayItemToResponse);
-          ebayTotal = ebayResult.total;
-          ebayHasMore = ebayResult.hasMore;
-
-          console.log(`[SEARCH] requestId=${requestId} eBay returned ${ebayItems.length} items, total=${ebayTotal}`);
-
-          // Upsert to DB (async, don't wait)
-          const toUpsert = filteredItems.map(item => {
-            const { category, subcategory } = mapCategoryAndSubcategory({
-              title: item.title,
-              provider: "ebay",
-              productUrl: item.product_url,
-            });
-
-            return {
-              id: item.id,
-              provider: "ebay",
-              provider_product_id: item.provider_product_id,
-              title: item.title,
-              price_usd: item.price_usd,
-              image_url: item.image_url,
-              images: item.images,
-              product_url: item.product_url,
-              in_stock: item.in_stock,
-              rating: item.rating,
-              unified_category: category !== "blocked" ? category : "electronics",
-              unified_subcategory: subcategory,
-              updated_at: new Date().toISOString(),
-            };
-          });
-
-          supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
-        }
-      } catch (err) {
-        console.error(`[SEARCH] requestId=${requestId} eBay error:`, err);
-      }
+    if (ebaySettled.status === "fulfilled") {
+      const result = ebaySettled.value;
+      ebayItems = result.items;
+      ebayHasMore = result.hasMore;
+      ebayTotal = result.total;
+    } else {
+      console.error(`[SEARCH] requestId=${requestId} eBay fetch failed:`, ebaySettled.reason);
     }
+
+    console.log(`[SEARCH_PERF] requestId=${requestId} provider_parallel_ms=${providerMs} amazon=${amazonItems.length} ebay=${ebayItems.length}`);
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     // UNIFIED: Use same mixer as catalog-category for consistent behavior
@@ -975,6 +1089,10 @@ Deno.serve(async (req: Request) => {
     console.log(`[SEARCH_PERF] requestId=${requestId}`, JSON.stringify({
       rewrite_settings_ms: perfLog.rewrite_ms,
       cache_check_ms: perfLog.cache_ms,
+      provider_parallel_ms: providerMs,
+      amazon_count: amazonItems.length,
+      ebay_count: ebayItems.length,
+      amazon_status: amazonStatus,
       total_ms: durationMs,
       items_returned: finalItems.length,
       cache_hit: false,

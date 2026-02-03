@@ -1,119 +1,89 @@
 
 
-# Fix Vehicle Search: Smart Intent Detection to Avoid Empty Results
+# Fix Vehicle Search: Complete the Smart Intent Detection
 
-## Problem
+## Problem Identified
 
-Searching "infiniti qx80" takes forever and returns **0 results** because:
-
-1. **"infiniti"** is in `VEHICLE_QUERY_KEYWORDS` → detected as vehicle intent
-2. System enforces **`minPrice = $1500`** to "exclude parts"
-3. Amazon returns 36 items (floor mats, filters, accessories) all priced **under $1500**
-4. eBay returns 0 items (no matching eBay listings)
-5. Post-filter removes ALL 36 Amazon items → **0 results displayed**
-
-The user expected to see Infiniti QX80 **accessories** (like floor mats, cargo liners, etc.) but got nothing.
-
----
-
-## Root Cause
-
-The current logic in lines 714-718 assumes:
-> "If query contains a car brand → user wants to buy a car → enforce $1500 minimum"
-
-This is **wrong** for queries like:
-- "infiniti qx80" → Could want accessories, not the vehicle
-- "toyota camry floor mats" → Definitely wants accessories
-- "ford f150 parts" → Definitely wants parts
-
----
-
-## Solution: Smart Vehicle Intent Detection
-
-Only enforce the $1500 minimum when the query **explicitly** indicates the user wants to buy a whole vehicle:
-
-```text
-Current (Wrong):
-"infiniti qx80" → isVehicle=true → minPrice=$1500 → 0 results ❌
-
-Fixed (Smart):
-"infiniti qx80" → isVehicle=false (no "for sale" indicator) → no minPrice → 36 results ✓
-"infiniti qx80 for sale" → isVehicle=true → minPrice=$1500 → vehicle results ✓
-```
-
----
-
-## Technical Changes
-
-### File: `supabase/functions/catalog-search/index.ts`
-
-**1. Add explicit vehicle-buying intent keywords:**
+The previous fix only updated ONE location. There's a SECOND hardcoded $1500 minPrice filter in `fetchEbayItems()`:
 
 ```typescript
-// Keywords that indicate user wants to BUY a vehicle (not parts/accessories)
-const VEHICLE_BUYING_INTENT_KEYWORDS = [
-  "for sale", "à vendre", "buy", "acheter", "purchase",
-  "used car", "new car", "certified pre-owned", "cpo",
-  "dealer", "dealership", "financing", "lease",
-];
+// Line 621 - This BYPASSES our smart intent fix!
+const minPrice = isVehicle ? 1500 : undefined;
 ```
 
-**2. Create a smarter vehicle intent check:**
+**Result**: Even though `hasVehicleBuyingIntent("infiniti qx80")` correctly returns `false`, the eBay API is STILL called with `price:[1500..]` filter because `isVehicle=true` triggers line 621.
 
+The eBay API URL from logs confirms this:
+```
+filter=buyingOptions%3A%7BFIXED_PRICE%7D%2Cprice%3A%5B1500..%5D
+```
+→ Translated: `price:[1500..]` = minimum $1500
+
+## Additional Issue: Category Lock
+
+The code also forces eBay category `6001` (Cars & Trucks) for vehicle-detected queries:
 ```typescript
-function hasVehicleBuyingIntent(query: string): boolean {
-  const lower = query.toLowerCase();
-  
-  // Check if query has explicit buying intent
-  const hasBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasBuyingIntent) return true;
-  
-  // Check if query is JUST a brand/model (without accessory keywords)
-  const hasAccessoryKeywords = [
-    "floor mat", "mat", "cover", "case", "filter", "oil",
-    "brake", "part", "parts", "accessory", "accessories",
-    "key fob", "remote", "battery", "tire", "wheel",
-    "seat cover", "cargo", "liner", "sunshade", "visor",
-  ].some(kw => lower.includes(kw));
-  
-  // If query has accessory keywords, NOT vehicle buying intent
-  if (hasAccessoryKeywords) return false;
-  
-  // For brand-only queries like "infiniti qx80", don't assume vehicle intent
-  // Let them see all products (accessories + vehicles if any)
-  return false;
+// Lines 643-645
+if (isVehicle && !ebayCategory) {
+  ebayCategory = "6001"; // Cars & Trucks category
 }
 ```
 
-**3. Update the minPrice enforcement logic:**
-
-```typescript
-// OLD (lines 714-718):
-if (isVehicleEarly && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
-  catalogFilters.minPrice = 1500;
-}
-
-// NEW:
-const hasBuyingIntent = hasVehicleBuyingIntent(qOriginal);
-if (hasBuyingIntent && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
-  catalogFilters.minPrice = 1500;
-  console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent detected: enforcing minPrice=$1500`);
-} else if (isVehicleEarly) {
-  console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices`);
-}
-```
+Your eBay link shows results in **category 0 (All Categories)**, not 6001. The actual Infiniti QX80 vehicles might be listed in different eBay Motors subcategories.
 
 ---
 
-## Expected Results
+## Solution
 
-| Query | Before | After |
-|-------|--------|-------|
-| "infiniti qx80" | 0 results (all filtered) | 36 results (accessories) |
-| "infiniti qx80 for sale" | Vehicle results | Vehicle results (unchanged) |
-| "toyota camry floor mats" | 0 results | Floor mat results |
-| "used tesla model 3" | Vehicle results | Vehicle results (unchanged) |
-| "honda civic" | 0 results | Accessories + any vehicles |
+### 1. Pass buying intent flag to fetchEbayItems
+
+Update the function call to include the `hasBuyingIntent` status:
+
+```typescript
+// In the parallel fetch call (~line 975)
+fetchEbayItems({
+  supabase,
+  query: qNorm,
+  effectiveMode,
+  isVehicle,
+  hasBuyingIntent,  // NEW: Pass the smart intent flag
+  categoryKey: categoryKey || undefined,
+  page,
+  limit,
+  catalogFilters,
+  requestId,
+}),
+```
+
+### 2. Fix fetchEbayItems to use smart intent
+
+Replace the hardcoded logic:
+
+```typescript
+// BEFORE (Line 621):
+const minPrice = isVehicle ? 1500 : undefined;
+
+// AFTER:
+// Only enforce minPrice for explicit vehicle-buying intent (e.g., "infiniti qx80 for sale")
+// For brand-only searches like "infiniti qx80", allow all prices to show accessories AND vehicles
+const minPrice = hasBuyingIntent ? 1500 : undefined;
+```
+
+### 3. Don't force category 6001 for non-buying queries
+
+```typescript
+// BEFORE (Lines 641-645):
+if (isVehicle && !ebayCategory) {
+  ebayCategory = "6001";
+}
+
+// AFTER:
+// Only force eBay Motors category when user explicitly wants to buy a vehicle
+if (hasBuyingIntent && !ebayCategory) {
+  ebayCategory = "6001"; // Cars & Trucks category
+  console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
+}
+```
 
 ---
 
@@ -121,16 +91,58 @@ if (hasBuyingIntent && (catalogFilters.minPrice === undefined || catalogFilters.
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/catalog-search/index.ts` | Add `VEHICLE_BUYING_INTENT_KEYWORDS`, create `hasVehicleBuyingIntent()`, update minPrice logic |
+| `supabase/functions/catalog-search/index.ts` | Add `hasBuyingIntent` to EbayFetchParams interface, pass it to fetchEbayItems, update minPrice and category logic |
 
 ---
 
-## Alternative Considered: Remove minPrice Entirely
+## Expected Results After Fix
 
-We could remove the $1500 minimum entirely, but this would:
-- Show car floor mats when someone searches "toyota for sale" 
-- Mix low-cost accessories with actual vehicle listings
-- Degrade the experience for users who DO want to buy vehicles
+| Query | isVehicle | hasBuyingIntent | minPrice | eBay Category | Expected Results |
+|-------|-----------|-----------------|----------|---------------|------------------|
+| "infiniti qx80" | true | **false** | **none** | **none (all)** | Accessories + any vehicles |
+| "infiniti qx80 for sale" | true | true | $1500 | 6001 | Vehicle listings only |
+| "toyota camry floor mats" | true | false | none | none | Floor mats |
+| "used honda civic" | true | true | $1500 | 6001 | Vehicle listings only |
 
-The smart intent detection approach preserves both use cases.
+---
+
+## Technical Details
+
+**Interface update:**
+```typescript
+interface EbayFetchParams {
+  supabase: SupabaseClientAny;
+  query: string;
+  effectiveMode: { ebayActive: boolean; mode: string };
+  isVehicle: boolean;
+  hasBuyingIntent: boolean;  // NEW
+  categoryKey: string | undefined;
+  page: number;
+  limit: number;
+  catalogFilters: CatalogFilters;
+  requestId: string;
+}
+```
+
+**Updated logic in fetchEbayItems:**
+```typescript
+async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
+  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, categoryKey, page, limit, catalogFilters, requestId } = params;
+
+  // ... existing code ...
+
+  // SMART VEHICLE INTENT: Only enforce minPrice when buying a vehicle
+  const minPrice = hasBuyingIntent ? 1500 : undefined;
+  
+  // ... existing code ...
+
+  // Only force eBay Motors for explicit buying intent
+  if (hasBuyingIntent && !ebayCategory) {
+    ebayCategory = "6001";
+    console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
+  }
+  
+  // ... rest of function ...
+}
+```
 

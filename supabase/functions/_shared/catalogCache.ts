@@ -115,6 +115,7 @@ export function normalizeQuery(q: string): string {
 
 /**
  * Build deterministic cache key
+ * CRITICAL: All search-affecting parameters must be included to prevent cache collisions
  */
 export function buildCacheKey(
   type: CacheType,
@@ -135,6 +136,11 @@ export function buildCacheKey(
     rating?: number;
     condition?: string;
     sort?: string;
+    // Vehicle mode flag
+    vehicleMode?: boolean;
+    // Country/currency for regional variations
+    country?: string;
+    currency?: string;
   }
 ): string {
   const domain = params.domain || "amazon.com";
@@ -162,6 +168,12 @@ export function buildCacheKey(
       if (params.rating !== undefined) filterParts.push(`rating=${params.rating}`);
       if (params.condition) filterParts.push(`cond=${params.condition}`);
       if (params.sort && params.sort !== "relevance") filterParts.push(`sort=${params.sort}`);
+      // CRITICAL: Include vehicleMode in cache key to prevent vehicle/non-vehicle cache collisions
+      if (params.vehicleMode) filterParts.push(`veh=1`);
+      // Include country/currency if set
+      if (params.country && params.country !== "US") filterParts.push(`co=${params.country}`);
+      if (params.currency && params.currency !== "USD") filterParts.push(`cu=${params.currency}`);
+      
       const filterSuffix = filterParts.length > 0 ? `:f=${filterParts.join("_")}` : "";
       
       // Include AMAZON_CACHE_VERSION in cache key to invalidate old entries with uncategorized items

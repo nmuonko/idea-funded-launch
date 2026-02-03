@@ -486,7 +486,7 @@ Deno.serve(async (req: Request) => {
     const settings = await getCatalogSettings(supabase);
     const effectiveMode = getEffectiveMode(settings, providerParam || undefined);
 
-    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`)
+    console.log(`[CATALOG_MODE] requestId=${requestId} mode=${effectiveMode.mode} amazon=${effectiveMode.amazonActive} ebay=${effectiveMode.ebayActive}`);
 
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;

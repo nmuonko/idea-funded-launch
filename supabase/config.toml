@@ -422,3 +422,6 @@ verify_jwt = false
 
 [functions.market-search-proxy]
 verify_jwt = false
+
+[functions.market-item-details-proxy]
+verify_jwt = false

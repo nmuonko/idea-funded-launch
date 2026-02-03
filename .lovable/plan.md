@@ -1,46 +1,44 @@
 
-# Fix Slow Initial Search: Parallelize Provider API Calls
 
-## Problem Identified
+# Fix Vehicle Search: Smart Intent Detection to Avoid Empty Results
 
-Edge function logs show first search taking **6-11+ seconds** on cache miss:
+## Problem
 
-```
-[SEARCH_PERF] total_ms=11276, items_returned=0
-[SEARCH_PERF] total_ms=7029, items_returned=0
-[SEARCH_PERF] total_ms=6498, items_returned=0
-```
+Searching "infiniti qx80" takes forever and returns **0 results** because:
 
-The `rewrite_settings_ms` (~150ms) and `cache_check_ms` (~125ms) are fast, but the **provider calls are still sequential** in the code despite an earlier partial optimization.
+1. **"infiniti"** is in `VEHICLE_QUERY_KEYWORDS` → detected as vehicle intent
+2. System enforces **`minPrice = $1500`** to "exclude parts"
+3. Amazon returns 36 items (floor mats, filters, accessories) all priced **under $1500**
+4. eBay returns 0 items (no matching eBay listings)
+5. Post-filter removes ALL 36 Amazon items → **0 results displayed**
+
+The user expected to see Infiniti QX80 **accessories** (like floor mats, cargo liners, etc.) but got nothing.
 
 ---
 
 ## Root Cause
 
-Looking at `catalog-search/index.ts`:
+The current logic in lines 714-718 assumes:
+> "If query contains a car brand → user wants to buy a car → enforce $1500 minimum"
 
-- **Lines 552-759**: Amazon fetch block (300-800ms for live API, 50-150ms for cache/DB)
-- **Lines 761-863**: eBay fetch block (runs AFTER Amazon completes, 300-800ms)
-
-These blocks run **sequentially**. When both providers need live API calls, total time = Amazon time + eBay time = 600-1600ms minimum just for API calls.
+This is **wrong** for queries like:
+- "infiniti qx80" → Could want accessories, not the vehicle
+- "toyota camry floor mats" → Definitely wants accessories
+- "ford f150 parts" → Definitely wants parts
 
 ---
 
-## Solution: Run Amazon + eBay in Parallel
+## Solution: Smart Vehicle Intent Detection
 
-Refactor the provider fetching to use `Promise.allSettled()` so both API calls happen concurrently:
+Only enforce the $1500 minimum when the query **explicitly** indicates the user wants to buy a whole vehicle:
 
 ```text
-Current (Sequential):
-Amazon fetch ──────────────> eBay fetch ─────────────>
-[     ~500ms              ]  [     ~500ms             ]
-                                                      Total: ~1000ms+
+Current (Wrong):
+"infiniti qx80" → isVehicle=true → minPrice=$1500 → 0 results ❌
 
-Optimized (Parallel):
-Amazon fetch ──────────────>
-eBay fetch ────────────────>
-[       ~500ms            ]
-                           Total: ~500ms (max of both)
+Fixed (Smart):
+"infiniti qx80" → isVehicle=false (no "for sale" indicator) → no minPrice → 36 results ✓
+"infiniti qx80 for sale" → isVehicle=true → minPrice=$1500 → vehicle results ✓
 ```
 
 ---
@@ -49,105 +47,73 @@ eBay fetch ────────────────>
 
 ### File: `supabase/functions/catalog-search/index.ts`
 
-**1. Extract Amazon + eBay fetching into separate async functions:**
+**1. Add explicit vehicle-buying intent keywords:**
 
 ```typescript
-// New helper function for Amazon fetching
-async function fetchAmazonItems(params: {
-  supabase: SupabaseClient;
-  query: string;
-  settings: CatalogSettings;
-  effectiveMode: { amazonActive: boolean; mode: string };
-  mixerCursor: MixerCursor;
-  isVehicle: boolean;
-  categoryKey: string | undefined;
-  limit: number;
-  requestId: string;
-}): Promise<{
-  items: CatalogItem[];
-  hasMore: boolean;
-  cacheHit: boolean;
-  budgetRemaining: number | null;
-  status: string;
-  liveUsed: boolean;
-  liveReason: string;
-}> {
-  // ... existing Amazon logic moved here
-}
-
-// New helper function for eBay fetching
-async function fetchEbayItems(params: {
-  supabase: SupabaseClient;
-  query: string;
-  effectiveMode: { ebayActive: boolean; mode: string };
-  isVehicle: boolean;
-  categoryKey: string | undefined;
-  page: number;
-  limit: number;
-  catalogFilters: CatalogFilters;
-  requestId: string;
-}): Promise<{
-  items: CatalogItem[];
-  hasMore: boolean;
-  total: number;
-}> {
-  // ... existing eBay logic moved here
-}
+// Keywords that indicate user wants to BUY a vehicle (not parts/accessories)
+const VEHICLE_BUYING_INTENT_KEYWORDS = [
+  "for sale", "à vendre", "buy", "acheter", "purchase",
+  "used car", "new car", "certified pre-owned", "cpo",
+  "dealer", "dealership", "financing", "lease",
+];
 ```
 
-**2. Call both providers in parallel using `Promise.allSettled`:**
+**2. Create a smarter vehicle intent check:**
 
 ```typescript
-// ─── PARALLEL PROVIDER FETCH ──────────────────────────────────────────────
-const providerStartMs = Date.now();
-
-const [amazonResult, ebayResult] = await Promise.allSettled([
-  // Amazon fetch (only if active)
-  effectiveMode.amazonActive && effectiveMode.mode !== "ebay"
-    ? fetchAmazonItems({ supabase, query: qNorm, settings, effectiveMode, mixerCursor, isVehicle, categoryKey, limit, requestId })
-    : Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "disabled", liveUsed: false, liveReason: "disabled" }),
+function hasVehicleBuyingIntent(query: string): boolean {
+  const lower = query.toLowerCase();
   
-  // eBay fetch (only if active)
-  effectiveMode.ebayActive && effectiveMode.mode !== "amazon"
-    ? fetchEbayItems({ supabase, query: qNorm, effectiveMode, isVehicle, categoryKey, page, limit, catalogFilters, requestId })
-    : Promise.resolve({ items: [], hasMore: false, total: 0 }),
-]);
-
-perfLog.provider_ms = Date.now() - providerStartMs;
-
-// Process results safely (handle individual provider failures gracefully)
-let amazonItems: CatalogItem[] = [];
-let ebayItems: CatalogItem[] = [];
-let amazonHasMore = false;
-let ebayHasMore = false;
-// ... extract from settled promises
+  // Check if query has explicit buying intent
+  const hasBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
+  if (hasBuyingIntent) return true;
+  
+  // Check if query is JUST a brand/model (without accessory keywords)
+  const hasAccessoryKeywords = [
+    "floor mat", "mat", "cover", "case", "filter", "oil",
+    "brake", "part", "parts", "accessory", "accessories",
+    "key fob", "remote", "battery", "tire", "wheel",
+    "seat cover", "cargo", "liner", "sunshade", "visor",
+  ].some(kw => lower.includes(kw));
+  
+  // If query has accessory keywords, NOT vehicle buying intent
+  if (hasAccessoryKeywords) return false;
+  
+  // For brand-only queries like "infiniti qx80", don't assume vehicle intent
+  // Let them see all products (accessories + vehicles if any)
+  return false;
+}
 ```
 
-**3. Add detailed performance logging:**
+**3. Update the minPrice enforcement logic:**
 
 ```typescript
-console.log(`[SEARCH_PERF] requestId=${requestId}`, JSON.stringify({
-  rewrite_settings_ms: perfLog.rewrite_ms,
-  cache_check_ms: perfLog.cache_ms,
-  provider_parallel_ms: perfLog.provider_ms,  // NEW: Track provider time
-  amazon_status: amazonStatus,
-  ebay_items: ebayItems.length,
-  total_ms: durationMs,
-  items_returned: finalItems.length,
-  cache_hit: false,
-}));
+// OLD (lines 714-718):
+if (isVehicleEarly && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
+  catalogFilters.minPrice = 1500;
+}
+
+// NEW:
+const hasBuyingIntent = hasVehicleBuyingIntent(qOriginal);
+if (hasBuyingIntent && (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1500)) {
+  catalogFilters.minPrice = 1500;
+  console.log(`[SEARCH] requestId=${requestId} Vehicle BUYING intent detected: enforcing minPrice=$1500`);
+} else if (isVehicleEarly) {
+  console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices`);
+}
 ```
 
 ---
 
-## Expected Performance Improvement
+## Expected Results
 
-| Scenario | Before (Sequential) | After (Parallel) | Improvement |
-|----------|---------------------|------------------|-------------|
-| Both providers LIVE | ~1000-1600ms | ~500-800ms | **40-50% faster** |
-| Amazon cache + eBay live | ~350-900ms | ~300-800ms | ~10% faster |
-| Both providers cache/DB | ~100-300ms | ~75-150ms | ~50% faster |
-| Total first search | 6-11+ seconds | 3-6 seconds | **~50% faster** |
+| Query | Before | After |
+|-------|--------|-------|
+| "infiniti qx80" | 0 results (all filtered) | 36 results (accessories) |
+| "infiniti qx80 for sale" | Vehicle results | Vehicle results (unchanged) |
+| "toyota camry floor mats" | 0 results | Floor mat results |
+| "used tesla model 3" | Vehicle results | Vehicle results (unchanged) |
+| "honda civic" | 0 results | Accessories + any vehicles |
 
 ---
 
@@ -155,42 +121,16 @@ console.log(`[SEARCH_PERF] requestId=${requestId}`, JSON.stringify({
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/catalog-search/index.ts` | Extract provider functions, parallelize with Promise.allSettled, add timing logs |
+| `supabase/functions/catalog-search/index.ts` | Add `VEHICLE_BUYING_INTENT_KEYWORDS`, create `hasVehicleBuyingIntent()`, update minPrice logic |
 
 ---
 
-## Error Handling
+## Alternative Considered: Remove minPrice Entirely
 
-Using `Promise.allSettled` (not `Promise.all`) ensures:
-- If Amazon fails, eBay results still display
-- If eBay fails, Amazon results still display
-- Both failing = empty results with graceful error
+We could remove the $1500 minimum entirely, but this would:
+- Show car floor mats when someone searches "toyota for sale" 
+- Mix low-cost accessories with actual vehicle listings
+- Degrade the experience for users who DO want to buy vehicles
 
-```typescript
-if (amazonResult.status === 'fulfilled') {
-  amazonItems = amazonResult.value.items;
-  // ... extract other values
-} else {
-  console.error(`[SEARCH] Amazon fetch failed:`, amazonResult.reason);
-  amazonStatus = "error";
-}
+The smart intent detection approach preserves both use cases.
 
-if (ebayResult.status === 'fulfilled') {
-  ebayItems = ebayResult.value.items;
-  // ... extract other values
-} else {
-  console.error(`[SEARCH] eBay fetch failed:`, ebayResult.reason);
-}
-```
-
----
-
-## Testing Checklist
-
-After implementation:
-
-1. Search "iphone" (cold cache) - should return in ~3-4 seconds instead of 6-11
-2. Check logs for `provider_parallel_ms` timing
-3. Verify both Amazon and eBay results appear in mixed mode
-4. Test with filters (maxPrice=150) - filtering still works
-5. Test cache hit scenario - should be instant (<100ms)

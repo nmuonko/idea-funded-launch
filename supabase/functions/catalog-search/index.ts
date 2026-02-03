@@ -40,6 +40,7 @@ import {
   CacheResult,
 } from "../_shared/catalogCache.ts";
 import { rewriteSearchQuery, SearchMeta } from "../_shared/searchRewriter.ts";
+import { canonicalizeQuery } from "../_shared/queryCanonicalizer.ts";
 import { enrichItemsWithMediaCounts } from "../_shared/mediaCache.ts";
 import { 
   getAmazonLiveSettings, 
@@ -866,9 +867,16 @@ Deno.serve(async (req: Request) => {
   const catalogFilters = parseFilters(filtersParam);
 
   // ─── EARLY VEHICLE DETECTION & PRICE FILTER OVERRIDE ────────────────────────
-  // Detect vehicle intent BEFORE filters are applied to override restrictive price limits
-  const qNormEarly = qOriginal.toLowerCase().replace(/\s+/g, " ");
+  // CRITICAL FIX: Canonicalize query FIRST so vehicle detection works on corrected typos
+  // e.g., "inifiniti qx80" → "infiniti qx80" BEFORE checking for vehicle intent
+  const qCanonicalized = canonicalizeQuery(qOriginal);
+  const qNormEarly = qCanonicalized.toLowerCase().replace(/\s+/g, " ");
   const isVehicleEarly = isVehicleQuery(qNormEarly);
+  
+  // Log canonicalization if it changed the query
+  if (qCanonicalized !== qOriginal) {
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} query_canonicalized: "${qOriginal}" → "${qCanonicalized}"`);
+  }
   
   // VEHICLE SEARCH FIX: Override restrictive price filters for vehicle searches
   // Mobile apps may send default maxPrice filters (e.g., $1650) that are too low for vehicles
@@ -883,16 +891,16 @@ Deno.serve(async (req: Request) => {
   }
   
   // SMART VEHICLE INTENT: Enforce minPrice when user wants to BUY a vehicle
-  // This now includes make+model combinations like "infiniti qx80" (detected by isVehicleMakeModelQuery)
-  const hasBuyingIntent = hasVehicleBuyingIntent(qOriginal);
-  const hasMakeModel = isVehicleMakeModelQuery(qOriginal);
+  // Use CANONICALIZED query so typos like "inifiniti" still match "infiniti" brand
+  const hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
+  const hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
   
   if (hasBuyingIntent) {
     // Enforce minPrice of $1000 for vehicle searches (lower than $1500 to capture more listings)
     if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1000) {
       catalogFilters.minPrice = 1000;
     }
-    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: hasBuyingIntent=${hasBuyingIntent} hasMakeModel=${hasMakeModel} enforcing minPrice=${catalogFilters.minPrice}`);
+    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: hasBuyingIntent=${hasBuyingIntent} hasMakeModel=${hasMakeModel} enforcing minPrice=${catalogFilters.minPrice} (canonicalized="${qCanonicalized}")`);
   } else if (isVehicleEarly) {
     console.log(`[SEARCH] requestId=${requestId} Vehicle brand detected but no buying intent - allowing all prices for accessories`);
   }

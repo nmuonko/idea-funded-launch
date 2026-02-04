@@ -425,3 +425,6 @@ verify_jwt = false
 
 [functions.market-item-details-proxy]
 verify_jwt = false
+
+[functions.send-order-assistance-email]
+verify_jwt = false

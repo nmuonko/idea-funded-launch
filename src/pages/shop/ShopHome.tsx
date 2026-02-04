@@ -3,9 +3,9 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronRight, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
-import { SearchBar } from '@/components/shop/SearchBar';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { ProductGrid } from '@/components/shop/ProductGrid';
+import { FeaturedCarousel } from '@/components/shop/FeaturedCarousel';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -64,13 +64,13 @@ export default function ShopHome() {
     <div className="min-h-screen bg-black">
       <ShopHeader />
       
-      {/* Hero Section */}
-      <section className="pt-32 pb-12 px-4">
+      {/* Hero Section - Simplified, no duplicate search bar */}
+      <section className="pt-24 pb-6 px-4">
         <div className="container mx-auto max-w-4xl text-center">
           <motion.h1 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4"
+            className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3"
           >
             Shop the U.S.
             <span className="block bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
@@ -82,24 +82,25 @@ export default function ShopHome() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="text-lg text-white/60 mb-8"
+            className="text-base md:text-lg text-white/60"
           >
             Browse millions of products from Amazon & eBay
           </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="max-w-xl mx-auto"
-          >
-            <SearchBar autoFocus className="text-lg" />
-          </motion.div>
         </div>
       </section>
 
+      {/* Featured Carousel - Animated scrolling products */}
+      <motion.section
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+        className="mb-6"
+      >
+        <FeaturedCarousel />
+      </motion.section>
+
       {/* Category Tabs */}
-      <section className="px-4 mb-8">
+      <section className="px-4 mb-6">
         <div className="container mx-auto">
           <CategoryTabs />
         </div>
@@ -107,7 +108,7 @@ export default function ShopHome() {
 
       {/* Product Sections */}
       <main className="px-4 pb-20">
-        <div className="container mx-auto space-y-12">
+        <div className="container mx-auto space-y-10">
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-white/40" />
@@ -137,7 +138,7 @@ export default function ShopHome() {
               >
                 {/* Section Header */}
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl md:text-2xl font-bold text-white">
+                  <h2 className="text-lg md:text-xl font-bold text-white">
                     {section.title}
                   </h2>
                   <Link 
@@ -158,16 +159,16 @@ export default function ShopHome() {
       </main>
 
       {/* Footer CTA */}
-      <section className="py-16 px-4 border-t border-white/10">
+      <section className="py-12 px-4 border-t border-white/10">
         <div className="container mx-auto text-center">
-          <h2 className="text-2xl font-bold text-white mb-4">
+          <h2 className="text-xl font-bold text-white mb-3">
             Don't see what you're looking for?
           </h2>
-          <p className="text-white/60 mb-6">
+          <p className="text-white/60 mb-5 text-sm">
             Search for any product from Amazon or eBay
           </p>
           <Link to="/shop/search">
-            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8">
+            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
               Search Products
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>

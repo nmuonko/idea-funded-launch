@@ -90,19 +90,19 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
-      <form onSubmit={handleSubmit} className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-white/40" />
+      <form onSubmit={handleSubmit} className="relative group">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-blue-400 group-focus-within:text-blue-300 transition-colors" />
         <Input
           ref={inputRef}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setShowRecent(true)}
-          placeholder="Search products..."
+          placeholder="Search millions of products..."
           autoFocus={autoFocus}
-          className="w-full pl-12 pr-12 h-12 bg-white/5 border-white/10 text-white placeholder:text-white/40 rounded-full focus:bg-white/10 focus:border-white/20"
+          className="w-full pl-12 pr-12 h-11 md:h-12 bg-white/10 border-2 border-blue-500/30 text-white placeholder:text-white/50 rounded-full focus:bg-white/15 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all text-sm md:text-base font-medium"
         />
-        {query && (
+        {query ? (
           <Button
             type="button"
             variant="ghost"
@@ -111,6 +111,14 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
             className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-white/40 hover:text-white hover:bg-white/10 rounded-full"
           >
             <X className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            type="submit"
+            size="sm"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-3 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full text-xs font-semibold hidden md:flex"
+          >
+            Search
           </Button>
         )}
       </form>

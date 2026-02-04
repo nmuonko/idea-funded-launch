@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail } from 'lucide-react';
+import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail, HelpCircle } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 import { IssueRefundDialog } from '@/components/admin/IssueRefundDialog';
@@ -27,6 +27,7 @@ export default function AdminOrderDetail() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [updatingItems, setUpdatingItems] = useState(false);
   const [sendingStatusEmail, setSendingStatusEmail] = useState<string | null>(null);
+  const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
 
   useEffect(() => {
     if (id) loadOrder();
@@ -307,6 +308,30 @@ export default function AdminOrderDetail() {
     setSelectedItems(newSelected);
   };
 
+  const handleSendAssistanceEmail = async () => {
+    try {
+      setSendingAssistanceEmail(true);
+      const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
+        body: { orderId: id },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Email Sent',
+        description: data.message || 'Assistance email sent to customer',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to send assistance email',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingAssistanceEmail(false);
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedItems.size === items.length) {
       setSelectedItems(new Set());
@@ -461,6 +486,24 @@ export default function AdminOrderDetail() {
                   <Badge variant="outline" className="gap-1 text-green-600 border-green-600">
                     <CheckCircle2 className="h-3 w-3" /> Order Completed
                   </Badge>
+                )}
+
+                {/* Need Help button for incomplete orders */}
+                {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
+                  <Button
+                    onClick={handleSendAssistanceEmail}
+                    disabled={sendingAssistanceEmail}
+                    size="sm"
+                    variant="outline"
+                    className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                  >
+                    {sendingAssistanceEmail ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <HelpCircle className="h-4 w-4 mr-2" />
+                    )}
+                    Need Help?
+                  </Button>
                 )}
               </div>
             </div>

@@ -47,14 +47,27 @@ export default function ProductDetailsPage() {
         setLoading(true);
         setError(null);
 
-        const { data, error } = await supabase.functions.invoke('catalog-product', {
-          body: { 
-            productId: decodeURIComponent(id), 
-            provider 
-          },
-        });
-
-        if (error) throw error;
+        // Build the full product ID in format "provider:productId"
+        const productIdDecoded = decodeURIComponent(id);
+        const fullId = `${provider}:${productIdDecoded}`;
+        
+        // Use GET request with query params (catalog-product expects this)
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
+          {
+            headers: {
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        const data = await response.json();
+        
+        if (!response.ok || data.status === 'error') {
+          throw new Error(data.error?.message || 'Product not found');
+        }
+        
         if (!data?.item) throw new Error('Product not found');
 
         const item = data.item;
@@ -75,9 +88,15 @@ export default function ProductDetailsPage() {
         // Fetch similar products
         if (item.title) {
           const keywords = item.title.split(' ').slice(0, 3).join(' ');
-          const { data: similarData } = await supabase.functions.invoke('catalog-search', {
-            body: { query: keywords, limit: 5 },
-          });
+          const similarResponse = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?q=${encodeURIComponent(keywords)}&limit=5`,
+            {
+              headers: {
+                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              },
+            }
+          );
+          const similarData = await similarResponse.json();
           
           if (similarData?.items) {
             setSimilarProducts(

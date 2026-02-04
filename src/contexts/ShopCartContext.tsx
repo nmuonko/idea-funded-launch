@@ -169,13 +169,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       try {
         await supabase.functions.invoke('mobile-add-cart-item', {
           body: {
-            provider_product_id: item.productId,
-            store: item.provider,
-            title: item.title,
-            image_url: item.imageUrl,
-            base_price_usd: item.priceUsd,
+            productUrl: item.productUrl,
+            productPrice: item.priceUsd,
             quantity: item.quantity,
-            product_url: item.productUrl,
+            productTitle: item.title,
+            productImageUrl: item.imageUrl,
           },
         });
         // Resync to get server IDs

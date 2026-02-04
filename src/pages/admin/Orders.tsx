@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, CreditCard, Trash2, Play, Truck, CheckCircle2, MoreHorizontal } from 'lucide-react';
+import { Loader2, Eye, Download, CheckCircle, FileText, Search, Mail, CalendarIcon, X, Trash2, Play, Truck, CheckCircle2, MoreHorizontal, Printer } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -108,7 +108,7 @@ export default function AdminOrders() {
         .from('orders')
         .select(`
           *,
-          profiles(user_id, name, full_name, email, phone),
+          profiles(user_id, name, full_name, email, phone, address_line1, address_line2, city, state_province, postal_code, country, address),
           order_items(id, title, product_url, product_image_url, quantity, created_at)
         `)
         .order('created_at', { ascending: false });
@@ -514,31 +514,98 @@ export default function AdminOrders() {
     }
   };
 
-  // Single order manual payment verification
-  const handleMarkAsPaid = async (orderId: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke('verify-maisha-payment', {
-        body: {
-          orderId,
-          manualOverride: true,
-          notes: 'Manual verification by admin - callback issue workaround'
-        }
-      });
+  // Print shipping label for an order
+  const handlePrintLabel = (order: any) => {
+    const profile = order.profiles;
+    const customerName = profile?.name || profile?.full_name || 'Customer';
+    
+    // Build address from available fields
+    const addressParts = [
+      profile?.address_line1,
+      profile?.address_line2,
+      profile?.city,
+      profile?.state_province,
+      profile?.postal_code,
+      profile?.country
+    ].filter(Boolean);
+    
+    const address = addressParts.length > 0 
+      ? addressParts.join(', ') 
+      : (profile?.address || order.shipping_city || 'N/A');
 
-      if (error) throw error;
+    const items = order.order_items || [];
+    
+    // Generate printable HTML label (4x6 inch)
+    const labelHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Shipping Label - ${formatOrderId(order.id, customerName)}</title>
+        <style>
+          @page { size: 4in 6in; margin: 0.25in; }
+          body { font-family: Arial, sans-serif; padding: 20px; margin: 0; }
+          .label-container { border: 2px solid #000; padding: 20px; max-width: 3.5in; margin: 0 auto; }
+          .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 15px; }
+          .logo { font-size: 24px; font-weight: bold; }
+          .section { margin-bottom: 15px; }
+          .section-title { font-weight: bold; font-size: 12px; text-transform: uppercase; color: #666; margin-bottom: 5px; }
+          .customer-name { font-size: 20px; font-weight: bold; }
+          .address { font-size: 14px; line-height: 1.4; }
+          .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          .items-table th, .items-table td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+          .items-table th { background: #f0f0f0; }
+          .order-id { font-size: 10px; color: #666; margin-top: 15px; text-align: center; }
+          @media print { body { margin: 0; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="label-container">
+          <div class="header">
+            <div class="logo">📦 AfriShop</div>
+            <div style="font-size: 12px; margin-top: 5px;">Shipping Label</div>
+          </div>
+          
+          <div class="section">
+            <div class="section-title">Ship To:</div>
+            <div class="customer-name">${customerName}</div>
+            <div class="address">${address}</div>
+          </div>
+          
+          <div class="section">
+            <div class="section-title">Items (${items.length}):</div>
+            <table class="items-table">
+              <thead>
+                <tr><th>Product</th><th>Qty</th></tr>
+              </thead>
+              <tbody>
+                ${items.map((item: any) => `
+                  <tr>
+                    <td>${item.title || 'Product'}</td>
+                    <td>${item.quantity}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          
+          <div class="order-id">
+            Order: ${formatOrderId(order.id, customerName)}
+          </div>
+        </div>
+        
+        <div class="no-print" style="margin-top: 20px; text-align: center;">
+          <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
+            🖨️ Print Label
+          </button>
+        </div>
+      </body>
+      </html>
+    `;
 
-      toast({
-        title: 'Payment Verified',
-        description: 'Order marked as paid successfully',
-      });
-
-      loadOrders();
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(labelHtml);
+      printWindow.document.close();
     }
   };
 
@@ -990,11 +1057,11 @@ export default function AdminOrders() {
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={() => handleMarkAsPaid(order.id)}
-                          className="bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => handlePrintLabel(order)}
+                          className="bg-purple-600 hover:bg-purple-700"
                         >
-                          <CreditCard className="h-4 w-4 mr-2" />
-                          Mark Paid
+                          <Printer className="h-4 w-4 mr-2" />
+                          Print Label
                         </Button>
                       )}
                       <DropdownMenu>

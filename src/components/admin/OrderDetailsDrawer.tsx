@@ -19,7 +19,8 @@ import {
   Mail,
   RefreshCcw,
   HelpCircle,
-  ChevronDown
+  ChevronDown,
+  CreditCard
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
@@ -50,7 +51,41 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
   const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
+  const [markingAsPaid, setMarkingAsPaid] = useState(false);
   const { toast } = useToast();
+
+  const handleMarkAsPaid = async () => {
+    if (!orderId) return;
+    
+    setMarkingAsPaid(true);
+    try {
+      const { error } = await supabase.functions.invoke('verify-maisha-payment', {
+        body: {
+          orderId,
+          manualOverride: true,
+          notes: 'Manual verification by admin - callback issue workaround'
+        }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: 'Payment Verified',
+        description: 'Order marked as paid successfully',
+      });
+
+      loadOrderDetails();
+      onUpdate();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setMarkingAsPaid(false);
+    }
+  };
 
   const handleSendAssistanceEmail = async (language: string) => {
     if (!orderId) return;
@@ -385,6 +420,22 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    )}
+
+                    {/* Mark as Paid button for unpaid orders */}
+                    {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && !order.payment_verified_at && (
+                      <Button
+                        onClick={handleMarkAsPaid}
+                        disabled={markingAsPaid}
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        {markingAsPaid ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <CreditCard className="h-4 w-4 mr-2" />
+                        )}
+                        Mark as Paid
+                      </Button>
                     )}
                     
                     <Textarea

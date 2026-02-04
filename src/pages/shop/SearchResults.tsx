@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
-import { SearchBar } from '@/components/shop/SearchBar';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { ProductGrid } from '@/components/shop/ProductGrid';
 import { Product } from '@/components/shop/ProductCard';
@@ -10,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { supabase } from '@/integrations/supabase/client';
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevance' },
@@ -39,18 +37,37 @@ export default function SearchResults() {
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
 
-      const { data, error } = await supabase.functions.invoke('catalog-search', {
-        body: {
-          query: query || category || 'popular',
-          page: pageNum,
-          limit: 24,
-          sort,
-          minPrice: priceRange[0] > 0 ? priceRange[0] : undefined,
-          maxPrice: priceRange[1] < 5000 ? priceRange[1] : undefined,
-        },
+      // Build query parameters for GET request
+      const searchQuery = query || category || 'popular';
+      const params = new URLSearchParams({
+        q: searchQuery,
+        limit: '24',
       });
+      
+      // Add optional parameters
+      if (sort && sort !== 'relevance') {
+        params.set('sort', sort);
+      }
+      
+      // Build filters object if price range is set
+      const filters: Record<string, number> = {};
+      if (priceRange[0] > 0) filters.minPrice = priceRange[0];
+      if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+      if (Object.keys(filters).length > 0) {
+        params.set('filters', JSON.stringify(filters));
+      }
 
-      if (error) throw error;
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
+        {
+          headers: {
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          },
+        }
+      );
+      
+      if (!response.ok) throw new Error('Search failed');
+      const data = await response.json();
 
       const mappedProducts: Product[] = (data?.items || []).map((item: any) => ({
         id: item.provider_product_id || item.id,
@@ -112,11 +129,9 @@ export default function SearchResults() {
     <div className="min-h-screen bg-black">
       <ShopHeader />
 
-      {/* Search Header */}
-      <div className="pt-24 pb-4 px-4 border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-16 z-40">
-        <div className="container mx-auto space-y-4">
-          <SearchBar defaultValue={query} onSearch={handleSearch} />
-          
+      {/* Category Tabs */}
+      <div className="pt-20 pb-4 px-4 border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-16 z-40">
+        <div className="container mx-auto">
           <CategoryTabs 
             activeCategory={category || 'all'} 
             onCategoryChange={(cat) => {

@@ -71,30 +71,8 @@ export default function ShopHome() {
     <div className="min-h-screen bg-black pb-20 md:pb-0">
       <ShopHeader />
       
-      {/* Hero Section - Simplified, no duplicate search bar */}
-      <section className="pt-24 pb-6 px-4">
-        <div className="container mx-auto max-w-4xl text-center">
-          <motion.h1 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3"
-          >
-            {shop.heroTitle}
-            <span className="block bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              {shop.heroSubtitle}
-            </span>
-          </motion.h1>
-          
-          <motion.p 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="text-base md:text-lg text-white/60"
-          >
-            {shop.heroDescription}
-          </motion.p>
-        </div>
-      </section>
+      {/* Spacer for fixed header */}
+      <div className="pt-20" />
 
       {/* Featured Carousel - Animated scrolling products with real data */}
       <motion.section

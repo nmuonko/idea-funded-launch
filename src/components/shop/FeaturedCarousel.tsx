@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2 } from 'lucide-react';
 
 interface FeaturedProduct {
   id: string;
@@ -114,104 +114,96 @@ export function FeaturedCarousel() {
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
-      {/* Gradient Overlays */}
-      <div className="absolute left-0 top-0 bottom-0 w-20 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
-      <div className="absolute right-0 top-0 bottom-0 w-20 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
-      
-      {/* Animated Container */}
-      <motion.div
-        className="flex gap-4 px-4"
-        animate={{
-          x: `-${currentIndex * 280}px`,
-        }}
-        transition={{
-          type: 'spring',
-          stiffness: 100,
-          damping: 20,
-        }}
-      >
-        {/* Duplicate items for infinite scroll effect */}
-        {[...products, ...products].map((product, index) => (
-          <Link
-            key={`${product.id}-${index}`}
-            to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
-            className="flex-shrink-0 group"
-          >
-            <motion.div
-              className={`relative w-64 h-36 rounded-2xl bg-gradient-to-r ${product.gradient} p-4 overflow-hidden cursor-pointer`}
-              whileHover={{ scale: 1.05, y: -4 }}
-              transition={{ type: 'spring', stiffness: 300 }}
+      <div className="container mx-auto">
+        {/* Gradient Overlays */}
+        <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
+        <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
+        
+        {/* Animated Container */}
+        <motion.div
+          className="flex gap-4 px-4"
+          animate={{
+            x: `-${currentIndex * 240}px`,
+          }}
+          transition={{
+            type: 'spring',
+            stiffness: 100,
+            damping: 20,
+          }}
+        >
+          {/* Duplicate items for infinite scroll effect */}
+          {[...products, ...products].map((product, index) => (
+            <Link
+              key={`${product.id}-${index}`}
+              to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
+              className="flex-shrink-0 group"
             >
-              {/* Shimmer Effect */}
-              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
-              </div>
-              
-              {/* Product Image */}
-              {product.imageUrl && (
-                <div className="absolute right-2 bottom-2 w-20 h-20">
-                  <img 
-                    src={product.imageUrl} 
-                    alt={product.title}
-                    className="w-full h-full object-contain drop-shadow-lg"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-              )}
-              
-              {/* Sparkle Icon */}
               <motion.div
-                className="absolute top-3 right-3"
-                animate={{ rotate: [0, 15, -15, 0] }}
-                transition={{ repeat: Infinity, duration: 2 }}
+                className={`relative w-56 h-44 rounded-2xl bg-gradient-to-br ${product.gradient} p-5 overflow-hidden cursor-pointer`}
+                whileHover={{ scale: 1.03, y: -2 }}
+                transition={{ type: 'spring', stiffness: 300 }}
               >
-                <Sparkles className="h-5 w-5 text-white/80" />
-              </motion.div>
-              
-              {/* Content */}
-              <div className="relative z-10 h-full flex flex-col justify-end pr-20">
-                <h3 className="text-base font-bold text-white drop-shadow-lg line-clamp-2">
-                  {product.title.length > 30 ? product.title.substring(0, 30) + '...' : product.title}
-                </h3>
-                {product.priceUsd > 0 && (
-                  <p className="text-sm font-semibold text-white/90 mt-1">
-                    ${product.priceUsd.toFixed(2)}
-                  </p>
+                {/* Shimmer Effect */}
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+                </div>
+                
+                {/* Large Product Image - Right side, vertically centered */}
+                {product.imageUrl && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 w-24 h-24">
+                    <img 
+                      src={product.imageUrl} 
+                      alt={product.title}
+                      className="w-full h-full object-contain drop-shadow-2xl"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
                 )}
                 
-                {/* Hover Arrow */}
+                {/* Sparkle Icon */}
                 <motion.div
-                  className="absolute bottom-4 right-20 opacity-0 group-hover:opacity-100"
-                  initial={{ x: -10 }}
-                  whileHover={{ x: 0 }}
+                  animate={{ rotate: [0, 15, -15, 0] }}
+                  transition={{ repeat: Infinity, duration: 2 }}
                 >
-                  <ArrowRight className="h-5 w-5 text-white" />
+                  <Sparkles className="h-5 w-5 text-white/80" />
                 </motion.div>
-              </div>
-              
-              {/* Decorative Circles */}
-              <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
-              <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-black/20 blur-xl" />
-            </motion.div>
-          </Link>
-        ))}
-      </motion.div>
-      
-      {/* Dots Indicator */}
-      <div className="flex justify-center gap-2 mt-4">
-        {products.map((_, index) => (
-          <button
-            key={index}
-            onClick={() => setCurrentIndex(index)}
-            className={`w-2 h-2 rounded-full transition-all ${
-              index === currentIndex % products.length
-                ? 'bg-blue-500 w-6'
-                : 'bg-white/30 hover:bg-white/50'
-            }`}
-          />
-        ))}
+                
+                {/* Content - Left side with text shadow */}
+                <div className="relative z-10 h-full flex flex-col justify-end pr-24">
+                  <h3 className="text-base font-bold text-white drop-shadow-lg line-clamp-2 leading-tight">
+                    {product.title.length > 25 ? product.title.substring(0, 25) + '...' : product.title}
+                  </h3>
+                  {product.priceUsd > 0 && (
+                    <p className="text-lg font-bold text-white mt-1 drop-shadow-lg">
+                      ${product.priceUsd.toFixed(2)}
+                    </p>
+                  )}
+                </div>
+                
+                {/* Decorative Circles */}
+                <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-white/10 blur-2xl" />
+                <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-black/20 blur-xl" />
+              </motion.div>
+            </Link>
+          ))}
+        </motion.div>
+        
+        {/* Dots Indicator */}
+        <div className="flex justify-center gap-2 mt-4">
+          {products.map((_, index) => (
+            <button
+              key={index}
+              onClick={() => setCurrentIndex(index)}
+              className={`w-2 h-2 rounded-full transition-all ${
+                index === currentIndex % products.length
+                  ? 'bg-blue-500 w-6'
+                  : 'bg-white/30 hover:bg-white/50'
+              }`}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

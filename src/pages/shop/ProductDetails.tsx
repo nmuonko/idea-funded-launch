@@ -48,9 +48,25 @@ export default function ProductDetailsPage() {
         setLoading(true);
         setError(null);
 
-        // Build the full product ID in format "provider:productId"
+        // Decode and normalize the product ID
         const productIdDecoded = decodeURIComponent(id);
-        const fullId = `${provider}:${productIdDecoded}`;
+        const lowerProvider = provider.toLowerCase();
+        const lowerProductId = productIdDecoded.toLowerCase();
+        
+        // Strip redundant provider prefix if ID starts with provider name
+        let cleanProductId = productIdDecoded;
+        if (lowerProvider === 'ebay' && lowerProductId.startsWith('ebay_')) {
+          cleanProductId = productIdDecoded.slice(5);
+        } else if (lowerProvider === 'ebay' && lowerProductId.startsWith('ebay:')) {
+          cleanProductId = productIdDecoded.slice(5);
+        } else if ((lowerProvider === 'rainforest' || lowerProvider === 'amazon') && lowerProductId.startsWith('amazon_')) {
+          cleanProductId = productIdDecoded.slice(7);
+        } else if (lowerProvider === 'rainforest' && lowerProductId.startsWith('rainforest_')) {
+          cleanProductId = productIdDecoded.slice(11);
+        }
+        
+        // Build the full product ID in format "provider:productId"
+        const fullId = `${provider}:${cleanProductId}`;
         
         // Use GET request with query params (catalog-product expects this)
         const response = await fetch(

@@ -1,169 +1,173 @@
 
-
-# Add "Need Help?" Email Button to Order Details
+# Add Language Selection for "Need Help?" Assistance Email
 
 ## Overview
-Add a one-click button to the admin Order Details page that sends a personalized bilingual email (French/English) asking customers if they need assistance completing their order. The email starts with the customer's name for a personalized touch.
+Enhance the "Need Help?" email button on the admin Order Details page to allow selection of the email language. The admin can choose from:
+- **English only**
+- **French only** 
+- **Swahili only**
+- **Lingala only**
+- **English + Swahili** (combined bilingual)
+
+Currently the email is hardcoded as French + English bilingual. This update will give admins control over which language(s) to use based on the customer's preference.
 
 ---
 
 ## Implementation Details
 
-### 1. Add Email Template to `supabase/functions/_shared/emailTemplates.ts`
+### 1. Update Email Template Function
+**File:** `supabase/functions/_shared/emailTemplates.ts`
 
-Create a new function `buildOrderAssistanceEmail()`:
+Modify `buildOrderAssistanceEmail()` to accept a `language` parameter and generate content based on the selection:
 
 ```typescript
+export type AssistanceEmailLanguage = 'en' | 'fr' | 'sw' | 'ln' | 'en_sw';
+
 export function buildOrderAssistanceEmail(params: {
   customerName: string;
   orderId: string;
   itemCount: number;
   totalUsd: number;
   frontendBaseUrl?: string;
-}): EmailTemplate {
-  const { customerName, orderId, itemCount, totalUsd, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
-  
-  return {
-    subject: `🛒 ${customerName}, avez-vous besoin d'aide? / Need help completing your order?`,
-    html: `
-      // Personalized bilingual email starting with customer's name
-      // French section: "Bonjour {customerName}," + assistance offer
-      // English section: "Hello {customerName}," + assistance offer
-      // WhatsApp + Email contact info
-      // "Complete Order" CTA button
-    `,
-  };
-}
+  language?: AssistanceEmailLanguage; // NEW parameter
+}): EmailTemplate
 ```
 
-Key features:
-- **Personalized subject line**: Starts with customer's name
-- **Personalized greeting**: "Bonjour {customerName}," / "Hello {customerName},"
-- **Friendly tone**: Mentions they noticed an incomplete order
-- **Contact options**: WhatsApp (+1-XXX-XXX-XXXX) and email
-- **CTA Button**: "Complete Your Order" linking to order tracking
+Add translations for all 4 languages:
+- **English**: Current English content
+- **French**: Current French content  
+- **Swahili**: New Swahili translation
+- **Lingala**: New Lingala translation
+- **English + Swahili**: Combined bilingual format
+
+Example subject lines per language:
+| Language | Subject |
+|----------|---------|
+| English | `🛒 {name}, need help completing your order?` |
+| French | `🛒 {name}, avez-vous besoin d'aide?` |
+| Swahili | `🛒 {name}, unahitaji msaada kukamilisha oda yako?` |
+| Lingala | `🛒 {name}, osengeli lisalisi pona kosilisa commande na yo?` |
+| EN + SW | `🛒 {name}, need help? / Unahitaji msaada?` |
 
 ---
 
-### 2. Create Edge Function `send-order-assistance-email`
-
+### 2. Update Edge Function
 **File:** `supabase/functions/send-order-assistance-email/index.ts`
 
-Request body:
-```typescript
-{ orderId: string }
-```
+Accept new `language` parameter in request body:
 
-Logic:
-1. Validate admin authentication (JWT + `user_roles` check)
-2. Fetch order details with profile (name, email)
-3. Validate order is in `DRAFT` or `PENDING_PAYMENT` status
-4. Build personalized email using `buildOrderAssistanceEmail()`
-5. Send via Resend using shared `sendEmail()` utility
-6. Log to `customer_email_logs` table
-7. Return success/failure response
+```typescript
+const { orderId, language = 'fr' } = await req.json();
+// Pass language to buildOrderAssistanceEmail
+const emailTemplate = buildOrderAssistanceEmail({
+  customerName,
+  orderId,
+  itemCount: itemCount || 0,
+  totalUsd: Number(order.total_usd || 0),
+  frontendBaseUrl,
+  language,
+});
+```
 
 ---
 
-### 3. Update `src/pages/admin/OrderDetail.tsx`
+### 3. Update Admin Order Details UI
+**File:** `src/pages/admin/OrderDetail.tsx`
 
-Add new state and handler:
+Replace the single "Need Help?" button with a dropdown button that allows language selection:
 
+**New state:**
 ```typescript
-const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
+const [assistanceLanguage, setAssistanceLanguage] = useState<string>('fr');
+const [assistanceMenuOpen, setAssistanceMenuOpen] = useState(false);
+```
 
-const handleSendAssistanceEmail = async () => {
+**UI changes:**
+- Replace the current `<Button>` with a `DropdownMenu` component
+- Show language options with flags/labels:
+  - 🇬🇧 English
+  - 🇫🇷 French  
+  - 🇹🇿 Swahili (Kiswahili)
+  - 🇨🇩 Lingala
+  - 🇬🇧+🇹🇿 English + Swahili
+
+**Updated handler:**
+```typescript
+const handleSendAssistanceEmail = async (language: string) => {
   setSendingAssistanceEmail(true);
-  const { error } = await supabase.functions.invoke('send-order-assistance-email', {
-    body: { orderId: id }
+  const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
+    body: { orderId: id, language },
   });
-  // Toast success/error
-  setSendingAssistanceEmail(false);
+  // ... rest of handler
 };
 ```
 
-Add button in the "Quick Actions" section (around line 466-468):
-
-```tsx
-{/* Show for incomplete orders with customer email */}
-{(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
-  <Button
-    onClick={handleSendAssistanceEmail}
-    disabled={sendingAssistanceEmail}
-    size="sm"
-    variant="outline"
-    className="border-blue-500 text-blue-600 hover:bg-blue-50"
-  >
-    {sendingAssistanceEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <HelpCircle className="h-4 w-4 mr-2" />}
-    Need Help?
-  </Button>
-)}
-```
-
 ---
 
-### 4. Update `supabase/config.toml`
-
-Add JWT verification config:
-```toml
-[functions.send-order-assistance-email]
-verify_jwt = false
-```
-
----
-
-## Files to Create/Modify
+## Files to Modify
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/functions/_shared/emailTemplates.ts` | Modify | Add `buildOrderAssistanceEmail()` template |
-| `supabase/functions/send-order-assistance-email/index.ts` | Create | New edge function |
-| `src/pages/admin/OrderDetail.tsx` | Modify | Add button + handler + import `HelpCircle` |
+| `supabase/functions/_shared/emailTemplates.ts` | Modify | Add language parameter + translations for SW/LN |
+| `supabase/functions/send-order-assistance-email/index.ts` | Modify | Accept language in request body |
+| `src/pages/admin/OrderDetail.tsx` | Modify | Replace button with dropdown menu |
 
 ---
 
-## Email Content Preview
+## Email Content Translations
 
-**Subject:** 
-`🛒 Jean, avez-vous besoin d'aide? / Need help completing your order?`
+### Swahili (sw)
+> **Habari {jina},**
+>
+> Tumeona ulianza oda kwenye AfriShop lakini bado hujakamilisha. Je, umekumbana na matatizo yoyote au una maswali?
+>
+> Timu yetu iko hapa kukusaidia!
+>
+> **Wasiliana nasi:**
+> 📱 WhatsApp: +1 (424) 217-4633
+> 📧 Barua pepe: nkadimisha@afrishop-usa.com
+>
+> [Kamilisha Oda Yangu]
 
-**Body (personalized, bilingual):**
-
-> **Bonjour Jean,**
+### Lingala (ln)
+> **Mbote {nkombo},**
 >
-> Nous avons remarqué que vous avez commencé une commande sur AfriShop mais ne l'avez pas encore finalisée. Avez-vous rencontré des difficultés ou avez-vous des questions?
+> Tomonaki obandaki commande na AfriShop kasi osilisaki yango te. Ozali na mikakatano to mituna?
 >
-> Notre équipe est là pour vous aider ! N'hésitez pas à nous contacter:
-> - 📱 WhatsApp: +1-XXX-XXX-XXXX
-> - 📧 Email: nkadimisha@afrishop-usa.com
+> Équipe na biso ezali awa pona kosalisa yo!
 >
-> [Finaliser Ma Commande] ← CTA button
+> **Benga biso:**
+> 📱 WhatsApp: +1 (424) 217-4633
+> 📧 Email: nkadimisha@afrishop-usa.com
 >
-> ---
->
-> **Hello Jean,**
->
-> We noticed you started an order on AfriShop but haven't completed it yet. Did you run into any issues or have questions?
->
-> Our team is here to help! Feel free to reach out:
-> - 📱 WhatsApp: +1-XXX-XXX-XXXX
-> - 📧 Email: nkadimisha@afrishop-usa.com
->
-> [Complete My Order] ← CTA button
+> [Kosilisa Commande Na Ngai]
 
 ---
 
-## Button Visibility Rules
+## UI Preview
 
-The "Need Help?" button will only appear when:
-1. Order status is `DRAFT` or `PENDING_PAYMENT`
-2. Customer has an email address on their profile
+The "Need Help?" button becomes a dropdown:
+
+```text
+┌──────────────────────────────┐
+│ ❓ Need Help? ▼              │
+├──────────────────────────────┤
+│ 🇬🇧 Send in English          │
+│ 🇫🇷 Send in French           │
+│ 🇹🇿 Send in Swahili          │
+│ 🇨🇩 Send in Lingala          │
+│ ─────────────────────────    │
+│ 🇬🇧+🇹🇿 English + Swahili     │
+└──────────────────────────────┘
+```
+
+Selecting an option immediately sends the email in that language.
 
 ---
 
-## Security
+## Technical Notes
 
-- Admin-only access enforced via JWT validation
-- Checks `user_roles` table for `admin` role
-- All emails logged to `customer_email_logs` for audit trail
-
+- Default language is French (`fr`) if not specified (matches primary DRC audience)
+- The edge function will validate the language parameter against allowed values
+- All sent emails continue to be logged to `customer_email_logs` with the full HTML content
+- No database schema changes required

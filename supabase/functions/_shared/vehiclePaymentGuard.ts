@@ -8,7 +8,8 @@
 // Vehicle store identifiers
 const VEHICLE_STORES = ['CARVANA', 'CARGURUS', 'TESLA_USED', 'EDMUNDS'];
 
-// Vehicle keywords in title/URL
+// Vehicle keywords in title/URL - MUST be whole words to avoid false positives
+// e.g., "car" should NOT match "cards", "carry", "cartoon"
 const VEHICLE_KEYWORDS = [
   'car', 'voiture', 'vehicle', 'véhicule', 'auto', 'automobile',
   'toyota', 'honda', 'nissan', 'ford', 'chevrolet', 'bmw', 'mercedes',
@@ -20,7 +21,13 @@ const VEHICLE_KEYWORDS = [
 const VEHICLE_EXCLUSIONS = [
   'car charger', 'car mount', 'car phone', 'car holder', 'car seat cover',
   'car freshener', 'car mat', 'car accessories', 'car cleaning', 'car wash',
-  'car vacuum', 'car organizer', 'toy car', 'remote car', 'rc car'
+  'car vacuum', 'car organizer', 'toy car', 'remote car', 'rc car',
+  'cards', 'sim card', 'memory card', 'gift card', 'sd card', 'micro sd',
+  'cardboard', 'cardinal', 'cardiac', 'carousel', 'carton', 'cartoon',
+  'carry', 'carrier', 'carriage', 'cart', 'carpet', 'cargo', 'carbon',
+  'caramel', 'carrot', 'care', 'career', 'careful', 'carefree',
+  'vanity', 'canvas', 'vanguard', 'vanilla', 'advantage', 'advance',
+  'autofocus', 'automatic', 'automation', 'autoplay', 'autocorrect'
 ];
 
 // FX rates for currency conversion (manually maintained)
@@ -208,23 +215,28 @@ function round2(value: number): number {
 }
 
 /**
- * Check if a string contains any vehicle keywords (excluding false positives)
+ * Check if a string contains any vehicle keywords as WHOLE WORDS (excluding false positives)
+ * Uses word boundary matching to avoid false positives like "cards" matching "car"
  */
 function containsVehicleKeyword(text: string | null | undefined): boolean {
   if (!text) return false;
   
   const lowerText = text.toLowerCase();
   
-  // First check exclusions - if text contains an exclusion phrase, it's NOT a vehicle
+  // First check exclusions - if text contains an exclusion phrase/word, it's NOT a vehicle
   for (const exclusion of VEHICLE_EXCLUSIONS) {
-    if (lowerText.includes(exclusion)) {
+    if (lowerText.includes(exclusion.toLowerCase())) {
       return false;
     }
   }
   
-  // Then check for vehicle keywords
+  // Then check for vehicle keywords as WHOLE WORDS using word boundary regex
+  // This prevents "car" from matching "cards", "carry", "cartoon", etc.
   for (const keyword of VEHICLE_KEYWORDS) {
-    if (lowerText.includes(keyword)) {
+    // Create regex with word boundaries: \b matches word boundary
+    // This ensures "car" only matches standalone "car", not "cards"
+    const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+    if (regex.test(lowerText)) {
       return true;
     }
   }

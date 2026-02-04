@@ -101,11 +101,13 @@ export default function Account() {
                 <p className="text-white/60 mb-4">
                   {shop?.signInDescription || 'Sign in to access your account'}
                 </p>
-                <Link to="/auth">
-                  <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
-                    {shop?.signIn || 'Sign In'}
-                  </Button>
-                </Link>
+                <div className="flex gap-3 justify-center">
+                  <Link to="/shop/auth">
+                    <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
+                      {shop?.signIn || 'Sign In'}
+                    </Button>
+                  </Link>
+                </div>
               </div>
             )}
           </motion.section>

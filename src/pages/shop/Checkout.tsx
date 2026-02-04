@@ -213,7 +213,7 @@ export default function Checkout() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-white/60 mb-4">Please sign in to checkout</p>
-          <Link to="/auth?redirect=/shop/checkout">
+          <Link to="/shop/auth?redirect=/shop/checkout">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
               Sign In
             </Button>

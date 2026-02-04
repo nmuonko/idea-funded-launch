@@ -1,246 +1,397 @@
 
+# Enhanced Web Shop Implementation - Mobile App Parity
 
-# Align Web Shop with Mobile App Architecture
-
-Based on your comprehensive mobile app architecture documentation, I'll analyze what exists in the current web shop and what needs to be enhanced or added to achieve parity.
+This plan aligns the web shop with the comprehensive mobile app architecture documentation you provided, addressing authentication flows, UX patterns, and missing features.
 
 ---
 
-## Current Status vs. Mobile App
+## Current State Summary
 
-| Feature | Mobile App | Web Shop Status |
-|---------|-----------|-----------------|
-| **5-Tab Bottom Navigation** | Browse, Cart, Saved, Orders, Account | ❌ Missing - no persistent navigation |
-| **Horizontal Product Sections** | Yes, with horizontal scroll | ⚠️ Grid layout, not horizontal scroll |
-| **Skeleton Loaders with Shimmer** | Full component skeletons | ⚠️ Basic skeleton, no shimmer |
-| **Drawer Menu** | Hamburger opens category sidebar | ✅ Implemented |
-| **Filter Sheet (Bottom Modal)** | Price slider, condition, sort | ⚠️ Side sheet, not bottom modal |
-| **Product Detail** | Swipeable gallery, dual currency | ✅ Implemented |
-| **Cart Screen** | Full breakdown, quantity controls | ✅ Implemented |
-| **Account Screen** | Profile, language, settings | ❌ Missing - redirects to /profile |
-| **i18n (4 languages)** | FR, EN, SW, LN with instant switch | ✅ Implemented |
-| **Multi-Currency Display** | USD + CDF on all prices | ⚠️ Only in PriceBreakdown |
-| **Guest Cart** | localStorage persistence | ✅ Implemented |
-| **Cache-first Loading** | Show cached, refresh background | ❌ Not implemented |
-| **Pull-to-Refresh** | Manual refresh on lists | ❌ Not applicable to web |
-| **Quick Add Button on Cards** | [+] button on product cards | ✅ Implemented |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| 5-Tab Bottom Navigation | ✅ Done | Browse, Cart, Saved, Orders, Account |
+| Horizontal Product Rows | ✅ Done | With scroll arrows and fade overlays |
+| Multi-Currency (USD + CDF) | ✅ Done | Exchange rate from config |
+| Saved Items/Wishlist | ✅ Done | localStorage persistence |
+| i18n (4 Languages) | ✅ Done | EN, FR, SW, LN |
+| Guest Cart | ✅ Done | localStorage + merge on login |
+| Checkout Flow | ✅ Partial | Missing mobile money selection UI |
+| **Shop-Specific Auth** | ❌ Missing | Uses admin auth page |
+| **Onboarding Screens** | ❌ Missing | No first-launch tutorial |
+| **Recently Viewed** | ❌ Missing | No tracking |
+| **Order Tracking UI** | ❌ Missing | No status timeline |
+| **Footer (Web)** | ❌ Missing | No site footer |
+| **Compare Products** | ❌ Missing | Not implemented |
 
 ---
 
 ## Implementation Plan
 
-### 1. Add 5-Tab Bottom Navigation Bar
+### Phase 1: Shop-Specific Authentication
 
-**Files to create/modify:**
-- Create `src/components/shop/BottomNavigation.tsx`
-- Update all shop pages to include the navigation
+**1.1 Create Welcome/Auth Screen for Shop**
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│     🏠        🛒        💾        📦        👤              │
-│   Browse     Cart     Saved    Orders   Account            │
-└──────────────────────────────────────────────────────────────┘
-```
+Create a new shop-themed authentication page that matches the dark Tesla-inspired design.
 
-This will be a fixed bottom bar on mobile (hidden on desktop), matching the mobile app's 5-tab pattern.
-
----
-
-### 2. Convert Product Sections to Horizontal Scroll
-
-**File to modify:** `src/pages/shop/ShopHome.tsx`, `src/components/shop/ProductGrid.tsx`
-
-Current: Products display in a responsive grid
-Target: Horizontal scrolling sections like the mobile app
+**File:** `src/pages/shop/ShopAuth.tsx`
 
 ```text
-Before:
-┌───┐ ┌───┐ ┌───┐ ┌───┐
-│   │ │   │ │   │ │   │  (grid, wraps)
-└───┘ └───┘ └───┘ └───┘
-
-After:
-┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐ →
-│   │ │   │ │   │ │   │ │   │  (horizontal scroll)
-└───┘ └───┘ └───┘ └───┘ └───┘
+Layout:
+┌────────────────────────────────────────┐
+│                                        │
+│        [AfriShop Logo]                 │
+│                                        │
+│     Welcome to AfriShop                │
+│   Shop USA, Deliver to DRC             │
+│                                        │
+│   ┌────────────────────────────┐       │
+│   │    Create Account          │       │  ← Primary button
+│   └────────────────────────────┘       │
+│                                        │
+│   ┌────────────────────────────┐       │
+│   │       Sign In              │       │  ← Secondary outline
+│   └────────────────────────────┘       │
+│                                        │
+│      Continue as Guest →               │  ← Text link to /shop
+│                                        │
+│   ─────────────────────────────       │
+│   [🌐 English ▼] Language selector     │
+│                                        │
+└────────────────────────────────────────┘
 ```
 
-Create a new `HorizontalProductRow` component for home sections while keeping `ProductGrid` for search results.
+Key features:
+- Dark theme matching shop design
+- Language selector at bottom
+- "Continue as Guest" link
+- Toggle between Sign In / Create Account modes
+- Password visibility toggle
+- Phone number field with country code selector
+- Terms & Privacy checkbox for registration
+- Email verification flow integration
+- "Forgot Password" flow
+
+**1.2 Create Registration Form**
+
+Validation rules:
+- Full name: Required, min 2 characters
+- Email: Valid format, unique
+- Phone: Valid DRC format (+243...)
+- Password: Min 8 characters
+- Confirm password: Must match
+
+**1.3 Email Verification Screen**
+
+After registration, show verification pending screen with:
+- Email sent confirmation
+- Resend verification button
+- Check spam instructions
+- Back to login link
 
 ---
 
-### 3. Add Saved Items (Wishlist) Feature
+### Phase 2: Onboarding Flow (First Launch)
 
-**Files to create:**
-- `src/pages/shop/SavedItems.tsx` - Saved for later page
-- Update `src/contexts/ShopCartContext.tsx` - Add savedItems state
+**File:** `src/pages/shop/Onboarding.tsx`
 
-The mobile app has a "Saved" tab. We need to add:
-- Save/unsave buttons on product cards and detail pages
-- A dedicated saved items page
-- localStorage persistence for guests
+Create a 3-step swipeable onboarding screen for first-time visitors:
+
+```text
+Screen 1: "Shop Top US Stores"
+- Illustration of Amazon/eBay logos
+- "Browse thousands of products from top US retailers"
+
+Screen 2: "Easy Checkout"
+- Illustration of cart/payment
+- "Multiple payment options including Mobile Money"
+
+Screen 3: "Fast Delivery to DRC"
+- Illustration of shipping
+- "We handle everything - shipping right to your door"
+```
+
+Features:
+- Dot indicators (● ○ ○)
+- Skip button on all screens
+- Next button transitions
+- "Start Shopping" on final screen
+- Save completion to localStorage: `afrishop_onboarding_complete`
+- Check this flag in ShopHome and redirect if not completed
 
 ---
 
-### 4. Add Orders Page for Shop
+### Phase 3: Recently Viewed Products
 
-**Files to create:**
-- `src/pages/shop/MyOrders.tsx` - Order history (shop-themed)
-- This mirrors the existing `/orders` page but with shop styling
+**3.1 Update ShopCartContext**
 
----
+Add recently viewed tracking:
 
-### 5. Add Account Screen for Shop
+```typescript
+// Add to ShopCartContext
+recentlyViewed: Product[];
+addRecentlyViewed: (product: Product) => void;
+clearRecentlyViewed: () => void;
+```
 
-**Files to create:**
-- `src/pages/shop/Account.tsx` - Profile, settings, support
+Storage key: `afrishop_recently_viewed`
+Max items: 20
+Deduplication: Remove existing before adding to front
 
-Layout matching mobile:
+**3.2 Add Recently Viewed Section to ShopHome**
+
+Display as horizontal scroll row between Featured Carousel and product sections:
+
 ```text
 ┌────────────────────────────────────────┐
-│ Account                                │
+│ Recently Viewed            Clear All → │
 ├────────────────────────────────────────┤
-│ 👤 John Doe                           │
-│    john@example.com                    │
-│    [Edit Profile]                      │
+│ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐    │
+│ │    │ │    │ │    │ │    │ │    │    │
+│ │$299│ │$499│ │$199│ │$399│ │$599│    │
+│ └────┘ └────┘ └────┘ └────┘ └────┘    │
+└────────────────────────────────────────┘
+```
+
+**3.3 Track Views in ProductDetails**
+
+Add to ProductDetails.tsx useEffect:
+- Extract product data when loaded
+- Call `addRecentlyViewed()` with product info
+
+---
+
+### Phase 4: Enhanced Order History & Tracking
+
+**4.1 Update MyOrders.tsx**
+
+Add order status timeline visualization:
+
+```text
+┌────────────────────────────────────────┐
+│ Order #AF-2024-001234                  │
 ├────────────────────────────────────────┤
-│ 🌐 Language              English ▼    │
-│ 🔔 Notifications             [ON]      │
+│ Status: Processing                     │
+│ ━━━━━●━━━━━━━━━━━━━━━━━━              │
+│ Paid → Processing → Shipped → Delivered│
 ├────────────────────────────────────────┤
-│ 💬 WhatsApp Support                    │
-│ 📧 Email Support                       │
+│ Items (tap to expand)                  │
+│ ┌──────────────────────────┐           │
+│ │ [img] iPhone 16 Pro  x1  │           │
+│ │       $764.97            │           │
+│ └──────────────────────────┘           │
 ├────────────────────────────────────────┤
-│ [Logout]                               │
+│ Shipping Address                       │
+│ John Doe                               │
+│ 123 Peace Avenue, Kinshasa             │
+├────────────────────────────────────────┤
+│ [Contact Support]                      │
+└────────────────────────────────────────┘
+```
+
+**4.2 Add Order Status Colors**
+
+| Status | Color | Icon |
+|--------|-------|------|
+| pending | Gray | Clock |
+| paid | Green | CheckCircle |
+| processing | Blue | Package |
+| shipped | Orange | Truck |
+| delivered | Green | CheckCircle2 |
+| cancelled | Red | XCircle |
+
+---
+
+### Phase 5: Mobile Money Selection UI
+
+**File:** `src/components/shop/MobileMoneySelector.tsx`
+
+Update Checkout.tsx payment method section:
+
+```text
+┌────────────────────────────────────────┐
+│ Select Mobile Money Provider           │
+├────────────────────────────────────────┤
+│ ┌──────────────────────────────────┐   │
+│ │ 🟠 Orange Money              ○   │   │
+│ └──────────────────────────────────┘   │
+│ ┌──────────────────────────────────┐   │
+│ │ 🔴 Airtel Money              ○   │   │
+│ └──────────────────────────────────┘   │
+│ ┌──────────────────────────────────┐   │
+│ │ 🔵 M-Pesa                    ○   │   │
+│ └──────────────────────────────────┘   │
+│ ┌──────────────────────────────────┐   │
+│ │ 🟢 Vodacom M-Pesa            ○   │   │
+│ └──────────────────────────────────┘   │
+│                                        │
+│ You'll receive a push notification     │
+│ to confirm on your phone.              │
 └────────────────────────────────────────┘
 ```
 
 ---
 
-### 6. Add Multi-Currency to Product Cards
+### Phase 6: Web Footer
 
-**File to modify:** `src/components/shop/ProductCard.tsx`
+**File:** `src/components/shop/ShopFooter.tsx`
 
-Current: Shows only USD price
-Target: Show both USD and CDF
-
-```typescript
-// Before
-<span className="text-lg font-bold text-white">
-  ${product.priceUsd.toFixed(2)}
-</span>
-
-// After
-<div>
-  <span className="text-lg font-bold text-white">
-    ${product.priceUsd.toFixed(2)}
-  </span>
-  <span className="text-xs text-white/50 block">
-    ≈ CDF {(product.priceUsd * exchangeRate).toLocaleString()}
-  </span>
-</div>
+```text
+┌────────────────────────────────────────────────────────────────┐
+│ AfriShop                                                       │
+│ Shop USA, Deliver to Africa                                    │
+├────────────────────────────────────────────────────────────────┤
+│ Shop          Support         Legal           Follow Us        │
+│ Categories    Help Center     Terms           Facebook         │
+│ New Arrivals  Contact Us      Privacy         Instagram        │
+│ Deals         FAQs            Refund Policy   Twitter          │
+├────────────────────────────────────────────────────────────────┤
+│ © 2026 AfriShop. All rights reserved.    [🌐 English ▼]       │
+└────────────────────────────────────────────────────────────────┘
 ```
 
-This requires fetching the exchange rate from `/mobile-public-config`.
+Features:
+- Responsive grid layout
+- Language selector
+- Social media links
+- Legal page links
+- Support contact info
 
 ---
 
-### 7. Enhanced Skeleton Loaders with Shimmer
+### Phase 7: Auth i18n Translations
 
-**Files to modify:**
-- `src/components/shop/ProductCard.tsx` - Add skeleton variant
-- `src/components/shop/ProductGrid.tsx` - Use product card skeletons
-
-Match the mobile app's shimmer animation (left-to-right gradient sweep).
-
----
-
-### 8. Add Horizontal Product Row Component
-
-**File to create:** `src/components/shop/HorizontalProductRow.tsx`
+Add to `translations.ts` for all 4 languages:
 
 ```typescript
-export function HorizontalProductRow({ products, loading }: Props) {
-  return (
-    <div className="relative">
-      {/* Fade overlays */}
-      <div className="absolute left-0 w-8 h-full bg-gradient-to-r from-black to-transparent z-10" />
-      <div className="absolute right-0 w-8 h-full bg-gradient-to-l from-black to-transparent z-10" />
-      
-      {/* Scrollable container */}
-      <div className="flex gap-4 overflow-x-auto scrollbar-hide px-4 py-2 -mx-4">
-        {products.map(product => (
-          <ProductCard key={product.id} product={product} className="w-40 flex-shrink-0" />
-        ))}
-      </div>
-    </div>
-  );
+auth: {
+  welcome: "Welcome to AfriShop",
+  tagline: "Shop USA, Deliver to DRC",
+  createAccount: "Create Account",
+  signIn: "Sign In",
+  continueAsGuest: "Continue as Guest",
+  email: "Email",
+  password: "Password",
+  confirmPassword: "Confirm Password",
+  fullName: "Full Name",
+  phone: "Phone Number",
+  forgotPassword: "Forgot Password?",
+  resetPassword: "Reset Password",
+  sendResetLink: "Send Reset Link",
+  noAccount: "Don't have an account?",
+  hasAccount: "Already have an account?",
+  termsAgree: "I agree to the Terms of Service and Privacy Policy",
+  verifyEmail: "Verify Your Email",
+  verifyEmailSent: "We sent a verification link to your email",
+  resendVerification: "Resend Verification",
+  checkSpam: "Check your spam folder if you don't see it",
+  passwordTooShort: "Password must be at least 8 characters",
+  passwordMismatch: "Passwords do not match",
+  invalidEmail: "Please enter a valid email address",
+  invalidCredentials: "Invalid email or password",
 }
 ```
 
 ---
 
-## Files to Create/Modify
+### Phase 8: Keyboard Shortcuts (Web)
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `src/components/shop/BottomNavigation.tsx` | Create | 5-tab mobile nav bar |
-| `src/components/shop/HorizontalProductRow.tsx` | Create | Horizontal scrolling product sections |
-| `src/pages/shop/SavedItems.tsx` | Create | Wishlist/saved items page |
-| `src/pages/shop/MyOrders.tsx` | Create | Shop-themed order history |
-| `src/pages/shop/Account.tsx` | Create | Profile, settings, support page |
-| `src/pages/shop/ShopHome.tsx` | Modify | Use horizontal rows for sections |
-| `src/components/shop/ProductCard.tsx` | Modify | Add dual currency, wishlist button, skeleton |
-| `src/contexts/ShopCartContext.tsx` | Modify | Add savedItems state |
-| `src/App.tsx` | Modify | Add new routes |
-| `src/lib/i18n/translations.ts` | Modify | Add missing translation keys |
+Add keyboard navigation to ShopHome:
+
+| Shortcut | Action |
+|----------|--------|
+| `/` or `Cmd+K` | Focus search bar |
+| `Esc` | Close modals/drawers |
+| `Enter` | Submit forms |
+| `←` / `→` | Navigate image gallery |
+
+Implementation in `src/hooks/useKeyboardShortcuts.ts`
+
+---
+
+### Phase 9: Mini Cart Preview (Desktop Hover)
+
+**File:** `src/components/shop/MiniCartPreview.tsx`
+
+On desktop, hovering over the cart icon shows a dropdown preview:
+
+```text
+┌────────────────────────────────┐
+│ Your Cart (3 items)            │
+├────────────────────────────────┤
+│ [img] iPhone 16...   $764.97   │
+│ [img] AirPods...     $249.00   │
+│ [img] Case...         $29.99   │
+├────────────────────────────────┤
+│ Subtotal:          $1,043.96   │
+│ [View Cart]  [Checkout]        │
+└────────────────────────────────┘
+```
+
+Integrate with ShopHeader cart button using Radix HoverCard.
+
+---
+
+## Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/pages/shop/ShopAuth.tsx` | Shop-themed authentication page |
+| `src/pages/shop/Onboarding.tsx` | First-launch tutorial screens |
+| `src/components/shop/ShopFooter.tsx` | Site footer for web |
+| `src/components/shop/MobileMoneySelector.tsx` | Payment provider selection |
+| `src/components/shop/MiniCartPreview.tsx` | Desktop cart hover preview |
+| `src/components/shop/OrderStatusTimeline.tsx` | Visual order progress |
+| `src/hooks/useKeyboardShortcuts.ts` | Keyboard navigation |
+| `src/hooks/useRecentlyViewed.ts` | Recently viewed products |
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/contexts/ShopCartContext.tsx` | Add recentlyViewed state |
+| `src/pages/shop/ShopHome.tsx` | Add Recently Viewed section, onboarding redirect |
+| `src/pages/shop/ProductDetails.tsx` | Track recently viewed |
+| `src/pages/shop/MyOrders.tsx` | Add status timeline, order detail view |
+| `src/pages/shop/Checkout.tsx` | Integrate MobileMoneySelector |
+| `src/components/shop/ShopHeader.tsx` | Add MiniCartPreview on desktop |
+| `src/lib/i18n/translations.ts` | Add auth translations |
+| `src/App.tsx` | Add new routes for ShopAuth, Onboarding |
+
+---
+
+## Route Changes
+
+```typescript
+// Add to App.tsx
+<Route path="/shop/auth" element={<ShopAuth />} />
+<Route path="/shop/onboarding" element={<Onboarding />} />
+<Route path="/shop/orders/:orderId" element={<ShopOrderDetail />} />
+```
 
 ---
 
 ## Priority Order
 
-1. **Bottom Navigation** - Core mobile app navigation pattern
-2. **Horizontal Product Rows** - Key visual alignment with mobile
-3. **Multi-Currency Display** - Important for African market
-4. **Saved Items Feature** - Required for 5-tab navigation
-5. **Account Screen** - Complete the 5-tab experience
-6. **My Orders (Shop)** - Shop-themed order history
-7. **Enhanced Skeletons** - Polish and loading states
-
----
-
-## Design Tokens to Apply
-
-Based on the mobile documentation:
-
-```typescript
-const shopTheme = {
-  colors: {
-    primary: "#2563EB",       // AfriShop Blue
-    accent: "#F59E0B",        // Yellow
-    backgroundRoot: "#0A0A0A", // Pure black
-    backgroundCard: "#141414", // Cards
-    border: "#3F3F46",
-    skeleton: "rgba(255, 255, 255, 0.08)",
-  },
-  spacing: {
-    xs: 4, sm: 8, md: 12, lg: 16, xl: 20, "2xl": 24
-  },
-  borderRadius: {
-    sm: 12, md: 18, lg: 24
-  }
-};
-```
+1. **Shop Authentication** (Phase 1) - Critical for user onboarding
+2. **Auth i18n** (Phase 7) - Required for Phase 1
+3. **Order Status Timeline** (Phase 4) - Important UX improvement
+4. **Recently Viewed** (Phase 3) - Common e-commerce feature
+5. **Mobile Money UI** (Phase 5) - Payment UX improvement
+6. **Onboarding** (Phase 2) - Nice-to-have for first-time users
+7. **Footer** (Phase 6) - Web-specific enhancement
+8. **Mini Cart** (Phase 9) - Desktop UX polish
+9. **Keyboard Shortcuts** (Phase 8) - Power user feature
 
 ---
 
 ## Expected Outcome
 
 After implementation:
-1. Web shop matches mobile app's 5-tab navigation structure
-2. Home page uses horizontal scrolling sections like mobile
-3. All prices show in dual currency (USD + CDF)
-4. Users can save items for later (wishlist)
-5. Complete account management within shop context
-6. Smooth skeleton loaders with shimmer animations
-7. Full i18n support across all new components
-
+1. Shop has its own branded authentication flow separate from admin
+2. First-time users see an onboarding tutorial
+3. Users can track their recently viewed products
+4. Orders display visual status timelines
+5. Mobile money provider selection is clearer
+6. Desktop users get cart preview on hover
+7. All new UI elements support 4 languages
+8. Web footer provides site navigation and legal links

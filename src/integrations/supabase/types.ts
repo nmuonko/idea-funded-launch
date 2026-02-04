@@ -1979,6 +1979,30 @@ export type Database = {
         }
         Relationships: []
       }
+      invitation_attempts: {
+        Row: {
+          attempted_at: string | null
+          id: string
+          ip_address: string
+          success: boolean | null
+          token_hash: string
+        }
+        Insert: {
+          attempted_at?: string | null
+          id?: string
+          ip_address: string
+          success?: boolean | null
+          token_hash: string
+        }
+        Update: {
+          attempted_at?: string | null
+          id?: string
+          ip_address?: string
+          success?: boolean | null
+          token_hash?: string
+        }
+        Relationships: []
+      }
       knowledge_base_articles: {
         Row: {
           category: string
@@ -4312,6 +4336,7 @@ export type Database = {
         Args: { p_days_to_keep?: number }
         Returns: Json
       }
+      cleanup_invitation_attempts: { Args: never; Returns: Json }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string

@@ -1,302 +1,346 @@
 
 
-# Move "Mark Paid" to Order Details & Add Print Label Button
+# Build Web Catalog Frontend (Bypass App Store)
 
-## Summary
-Replace the "Mark Paid" button in the Orders table with a "Print Label" button that generates a printable PDF shipping label. Move the "Mark Paid" functionality to inside the Order Details drawer.
+## Strategy
 
----
+Instead of fighting Apple's review process, we'll create a **full web shopping experience** that mirrors the mobile app. This gives users access to the product catalog directly via browser at `afrishop-usa.com/shop`, completely bypassing App Store restrictions.
 
-## Changes Overview
-
-### 1. Orders Table (src/pages/admin/Orders.tsx)
-
-**Current state:**
-- "Details" button + "Mark Paid" button (for DRAFT/PENDING_PAYMENT orders)
-
-**New state:**
-- "Details" button + "Print Label" button (same conditions)
-
-The "Print Label" button will generate a PDF-style printable label containing:
-- Customer's full name
-- Home address (from profiles: address_line1, address_line2, city, state_province, postal_code, country)
-- Items purchased with quantities
-
-### 2. Order Details Drawer (src/components/admin/OrderDetailsDrawer.tsx)
-
-**Add "Mark as Paid" button** in the Admin Actions section, visible only for DRAFT or PENDING_PAYMENT orders that haven't been paid yet.
-
-### 3. Fetch Additional Address Fields
-
-Update the Orders query to include address fields from profiles:
-- address_line1, address_line2, city, state_province, postal_code, country, address
+**Benefits:**
+- No App Store approval needed
+- Immediate deployment
+- Works on any device with a browser
+- Can be installed as a PWA (Progressive Web App)
+- Full control over content and features
 
 ---
 
-## Technical Details
+## Architecture Overview
 
-### File: src/pages/admin/Orders.tsx
-
-**Query Update (lines ~111):**
-Add address fields to the profiles select:
-```typescript
-profiles(user_id, name, full_name, email, phone, address_line1, address_line2, city, state_province, postal_code, country, address)
-```
-
-**New Function - handlePrintLabel:**
-```typescript
-const handlePrintLabel = (order: any) => {
-  const profile = order.profiles;
-  const customerName = profile?.name || profile?.full_name || 'Customer';
-  
-  // Build address from available fields
-  const addressParts = [
-    profile?.address_line1,
-    profile?.address_line2,
-    profile?.city,
-    profile?.state_province,
-    profile?.postal_code,
-    profile?.country
-  ].filter(Boolean);
-  
-  const address = addressParts.length > 0 
-    ? addressParts.join(', ') 
-    : (profile?.address || order.shipping_city || 'N/A');
-
-  const items = order.order_items || [];
-  
-  // Generate printable HTML label
-  const labelHtml = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Shipping Label - ${formatOrderId(order.id, customerName)}</title>
-      <style>
-        @page { size: 4in 6in; margin: 0.25in; }
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        .label-container { border: 2px solid #000; padding: 20px; }
-        .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 15px; }
-        .logo { font-size: 24px; font-weight: bold; }
-        .section { margin-bottom: 15px; }
-        .section-title { font-weight: bold; font-size: 12px; text-transform: uppercase; color: #666; margin-bottom: 5px; }
-        .customer-name { font-size: 20px; font-weight: bold; }
-        .address { font-size: 14px; line-height: 1.4; }
-        .items-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .items-table th, .items-table td { border: 1px solid #ccc; padding: 5px; text-align: left; }
-        .items-table th { background: #f0f0f0; }
-        .order-id { font-size: 10px; color: #666; margin-top: 15px; text-align: center; }
-        @media print { body { margin: 0; } .no-print { display: none; } }
-      </style>
-    </head>
-    <body>
-      <div class="label-container">
-        <div class="header">
-          <div class="logo">📦 AfriShop</div>
-          <div style="font-size: 12px; margin-top: 5px;">Shipping Label</div>
-        </div>
-        
-        <div class="section">
-          <div class="section-title">Ship To:</div>
-          <div class="customer-name">${customerName}</div>
-          <div class="address">${address}</div>
-        </div>
-        
-        <div class="section">
-          <div class="section-title">Items (${items.length}):</div>
-          <table class="items-table">
-            <thead>
-              <tr><th>Product</th><th>Qty</th></tr>
-            </thead>
-            <tbody>
-              ${items.map((item: any) => `
-                <tr>
-                  <td>${item.title || 'Product'}</td>
-                  <td>${item.quantity}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-        
-        <div class="order-id">
-          Order: ${formatOrderId(order.id, customerName)}
-        </div>
-      </div>
-      
-      <div class="no-print" style="margin-top: 20px; text-align: center;">
-        <button onclick="window.print()" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">
-          🖨️ Print Label
-        </button>
-      </div>
-    </body>
-    </html>
-  `;
-
-  const printWindow = window.open('', '_blank');
-  if (printWindow) {
-    printWindow.document.write(labelHtml);
-    printWindow.document.close();
-  }
-};
-```
-
-**Replace Mark Paid Button (lines 989-998):**
-Change from:
-```tsx
-{(order.status === 'PENDING_PAYMENT' || order.status === 'DRAFT') && !order.payment_verified_at && (
-  <Button ... onClick={() => handleMarkAsPaid(order.id)} ...>
-    <CreditCard ... /> Mark Paid
-  </Button>
-)}
-```
-
-To:
-```tsx
-{(order.status === 'PENDING_PAYMENT' || order.status === 'DRAFT') && !order.payment_verified_at && (
-  <Button
-    variant="default"
-    size="sm"
-    onClick={() => handlePrintLabel(order)}
-    className="bg-purple-600 hover:bg-purple-700"
-  >
-    <Printer className="h-4 w-4 mr-2" />
-    Print Label
-  </Button>
-)}
-```
-
-**Add Printer import:**
-```typescript
-import { ..., Printer } from 'lucide-react';
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    afrishop-usa.com                          │
+├─────────────────────────────────────────────────────────────┤
+│  /              → How It Works (existing)                    │
+│  /shop          → Product Catalog Home (NEW)                 │
+│  /shop/search   → Search Results (NEW)                       │
+│  /shop/product  → Product Details (NEW)                      │
+│  /shop/cart     → Shopping Cart (NEW)                        │
+│  /shop/checkout → Checkout Flow (NEW)                        │
+└─────────────────────────────────────────────────────────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────────────────┐
+│            Existing Edge Functions (No Changes)              │
+├─────────────────────────────────────────────────────────────┤
+│  catalog-home      → Home feed with sections                 │
+│  catalog-search    → Product search                          │
+│  catalog-product   → Product details                         │
+│  mobile-add-cart-item → Add to cart                          │
+│  mobile-get-cart   → Get cart contents                       │
+│  mobile-checkout   → Create order                            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### File: src/components/admin/OrderDetailsDrawer.tsx
+## New Components to Create
 
-**Add Mark as Paid button** in the Admin Actions section (after the Need Help button):
-
-```tsx
-{/* Mark as Paid button for unpaid orders */}
-{(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && !order.payment_verified_at && (
-  <Button
-    onClick={handleMarkAsPaid}
-    disabled={markingAsPaid}
-    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-  >
-    {markingAsPaid ? (
-      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-    ) : (
-      <CreditCard className="h-4 w-4 mr-2" />
-    )}
-    Mark as Paid
-  </Button>
-)}
+### 1. Product Grid Component
+```text
+src/components/shop/ProductGrid.tsx
+├── Responsive grid (2 cols mobile, 4 cols desktop)
+├── Product card with image, title, price
+├── Add to cart button
+└── Infinite scroll support
 ```
 
-**Add state and handler:**
-```typescript
-const [markingAsPaid, setMarkingAsPaid] = useState(false);
-
-const handleMarkAsPaid = async () => {
-  if (!orderId) return;
-  
-  setMarkingAsPaid(true);
-  try {
-    const { error } = await supabase.functions.invoke('verify-maisha-payment', {
-      body: {
-        orderId,
-        manualOverride: true,
-        notes: 'Manual verification by admin - callback issue workaround'
-      }
-    });
-
-    if (error) throw error;
-
-    toast({
-      title: 'Payment Verified',
-      description: 'Order marked as paid successfully',
-    });
-
-    loadOrderDetails();
-    onUpdate();
-  } catch (error: any) {
-    toast({
-      title: 'Error',
-      description: error.message,
-      variant: 'destructive',
-    });
-  } finally {
-    setMarkingAsPaid(false);
-  }
-};
+### 2. Product Card Component
+```text
+src/components/shop/ProductCard.tsx
+├── Image with lazy loading
+├── Provider badge (Amazon/eBay)
+├── Price in USD
+├── Quick add to cart
+└── Link to product details
 ```
 
-**Add CreditCard import:**
-```typescript
-import { ..., CreditCard } from 'lucide-react';
+### 3. Search Bar Component
+```text
+src/components/shop/SearchBar.tsx
+├── Search input with icon
+├── Category dropdown filter
+├── Recent searches (localStorage)
+└── Search suggestions
+```
+
+### 4. Cart Drawer Component
+```text
+src/components/shop/CartDrawer.tsx
+├── Slide-in drawer from right
+├── Cart items list
+├── Quantity controls
+├── Remove item button
+├── Total with estimated fees
+└── Checkout button
+```
+
+### 5. Category Tabs Component
+```text
+src/components/shop/CategoryTabs.tsx
+├── Horizontal scrolling tabs
+├── Icons for each category
+├── Active state indicator
+└── Maps to catalog tabs API
 ```
 
 ---
+
+## New Pages to Create
+
+### Page 1: Shop Home (`/shop`)
+**File:** `src/pages/shop/ShopHome.tsx`
+
+Features:
+- Hero banner with search
+- Category tabs (Electronics, Clothing, etc.)
+- Featured sections from `catalog-home` API
+- "See All" links per section
+- Sticky cart button with item count
+
+### Page 2: Search Results (`/shop/search`)
+**File:** `src/pages/shop/SearchResults.tsx`
+
+Features:
+- Search query in URL (`/shop/search?q=iphone`)
+- Filter sidebar (price, condition, category)
+- Sort dropdown (price, relevance)
+- Infinite scroll product grid
+- No results state with suggestions
+
+### Page 3: Product Details (`/shop/product/:id`)
+**File:** `src/pages/shop/ProductDetails.tsx`
+
+Features:
+- Image gallery with zoom
+- Product title and description
+- Price breakdown (item + shipping + fees)
+- Add to cart button
+- Provider info and link
+- Similar products section
+
+### Page 4: Shopping Cart (`/shop/cart`)
+**File:** `src/pages/shop/ShopCart.tsx`
+
+Features:
+- Full cart view (not just drawer)
+- Edit quantities
+- Remove items
+- Price breakdown table
+- Continue shopping / Checkout buttons
+- Empty cart state
+
+### Page 5: Checkout (`/shop/checkout`)
+**File:** `src/pages/shop/Checkout.tsx`
+
+Features:
+- Requires authentication
+- Shipping address form
+- Order summary
+- Payment method selection (Stripe/PawaPay/Bank)
+- Terms acceptance
+- Place order button
+
+---
+
+## Technical Implementation
+
+### API Integration Pattern
+All catalog calls use the existing Edge Functions:
+
+```typescript
+// Fetch home sections
+const { data } = await supabase.functions.invoke('catalog-home');
+
+// Search products
+const response = await fetch(
+  `${SUPABASE_URL}/functions/v1/catalog-search?q=${query}&limit=24`,
+  { headers: { 'apikey': ANON_KEY } }
+);
+
+// Get product details
+const { data } = await supabase.functions.invoke('catalog-product', {
+  body: { productId, provider }
+});
+
+// Add to cart (requires auth)
+const { data } = await supabase.functions.invoke('mobile-add-cart-item', {
+  body: { productId, quantity, ... }
+});
+```
+
+### Cart State Management
+- **Guest users:** Store cart in localStorage
+- **Logged in:** Sync with database via `mobile-get-cart`
+- **Login merge:** Merge guest cart on authentication
+
+### Responsive Design
+- Mobile-first approach matching existing dark theme
+- Sticky header with search and cart
+- Bottom navigation on mobile
+- Drawer-based cart on mobile, sidebar on desktop
+
+---
+
+## File Structure
+
+```text
+src/
+├── pages/
+│   └── shop/
+│       ├── ShopHome.tsx
+│       ├── SearchResults.tsx
+│       ├── ProductDetails.tsx
+│       ├── ShopCart.tsx
+│       └── Checkout.tsx
+├── components/
+│   └── shop/
+│       ├── ProductGrid.tsx
+│       ├── ProductCard.tsx
+│       ├── SearchBar.tsx
+│       ├── CartDrawer.tsx
+│       ├── CategoryTabs.tsx
+│       ├── ShopHeader.tsx
+│       ├── ShopFooter.tsx
+│       ├── FilterSidebar.tsx
+│       ├── PriceBreakdown.tsx
+│       └── EmptyStates.tsx
+├── hooks/
+│   └── useShopCart.ts
+└── contexts/
+    └── ShopCartContext.tsx
+```
+
+---
+
+## Routes to Add (App.tsx)
+
+```typescript
+// New shop routes
+<Route path="/shop" element={<ShopHome />} />
+<Route path="/shop/search" element={<SearchResults />} />
+<Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
+<Route path="/shop/cart" element={<ShopCart />} />
+<Route path="/shop/checkout" element={
+  <ProtectedRoute>
+    <Checkout />
+  </ProtectedRoute>
+} />
+```
+
+---
+
+## Design Theme
+
+Match existing dark Tesla-inspired theme:
+- Background: Black (`bg-black`)
+- Cards: Glass effect (`bg-white/5 backdrop-blur-xl border-white/10`)
+- Primary accent: Cyan gradient (`from-blue-500 to-cyan-500`)
+- Text: White with opacity variants
+- Animations: Framer Motion for transitions
+
+---
+
+## Navigation Updates
+
+### PublicLayout Header
+Add "Shop" link to navigation:
+```typescript
+const navLinks = [
+  { to: "/shop", label: "Shop" },  // NEW - First position
+  { to: "/", label: "How It Works" },
+  { to: "/about", label: "About" },
+  ...
+];
+```
+
+### Shop Header (New)
+Dedicated header for shop pages:
+- Search bar (always visible)
+- Category dropdown
+- Cart icon with badge
+- User menu (login/profile)
+
+---
+
+## Implementation Phases
+
+### Phase 1: Core Shopping Experience
+1. Create ShopCartContext for cart state management
+2. Build ProductCard and ProductGrid components
+3. Create ShopHome page with catalog-home integration
+4. Add CategoryTabs component
+5. Implement SearchResults page with catalog-search
+
+### Phase 2: Product & Cart
+6. Build ProductDetails page with gallery
+7. Create CartDrawer component
+8. Implement useShopCart hook with localStorage
+9. Add ShopCart full page view
+
+### Phase 3: Checkout & Orders
+10. Build Checkout page with address form
+11. Integrate payment providers (existing functions)
+12. Add order confirmation flow
+13. Link to existing /orders page for tracking
+
+### Phase 4: Polish
+14. Add loading skeletons
+15. Implement empty states
+16. Add error boundaries
+17. Mobile-optimize all views
+18. Add PWA manifest for "Add to Home Screen"
+
+---
+
+## Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/contexts/ShopCartContext.tsx` | Cart state management |
+| `src/hooks/useShopCart.ts` | Cart operations hook |
+| `src/components/shop/ProductCard.tsx` | Product display card |
+| `src/components/shop/ProductGrid.tsx` | Grid layout for products |
+| `src/components/shop/SearchBar.tsx` | Search input component |
+| `src/components/shop/CategoryTabs.tsx` | Category navigation |
+| `src/components/shop/CartDrawer.tsx` | Slide-out cart |
+| `src/components/shop/ShopHeader.tsx` | Shop-specific header |
+| `src/components/shop/PriceBreakdown.tsx` | Cost breakdown display |
+| `src/pages/shop/ShopHome.tsx` | Home page with sections |
+| `src/pages/shop/SearchResults.tsx` | Search results page |
+| `src/pages/shop/ProductDetails.tsx` | Product detail page |
+| `src/pages/shop/ShopCart.tsx` | Full cart page |
+| `src/pages/shop/Checkout.tsx` | Checkout flow |
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/admin/Orders.tsx` | Add `handlePrintLabel` function, replace "Mark Paid" with "Print Label" button, update profiles query, add Printer icon import |
-| `src/components/admin/OrderDetailsDrawer.tsx` | Add `handleMarkAsPaid` function and button in Admin Actions section, add state, add CreditCard import |
+| `src/App.tsx` | Add shop routes |
+| `src/components/public/PublicLayout.tsx` | Add "Shop" nav link |
 
 ---
 
-## Visual Summary
+## Outcome
 
-**Orders Table - Before:**
-```
-[Details] [Mark Paid] [...]
-```
+Once implemented, users can:
+1. Visit `afrishop-usa.com/shop` in any browser
+2. Browse products from Amazon/eBay
+3. Search and filter by category
+4. Add items to cart
+5. Create an account or login
+6. Complete checkout with payment
+7. Track orders
 
-**Orders Table - After:**
-```
-[Details] [Print Label] [...]
-```
-
-**Order Details Drawer - New button added:**
-```
-Admin Actions
-─────────────
-[Need Help? Send Assistance Email]  (for DRAFT/PENDING_PAYMENT)
-[Mark as Paid]                       (for DRAFT/PENDING_PAYMENT, unpaid)
-[Add Note]  [Send Email]
-[Issue Refund]
-```
-
----
-
-## Label Preview
-
-The generated shipping label will look like:
-
-```
-┌─────────────────────────────────────┐
-│         📦 AfriShop                 │
-│        Shipping Label               │
-├─────────────────────────────────────┤
-│ SHIP TO:                            │
-│ Nathan Kadimisha                    │
-│ 123 Main St, Apt 4B                 │
-│ Lubumbashi, Haut-Katanga            │
-│ Democratic Republic of Congo        │
-├─────────────────────────────────────┤
-│ ITEMS (2):                          │
-│ ┌─────────────────────────┬───────┐ │
-│ │ Product                 │ Qty   │ │
-│ ├─────────────────────────┼───────┤ │
-│ │ Apple iPhone 15 Pro     │ 1     │ │
-│ │ Samsung Galaxy Watch    │ 2     │ │
-│ └─────────────────────────┴───────┘ │
-├─────────────────────────────────────┤
-│     Order: #ASH-NATHAN-1234         │
-└─────────────────────────────────────┘
-         [🖨️ Print Label]
-```
+**No App Store needed. No Apple approval required. Full shopping experience on the web.**
 

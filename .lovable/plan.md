@@ -1,346 +1,256 @@
 
 
-# Build Web Catalog Frontend (Bypass App Store)
+# Fix Web Shop: Product Details & Checkout Issues
 
-## Strategy
+## Problem Summary
 
-Instead of fighting Apple's review process, we'll create a **full web shopping experience** that mirrors the mobile app. This gives users access to the product catalog directly via browser at `afrishop-usa.com/shop`, completely bypassing App Store restrictions.
+Two critical bugs are breaking the web shop experience:
 
-**Benefits:**
-- No App Store approval needed
-- Immediate deployment
-- Works on any device with a browser
-- Can be installed as a PWA (Progressive Web App)
-- Full control over content and features
+### Issue 1: Product Details - "Product not found"
+The `ProductDetails` page sends product info via POST body, but the `catalog-product` edge function expects GET query parameters. The request body is being ignored.
 
----
+**Evidence from logs:**
+```
+[CATALOG_PRODUCT] id=MISSING provider=unknown error=INVALID_ID
+```
 
-## Architecture Overview
+### Issue 2: Checkout - "Edge Function returned non-2xx status"
+The web checkout doesn't send `cart_item_ids` to the `mobile-checkout` function. The backend expects an array of database item IDs, but the web sends nothing.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    afrishop-usa.com                          │
-├─────────────────────────────────────────────────────────────┤
-│  /              → How It Works (existing)                    │
-│  /shop          → Product Catalog Home (NEW)                 │
-│  /shop/search   → Search Results (NEW)                       │
-│  /shop/product  → Product Details (NEW)                      │
-│  /shop/cart     → Shopping Cart (NEW)                        │
-│  /shop/checkout → Checkout Flow (NEW)                        │
-└─────────────────────────────────────────────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────────────────────────────────┐
-│            Existing Edge Functions (No Changes)              │
-├─────────────────────────────────────────────────────────────┤
-│  catalog-home      → Home feed with sections                 │
-│  catalog-search    → Product search                          │
-│  catalog-product   → Product details                         │
-│  mobile-add-cart-item → Add to cart                          │
-│  mobile-get-cart   → Get cart contents                       │
-│  mobile-checkout   → Create order                            │
-└─────────────────────────────────────────────────────────────┘
+**Evidence from logs:**
+```
+CHECKOUT_INIT { cart_item_ids_count: 0, ... }
+CHECKOUT_ERROR { code: "EMPTY_CART", cart_item_ids: undefined }
 ```
 
 ---
 
-## New Components to Create
+## Root Cause Analysis
 
-### 1. Product Grid Component
-```text
-src/components/shop/ProductGrid.tsx
-├── Responsive grid (2 cols mobile, 4 cols desktop)
-├── Product card with image, title, price
-├── Add to cart button
-└── Infinite scroll support
-```
+### Product Details Issue
+- `ProductDetails.tsx` line 50-55: Uses `supabase.functions.invoke()` with body
+- `catalog-product/index.ts` line 97-150: Parses from `url.searchParams` (GET)
+- The function invoke sends POST, but the edge function reads from URL query params
 
-### 2. Product Card Component
-```text
-src/components/shop/ProductCard.tsx
-├── Image with lazy loading
-├── Provider badge (Amazon/eBay)
-├── Price in USD
-├── Quick add to cart
-└── Link to product details
-```
-
-### 3. Search Bar Component
-```text
-src/components/shop/SearchBar.tsx
-├── Search input with icon
-├── Category dropdown filter
-├── Recent searches (localStorage)
-└── Search suggestions
-```
-
-### 4. Cart Drawer Component
-```text
-src/components/shop/CartDrawer.tsx
-├── Slide-in drawer from right
-├── Cart items list
-├── Quantity controls
-├── Remove item button
-├── Total with estimated fees
-└── Checkout button
-```
-
-### 5. Category Tabs Component
-```text
-src/components/shop/CategoryTabs.tsx
-├── Horizontal scrolling tabs
-├── Icons for each category
-├── Active state indicator
-└── Maps to catalog tabs API
-```
+### Checkout Issue
+- Web cart uses localStorage for guests, or syncs via `mobile-get-cart`
+- `mobile-get-cart` returns `cart_items` table data (not order_items)
+- `mobile-checkout` expects `cart_item_ids` from the `order_items` table
+- The web checkout doesn't call an "add items to order" function before checkout
 
 ---
 
-## New Pages to Create
+## Solution
 
-### Page 1: Shop Home (`/shop`)
-**File:** `src/pages/shop/ShopHome.tsx`
+### Fix 1: Product Details - Use GET query params
 
-Features:
-- Hero banner with search
-- Category tabs (Electronics, Clothing, etc.)
-- Featured sections from `catalog-home` API
-- "See All" links per section
-- Sticky cart button with item count
+**File: `src/pages/shop/ProductDetails.tsx`**
 
-### Page 2: Search Results (`/shop/search`)
-**File:** `src/pages/shop/SearchResults.tsx`
-
-Features:
-- Search query in URL (`/shop/search?q=iphone`)
-- Filter sidebar (price, condition, category)
-- Sort dropdown (price, relevance)
-- Infinite scroll product grid
-- No results state with suggestions
-
-### Page 3: Product Details (`/shop/product/:id`)
-**File:** `src/pages/shop/ProductDetails.tsx`
-
-Features:
-- Image gallery with zoom
-- Product title and description
-- Price breakdown (item + shipping + fees)
-- Add to cart button
-- Provider info and link
-- Similar products section
-
-### Page 4: Shopping Cart (`/shop/cart`)
-**File:** `src/pages/shop/ShopCart.tsx`
-
-Features:
-- Full cart view (not just drawer)
-- Edit quantities
-- Remove items
-- Price breakdown table
-- Continue shopping / Checkout buttons
-- Empty cart state
-
-### Page 5: Checkout (`/shop/checkout`)
-**File:** `src/pages/shop/Checkout.tsx`
-
-Features:
-- Requires authentication
-- Shipping address form
-- Order summary
-- Payment method selection (Stripe/PawaPay/Bank)
-- Terms acceptance
-- Place order button
-
----
-
-## Technical Implementation
-
-### API Integration Pattern
-All catalog calls use the existing Edge Functions:
+Change the API call from POST body to GET with query params:
 
 ```typescript
-// Fetch home sections
-const { data } = await supabase.functions.invoke('catalog-home');
+// BEFORE (line 50-55):
+const { data, error } = await supabase.functions.invoke('catalog-product', {
+  body: { 
+    productId: decodeURIComponent(id), 
+    provider 
+  },
+});
 
-// Search products
+// AFTER:
+const productIdDecoded = decodeURIComponent(id);
+const fullId = `${provider}:${productIdDecoded}`;
 const response = await fetch(
-  `${SUPABASE_URL}/functions/v1/catalog-search?q=${query}&limit=24`,
-  { headers: { 'apikey': ANON_KEY } }
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
+  {
+    headers: {
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'Content-Type': 'application/json',
+    },
+  }
 );
-
-// Get product details
-const { data } = await supabase.functions.invoke('catalog-product', {
-  body: { productId, provider }
-});
-
-// Add to cart (requires auth)
-const { data } = await supabase.functions.invoke('mobile-add-cart-item', {
-  body: { productId, quantity, ... }
-});
-```
-
-### Cart State Management
-- **Guest users:** Store cart in localStorage
-- **Logged in:** Sync with database via `mobile-get-cart`
-- **Login merge:** Merge guest cart on authentication
-
-### Responsive Design
-- Mobile-first approach matching existing dark theme
-- Sticky header with search and cart
-- Bottom navigation on mobile
-- Drawer-based cart on mobile, sidebar on desktop
-
----
-
-## File Structure
-
-```text
-src/
-├── pages/
-│   └── shop/
-│       ├── ShopHome.tsx
-│       ├── SearchResults.tsx
-│       ├── ProductDetails.tsx
-│       ├── ShopCart.tsx
-│       └── Checkout.tsx
-├── components/
-│   └── shop/
-│       ├── ProductGrid.tsx
-│       ├── ProductCard.tsx
-│       ├── SearchBar.tsx
-│       ├── CartDrawer.tsx
-│       ├── CategoryTabs.tsx
-│       ├── ShopHeader.tsx
-│       ├── ShopFooter.tsx
-│       ├── FilterSidebar.tsx
-│       ├── PriceBreakdown.tsx
-│       └── EmptyStates.tsx
-├── hooks/
-│   └── useShopCart.ts
-└── contexts/
-    └── ShopCartContext.tsx
+const data = await response.json();
+if (!response.ok || data.status === 'error') {
+  throw new Error(data.error?.message || 'Product not found');
+}
 ```
 
 ---
 
-## Routes to Add (App.tsx)
+### Fix 2: Checkout - Sync cart to order before checkout
+
+The web needs to:
+1. Create a DRAFT order with items before calling checkout
+2. Pass the `cart_item_ids` (order_item IDs) to `mobile-checkout`
+
+**File: `src/pages/shop/Checkout.tsx`**
+
+Add a step to convert cart items to an order before payment:
 
 ```typescript
-// New shop routes
-<Route path="/shop" element={<ShopHome />} />
-<Route path="/shop/search" element={<SearchResults />} />
-<Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
-<Route path="/shop/cart" element={<ShopCart />} />
-<Route path="/shop/checkout" element={
-  <ProtectedRoute>
-    <Checkout />
-  </ProtectedRoute>
-} />
+// In handleSubmit, before calling mobile-checkout:
+
+// Step 1: Create order from cart items
+const { data: orderData, error: orderError } = await supabase.functions.invoke('mobile-create-order-from-cart');
+
+if (orderError || !orderData?.order_id) {
+  throw new Error('Failed to prepare order: ' + (orderError?.message || 'Unknown error'));
+}
+
+// Step 2: Call checkout with the order's item IDs
+const { data, error } = await supabase.functions.invoke('mobile-checkout', {
+  body: {
+    cart_item_ids: orderData.order_item_ids, // Array of order_item UUIDs
+    cart_id: orderData.order_id,
+    payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
+                                paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
+                                'MOBILE_MONEY',
+  },
+});
 ```
 
 ---
 
-## Design Theme
+### Fix 3: Cart Context - Ensure items are synced to DB
 
-Match existing dark Tesla-inspired theme:
-- Background: Black (`bg-black`)
-- Cards: Glass effect (`bg-white/5 backdrop-blur-xl border-white/10`)
-- Primary accent: Cyan gradient (`from-blue-500 to-cyan-500`)
-- Text: White with opacity variants
-- Animations: Framer Motion for transitions
+**File: `src/contexts/ShopCartContext.tsx`**
 
----
+Currently `addItem` syncs to `mobile-add-cart-item` but for checkout to work, items need to be in `order_items` table via a DRAFT order. The `mobile-create-order-from-cart` edge function should handle this conversion.
 
-## Navigation Updates
-
-### PublicLayout Header
-Add "Shop" link to navigation:
-```typescript
-const navLinks = [
-  { to: "/shop", label: "Shop" },  // NEW - First position
-  { to: "/", label: "How It Works" },
-  { to: "/about", label: "About" },
-  ...
-];
-```
-
-### Shop Header (New)
-Dedicated header for shop pages:
-- Search bar (always visible)
-- Category dropdown
-- Cart icon with badge
-- User menu (login/profile)
+I'll verify the existing `mobile-create-order-from-cart` function handles this correctly.
 
 ---
-
-## Implementation Phases
-
-### Phase 1: Core Shopping Experience
-1. Create ShopCartContext for cart state management
-2. Build ProductCard and ProductGrid components
-3. Create ShopHome page with catalog-home integration
-4. Add CategoryTabs component
-5. Implement SearchResults page with catalog-search
-
-### Phase 2: Product & Cart
-6. Build ProductDetails page with gallery
-7. Create CartDrawer component
-8. Implement useShopCart hook with localStorage
-9. Add ShopCart full page view
-
-### Phase 3: Checkout & Orders
-10. Build Checkout page with address form
-11. Integrate payment providers (existing functions)
-12. Add order confirmation flow
-13. Link to existing /orders page for tracking
-
-### Phase 4: Polish
-14. Add loading skeletons
-15. Implement empty states
-16. Add error boundaries
-17. Mobile-optimize all views
-18. Add PWA manifest for "Add to Home Screen"
-
----
-
-## Files to Create
-
-| File | Purpose |
-|------|---------|
-| `src/contexts/ShopCartContext.tsx` | Cart state management |
-| `src/hooks/useShopCart.ts` | Cart operations hook |
-| `src/components/shop/ProductCard.tsx` | Product display card |
-| `src/components/shop/ProductGrid.tsx` | Grid layout for products |
-| `src/components/shop/SearchBar.tsx` | Search input component |
-| `src/components/shop/CategoryTabs.tsx` | Category navigation |
-| `src/components/shop/CartDrawer.tsx` | Slide-out cart |
-| `src/components/shop/ShopHeader.tsx` | Shop-specific header |
-| `src/components/shop/PriceBreakdown.tsx` | Cost breakdown display |
-| `src/pages/shop/ShopHome.tsx` | Home page with sections |
-| `src/pages/shop/SearchResults.tsx` | Search results page |
-| `src/pages/shop/ProductDetails.tsx` | Product detail page |
-| `src/pages/shop/ShopCart.tsx` | Full cart page |
-| `src/pages/shop/Checkout.tsx` | Checkout flow |
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `src/App.tsx` | Add shop routes |
-| `src/components/public/PublicLayout.tsx` | Add "Shop" nav link |
+| File | Change |
+|------|--------|
+| `src/pages/shop/ProductDetails.tsx` | Fix API call to use GET query params instead of POST body |
+| `src/pages/shop/Checkout.tsx` | Add order creation step before checkout, pass `cart_item_ids` |
 
 ---
 
-## Outcome
+## Technical Details
 
-Once implemented, users can:
-1. Visit `afrishop-usa.com/shop` in any browser
-2. Browse products from Amazon/eBay
-3. Search and filter by category
-4. Add items to cart
-5. Create an account or login
-6. Complete checkout with payment
-7. Track orders
+### ProductDetails.tsx Changes (lines ~42-108)
 
-**No App Store needed. No Apple approval required. Full shopping experience on the web.**
+```typescript
+useEffect(() => {
+  const fetchProduct = async () => {
+    if (!provider || !id) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Build the full product ID in format "provider:productId"
+      const productIdDecoded = decodeURIComponent(id);
+      const fullId = `${provider}:${productIdDecoded}`;
+      
+      // Use GET request with query params (catalog-product expects this)
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
+        {
+          headers: {
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      const data = await response.json();
+      
+      if (!response.ok || data.status === 'error') {
+        throw new Error(data.error?.message || 'Product not found');
+      }
+      
+      if (!data?.item) throw new Error('Product not found');
+
+      const item = data.item;
+      // ... rest of the mapping code stays the same
+```
+
+### Checkout.tsx Changes (lines ~107-161)
+
+```typescript
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  if (!termsAccepted) {
+    toast({ title: 'Terms Required', ... });
+    return;
+  }
+
+  if (items.length === 0) {
+    toast({ title: 'Empty Cart', ... });
+    return;
+  }
+
+  setLoading(true);
+  try {
+    // Update profile with shipping address
+    await supabase.from('profiles').update({ ... }).eq('user_id', user?.id);
+
+    // Step 1: Create/update DRAFT order from cart
+    const { data: orderData, error: orderError } = await supabase.functions.invoke(
+      'mobile-create-order-from-cart'
+    );
+
+    if (orderError) {
+      console.error('Order creation error:', orderError);
+      throw new Error('Failed to prepare your order. Please try again.');
+    }
+
+    if (!orderData?.order_id || !orderData?.order_item_ids) {
+      throw new Error('Failed to create order. Please try again.');
+    }
+
+    console.log('Order created:', orderData.order_id, 'items:', orderData.order_item_ids.length);
+
+    // Step 2: Proceed to checkout with order item IDs
+    const { data, error } = await supabase.functions.invoke('mobile-checkout', {
+      body: {
+        cart_item_ids: orderData.order_item_ids,
+        cart_id: orderData.order_id,
+        payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
+                                    paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
+                                    'MOBILE_MONEY',
+      },
+    });
+
+    if (error) throw error;
+
+    // Handle payment flows (same as before)
+    if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
+      navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
+    } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
+      window.location.href = data.redirectUrl;
+    } else if (data?.payment_flow === 'BANK_TRANSFER') {
+      navigate(`/bank-transfer-info?order_id=${data.order_id}`);
+    } else if (data?.order_id) {
+      toast({ title: 'Order Created', ... });
+      await clearCart();
+      navigate(`/orders/${data.order_id}`);
+    }
+  } catch (error: any) {
+    console.error('Checkout error:', error);
+    toast({ title: 'Checkout Failed', description: error.message, variant: 'destructive' });
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+---
+
+## Expected Outcome
+
+After these fixes:
+
+1. **Product Details**: Clicking on a product will correctly load the product page with all details, images, and price breakdown
+
+2. **Checkout**: The checkout flow will:
+   - First create a DRAFT order from cart items
+   - Then pass the order_item_ids to mobile-checkout
+   - Proceed with the selected payment method (Mobile Money, Card, or Bank Transfer)
 

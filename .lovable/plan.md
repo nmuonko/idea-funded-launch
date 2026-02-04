@@ -1,260 +1,137 @@
 
-# Fix Web Shop: i18n, Dynamic Carousel & Header Layout
+# Fix Web Shop: Search API, Duplicate Search Bar & Header Layout
 
-## Issues to Fix
+## Issues Summary
 
-Based on your feedback and the screenshot, I need to address three main issues:
+Based on code analysis and the screenshot, there are three distinct problems:
 
-1. **Language Selection Not i18n**: The current language dropdown changes the language state but the shop UI text is not using translations - placeholders, labels, and menu items remain in English
-2. **Static Carousel**: The FeaturedCarousel shows hardcoded product names instead of real products from Amazon/eBay
-3. **Header Layout Wrong**: Language, Cart, and Account buttons should be on the LEFT side (after logo), with search bar taking up more space on the RIGHT
-
----
-
-## Solution Overview
-
-```text
-CURRENT HEADER LAYOUT (Wrong):
-┌─────────────────────────────────────────────────────────────┐
-│  ☰  Logo  [────── Search Bar ──────]  🌐  🛒  👤          │
-└─────────────────────────────────────────────────────────────┘
-
-CORRECT HEADER LAYOUT:
-┌─────────────────────────────────────────────────────────────┐
-│  ☰  Logo  🌐  🛒  👤  [───────── Search Bar ─────────]     │
-└─────────────────────────────────────────────────────────────┘
-```
+1. **Search API Not Working** - Products not fetching because the frontend sends POST body but the backend reads GET parameters
+2. **Duplicate Search Bars** - Two search bars visible (one in header, one in page content)
+3. **Header Layout Wrong** - Language/Cart/Account should be on the far RIGHT, not left
 
 ---
 
-## Technical Plan
+## Root Cause Analysis
 
-### 1. Add Shop-Specific i18n Translations
+### Issue 1: Search API Mismatch
 
-**File: `src/lib/i18n/translations.ts`**
-
-Add a new `shop` section to each language with all UI strings:
-
+**Frontend Code** (`SearchResults.tsx` lines 42-51):
 ```typescript
-// Add to each language (en, fr, sw, ln):
-shop: {
-  // Header
-  searchPlaceholder: 'Search millions of products...',
-  filtersAndMenu: 'Filters & Menu',
-  selectLanguage: 'Select Language',
-  signIn: 'Sign In',
-  
-  // Categories
-  allCategories: 'All Categories',
-  electronics: 'Electronics',
-  vehicles: 'Vehicles',
-  clothingFashion: 'Clothing & Fashion',
-  homeGarden: 'Home & Garden',
-  toysGames: 'Toys & Games',
-  sportsOutdoors: 'Sports & Outdoors',
-  jewelryWatches: 'Jewelry & Watches',
-  
-  // Price ranges
-  anyPrice: 'Any Price',
-  under50: 'Under $50',
-  // ... etc
-  
-  // Home page
-  heroTitle: 'Shop the U.S.',
-  heroSubtitle: 'Delivered to Africa',
-  heroDescription: 'Browse millions of products from Amazon & eBay',
-  seeAll: 'See All',
-  searchProducts: 'Search Products',
-  dontSeeWhatYoureLookingFor: "Don't see what you're looking for?",
-  
-  // Quick links
-  home: 'Home',
-  myOrders: 'My Orders',
-  support: 'Support',
-  
-  // Sections
-  category: 'Category',
-  priceRange: 'Price Range',
-  quickLinks: 'Quick Links',
-  recentSearches: 'Recent Searches',
-  clear: 'Clear',
-  
-  // Product
-  addToCart: 'Add to Cart',
-  outOfStock: 'Out of Stock',
-  
-  // Cart
-  cart: 'Cart',
-  checkout: 'Checkout',
-  emptyCart: 'Your cart is empty',
-  
-  // Featured carousel
-  featured: 'Featured',
-  shopNow: 'Shop Now',
-}
+const { data, error } = await supabase.functions.invoke('catalog-search', {
+  body: {
+    query: query || category || 'popular',
+    page: pageNum,
+    limit: 24,
+    sort,
+    minPrice: priceRange[0] > 0 ? priceRange[0] : undefined,
+    maxPrice: priceRange[1] < 5000 ? priceRange[1] : undefined,
+  },
+});
 ```
 
-**French translations:**
+**Backend Code** (`catalog-search/index.ts` line 1406):
 ```typescript
-shop: {
-  searchPlaceholder: 'Rechercher des millions de produits...',
-  filtersAndMenu: 'Filtres et Menu',
-  selectLanguage: 'Choisir la langue',
-  signIn: 'Connexion',
-  allCategories: 'Toutes les catégories',
-  electronics: 'Électronique',
-  vehicles: 'Véhicules',
-  // ... etc
-  heroTitle: 'Achetez aux États-Unis',
-  heroSubtitle: 'Livré en Afrique',
-  heroDescription: 'Parcourez des millions de produits Amazon et eBay',
-}
+const rawQuery = url.searchParams.get("q") || "";
 ```
+
+The backend only reads from URL query parameters, not from POST body. Same issue exists in `FeaturedCarousel.tsx`.
+
+### Issue 2: Duplicate Search Bars
+
+- `ShopHeader.tsx` line 236 includes a `<SearchBar />`
+- `SearchResults.tsx` line 118 adds ANOTHER `<SearchBar />` inside the page content
+
+### Issue 3: Header Layout
+
+Current layout: `[Menu][Logo][Language][Cart][Account][──Search──]`
+Required layout: `[Menu][Logo][──────Search──────][Language][Cart][Account]`
 
 ---
 
-### 2. Update ShopHeader Layout
+## Solution
 
-**File: `src/components/shop/ShopHeader.tsx`**
+### Fix 1: Convert POST Body to GET Query Parameters
 
-Restructure the header to put actions on the LEFT, search on the RIGHT:
+**Files to modify:**
+- `src/pages/shop/SearchResults.tsx`
+- `src/components/shop/FeaturedCarousel.tsx`
+
+Replace `supabase.functions.invoke` with `fetch` using GET query parameters:
 
 ```typescript
-<div className="flex items-center gap-2">
-  {/* Left Side: Menu + Logo + Language + Cart + Account */}
-  <Sheet>...</Sheet>
-  
-  <Link to="/shop">
-    <img src={afrishopLogo} alt="AfriShop" className="h-8" />
-  </Link>
-  
-  {/* Language Selector */}
-  <DropdownMenu>
-    <DropdownMenuTrigger>
-      <Button>
-        <Globe /> {currentLanguage.flag}
-      </Button>
-    </DropdownMenuTrigger>
-    ...
-  </DropdownMenu>
-  
-  {/* Cart */}
-  <CartDrawer />
-  
-  {/* Auth */}
-  {user ? <Link to="/profile">...</Link> : <Link to="/auth">...</Link>}
-  
-  {/* Search Bar - Now takes remaining space on the right */}
-  <div className="flex-1 ml-4">
-    <SearchBar className="w-full" />
+// BEFORE (broken):
+const { data, error } = await supabase.functions.invoke('catalog-search', {
+  body: { query, limit: 24, page: pageNum }
+});
+
+// AFTER (fixed):
+const params = new URLSearchParams({
+  q: query || category || 'popular',
+  limit: '24',
+  ...(sort && sort !== 'relevance' && { sort }),
+  ...(priceRange[0] > 0 && { filters: JSON.stringify({ minPrice: priceRange[0] }) }),
+});
+const response = await fetch(
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
+  {
+    headers: {
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+  }
+);
+const data = await response.json();
+```
+
+### Fix 2: Remove Duplicate Search Bar from SearchResults
+
+**File:** `src/pages/shop/SearchResults.tsx`
+
+Remove or hide the `<SearchBar />` component since ShopHeader already has one:
+
+```diff
+<div className="pt-24 pb-4 px-4 ...">
+  <div className="container mx-auto space-y-4">
+-   <SearchBar defaultValue={query} onSearch={handleSearch} />
+    
+    <CategoryTabs 
+      activeCategory={category || 'all'} 
+      onCategoryChange={...}
+    />
   </div>
 </div>
 ```
 
----
+### Fix 3: Restructure Header Layout
 
-### 3. Apply i18n to All Shop Components
+**File:** `src/components/shop/ShopHeader.tsx`
 
-**Files to update:**
-- `ShopHeader.tsx` - Use `t.shop.searchPlaceholder`, `t.shop.signIn`, etc.
-- `SearchBar.tsx` - Use `t.shop.searchPlaceholder`, `t.shop.recentSearches`
-- `ShopHome.tsx` - Use `t.shop.heroTitle`, `t.shop.seeAll`, etc.
-- `CategoryTabs.tsx` - Use `t.shop.electronics`, etc.
-- `CartDrawer.tsx` - Use `t.shop.cart`, `t.shop.checkout`
-- `FeaturedCarousel.tsx` - Load real products instead of static data
+Move the search bar to the CENTER/LEFT and push Language/Cart/Account to the far RIGHT:
 
----
-
-### 4. Make FeaturedCarousel Load Real Products
-
-**File: `src/components/shop/FeaturedCarousel.tsx`**
-
-Instead of hardcoded items, fetch from the catalog-search API with premium search terms:
+```text
+NEW LAYOUT:
+┌────────────────────────────────────────────────────────────────────┐
+│  ☰  Logo  [──────────── Search Bar ────────────]   🌐  🛒  👤    │
+└────────────────────────────────────────────────────────────────────┘
+```
 
 ```typescript
-export function FeaturedCarousel() {
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchFeaturedProducts = async () => {
-      // Search for high-value items
-      const featuredQueries = [
-        'iPhone 16 Pro Max',
-        'luxury car Mercedes BMW',
-        'Xbox Series X',
-        'Apple Vision Pro',
-        'MacBook Pro M4',
-        'PlayStation 5'
-      ];
-      
-      try {
-        // Fetch one product per query
-        const results = await Promise.all(
-          featuredQueries.map(query => 
-            supabase.functions.invoke('catalog-search', {
-              body: { query, limit: 1 }
-            })
-          )
-        );
-        
-        // Extract first product from each result
-        const products = results
-          .map(r => r.data?.items?.[0])
-          .filter(Boolean)
-          .map(item => ({
-            id: item.provider_product_id || item.id,
-            provider: item.provider,
-            title: item.title,
-            imageUrl: item.image_url || item.imageUrl,
-            priceUsd: item.price_usd || item.priceUsd,
-            gradient: getGradientForCategory(item.unified_category),
-          }));
-        
-        setFeaturedProducts(products);
-      } catch (err) {
-        console.error('Failed to fetch featured products:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchFeaturedProducts();
-  }, []);
-
-  // Render carousel with REAL product images and titles
-  return (
-    <div className="relative overflow-hidden py-4">
-      <motion.div className="flex gap-4 px-4" animate={{...}}>
-        {featuredProducts.map((product, index) => (
-          <Link 
-            key={`${product.id}-${index}`}
-            to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
-          >
-            <motion.div className={`relative w-64 h-32 rounded-2xl bg-gradient-to-r ${product.gradient}`}>
-              {/* Real product image */}
-              <img 
-                src={product.imageUrl} 
-                alt={product.title}
-                className="absolute right-2 bottom-2 h-24 w-24 object-contain"
-              />
-              
-              {/* Product title */}
-              <div className="relative z-10 p-4">
-                <h3 className="text-lg font-bold text-white">
-                  {product.title?.substring(0, 25)}...
-                </h3>
-                <p className="text-sm text-white/80">
-                  ${product.priceUsd?.toFixed(2)}
-                </p>
-              </div>
-            </motion.div>
-          </Link>
-        ))}
-      </motion.div>
-    </div>
-  );
-}
+<div className="flex items-center gap-2 md:gap-3">
+  {/* LEFT: Menu + Logo */}
+  <Sheet>...</Sheet>
+  <Link to="/shop"><img src={afrishopLogo} ... /></Link>
+  
+  {/* CENTER: Search Bar - Takes most space */}
+  <div className="flex-1 mx-2 md:mx-4">
+    <SearchBar className="w-full" />
+  </div>
+  
+  {/* RIGHT: Language + Cart + Account */}
+  <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+    <LanguageSelector />
+    <CartDrawer />
+    {user ? <ProfileButton /> : <SignInButton />}
+  </div>
+</div>
 ```
 
 ---
@@ -263,44 +140,99 @@ export function FeaturedCarousel() {
 
 | File | Changes |
 |------|---------|
-| `src/lib/i18n/translations.ts` | Add `shop` section with all UI strings for all 4 languages |
-| `src/components/shop/ShopHeader.tsx` | 1) Move Language/Cart/Account to left side, 2) Use i18n translations |
-| `src/components/shop/SearchBar.tsx` | Use `t.shop.searchPlaceholder` and `t.shop.recentSearches` |
-| `src/components/shop/FeaturedCarousel.tsx` | Fetch real products from catalog-search API |
-| `src/pages/shop/ShopHome.tsx` | Use i18n translations for hero text and section labels |
-| `src/components/shop/CategoryTabs.tsx` | Use i18n translations for category names |
-| `src/components/shop/CartDrawer.tsx` | Use i18n translations |
+| `src/pages/shop/SearchResults.tsx` | 1) Fix API call to use GET params, 2) Remove duplicate SearchBar |
+| `src/components/shop/FeaturedCarousel.tsx` | Fix API call to use GET params |
+| `src/components/shop/ShopHeader.tsx` | Restructure layout: Search center, actions on right |
 
 ---
 
-## Translation Keys to Add (Summary)
+## Technical Details
 
-| Key | English | French |
-|-----|---------|--------|
-| `shop.searchPlaceholder` | "Search millions of products..." | "Rechercher des millions de produits..." |
-| `shop.heroTitle` | "Shop the U.S." | "Achetez aux États-Unis" |
-| `shop.heroSubtitle` | "Delivered to Africa" | "Livré en Afrique" |
-| `shop.seeAll` | "See All" | "Voir tout" |
-| `shop.signIn` | "Sign In" | "Connexion" |
-| `shop.cart` | "Cart" | "Panier" |
-| `shop.checkout` | "Checkout" | "Paiement" |
-| `shop.addToCart` | "Add to Cart" | "Ajouter au panier" |
-| `shop.electronics` | "Electronics" | "Électronique" |
-| `shop.vehicles` | "Vehicles" | "Véhicules" |
-| ... | ... | ... |
+### SearchResults.tsx - API Fix
 
----
+Replace lines 42-51:
+```typescript
+const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
+  try {
+    if (pageNum === 1) setLoading(true);
+    else setLoadingMore(true);
 
-## Search i18n (Already Works!)
+    // Build query parameters for GET request
+    const searchQuery = query || category || 'popular';
+    const params = new URLSearchParams({
+      q: searchQuery,
+      limit: '24',
+    });
+    
+    // Add optional parameters
+    if (sort && sort !== 'relevance') {
+      params.set('sort', sort);
+    }
+    
+    // Build filters object if price range is set
+    const filters: Record<string, number> = {};
+    if (priceRange[0] > 0) filters.minPrice = priceRange[0];
+    if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+    if (Object.keys(filters).length > 0) {
+      params.set('filters', JSON.stringify(filters));
+    }
+    
+    // Add cursor for pagination
+    if (pageNum > 1 && cursor) {
+      params.set('cursor', cursor);
+    }
 
-The backend already handles French searches via the `searchRewriter.ts` system. When a user types "téléphone portable samsung" it gets automatically rewritten to "samsung mobile phone" before querying Amazon/eBay. No frontend changes needed for this - it already works.
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
+      {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    
+    if (!response.ok) throw new Error('Search failed');
+    const data = await response.json();
+    
+    // ... rest of the mapping code
+  }
+});
+```
+
+### FeaturedCarousel.tsx - API Fix
+
+Replace lines 42-44:
+```typescript
+const params = new URLSearchParams({
+  q: query,
+  limit: '1',
+});
+const response = await fetch(
+  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
+  {
+    headers: {
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+  }
+);
+if (!response.ok) return null;
+const data = await response.json();
+```
+
+### ShopHeader.tsx - Layout Fix
+
+Restructure the header flexbox to:
+1. Keep Menu + Logo on left
+2. SearchBar in the center with `flex-1` to take available space
+3. Wrap Language/Cart/Account in a right-aligned container with `flex-shrink-0`
 
 ---
 
 ## Expected Result
 
-After these changes:
-1. Header layout matches your reference image (actions on left, search prominent on right)
-2. All shop UI text uses i18n translations and changes when language is selected
-3. Featured carousel shows REAL product images and prices from Amazon/eBay
-4. French users see French UI and their French searches work correctly (already supported by backend)
+After fixes:
+1. **Search works** - Products fetch correctly with GET query parameters
+2. **No duplicate search** - Only one search bar in the header
+3. **Correct layout** - Search bar is prominent, Language/Cart/Account on far right
+4. **Featured carousel loads** - Real products appear in the animated carousel

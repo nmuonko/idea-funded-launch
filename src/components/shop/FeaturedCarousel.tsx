@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 
 interface FeaturedProduct {
   id: string;
@@ -35,15 +34,28 @@ export function FeaturedCarousel() {
       try {
         setLoading(true);
         
-        // Fetch one product per query in parallel
+        // Fetch one product per query in parallel using GET params
         const results = await Promise.all(
           featuredQueries.map(async ({ query, gradient }) => {
             try {
-              const { data, error } = await supabase.functions.invoke('catalog-search', {
-                body: { query, limit: 1, page: 1 }
+              const params = new URLSearchParams({
+                q: query,
+                limit: '1',
               });
               
-              if (error || !data?.items?.[0]) return null;
+              const response = await fetch(
+                `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
+                {
+                  headers: {
+                    'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                  },
+                }
+              );
+              
+              if (!response.ok) return null;
+              const data = await response.json();
+              
+              if (!data?.items?.[0]) return null;
               
               const item = data.items[0];
               return {

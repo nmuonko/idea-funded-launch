@@ -72,7 +72,7 @@ export function ShopHeader() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-4 py-3">
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Left Side: Menu + Logo + Language + Cart + Account */}
+          {/* Left Side: Menu + Logo */}
           
           {/* Hamburger Menu */}
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -172,68 +172,71 @@ export function ShopHeader() {
             <img src={afrishopLogo} alt="AfriShop" className="h-8" />
           </Link>
 
-          {/* Language Selector - After Logo */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full gap-1 px-2"
-              >
-                <Globe className="h-4 w-4" />
-                <span className="text-sm">{currentLanguage.flag}</span>
-                <ChevronDown className="h-3 w-3 hidden sm:block" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="bg-black/95 border-white/10 backdrop-blur-xl">
-              <DropdownMenuLabel className="text-white/60">{shop.selectLanguage}</DropdownMenuLabel>
-              <DropdownMenuSeparator className="bg-white/10" />
-              {languages.map((lang) => (
-                <DropdownMenuItem
-                  key={lang.code}
-                  onClick={() => setLanguage(lang.code)}
-                  className={cn(
-                    "text-white/80 hover:text-white hover:bg-white/10 cursor-pointer",
-                    language === lang.code && "bg-blue-500/20 text-blue-400"
-                  )}
-                >
-                  <span className="mr-2">{lang.flag}</span>
-                  {lang.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* Cart - After Language */}
-          <CartDrawer />
-          
-          {/* Auth - After Cart */}
-          {user ? (
-            <Link to="/profile">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-2"
-              >
-                <User className="h-5 w-5" />
-              </Button>
-            </Link>
-          ) : (
-            <Link to="/auth">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-2"
-              >
-                <LogIn className="h-5 w-5" />
-                <span className="hidden sm:inline ml-1 text-sm">{shop.signIn}</span>
-              </Button>
-            </Link>
-          )}
-
-          {/* Search Bar - Takes remaining space on the RIGHT */}
-          <div className="flex-1 ml-2">
+          {/* Search Bar - CENTER: Takes most space */}
+          <div className="flex-1 mx-2 md:mx-4">
             <SearchBar className="w-full" />
+          </div>
+
+          {/* Right Side: Language + Cart + Account */}
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+            {/* Language Selector */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/70 hover:text-white hover:bg-white/10 rounded-full gap-1 px-2"
+                >
+                  <Globe className="h-4 w-4" />
+                  <span className="text-sm">{currentLanguage.flag}</span>
+                  <ChevronDown className="h-3 w-3 hidden sm:block" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-black/95 border-white/10 backdrop-blur-xl">
+                <DropdownMenuLabel className="text-white/60">{shop.selectLanguage}</DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-white/10" />
+                {languages.map((lang) => (
+                  <DropdownMenuItem
+                    key={lang.code}
+                    onClick={() => setLanguage(lang.code)}
+                    className={cn(
+                      "text-white/80 hover:text-white hover:bg-white/10 cursor-pointer",
+                      language === lang.code && "bg-blue-500/20 text-blue-400"
+                    )}
+                  >
+                    <span className="mr-2">{lang.flag}</span>
+                    {lang.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Cart */}
+            <CartDrawer />
+            
+            {/* Auth */}
+            {user ? (
+              <Link to="/profile">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-2"
+                >
+                  <User className="h-5 w-5" />
+                </Button>
+              </Link>
+            ) : (
+              <Link to="/auth">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-2"
+                >
+                  <LogIn className="h-5 w-5" />
+                  <span className="hidden sm:inline ml-1 text-sm">{shop.signIn}</span>
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </div>

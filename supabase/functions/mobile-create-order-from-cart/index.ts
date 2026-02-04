@@ -223,11 +223,20 @@ serve(async (req) => {
       totalCdf: updatedOrder.total_cdf
     });
 
+    // Extract order item IDs for the checkout step
+    const orderItemIds = existingOrder.order_items.map((item: any) => item.id);
+
     // Return success with order details
+    // Include BOTH camelCase and snake_case for mobile/web compatibility
     return new Response(
       JSON.stringify({
         success: true,
+        // snake_case for web compatibility
+        order_id: updatedOrder.id,
+        order_item_ids: orderItemIds,
+        // camelCase for mobile compatibility
         orderId: updatedOrder.id,
+        orderItemIds: orderItemIds,
         order: {
           id: updatedOrder.id,
           status: updatedOrder.status,

@@ -91,7 +91,7 @@ serve(async (req) => {
     console.log('[mobile-create-order-from-cart] User authenticated:', user.id);
 
     // Get existing DRAFT order with items
-    const { data: existingOrder, error: orderFetchError } = await supabase
+    let { data: existingOrder, error: orderFetchError } = await supabase
       .from('orders')
       .select('*, order_items(*)')
       .eq('user_id', user.id)
@@ -110,6 +110,45 @@ serve(async (req) => {
       );
     }
 
+    // FALLBACK: If no DRAFT order, check for a recent PENDING_PAYMENT order that can be reused
+    // This handles the case where a previous checkout attempt converted DRAFT → PENDING_PAYMENT but payment failed
+    if (!existingOrder) {
+      console.log('[mobile-create-order-from-cart] No draft order found, checking for recent PENDING_PAYMENT...');
+      
+      const { data: pendingOrder, error: pendingFetchError } = await supabase
+        .from('orders')
+        .select('*, order_items(*)')
+        .eq('user_id', user.id)
+        .eq('status', 'PENDING_PAYMENT')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (pendingFetchError) {
+        console.error('[mobile-create-order-from-cart] Error fetching pending order:', pendingFetchError);
+      }
+
+      if (pendingOrder && pendingOrder.order_items && pendingOrder.order_items.length > 0) {
+        // Check if this PENDING_PAYMENT order is recent (within last 30 minutes) - it can be reused
+        const updatedAt = new Date(pendingOrder.updated_at);
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+        
+        if (updatedAt > thirtyMinutesAgo) {
+          console.log('[mobile-create-order-from-cart] Reusing recent PENDING_PAYMENT order:', {
+            orderId: pendingOrder.id,
+            itemCount: pendingOrder.order_items.length,
+            updatedAt: pendingOrder.updated_at
+          });
+          existingOrder = pendingOrder;
+        } else {
+          console.log('[mobile-create-order-from-cart] PENDING_PAYMENT order too old, not reusing:', {
+            orderId: pendingOrder.id,
+            updatedAt: pendingOrder.updated_at
+          });
+        }
+      }
+    }
+
     if (!existingOrder) {
       console.log('[mobile-create-order-from-cart] No draft order found');
       return new Response(
@@ -122,7 +161,7 @@ serve(async (req) => {
     }
 
     if (!existingOrder.order_items || existingOrder.order_items.length === 0) {
-      console.log('[mobile-create-order-from-cart] Draft order has no items');
+      console.log('[mobile-create-order-from-cart] Order has no items');
       return new Response(
         JSON.stringify({ 
           error: 'EMPTY_CART', 

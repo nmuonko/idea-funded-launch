@@ -60,6 +60,8 @@ export default function AdminOrders() {
   const [dateTo, setDateTo] = useState<Date | undefined>(undefined);
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false);
 
   // Filter orders based on search query and date range
   const filteredOrders = useMemo(() => {
@@ -571,6 +573,63 @@ export default function AdminOrders() {
     }
   };
 
+  // Bulk delete selected orders
+  const handleBulkDelete = async () => {
+    if (selectedOrders.size === 0) return;
+    
+    try {
+      setBulkDeleteLoading(true);
+      const orderIds = Array.from(selectedOrders);
+      let successCount = 0;
+      let failCount = 0;
+      
+      for (const orderId of orderIds) {
+        try {
+          const { error } = await supabase.functions.invoke('admin-delete-order', {
+            body: { orderId }
+          });
+          
+          if (error) {
+            failCount++;
+            console.error(`Failed to delete order ${orderId}:`, error);
+          } else {
+            successCount++;
+          }
+        } catch (err) {
+          failCount++;
+          console.error(`Failed to delete order ${orderId}:`, err);
+        }
+      }
+
+      if (successCount > 0) {
+        toast({
+          title: 'Orders Deleted',
+          description: failCount > 0 
+            ? `Deleted ${successCount} order(s). ${failCount} failed.`
+            : `Successfully deleted ${successCount} order(s)`,
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to delete any orders',
+          variant: 'destructive',
+        });
+      }
+
+      setBulkDeleteDialogOpen(false);
+      setSelectedOrders(new Set());
+      loadOrders();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete orders',
+        variant: 'destructive',
+      });
+    } finally {
+      setBulkDeleteLoading(false);
+    }
+  };
+
   // Count paid orders in selection
   const paidStatuses = ['PAID', 'PROCESSING', 'SHIPPED', 'READY_FOR_PICKUP', 'COMPLETED'];
   const selectedPaidCount = filteredOrders.filter(o => 
@@ -786,6 +845,15 @@ export default function AdminOrders() {
                 >
                   <Mail className="h-3 w-3 mr-1" />
                   Email
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm"
+                  className="h-8"
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-3 w-3 mr-1" />
+                  Delete ({selectedOrders.size})
                 </Button>
               </div>
             )}
@@ -1005,6 +1073,36 @@ export default function AdminOrders() {
               </>
             ) : (
               'Delete Order'
+            )}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Bulk Delete Confirmation Dialog */}
+    <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {selectedOrders.size} Order(s)</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to permanently delete {selectedOrders.size} selected order(s)? 
+            This action cannot be undone. All associated data (items, payments, shipping info) will also be deleted.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={bulkDeleteLoading}>Cancel</AlertDialogCancel>
+          <AlertDialogAction 
+            onClick={handleBulkDelete}
+            disabled={bulkDeleteLoading}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            {bulkDeleteLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              `Delete ${selectedOrders.size} Order(s)`
             )}
           </AlertDialogAction>
         </AlertDialogFooter>

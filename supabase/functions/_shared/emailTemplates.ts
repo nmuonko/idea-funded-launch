@@ -457,7 +457,12 @@ export function buildAdminNotificationEmail(params: {
 }
 
 /**
- * Order assistance email - personalized bilingual email for incomplete orders
+ * Supported languages for assistance emails
+ */
+export type AssistanceEmailLanguage = 'en' | 'fr' | 'sw' | 'ln' | 'en_sw';
+
+/**
+ * Order assistance email - personalized email for incomplete orders with language selection
  */
 export function buildOrderAssistanceEmail(params: {
   customerName: string;
@@ -465,61 +470,125 @@ export function buildOrderAssistanceEmail(params: {
   itemCount: number;
   totalUsd: number;
   frontendBaseUrl?: string;
+  language?: AssistanceEmailLanguage;
 }): EmailTemplate {
-  const { customerName, orderId, itemCount, totalUsd, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
+  const { customerName, orderId, itemCount, totalUsd, frontendBaseUrl = 'https://afrishop-usa.com', language = 'fr' } = params;
   const firstName = customerName.split(' ')[0] || customerName;
 
+  // Language-specific content
+  const content: Record<AssistanceEmailLanguage, {
+    subject: string;
+    greeting: string;
+    intro: string;
+    help: string;
+    orderLabel: string;
+    itemsLabel: string;
+    contactLabel: string;
+    ctaText: string;
+  }> = {
+    en: {
+      subject: `🛒 ${firstName}, need help completing your order?`,
+      greeting: `Hello ${firstName},`,
+      intro: `We noticed you started an order on AfriShop but haven't completed it yet.`,
+      help: `Did you run into any issues or have questions? Our team is here to help!`,
+      orderLabel: `Your order:`,
+      itemsLabel: `item(s)`,
+      contactLabel: `Contact us:`,
+      ctaText: `Complete My Order`,
+    },
+    fr: {
+      subject: `🛒 ${firstName}, avez-vous besoin d'aide?`,
+      greeting: `Bonjour ${firstName},`,
+      intro: `Nous avons remarqué que vous avez commencé une commande sur AfriShop mais ne l'avez pas encore finalisée.`,
+      help: `Avez-vous rencontré des difficultés ou avez-vous des questions? Notre équipe est là pour vous aider !`,
+      orderLabel: `Votre commande:`,
+      itemsLabel: `article(s)`,
+      contactLabel: `Contactez-nous:`,
+      ctaText: `Finaliser Ma Commande`,
+    },
+    sw: {
+      subject: `🛒 ${firstName}, unahitaji msaada kukamilisha oda yako?`,
+      greeting: `Habari ${firstName},`,
+      intro: `Tumeona ulianza oda kwenye AfriShop lakini bado hujakamilisha.`,
+      help: `Je, umekumbana na matatizo yoyote au una maswali? Timu yetu iko hapa kukusaidia!`,
+      orderLabel: `Oda yako:`,
+      itemsLabel: `bidhaa`,
+      contactLabel: `Wasiliana nasi:`,
+      ctaText: `Kamilisha Oda Yangu`,
+    },
+    ln: {
+      subject: `🛒 ${firstName}, osengeli lisalisi pona kosilisa commande na yo?`,
+      greeting: `Mbote ${firstName},`,
+      intro: `Tomonaki obandaki commande na AfriShop kasi osilisaki yango te.`,
+      help: `Ozali na mikakatano to mituna? Équipe na biso ezali awa pona kosalisa yo!`,
+      orderLabel: `Commande na yo:`,
+      itemsLabel: `biloko`,
+      contactLabel: `Benga biso:`,
+      ctaText: `Kosilisa Commande Na Ngai`,
+    },
+    en_sw: {
+      subject: `🛒 ${firstName}, need help? / Unahitaji msaada?`,
+      greeting: `Hello / Habari ${firstName},`,
+      intro: `We noticed you started an order on AfriShop but haven't completed it yet. / Tumeona ulianza oda kwenye AfriShop lakini bado hujakamilisha.`,
+      help: `Did you run into any issues? Our team is here to help! / Je, umekumbana na matatizo? Timu yetu iko hapa kukusaidia!`,
+      orderLabel: `Your order / Oda yako:`,
+      itemsLabel: `item(s) / bidhaa`,
+      contactLabel: `Contact us / Wasiliana nasi:`,
+      ctaText: `Complete Order / Kamilisha Oda`,
+    },
+  };
+
+  const c = content[language] || content.fr;
+
+  // Build single-language or combined section
+  const buildSection = (lang: AssistanceEmailLanguage) => {
+    const t = content[lang];
+    return `
+      <div>
+        <p style="font-size: 18px; margin-bottom: 15px;"><strong>${t.greeting}</strong></p>
+        <p>${t.intro}</p>
+        <p>${t.help}</p>
+        
+        <div style="background: #eff6ff; padding: 15px; border-radius: 8px; border-left: 4px solid #2563eb; margin: 20px 0;">
+          <p style="margin: 5px 0;"><strong>${t.orderLabel}</strong></p>
+          <p style="margin: 5px 0;">• ${itemCount} ${t.itemsLabel} • Total: $${totalUsd.toFixed(2)} USD</p>
+        </div>
+
+        <p><strong>${t.contactLabel}</strong></p>
+        <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/14242174633" style="color: #2563eb;">+1 (424) 217-4633</a></p>
+        <p style="margin: 5px 0;">📧 Email: <a href="mailto:nkadimisha@afrishop-usa.com" style="color: #2563eb;">nkadimisha@afrishop-usa.com</a></p>
+        
+        <p style="margin-top: 20px;">
+          <a href="${frontendBaseUrl}/orders" style="${buttonStyle}">
+            ${t.ctaText}
+          </a>
+        </p>
+      </div>
+    `;
+  };
+
+  // Build email body based on language selection
+  let bodyContent: string;
+  if (language === 'en_sw') {
+    // Combined English + Swahili
+    bodyContent = `
+      ${buildSection('en')}
+      <hr style="margin: 30px 0; border: none; border-top: 2px solid #e5e7eb;" />
+      ${buildSection('sw')}
+    `;
+  } else {
+    bodyContent = buildSection(language);
+  }
+
   return {
-    subject: `🛒 ${firstName}, avez-vous besoin d'aide? / Need help completing your order?`,
+    subject: c.subject,
     html: `
       <div style="max-width: 600px; margin: 0 auto; ${baseStyles}">
         <div style="${headerStyle}">
           <h1 style="color: white; margin: 0;">🤝 We're Here to Help!</h1>
         </div>
         <div style="padding: 30px; background: #f9fafb;">
-          <!-- French Section -->
-          <div style="margin-bottom: 30px; padding-bottom: 30px; border-bottom: 2px solid #e5e7eb;">
-            <p style="font-size: 18px; margin-bottom: 15px;"><strong>Bonjour ${firstName},</strong></p>
-            <p>Nous avons remarqué que vous avez commencé une commande sur AfriShop mais ne l'avez pas encore finalisée.</p>
-            <p>Avez-vous rencontré des difficultés ou avez-vous des questions? Notre équipe est là pour vous aider !</p>
-            
-            <div style="background: #eff6ff; padding: 15px; border-radius: 8px; border-left: 4px solid #2563eb; margin: 20px 0;">
-              <p style="margin: 5px 0;"><strong>Votre commande:</strong></p>
-              <p style="margin: 5px 0;">• ${itemCount} article(s) • Total: $${totalUsd.toFixed(2)} USD</p>
-            </div>
-
-            <p><strong>Contactez-nous:</strong></p>
-            <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/14242174633" style="color: #2563eb;">+1 (424) 217-4633</a></p>
-            <p style="margin: 5px 0;">📧 Email: <a href="mailto:nkadimisha@afrishop-usa.com" style="color: #2563eb;">nkadimisha@afrishop-usa.com</a></p>
-            
-            <p style="margin-top: 20px;">
-              <a href="${frontendBaseUrl}/orders" style="${buttonStyle}">
-                Finaliser Ma Commande
-              </a>
-            </p>
-          </div>
-
-          <!-- English Section -->
-          <div>
-            <p style="font-size: 18px; margin-bottom: 15px;"><strong>Hello ${firstName},</strong></p>
-            <p>We noticed you started an order on AfriShop but haven't completed it yet.</p>
-            <p>Did you run into any issues or have questions? Our team is here to help!</p>
-            
-            <div style="background: #eff6ff; padding: 15px; border-radius: 8px; border-left: 4px solid #2563eb; margin: 20px 0;">
-              <p style="margin: 5px 0;"><strong>Your order:</strong></p>
-              <p style="margin: 5px 0;">• ${itemCount} item(s) • Total: $${totalUsd.toFixed(2)} USD</p>
-            </div>
-
-            <p><strong>Contact us:</strong></p>
-            <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/14242174633" style="color: #2563eb;">+1 (424) 217-4633</a></p>
-            <p style="margin: 5px 0;">📧 Email: <a href="mailto:nkadimisha@afrishop-usa.com" style="color: #2563eb;">nkadimisha@afrishop-usa.com</a></p>
-            
-            <p style="margin-top: 20px;">
-              <a href="${frontendBaseUrl}/orders" style="${buttonStyle}">
-                Complete My Order
-              </a>
-            </p>
-          </div>
+          ${bodyContent}
         </div>
         <div style="${footerStyle}">
           <p style="margin: 0;">© ${new Date().getFullYear()} AfriShop USA. All rights reserved.</p>

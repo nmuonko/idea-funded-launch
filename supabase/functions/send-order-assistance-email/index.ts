@@ -1,11 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendEmail, ADMIN_EMAIL } from "../_shared/email.ts";
-import { buildOrderAssistanceEmail } from "../_shared/emailTemplates.ts";
+import { buildOrderAssistanceEmail, AssistanceEmailLanguage } from "../_shared/emailTemplates.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+const VALID_LANGUAGES: AssistanceEmailLanguage[] = ['en', 'fr', 'sw', 'ln', 'en_sw'];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -55,7 +57,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { orderId } = await req.json();
+    const { orderId, language = 'fr' } = await req.json();
 
     if (!orderId) {
       return new Response(JSON.stringify({ error: "orderId is required" }), {
@@ -63,6 +65,11 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Validate language parameter
+    const validatedLanguage: AssistanceEmailLanguage = VALID_LANGUAGES.includes(language as AssistanceEmailLanguage) 
+      ? (language as AssistanceEmailLanguage) 
+      : 'fr';
 
     // Fetch order with profile using service role for full access
     const serviceClient = createClient(
@@ -119,13 +126,14 @@ Deno.serve(async (req) => {
     // Get frontend base URL
     const frontendBaseUrl = Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com";
 
-    // Build and send email
+    // Build and send email with language
     const emailTemplate = buildOrderAssistanceEmail({
       customerName,
       orderId,
       itemCount: itemCount || 0,
       totalUsd: Number(order.total_usd || 0),
       frontendBaseUrl,
+      language: validatedLanguage,
     });
 
     const emailResult = await sendEmail({
@@ -154,12 +162,13 @@ Deno.serve(async (req) => {
       status: "sent",
     });
 
-    console.log(`[send-order-assistance-email] Email sent to ${customerEmail} for order ${orderId}`);
+    console.log(`[send-order-assistance-email] Email sent in ${validatedLanguage} to ${customerEmail} for order ${orderId}`);
 
     return new Response(
       JSON.stringify({
         success: true,
         message: `Assistance email sent to ${customerEmail}`,
+        language: validatedLanguage,
         emailId: emailResult.id,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

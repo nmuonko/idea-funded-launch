@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
+import { ShopCartProvider } from "@/contexts/ShopCartContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
@@ -79,14 +80,21 @@ import Coverage from "./pages/Coverage";
 import DeleteAccount from "./pages/DeleteAccount";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
+// Shop pages
+import ShopHome from "./pages/shop/ShopHome";
+import SearchResults from "./pages/shop/SearchResults";
+import ProductDetails from "./pages/shop/ProductDetails";
+import ShopCart from "./pages/shop/ShopCart";
+import Checkout from "./pages/shop/Checkout";
+
 const queryClient = new QueryClient();
 
 const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact'];
-    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment'));
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/shop'];
+    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/shop'));
   });
 
   return (
@@ -95,9 +103,10 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <LanguageProvider>
           <AuthProvider>
-            <TooltipProvider>
-              <LanguagePreferenceModal />
-              <Toaster />
+            <ShopCartProvider>
+              <TooltipProvider>
+                <LanguagePreferenceModal />
+                <Toaster />
               <Sonner />
               <BrowserRouter>
           <Routes>
@@ -114,6 +123,18 @@ const App = () => {
             <Route path="/delete-account" element={<DeleteAccount />} />
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/cars" element={<Cars />} />
+            
+            {/* Shop Routes */}
+            <Route path="/shop" element={<ShopHome />} />
+            <Route path="/shop/search" element={<SearchResults />} />
+            <Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
+            <Route path="/shop/cart" element={<ShopCart />} />
+            <Route path="/shop/checkout" element={
+              <ProtectedRoute>
+                <Checkout />
+              </ProtectedRoute>
+            } />
+            
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
@@ -308,7 +329,8 @@ const App = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
               </BrowserRouter>
-            </TooltipProvider>
+              </TooltipProvider>
+            </ShopCartProvider>
           </AuthProvider>
         </LanguageProvider>
       </QueryClientProvider>

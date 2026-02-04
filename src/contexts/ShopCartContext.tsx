@@ -170,13 +170,24 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         // Build productUrl if not provided - construct from provider and productId
         let productUrl = item.productUrl;
         if (!productUrl && item.productId) {
+          // Extract clean product ID (remove provider prefix if present)
+          let cleanId = item.productId;
+          const lowerCleanId = cleanId.toLowerCase();
+          
+          if (lowerCleanId.startsWith('amazon_')) {
+            cleanId = cleanId.slice(7);
+          } else if (lowerCleanId.startsWith('rainforest_')) {
+            cleanId = cleanId.slice(11);
+          } else if (lowerCleanId.startsWith('ebay_')) {
+            cleanId = cleanId.slice(5);
+          }
+          
+          // Build URL using allowed domain based on provider
           if (item.provider === 'ebay') {
-            productUrl = `https://www.ebay.com/itm/${item.productId}`;
-          } else if (item.provider === 'amazon') {
-            productUrl = `https://www.amazon.com/dp/${item.productId}`;
+            productUrl = `https://www.ebay.com/itm/${cleanId}`;
           } else {
-            // Fallback: use a placeholder that includes the product info
-            productUrl = `https://afrishop.com/product/${item.provider}/${item.productId}`;
+            // Default to Amazon for rainforest/amazon/other providers
+            productUrl = `https://www.amazon.com/dp/${cleanId}`;
           }
         }
 

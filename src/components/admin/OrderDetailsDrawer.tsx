@@ -349,6 +349,44 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                 <div>
                   <h3 className="text-sm font-semibold mb-3">Admin Actions</h3>
                   <div className="space-y-3">
+                    {/* Need Help button - prominently displayed at top for incomplete orders */}
+                    {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            disabled={sendingAssistanceEmail}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                          >
+                            {sendingAssistanceEmail ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <HelpCircle className="h-4 w-4 mr-2" />
+                            )}
+                            Need Help? Send Assistance Email
+                            <ChevronDown className="h-4 w-4 ml-2" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" className="bg-background w-56">
+                          <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en')}>
+                            🇬🇧 Send in English
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendAssistanceEmail('fr')}>
+                            🇫🇷 Send in French
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendAssistanceEmail('sw')}>
+                            🇹🇿 Send in Swahili
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleSendAssistanceEmail('ln')}>
+                            🇨🇩 Send in Lingala
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en_sw')}>
+                            🇬🇧+🇹🇿 English + Swahili
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    
                     <Textarea
                       placeholder="Add a message or note..."
                       value={actionMessage}
@@ -372,45 +410,6 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                         <Mail className="h-4 w-4 mr-2" />
                         Send Email
                       </Button>
-                      
-                      {/* Need Help dropdown for incomplete orders */}
-                      {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              disabled={sendingAssistanceEmail}
-                              variant="outline"
-                              className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
-                            >
-                              {sendingAssistanceEmail ? (
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              ) : (
-                                <HelpCircle className="h-4 w-4 mr-2" />
-                              )}
-                              Need Help?
-                              <ChevronDown className="h-4 w-4 ml-1" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-background">
-                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en')}>
-                              🇬🇧 Send in English
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('fr')}>
-                              🇫🇷 Send in French
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('sw')}>
-                              🇹🇿 Send in Swahili
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('ln')}>
-                              🇨🇩 Send in Lingala
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en_sw')}>
-                              🇬🇧+🇹🇿 English + Swahili
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
                       
                       {order.status !== 'COMPLETED' && (
                         <Button

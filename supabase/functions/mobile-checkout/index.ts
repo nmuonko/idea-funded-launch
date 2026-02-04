@@ -882,19 +882,24 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .maybeSingle();
 
+    // P0 FIX: Accept both DRAFT and PENDING_PAYMENT status orders
+    // Web flow: mobile-create-order-from-cart runs first and sets status to PENDING_PAYMENT
+    // Mobile flow: may still have DRAFT status
     const orderPromise = providedCartId
       ? supabase
           .from('orders')
           .select('id, cart_version')
           .eq('id', providedCartId)
           .eq('user_id', user.id)
-          .eq('status', 'DRAFT')
+          .in('status', ['DRAFT', 'PENDING_PAYMENT'])
           .maybeSingle()
       : supabase
           .from('orders')
           .select('id, cart_version')
           .eq('user_id', user.id)
-          .eq('status', 'DRAFT')
+          .in('status', ['DRAFT', 'PENDING_PAYMENT'])
+          .order('updated_at', { ascending: false })
+          .limit(1)
           .maybeSingle();
 
     const settingsPromise = getCachedSettings(supabase);

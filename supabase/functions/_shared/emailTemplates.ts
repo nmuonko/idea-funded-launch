@@ -506,7 +506,7 @@ export function buildOrderAssistanceEmail(params: {
     orderLabel: string;
     itemsLabel: string;
     contactLabel: string;
-    ctaText: string;
+    appInstruction: string;
   }> = {
     en: {
       subject: `🛒 ${firstName}, need help completing your order?`,
@@ -516,7 +516,7 @@ export function buildOrderAssistanceEmail(params: {
       orderLabel: `Your order:`,
       itemsLabel: `item(s)`,
       contactLabel: `Contact us:`,
-      ctaText: `Complete My Order`,
+      appInstruction: `Open the <strong>AfriShop</strong> app on your phone to complete your order.`,
     },
     fr: {
       subject: `🛒 ${firstName}, avez-vous besoin d'aide?`,
@@ -526,7 +526,7 @@ export function buildOrderAssistanceEmail(params: {
       orderLabel: `Votre commande:`,
       itemsLabel: `article(s)`,
       contactLabel: `Contactez-nous:`,
-      ctaText: `Finaliser Ma Commande`,
+      appInstruction: `Ouvrez l'application <strong>AfriShop</strong> sur votre téléphone pour finaliser votre commande.`,
     },
     sw: {
       subject: `🛒 ${firstName}, unahitaji msaada kukamilisha oda yako?`,
@@ -536,7 +536,7 @@ export function buildOrderAssistanceEmail(params: {
       orderLabel: `Oda yako:`,
       itemsLabel: `bidhaa`,
       contactLabel: `Wasiliana nasi:`,
-      ctaText: `Kamilisha Oda Yangu`,
+      appInstruction: `Fungua programu ya <strong>AfriShop</strong> kwenye simu yako ili ukamilishe oda yako.`,
     },
     ln: {
       subject: `🛒 ${firstName}, osengeli lisalisi pona kosilisa commande na yo?`,
@@ -546,7 +546,7 @@ export function buildOrderAssistanceEmail(params: {
       orderLabel: `Commande na yo:`,
       itemsLabel: `biloko`,
       contactLabel: `Benga biso:`,
-      ctaText: `Kosilisa Commande Na Ngai`,
+      appInstruction: `Fungolá application <strong>AfriShop</strong> na téléphone na yo pona kosilisa commande na yo.`,
     },
     en_sw: {
       subject: `🛒 ${firstName}, need help? / Unahitaji msaada?`,
@@ -556,7 +556,7 @@ export function buildOrderAssistanceEmail(params: {
       orderLabel: `Your order / Oda yako:`,
       itemsLabel: `item(s) / bidhaa`,
       contactLabel: `Contact us / Wasiliana nasi:`,
-      ctaText: `Complete Order / Kamilisha Oda`,
+      appInstruction: `Open the <strong>AfriShop</strong> app on your phone to complete your order. / Fungua programu ya <strong>AfriShop</strong> kwenye simu yako ili ukamilishe oda yako.`,
     },
   };
 
@@ -580,11 +580,11 @@ export function buildOrderAssistanceEmail(params: {
         <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/${whatsappLink}" style="color: #2563eb;">${whatsappDisplay}</a></p>
         <p style="margin: 5px 0;">📧 Email: <a href="mailto:${supportEmail}" style="color: #2563eb;">${supportEmail}</a></p>
         
-        <p style="margin-top: 20px;">
-          <a href="${frontendBaseUrl}/orders" style="${buttonStyle}">
-            ${t.ctaText}
-          </a>
-        </p>
+        <div style="background: #fef3c7; padding: 15px; border-radius: 8px; margin-top: 20px; text-align: center;">
+          <p style="margin: 0; font-size: 16px;">
+            📲 ${t.appInstruction}
+          </p>
+        </div>
       </div>
     `;
   };

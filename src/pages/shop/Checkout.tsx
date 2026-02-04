@@ -123,33 +123,61 @@ export default function Checkout() {
         .eq('user_id', user?.id);
 
       // Step 1: Create/update DRAFT order from cart items
+      console.log('[WEB_CHECKOUT] Step 1: Creating order from cart...');
       const { data: orderData, error: orderError } = await supabase.functions.invoke(
         'mobile-create-order-from-cart'
       );
 
+      console.log('[WEB_CHECKOUT] Order response:', { orderData, orderError });
+
       if (orderError) {
-        console.error('Order creation error:', orderError);
-        throw new Error('Failed to prepare your order. Please try again.');
+        console.error('[WEB_CHECKOUT] Order creation error:', orderError);
+        // Surface the actual error from backend if available
+        const errorMsg = orderError.message || orderData?.message || 'Failed to prepare your order.';
+        throw new Error(errorMsg);
       }
 
-      if (!orderData?.order_id || !orderData?.order_item_ids) {
-        throw new Error('Failed to create order. Please try again.');
+      // Check for error in response body (some errors return 200 with error object)
+      if (orderData?.error) {
+        console.error('[WEB_CHECKOUT] Order response error:', orderData);
+        throw new Error(orderData.message || orderData.error || 'Failed to prepare your order.');
       }
 
-      console.log('Order created:', orderData.order_id, 'items:', orderData.order_item_ids.length);
+      // Support both snake_case and camelCase response formats
+      const orderId = orderData?.order_id || orderData?.orderId;
+      const orderItemIds = orderData?.order_item_ids || orderData?.orderItemIds;
+
+      if (!orderId || !orderItemIds) {
+        console.error('[WEB_CHECKOUT] Missing order data:', orderData);
+        throw new Error('Failed to create order. Please ensure your cart has items.');
+      }
+
+      console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length);
 
       // Step 2: Proceed to checkout with order item IDs
+      console.log('[WEB_CHECKOUT] Step 2: Starting checkout...');
       const { data, error } = await supabase.functions.invoke('mobile-checkout', {
         body: {
-          cart_item_ids: orderData.order_item_ids,
-          cart_id: orderData.order_id,
+          cart_item_ids: orderItemIds,
+          cart_id: orderId,
           payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
                                       paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
                                       'MOBILE_MONEY',
         },
       });
 
-      if (error) throw error;
+      console.log('[WEB_CHECKOUT] Checkout response:', { data, error });
+
+      if (error) {
+        console.error('[WEB_CHECKOUT] Checkout error:', error);
+        throw new Error(error.message || 'Checkout failed');
+      }
+
+      // Check for error in response body
+      if (data?.error) {
+        console.error('[WEB_CHECKOUT] Checkout response error:', data);
+        throw new Error(data.message || data.error || 'Checkout failed');
+      }
 
       // Handle different payment flows
       if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
@@ -168,7 +196,7 @@ export default function Checkout() {
         navigate(`/orders/${data.order_id}`);
       }
     } catch (error: any) {
-      console.error('Checkout error:', error);
+      console.error('[WEB_CHECKOUT] Error:', error);
       toast({
         title: 'Checkout Failed',
         description: error.message || 'Failed to process your order',

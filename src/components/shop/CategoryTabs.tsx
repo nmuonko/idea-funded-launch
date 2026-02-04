@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Smartphone, Car, Gamepad2, Shirt, Home, Sparkles, Watch, Dumbbell, Cpu, Package } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
 interface CategoryTab {
@@ -10,19 +12,6 @@ interface CategoryTab {
   title: string;
   icon: React.ReactNode;
 }
-
-const defaultTabs: CategoryTab[] = [
-  { key: 'all', title: 'All', icon: <Package className="h-4 w-4" /> },
-  { key: 'phones', title: 'Phones', icon: <Smartphone className="h-4 w-4" /> },
-  { key: 'vehicles', title: 'Vehicles', icon: <Car className="h-4 w-4" /> },
-  { key: 'gaming', title: 'Gaming', icon: <Gamepad2 className="h-4 w-4" /> },
-  { key: 'fashion', title: 'Fashion', icon: <Shirt className="h-4 w-4" /> },
-  { key: 'home', title: 'Home', icon: <Home className="h-4 w-4" /> },
-  { key: 'beauty', title: 'Beauty', icon: <Sparkles className="h-4 w-4" /> },
-  { key: 'watches', title: 'Watches', icon: <Watch className="h-4 w-4" /> },
-  { key: 'fitness', title: 'Fitness', icon: <Dumbbell className="h-4 w-4" /> },
-  { key: 'electronics', title: 'Electronics', icon: <Cpu className="h-4 w-4" /> },
-];
 
 interface CategoryTabsProps {
   activeCategory?: string;
@@ -33,10 +22,33 @@ interface CategoryTabsProps {
 export function CategoryTabs({ activeCategory, onCategoryChange, className }: CategoryTabsProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [tabs, setTabs] = useState<CategoryTab[]>(defaultTabs);
+  const { language } = useLanguage();
+  const [tabs, setTabs] = useState<CategoryTab[]>([]);
   const currentCategory = activeCategory || searchParams.get('category') || 'all';
 
-  // Fetch categories from backend
+  const t = translations[language] || translations.en;
+  const shop = t.shop;
+
+  // Build default tabs with i18n
+  const getDefaultTabs = (): CategoryTab[] => [
+    { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
+    { key: 'phones', title: shop.phones, icon: <Smartphone className="h-4 w-4" /> },
+    { key: 'vehicles', title: shop.vehicles, icon: <Car className="h-4 w-4" /> },
+    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'fashion', title: shop.fashion, icon: <Shirt className="h-4 w-4" /> },
+    { key: 'home', title: shop.home, icon: <Home className="h-4 w-4" /> },
+    { key: 'beauty', title: shop.beauty, icon: <Sparkles className="h-4 w-4" /> },
+    { key: 'watches', title: shop.watches, icon: <Watch className="h-4 w-4" /> },
+    { key: 'fitness', title: shop.fitness, icon: <Dumbbell className="h-4 w-4" /> },
+    { key: 'electronics', title: shop.electronics, icon: <Cpu className="h-4 w-4" /> },
+  ];
+
+  // Update tabs when language changes
+  useEffect(() => {
+    setTabs(getDefaultTabs());
+  }, [language]);
+
+  // Fetch categories from backend (optional enhancement)
   useEffect(() => {
     const fetchTabs = async () => {
       try {
@@ -54,11 +66,14 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             electronics: <Cpu className="h-4 w-4" />,
           };
           
+          // Get localized title based on language
           const mappedTabs: CategoryTab[] = [
-            { key: 'all', title: 'All', icon: <Package className="h-4 w-4" /> },
+            { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
             ...data.tabs.map((tab: any) => ({
               key: tab.key,
-              title: tab.title_en || tab.title,
+              title: language === 'fr' && tab.title_fr ? tab.title_fr :
+                     language === 'en' && tab.title_en ? tab.title_en :
+                     tab.title_en || tab.title,
               icon: iconMap[tab.key] || <Package className="h-4 w-4" />,
             })),
           ];
@@ -66,11 +81,12 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
         }
       } catch (error) {
         console.error('Failed to fetch category tabs:', error);
+        // Keep default tabs on error
       }
     };
     
     fetchTabs();
-  }, []);
+  }, [language]);
 
   const handleTabClick = (category: string) => {
     if (onCategoryChange) {

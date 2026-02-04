@@ -9,6 +9,8 @@ import { FeaturedCarousel } from '@/components/shop/FeaturedCarousel';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 interface HomeSection {
   key: string;
@@ -18,9 +20,13 @@ interface HomeSection {
 }
 
 export default function ShopHome() {
+  const { language } = useLanguage();
   const [sections, setSections] = useState<HomeSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const t = translations[language] || translations.en;
+  const shop = t.shop;
 
   useEffect(() => {
     const fetchHomeSections = async () => {
@@ -72,9 +78,9 @@ export default function ShopHome() {
             animate={{ opacity: 1, y: 0 }}
             className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3"
           >
-            Shop the U.S.
+            {shop.heroTitle}
             <span className="block bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent">
-              Delivered to Africa
+              {shop.heroSubtitle}
             </span>
           </motion.h1>
           
@@ -84,12 +90,12 @@ export default function ShopHome() {
             transition={{ delay: 0.1 }}
             className="text-base md:text-lg text-white/60"
           >
-            Browse millions of products from Amazon & eBay
+            {shop.heroDescription}
           </motion.p>
         </div>
       </section>
 
-      {/* Featured Carousel - Animated scrolling products */}
+      {/* Featured Carousel - Animated scrolling products with real data */}
       <motion.section
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -121,12 +127,12 @@ export default function ShopHome() {
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10"
               >
-                Try Again
+                {shop.tryAgain}
               </Button>
             </div>
           ) : sections.length === 0 ? (
             <div className="text-center py-20">
-              <p className="text-white/60">No products available at the moment</p>
+              <p className="text-white/60">{shop.noProducts}</p>
             </div>
           ) : (
             sections.map((section, index) => (
@@ -145,7 +151,7 @@ export default function ShopHome() {
                     to={`/shop/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}`}
                     className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
                   >
-                    See All
+                    {shop.seeAll}
                     <ChevronRight className="h-4 w-4" />
                   </Link>
                 </div>
@@ -162,14 +168,14 @@ export default function ShopHome() {
       <section className="py-12 px-4 border-t border-white/10">
         <div className="container mx-auto text-center">
           <h2 className="text-xl font-bold text-white mb-3">
-            Don't see what you're looking for?
+            {shop.dontSeeWhatYoureLookingFor}
           </h2>
           <p className="text-white/60 mb-5 text-sm">
-            Search for any product from Amazon or eBay
+            {shop.searchAnyProduct}
           </p>
           <Link to="/shop/search">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
-              Search Products
+              {shop.searchProducts}
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           </Link>

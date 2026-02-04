@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
-import { ShoppingCart, X, Plus, Minus, Trash2, Loader2 } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, Loader2 } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
 interface CartDrawerProps {
@@ -13,6 +15,10 @@ interface CartDrawerProps {
 
 export function CartDrawer({ className }: CartDrawerProps) {
   const { items, itemCount, totalUsd, loading, updateQuantity, removeItem } = useShopCart();
+  const { language } = useLanguage();
+  
+  const t = translations[language] || translations.en;
+  const shop = t.shop;
 
   return (
     <Sheet>
@@ -40,10 +46,10 @@ export function CartDrawer({ className }: CartDrawerProps) {
         <SheetHeader>
           <SheetTitle className="text-white flex items-center gap-2">
             <ShoppingCart className="h-5 w-5" />
-            Your Cart
+            {shop.yourCart}
             {itemCount > 0 && (
               <Badge variant="secondary" className="bg-white/10 text-white/70">
-                {itemCount} item{itemCount !== 1 ? 's' : ''}
+                {itemCount} {itemCount === 1 ? shop.item : shop.items}
               </Badge>
             )}
           </SheetTitle>
@@ -56,10 +62,10 @@ export function CartDrawer({ className }: CartDrawerProps) {
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <ShoppingCart className="h-16 w-16 text-white/20 mb-4" />
-            <p className="text-white/60 mb-4">Your cart is empty</p>
+            <p className="text-white/60 mb-4">{shop.emptyCart}</p>
             <Link to="/shop">
               <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
-                Start Shopping
+                {shop.startShopping}
               </Button>
             </Link>
           </div>
@@ -130,11 +136,11 @@ export function CartDrawer({ className }: CartDrawerProps) {
             {/* Footer */}
             <div className="mt-6 space-y-4 border-t border-white/10 pt-4">
               <div className="flex items-center justify-between">
-                <span className="text-white/60">Subtotal</span>
+                <span className="text-white/60">{shop.subtotal}</span>
                 <span className="text-lg font-bold text-white">${totalUsd.toFixed(2)}</span>
               </div>
               <p className="text-xs text-white/40">
-                Shipping and fees calculated at checkout
+                {shop.shippingNote}
               </p>
               
               <div className="flex gap-2">
@@ -143,12 +149,12 @@ export function CartDrawer({ className }: CartDrawerProps) {
                     variant="outline" 
                     className="w-full border-white/20 text-white hover:bg-white/10 rounded-full"
                   >
-                    View Cart
+                    {shop.viewCart}
                   </Button>
                 </Link>
                 <Link to="/shop/checkout" className="flex-1">
                   <Button className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
-                    Checkout
+                    {shop.checkout}
                   </Button>
                 </Link>
               </div>

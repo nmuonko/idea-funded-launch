@@ -1,256 +1,306 @@
 
+# Fix Web Shop: i18n, Dynamic Carousel & Header Layout
 
-# Fix Web Shop: Product Details & Checkout Issues
+## Issues to Fix
 
-## Problem Summary
+Based on your feedback and the screenshot, I need to address three main issues:
 
-Two critical bugs are breaking the web shop experience:
+1. **Language Selection Not i18n**: The current language dropdown changes the language state but the shop UI text is not using translations - placeholders, labels, and menu items remain in English
+2. **Static Carousel**: The FeaturedCarousel shows hardcoded product names instead of real products from Amazon/eBay
+3. **Header Layout Wrong**: Language, Cart, and Account buttons should be on the LEFT side (after logo), with search bar taking up more space on the RIGHT
 
-### Issue 1: Product Details - "Product not found"
-The `ProductDetails` page sends product info via POST body, but the `catalog-product` edge function expects GET query parameters. The request body is being ignored.
+---
 
-**Evidence from logs:**
-```
-[CATALOG_PRODUCT] id=MISSING provider=unknown error=INVALID_ID
-```
+## Solution Overview
 
-### Issue 2: Checkout - "Edge Function returned non-2xx status"
-The web checkout doesn't send `cart_item_ids` to the `mobile-checkout` function. The backend expects an array of database item IDs, but the web sends nothing.
+```text
+CURRENT HEADER LAYOUT (Wrong):
+┌─────────────────────────────────────────────────────────────┐
+│  ☰  Logo  [────── Search Bar ──────]  🌐  🛒  👤          │
+└─────────────────────────────────────────────────────────────┘
 
-**Evidence from logs:**
-```
-CHECKOUT_INIT { cart_item_ids_count: 0, ... }
-CHECKOUT_ERROR { code: "EMPTY_CART", cart_item_ids: undefined }
+CORRECT HEADER LAYOUT:
+┌─────────────────────────────────────────────────────────────┐
+│  ☰  Logo  🌐  🛒  👤  [───────── Search Bar ─────────]     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Root Cause Analysis
+## Technical Plan
 
-### Product Details Issue
-- `ProductDetails.tsx` line 50-55: Uses `supabase.functions.invoke()` with body
-- `catalog-product/index.ts` line 97-150: Parses from `url.searchParams` (GET)
-- The function invoke sends POST, but the edge function reads from URL query params
+### 1. Add Shop-Specific i18n Translations
 
-### Checkout Issue
-- Web cart uses localStorage for guests, or syncs via `mobile-get-cart`
-- `mobile-get-cart` returns `cart_items` table data (not order_items)
-- `mobile-checkout` expects `cart_item_ids` from the `order_items` table
-- The web checkout doesn't call an "add items to order" function before checkout
+**File: `src/lib/i18n/translations.ts`**
 
----
-
-## Solution
-
-### Fix 1: Product Details - Use GET query params
-
-**File: `src/pages/shop/ProductDetails.tsx`**
-
-Change the API call from POST body to GET with query params:
+Add a new `shop` section to each language with all UI strings:
 
 ```typescript
-// BEFORE (line 50-55):
-const { data, error } = await supabase.functions.invoke('catalog-product', {
-  body: { 
-    productId: decodeURIComponent(id), 
-    provider 
-  },
-});
+// Add to each language (en, fr, sw, ln):
+shop: {
+  // Header
+  searchPlaceholder: 'Search millions of products...',
+  filtersAndMenu: 'Filters & Menu',
+  selectLanguage: 'Select Language',
+  signIn: 'Sign In',
+  
+  // Categories
+  allCategories: 'All Categories',
+  electronics: 'Electronics',
+  vehicles: 'Vehicles',
+  clothingFashion: 'Clothing & Fashion',
+  homeGarden: 'Home & Garden',
+  toysGames: 'Toys & Games',
+  sportsOutdoors: 'Sports & Outdoors',
+  jewelryWatches: 'Jewelry & Watches',
+  
+  // Price ranges
+  anyPrice: 'Any Price',
+  under50: 'Under $50',
+  // ... etc
+  
+  // Home page
+  heroTitle: 'Shop the U.S.',
+  heroSubtitle: 'Delivered to Africa',
+  heroDescription: 'Browse millions of products from Amazon & eBay',
+  seeAll: 'See All',
+  searchProducts: 'Search Products',
+  dontSeeWhatYoureLookingFor: "Don't see what you're looking for?",
+  
+  // Quick links
+  home: 'Home',
+  myOrders: 'My Orders',
+  support: 'Support',
+  
+  // Sections
+  category: 'Category',
+  priceRange: 'Price Range',
+  quickLinks: 'Quick Links',
+  recentSearches: 'Recent Searches',
+  clear: 'Clear',
+  
+  // Product
+  addToCart: 'Add to Cart',
+  outOfStock: 'Out of Stock',
+  
+  // Cart
+  cart: 'Cart',
+  checkout: 'Checkout',
+  emptyCart: 'Your cart is empty',
+  
+  // Featured carousel
+  featured: 'Featured',
+  shopNow: 'Shop Now',
+}
+```
 
-// AFTER:
-const productIdDecoded = decodeURIComponent(id);
-const fullId = `${provider}:${productIdDecoded}`;
-const response = await fetch(
-  `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
-  {
-    headers: {
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      'Content-Type': 'application/json',
-    },
-  }
-);
-const data = await response.json();
-if (!response.ok || data.status === 'error') {
-  throw new Error(data.error?.message || 'Product not found');
+**French translations:**
+```typescript
+shop: {
+  searchPlaceholder: 'Rechercher des millions de produits...',
+  filtersAndMenu: 'Filtres et Menu',
+  selectLanguage: 'Choisir la langue',
+  signIn: 'Connexion',
+  allCategories: 'Toutes les catégories',
+  electronics: 'Électronique',
+  vehicles: 'Véhicules',
+  // ... etc
+  heroTitle: 'Achetez aux États-Unis',
+  heroSubtitle: 'Livré en Afrique',
+  heroDescription: 'Parcourez des millions de produits Amazon et eBay',
 }
 ```
 
 ---
 
-### Fix 2: Checkout - Sync cart to order before checkout
+### 2. Update ShopHeader Layout
 
-The web needs to:
-1. Create a DRAFT order with items before calling checkout
-2. Pass the `cart_item_ids` (order_item IDs) to `mobile-checkout`
+**File: `src/components/shop/ShopHeader.tsx`**
 
-**File: `src/pages/shop/Checkout.tsx`**
-
-Add a step to convert cart items to an order before payment:
+Restructure the header to put actions on the LEFT, search on the RIGHT:
 
 ```typescript
-// In handleSubmit, before calling mobile-checkout:
-
-// Step 1: Create order from cart items
-const { data: orderData, error: orderError } = await supabase.functions.invoke('mobile-create-order-from-cart');
-
-if (orderError || !orderData?.order_id) {
-  throw new Error('Failed to prepare order: ' + (orderError?.message || 'Unknown error'));
-}
-
-// Step 2: Call checkout with the order's item IDs
-const { data, error } = await supabase.functions.invoke('mobile-checkout', {
-  body: {
-    cart_item_ids: orderData.order_item_ids, // Array of order_item UUIDs
-    cart_id: orderData.order_id,
-    payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
-                                paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
-                                'MOBILE_MONEY',
-  },
-});
+<div className="flex items-center gap-2">
+  {/* Left Side: Menu + Logo + Language + Cart + Account */}
+  <Sheet>...</Sheet>
+  
+  <Link to="/shop">
+    <img src={afrishopLogo} alt="AfriShop" className="h-8" />
+  </Link>
+  
+  {/* Language Selector */}
+  <DropdownMenu>
+    <DropdownMenuTrigger>
+      <Button>
+        <Globe /> {currentLanguage.flag}
+      </Button>
+    </DropdownMenuTrigger>
+    ...
+  </DropdownMenu>
+  
+  {/* Cart */}
+  <CartDrawer />
+  
+  {/* Auth */}
+  {user ? <Link to="/profile">...</Link> : <Link to="/auth">...</Link>}
+  
+  {/* Search Bar - Now takes remaining space on the right */}
+  <div className="flex-1 ml-4">
+    <SearchBar className="w-full" />
+  </div>
+</div>
 ```
 
 ---
 
-### Fix 3: Cart Context - Ensure items are synced to DB
+### 3. Apply i18n to All Shop Components
 
-**File: `src/contexts/ShopCartContext.tsx`**
+**Files to update:**
+- `ShopHeader.tsx` - Use `t.shop.searchPlaceholder`, `t.shop.signIn`, etc.
+- `SearchBar.tsx` - Use `t.shop.searchPlaceholder`, `t.shop.recentSearches`
+- `ShopHome.tsx` - Use `t.shop.heroTitle`, `t.shop.seeAll`, etc.
+- `CategoryTabs.tsx` - Use `t.shop.electronics`, etc.
+- `CartDrawer.tsx` - Use `t.shop.cart`, `t.shop.checkout`
+- `FeaturedCarousel.tsx` - Load real products instead of static data
 
-Currently `addItem` syncs to `mobile-add-cart-item` but for checkout to work, items need to be in `order_items` table via a DRAFT order. The `mobile-create-order-from-cart` edge function should handle this conversion.
+---
 
-I'll verify the existing `mobile-create-order-from-cart` function handles this correctly.
+### 4. Make FeaturedCarousel Load Real Products
+
+**File: `src/components/shop/FeaturedCarousel.tsx`**
+
+Instead of hardcoded items, fetch from the catalog-search API with premium search terms:
+
+```typescript
+export function FeaturedCarousel() {
+  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchFeaturedProducts = async () => {
+      // Search for high-value items
+      const featuredQueries = [
+        'iPhone 16 Pro Max',
+        'luxury car Mercedes BMW',
+        'Xbox Series X',
+        'Apple Vision Pro',
+        'MacBook Pro M4',
+        'PlayStation 5'
+      ];
+      
+      try {
+        // Fetch one product per query
+        const results = await Promise.all(
+          featuredQueries.map(query => 
+            supabase.functions.invoke('catalog-search', {
+              body: { query, limit: 1 }
+            })
+          )
+        );
+        
+        // Extract first product from each result
+        const products = results
+          .map(r => r.data?.items?.[0])
+          .filter(Boolean)
+          .map(item => ({
+            id: item.provider_product_id || item.id,
+            provider: item.provider,
+            title: item.title,
+            imageUrl: item.image_url || item.imageUrl,
+            priceUsd: item.price_usd || item.priceUsd,
+            gradient: getGradientForCategory(item.unified_category),
+          }));
+        
+        setFeaturedProducts(products);
+      } catch (err) {
+        console.error('Failed to fetch featured products:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFeaturedProducts();
+  }, []);
+
+  // Render carousel with REAL product images and titles
+  return (
+    <div className="relative overflow-hidden py-4">
+      <motion.div className="flex gap-4 px-4" animate={{...}}>
+        {featuredProducts.map((product, index) => (
+          <Link 
+            key={`${product.id}-${index}`}
+            to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
+          >
+            <motion.div className={`relative w-64 h-32 rounded-2xl bg-gradient-to-r ${product.gradient}`}>
+              {/* Real product image */}
+              <img 
+                src={product.imageUrl} 
+                alt={product.title}
+                className="absolute right-2 bottom-2 h-24 w-24 object-contain"
+              />
+              
+              {/* Product title */}
+              <div className="relative z-10 p-4">
+                <h3 className="text-lg font-bold text-white">
+                  {product.title?.substring(0, 25)}...
+                </h3>
+                <p className="text-sm text-white/80">
+                  ${product.priceUsd?.toFixed(2)}
+                </p>
+              </div>
+            </motion.div>
+          </Link>
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+```
 
 ---
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `src/pages/shop/ProductDetails.tsx` | Fix API call to use GET query params instead of POST body |
-| `src/pages/shop/Checkout.tsx` | Add order creation step before checkout, pass `cart_item_ids` |
+| File | Changes |
+|------|---------|
+| `src/lib/i18n/translations.ts` | Add `shop` section with all UI strings for all 4 languages |
+| `src/components/shop/ShopHeader.tsx` | 1) Move Language/Cart/Account to left side, 2) Use i18n translations |
+| `src/components/shop/SearchBar.tsx` | Use `t.shop.searchPlaceholder` and `t.shop.recentSearches` |
+| `src/components/shop/FeaturedCarousel.tsx` | Fetch real products from catalog-search API |
+| `src/pages/shop/ShopHome.tsx` | Use i18n translations for hero text and section labels |
+| `src/components/shop/CategoryTabs.tsx` | Use i18n translations for category names |
+| `src/components/shop/CartDrawer.tsx` | Use i18n translations |
 
 ---
 
-## Technical Details
+## Translation Keys to Add (Summary)
 
-### ProductDetails.tsx Changes (lines ~42-108)
-
-```typescript
-useEffect(() => {
-  const fetchProduct = async () => {
-    if (!provider || !id) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Build the full product ID in format "provider:productId"
-      const productIdDecoded = decodeURIComponent(id);
-      const fullId = `${provider}:${productIdDecoded}`;
-      
-      // Use GET request with query params (catalog-product expects this)
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
-        {
-          headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-      
-      const data = await response.json();
-      
-      if (!response.ok || data.status === 'error') {
-        throw new Error(data.error?.message || 'Product not found');
-      }
-      
-      if (!data?.item) throw new Error('Product not found');
-
-      const item = data.item;
-      // ... rest of the mapping code stays the same
-```
-
-### Checkout.tsx Changes (lines ~107-161)
-
-```typescript
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  
-  if (!termsAccepted) {
-    toast({ title: 'Terms Required', ... });
-    return;
-  }
-
-  if (items.length === 0) {
-    toast({ title: 'Empty Cart', ... });
-    return;
-  }
-
-  setLoading(true);
-  try {
-    // Update profile with shipping address
-    await supabase.from('profiles').update({ ... }).eq('user_id', user?.id);
-
-    // Step 1: Create/update DRAFT order from cart
-    const { data: orderData, error: orderError } = await supabase.functions.invoke(
-      'mobile-create-order-from-cart'
-    );
-
-    if (orderError) {
-      console.error('Order creation error:', orderError);
-      throw new Error('Failed to prepare your order. Please try again.');
-    }
-
-    if (!orderData?.order_id || !orderData?.order_item_ids) {
-      throw new Error('Failed to create order. Please try again.');
-    }
-
-    console.log('Order created:', orderData.order_id, 'items:', orderData.order_item_ids.length);
-
-    // Step 2: Proceed to checkout with order item IDs
-    const { data, error } = await supabase.functions.invoke('mobile-checkout', {
-      body: {
-        cart_item_ids: orderData.order_item_ids,
-        cart_id: orderData.order_id,
-        payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
-                                    paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
-                                    'MOBILE_MONEY',
-      },
-    });
-
-    if (error) throw error;
-
-    // Handle payment flows (same as before)
-    if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
-      navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
-    } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
-      window.location.href = data.redirectUrl;
-    } else if (data?.payment_flow === 'BANK_TRANSFER') {
-      navigate(`/bank-transfer-info?order_id=${data.order_id}`);
-    } else if (data?.order_id) {
-      toast({ title: 'Order Created', ... });
-      await clearCart();
-      navigate(`/orders/${data.order_id}`);
-    }
-  } catch (error: any) {
-    console.error('Checkout error:', error);
-    toast({ title: 'Checkout Failed', description: error.message, variant: 'destructive' });
-  } finally {
-    setLoading(false);
-  }
-};
-```
+| Key | English | French |
+|-----|---------|--------|
+| `shop.searchPlaceholder` | "Search millions of products..." | "Rechercher des millions de produits..." |
+| `shop.heroTitle` | "Shop the U.S." | "Achetez aux États-Unis" |
+| `shop.heroSubtitle` | "Delivered to Africa" | "Livré en Afrique" |
+| `shop.seeAll` | "See All" | "Voir tout" |
+| `shop.signIn` | "Sign In" | "Connexion" |
+| `shop.cart` | "Cart" | "Panier" |
+| `shop.checkout` | "Checkout" | "Paiement" |
+| `shop.addToCart` | "Add to Cart" | "Ajouter au panier" |
+| `shop.electronics` | "Electronics" | "Électronique" |
+| `shop.vehicles` | "Vehicles" | "Véhicules" |
+| ... | ... | ... |
 
 ---
 
-## Expected Outcome
+## Search i18n (Already Works!)
 
-After these fixes:
+The backend already handles French searches via the `searchRewriter.ts` system. When a user types "téléphone portable samsung" it gets automatically rewritten to "samsung mobile phone" before querying Amazon/eBay. No frontend changes needed for this - it already works.
 
-1. **Product Details**: Clicking on a product will correctly load the product page with all details, images, and price breakdown
+---
 
-2. **Checkout**: The checkout flow will:
-   - First create a DRAFT order from cart items
-   - Then pass the order_item_ids to mobile-checkout
-   - Proceed with the selected payment method (Mobile Money, Card, or Bank Transfer)
+## Expected Result
 
+After these changes:
+1. Header layout matches your reference image (actions on left, search prominent on right)
+2. All shop UI text uses i18n translations and changes when language is selected
+3. Featured carousel shows REAL product images and prices from Amazon/eBay
+4. French users see French UI and their French searches work correctly (already supported by backend)

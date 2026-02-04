@@ -391,6 +391,9 @@ export const translations = {
       viewOn: 'View on',
       // Move All
       moveAllToCart: 'Move All to Cart & Checkout',
+      // Delivery Banner
+      deliveryIn2To4Weeks: 'Delivery in 2-4 Weeks',
+      deliverySubtext: 'From the USA, straight to your door in DRC',
     },
   },
   fr: {
@@ -674,6 +677,9 @@ export const translations = {
       privacy: 'Politique de confidentialité',
       terms: 'Conditions d\'utilisation',
       logout: 'Déconnexion',
+      // Delivery Banner
+      deliveryIn2To4Weeks: 'Livraison en 2-4 Semaines',
+      deliverySubtext: 'Des États-Unis, directement chez vous en RDC',
     },
   },
   sw: {
@@ -957,6 +963,9 @@ export const translations = {
       privacy: 'Sera ya Faragha',
       terms: 'Masharti ya Huduma',
       logout: 'Ondoka',
+      // Delivery Banner
+      deliveryIn2To4Weeks: 'Uwasilishaji katika Wiki 2-4',
+      deliverySubtext: 'Kutoka Marekani, moja kwa moja hadi mlango wako DRC',
     },
   },
   ln: {
@@ -1209,6 +1218,9 @@ export const translations = {
       shopNow: 'Soma Sikoyo',
       tryAgain: 'Meka Lisusu',
       noProducts: 'Biloko ezali te mpo na sikoyo',
+      // Delivery Banner
+      deliveryIn2To4Weeks: 'Livraison na Bapɔsɔ 2-4',
+      deliverySubtext: 'Uta États-Unis, tii na ndako na yo na RDC',
     },
   },
 };

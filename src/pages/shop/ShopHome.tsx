@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowRight, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
-import { FeaturedCarousel } from '@/components/shop/FeaturedCarousel';
+import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -74,14 +74,14 @@ export default function ShopHome() {
       {/* Spacer for fixed header */}
       <div className="pt-20" />
 
-      {/* Featured Carousel - Animated scrolling products with real data */}
+      {/* Delivery Hero Banner */}
       <motion.section
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.2 }}
         className="mb-6"
       >
-        <FeaturedCarousel />
+        <DeliveryHeroBanner />
       </motion.section>
 
       {/* Category Tabs */}

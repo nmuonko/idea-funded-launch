@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
@@ -182,6 +183,7 @@ export default function ShopCart() {
           )}
         </div>
       </main>
+      <BottomNavigation />
     </div>
   );
 }

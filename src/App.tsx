@@ -86,6 +86,9 @@ import SearchResults from "./pages/shop/SearchResults";
 import ProductDetails from "./pages/shop/ProductDetails";
 import ShopCart from "./pages/shop/ShopCart";
 import Checkout from "./pages/shop/Checkout";
+import SavedItems from "./pages/shop/SavedItems";
+import MyShopOrders from "./pages/shop/MyOrders";
+import ShopAccount from "./pages/shop/Account";
 
 const queryClient = new QueryClient();
 
@@ -129,6 +132,9 @@ const App = () => {
             <Route path="/shop/search" element={<SearchResults />} />
             <Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
             <Route path="/shop/cart" element={<ShopCart />} />
+            <Route path="/shop/saved" element={<SavedItems />} />
+            <Route path="/shop/orders" element={<MyShopOrders />} />
+            <Route path="/shop/account" element={<ShopAccount />} />
             <Route path="/shop/checkout" element={
               <ProtectedRoute>
                 <Checkout />

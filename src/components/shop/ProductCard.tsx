@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Check, Loader2 } from 'lucide-react';
+import { ShoppingCart, Check, Loader2, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
@@ -20,12 +20,15 @@ export interface Product {
 interface ProductCardProps {
   product: Product;
   className?: string;
+  compact?: boolean;
 }
 
-export function ProductCard({ product, className }: ProductCardProps) {
-  const { addItem } = useShopCart();
+export function ProductCard({ product, className, compact = false }: ProductCardProps) {
+  const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+
+  const isSaved = isItemSaved(product.id, product.provider);
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -49,6 +52,25 @@ export function ProductCard({ product, className }: ProductCardProps) {
     }
   };
 
+  const handleToggleSaved = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (isSaved) {
+      // Find and remove by productId and provider
+      removeFromSaved(product.id);
+    } else {
+      addToSaved({
+        productId: product.id,
+        provider: product.provider,
+        title: product.title,
+        imageUrl: product.imageUrl,
+        priceUsd: product.priceUsd,
+        productUrl: product.productUrl,
+      });
+    }
+  };
+
   const providerColor = product.provider === 'amazon' 
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
@@ -62,39 +84,65 @@ export function ProductCard({ product, className }: ProductCardProps) {
       )}
     >
       {/* Image Container */}
-      <div className="relative aspect-square overflow-hidden bg-white/5">
+      <div className={cn(
+        "relative overflow-hidden bg-white/5",
+        compact ? "aspect-square" : "aspect-square"
+      )}>
         <img
           src={product.imageUrl || '/placeholder.svg'}
           alt={product.title}
-          className="w-full h-full object-contain p-4 transition-transform duration-300 group-hover:scale-105"
+          className={cn(
+            "w-full h-full object-contain transition-transform duration-300 group-hover:scale-105",
+            compact ? "p-2" : "p-4"
+          )}
           loading="lazy"
         />
         
         {/* Provider Badge */}
         <Badge 
           variant="outline" 
-          className={cn("absolute top-2 left-2 text-xs capitalize", providerColor)}
+          className={cn(
+            "absolute top-2 left-2 capitalize",
+            providerColor,
+            compact ? "text-[10px] px-1.5 py-0.5" : "text-xs"
+          )}
         >
           {product.provider}
         </Badge>
 
+        {/* Save Button */}
+        <button
+          onClick={handleToggleSaved}
+          className={cn(
+            "absolute top-2 right-2 p-1.5 rounded-full transition-colors",
+            isSaved 
+              ? "bg-red-500/20 text-red-400" 
+              : "bg-black/40 text-white/60 hover:text-white"
+          )}
+        >
+          <Heart className={cn("h-4 w-4", isSaved && "fill-current")} />
+        </button>
+
         {/* Out of Stock Overlay */}
         {product.inStock === false && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-white/80 font-medium">Out of Stock</span>
+            <span className="text-white/80 font-medium text-sm">Out of Stock</span>
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div className="p-4 space-y-3">
+      <div className={cn("space-y-2", compact ? "p-2" : "p-4 space-y-3")}>
         {/* Title */}
-        <h3 className="text-sm font-medium text-white/90 line-clamp-2 min-h-[2.5rem]">
+        <h3 className={cn(
+          "font-medium text-white/90 line-clamp-2",
+          compact ? "text-xs min-h-[2rem]" : "text-sm min-h-[2.5rem]"
+        )}>
           {product.title}
         </h3>
 
-        {/* Rating */}
-        {product.rating && (
+        {/* Rating - hide on compact */}
+        {!compact && product.rating && (
           <div className="flex items-center gap-1">
             <span className="text-yellow-400">★</span>
             <span className="text-xs text-white/60">{product.rating.toFixed(1)}</span>
@@ -103,9 +151,14 @@ export function ProductCard({ product, className }: ProductCardProps) {
 
         {/* Price & Add to Cart */}
         <div className="flex items-center justify-between gap-2">
-          <span className="text-lg font-bold text-white">
-            ${product.priceUsd.toFixed(2)}
-          </span>
+          <div>
+            <span className={cn("font-bold text-white", compact ? "text-sm" : "text-lg")}>
+              ${product.priceUsd.toFixed(2)}
+            </span>
+            <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>
+              ≈ CDF {(product.priceUsd * exchangeRate).toLocaleString()}
+            </span>
+          </div>
           
           <Button
             size="sm"
@@ -113,17 +166,18 @@ export function ProductCard({ product, className }: ProductCardProps) {
             disabled={adding || product.inStock === false}
             className={cn(
               "rounded-full transition-all",
+              compact ? "h-7 w-7 p-0" : "",
               added 
                 ? "bg-green-500 hover:bg-green-600" 
                 : "bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
             )}
           >
             {adding ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className={cn("animate-spin", compact ? "h-3 w-3" : "h-4 w-4")} />
             ) : added ? (
-              <Check className="h-4 w-4" />
+              <Check className={cn(compact ? "h-3 w-3" : "h-4 w-4")} />
             ) : (
-              <ShoppingCart className="h-4 w-4" />
+              <ShoppingCart className={cn(compact ? "h-3 w-3" : "h-4 w-4")} />
             )}
           </Button>
         </div>

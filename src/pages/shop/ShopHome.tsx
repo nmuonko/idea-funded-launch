@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronRight, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
-import { ProductGrid } from '@/components/shop/ProductGrid';
+import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { FeaturedCarousel } from '@/components/shop/FeaturedCarousel';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,7 @@ export default function ShopHome() {
             key: section.key,
             title: section.title || section.title_en || section.key,
             seeAllQuery: section.see_all_query || section.key,
-            products: (section.items || []).slice(0, 10).map((item: any) => ({
+            products: (section.items || []).slice(0, 12).map((item: any) => ({
               id: item.provider_product_id || item.id,
               provider: item.provider || 'amazon',
               title: item.title || 'Product',
@@ -67,7 +68,7 @@ export default function ShopHome() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-black">
+    <div className="min-h-screen bg-black pb-20 md:pb-0">
       <ShopHeader />
       
       {/* Hero Section - Simplified, no duplicate search bar */}
@@ -112,15 +113,20 @@ export default function ShopHome() {
         </div>
       </section>
 
-      {/* Product Sections */}
-      <main className="px-4 pb-20">
-        <div className="container mx-auto space-y-10">
+      {/* Product Sections - Now Horizontal Scrolling */}
+      <main className="pb-20">
+        <div className="container mx-auto space-y-8">
           {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-white/40" />
+            <div className="space-y-8 px-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i}>
+                  <div className="h-6 w-32 bg-white/10 rounded shimmer mb-4" />
+                  <HorizontalProductRow products={[]} loading skeletonCount={6} />
+                </div>
+              ))}
             </div>
           ) : error ? (
-            <div className="text-center py-20">
+            <div className="text-center py-20 px-4">
               <p className="text-red-400 mb-4">{error}</p>
               <Button 
                 onClick={() => window.location.reload()}
@@ -131,7 +137,7 @@ export default function ShopHome() {
               </Button>
             </div>
           ) : sections.length === 0 ? (
-            <div className="text-center py-20">
+            <div className="text-center py-20 px-4">
               <p className="text-white/60">{shop.noProducts}</p>
             </div>
           ) : (
@@ -141,9 +147,10 @@ export default function ShopHome() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
+                className="px-4"
               >
                 {/* Section Header */}
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-3">
                   <h2 className="text-lg md:text-xl font-bold text-white">
                     {section.title}
                   </h2>
@@ -156,8 +163,8 @@ export default function ShopHome() {
                   </Link>
                 </div>
 
-                {/* Products Grid */}
-                <ProductGrid products={section.products} />
+                {/* Horizontal Scrolling Products */}
+                <HorizontalProductRow products={section.products} />
               </motion.section>
             ))
           )}
@@ -181,6 +188,9 @@ export default function ShopHome() {
           </Link>
         </div>
       </section>
+
+      {/* Bottom Navigation - Mobile Only */}
+      <BottomNavigation />
     </div>
   );
 }

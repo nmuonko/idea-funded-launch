@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { ProductGrid } from '@/components/shop/ProductGrid';
 import { Product } from '@/components/shop/ProductCard';
@@ -411,6 +412,7 @@ export default function ProductDetailsPage() {
           )}
         </div>
       </main>
+      <BottomNavigation />
     </div>
   );
 }

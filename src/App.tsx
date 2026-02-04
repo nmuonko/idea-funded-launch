@@ -3,12 +3,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
 import { ShopCartProvider } from "@/contexts/ShopCartContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { ShopProtectedRoute } from "@/components/shop/ShopProtectedRoute";
 import { AdminRouteGuard } from "@/components/admin/AdminRouteGuard";
 import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import { SupabaseConfigGuard } from "@/components/SupabaseConfigGuard";
@@ -132,17 +133,23 @@ const App = () => {
             {/* Shop Routes */}
             <Route path="/shop" element={<ShopHome />} />
             <Route path="/shop/auth" element={<ShopAuth />} />
+            <Route path="/shop/auth/login" element={<Navigate to="/shop/auth" replace />} />
+            <Route path="/shop/auth/register" element={<Navigate to="/shop/auth" replace />} />
             <Route path="/shop/onboarding" element={<Onboarding />} />
             <Route path="/shop/search" element={<SearchResults />} />
             <Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
             <Route path="/shop/cart" element={<ShopCart />} />
             <Route path="/shop/saved" element={<SavedItems />} />
-            <Route path="/shop/orders" element={<MyShopOrders />} />
+            <Route path="/shop/orders" element={
+              <ShopProtectedRoute>
+                <MyShopOrders />
+              </ShopProtectedRoute>
+            } />
             <Route path="/shop/account" element={<ShopAccount />} />
             <Route path="/shop/checkout" element={
-              <ProtectedRoute>
+              <ShopProtectedRoute>
                 <Checkout />
-              </ProtectedRoute>
+              </ShopProtectedRoute>
             } />
             
             <Route path="/admin-login" element={<Index />} />

@@ -1,0 +1,187 @@
+import { Link } from 'react-router-dom';
+import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ShopHeader } from '@/components/shop/ShopHeader';
+import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
+import { Button } from '@/components/ui/button';
+import { useShopCart } from '@/contexts/ShopCartContext';
+import { useAuth } from '@/contexts/AuthContext';
+
+export default function ShopCart() {
+  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart } = useShopCart();
+  const { user } = useAuth();
+
+  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  return (
+    <div className="min-h-screen bg-black">
+      <ShopHeader />
+
+      <main className="pt-24 px-4 pb-20">
+        <div className="container mx-auto max-w-4xl">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <Link 
+                to="/shop" 
+                className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-2 transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Continue Shopping
+              </Link>
+              <h1 className="text-2xl font-bold text-white">Your Cart</h1>
+              {items.length > 0 && (
+                <p className="text-white/60">
+                  {totalQuantity} item{totalQuantity !== 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+
+            {items.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => clearCart()}
+                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear Cart
+              </Button>
+            )}
+          </div>
+
+          {items.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-20"
+            >
+              <ShoppingBag className="h-20 w-20 text-white/20 mx-auto mb-6" />
+              <h2 className="text-xl font-semibold text-white mb-2">Your cart is empty</h2>
+              <p className="text-white/60 mb-8">
+                Looks like you haven't added any products yet
+              </p>
+              <Link to="/shop">
+                <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8">
+                  Start Shopping
+                </Button>
+              </Link>
+            </motion.div>
+          ) : (
+            <div className="grid lg:grid-cols-3 gap-8">
+              {/* Cart Items */}
+              <div className="lg:col-span-2 space-y-4">
+                {items.map((item, index) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="flex gap-4 p-4 bg-white/5 rounded-2xl border border-white/10"
+                  >
+                    {/* Image */}
+                    <Link 
+                      to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                      className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
+                    >
+                      <img
+                        src={item.imageUrl || '/placeholder.svg'}
+                        alt={item.title}
+                        className="w-full h-full object-contain p-2"
+                      />
+                    </Link>
+
+                    {/* Details */}
+                    <div className="flex-1 min-w-0">
+                      <Link 
+                        to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                        className="text-white hover:text-blue-400 transition-colors"
+                      >
+                        <h3 className="font-medium line-clamp-2 mb-1">
+                          {item.title}
+                        </h3>
+                      </Link>
+                      <p className="text-sm text-white/60 capitalize mb-2">
+                        from {item.provider}
+                      </p>
+                      <p className="text-lg font-bold text-white">
+                        ${item.priceUsd.toFixed(2)}
+                      </p>
+                    </div>
+
+                    {/* Quantity & Remove */}
+                    <div className="flex flex-col items-end justify-between">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeItem(item.id)}
+                        className="h-8 w-8 p-0 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-full"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+
+                      <div className="flex items-center gap-2 bg-white/5 rounded-full p-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                          className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
+                        >
+                          <Minus className="h-3 w-3" />
+                        </Button>
+                        <span className="text-white w-6 text-center text-sm">
+                          {item.quantity}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                          className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Order Summary */}
+              <div className="lg:col-span-1">
+                <div className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6">
+                  <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+                  
+                  <PriceBreakdown 
+                    itemPriceUsd={totalUsd} 
+                    showDetails={true}
+                  />
+
+                  <div className="mt-6 space-y-3">
+                    {user ? (
+                      <Link to="/shop/checkout" className="block">
+                        <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
+                          Proceed to Checkout
+                        </Button>
+                      </Link>
+                    ) : (
+                      <>
+                        <Link to="/auth?redirect=/shop/checkout" className="block">
+                          <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
+                            Sign In to Checkout
+                          </Button>
+                        </Link>
+                        <p className="text-xs text-white/40 text-center">
+                          You need to sign in to complete your order
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}

@@ -1,0 +1,445 @@
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ShopHeader } from '@/components/shop/ShopHeader';
+import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Checkbox } from '@/components/ui/checkbox';
+import { useShopCart } from '@/contexts/ShopCartContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+
+interface ShippingAddress {
+  fullName: string;
+  phone: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  stateProvince: string;
+  postalCode: string;
+  country: string;
+}
+
+export default function Checkout() {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { items, totalUsd, clearCart } = useShopCart();
+  const { user } = useAuth();
+  
+  const [loading, setLoading] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [paymentMethod, setPaymentMethod] = useState('mobile_money');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [address, setAddress] = useState<ShippingAddress>({
+    fullName: '',
+    phone: '',
+    addressLine1: '',
+    addressLine2: '',
+    city: '',
+    stateProvince: '',
+    postalCode: '',
+    country: 'DR Congo',
+  });
+
+  // Load profile data
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (data) {
+          setAddress({
+            fullName: data.name || data.full_name || '',
+            phone: data.phone || '',
+            addressLine1: data.address_line1 || '',
+            addressLine2: data.address_line2 || '',
+            city: data.city || '',
+            stateProvince: data.state_province || '',
+            postalCode: data.postal_code || '',
+            country: data.country || 'DR Congo',
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load profile:', error);
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    loadProfile();
+  }, [user]);
+
+  const handleInputChange = (field: keyof ShippingAddress, value: string) => {
+    setAddress(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!termsAccepted) {
+      toast({
+        title: 'Terms Required',
+        description: 'Please accept the terms and conditions to continue',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (items.length === 0) {
+      toast({
+        title: 'Empty Cart',
+        description: 'Your cart is empty',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Update profile with shipping address
+      await supabase
+        .from('profiles')
+        .update({
+          name: address.fullName,
+          phone: address.phone,
+          address_line1: address.addressLine1,
+          address_line2: address.addressLine2,
+          city: address.city,
+          state_province: address.stateProvince,
+          postal_code: address.postalCode,
+          country: address.country,
+        })
+        .eq('user_id', user?.id);
+
+      // Create checkout session
+      const { data, error } = await supabase.functions.invoke('mobile-checkout', {
+        body: {
+          payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
+                                      paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
+                                      'MOBILE_MONEY',
+        },
+      });
+
+      if (error) throw error;
+
+      // Handle different payment flows
+      if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
+        // Redirect to Stripe checkout
+        navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
+      } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
+        window.location.href = data.redirectUrl;
+      } else if (data?.payment_flow === 'BANK_TRANSFER') {
+        navigate(`/bank-transfer-info?order_id=${data.order_id}`);
+      } else if (data?.order_id) {
+        toast({
+          title: 'Order Created',
+          description: 'Your order has been submitted successfully',
+        });
+        await clearCart();
+        navigate(`/orders/${data.order_id}`);
+      }
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      toast({
+        title: 'Checkout Failed',
+        description: error.message || 'Failed to process your order',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="pt-24 px-4 text-center">
+          <p className="text-white/60 mb-4">Please sign in to checkout</p>
+          <Link to="/auth?redirect=/shop/checkout">
+            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
+              Sign In
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="pt-24 px-4 text-center">
+          <p className="text-white/60 mb-4">Your cart is empty</p>
+          <Link to="/shop">
+            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
+              Continue Shopping
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black">
+      <ShopHeader />
+
+      <main className="pt-24 px-4 pb-20">
+        <div className="container mx-auto max-w-4xl">
+          {/* Header */}
+          <Link 
+            to="/shop/cart" 
+            className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Cart
+          </Link>
+          
+          <h1 className="text-2xl font-bold text-white mb-8">Checkout</h1>
+
+          <form onSubmit={handleSubmit}>
+            <div className="grid lg:grid-cols-3 gap-8">
+              {/* Left Column - Forms */}
+              <div className="lg:col-span-2 space-y-8">
+                {/* Shipping Address */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white/5 rounded-2xl border border-white/10 p-6"
+                >
+                  <h2 className="text-lg font-semibold text-white mb-4">Shipping Address</h2>
+                  
+                  {loadingProfile ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-white/40" />
+                    </div>
+                  ) : (
+                    <div className="grid gap-4">
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="fullName" className="text-white/70">Full Name</Label>
+                          <Input
+                            id="fullName"
+                            value={address.fullName}
+                            onChange={(e) => handleInputChange('fullName', e.target.value)}
+                            required
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="phone" className="text-white/70">Phone Number</Label>
+                          <Input
+                            id="phone"
+                            type="tel"
+                            value={address.phone}
+                            onChange={(e) => handleInputChange('phone', e.target.value)}
+                            required
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="addressLine1" className="text-white/70">Address Line 1</Label>
+                        <Input
+                          id="addressLine1"
+                          value={address.addressLine1}
+                          onChange={(e) => handleInputChange('addressLine1', e.target.value)}
+                          required
+                          className="mt-1 bg-white/5 border-white/10 text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="addressLine2" className="text-white/70">Address Line 2 (Optional)</Label>
+                        <Input
+                          id="addressLine2"
+                          value={address.addressLine2}
+                          onChange={(e) => handleInputChange('addressLine2', e.target.value)}
+                          className="mt-1 bg-white/5 border-white/10 text-white"
+                        />
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="city" className="text-white/70">City</Label>
+                          <Input
+                            id="city"
+                            value={address.city}
+                            onChange={(e) => handleInputChange('city', e.target.value)}
+                            required
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="stateProvince" className="text-white/70">State/Province</Label>
+                          <Input
+                            id="stateProvince"
+                            value={address.stateProvince}
+                            onChange={(e) => handleInputChange('stateProvince', e.target.value)}
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="country" className="text-white/70">Country</Label>
+                          <Input
+                            id="country"
+                            value={address.country}
+                            onChange={(e) => handleInputChange('country', e.target.value)}
+                            required
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="postalCode" className="text-white/70">Postal Code (Optional)</Label>
+                          <Input
+                            id="postalCode"
+                            value={address.postalCode}
+                            onChange={(e) => handleInputChange('postalCode', e.target.value)}
+                            className="mt-1 bg-white/5 border-white/10 text-white"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+
+                {/* Payment Method */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="bg-white/5 rounded-2xl border border-white/10 p-6"
+                >
+                  <h2 className="text-lg font-semibold text-white mb-4">Payment Method</h2>
+                  
+                  <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
+                        <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
+                        <Smartphone className="h-5 w-5 text-white/70" />
+                        <div className="flex-1">
+                          <p className="text-white font-medium">Mobile Money</p>
+                          <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
+                        </div>
+                      </label>
+
+                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
+                        <RadioGroupItem value="card" id="card" className="border-white/40" />
+                        <CreditCard className="h-5 w-5 text-white/70" />
+                        <div className="flex-1">
+                          <p className="text-white font-medium">Credit/Debit Card</p>
+                          <p className="text-sm text-white/50">Visa, Mastercard, AMEX</p>
+                        </div>
+                      </label>
+
+                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
+                        <RadioGroupItem value="bank_transfer" id="bank_transfer" className="border-white/40" />
+                        <Building2 className="h-5 w-5 text-white/70" />
+                        <div className="flex-1">
+                          <p className="text-white font-medium">Bank Transfer</p>
+                          <p className="text-sm text-white/50">Manual transfer to our bank account</p>
+                        </div>
+                      </label>
+                    </div>
+                  </RadioGroup>
+                </motion.div>
+
+                {/* Terms */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="flex items-start gap-3"
+                >
+                  <Checkbox
+                    id="terms"
+                    checked={termsAccepted}
+                    onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
+                    className="mt-1 border-white/40"
+                  />
+                  <label htmlFor="terms" className="text-sm text-white/70 cursor-pointer">
+                    I agree to the{' '}
+                    <Link to="/terms" className="text-blue-400 hover:underline">Terms of Service</Link>
+                    {' '}and{' '}
+                    <Link to="/privacy" className="text-blue-400 hover:underline">Privacy Policy</Link>
+                  </label>
+                </motion.div>
+              </div>
+
+              {/* Right Column - Order Summary */}
+              <div className="lg:col-span-1">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6"
+                >
+                  <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+                  
+                  {/* Items Preview */}
+                  <div className="space-y-3 mb-4 pb-4 border-b border-white/10">
+                    {items.slice(0, 3).map((item) => (
+                      <div key={item.id} className="flex gap-3">
+                        <img
+                          src={item.imageUrl || '/placeholder.svg'}
+                          alt={item.title}
+                          className="w-12 h-12 rounded-lg object-contain bg-white/5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/80 line-clamp-1">{item.title}</p>
+                          <p className="text-xs text-white/50">Qty: {item.quantity}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {items.length > 3 && (
+                      <p className="text-sm text-white/50">
+                        +{items.length - 3} more item{items.length - 3 !== 1 ? 's' : ''}
+                      </p>
+                    )}
+                  </div>
+                  
+                  <PriceBreakdown itemPriceUsd={totalUsd} />
+
+                  <Button
+                    type="submit"
+                    disabled={loading || !termsAccepted}
+                    className="w-full h-12 mt-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        Place Order
+                      </>
+                    )}
+                  </Button>
+                </motion.div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+  );
+}

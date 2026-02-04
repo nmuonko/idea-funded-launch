@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import afrishopLogo from "@/assets/afrishop-logo.png";
 
 const navLinks = [
+  { to: "/shop", label: "Shop" },
   { to: "/", label: "How It Works" },
   { to: "/about", label: "About" },
   { to: "/coverage", label: "Coverage" },

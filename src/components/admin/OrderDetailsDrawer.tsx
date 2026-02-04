@@ -17,7 +17,9 @@ import {
   User,
   ExternalLink,
   Mail,
-  RefreshCcw
+  RefreshCcw,
+  HelpCircle,
+  ChevronDown
 } from 'lucide-react';
 import { OrderTimeline } from './OrderTimeline';
 import { PaymentVerificationPanel } from './PaymentVerificationPanel';
@@ -25,6 +27,13 @@ import { AIAssistantPanel } from './AIAssistantPanel';
 import { ProfitCalculator } from './ProfitCalculator';
 import { SendOrderEmailDialog } from './SendOrderEmailDialog';
 import { IssueRefundDialog } from './IssueRefundDialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface OrderDetailsDrawerProps {
   orderId: string | null;
@@ -40,7 +49,42 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
   const [actionMessage, setActionMessage] = useState('');
   const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [refundDialogOpen, setRefundDialogOpen] = useState(false);
+  const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
   const { toast } = useToast();
+
+  const handleSendAssistanceEmail = async (language: string) => {
+    if (!orderId) return;
+    
+    setSendingAssistanceEmail(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
+        body: { orderId, language },
+      });
+
+      if (error) throw error;
+
+      const languageNames: Record<string, string> = {
+        en: 'English',
+        fr: 'French',
+        sw: 'Swahili',
+        ln: 'Lingala',
+        en_sw: 'English + Swahili',
+      };
+
+      toast({
+        title: 'Assistance email sent',
+        description: `"Need help?" email sent in ${languageNames[language] || language} to ${order?.profiles?.email}`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Failed to send email',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingAssistanceEmail(false);
+    }
+  };
 
   useEffect(() => {
     if (orderId && open) {
@@ -328,6 +372,46 @@ export function OrderDetailsDrawer({ orderId, open, onClose, onUpdate }: OrderDe
                         <Mail className="h-4 w-4 mr-2" />
                         Send Email
                       </Button>
+                      
+                      {/* Need Help dropdown for incomplete orders */}
+                      {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              disabled={sendingAssistanceEmail}
+                              variant="outline"
+                              className="w-full border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                            >
+                              {sendingAssistanceEmail ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <HelpCircle className="h-4 w-4 mr-2" />
+                              )}
+                              Need Help?
+                              <ChevronDown className="h-4 w-4 ml-1" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-background">
+                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en')}>
+                              🇬🇧 Send in English
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('fr')}>
+                              🇫🇷 Send in French
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('sw')}>
+                              🇹🇿 Send in Swahili
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('ln')}>
+                              🇨🇩 Send in Lingala
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en_sw')}>
+                              🇬🇧+🇹🇿 English + Swahili
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                      
                       {order.status !== 'COMPLETED' && (
                         <Button
                           onClick={() => setRefundDialogOpen(true)}

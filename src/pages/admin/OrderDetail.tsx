@@ -8,10 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail, HelpCircle } from 'lucide-react';
+import { Loader2, Send, FileText, Package, Truck, CheckCircle2, Play, Mail, HelpCircle, ChevronDown } from 'lucide-react';
 import { ImageLightbox } from '@/components/admin/ImageLightbox';
 import { OrderTimelineComponent } from '@/components/admin/OrderTimelineComponent';
 import { IssueRefundDialog } from '@/components/admin/IssueRefundDialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 export default function AdminOrderDetail() {
   const { id } = useParams();
@@ -308,18 +315,26 @@ export default function AdminOrderDetail() {
     setSelectedItems(newSelected);
   };
 
-  const handleSendAssistanceEmail = async () => {
+  const handleSendAssistanceEmail = async (language: string) => {
     try {
       setSendingAssistanceEmail(true);
       const { data, error } = await supabase.functions.invoke('send-order-assistance-email', {
-        body: { orderId: id },
+        body: { orderId: id, language },
       });
 
       if (error) throw error;
 
+      const languageLabels: Record<string, string> = {
+        en: 'English',
+        fr: 'French',
+        sw: 'Swahili',
+        ln: 'Lingala',
+        en_sw: 'English + Swahili',
+      };
+
       toast({
         title: 'Email Sent',
-        description: data.message || 'Assistance email sent to customer',
+        description: `Assistance email sent in ${languageLabels[language] || language}`,
       });
     } catch (error: any) {
       toast({
@@ -488,22 +503,44 @@ export default function AdminOrderDetail() {
                   </Badge>
                 )}
 
-                {/* Need Help button for incomplete orders */}
+                {/* Need Help dropdown for incomplete orders */}
                 {(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
-                  <Button
-                    onClick={handleSendAssistanceEmail}
-                    disabled={sendingAssistanceEmail}
-                    size="sm"
-                    variant="outline"
-                    className="border-blue-500 text-blue-600 hover:bg-blue-50"
-                  >
-                    {sendingAssistanceEmail ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <HelpCircle className="h-4 w-4 mr-2" />
-                    )}
-                    Need Help?
-                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        disabled={sendingAssistanceEmail}
+                        size="sm"
+                        variant="outline"
+                        className="border-blue-500 text-blue-600 hover:bg-blue-50"
+                      >
+                        {sendingAssistanceEmail ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <HelpCircle className="h-4 w-4 mr-2" />
+                        )}
+                        Need Help?
+                        <ChevronDown className="h-4 w-4 ml-1" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-background">
+                      <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en')}>
+                        🇬🇧 Send in English
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleSendAssistanceEmail('fr')}>
+                        🇫🇷 Send in French
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleSendAssistanceEmail('sw')}>
+                        🇹🇿 Send in Swahili
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleSendAssistanceEmail('ln')}>
+                        🇨🇩 Send in Lingala
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleSendAssistanceEmail('en_sw')}>
+                        🇬🇧+🇹🇿 English + Swahili
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </div>
             </div>

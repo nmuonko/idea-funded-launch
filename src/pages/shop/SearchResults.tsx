@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { ProductGrid } from '@/components/shop/ProductGrid';
 import { Product } from '@/components/shop/ProductCard';
@@ -266,6 +267,7 @@ export default function SearchResults() {
           )}
         </div>
       </main>
+      <BottomNavigation />
     </div>
   );
 }

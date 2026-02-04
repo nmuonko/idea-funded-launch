@@ -1,0 +1,81 @@
+import { Link, useLocation } from 'react-router-dom';
+import { Home, ShoppingCart, Heart, Package, User } from 'lucide-react';
+import { useShopCart } from '@/contexts/ShopCartContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
+import { cn } from '@/lib/utils';
+
+const tabs = [
+  { key: 'browse', icon: Home, path: '/shop' },
+  { key: 'cart', icon: ShoppingCart, path: '/shop/cart' },
+  { key: 'saved', icon: Heart, path: '/shop/saved' },
+  { key: 'orders', icon: Package, path: '/shop/orders' },
+  { key: 'account', icon: User, path: '/shop/account' },
+] as const;
+
+export function BottomNavigation() {
+  const location = useLocation();
+  const { itemCount } = useShopCart();
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+
+  const getLabel = (key: string) => {
+    // Cast shop to any to avoid TS errors while translation types sync
+    const shopT = t.shop as any;
+    const labels: Record<string, string> = {
+      browse: shopT?.browseTab || 'Browse',
+      cart: shopT?.cart || 'Cart',
+      saved: shopT?.savedTab || 'Saved',
+      orders: shopT?.ordersTab || 'Orders',
+      account: shopT?.accountTab || 'Account',
+    };
+    return labels[key] || key;
+  };
+
+  const isActive = (path: string) => {
+    if (path === '/shop') {
+      return location.pathname === '/shop' || location.pathname.startsWith('/shop/search') || location.pathname.startsWith('/shop/product');
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-t border-white/10 md:hidden">
+      <div className="flex items-center justify-around h-16 px-2">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const active = isActive(tab.path);
+          const showBadge = tab.key === 'cart' && itemCount > 0;
+
+          return (
+            <Link
+              key={tab.key}
+              to={tab.path}
+              className={cn(
+                "flex flex-col items-center justify-center flex-1 py-2 transition-colors",
+                active ? "text-blue-500" : "text-white/60 hover:text-white/80"
+              )}
+            >
+              <div className="relative">
+                <Icon className={cn("h-5 w-5", active && "scale-110")} />
+                {showBadge && (
+                  <span className="absolute -top-1 -right-2 bg-blue-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-1">
+                    {itemCount > 99 ? '99+' : itemCount}
+                  </span>
+                )}
+              </div>
+              <span className={cn(
+                "text-[10px] mt-1 font-medium",
+                active && "text-blue-500"
+              )}>
+                {getLabel(tab.key)}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+      {/* Safe area spacing for iOS */}
+      <div className="h-safe-area-inset-bottom bg-black" />
+    </nav>
+  );
+}

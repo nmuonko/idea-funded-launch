@@ -23,27 +23,47 @@ interface ShopCartContextType {
   removeItem: (id: string) => Promise<void>;
   clearCart: () => Promise<void>;
   syncCart: () => Promise<void>;
+  // Saved items (wishlist)
+  savedItems: CartItem[];
+  addToSaved: (item: Omit<CartItem, 'id' | 'quantity'>) => void;
+  removeFromSaved: (id: string) => void;
+  isItemSaved: (productId: string, provider: string) => boolean;
+  // Exchange rate for multi-currency
+  exchangeRate: number;
 }
 
 const ShopCartContext = createContext<ShopCartContextType | undefined>(undefined);
 
 const CART_STORAGE_KEY = 'afrishop_guest_cart';
+const SAVED_STORAGE_KEY = 'afrishop_saved_items';
 
 export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const { user, session } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
+  const [savedItems, setSavedItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exchangeRate, setExchangeRate] = useState(2200);
 
-  // Load cart from localStorage for guests
+  // Load cart and saved items from localStorage for guests
   useEffect(() => {
     if (!user) {
-      const stored = localStorage.getItem(CART_STORAGE_KEY);
-      if (stored) {
+      const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+      if (storedCart) {
         try {
-          setItems(JSON.parse(stored));
+          setItems(JSON.parse(storedCart));
         } catch (e) {
           console.error('Failed to parse stored cart:', e);
         }
+      }
+    }
+    
+    // Always load saved items from localStorage (works for guests and logged-in users)
+    const storedSaved = localStorage.getItem(SAVED_STORAGE_KEY);
+    if (storedSaved) {
+      try {
+        setSavedItems(JSON.parse(storedSaved));
+      } catch (e) {
+        console.error('Failed to parse saved items:', e);
       }
     }
   }, [user]);
@@ -54,6 +74,36 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
     }
   }, [items, user]);
+
+  // Save wishlist to localStorage
+  useEffect(() => {
+    localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify(savedItems));
+  }, [savedItems]);
+
+  // Fetch exchange rate from config
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mobile-public-config`,
+          {
+            headers: {
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.exchangeRate) {
+            setExchangeRate(data.exchangeRate);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to fetch config:', e);
+      }
+    };
+    fetchConfig();
+  }, []);
 
   // Sync cart when user logs in
   const syncCart = useCallback(async () => {
@@ -175,6 +225,29 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(CART_STORAGE_KEY);
   };
 
+  // Saved items (wishlist) functions
+  const addToSaved = (item: Omit<CartItem, 'id' | 'quantity'>) => {
+    const exists = savedItems.some(
+      (s) => s.productId === item.productId && s.provider === item.provider
+    );
+    if (!exists) {
+      const newSavedItem: CartItem = {
+        ...item,
+        id: `saved_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        quantity: 1,
+      };
+      setSavedItems((prev) => [...prev, newSavedItem]);
+    }
+  };
+
+  const removeFromSaved = (id: string) => {
+    setSavedItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const isItemSaved = (productId: string, provider: string) => {
+    return savedItems.some((s) => s.productId === productId && s.provider === provider);
+  };
+
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const totalUsd = items.reduce((sum, item) => sum + item.priceUsd * item.quantity, 0);
 
@@ -190,6 +263,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         removeItem,
         clearCart,
         syncCart,
+        savedItems,
+        addToSaved,
+        removeFromSaved,
+        isItemSaved,
+        exchangeRate,
       }}
     >
       {children}

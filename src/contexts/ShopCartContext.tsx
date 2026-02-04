@@ -167,9 +167,27 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     // If logged in, sync to backend
     if (user && session) {
       try {
+        // Build productUrl if not provided - construct from provider and productId
+        let productUrl = item.productUrl;
+        if (!productUrl && item.productId) {
+          if (item.provider === 'ebay') {
+            productUrl = `https://www.ebay.com/itm/${item.productId}`;
+          } else if (item.provider === 'amazon') {
+            productUrl = `https://www.amazon.com/dp/${item.productId}`;
+          } else {
+            // Fallback: use a placeholder that includes the product info
+            productUrl = `https://afrishop.com/product/${item.provider}/${item.productId}`;
+          }
+        }
+
+        if (!productUrl) {
+          console.error('Cannot sync item without productUrl:', item);
+          return;
+        }
+
         await supabase.functions.invoke('mobile-add-cart-item', {
           body: {
-            productUrl: item.productUrl,
+            productUrl,
             productPrice: item.priceUsd,
             quantity: item.quantity,
             productTitle: item.title,

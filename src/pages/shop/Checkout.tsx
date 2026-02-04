@@ -122,9 +122,27 @@ export default function Checkout() {
         })
         .eq('user_id', user?.id);
 
-      // Create checkout session
+      // Step 1: Create/update DRAFT order from cart items
+      const { data: orderData, error: orderError } = await supabase.functions.invoke(
+        'mobile-create-order-from-cart'
+      );
+
+      if (orderError) {
+        console.error('Order creation error:', orderError);
+        throw new Error('Failed to prepare your order. Please try again.');
+      }
+
+      if (!orderData?.order_id || !orderData?.order_item_ids) {
+        throw new Error('Failed to create order. Please try again.');
+      }
+
+      console.log('Order created:', orderData.order_id, 'items:', orderData.order_item_ids.length);
+
+      // Step 2: Proceed to checkout with order item IDs
       const { data, error } = await supabase.functions.invoke('mobile-checkout', {
         body: {
+          cart_item_ids: orderData.order_item_ids,
+          cart_id: orderData.order_id,
           payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
                                       paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
                                       'MOBILE_MONEY',

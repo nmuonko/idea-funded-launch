@@ -471,8 +471,30 @@ export function buildOrderAssistanceEmail(params: {
   totalUsd: number;
   frontendBaseUrl?: string;
   language?: AssistanceEmailLanguage;
+  supportWhatsapp?: string;
+  supportEmail?: string;
 }): EmailTemplate {
-  const { customerName, orderId, itemCount, totalUsd, frontendBaseUrl = 'https://afrishop-usa.com', language = 'fr' } = params;
+  const { 
+    customerName, 
+    orderId, 
+    itemCount, 
+    totalUsd, 
+    frontendBaseUrl = 'https://afrishop-usa.com', 
+    language = 'fr',
+    supportWhatsapp = '243973141627',
+    supportEmail = 'nkadimisha@afrishop-usa.com',
+  } = params;
+  
+  // Format WhatsApp for display: +243 973 141 627
+  const formatWhatsappDisplay = (phone: string): string => {
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.startsWith('243')) {
+      return `+${cleaned.slice(0, 3)} ${cleaned.slice(3, 6)} ${cleaned.slice(6, 9)} ${cleaned.slice(9)}`;
+    }
+    return `+${cleaned}`;
+  };
+  const whatsappDisplay = formatWhatsappDisplay(supportWhatsapp);
+  const whatsappLink = supportWhatsapp.replace(/\D/g, '');
   const firstName = customerName.split(' ')[0] || customerName;
 
   // Language-specific content
@@ -555,8 +577,8 @@ export function buildOrderAssistanceEmail(params: {
         </div>
 
         <p><strong>${t.contactLabel}</strong></p>
-        <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/14242174633" style="color: #2563eb;">+1 (424) 217-4633</a></p>
-        <p style="margin: 5px 0;">📧 Email: <a href="mailto:nkadimisha@afrishop-usa.com" style="color: #2563eb;">nkadimisha@afrishop-usa.com</a></p>
+        <p style="margin: 5px 0;">📱 WhatsApp: <a href="https://wa.me/${whatsappLink}" style="color: #2563eb;">${whatsappDisplay}</a></p>
+        <p style="margin: 5px 0;">📧 Email: <a href="mailto:${supportEmail}" style="color: #2563eb;">${supportEmail}</a></p>
         
         <p style="margin-top: 20px;">
           <a href="${frontendBaseUrl}/orders" style="${buttonStyle}">

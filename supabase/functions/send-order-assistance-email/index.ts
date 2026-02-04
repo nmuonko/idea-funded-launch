@@ -116,24 +116,40 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get item count
-    const { count: itemCount } = await serviceClient
-      .from("order_items")
-      .select("*", { count: "exact", head: true })
-      .eq("order_id", orderId)
-      .eq("is_saved_for_later", false);
+    // Get item count and support contact in parallel
+    const [itemCountResult, supportContactResult] = await Promise.all([
+      serviceClient
+        .from("order_items")
+        .select("*", { count: "exact", head: true })
+        .eq("order_id", orderId)
+        .eq("is_saved_for_later", false),
+      serviceClient
+        .from("bank_transfer_settings")
+        .select("support_whatsapp, support_email")
+        .eq("is_active", true)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const itemCount = itemCountResult.count || 0;
+    const supportContact = supportContactResult.data;
+    const supportWhatsapp = supportContact?.support_whatsapp || "243973141627";
+    const supportEmail = supportContact?.support_email || "nkadimisha@afrishop-usa.com";
 
     // Get frontend base URL
     const frontendBaseUrl = Deno.env.get("FRONTEND_BASE_URL") || "https://afrishop-usa.com";
 
-    // Build and send email with language
+    // Build and send email with language and support contact
     const emailTemplate = buildOrderAssistanceEmail({
       customerName,
       orderId,
-      itemCount: itemCount || 0,
+      itemCount,
       totalUsd: Number(order.total_usd || 0),
       frontendBaseUrl,
       language: validatedLanguage,
+      supportWhatsapp,
+      supportEmail,
     });
 
     const emailResult = await sendEmail({

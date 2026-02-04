@@ -1,193 +1,169 @@
 
-# Fix Toyota Vehicle Search (Backend Only)
 
-## Problem Summary
-When users search for "Toyota", the system returns phones/electronics instead of vehicles. Other brands like BMW, Mercedes, and Cadillac work correctly.
+# Add "Need Help?" Email Button to Order Details
 
-## Root Cause Analysis
-
-After examining the codebase, I found **two issues**:
-
-### 1. Poisoned Cache Entry
-There is a cached entry with `vm=0` (vehicleMode=false) for Toyota:
-```
-cache_key: search:v4:q=toyota:p=mixed:cat=:pg=1:sz=36:vm=0:mp=0:ex=0
-```
-This was created before the dynamic probe system was in place, and it's being served instead of triggering fresh vehicle detection.
-
-### 2. Toyota Not in STANDALONE_VEHICLE_PATTERNS
-Looking at line 269-297 of `catalog-search/index.ts`, only **luxury/premium brands** are listed in `STANDALONE_VEHICLE_PATTERNS`:
-- Cadillac, Lincoln, Lexus, Porsche, Tesla, Jeep, Ferrari, etc.
-
-**Toyota, Honda, Ford, Nissan** (mainstream brands) are NOT in this list. So:
-- Single-word query "toyota" → relies on dynamic probe
-- Probe was cached incorrectly → returns vm=0 → phones shown
+## Overview
+Add a one-click button to the admin Order Details page that sends a personalized bilingual email (French/English) asking customers if they need assistance completing their order. The email starts with the customer's name for a personalized touch.
 
 ---
 
-## Technical Implementation Plan
+## Implementation Details
 
-### Step 1: Purge All Toyota Cache Entries (SQL Migration)
+### 1. Add Email Template to `supabase/functions/_shared/emailTemplates.ts`
 
-Delete poisoned cache entries from **both** cache tables:
-
-```sql
--- Delete Toyota search cache entries
-DELETE FROM public.catalog_cache 
-WHERE cache_key ILIKE '%toyota%';
-
--- Delete Toyota probe cache entries  
-DELETE FROM public.catalog_cache
-WHERE cache_key ILIKE 'vehicle_probe%toyota%';
-
--- Delete from search_proxy_cache if exists
-DELETE FROM public.search_proxy_cache 
-WHERE cache_key ILIKE '%toyota%';
-
--- Also clear other mainstream brands that might be poisoned
-DELETE FROM public.catalog_cache
-WHERE cache_type = 'search'
-AND (
-  cache_key ILIKE '%honda%' OR
-  cache_key ILIKE '%nissan%' OR
-  cache_key ILIKE '%ford%' OR
-  cache_key ILIKE '%chevrolet%' OR
-  cache_key ILIKE '%chevy%' OR
-  cache_key ILIKE '%hyundai%' OR
-  cache_key ILIKE '%kia%' OR
-  cache_key ILIKE '%mazda%' OR
-  cache_key ILIKE '%subaru%'
-);
-```
-
-### Step 2: Add Mainstream Brands to STANDALONE_VEHICLE_PATTERNS
-
-**File:** `supabase/functions/catalog-search/index.ts`
-
-Add a new section after the luxury brands (around line 297):
+Create a new function `buildOrderAssistanceEmail()`:
 
 ```typescript
-// ═══════════════════════════════════════════════════════════════════════════
-// MAINSTREAM BRANDS: Major car manufacturers - standalone = vehicle intent
-// These brands are strongly associated with vehicles
-// ═══════════════════════════════════════════════════════════════════════════
-/\btoyota\b/i,
-/\bhonda\b/i,
-/\bnissan\b/i,
-/\bford\b/i,
-/\bchevrolet\b/i,
-/\bchevy\b/i,
-/\bdodge\b/i,
-/\bram\b/i,
-/\bgmc\b/i,
-/\bbmw\b/i,
-/\bmercedes\b/i,
-/\baudi\b/i,
-/\bvolkswagen\b/i,
-/\bvw\b/i,
-/\bhyundai\b/i,
-/\bkia\b/i,
-/\bmazda\b/i,
-/\bsubaru\b/i,
-/\bvolvo\b/i,
-/\bchrysler\b/i,
-/\bpeugeot\b/i,
-/\brenault\b/i,
-```
-
-### Step 3: Improve Probe Caching Reliability
-
-**File:** `supabase/functions/catalog-search/index.ts` (function `probeEbayVehicleCategory`)
-
-Only cache probe results when the probe **succeeds** and items can be parsed:
-
-```typescript
-// Around lines 544-565, replace with:
-
-// Cache probe result for 24 hours ONLY if probe succeeded
-if (probeSuccess && vehiclesFound !== undefined) {
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const staleAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+export function buildOrderAssistanceEmail(params: {
+  customerName: string;
+  orderId: string;
+  itemCount: number;
+  totalUsd: number;
+  frontendBaseUrl?: string;
+}): EmailTemplate {
+  const { customerName, orderId, itemCount, totalUsd, frontendBaseUrl = 'https://afrishop-usa.com' } = params;
   
-  supabase.from("catalog_cache").upsert({
-    cache_key: probeKey,
-    cache_type: "search",
-    response: result,
-    expires_at: expiresAt,
-    stale_at: staleAt,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "cache_key" }).then(() => {
-    console.log(JSON.stringify({
-      event: "[VEHICLE_PROBE]",
-      qNorm: query,
-      ok: true,
-      vehiclesFound,
-      decision: vehicleMode ? "vehicle" : "non_vehicle",
-      cached: true,
-      requestId,
-    }));
-  });
-} else {
-  console.log(JSON.stringify({
-    event: "[VEHICLE_PROBE]",
-    qNorm: query,
-    ok: false,
-    vehiclesFound: 0,
-    decision: "fallback_non_vehicle",
-    cached: false,
-    reason: "probe_failed_or_unparsed",
-    requestId,
-  }));
+  return {
+    subject: `🛒 ${customerName}, avez-vous besoin d'aide? / Need help completing your order?`,
+    html: `
+      // Personalized bilingual email starting with customer's name
+      // French section: "Bonjour {customerName}," + assistance offer
+      // English section: "Hello {customerName}," + assistance offer
+      // WhatsApp + Email contact info
+      // "Complete Order" CTA button
+    `,
+  };
 }
 ```
 
-### Step 4: Add Toyota to Protected Terms (Canonicalizer)
-
-**File:** `supabase/functions/_shared/queryCanonicalizer.ts`
-
-Toyota is already in the file with typo corrections (line 45). This is correct - no changes needed. The existing entry already protects "toyota" from fuzzy matching to other terms.
-
-### Step 5: Deploy Edge Function
-
-Redeploy `catalog-search` after making the code changes.
+Key features:
+- **Personalized subject line**: Starts with customer's name
+- **Personalized greeting**: "Bonjour {customerName}," / "Hello {customerName},"
+- **Friendly tone**: Mentions they noticed an incomplete order
+- **Contact options**: WhatsApp (+1-XXX-XXX-XXXX) and email
+- **CTA Button**: "Complete Your Order" linking to order tracking
 
 ---
 
-## Files to Modify
+### 2. Create Edge Function `send-order-assistance-email`
 
-| File | Change |
-|------|--------|
-| `supabase/migrations/YYYYMMDD_fix_toyota_cache.sql` | SQL migration to purge poisoned cache |
-| `supabase/functions/catalog-search/index.ts` | Add mainstream brands to STANDALONE_VEHICLE_PATTERNS |
-| `supabase/functions/catalog-search/index.ts` | Improve probe caching to only cache on success |
+**File:** `supabase/functions/send-order-assistance-email/index.ts`
 
----
+Request body:
+```typescript
+{ orderId: string }
+```
 
-## Verification Tests
-
-After implementation, verify in the app:
-
-**Should Show Vehicles:**
-- "toyota" → vehicles
-- "honda" → vehicles  
-- "nissan" → vehicles
-- "ford" → vehicles
-- "peugeot" → vehicles
-- "toyota camry" → vehicles
-
-**Should Show Accessories/Merch (NOT vehicles):**
-- "toyota floor mats" → floor mats
-- "toyota shirt" → clothing
-- "toyota keychain" → keychains
-- "honda phone case" → phone cases
-- "ford hat" → hats
+Logic:
+1. Validate admin authentication (JWT + `user_roles` check)
+2. Fetch order details with profile (name, email)
+3. Validate order is in `DRAFT` or `PENDING_PAYMENT` status
+4. Build personalized email using `buildOrderAssistanceEmail()`
+5. Send via Resend using shared `sendEmail()` utility
+6. Log to `customer_email_logs` table
+7. Return success/failure response
 
 ---
 
-## Why This Approach Works
+### 3. Update `src/pages/admin/OrderDetail.tsx`
 
-1. **Standalone patterns** trigger vehicle mode IMMEDIATELY for brand-only queries - no probe needed
-2. **Accessory keywords still override** - checked FIRST in `isVehicleMakeModelQuery()`
-3. **Cache purge** removes old poisoned entries
-4. **Reliable probe caching** prevents future poisoning if probe fails
-5. **No frontend changes** - all logic is backend-only
+Add new state and handler:
+
+```typescript
+const [sendingAssistanceEmail, setSendingAssistanceEmail] = useState(false);
+
+const handleSendAssistanceEmail = async () => {
+  setSendingAssistanceEmail(true);
+  const { error } = await supabase.functions.invoke('send-order-assistance-email', {
+    body: { orderId: id }
+  });
+  // Toast success/error
+  setSendingAssistanceEmail(false);
+};
+```
+
+Add button in the "Quick Actions" section (around line 466-468):
+
+```tsx
+{/* Show for incomplete orders with customer email */}
+{(order.status === 'DRAFT' || order.status === 'PENDING_PAYMENT') && order.profiles?.email && (
+  <Button
+    onClick={handleSendAssistanceEmail}
+    disabled={sendingAssistanceEmail}
+    size="sm"
+    variant="outline"
+    className="border-blue-500 text-blue-600 hover:bg-blue-50"
+  >
+    {sendingAssistanceEmail ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <HelpCircle className="h-4 w-4 mr-2" />}
+    Need Help?
+  </Button>
+)}
+```
+
+---
+
+### 4. Update `supabase/config.toml`
+
+Add JWT verification config:
+```toml
+[functions.send-order-assistance-email]
+verify_jwt = false
+```
+
+---
+
+## Files to Create/Modify
+
+| File | Action | Description |
+|------|--------|-------------|
+| `supabase/functions/_shared/emailTemplates.ts` | Modify | Add `buildOrderAssistanceEmail()` template |
+| `supabase/functions/send-order-assistance-email/index.ts` | Create | New edge function |
+| `src/pages/admin/OrderDetail.tsx` | Modify | Add button + handler + import `HelpCircle` |
+
+---
+
+## Email Content Preview
+
+**Subject:** 
+`🛒 Jean, avez-vous besoin d'aide? / Need help completing your order?`
+
+**Body (personalized, bilingual):**
+
+> **Bonjour Jean,**
+>
+> Nous avons remarqué que vous avez commencé une commande sur AfriShop mais ne l'avez pas encore finalisée. Avez-vous rencontré des difficultés ou avez-vous des questions?
+>
+> Notre équipe est là pour vous aider ! N'hésitez pas à nous contacter:
+> - 📱 WhatsApp: +1-XXX-XXX-XXXX
+> - 📧 Email: nkadimisha@afrishop-usa.com
+>
+> [Finaliser Ma Commande] ← CTA button
+>
+> ---
+>
+> **Hello Jean,**
+>
+> We noticed you started an order on AfriShop but haven't completed it yet. Did you run into any issues or have questions?
+>
+> Our team is here to help! Feel free to reach out:
+> - 📱 WhatsApp: +1-XXX-XXX-XXXX
+> - 📧 Email: nkadimisha@afrishop-usa.com
+>
+> [Complete My Order] ← CTA button
+
+---
+
+## Button Visibility Rules
+
+The "Need Help?" button will only appear when:
+1. Order status is `DRAFT` or `PENDING_PAYMENT`
+2. Customer has an email address on their profile
+
+---
+
+## Security
+
+- Admin-only access enforced via JWT validation
+- Checks `user_roles` table for `admin` role
+- All emails logged to `customer_email_logs` for audit trail
+

@@ -89,9 +89,20 @@ function upgradeGalleryImages(images: string[], provider: string): string[] {
 
 function validateAsin(asin: string): string | null {
   if (!asin || asin.length === 0) return "ASIN is required";
+  // ASINs are exactly 10 alphanumeric characters
   if (asin.length !== 10) return `ASIN must be 10 characters (got ${asin.length})`;
-  if (!/^[A-Z0-9]+$/.test(asin)) return "ASIN must be alphanumeric (A-Z, 0-9)";
+  if (!/^[A-Z0-9]+$/i.test(asin)) return "ASIN must be alphanumeric (A-Z, 0-9)";
   return null;
+}
+
+function isLikelyEbayId(id: string): boolean {
+  // eBay item IDs start with v1| or are numeric 12+ digits or contain |
+  return id.startsWith("v1|") || id.includes("|") || /^\d{12,}$/.test(id);
+}
+
+function isLikelyAsin(id: string): boolean {
+  // ASINs are exactly 10 alphanumeric characters, often starting with B
+  return /^[A-Z0-9]{10}$/i.test(id);
 }
 
 function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null } {
@@ -125,8 +136,17 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
     provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
     productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
     if (!productId && id) {
-      productId = id.toUpperCase();
-      provider = "rainforest";
+      productId = id;
+      // Auto-detect provider based on ID format
+      if (isLikelyEbayId(id)) {
+        provider = "ebay";
+      } else if (isLikelyAsin(id)) {
+        provider = "rainforest";
+        productId = id.toUpperCase();
+      } else {
+        // Unknown format - try eBay first as it's more flexible
+        provider = "ebay";
+      }
     }
   }
 

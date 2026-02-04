@@ -360,6 +360,37 @@ export const translations = {
       // Recently Viewed
       recentlyViewed: 'Recently Viewed',
       clearAll: 'Clear All',
+      // Delivery Estimate
+      estimatedDelivery: 'Estimated Delivery',
+      businessDays: '10-17 business days',
+      // Payment Result
+      paymentSuccessful: 'Payment Successful!',
+      orderNumber: 'Order',
+      paymentSuccessMessage: "We'll email you confirmation and tracking updates.",
+      viewOrder: 'View Order',
+      keepShopping: 'Keep Shopping',
+      whatHappensNext: 'What happens next',
+      step1Next: 'We purchase your items from US stores',
+      step2Next: 'Items ship to our warehouse',
+      step3Next: 'We ship to DRC (10-17 days)',
+      paymentFailed: 'Payment Failed',
+      paymentFailedMessage: 'Your payment was declined. Please try another method.',
+      contactSupport: 'Contact Support',
+      // Offline
+      offlineMessage: "You're offline. Some features may be limited.",
+      // How It Works
+      howItWorks1Title: 'Browse & Add',
+      howItWorks1Desc: 'Find products from US stores and add them to your cart.',
+      howItWorks2Title: 'Checkout',
+      howItWorks2Desc: 'Pay securely with card, mobile money, or bank transfer.',
+      howItWorks3Title: 'We Purchase',
+      howItWorks3Desc: 'We buy the items from US stores on your behalf.',
+      howItWorks4Title: 'Delivery to DRC',
+      howItWorks4Desc: 'Items shipped to Kinshasa or Lubumbashi (10-17 days).',
+      // Source Link
+      viewOn: 'View on',
+      // Move All
+      moveAllToCart: 'Move All to Cart & Checkout',
     },
   },
   fr: {

@@ -1,75 +1,100 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
-interface FeaturedItem {
+interface FeaturedProduct {
   id: string;
+  provider: string;
   title: string;
-  subtitle: string;
+  imageUrl: string;
+  priceUsd: number;
   gradient: string;
   searchQuery: string;
 }
 
-const featuredItems: FeaturedItem[] = [
-  {
-    id: 'iphone',
-    title: 'iPhone 16 Pro Max',
-    subtitle: 'Latest Apple flagship',
-    gradient: 'from-purple-600 via-pink-500 to-red-500',
-    searchQuery: 'iphone 16 pro max',
-  },
-  {
-    id: 'luxury-cars',
-    title: 'Luxury Vehicles',
-    subtitle: 'Premium automobiles',
-    gradient: 'from-amber-500 via-orange-500 to-red-600',
-    searchQuery: 'luxury car mercedes bmw',
-  },
-  {
-    id: 'xbox',
-    title: 'Xbox Series X',
-    subtitle: 'Next-gen gaming',
-    gradient: 'from-green-500 via-emerald-500 to-teal-500',
-    searchQuery: 'xbox series x console',
-  },
-  {
-    id: 'vision-pro',
-    title: 'Apple Vision Pro',
-    subtitle: 'Spatial computing',
-    gradient: 'from-slate-400 via-gray-300 to-zinc-400',
-    searchQuery: 'apple vision pro',
-  },
-  {
-    id: 'macbook',
-    title: 'MacBook Pro M4',
-    subtitle: 'Pro performance',
-    gradient: 'from-blue-500 via-indigo-500 to-purple-600',
-    searchQuery: 'macbook pro m4',
-  },
-  {
-    id: 'ps5',
-    title: 'PlayStation 5',
-    subtitle: 'Play has no limits',
-    gradient: 'from-blue-600 via-indigo-600 to-violet-600',
-    searchQuery: 'playstation 5 console',
-  },
+const featuredQueries = [
+  { query: 'iPhone 16 Pro Max', gradient: 'from-purple-600 via-pink-500 to-red-500' },
+  { query: 'luxury car Mercedes BMW', gradient: 'from-amber-500 via-orange-500 to-red-600' },
+  { query: 'Xbox Series X', gradient: 'from-green-500 via-emerald-500 to-teal-500' },
+  { query: 'Apple Vision Pro', gradient: 'from-slate-400 via-gray-300 to-zinc-400' },
+  { query: 'MacBook Pro M4', gradient: 'from-blue-500 via-indigo-500 to-purple-600' },
+  { query: 'PlayStation 5', gradient: 'from-blue-600 via-indigo-600 to-violet-600' },
 ];
 
 export function FeaturedCarousel() {
+  const [products, setProducts] = useState<FeaturedProduct[]>([]);
+  const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
 
+  // Fetch real products
+  useEffect(() => {
+    const fetchFeaturedProducts = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch one product per query in parallel
+        const results = await Promise.all(
+          featuredQueries.map(async ({ query, gradient }) => {
+            try {
+              const { data, error } = await supabase.functions.invoke('catalog-search', {
+                body: { query, limit: 1, page: 1 }
+              });
+              
+              if (error || !data?.items?.[0]) return null;
+              
+              const item = data.items[0];
+              return {
+                id: item.provider_product_id || item.id,
+                provider: item.provider || 'ebay',
+                title: item.title || query,
+                imageUrl: item.image_url || item.imageUrl || '',
+                priceUsd: item.price_usd || item.priceUsd || 0,
+                gradient,
+                searchQuery: query,
+              };
+            } catch {
+              return null;
+            }
+          })
+        );
+        
+        const validProducts = results.filter(Boolean) as FeaturedProduct[];
+        setProducts(validProducts);
+      } catch (err) {
+        console.error('Failed to fetch featured products:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFeaturedProducts();
+  }, []);
+
   // Auto-scroll every 3 seconds
   useEffect(() => {
-    if (isPaused) return;
+    if (isPaused || products.length === 0) return;
     
     const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % featuredItems.length);
+      setCurrentIndex((prev) => (prev + 1) % products.length);
     }, 3000);
     
     return () => clearInterval(interval);
-  }, [isPaused]);
+  }, [isPaused, products.length]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-white/40" />
+      </div>
+    );
+  }
+
+  if (products.length === 0) {
+    return null;
+  }
 
   return (
     <div 
@@ -94,14 +119,14 @@ export function FeaturedCarousel() {
         }}
       >
         {/* Duplicate items for infinite scroll effect */}
-        {[...featuredItems, ...featuredItems].map((item, index) => (
+        {[...products, ...products].map((product, index) => (
           <Link
-            key={`${item.id}-${index}`}
-            to={`/shop/search?q=${encodeURIComponent(item.searchQuery)}`}
+            key={`${product.id}-${index}`}
+            to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
             className="flex-shrink-0 group"
           >
             <motion.div
-              className={`relative w-64 h-32 rounded-2xl bg-gradient-to-r ${item.gradient} p-4 overflow-hidden cursor-pointer`}
+              className={`relative w-64 h-36 rounded-2xl bg-gradient-to-r ${product.gradient} p-4 overflow-hidden cursor-pointer`}
               whileHover={{ scale: 1.05, y: -4 }}
               transition={{ type: 'spring', stiffness: 300 }}
             >
@@ -109,6 +134,20 @@ export function FeaturedCarousel() {
               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
               </div>
+              
+              {/* Product Image */}
+              {product.imageUrl && (
+                <div className="absolute right-2 bottom-2 w-20 h-20">
+                  <img 
+                    src={product.imageUrl} 
+                    alt={product.title}
+                    className="w-full h-full object-contain drop-shadow-lg"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
               
               {/* Sparkle Icon */}
               <motion.div
@@ -120,15 +159,19 @@ export function FeaturedCarousel() {
               </motion.div>
               
               {/* Content */}
-              <div className="relative z-10 h-full flex flex-col justify-end">
-                <h3 className="text-lg font-bold text-white drop-shadow-lg">
-                  {item.title}
+              <div className="relative z-10 h-full flex flex-col justify-end pr-20">
+                <h3 className="text-base font-bold text-white drop-shadow-lg line-clamp-2">
+                  {product.title.length > 30 ? product.title.substring(0, 30) + '...' : product.title}
                 </h3>
-                <p className="text-sm text-white/80">{item.subtitle}</p>
+                {product.priceUsd > 0 && (
+                  <p className="text-sm font-semibold text-white/90 mt-1">
+                    ${product.priceUsd.toFixed(2)}
+                  </p>
+                )}
                 
                 {/* Hover Arrow */}
                 <motion.div
-                  className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100"
+                  className="absolute bottom-4 right-20 opacity-0 group-hover:opacity-100"
                   initial={{ x: -10 }}
                   whileHover={{ x: 0 }}
                 >
@@ -146,12 +189,12 @@ export function FeaturedCarousel() {
       
       {/* Dots Indicator */}
       <div className="flex justify-center gap-2 mt-4">
-        {featuredItems.map((_, index) => (
+        {products.map((_, index) => (
           <button
             key={index}
             onClick={() => setCurrentIndex(index)}
             className={`w-2 h-2 rounded-full transition-all ${
-              index === currentIndex % featuredItems.length
+              index === currentIndex % products.length
                 ? 'bg-blue-500 w-6'
                 : 'bg-white/30 hover:bg-white/50'
             }`}

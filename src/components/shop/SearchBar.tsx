@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Search, X, Clock } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
 const RECENT_SEARCHES_KEY = 'afrishop_recent_searches';
@@ -18,11 +20,15 @@ interface SearchBarProps {
 export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }: SearchBarProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { language } = useLanguage();
   const [query, setQuery] = useState(defaultValue || searchParams.get('q') || '');
   const [showRecent, setShowRecent] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const t = translations[language] || translations.en;
+  const shop = t.shop;
 
   // Load recent searches
   useEffect(() => {
@@ -98,7 +104,7 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => setShowRecent(true)}
-          placeholder="Search millions of products..."
+          placeholder={shop.searchPlaceholder}
           autoFocus={autoFocus}
           className="w-full pl-12 pr-12 h-11 md:h-12 bg-white/10 border-2 border-blue-500/30 text-white placeholder:text-white/50 rounded-full focus:bg-white/15 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all text-sm md:text-base font-medium"
         />
@@ -118,7 +124,7 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
             size="sm"
             className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 px-3 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full text-xs font-semibold hidden md:flex"
           >
-            Search
+            {t.common.search}
           </Button>
         )}
       </form>
@@ -127,14 +133,14 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
       {showRecent && recentSearches.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-black/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden z-50">
           <div className="flex items-center justify-between px-4 py-2 border-b border-white/10">
-            <span className="text-xs text-white/40 uppercase tracking-wider">Recent Searches</span>
+            <span className="text-xs text-white/40 uppercase tracking-wider">{shop.recentSearches}</span>
             <Button
               variant="ghost"
               size="sm"
               onClick={clearRecentSearches}
               className="text-xs text-white/40 hover:text-white h-auto p-1"
             >
-              Clear
+              {shop.clear}
             </Button>
           </div>
           <div className="py-2">

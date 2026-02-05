@@ -10,7 +10,7 @@
  export default function PaymentPending() {
    const [searchParams] = useSearchParams();
    const navigate = useNavigate();
-   const { clearCartOnPaymentSuccess, clearPendingCheckout } = useShopCart();
+   const { clearCartOnPaymentSuccess, clearPendingCheckout, exchangeRate } = useShopCart();
    const cartClearedRef = useRef(false);
    const orderId = searchParams.get('order_id');
    const provider = searchParams.get('provider') || 'pawapay';
@@ -18,6 +18,7 @@
    const [status, setStatus] = useState<'pending' | 'paid' | 'failed'>('pending');
    const [loading, setLoading] = useState(false);
    const [checkCount, setCheckCount] = useState(0);
+   const [orderAmount, setOrderAmount] = useState<{ usd: number; cdf: number } | null>(null);
    
    // Poll for payment status
    useEffect(() => {
@@ -27,9 +28,17 @@
        try {
          const { data: order } = await supabase
            .from('orders')
-           .select('status')
+           .select('status, total_usd, total_cdf')
            .eq('id', orderId)
            .single();
+         
+         // Set order amount on first fetch
+         if (order && !orderAmount) {
+           setOrderAmount({
+             usd: order.total_usd || 0,
+             cdf: order.total_cdf || 0,
+           });
+         }
          
          if (order?.status === 'PAID') {
            setStatus('paid');
@@ -62,7 +71,7 @@
      }, 5000);
      
      return () => clearInterval(interval);
-   }, [orderId, status, checkCount, clearCartOnPaymentSuccess, clearPendingCheckout]);
+   }, [orderId, status, checkCount, clearCartOnPaymentSuccess, clearPendingCheckout, orderAmount]);
    
    const handleRetry = async () => {
      if (!orderId) return;
@@ -193,21 +202,34 @@
                <Smartphone className="w-12 h-12 text-blue-400" />
              </motion.div>
              
-             <div className="space-y-2">
-               <h1 className="text-2xl font-bold text-white">Check Your Phone</h1>
-               <p className="text-lg text-yellow-400 font-medium">
-                 A payment request has been sent to your mobile phone
-               </p>
-             </div>
-             
-             <div className="bg-white/5 rounded-xl p-4 space-y-3">
-               <p className="text-white/80">
-                 Please check your phone for the <span className="text-cyan-400 font-semibold">USSD prompt</span> and enter your PIN to confirm the payment.
-               </p>
-               <p className="text-white/60 text-sm">
-                 The request will expire in a few minutes. If you don't see it, check your mobile money app.
-               </p>
-             </div>
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold text-white">Check Your Phone</h1>
+                <p className="text-lg text-yellow-400 font-medium">
+                  A payment request has been sent to your mobile phone
+                </p>
+              </div>
+              
+              {/* Amount Display */}
+              {orderAmount && (
+                <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/30 rounded-xl p-4">
+                  <p className="text-white/60 text-sm mb-1">Amount to pay</p>
+                  <p className="text-3xl font-bold text-white">
+                    ${orderAmount.usd.toFixed(2)} <span className="text-lg font-normal text-white/50">USD</span>
+                  </p>
+                  <p className="text-lg text-cyan-400 font-medium mt-1">
+                    ≈ CDF {orderAmount.cdf.toLocaleString()}
+                  </p>
+                </div>
+              )}
+              
+              <div className="bg-white/5 rounded-xl p-4 space-y-3">
+                <p className="text-white/80">
+                  Please check your phone for the <span className="text-cyan-400 font-semibold">USSD prompt</span> and enter your PIN to confirm the payment.
+                </p>
+                <p className="text-white/60 text-sm">
+                  The request will expire in a few minutes. If you don't see it, check your mobile money app.
+                </p>
+              </div>
              
              {/* Loading indicator */}
              <div className="flex items-center justify-center gap-3 text-white/50">

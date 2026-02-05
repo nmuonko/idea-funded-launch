@@ -16,6 +16,7 @@ import {
   extractBearerToken,
   getDbClient,
   createAdminPostgrestClient,
+  createAdminClient,
 } from "../_shared/auth.ts";
 import { PostgrestClient } from "../_shared/postgrest.ts";
 import {
@@ -312,7 +313,13 @@ serve(async (req) => {
     try {
       // Note: We use the shared cartHelpers for this as it handles vehicle logic
       const adminClient = createAdminClient();
-      await sharedUpdateOrderTotals(adminClient, draft.id);
+      await sharedUpdateOrderTotals(
+        adminClient, 
+        draft.id,
+        settings.shippingBaseFeeUsd,
+        settings.shippingPercent,
+        settings.exchangeRate
+      );
     } catch (e) {
       console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message);
     }
@@ -349,6 +356,3 @@ serve(async (req) => {
     return errorResponse((e as Error).message || "Internal error", 500);
   }
 });
-
-// Import for sharedUpdateOrderTotals fallback
-import { createAdminClient } from "../_shared/auth.ts";

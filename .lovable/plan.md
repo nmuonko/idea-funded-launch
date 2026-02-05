@@ -1,17 +1,22 @@
 
-
-# Fix: Mobile App "Catalogue Indisponible" Error
+# Fix: Mobile "Catalogue Indisponible" - Multiple Endpoints Missing CORS Headers
 
 ## Problem Identified
 
-The mobile app is showing "Catalogue Indisponible" (Catalog Unavailable) because the `catalog-home` edge function's CORS headers don't include the headers that mobile Supabase clients send. The web app works because browsers may handle CORS differently, but mobile apps (React Native) are stricter.
+The `catalog-home` function was fixed, but the mobile app calls multiple catalog endpoints on startup. These other endpoints are **missing the mobile-specific CORS headers**, causing the mobile app to fail:
 
-**Current CORS headers in `catalog-home`:**
-```typescript
-"Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment"
-```
+| Endpoint | Current Headers | Status |
+|----------|-----------------|--------|
+| `catalog-home` | ✅ Has mobile headers | Fixed |
+| `mobile-public-config` | ❌ Missing mobile headers | **Broken** |
+| `catalog-search` | ❌ Missing mobile headers | **Broken** |
+| `catalog-product` | ❌ Missing mobile headers | **Broken** |
 
-**Missing headers that mobile clients send:**
+The mobile app likely calls `mobile-public-config` first to bootstrap, and if that fails with a CORS error, the entire catalog becomes unavailable.
+
+## Root Cause
+
+Mobile Supabase clients (React Native) send these headers that need to be explicitly allowed:
 - `x-supabase-client-platform`
 - `x-supabase-client-platform-version`
 - `x-supabase-client-runtime`
@@ -19,34 +24,81 @@ The mobile app is showing "Catalogue Indisponible" (Catalog Unavailable) because
 
 ## Solution
 
-Update the CORS headers in `catalog-home` to match the headers used in `auth-me` (which was already fixed for mobile).
+Update CORS headers in all mobile-facing catalog endpoints to include the mobile-specific headers.
 
 ## Changes Required
 
-### 1. Update `supabase/functions/catalog-home/index.ts`
-
-Update the `corsHeaders` constant (around line 49-55):
+### 1. Update `supabase/functions/mobile-public-config/index.ts` (Line 12-16)
 
 ```typescript
+// FROM:
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
+  "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+};
+
+// TO:
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers":
-    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Max-Age": "86400",
+  "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
 };
 ```
 
-### 2. Redeploy the Edge Function
+### 2. Update `supabase/functions/catalog-search/index.ts` (Line 71-74)
 
-Deploy the updated `catalog-home` function to apply the CORS fix.
+```typescript
+// FROM:
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
+};
+
+// TO:
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+```
+
+### 3. Update `supabase/functions/catalog-product/index.ts` (Line 33-37)
+
+```typescript
+// FROM:
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
+  "Cache-Control": "public, max-age=300",
+};
+
+// TO:
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Cache-Control": "public, max-age=300",
+};
+```
+
+### 4. Redeploy All Three Functions
+
+Deploy the updated functions to apply the CORS fixes.
 
 ## Technical Details
 
 | Aspect | Details |
 |--------|---------|
-| Root Cause | Missing mobile-specific Supabase headers in CORS Allow-Headers |
-| Affected Clients | Mobile apps (React Native with @supabase/supabase-js) |
-| Fix Scope | One-line change to CORS headers |
-| Risk | None - only adds allowed headers, doesn't change functionality |
+| Root Cause | Multiple catalog endpoints missing mobile CORS headers |
+| Most Critical | `mobile-public-config` - called first on app startup |
+| Fix Scope | Add 4 mobile-specific headers to 3 edge functions |
+| Risk | None - only adds allowed headers, no functionality changes |
 
+## Why This Will Work
+
+1. `mobile-public-config` is the **first endpoint** called when the mobile app starts
+2. If this CORS fails, the app cannot get configuration and shows "Catalogue Indisponible"
+3. Even if `catalog-home` works, the app needs config first to know what to display
+4. Fixing all three endpoints ensures the complete mobile flow works

@@ -565,14 +565,6 @@ export default function Checkout() {
                         </div>
                       </label>
 
-                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
-                        <RadioGroupItem value="bank_transfer" id="bank_transfer" className="border-white/40" />
-                        <Building2 className="h-5 w-5 text-white/70" />
-                        <div className="flex-1">
-                          <p className="text-white font-medium">Bank Transfer</p>
-                          <p className="text-sm text-white/50">Manual transfer to our bank account</p>
-                        </div>
-                      </label>
                     </div>
                   </RadioGroup>
                 </motion.div>

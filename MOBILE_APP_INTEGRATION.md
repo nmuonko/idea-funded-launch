@@ -97,20 +97,35 @@ async function initializeAuth() {
 }
 ```
 
-### 3. Sign In (RECOMMENDED: Direct Supabase Auth)
+### 3. Sign In (FIX FOR YOUR ARCHITECTURE)
 
-**⚠️ IMPORTANT**: Use `supabase.auth.signInWithPassword` directly - NOT a custom edge function.
-This ensures the same auth flow as the web app.
+**⚠️ CRITICAL FIX**: Your `loginApi()` in `auth.ts` must normalize email before calling Supabase.
 
+**Current Code (PROBLEM)**:
 ```typescript
-async function signIn(email: string, password: string) {
+// auth.ts → loginApi() - CURRENT (BROKEN)
+export async function loginApi(email: string, password: string): Promise<AuthResponse> {
+  const supabase = getSupabaseClient();
+  
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,      // ❌ NOT NORMALIZED - may have spaces or wrong case
+    password,
+  });
+  // ...
+}
+```
+
+**Fixed Code (APPLY THIS)**:
+```typescript
+// auth.ts → loginApi() - FIXED
+export async function loginApi(email: string, password: string): Promise<AuthResponse> {
+  const supabase = getSupabaseClient();
+  
   // ═══════════════════════════════════════════════════════════════
-  // CRITICAL INPUT HANDLING:
-  // - Email: trim() and toLowerCase() - email comparison is case-insensitive
-  // - Password: NEVER modify - passwords are case-sensitive!
+  // CRITICAL FIX: Normalize email, preserve password exactly
   // ═══════════════════════════════════════════════════════════════
   const normalizedEmail = email.trim().toLowerCase();
-  const rawPassword = password; // Keep exactly as entered
+  const rawPassword = password; // DO NOT MODIFY - case-sensitive!
   
   console.log('[AUTH] login_attempt email=' + normalizedEmail.substring(0, 3) + '***');
   
@@ -120,21 +135,99 @@ async function signIn(email: string, password: string) {
   });
   
   if (error) {
-    console.error('[AUTH] login_failed code=' + error.status + ' message=' + error.message);
+    console.error('[AUTH] login_failed code=' + error.status + ' msg=' + error.message);
     
-    // Return user-friendly error
-    let userMessage = 'Email ou mot de passe incorrect.';
-    if (error.message.includes('Email not confirmed')) {
-      userMessage = 'Veuillez vérifier votre email avant de vous connecter.';
-    } else if (error.message.includes('Too many requests')) {
-      userMessage = 'Trop de tentatives. Réessayez plus tard.';
+    if (error.message.includes('confirm') || error.message.includes('verify')) {
+      throw new Error('EMAIL_NOT_CONFIRMED');
     }
     
-    throw new Error(userMessage);
+    // Log the actual error for debugging
+    console.error('[AUTH] supabase_error_details:', JSON.stringify(error));
+    throw new Error(error.message);
   }
   
-  console.log('[AUTH] login_success userId=' + data.user.id + ' email=' + data.user.email);
-  return data.session;
+  console.log('[AUTH] login_success userId=' + data.user.id);
+  
+  const user = await getMeApi();
+  return { token: data.session.access_token, user };
+}
+```
+
+### 3b. Verify getSupabaseClient() Uses Correct Project
+
+**Add this check in your `supabase.ts`**:
+```typescript
+// src/lib/supabase.ts
+
+// ═══════════════════════════════════════════════════════════════
+// CRITICAL: These MUST match the web app exactly
+// ═══════════════════════════════════════════════════════════════
+const SUPABASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnbWtoeGZmbnl6b29nY3F2ZGFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzM2NjYsImV4cCI6MjA3OTcwOTY2Nn0.xMa-K25tL63StMYRZDq7xovDPyrWlB_LA-KkGciqZaA';
+
+// Add this verification at module load
+const projectId = SUPABASE_URL.split('//')[1].split('.')[0];
+const keyPrefix = SUPABASE_ANON_KEY.substring(0, 20);
+console.log('[SUPABASE_CLIENT] project=' + projectId + ' keyPrefix=' + keyPrefix);
+
+// Expected output:
+// [SUPABASE_CLIENT] project=igmkhxffnyzoogcqvdab keyPrefix=eyJhbGciOiJIUzI1NiIs
+
+if (projectId !== 'igmkhxffnyzoogcqvdab') {
+  console.error('[SUPABASE_CLIENT] ⚠️ WRONG PROJECT! Expected igmkhxffnyzoogcqvdab, got ' + projectId);
+}
+
+const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+    storage: AsyncStorage,
+  },
+});
+
+export function getSupabaseClient() {
+  return client;
+}
+```
+
+### 3c. Debug Login Issues
+
+Add this temporary debug function to isolate the problem:
+
+```typescript
+// Add to auth.ts for debugging
+export async function debugLogin(email: string, password: string) {
+  const supabase = getSupabaseClient();
+  
+  // Log exactly what we're sending
+  console.log('[DEBUG_LOGIN] raw_email="' + email + '"');
+  console.log('[DEBUG_LOGIN] email_length=' + email.length);
+  console.log('[DEBUG_LOGIN] password_length=' + password.length);
+  
+  const normalizedEmail = email.trim().toLowerCase();
+  console.log('[DEBUG_LOGIN] normalized_email="' + normalizedEmail + '"');
+  console.log('[DEBUG_LOGIN] normalized_length=' + normalizedEmail.length);
+  
+  // Check for hidden characters
+  const hasHiddenChars = email !== email.replace(/[^\x20-\x7E]/g, '');
+  console.log('[DEBUG_LOGIN] has_hidden_chars=' + hasHiddenChars);
+  
+  // Try the login
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: normalizedEmail,
+    password: password, // Keep password exactly as entered
+  });
+  
+  if (error) {
+    console.log('[DEBUG_LOGIN] FAILED error_code=' + error.status);
+    console.log('[DEBUG_LOGIN] error_message=' + error.message);
+    console.log('[DEBUG_LOGIN] error_name=' + error.name);
+    return { success: false, error: error.message };
+  }
+  
+  console.log('[DEBUG_LOGIN] SUCCESS user_id=' + data.user.id);
+  return { success: true, userId: data.user.id };
 }
 ```
 

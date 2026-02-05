@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Package, ArrowLeft, Loader2, ShoppingBag, ChevronRight } from 'lucide-react';
+import { Package, ArrowLeft, Loader2, ShoppingBag, ChevronRight, RefreshCw, Clock, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -21,13 +21,23 @@ interface Order {
   confirmation_code?: string;
 }
 
+type OrderTab = 'active' | 'past';
+
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+  pending_payment: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   processing: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  paid: 'bg-green-500/20 text-green-400 border-green-500/30',
   shipped: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   delivered: 'bg-green-500/20 text-green-400 border-green-500/30',
+  completed: 'bg-green-500/20 text-green-400 border-green-500/30',
   cancelled: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
+
+// Active statuses (orders in progress)
+const ACTIVE_STATUSES = ['PENDING_PAYMENT', 'PAID', 'PROCESSING', 'SHIPPED'];
+// Past statuses (completed or cancelled)
+const PAST_STATUSES = ['DELIVERED', 'COMPLETED', 'CANCELLED'];
 
 export default function MyOrders() {
   const { user } = useAuth();
@@ -37,6 +47,7 @@ export default function MyOrders() {
   
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<OrderTab>('active');
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -50,8 +61,9 @@ export default function MyOrders() {
           .from('orders')
           .select('id, created_at, status, total_usd, confirmation_code')
           .eq('user_id', user.id)
+          .neq('status', 'DRAFT') // Exclude draft orders (carts)
           .order('created_at', { ascending: false })
-          .limit(50);
+          .limit(100);
 
         if (error) throw error;
         // Map data to include items as empty array since we don't query it
@@ -67,14 +79,18 @@ export default function MyOrders() {
   }, [user]);
 
   const getStatusLabel = (status: string) => {
+    const statusLower = status.toLowerCase();
     const labels: Record<string, string> = {
       pending: shop?.statusPending || 'Pending',
+      pending_payment: shop?.statusPending || 'Pending Payment',
+      paid: shop?.statusPaid || 'Paid',
       processing: shop?.statusProcessing || 'Processing',
       shipped: shop?.statusShipped || 'Shipped',
       delivered: shop?.statusDelivered || 'Delivered',
+      completed: shop?.statusDelivered || 'Completed',
       cancelled: shop?.statusCancelled || 'Cancelled',
     };
-    return labels[status] || status;
+    return labels[statusLower] || status;
   };
 
   const formatDate = (dateStr: string) => {
@@ -90,6 +106,19 @@ export default function MyOrders() {
     if (!Array.isArray(items)) return 0;
     return items.reduce((sum, item) => sum + (item.quantity || 1), 0);
   };
+
+  // Filter orders by tab
+  const filteredOrders = orders.filter(order => {
+    const statusUpper = order.status.toUpperCase();
+    if (activeTab === 'active') {
+      return ACTIVE_STATUSES.includes(statusUpper);
+    } else {
+      return PAST_STATUSES.includes(statusUpper);
+    }
+  });
+
+  const activeCount = orders.filter(o => ACTIVE_STATUSES.includes(o.status.toUpperCase())).length;
+  const pastCount = orders.filter(o => PAST_STATUSES.includes(o.status.toUpperCase())).length;
 
   return (
     <div className="min-h-screen bg-black pb-20">
@@ -130,72 +159,114 @@ export default function MyOrders() {
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-8 w-8 animate-spin text-white/40" />
             </div>
-          ) : orders.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-20"
-            >
-              <ShoppingBag className="h-16 w-16 text-white/20 mx-auto mb-4" />
-              <h2 className="text-xl font-semibold text-white mb-2">
-                {shop?.noOrders || 'No orders yet'}
-              </h2>
-              <p className="text-white/60 mb-6">
-                {shop?.noOrdersDescription || 'Your orders will appear here after you make a purchase'}
-              </p>
-              <Link to="/browse">
-                <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
-                  {shop?.startShopping || 'Start Shopping'}
-                </Button>
-              </Link>
-            </motion.div>
           ) : (
-            <div className="space-y-4">
-              {orders.map((order, index) => (
+            <>
+              {/* Tabs */}
+              <div className="flex gap-2 mb-6">
+                <button
+                  onClick={() => setActiveTab('active')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                    activeTab === 'active'
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
+                      : "bg-white/10 text-white/60 hover:bg-white/20"
+                  )}
+                >
+                  <Clock className="h-4 w-4" />
+                  {language === 'fr' ? 'En cours' : 'Active'}
+                  {activeCount > 0 && (
+                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">{activeCount}</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveTab('past')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                    activeTab === 'past'
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
+                      : "bg-white/10 text-white/60 hover:bg-white/20"
+                  )}
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  {language === 'fr' ? 'Historique' : 'Past Orders'}
+                  {pastCount > 0 && (
+                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">{pastCount}</span>
+                  )}
+                </button>
+              </div>
+
+              {filteredOrders.length === 0 ? (
                 <motion.div
-                  key={order.id}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+                  className="text-center py-20"
                 >
-                  <Link
-                    to={`/orders/${order.id}`}
-                    className="block bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-white">
-                            #{order.confirmation_code || order.id.slice(0, 8).toUpperCase()}
-                          </span>
-                          <Badge 
-                            variant="outline" 
-                            className={cn("text-xs capitalize", statusColors[order.status] || statusColors.pending)}
-                          >
-                            {getStatusLabel(order.status)}
-                          </Badge>
-                        </div>
-                        
-                        <p className="text-xs text-white/50 mb-2">
-                          {formatDate(order.created_at)}
-                        </p>
-                        
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-white/60">
-                            {getItemsCount(order.items)} {getItemsCount(order.items) === 1 ? shop?.item : shop?.items}
-                          </span>
-                          <span className="text-lg font-bold text-white">
-                            ${order.total_usd?.toFixed(2) || '0.00'}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <ChevronRight className="h-5 w-5 text-white/40 flex-shrink-0" />
-                    </div>
+                  <ShoppingBag className="h-16 w-16 text-white/20 mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-white mb-2">
+                    {activeTab === 'active' 
+                      ? (language === 'fr' ? 'Aucune commande en cours' : 'No active orders')
+                      : (language === 'fr' ? 'Aucune commande passée' : 'No past orders')}
+                  </h2>
+                  <p className="text-white/60 mb-6">
+                    {activeTab === 'active'
+                      ? (language === 'fr' ? 'Vos commandes actives apparaîtront ici' : 'Your active orders will appear here')
+                      : (language === 'fr' ? 'Votre historique de commandes apparaîtra ici' : 'Your order history will appear here')}
+                  </p>
+                  <Link to="/browse">
+                    <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
+                      {shop?.startShopping || 'Start Shopping'}
+                    </Button>
                   </Link>
                 </motion.div>
-              ))}
-            </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredOrders.map((order, index) => (
+                    <motion.div
+                      key={order.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <Link
+                        to={`/orders/${order.id}`}
+                        className="block bg-white/5 border border-white/10 rounded-xl p-4 hover:bg-white/10 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-sm font-medium text-white">
+                                #{order.confirmation_code || order.id.slice(0, 8).toUpperCase()}
+                              </span>
+                              <Badge 
+                                variant="outline" 
+                                className={cn("text-xs capitalize", statusColors[order.status.toLowerCase()] || statusColors.pending)}
+                              >
+                                {getStatusLabel(order.status)}
+                              </Badge>
+                            </div>
+                            
+                            <p className="text-xs text-white/50 mb-2">
+                              {formatDate(order.created_at)}
+                            </p>
+                            
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-white/60">
+                                {getItemsCount(order.items)} {getItemsCount(order.items) === 1 ? shop?.item : shop?.items}
+                              </span>
+                              <span className="text-lg font-bold text-white">
+                                ${order.total_usd?.toFixed(2) || '0.00'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <ChevronRight className="h-5 w-5 text-white/40 flex-shrink-0" />
+                        </div>
+                      </Link>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

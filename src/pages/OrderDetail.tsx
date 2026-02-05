@@ -4,10 +4,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, Package, Clock, CheckCircle, XCircle, ExternalLink, ArrowLeft, RefreshCw, Truck } from 'lucide-react';
+import { Loader2, Package, Clock, CheckCircle, XCircle, ExternalLink, ArrowLeft, RefreshCw, Truck, ShoppingCart } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getStatusTranslation, getTranslation } from '@/lib/i18n/translations';
+import { useShopCart } from '@/contexts/ShopCartContext';
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -15,9 +16,11 @@ export default function OrderDetail() {
   const navigate = useNavigate();
   const { language } = useLanguage();
   const t = getTranslation(language);
+  const { addItem } = useShopCart();
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [buyingAgain, setBuyingAgain] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -91,6 +94,50 @@ export default function OrderDetail() {
       });
     } finally {
       setRetrying(false);
+    }
+  };
+
+  const handleBuyAgain = async () => {
+    if (!order?.order_items?.length) return;
+    
+    setBuyingAgain(true);
+    try {
+      let addedCount = 0;
+      
+      for (const item of order.order_items) {
+        // Only add items with valid product URLs
+        if (item.product_url && item.base_price_usd) {
+          await addItem({
+            productId: item.provider_product_id || item.product_url,
+            provider: item.store || 'amazon',
+            title: item.title || 'Product',
+            imageUrl: item.product_image_url || '',
+            priceUsd: item.base_price_usd,
+            quantity: item.quantity || 1,
+            productUrl: item.product_url,
+          });
+          addedCount++;
+        }
+      }
+      
+      toast({
+        title: language === 'fr' ? 'Articles ajoutés' : 'Items Added',
+        description: language === 'fr' 
+          ? `${addedCount} article(s) ajouté(s) au panier`
+          : `${addedCount} item(s) added to cart`,
+      });
+      
+      // Navigate to cart
+      navigate('/cart');
+    } catch (error: any) {
+      console.error('Error adding items to cart:', error);
+      toast({
+        title: t.common.error,
+        description: language === 'fr' ? 'Échec de l\'ajout au panier' : 'Failed to add items to cart',
+        variant: 'destructive',
+      });
+    } finally {
+      setBuyingAgain(false);
     }
   };
 
@@ -348,6 +395,27 @@ export default function OrderDetail() {
 
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
+          {/* Buy Again - show for completed/delivered orders */}
+          {['DELIVERED', 'COMPLETED', 'PAID', 'SHIPPED'].includes(order.status) && order.order_items?.length > 0 && (
+            <Button
+              onClick={handleBuyAgain}
+              disabled={buyingAgain}
+              className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"
+            >
+              {buyingAgain ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  {language === 'fr' ? 'Ajout...' : 'Adding...'}
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="h-4 w-4 mr-2" />
+                  {language === 'fr' ? 'Acheter à nouveau' : 'Buy Again'}
+                </>
+              )}
+            </Button>
+          )}
+          
           {(order.status === 'PENDING_PAYMENT' || order.maisha_payment_status === 'failed') && (
             <Button 
               onClick={retryPayment}

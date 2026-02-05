@@ -11,11 +11,29 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
  
 // Stripe promise will be loaded dynamically from backend config
 let stripePromise: Promise<Stripe | null> | null = null;
+let stripeLoadAttempted = false;
 
 async function getStripePromise(): Promise<Stripe | null> {
-  if (stripePromise) return stripePromise;
-  
+  // Return cached instance if already loaded successfully
+  if (stripePromise && stripeLoadAttempted) {
+    try {
+      const cached = await stripePromise;
+      if (cached) {
+        console.log('[CardPayment] Using cached Stripe instance');
+        return cached;
+      }
+    } catch {
+      // Cached promise failed, allow retry
+      console.log('[CardPayment] Cached promise failed, retrying...');
+      stripePromise = null;
+    }
+  }
+
+  stripeLoadAttempted = true;
+
   try {
+    console.log('[CardPayment] Fetching bootstrap config...');
+    
     const response = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
       {
@@ -26,23 +44,40 @@ async function getStripePromise(): Promise<Stripe | null> {
     );
     
     if (!response.ok) {
-      console.error('Failed to fetch bootstrap config');
+      console.error('[CardPayment] Failed to fetch bootstrap config:', response.status);
       return null;
     }
     
     const data = await response.json();
+    console.log('[CardPayment] Bootstrap config received');
+    
     const stripeProvider = data?.payments?.providers?.find((p: any) => p.id === 'stripe');
     const publishableKey = stripeProvider?.publishable_key;
     
     if (!publishableKey) {
-      console.error('Stripe publishable key not found in config');
+      console.error('[CardPayment] Stripe publishable key not found in config');
       return null;
     }
     
+    console.log('[CardPayment] Loading Stripe with key:', publishableKey.substring(0, 15) + '...');
+    
+    // Store the promise and await it to catch any rejections
     stripePromise = loadStripe(publishableKey);
-    return stripePromise;
+    const stripeInstance = await stripePromise;
+    
+    if (!stripeInstance) {
+      console.error('[CardPayment] Stripe failed to initialize');
+      stripePromise = null;
+      return null;
+    }
+    
+    console.log('[CardPayment] Stripe initialized successfully');
+    return stripeInstance;
+    
   } catch (error) {
-    console.error('Error loading Stripe:', error);
+    console.error('[CardPayment] Error loading Stripe:', error);
+    stripePromise = null;
+    stripeLoadAttempted = false;
     return null;
   }
 }
@@ -163,25 +198,55 @@ async function getStripePromise(): Promise<Stripe | null> {
   const [stripe, setStripe] = useState<Stripe | null>(null);
    
    useEffect(() => {
+    let cancelled = false;
+    
     const init = async () => {
+      console.log('[CardPayment] Initializing...', { orderId, hasClientSecret: !!clientSecret });
+      
       if (!orderId || !clientSecret) {
+        console.error('[CardPayment] Missing orderId or clientSecret');
         setError('Invalid payment session. Please try again.');
         setLoading(false);
         return;
       }
       
-      const stripeInstance = await getStripePromise();
-      if (!stripeInstance) {
-        setError('Failed to initialize payment. Please try again later.');
+      try {
+        // Add timeout protection (15 seconds)
+        const timeoutPromise = new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Initialization timeout')), 15000)
+        );
+        
+        const stripeInstance = await Promise.race([
+          getStripePromise(),
+          timeoutPromise
+        ]);
+        
+        if (cancelled) return;
+        
+        if (!stripeInstance) {
+          setError('Failed to initialize payment. Please try again later.');
+          setLoading(false);
+          return;
+        }
+        
+        setStripe(stripeInstance);
         setLoading(false);
-        return;
+        console.log('[CardPayment] Ready to accept payment');
+        
+      } catch (err: any) {
+        console.error('[CardPayment] Initialization error:', err);
+        if (!cancelled) {
+          setError(err.message === 'Initialization timeout' 
+            ? 'Payment initialization timed out. Please refresh and try again.'
+            : 'Failed to initialize payment. Please try again later.');
+          setLoading(false);
+        }
       }
-      
-      setStripe(stripeInstance);
-      setLoading(false);
     };
     
     init();
+    
+    return () => { cancelled = true; };
    }, [orderId, clientSecret]);
    
    if (loading) {

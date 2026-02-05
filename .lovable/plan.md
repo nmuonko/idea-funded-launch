@@ -1,58 +1,86 @@
 
-# Fix: $0.00 Pricing Regression - Cache Version Bump
+# Fix: Product Page 404 Error - Route Mismatch
 
-## Problem Diagnosis
+## Problem Summary
 
-After extensive investigation, the issue has been identified:
+When clicking any product from the home page or search results, the app shows a **404 "Page not found"** error.
 
-1. **Backend is working correctly** - The `catalog-home` endpoint returns valid prices (confirmed via API test: `priceUsd: 154.95, 189.99, 159.95, etc.`)
+**URL shown in screenshot:** `/shop/product/ebay/v1%7C1471367119951%7C0`
 
-2. **Fresh browser shows correct prices** - Opening a new browser session displays prices correctly (verified with browser tool screenshot)
+This URL should work, but the app's router doesn't recognize it.
 
-3. **Your browser has stale cached data** - The frontend uses localStorage to cache catalog responses for 1 hour (3600 seconds). Your browser is serving old cached data from BEFORE the price extraction was fixed.
+---
 
 ## Root Cause
 
-```
-src/lib/catalogCache.ts (line 6):
-const CACHE_PREFIX = 'afrishop_cache:v2:';
-```
+There's a path mismatch between where product links point and where the router expects them:
 
-Your browser's localStorage contains `afrishop_cache:v2:catalog-home:...` with old data where `priceUsd: 0`. The cache hasn't expired yet, so the frontend serves this stale response instead of fetching fresh data.
+| Component | Current Link Path | Router Expected Path |
+|-----------|------------------|---------------------|
+| ProductCard.tsx | `/shop/product/:provider/:id` | `/product/:provider/:id` |
+
+The ProductCard component generates URLs with `/shop/product/...` but the router only has a route for `/product/...` (without the `/shop` prefix).
+
+---
 
 ## Solution
 
-**Increment the cache version from `v2` → `v3`** in the frontend cache module. This will:
+Two changes are needed:
 
-- Force ALL browsers to ignore old cached data (cache key changes from `afrishop_cache:v2:` to `afrishop_cache:v3:`)
-- Immediately fetch fresh catalog data with correct prices
-- No backend changes needed
+### 1. Fix ProductCard Link (Primary Fix)
 
----
+Update the link generation to use the correct path format.
 
-## Technical Changes
+**File:** `src/components/shop/ProductCard.tsx`
 
-### File: `src/lib/catalogCache.ts`
+**Line 97 - Change:**
+```tsx
+// Before (broken)
+to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
 
-**Change line 6:**
-```typescript
-// Before
-const CACHE_PREFIX = 'afrishop_cache:v2:';
-
-// After
-const CACHE_PREFIX = 'afrishop_cache:v3:';
+// After (fixed)
+to={`/product/${product.provider}/${encodeURIComponent(product.id)}`}
 ```
 
-This single-line change will:
-1. Invalidate all existing cached catalog data across all user browsers
-2. Cause the next page load to fetch fresh data from the backend
-3. Display correct prices ($154.95, $189.99, etc.) immediately
+### 2. Add Redirect for Legacy URLs (Compatibility)
+
+Add a redirect route to catch any existing bookmarks or shared links that use the old `/shop/product/` path.
+
+**File:** `src/App.tsx`
+
+Add new redirect in the "Legacy /shop redirects" section (around line 180):
+```tsx
+<Route 
+  path="/shop/product/:provider/:id" 
+  element={<Navigate to="/product/:provider/:id" replace />} 
+/>
+```
+
+**Note:** Since React Router Navigate doesn't automatically pass route params, we need a small wrapper component:
+
+```tsx
+// Add a ShopProductRedirect component that extracts params and redirects
+function ShopProductRedirect() {
+  const { provider, id } = useParams();
+  return <Navigate to={`/product/${provider}/${id}`} replace />;
+}
+
+// Then use it in routing:
+<Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
+```
 
 ---
 
-## Verification Plan
+## Files to Modify
 
-After the change:
-1. Reload the homepage
-2. Verify prices display correctly (e.g., $154.95, $189.99)
-3. Check console logs show `[CACHE] STORE key= afrishop_cache:v3:...` (new version)
+1. **`src/components/shop/ProductCard.tsx`** - Fix line 97 to remove `/shop` prefix
+2. **`src/App.tsx`** - Add redirect route for `/shop/product/*` → `/product/*`
+
+---
+
+## Expected Result
+
+After these changes:
+- Clicking any product card will navigate to `/product/ebay/v1|1471367...` (correct path)
+- Any existing bookmarks to `/shop/product/...` will automatically redirect
+- Product details page will load correctly showing full product information

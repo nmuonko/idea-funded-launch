@@ -3,7 +3,7 @@
  * Respects backend TTL and works across users for public catalog data
  */
 
-const CACHE_PREFIX = 'afrishop_cache:v6:';
+const CACHE_PREFIX = 'afrishop_cache:v7:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback
 
 interface CacheEntry<T> {

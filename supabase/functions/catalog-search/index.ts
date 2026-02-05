@@ -67,6 +67,23 @@ import {
   getProxyCacheSettings, 
   ProxyCacheSettings,
 } from "../_shared/proxyCache.ts";
+// Import from shared modules to reduce bundle size
+import {
+  VEHICLE_QUERY_KEYWORDS,
+  VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS,
+  isVehicleQuery,
+  isVehicleMakeModelQuery,
+  hasVehicleBuyingIntent,
+  isAmbiguousQuery,
+  hasVehicleSignal,
+  buildVehicleProbeKey,
+  VehicleProbeResult,
+} from "../_shared/vehicleDetection.ts";
+import {
+  upgradeEbayImage,
+  upgradeAmazonImage,
+  upgradeImageByProvider,
+} from "../_shared/imageUpgrade.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,409 +91,12 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const VEHICLE_QUERY_KEYWORDS = [
-  // Vehicle types
-  "car", "cars", "truck", "trucks", "suv", "sedan", "coupe", "pickup", "van", "minivan",
-  "hatchback", "convertible", "wagon", "crossover",
-  // Popular car brands
-  "toyota", "honda", "jeep", "bmw", "mercedes", "ford", "chevy", "chevrolet",
-  "nissan", "kia", "hyundai", "lexus", "audi", "tesla", "mazda", "subaru",
-  "volkswagen", "vw", "dodge", "ram", "gmc", "cadillac", "buick", "lincoln",
-  "acura", "infiniti", "genesis", "porsche", "jaguar", "land rover", "range rover",
-  "volvo", "mini", "fiat", "alfa romeo", "maserati", "ferrari", "lamborghini",
-  "bentley", "rolls royce", "aston martin", "mclaren", "bugatti",
-  // Specific popular models
-  "camry", "corolla", "rav4", "highlander", "tacoma", "tundra", "4runner", "prius",
-  "civic", "accord", "cr-v", "pilot", "odyssey", "hr-v",
-  "f-150", "f150", "mustang", "explorer", "escape", "bronco", "ranger",
-  "silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro",
-  "wrangler", "grand cherokee", "gladiator", "compass", "renegade",
-  "model 3", "model s", "model x", "model y", "cybertruck",
-  "3 series", "5 series", "x3", "x5", "m3", "m5",
-  "c-class", "e-class", "s-class", "gle", "glc", "amg",
-  "a4", "a6", "q5", "q7", "r8", "rs",
-  "altima", "sentra", "rogue", "pathfinder", "frontier", "titan",
-  "elantra", "sonata", "tucson", "santa fe", "palisade",
-  "forte", "optima", "k5", "sportage", "telluride", "sorento",
-  // Motorcycles
-  "motorcycle", "harley", "yamaha", "kawasaki", "ducati", "suzuki", "triumph", "indian",
-  "sportster", "softail", "road king", "street glide",
-  // Other vehicles
-  "boat", "pontoon", "yacht", "rv", "camper", "trailer", "motorhome",
-  "atv", "utv", "quad", "polaris", "can-am", "side by side", "rzr",
-  // Agricultural/Heavy equipment
-  "tractor", "tractors", "tracteur", "tracteurs", "bulldozer", "excavator",
-  "john deere", "kubota", "massey ferguson", "case ih", "new holland", "caterpillar",
-  // French vehicle terms + English generic
-  "voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
-];
+const DEFAULT_LIMIT = 36;
+const MAX_LIMIT = 100;
 
-// Keywords that indicate user wants to BUY a vehicle (not parts/accessories)
-const VEHICLE_BUYING_INTENT_KEYWORDS = [
-  "for sale", "à vendre", "buy", "acheter", "purchase",
-  "used car", "new car", "certified pre-owned", "cpo",
-  "dealer", "dealership", "financing", "lease",
-  "used", "pre-owned", "preowned",
-];
+// ─── VEHICLE PROBE ────────────────────────────────────────────────────────────
+// Dynamic vehicle detection for ambiguous queries (cached for 24h)
 
-// Keywords that indicate user wants vehicle accessories/parts (NOT the vehicle itself)
-const VEHICLE_ACCESSORY_KEYWORDS = [
-  "floor mat", "floor mats", "mat", "mats", "cover", "covers", "case",
-  "filter", "oil filter", "air filter", "cabin filter",
-  "brake", "brakes", "brake pad", "brake pads",
-  "part", "parts", "accessory", "accessories",
-  "key fob", "key", "remote", "fob",
-  "battery", "batteries",
-  "tire", "tires", "wheel", "wheels", "rim", "rims",
-  "seat cover", "seat covers", "cargo", "liner", "liners",
-  "sunshade", "visor", "windshield",
-  "headlight", "taillight", "bulb", "led",
-  "mirror", "antenna", "wiper", "wipers",
-  "charger", "adapter", "mount", "holder",
-  "emblem", "badge", "decal", "sticker",
-  "radio", "stereo", "speaker", "amplifier", "subwoofer",
-  "gps", "dash cam", "camera", "sensor",
-  "floor", "carpet", "trunk", "cargo net",
-  "phone", "tablet", "iphone", "samsung", "android",
-];
-
-// ══════════════════════════════════════════════════════════════════════════════
-// EXTENDED TOY/ACCESSORY/PARTS KEYWORDS: Used for detecting non-vehicle intent AND post-filtering
-// If a query contains these, it's NOT a vehicle buying intent (even with make+model)
-// Also used to filter toy/accessory results from vehicle cache hits
-// ══════════════════════════════════════════════════════════════════════════════
-const VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS = [
-  // Toys and models
-  "matchbox", "diecast", "die-cast", "die cast", "hot wheels", "hotwheels",
-  "1:64", "1:43", "1:24", "1:18", "1:12", "1/64", "1/43", "1/24", "1/18",
-  "toy", "lego", "rc car", "remote control", "model car", "toy car", "scale model",
-  "miniature", "collectible", "replica", "playset",
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CLOTHING & MERCH: Brand-name apparel - NOT vehicles
-  // ═══════════════════════════════════════════════════════════════════════════
-  "shirt", "t-shirt", "tshirt", "hoodie", "sweatshirt", "sweater", "jacket",
-  "hat", "cap", "beanie", "snapback", "trucker hat",
-  "polo", "jersey", "vest", "coat", "windbreaker",
-  "pants", "shorts", "jeans", "joggers",
-  "shoes", "sneakers", "slippers", "sandals", "boots",
-  "bag", "backpack", "duffel", "tote", "messenger bag",
-  "watch", "sunglasses", "glasses", "belt", "wallet", "purse",
-  "mug", "cup", "tumbler", "bottle", "water bottle",
-  "blanket", "towel", "flag", "banner",
-  // Vehicle accessories
-  "floor mat", "floor mats", "mat set", "all weather mat",
-  "key fob", "key cover", "fob cover", "remote cover", "key chain", "keychain",
-  "wiper", "wipers", "wiper blade", "wiper blades",
-  "sunshade", "sun shade", "windshield cover", "windshield shade",
-  "car cover", "seat cover", "seat covers", "cargo liner",
-  "emblem", "badge", "decal", "sticker", "logo",
-  "led", "light", "lights", "headlight", "taillight", "bulb", "bulbs",
-  // Phone accessories often have car names
-  "phone case", "phone holder", "car mount", "phone mount", "cup holder",
-  // Decorative items
-  "poster", "wall art", "canvas", "print", "artwork", "framed",
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PARTS KEYWORDS: OEM/aftermarket parts - NOT vehicles
-  // ═══════════════════════════════════════════════════════════════════════════
-  "oem", "aftermarket", "replacement", "fitment", "fits", "compatible", "kit",
-  "bumper", "grille", "grill", "headlight", "taillight", "fog light",
-  "brake", "brakes", "brake pad", "brake pads", "brake rotor", "rotor", "caliper",
-  "filter", "oil filter", "air filter", "cabin filter", "fuel filter",
-  "sensor", "oxygen sensor", "o2 sensor", "mass air flow", "maf",
-  "spark plug", "spark plugs", "ignition coil", "coil pack",
-  "belt", "serpentine belt", "timing belt", "timing chain",
-  "alternator", "starter", "water pump", "fuel pump", "power steering",
-  "radiator", "thermostat", "hose", "coolant",
-  "suspension", "strut", "struts", "shock", "shocks", "spring", "springs",
-  "control arm", "ball joint", "tie rod", "sway bar", "bushing",
-  "exhaust", "muffler", "catalytic converter", "cat converter",
-  "clutch", "transmission", "flywheel", "axle", "cv joint", "cv axle",
-  "bearing", "hub", "wheel bearing", "hub assembly",
-  "gasket", "head gasket", "valve cover", "intake manifold",
-  "mirror", "side mirror", "door handle", "window regulator",
-  "antenna", "radio", "stereo", "amplifier", "subwoofer", "speaker",
-];
-
-// ══════════════════════════════════════════════════════════════════════════════
-// VEHICLE BRAND ALIASES: Used for brand-fallback detection
-// If query contains any of these AND has 2+ tokens → vehicleMode=true
-// This allows ANY brand + model combo to trigger vehicle mode (e.g., "mercedes c300")
-// ══════════════════════════════════════════════════════════════════════════════
-const VEHICLE_BRAND_ALIASES: string[] = [
-  // American
-  "ford", "chevrolet", "chevy", "gmc", "dodge", "ram", "jeep", "chrysler",
-  "buick", "cadillac", "lincoln", "tesla",
-  // Japanese
-  "toyota", "honda", "nissan", "mazda", "subaru", "lexus", "acura", "infiniti",
-  "mitsubishi", "suzuki", "daihatsu", "isuzu",
-  // Korean
-  "hyundai", "kia", "genesis",
-  // German
-  "bmw", "mercedes", "audi", "volkswagen", "vw", "porsche", "mini",
-  // European
-  "volvo", "jaguar", "land rover", "range rover", "alfa romeo", "fiat", "maserati",
-  "ferrari", "lamborghini", "bentley", "rolls royce", "aston martin", "mclaren", "peugeot", "renault", "citroen",
-  // British
-  "mini", "lotus", "mgb",
-  // Motorcycles
-  "harley", "harley davidson", "yamaha", "kawasaki", "ducati", "triumph", "indian", "ktm", "aprilia",
-  // Other vehicles (trucks, commercial)
-  "freightliner", "peterbilt", "kenworth", "mack", "international",
-];
-
-// Specific vehicle models that indicate vehicle search intent (brand + model = vehicle mode)
-// These are FULL VEHICLE MODELS (not shared with other products)
-const VEHICLE_MODEL_PATTERNS: Array<{ brand: string; models: string[] }> = [
-  { brand: "infiniti", models: ["qx80", "qx60", "qx55", "qx50", "q50", "q60", "q70", "fx35", "fx45", "g35", "g37", "m35", "m37", "m45", "m56"] },
-  { brand: "lexus", models: ["rx350", "rx450", "es350", "es300", "ls460", "ls500", "gx460", "gx470", "lx570", "lx600", "nx350", "ux250", "is350", "is300", "is250", "gs350", "gs300", "rc350"] },
-  { brand: "acura", models: ["mdx", "rdx", "tlx", "ilx", "nsx", "integra", "rlx", "zdx"] },
-  { brand: "bmw", models: ["x5", "x3", "x7", "x1", "x6", "m3", "m5", "m4", "330i", "530i", "540i", "750i", "840i"] },
-  { brand: "mercedes", models: ["gle", "glc", "gls", "amg", "c300", "e350", "s550", "g550", "g63", "cla", "cls"] },
-  { brand: "audi", models: ["q5", "q7", "q8", "a4", "a6", "a8", "s4", "s5", "rs7", "rs6", "tt", "r8", "e-tron", "etron"] },
-  { brand: "porsche", models: ["cayenne", "macan", "panamera", "taycan", "911", "718", "cayman", "boxster"] },
-  { brand: "toyota", models: ["camry", "corolla", "rav4", "highlander", "tacoma", "tundra", "4runner", "prius", "sienna", "venza", "sequoia", "supra", "gr86", "land cruiser", "landcruiser"] },
-  { brand: "honda", models: ["civic", "accord", "cr-v", "crv", "pilot", "odyssey", "hr-v", "hrv", "ridgeline", "passport", "fit", "insight"] },
-  { brand: "ford", models: ["f-150", "f150", "f-250", "f250", "mustang", "explorer", "escape", "bronco", "ranger", "expedition", "edge", "maverick", "raptor"] },
-  { brand: "chevrolet", models: ["silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro", "corvette", "traverse", "blazer", "trax", "bolt"] },
-  { brand: "chevy", models: ["silverado", "tahoe", "suburban", "colorado", "equinox", "malibu", "camaro", "corvette", "traverse", "blazer", "trax", "bolt"] },
-  { brand: "jeep", models: ["wrangler", "grand cherokee", "cherokee", "gladiator", "compass", "renegade", "wagoneer", "grand wagoneer"] },
-  { brand: "tesla", models: ["model 3", "model s", "model x", "model y", "cybertruck"] },
-  { brand: "nissan", models: ["altima", "sentra", "rogue", "pathfinder", "frontier", "titan", "maxima", "murano", "armada", "kicks", "leaf", "z", "370z", "350z"] },
-  { brand: "hyundai", models: ["elantra", "sonata", "tucson", "santa fe", "palisade", "kona", "ioniq", "venue", "genesis"] },
-  { brand: "kia", models: ["forte", "optima", "k5", "sportage", "telluride", "sorento", "seltos", "carnival", "niro", "ev6", "stinger"] },
-  { brand: "dodge", models: ["charger", "challenger", "durango", "ram", "journey", "hornet"] },
-  { brand: "ram", models: ["1500", "2500", "3500", "promaster"] },
-  { brand: "gmc", models: ["sierra", "yukon", "acadia", "terrain", "canyon", "denali", "hummer"] },
-  { brand: "subaru", models: ["outback", "forester", "crosstrek", "impreza", "wrx", "brz", "ascent", "legacy"] },
-  { brand: "mazda", models: ["cx-5", "cx5", "cx-9", "cx9", "cx-30", "cx30", "mazda3", "mazda6", "mx-5", "miata"] },
-  { brand: "volkswagen", models: ["jetta", "passat", "tiguan", "atlas", "golf", "gti", "id.4", "id4", "taos", "arteon"] },
-  { brand: "vw", models: ["jetta", "passat", "tiguan", "atlas", "golf", "gti", "id.4", "id4", "taos", "arteon"] },
-  { brand: "volvo", models: ["xc90", "xc60", "xc40", "s60", "s90", "v60", "v90"] },
-  { brand: "cadillac", models: ["escalade", "xt5", "xt6", "ct5", "ct4", "lyriq"] },
-  { brand: "lincoln", models: ["navigator", "aviator", "corsair", "nautilus"] },
-  { brand: "genesis", models: ["g80", "g70", "g90", "gv80", "gv70", "gv60"] },
-  { brand: "jaguar", models: ["f-pace", "e-pace", "i-pace", "xe", "xf", "xj", "f-type"] },
-  { brand: "land rover", models: ["range rover", "discovery", "defender", "evoque", "velar"] },
-  { brand: "range rover", models: ["sport", "velar", "evoque", "autobiography"] },
-];
-
-// ══════════════════════════════════════════════════════════════════════════════
-// STANDALONE VEHICLE NAMES: These trigger vehicle mode by themselves
-// These are complete vehicle identifiers that don't need a brand prefix
-// e.g., "Range Rover", "F-150", "Model 3", "Mustang", "Corvette"
-// 
-// ALSO INCLUDES: Luxury/premium brands that are SO strongly associated with
-// vehicles that a standalone brand name indicates vehicle intent
-// e.g., "Cadillac", "Lexus", "Porsche", "Ferrari", "Lamborghini"
-// ══════════════════════════════════════════════════════════════════════════════
-const STANDALONE_VEHICLE_PATTERNS: RegExp[] = [
-  // ═══════════════════════════════════════════════════════════════════════════
-  // LUXURY/PREMIUM BRANDS: Single brand name = vehicle intent
-  // These brands are so strongly associated with vehicles that standalone
-  // searches like "cadillac" or "porsche" clearly indicate vehicle intent
-  // ═══════════════════════════════════════════════════════════════════════════
-  /\bcadillac\b/i,
-  /\blincoln\b/i,
-  /\bbuick\b/i,
-  /\binfiniti\b/i,
-  /\bacura\b/i,
-  /\blexus\b/i,
-  /\bgenesis\b/i,
-  /\bporsche\b/i,
-  /\bjaguar\b/i,
-  /\bland\s*rover\b/i,
-  /\brange\s*rover\b/i,
-  /\bbentley\b/i,
-  /\bmaserati\b/i,
-  /\bferrari\b/i,
-  /\blamborghini\b/i,
-  /\brolls\s*royce\b/i,
-  /\baston\s*martin\b/i,
-  /\bmclaren\b/i,
-  /\bbugatti\b/i,
-  /\blotus\b/i,
-  /\balfa\s*romeo\b/i,
-  /\btesla\b/i,  // Tesla as a brand = vehicle intent
-  /\bjeep\b/i,   // Jeep as a brand = vehicle intent
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // MAINSTREAM BRANDS: Major car manufacturers - standalone = vehicle intent
-  // A single-word search for these brands strongly indicates vehicle intent
-  // ═══════════════════════════════════════════════════════════════════════════
-  /\btoyota\b/i,
-  /\bhonda\b/i,
-  /\bnissan\b/i,
-  /\bford\b/i,
-  /\bchevrolet\b/i,
-  /\bchevy\b/i,
-  /\bdodge\b/i,
-  /\bram\b/i,
-  /\bgmc\b/i,
-  /\bbmw\b/i,
-  /\bmercedes\b/i,
-  /\baudi\b/i,
-  /\bvolkswagen\b/i,
-  /\bvw\b/i,
-  /\bhyundai\b/i,
-  /\bkia\b/i,
-  /\bmazda\b/i,
-  /\bsubaru\b/i,
-  /\bvolvo\b/i,
-  /\bchrysler\b/i,
-  /\bpeugeot\b/i,
-  /\brenault\b/i,
-  /\bcitroen\b/i,
-  /\bmitsubishi\b/i,
-  /\bfiat\b/i,
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ICONIC VEHICLE NAMES: Well-known models that stand alone
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Tesla models (often searched without "tesla" prefix)
-  /\bmodel\s*3\b/i,
-  /\bmodel\s*s\b/i,
-  /\bmodel\s*x\b/i,
-  /\bmodel\s*y\b/i,
-  /\bcybertruck\b/i,
-  // Ford trucks
-  /\bf[-\s]?150\b/i,
-  /\bf[-\s]?250\b/i,
-  /\bf[-\s]?350\b/i,
-  // Jeep models
-  /\bgrand\s*cherokee\b/i,
-  /\bwrangler\b/i,
-  /\bgladiator\b/i,
-  // Chevrolet trucks/SUVs
-  /\bsilverado\b/i,
-  /\btahoe\b/i,
-  /\bsuburban\b/i,
-  // Dodge/Ram
-  /\bram\s*1500\b/i,
-  /\bram\s*2500\b/i,
-  /\bram\s*3500\b/i,
-  /\bchallenger\b/i,
-  /\bcharger\b/i,
-  // Sports cars
-  /\bmustang\b/i,
-  /\bcorvette\b/i,
-  /\bcamaro\b/i,
-  /\bgt[-\s]?r\b/i,
-  // Luxury SUVs
-  /\bescalade\b/i,
-  /\bnavigator\b/i,
-  /\bg[-\s]?wagon\b/i,
-  // Classic/iconic
-  /\bbronco\b/i,
-  /\bprius\b/i,
-  /\bmiata\b/i,
-  /\b911\b/i,  // Porsche 911
-];
-
-// ══════════════════════════════════════════════════════════════════════════════
-// VEHICLE SIGNALS: Indicators that distinguish vehicle queries from accessories
-// Used to require an extra signal for brand fallback (prevents "bmw keychain" false positive)
-// ══════════════════════════════════════════════════════════════════════════════
-const VEHICLE_SIGNAL_PATTERNS = {
-  // Year patterns (1990-2029)
-  year: /(19|20)\d{2}/,
-  
-  // Alphanumeric model codes (qx80, c300, x5, 530i, etc.)
-  // Matches: letters+digits or digits+letters
-  alphanumeric: /\b[a-z]+\d+[a-z]?\b|\b\d+[a-z]+[a-z0-9]*\b/i,
-  
-  // Vehicle-specific terminology
-  keywords: [
-    "suv", "truck", "pickup", "sedan", "coupe", "4x4", "awd", "4wd", "2wd", "fwd", "rwd",
-    "miles", "mileage", "vin", "engine", "transmission", "v6", "v8", "v4", "turbo",
-    "hybrid", "electric", "diesel", "automatic", "manual", "convertible", "wagon",
-    "hatchback", "crossover", "for sale", "buy", "used", "certified", "preowned",
-    "pre-owned", "cpo", "dealer", "financing", "lease",
-  ],
-};
-
-/**
- * Check if query contains a vehicle-specific signal
- * Used to validate brand fallback detection (prevents false positives like "bmw keychain")
- */
-function hasVehicleSignal(query: string): { hasSignal: boolean; signal: string | null } {
-  const lower = query.toLowerCase();
-  
-  // Check for year (1990-2029)
-  if (VEHICLE_SIGNAL_PATTERNS.year.test(lower)) {
-    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.year);
-    return { hasSignal: true, signal: `year:${match?.[0]}` };
-  }
-  
-  // Check for alphanumeric model codes (qx80, c300, x5, etc.)
-  if (VEHICLE_SIGNAL_PATTERNS.alphanumeric.test(lower)) {
-    const match = lower.match(VEHICLE_SIGNAL_PATTERNS.alphanumeric);
-    return { hasSignal: true, signal: `alphanumeric:${match?.[0]}` };
-  }
-  
-  // Check for vehicle-specific keywords
-  for (const keyword of VEHICLE_SIGNAL_PATTERNS.keywords) {
-    if (lower.includes(keyword)) {
-      return { hasSignal: true, signal: `keyword:${keyword}` };
-    }
-  }
-  
-  return { hasSignal: false, signal: null };
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// DYNAMIC VEHICLE DETECTION: "Probe then Commit" Strategy
-// For ambiguous queries (1-2 tokens without clear signals), probe eBay's vehicle
-// category to dynamically determine if the query refers to vehicles
-// ══════════════════════════════════════════════════════════════════════════════
-
-/**
- * Check if a query is "ambiguous" - could be vehicles OR electronics/merch
- * Returns true when:
- * - tokenCount == 1 (single word like "Cadillac", "Samsung", "Peugeot")
- * - tokenCount == 2 with no digits/year/vehicle keywords (e.g., "Ford Fusion" vs "Ford 2024")
- */
-function isAmbiguousQuery(query: string): boolean {
-  const lower = query.toLowerCase().trim();
-  const tokens = lower.split(/\s+/).filter(t => t.length > 0);
-  
-  if (tokens.length === 1) {
-    return true; // Single word is always ambiguous
-  }
-  
-  if (tokens.length === 2) {
-    // Check if we have vehicle signals (year, alphanumeric, keywords)
-    const signal = hasVehicleSignal(lower);
-    if (signal.hasSignal) {
-      return false; // Has clear signal, not ambiguous
-    }
-    return true; // 2 tokens without signals = ambiguous
-  }
-  
-  // 3+ tokens: usually have enough context, not ambiguous
-  return false;
-}
-
-/**
- * Probe cache key for vehicle detection results
- * Cached for 24 hours to minimize redundant API calls
- */
-function buildVehicleProbeKey(query: string): string {
-  const qNorm = query.toLowerCase().trim().replace(/\s+/g, "_");
-  return `vehicle_probe:v1:${qNorm}`;
-}
-
-interface VehicleProbeResult {
-  vehicleMode: boolean;
-  vehiclesFound: number;
-  probeSource: "cache" | "live";
-  reason: string;
-}
-
-/**
- * Probe eBay's vehicle category to check if query returns real vehicles
- * Makes a lightweight request (limit=10) to category 6001 (Cars & Trucks)
- * If >=3 items have price >= $1000, conclude vehicleMode=true
- */
 // deno-lint-ignore no-explicit-any
 async function probeEbayVehicleCategory(
   supabase: any,
@@ -512,7 +132,7 @@ async function probeEbayVehicleCategory(
   // Make lightweight eBay probe request
   const PROBE_LIMIT = 10;
   const VEHICLE_PRICE_THRESHOLD = 1000;
-  const VEHICLE_COUNT_THRESHOLD = 3; // Need at least 3 high-priced items
+  const VEHICLE_COUNT_THRESHOLD = 3;
   
   let vehiclesFound = 0;
   let probeSuccess = false;
@@ -524,9 +144,9 @@ async function probeEbayVehicleCategory(
         query,
         page: 1,
         pageSize: PROBE_LIMIT,
-        minPrice: undefined, // Don't filter, we want to count
-        isVehicle: true, // Force vehicle category
-        categoryId: "6001", // Cars & Trucks
+        minPrice: undefined,
+        isVehicle: true,
+        categoryId: "6001",
         marketplaceId: "EBAY_US",
         filters: {},
       },
@@ -534,8 +154,6 @@ async function probeEbayVehicleCategory(
     );
     
     probeSuccess = true;
-    
-    // Count items with price >= $1000
     vehiclesFound = ebayResult.items.filter(item => 
       (item.price_usd ?? 0) >= VEHICLE_PRICE_THRESHOLD
     ).length;
@@ -556,7 +174,6 @@ async function probeEbayVehicleCategory(
       error: String(err),
       requestId,
     }));
-    // On error, default to NOT vehicle mode (safe fallback)
     return {
       vehicleMode: false,
       vehiclesFound: 0,
@@ -573,30 +190,19 @@ async function probeEbayVehicleCategory(
     reason: vehicleMode ? "probe_vehicles_found" : "probe_insufficient_vehicles",
   };
   
-  // Cache probe result for 24 hours ONLY if probe succeeded and we got valid data
-  // Do NOT cache failed probes to avoid poisoning with incorrect vehicleMode=false
+  // Cache probe result for 24 hours
   if (probeSuccess && typeof vehiclesFound === "number") {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const staleAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
     
     supabase.from("catalog_cache").upsert({
       cache_key: probeKey,
-      cache_type: "search", // Use 'search' type which is allowed
+      cache_type: "search",
       response: result,
       expires_at: expiresAt,
       stale_at: staleAt,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "cache_key" }).then(() => {
-      console.log(JSON.stringify({
-        event: "[VEHICLE_PROBE]",
-        qNorm: query,
-        ok: true,
-        vehiclesFound,
-        decision: vehicleMode ? "vehicle" : "non_vehicle",
-        cached: true,
-        requestId,
-      }));
-    }).catch((err: Error) => {
+    }, { onConflict: "cache_key" }).catch((err: Error) => {
       console.error(JSON.stringify({
         event: "[VEHICLE_PROBE] cache_write_error",
         query,
@@ -604,267 +210,9 @@ async function probeEbayVehicleCategory(
         requestId,
       }));
     });
-  } else {
-    // Log that we're NOT caching due to probe failure
-    console.log(JSON.stringify({
-      event: "[VEHICLE_PROBE]",
-      qNorm: query,
-      ok: false,
-      vehiclesFound: vehiclesFound ?? 0,
-      decision: "fallback_non_vehicle",
-      cached: false,
-      reason: "probe_failed_or_unparsed",
-      requestId,
-    }));
   }
   
   return result;
-}
-
-/**
- * Check if a query contains a known vehicle make+model combination
- * This indicates strong vehicle intent (e.g., "infiniti qx80" = actual vehicle search)
- * 
- * IMPORTANT: This function uses strict matching - both brand AND model must be present
- * Examples:
- *   "infiniti qx80" → true (brand + model)
- *   "infiniti" → false (brand only)
- *   "qx80" → false (model only)
- *   "infiniti qx80 floor mats" → true (but hasVehicleBuyingIntent will return false due to accessory keyword)
- */
-/**
- * Check if a query indicates vehicle buying intent using:
- * A) Standalone vehicle names (Range Rover, F-150, etc.)
- * B) Brand + model combinations (Infiniti QX80, Toyota Camry)
- * 
- * Returns TRUE only if:
- * - Query matches a standalone pattern OR brand+model combination
- * - AND query does NOT contain accessory/toy keywords
- */
-function isVehicleMakeModelQuery(query: string): boolean {
-  const lower = query.toLowerCase().trim();
-  
-  // Check for accessory/toy keywords FIRST - these override everything
-  const hasAccessoryKeywords = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasAccessoryKeywords) {
-    const matchedKeyword = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.find(kw => lower.includes(kw));
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] accessory_override",
-      query,
-      keyword: matchedKeyword,
-    }));
-    return false;
-  }
-  
-  // A) Check for standalone vehicle names (Range Rover, F-150, Model 3, etc.)
-  for (const pattern of STANDALONE_VEHICLE_PATTERNS) {
-    if (pattern.test(lower)) {
-      console.log(JSON.stringify({
-        event: "[VEHICLE_DETECT] standalone_match",
-        pattern: pattern.source,
-        query,
-      }));
-      return true;
-    }
-  }
-  
-  // B) Check for brand + model combinations (existing logic)
-  for (const { brand, models } of VEHICLE_MODEL_PATTERNS) {
-    const brandRegex = new RegExp(`\\b${brand}\\b`, 'i');
-    if (brandRegex.test(lower)) {
-      for (const model of models) {
-        if (lower.includes(model)) {
-          console.log(JSON.stringify({
-            event: "[VEHICLE_DETECT] make_model_match",
-            brand,
-            model,
-            query,
-          }));
-          return true;
-        }
-      }
-    }
-  }
-  
-  // ═══════════════════════════════════════════════════════════════════════════
-  // C) BRAND FALLBACK: Brand + 2+ tokens + vehicle signal = vehicle intent
-  // This catches queries like "mercedes c300", "bmw x5 2023", "nissan patrol 4x4"
-  // BUT requires a vehicle signal to prevent false positives like "bmw keychain"
-  // ═══════════════════════════════════════════════════════════════════════════
-  const tokens = lower.split(/\s+/);
-  if (tokens.length >= 2) {
-    // Check for vehicle signal BEFORE checking brands
-    const vehicleSignal = hasVehicleSignal(lower);
-    
-    for (const brand of VEHICLE_BRAND_ALIASES) {
-      // Check if brand is in the query (exact word match)
-      const brandRegex = new RegExp(`\\b${brand.replace(/\s+/g, "\\s+")}\\b`, 'i');
-      if (brandRegex.test(lower)) {
-        // Brand found - check if we have a vehicle signal
-        if (vehicleSignal.hasSignal) {
-          console.log(JSON.stringify({
-            event: "[VEHICLE_DETECT] brand_fallback",
-            brand,
-            tokenCount: tokens.length,
-            signal: vehicleSignal.signal,
-            query,
-          }));
-          return true;
-        } else {
-          // Brand without vehicle signal - log and continue
-          console.log(JSON.stringify({
-            event: "[VEHICLE_DETECT] brand_no_signal",
-            brand,
-            tokenCount: tokens.length,
-            query,
-            note: "Brand found but no vehicle signal - not triggering vehicleMode",
-          }));
-        }
-      }
-    }
-  }
-  
-  console.log(JSON.stringify({
-    event: "[VEHICLE_DETECT] result",
-    query,
-    vehicleMode: false,
-    reason: "no_vehicle_indicators",
-  }));
-  
-  return false;
-}
-
-/**
- * Check if a query indicates explicit vehicle-BUYING intent
- * (as opposed to wanting accessories/parts for a vehicle)
- * 
- * VEHICLE MODE LOGIC:
- * 1. If query has accessory keywords (floor mats, key fob, etc.) → NOT vehicle buying intent
- * 2. If query has explicit buying keywords (for sale, buy, etc.) → vehicle buying intent
- * 3. If query has make+model (infiniti qx80, toyota camry) → vehicle buying intent
- * 4. Brand-only queries (just "infiniti") → NOT vehicle buying intent (allow accessories)
- * 
- * When vehicleMode=true:
- * - Enforce minPrice >= $1000 to filter out accessories
- * - Force eBay to Motors category 6001
- * - Use Amazon Autos category for Amazon
- */
-function hasVehicleBuyingIntent(query: string): boolean {
-  const lower = query.toLowerCase().trim();
-  
-  // FIRST: Check for accessory/parts keywords - these override everything
-  // If user searches "infiniti qx80 floor mats", they want floor mats, not a vehicle
-  const hasAccessoryKeywords = VEHICLE_ACCESSORY_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasAccessoryKeywords) {
-    const matchedKeyword = VEHICLE_ACCESSORY_KEYWORDS.find(kw => lower.includes(kw));
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
-      qNorm: query,
-      vehicleMode: false,
-      reason: "accessory_override",
-      keyword: matchedKeyword,
-    }));
-    return false;
-  }
-  
-  // SECOND: Check for explicit buying intent keywords
-  const hasExplicitBuyingIntent = VEHICLE_BUYING_INTENT_KEYWORDS.some(kw => lower.includes(kw));
-  if (hasExplicitBuyingIntent) {
-    const matchedKeyword = VEHICLE_BUYING_INTENT_KEYWORDS.find(kw => lower.includes(kw));
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
-      qNorm: query,
-      vehicleMode: true,
-      reason: "explicit_buying_intent",
-      keyword: matchedKeyword,
-    }));
-    return true;
-  }
-  
-  // THIRD: Check for make+model combinations (e.g., "infiniti qx80")
-  // These strongly indicate the user wants to find a vehicle, not accessories
-  if (isVehicleMakeModelQuery(query)) {
-    console.log(JSON.stringify({
-      event: "[VEHICLE_DETECT] result",
-      qNorm: query,
-      vehicleMode: true,
-      reason: "make_model_or_pattern",
-    }));
-    return true;
-  }
-  
-  // For brand-only queries (e.g., just "infiniti"), don't assume vehicle intent
-  // User might be looking for accessories or general products
-  console.log(JSON.stringify({
-    event: "[VEHICLE_DETECT] result",
-    qNorm: query,
-    vehicleMode: false,
-    reason: "no_vehicle_indicators",
-  }));
-  return false;
-}
-
-const DEFAULT_LIMIT = 36;
-const MAX_LIMIT = 100;
-
-// ─── TYPES ────────────────────────────────────────────────────────────────────
-
-interface CatalogItem extends ProviderItem {
-  id: string;
-  provider: string;
-  providerProductId: string;
-  title: string | null;
-  priceUsd: number | null;
-  currency: string;
-  mainImageUrl: string | null;   // Single best image for list performance
-  imageUrl: string | null;       // Backward compat
-  images: string[];              // Full image gallery
-  imageUrls: string[];           // Full image gallery (alias)
-  imageCount: number;            // Total images available from listing
-  productUrl: string | null;
-  inStock: boolean | null;
-  rating: number | null;
-  category?: string;
-  subcategory?: string;
-  condition?: string;
-  shippingPrice?: number | null;
-  location?: string | null;
-}
-
-interface MediaEnrichmentStats {
-  checked: number;
-  cacheHit: number;
-  fetched: number;
-  timedOut: number;
-}
-
-interface SearchResponse {
-  status: "success" | "error";
-  env: string;
-  query: string;
-  items: CatalogItem[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  total: number;
-  facets?: unknown[];
-  appliedFilters?: AppliedSortFilter;
-  providerStats: ProviderStats & {
-    amazonLiveUsed?: boolean;
-    amazonLiveReason?: AmazonLiveReason;
-  };
-  searchMeta?: SearchMeta;  // Query rewrite metadata
-  mediaStats?: MediaEnrichmentStats;  // Media cache enrichment stats (dev only)
-  durationMs: number;
-  ttlSeconds?: number;  // Cache TTL for client-side caching
-  warning?: { message: string; code: string };
-  error: { code: string; message: string } | null;
-}
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-
-function isVehicleQuery(query: string): boolean {
-  const lower = query.toLowerCase();
-  return VEHICLE_QUERY_KEYWORDS.some(kw => lower.includes(kw));
 }
 
 function generateRequestId(): string {

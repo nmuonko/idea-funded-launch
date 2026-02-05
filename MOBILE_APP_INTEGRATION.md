@@ -97,27 +97,41 @@ async function initializeAuth() {
 }
 ```
 
-### 3. Sign In - CRITICAL FIX (February 2026)
+### 3. Sign In (FIX FOR YOUR ARCHITECTURE)
 
-**⚠️ BUG CONFIRMED**: Mobile login fails with "Invalid login credentials" while same credentials work on web.
+**⚠️ CRITICAL FIX**: Your `loginApi()` in `auth.ts` must normalize email before calling Supabase.
 
-**Root Cause**: Mobile keyboards add trailing spaces or keep uppercase letters. Supabase stores emails lowercase, so `"Kadimisha@Gmail.com "` won't match `"kadimisha@gmail.com"`.
-
-**APPLY THIS FIX to `src/api/auth.ts`**:
+**Current Code (PROBLEM)**:
 ```typescript
+// auth.ts → loginApi() - CURRENT (BROKEN)
+export async function loginApi(email: string, password: string): Promise<AuthResponse> {
+  const supabase = getSupabaseClient();
+  
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,      // ❌ NOT NORMALIZED - may have spaces or wrong case
+    password,
+  });
+  // ...
+}
+```
+
+**Fixed Code (APPLY THIS)**:
+```typescript
+// auth.ts → loginApi() - FIXED
 export async function loginApi(email: string, password: string): Promise<AuthResponse> {
   const supabase = getSupabaseClient();
   
   // ═══════════════════════════════════════════════════════════════
-  // CRITICAL FIX: Normalize email, keep password EXACTLY as entered
+  // CRITICAL FIX: Normalize email, preserve password exactly
   // ═══════════════════════════════════════════════════════════════
   const normalizedEmail = email.trim().toLowerCase();
+  const rawPassword = password; // DO NOT MODIFY - case-sensitive!
   
   console.log('[AUTH] login_attempt email=' + normalizedEmail.substring(0, 3) + '***');
   
   const { data, error } = await supabase.auth.signInWithPassword({
-    email: normalizedEmail,  // ← Normalized (trim + lowercase)
-    password: password,       // ← Case-sensitive, NO changes
+    email: normalizedEmail,
+    password: rawPassword,
   });
   
   if (error) {
@@ -126,6 +140,9 @@ export async function loginApi(email: string, password: string): Promise<AuthRes
     if (error.message.includes('confirm') || error.message.includes('verify')) {
       throw new Error('EMAIL_NOT_CONFIRMED');
     }
+    
+    // Log the actual error for debugging
+    console.error('[AUTH] supabase_error_details:', JSON.stringify(error));
     throw new Error(error.message);
   }
   
@@ -135,11 +152,6 @@ export async function loginApi(email: string, password: string): Promise<AuthRes
   return { token: data.session.access_token, user };
 }
 ```
-
-**Why This Works**:
-1. `email.trim()` removes trailing/leading spaces from mobile keyboard
-2. `.toLowerCase()` matches Supabase's stored format
-3. Password stays untouched (case-sensitive)
 
 ### 3b. Verify getSupabaseClient() Uses Correct Project
 

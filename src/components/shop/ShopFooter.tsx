@@ -1,16 +1,9 @@
- import { Link } from 'react-router-dom';
- import { Globe, ChevronDown, Mail, MessageCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Mail, MessageCircle } from 'lucide-react';
  import { useSupportChat } from '@/contexts/SupportChatContext';
- import { Button } from '@/components/ui/button';
  import { useLanguage } from '@/contexts/LanguageContext';
- import { languages, translations } from '@/lib/i18n/translations';
+import { translations } from '@/lib/i18n/translations';
  import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
- import {
-   DropdownMenu,
-   DropdownMenuContent,
-   DropdownMenuItem,
-   DropdownMenuTrigger,
- } from '@/components/ui/dropdown-menu';
  
  // WhatsApp icon component
  function WhatsAppIcon({ className }: { className?: string }) {
@@ -22,11 +15,10 @@
  }
  
  export function ShopFooter() {
-   const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
    const t = translations[language] || translations.en;
    const shop = t.shop as Record<string, string>;
    const common = t.common as Record<string, string>;
-   const currentLanguage = languages.find(l => l.code === language) || languages[0];
    const currentYear = new Date().getFullYear();
    const { openChat } = useSupportChat();
  
@@ -184,41 +176,9 @@
              © {currentYear} AfriShop. {shop.allRightsReserved || 'Tous droits réservés.'}
            </p>
  
-           <div className="flex items-center gap-4">
-             <p className="text-white/40 text-sm">
-               {shop.aBrandOf || 'A brand of'} <span className="text-white/60">AMERICAN GOODWILL SARL</span>
-             </p>
- 
-             {/* Language Selector */}
-             <DropdownMenu>
-               <DropdownMenuTrigger asChild>
-                 <Button
-                   variant="ghost"
-                   size="sm"
-                   className="text-white/60 hover:text-white hover:bg-white/10 rounded-full gap-2 h-8 px-3"
-                 >
-                   <Globe className="h-4 w-4" />
-                   <span>{currentLanguage.flag}</span>
-                   <span className="hidden sm:inline text-sm">{currentLanguage.name}</span>
-                   <ChevronDown className="h-3 w-3" />
-                 </Button>
-               </DropdownMenuTrigger>
-               <DropdownMenuContent align="end" className="bg-black/95 border-white/10 backdrop-blur-xl">
-                 {languages.map((lang) => (
-                   <DropdownMenuItem
-                     key={lang.code}
-                     onClick={() => setLanguage(lang.code)}
-                     className={`text-white/80 hover:text-white hover:bg-white/10 cursor-pointer ${
-                       language === lang.code ? 'bg-primary/20 text-primary' : ''
-                     }`}
-                   >
-                     <span className="mr-2">{lang.flag}</span>
-                     {lang.name}
-                   </DropdownMenuItem>
-                 ))}
-               </DropdownMenuContent>
-             </DropdownMenu>
-           </div>
+          <p className="text-white/40 text-sm">
+            {shop.aBrandOf || 'A brand of'} <span className="text-white/60">AMERICAN GOODWILL SARL</span>
+          </p>
          </div>
        </div>
      </footer>

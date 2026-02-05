@@ -1,1167 +1,355 @@
+/**
+ * Mobile Add Cart Item - Lean Orchestrator
+ * 
+ * POST /mobile-add-cart-item
+ * 
+ * Adds a product to the user's cart (DRAFT order).
+ * Uses modular cart modules for validation, pricing, images, and DB ops.
+ */
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-// SDK-free: auth.ts now uses REST API internally
 import { 
   handleCors, 
   corsHeaders, 
   errorResponse, 
   jsonResponse,
   extractBearerToken,
-  createAdminClient,
+  getDbClient,
+  createAdminPostgrestClient,
 } from "../_shared/auth.ts";
+import { PostgrestClient } from "../_shared/postgrest.ts";
+import {
+  validateAddCartItemInput,
+  isUserEditedPrice,
+  coalesceImageUrl,
+  normalizeImageUrl,
+  detectStore,
+} from "../_shared/cart/validate.ts";
+import {
+  calculateItemPricing,
+  calculateShippingFee,
+  buildItemResponse,
+  round2,
+} from "../_shared/cart/pricing.ts";
+import {
+  scrapeProductInfo,
+  getImageFromCache,
+  validateImageUrl,
+} from "../_shared/cart/images.ts";
+import {
+  getOrCreateDraftOrder,
+  findExistingCartItem,
+  updateCartItem,
+  insertCartItem,
+  getShippingType,
+  getShippingTypeForCategory,
+  getCachedSettings,
+} from "../_shared/cart/db.ts";
 import {
   determineShippingCategory,
-  getShippingTypeIdForCategory,
-  VEHICLE_QUOTE_CONFIDENCE_THRESHOLD,
   type ShippingCategoryKey,
 } from "../_shared/shippingCategory.ts";
-import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
-// CRITICAL: Import shared updateOrderTotals to ensure vehicle handling is consistent
 import { updateOrderTotals as sharedUpdateOrderTotals } from "../_shared/cartHelpers.ts";
-import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
-// Constants for rate limiting
-const GUEST_PENDING_LIMIT_PER_24H = 30;
-
-// Allowed domains for product URLs
-const ALLOWED_DOMAINS = [
-  'amazon.com', 'www.amazon.com',
-  'ebay.com', 'www.ebay.com',
-  'walmart.com', 'www.walmart.com',
-  'bestbuy.com', 'www.bestbuy.com',
-  'carvana.com', 'www.carvana.com',
-  'cargurus.com', 'www.cargurus.com',
-  'tesla.com', 'www.tesla.com',
-  'edmunds.com', 'www.edmunds.com',
-  'target.com', 'www.target.com',
-  'homedepot.com', 'www.homedepot.com',
-  'shein.com', 'www.shein.com', 'us.shein.com', 'm.shein.com',
-  'macys.com', 'www.macys.com', 'm.macys.com',
-  'mercari.com', 'www.mercari.com',
-  'wayfair.com', 'www.wayfair.com',
-];
-
-// Helper to validate and normalize a product URL
-function normalizeProductUrl(val: string): string | null {
-  if (!val || typeof val !== 'string') return null;
-  let url = val.trim();
-  if (!url) return null;
-  // Add protocol if missing
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
-  }
-  // Validate URL format
-  try {
-    new URL(url);
-    return url;
-  } catch {
-    return null;
-  }
+// Generate correlation ID for logging
+function generateCorrelationId(): string {
+  return crypto.randomUUID().slice(0, 8);
 }
 
-/**
- * CRITICAL: Normalize an image URL to be a valid absolute https URL for React Native.
- * Also checks against blocklist to filter out generic logos.
- * Handles:
- * - Protocol-relative URLs: //cdn.example.com/image.jpg -> https://cdn.example.com/image.jpg
- * - Relative URLs: /images/product.jpg -> https://origin.com/images/product.jpg
- * - Blocklist filtering for generic logos (Amazon logo, placeholders, etc.)
- * - Whitespace trimming
- * - Validation via URL constructor
- */
-function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
-  if (!raw || typeof raw !== "string") return null;
-  let s = raw.trim();
-  if (!s) return null;
-
-  // Ignore non-web URIs
-  if (s.startsWith("data:") || s.startsWith("blob:")) return null;
-
-  // Protocol-relative → https
-  if (s.startsWith("//")) {
-    s = "https:" + s;
-    console.log("[IMAGE_NORMALIZE] protocol-relative fixed:", s.substring(0, 60));
-  }
-
-  // Relative path → resolve against product URL origin (if available)
-  if (s.startsWith("/") || (!s.startsWith("http://") && !s.startsWith("https://"))) {
-    if (productUrl) {
-      try {
-        const base = new URL(productUrl);
-        s = new URL(s, base.origin).toString();
-        console.log("[IMAGE_NORMALIZE] relative path resolved:", s.substring(0, 60));
-      } catch {
-        return null;
-      }
-    } else {
-      return null;
-    }
-  }
-
-  // Final validation
-  try {
-    const u = new URL(s);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    
-    const validatedUrl = u.toString();
-    
-    // CRITICAL: Check against blocklist to filter out generic logos
-    if (isBlockedImageUrl(validatedUrl)) {
-      console.log('[mobile-add-cart-item] Blocked generic image:', validatedUrl.substring(0, 60));
-      return null;
-    }
-    
-    return validatedUrl;
-  } catch {
-    return null;
-  }
-}
-
-// Input validation - replaces Zod schema (SDK-free for bundle size)
-interface AddCartItemInput {
-  productUrl: string;
-  productPrice: number;
-  quantity: number;
-  shippingItemTypeId?: string;
-  productTitle?: string;
-  productImageUrl?: string;
-  deviceId?: string;
-  device_id?: string;
-  priceEdited?: boolean | string;
-  manual_price?: boolean | string;
-  price_source?: string;
-  priceSource?: string;
-  price_confirmation_status?: string;
-  priceConfirmationStatus?: string;
-  capturedPrice?: number;
-  captured_price?: number;
-  capturedPriceUsd?: number;
-  captured_price_usd?: number;
-  proposedPriceUsd?: number;
-  proposed_price_usd?: number;
-  currency?: string;
-}
-
-function validateAddCartItemInput(body: unknown): { data: AddCartItemInput; error: null } | { data: null; error: string } {
-  if (!body || typeof body !== "object") {
-    return { data: null, error: "Invalid request body" };
-  }
-  
-  const b = body as Record<string, unknown>;
-  
-  // Validate productUrl
-  const rawUrl = typeof b.productUrl === "string" ? b.productUrl : "";
-  const productUrl = normalizeProductUrl(rawUrl);
-  if (!productUrl) {
-    return { data: null, error: "Product URL is required and must be valid" };
-  }
-  
-  // Check domain
-  try {
-    const parsed = new URL(productUrl);
-    const isAllowed = ALLOWED_DOMAINS.some(d => parsed.hostname.endsWith(d));
-    if (!isAllowed) {
-      return { data: null, error: "URL must be from a supported retailer" };
-    }
-  } catch {
-    return { data: null, error: "Invalid URL format" };
-  }
-  
-  // Validate productPrice
-  const productPrice = typeof b.productPrice === "number" ? b.productPrice : parseFloat(String(b.productPrice));
-  if (isNaN(productPrice) || productPrice <= 0 || productPrice > 1000000) {
-    return { data: null, error: "Price must be positive and under 1,000,000" };
-  }
-  
-  // Validate quantity
-  let quantity = 1;
-  if (b.quantity !== undefined) {
-    quantity = typeof b.quantity === "number" ? b.quantity : parseInt(String(b.quantity), 10);
-    if (isNaN(quantity) || quantity < 1 || quantity > 100 || !Number.isInteger(quantity)) {
-      return { data: null, error: "Quantity must be an integer between 1 and 100" };
-    }
-  }
-  
-  // Optional fields
-  const shippingItemTypeId = typeof b.shippingItemTypeId === "string" && b.shippingItemTypeId.length === 36 
-    ? b.shippingItemTypeId : undefined;
-  
-  const productTitle = typeof b.productTitle === "string" && b.productTitle.trim() && b.productTitle.length <= 500
-    ? b.productTitle.trim() : undefined;
-  
-  let productImageUrl: string | undefined;
-  if (typeof b.productImageUrl === "string" && b.productImageUrl.trim()) {
-    try {
-      new URL(b.productImageUrl);
-      productImageUrl = b.productImageUrl;
-    } catch {
-      productImageUrl = undefined;
-    }
-  }
-  
-  return {
-    data: {
-      productUrl,
-      productPrice,
-      quantity,
-      shippingItemTypeId,
-      productTitle,
-      productImageUrl,
-      deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
-      device_id: typeof b.device_id === "string" ? b.device_id : undefined,
-      priceEdited: b.priceEdited as boolean | string | undefined,
-      manual_price: b.manual_price as boolean | string | undefined,
-      price_source: typeof b.price_source === "string" ? b.price_source : undefined,
-      priceSource: typeof b.priceSource === "string" ? b.priceSource : undefined,
-      price_confirmation_status: typeof b.price_confirmation_status === "string" ? b.price_confirmation_status : undefined,
-      priceConfirmationStatus: typeof b.priceConfirmationStatus === "string" ? b.priceConfirmationStatus : undefined,
-      capturedPrice: typeof b.capturedPrice === "number" ? b.capturedPrice : undefined,
-      captured_price: typeof b.captured_price === "number" ? b.captured_price : undefined,
-      capturedPriceUsd: typeof b.capturedPriceUsd === "number" ? b.capturedPriceUsd : undefined,
-      captured_price_usd: typeof b.captured_price_usd === "number" ? b.captured_price_usd : undefined,
-      proposedPriceUsd: typeof b.proposedPriceUsd === "number" ? b.proposedPriceUsd : undefined,
-      proposed_price_usd: typeof b.proposed_price_usd === "number" ? b.proposed_price_usd : undefined,
-      currency: typeof b.currency === "string" ? b.currency : undefined,
-    },
-    error: null,
-  };
-}
-
-// Pricing helper - single source of truth for price calculations
-function calculateItemPricing(
-  basePriceUsd: number,
-  quantity: number,
-  markupPercent: number,
-  exchangeRate: number
-) {
-  const itemBaseTotalUsd = round2(basePriceUsd * quantity);
-  const itemMarginUsd = round2(itemBaseTotalUsd * (markupPercent / 100));
-  const itemSubtotalUsd = round2(itemBaseTotalUsd + itemMarginUsd);
-  const itemSubtotalCdf = round2(itemSubtotalUsd * exchangeRate);
-
-  return {
-    basePriceUsd: round2(basePriceUsd),
-    quantity,
-    itemBaseTotalUsd,
-    itemMarginUsd,
-    itemSubtotalUsd,
-    itemSubtotalCdf,
-  };
-}
-
-/**
- * CRITICAL: Detect if price was USER edited using explicit signals
- * Supports BOTH mobile app (snake_case) AND web (camelCase) naming conventions
- */
-function isUserEditedPrice(body: any): boolean {
-  // Check explicit boolean flags (handle string "true" too)
-  const priceEditedFlag = 
-    body?.priceEdited === true ||
-    String(body?.priceEdited ?? "").toLowerCase() === "true" ||
-    body?.manual_price === true ||
-    String(body?.manual_price ?? "").toLowerCase() === "true";
-  
-  // Check price_source (case-insensitive) - accept both "manual" and "manual_user"
-  const priceSource = String(body?.price_source ?? body?.priceSource ?? "").toLowerCase();
-  const isManualSource = priceSource === "manual_user" || priceSource === "manual";
-  
-  // Check if frontend explicitly set price_confirmation_status to 'pending'
-  const confirmStatus = String(
-    body?.price_confirmation_status ?? body?.priceConfirmationStatus ?? ""
-  ).toLowerCase();
-  const isPendingFromFrontend = confirmStatus === "pending";
-  
-  // Check for price difference between proposed and captured
-  const capturedPrice = body?.capturedPrice ?? body?.captured_price ?? 
-                        body?.capturedPriceUsd ?? body?.captured_price_usd ?? null;
-  const productPrice = body?.productPrice ?? body?.price ?? body?.unitPrice ?? null;
-  const hasPriceDifference = capturedPrice !== null && productPrice !== null &&
-    Math.abs(Number(productPrice) - Number(capturedPrice)) > 0.01;
-  
-  return priceEditedFlag || isManualSource || isPendingFromFrontend || hasPriceDifference;
-}
-
-// Heavy threshold for manual quote requirement
-const HEAVY_THRESHOLD_KG = 9;
-
-/**
- * Optionally verify JWT and get user - returns null user if no valid token
- * This allows guests to use the endpoint for price calculation
- */
-async function optionallyGetUser(req: Request): Promise<{ user: User | null; supabase: SupabaseClient }> {
-  const authHeader = req.headers.get('Authorization');
+// Get user from token (optional auth - guests allowed)
+async function optionallyGetUser(
+  db: PostgrestClient,
+  authHeader: string | null,
+  correlationId: string
+): Promise<{ userId: string | null; error: string | null }> {
   const token = extractBearerToken(authHeader);
   
-  // Create admin client for all operations (bypasses RLS)
-  const adminClient = createAdminClient();
-  
   if (!token) {
-    console.log('[mobile-add-cart-item] No auth token provided - guest mode');
-    return { user: null, supabase: adminClient };
+    console.log(`[CART_ADD] ${correlationId} No auth token - guest mode`);
+    return { userId: null, error: null };
   }
-
-  try {
-    const { data: { user }, error } = await adminClient.auth.getUser(token);
-    
-    if (error || !user) {
-      console.log('[mobile-add-cart-item] Invalid token - guest mode:', error?.message);
-      return { user: null, supabase: adminClient };
-    }
-    
-    console.log('[mobile-add-cart-item] User authenticated:', user.id);
-    return { user, supabase: adminClient };
-  } catch (e: any) {
-    console.log('[mobile-add-cart-item] Auth error - guest mode:', e.message);
-    return { user: null, supabase: adminClient };
+  
+  const result = await db.getUser(token);
+  
+  if (result.error || !result.data?.user) {
+    console.log(`[CART_ADD] ${correlationId} Invalid token - guest mode`);
+    return { userId: null, error: null };
   }
+  
+  const userId = (result.data.user as { id: string }).id;
+  console.log(`[CART_ADD] ${correlationId} User authenticated: ${userId.slice(0, 8)}...`);
+  return { userId, error: null };
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
-
+  
+  const correlationId = generateCorrelationId();
+  const startTime = Date.now();
+  
   try {
-    // OPTIONAL AUTH - guests allowed for price calculation
-    const { user, supabase } = await optionallyGetUser(req);
+    // Get admin DB client (bypasses RLS)
+    const db = createAdminPostgrestClient();
     
-    const isGuest = user === null;
-    console.log('[mobile-add-cart-item] Mode:', isGuest ? 'GUEST' : 'AUTHENTICATED');
-
+    // Optional auth - guests allowed for price calculation
+    const authHeader = req.headers.get("Authorization");
+    const { userId, error: authError } = await optionallyGetUser(db, authHeader, correlationId);
+    
+    if (authError) {
+      return errorResponse(authError, 401);
+    }
+    
+    const isGuest = userId === null;
+    console.log(`[CART_ADD] ${correlationId} Mode: ${isGuest ? "GUEST" : "AUTHENTICATED"}`);
+    
+    // Parse and validate input
     const body = await req.json();
-
-    // COMPATIBILITY LAYER: Coalesce multiple possible image field keys
-    // Priority: productImageUrl > image_url > imageUrl > product_image_url > thumbnail > photo > picture > productImage > image
-    const incomingImageKeys: string[] = [];
-    if (body.productImageUrl) incomingImageKeys.push('productImageUrl');
-    if (body.image_url) incomingImageKeys.push('image_url');
-    if (body.imageUrl) incomingImageKeys.push('imageUrl');
-    if (body.product_image_url) incomingImageKeys.push('product_image_url');
-    if (body.thumbnail) incomingImageKeys.push('thumbnail');
-    if (body.photo) incomingImageKeys.push('photo');
-    if (body.picture) incomingImageKeys.push('picture');
-    if (body.productImage) incomingImageKeys.push('productImage');
-    if (body.image) incomingImageKeys.push('image');
     
-    const rawImageUrl = 
-      body.productImageUrl ?? 
-      body.image_url ?? 
-      body.imageUrl ?? 
-      body.product_image_url ?? 
-      body.thumbnail ??
-      body.photo ??
-      body.picture ??
-      body.productImage ??
-      body.image ??
-      null;
+    // Coalesce image URL from multiple possible field keys
+    const rawImageUrl = coalesceImageUrl(body);
+    const coalescedImageUrl = normalizeImageUrl(rawImageUrl, body.productUrl);
+    body.productImageUrl = coalescedImageUrl ?? undefined;
     
-    // CRITICAL: Use normalizeImageUrl to handle protocol-relative (//...) and relative (/...) URLs
-    // This is essential for React Native which requires absolute https URLs
-    const coalescedImageUrl = normalizeImageUrl(rawImageUrl, body.productUrl) ?? undefined;
+    console.log(`[CART_ADD] ${correlationId} Image coalesced: ${coalescedImageUrl ? coalescedImageUrl.substring(0, 50) + "..." : "null"}`);
     
-    console.log('[CART_IMAGE] fn=mobile-add-cart-item incomingKeys=' + incomingImageKeys.join(',') + ' rawInput=' + (rawImageUrl ? String(rawImageUrl).substring(0, 40) : 'null') + ' chosen=' + (coalescedImageUrl ? coalescedImageUrl.substring(0, 60) + '...' : 'null'));
-
-    // Inject coalesced image back into body for Zod validation
-    body.productImageUrl = coalescedImageUrl;
-
-    // DEBUG: Log raw payload BEFORE validation to diagnose iOS issues
-    console.log('[DEBUG_RAW_PAYLOAD] productUrl type:', typeof body.productUrl, 'value:', String(body.productUrl ?? '').substring(0, 100));
-    console.log('[DEBUG_RAW_PAYLOAD] productImageUrl type:', typeof body.productImageUrl, 'value:', String(body.productImageUrl ?? '').substring(0, 80));
-    console.log('[DEBUG_RAW_PAYLOAD] keys:', Object.keys(body).join(', '));
-
-    // Validate input (SDK-free, no Zod)
-    const validationResult = validateAddCartItemInput(body);
-    if (validationResult.error) {
-      console.log('[mobile-add-cart-item] Validation error:', validationResult.error, 'raw productUrl:', String(body.productUrl ?? '').substring(0, 100));
-      return errorResponse(validationResult.error, 400);
+    const validation = validateAddCartItemInput(body);
+    if (validation.error) {
+      console.log(`[CART_ADD] ${correlationId} Validation failed: ${validation.error}`);
+      return errorResponse(validation.error, 400);
     }
-
-    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = validationResult.data;
     
-    // CRITICAL: Extract device_id (required for guests with manual prices)
+    const { 
+      productUrl, 
+      productPrice, 
+      quantity, 
+      shippingItemTypeId, 
+      productTitle: inputTitle, 
+      productImageUrl: inputImageUrl 
+    } = validation.data;
+    
     const deviceId = body.deviceId ?? body.device_id ?? null;
-
-    console.log('[mobile-add-cart-item] request:', { productUrl, productPrice, quantity, shippingItemTypeId, isGuest, deviceId: deviceId ? deviceId.substring(0, 8) + '...' : null });
-
-    // CRITICAL: Detect if price was USER edited using explicit signals
     const userEdited = isUserEditedPrice(body);
-    const capturedPrice = body.capturedPrice ?? body.captured_price ?? 
-                          body.capturedPriceUsd ?? body.captured_price_usd ?? null;
-    const currency = body.currency ?? 'USD';
     
-    console.log('[PRICE_CONFIRM] Detection results:', {
-      userEdited,
-      priceEdited: body.priceEdited,
-      manual_price: body.manual_price,
-      price_source: body.price_source || body.priceSource,
-      price_confirmation_status: body.price_confirmation_status || body.priceConfirmationStatus,
+    console.log(`[CART_ADD] ${correlationId} Request: url=${productUrl.substring(0, 50)}... price=${productPrice} qty=${quantity} userEdited=${userEdited}`);
+    
+    // Block manual price for guests
+    if (userEdited && isGuest) {
+      console.log(`[CART_ADD] ${correlationId} BLOCKED: Guest manual price submission`);
+      return jsonResponse({
+        ok: false,
+        code: "AUTH_REQUIRED_FOR_MANUAL_PRICE",
+        error: "Authentication required to submit modified prices.",
+      }, 401);
+    }
+    
+    // Load settings
+    const settingsResult = await getCachedSettings(db, correlationId);
+    if (settingsResult.error || !settingsResult.data) {
+      return errorResponse("Failed to load settings", 500);
+    }
+    const settings = settingsResult.data;
+    
+    console.log(`[CART_ADD] ${correlationId} Settings: markup=${settings.markupPercent}% rate=${settings.exchangeRate}`);
+    
+    // Calculate pricing
+    const pricing = calculateItemPricing(
       productPrice,
-      capturedPrice,
-      deviceId: deviceId ? deviceId.substring(0, 8) + '...' : null,
-      hasDifference: capturedPrice !== null ? Math.abs(productPrice - Number(capturedPrice)) > 0.01 : false,
-    });
+      quantity,
+      settings.markupPercent,
+      settings.exchangeRate
+    );
     
-    // VALIDATION: Proposed price must be positive
-    if (productPrice <= 0) {
-      return errorResponse('Proposed price must be positive', 400);
-    }
+    // Detect store
+    const store = detectStore(productUrl);
     
-    // VALIDATION: If manual price and guest, require device_id
-    if (userEdited && isGuest && !deviceId) {
-      return errorResponse('device_id is required for guest price submissions', 400);
-    }
-
-    // Load shipping type if provided
-    let estWeightKg = 1; // default 1kg
-    let itemRequiresManualQuote = false;
-
-    if (shippingItemTypeId) {
-      const { data: shippingType, error: typeError } = await supabase
-        .from('shipping_item_types')
-        .select('est_weight_kg, requires_manual_quote')
-        .eq('id', shippingItemTypeId)
-        .eq('active', true)
-        .single();
-
-      if (typeError || !shippingType) {
-        console.error('[mobile-add-cart-item] Invalid shipping type:', typeError);
-        return errorResponse('Invalid shipping item type', 400);
-      }
-
-      estWeightKg = shippingType.est_weight_kg;
-      // FIXED: Only vehicles require manual quote, NOT heavy items
-      itemRequiresManualQuote = false; // Will be set later if item is a vehicle
-      console.log('[mobile-add-cart-item] Shipping type loaded:', { estWeightKg });
-    }
-
-    // Load pricing settings - use cached version for performance
-    const settingsStart = Date.now();
-    const settings = await getCachedSettings(supabase);
-    const settingsTime = Date.now() - settingsStart;
-    
-    const markupPercent = settings.markupPercent;
-    const exchangeRate = settings.exchangeRate;
-    const shippingBaseFeeUsd = settings.shippingBaseFeeUsd;
-    const shippingPercent = settings.shippingPercent;
-
-    console.log(`[mobile-add-cart-item] Settings loaded in ${settingsTime}ms:`, {
-      markupPercent,
-      shippingBaseFeeUsd,
-      shippingPercent,
-      exchangeRate,
-    });
-
-    // Calculate pricing using helper
-    const pricing = calculateItemPricing(productPrice, quantity, markupPercent, exchangeRate);
-
-    console.log('[mobile-add-cart-item] computed prices:', {
-      basePriceUsd: pricing.basePriceUsd,
-      quantity: pricing.quantity,
-      itemBaseTotalUsd: pricing.itemBaseTotalUsd,
-      itemMarginUsd: pricing.itemMarginUsd,
-      itemSubtotalUsd: pricing.itemSubtotalUsd,
-      itemSubtotalCdf: pricing.itemSubtotalCdf,
-      markupPercent,
-    });
-
-    // Detect store from URL
-    let store = 'OTHER';
-    try {
-      const urlObj = new URL(productUrl);
-      const hostname = urlObj.hostname.toLowerCase();
-      const pathname = urlObj.pathname.toLowerCase();
-      
-      if (hostname.includes('amazon')) store = 'AMAZON';
-      else if (hostname.includes('ebay')) store = 'EBAY';
-      else if (hostname.includes('walmart')) store = 'WALMART';
-      else if (hostname.includes('bestbuy')) store = 'BESTBUY';
-      // NEW: Active car marketplaces (preferred)
-      else if (hostname.includes('tesla') && pathname.includes('/inventory')) store = 'TESLA_USED';
-      else if (hostname.includes('edmunds')) store = 'EDMUNDS';
-      // DEPRECATED: Old car marketplaces (log usage for tracking)
-      else if (hostname.includes('carvana')) {
-        store = 'CARVANA';
-        console.warn('[mobile-add-cart-item] DEPRECATED_CAR_SOURCE: carvana used for new item');
-      }
-      else if (hostname.includes('cargurus')) {
-        store = 'CARGURUS';
-        console.warn('[mobile-add-cart-item] DEPRECATED_CAR_SOURCE: cargurus used for new item');
-      }
-      else if (hostname.includes('target')) store = 'OTHER'; // Keep as OTHER - no enum value
-      else if (hostname.includes('homedepot')) store = 'OTHER';
-      else if (hostname.includes('shein')) store = 'OTHER';
-      else if (hostname.includes('macys')) store = 'OTHER';
-      else if (hostname.includes('mercari')) store = 'MERCARI';
-      else if (hostname.includes('wayfair')) store = 'WAYFAIR';
-    } catch (e) {
-      console.error('[mobile-add-cart-item] Invalid URL format:', e);
-    }
-
+    // Get product image and title
     let productTitle = inputTitle ?? null;
     let productImageUrl = inputImageUrl ?? null;
-
-    // If image or title not provided, try to scrape from product URL (with timeout)
-    if (!productImageUrl || !productTitle) {
-      console.log('[mobile-add-cart-item] Scraping product info for:', productUrl);
-      const scrapeStart = Date.now();
-      
-      try {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL');
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-        
-        // Create abort controller with 4s timeout for scraping
-        const scrapeController = new AbortController();
-        const scrapeTimeout = setTimeout(() => {
-          console.warn('[mobile-add-cart-item] Scrape timeout reached (4s)');
-          scrapeController.abort();
-        }, 4000);
-        
-        try {
-          const scrapeResponse = await fetch(`${supabaseUrl}/functions/v1/get-product-info`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceRoleKey}`,
-            },
-            body: JSON.stringify({ url: productUrl }),
-            signal: scrapeController.signal,
-          });
-          
-          clearTimeout(scrapeTimeout);
-          
-          // Always try to extract image/title from response body, even on 404 (price not found still returns image)
-          const scrapeData = await scrapeResponse.json().catch(() => ({}));
-          const scrapeDuration = Date.now() - scrapeStart;
-          console.log(`[mobile-add-cart-item] Scraped product data (${scrapeDuration}ms, status: ${scrapeResponse.status}):`, JSON.stringify(scrapeData).substring(0, 200));
-          
-          // get-product-info returns imageUrl (camelCase), not image_url
-          // Extract image and title regardless of HTTP status - scraper may return image even when price fails
-          if (!productImageUrl && scrapeData.imageUrl) {
-            // CRITICAL: Normalize scraped image URL - may be protocol-relative (//...)
-            const normalizedScrapeImg = normalizeImageUrl(scrapeData.imageUrl, productUrl);
-            if (normalizedScrapeImg) {
-              productImageUrl = normalizedScrapeImg;
-              console.log('[mobile-add-cart-item] Got normalized image URL from scrape:', productImageUrl.substring(0, 60));
-            } else {
-              console.warn('[mobile-add-cart-item] Scraper returned invalid image URL:', String(scrapeData.imageUrl).substring(0, 60));
-            }
-          }
-          if (!productTitle && scrapeData.productTitle) {
-            productTitle = scrapeData.productTitle;
-          }
-          
-          if (!scrapeResponse.ok) {
-            console.warn(`[mobile-add-cart-item] Scrape response not ok: ${scrapeResponse.status}, but extracted image: ${!!productImageUrl}`);
-          }
-        } finally {
-          clearTimeout(scrapeTimeout);
-        }
-      } catch (scrapeError: any) {
-        const scrapeDuration = Date.now() - scrapeStart;
-        if (scrapeError.name === 'AbortError') {
-          console.warn(`[mobile-add-cart-item] Scrape aborted after ${scrapeDuration}ms - continuing without image`);
-        } else {
-          console.error(`[mobile-add-cart-item] Failed to scrape product info (${scrapeDuration}ms):`, scrapeError.message);
-        }
-        // Continue without image - it's not critical
-      }
-    }
-
-    // FALLBACK: If still no image, try to get from price_capture_cache or product_cache
-    if (!productImageUrl) {
-      try {
-        // Try price_capture_cache first (has canonical_url matching)
-        const { data: cachedProduct } = await supabase
-          .from('product_cache')
-          .select('image_url, title')
-          .eq('product_url', productUrl)
-          .maybeSingle();
-        
-        if (cachedProduct?.image_url) {
-          // CRITICAL: Normalize cached image URL - may be protocol-relative (//...)
-          const normalizedCacheImg = normalizeImageUrl(cachedProduct.image_url, productUrl);
-          if (normalizedCacheImg) {
-            productImageUrl = normalizedCacheImg;
-            console.log('[mobile-add-cart-item] Got normalized image from product_cache:', productImageUrl.substring(0, 60));
-          } else {
-            console.warn('[mobile-add-cart-item] Cache contained invalid image URL:', String(cachedProduct.image_url).substring(0, 60));
-          }
-        }
-        if (!productTitle && cachedProduct?.title) {
-          productTitle = cachedProduct.title;
-        }
-      } catch (cacheError: any) {
-        console.warn('[mobile-add-cart-item] Cache lookup failed:', cacheError.message);
-      }
-    }
-
-    // SINGLE DEBUG LOG: Track image source for debugging
-    const imageSource = coalescedImageUrl ? 'client' : 
-                        (productImageUrl && !coalescedImageUrl ? (productImageUrl.includes('amazon') || productImageUrl.includes('ebay') ? 'scrape' : 'cache') : 'none');
-    console.log(`[IMAGE_FILL] source=${imageSource} urlPreview=${(productImageUrl || '').substring(0, 60)}`);
-
-    // AUTO-DETECT SHIPPING CATEGORY - ALWAYS applied, no manual selection needed
-    let finalShippingTypeId = shippingItemTypeId || null;
-    let autoDetectedCategory: ShippingCategoryKey | null = null;
-    let isVehicle = false;
-    let vehicleRequiresQuote = false;
-    let isShippingCategoryEstimated = false;
     
-    // Always detect category from title/url/store
+    if (!productImageUrl || !productTitle) {
+      // Try scraping
+      const scraped = await scrapeProductInfo(productUrl, correlationId);
+      if (!productImageUrl && scraped.imageUrl) productImageUrl = scraped.imageUrl;
+      if (!productTitle && scraped.title) productTitle = scraped.title;
+    }
+    
+    if (!productImageUrl) {
+      // Fallback to cache
+      const cached = await getImageFromCache(db, productUrl, correlationId);
+      if (!productImageUrl && cached.imageUrl) productImageUrl = cached.imageUrl;
+      if (!productTitle && cached.title) productTitle = cached.title;
+    }
+    
+    // Auto-detect shipping category
+    let estWeightKg = 1;
+    let requiresManualQuote = false;
+    let isVehicle = false;
+    let finalShippingTypeId = shippingItemTypeId ?? null;
+    
+    // Check if manual shipping type provided
+    if (shippingItemTypeId) {
+      const typeResult = await getShippingType(db, shippingItemTypeId, correlationId);
+      if (typeResult.data) {
+        estWeightKg = typeResult.data.estWeightKg;
+      }
+    }
+    
+    // Auto-detect category
     const detection = determineShippingCategory({
-      title: productTitle || '',
+      title: productTitle || "",
       url: productUrl,
       store: store,
       existingCategory: null,
     });
-
-    console.log('[mobile-add-cart-item] Category detection result:', {
-      category: detection.category,
-      confidence: detection.confidence,
-      requiresQuote: detection.requiresQuote,
-      isEstimated: detection.isEstimated,
-      matchedKeywords: detection.matchedKeywords.slice(0, 5),
-    });
-
-    autoDetectedCategory = detection.category;
-    isShippingCategoryEstimated = detection.isEstimated;
-
-    // Check if this is a vehicle requiring a quote
-    if (detection.category === 'vehicle' && detection.requiresQuote) {
+    
+    console.log(`[CART_ADD] ${correlationId} Category: ${detection.category} confidence=${detection.confidence} requiresQuote=${detection.requiresQuote}`);
+    
+    if (detection.category === "vehicle" && detection.requiresQuote) {
       isVehicle = true;
-      vehicleRequiresQuote = true;
-      itemRequiresManualQuote = true; // Vehicles always require manual quote
-      // Don't set a shipping type for vehicles - they need custom quotes
+      requiresManualQuote = true;
       finalShippingTypeId = null;
-      isShippingCategoryEstimated = false; // Vehicles don't use estimated flag
-      
-      console.log('[mobile-add-cart-item] Vehicle detected - requires manual quote:', {
-        category: detection.category,
-        confidence: detection.confidence,
-      });
-    }
-    // For non-vehicle categories, always apply the detected category
-    else if (detection.category && detection.category !== 'vehicle') {
-      const shippingType = await getShippingTypeIdForCategory(supabase, detection.category);
-      
-      if (shippingType) {
-        finalShippingTypeId = shippingType.id;
-        estWeightKg = shippingType.estWeightKg;
-        // FIXED: Only vehicles require manual quote, NOT heavy items or shipping type flags
-        itemRequiresManualQuote = false;
-        
-        console.log('[mobile-add-cart-item] Applied category:', {
-          category: detection.category,
-          shippingTypeId: finalShippingTypeId,
-          estWeightKg,
-          isEstimated: detection.isEstimated,
-        });
+    } else if (detection.category && detection.category !== "vehicle") {
+      const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
+      if (catTypeResult.data) {
+        finalShippingTypeId = catTypeResult.data.id;
+        estWeightKg = catTypeResult.data.estWeightKg;
       }
     }
-
-    // ========== ENFORCE AUTH FOR MANUAL/MODIFIED PRICES ==========
-    if (userEdited && isGuest) {
-      console.log('[mobile-add-cart-item] BLOCKED: Guest attempted manual price submission');
-      console.log('[PRICE_CONFIRM]', JSON.stringify({
-        fn: 'mobile-add-cart-item',
-        mode: 'GUEST',
-        isManualPrice: true,
-        deviceId: deviceId ? deviceId.substring(0, 8) + '...' : null,
-        action: 'BLOCKED',
-        reason: 'AUTH_REQUIRED_FOR_MANUAL_PRICE',
-      }));
-      
-      return jsonResponse({
-        ok: false,
-        code: 'AUTH_REQUIRED_FOR_MANUAL_PRICE',
-        error: 'Authentication required to submit modified prices for review.',
-        message: 'Please login to submit a modified price for admin confirmation.',
-      }, 401);
-    }
     
-    // ========== GUEST MODE: Only scraped prices allowed (price calculation only) ==========
+    // Calculate shipping
+    const shippingFeeUsd = calculateShippingFee(
+      pricing.itemBaseTotalUsd,
+      settings.shippingBaseFeeUsd,
+      settings.shippingPercent,
+      requiresManualQuote
+    );
+    
+    // Guest mode: return price calculation only
     if (isGuest) {
-      console.log('[mobile-add-cart-item] Guest mode - scraped price calculation only');
+      console.log(`[CART_ADD] ${correlationId} Guest response (no DB write)`);
       
-      // Calculate estimated shipping for guest display
-      const estimatedShippingFee = itemRequiresManualQuote ? 0 : round2(shippingBaseFeeUsd + (pricing.itemBaseTotalUsd * shippingPercent));
-      const estimatedTotalUsd = round2(pricing.itemSubtotalUsd + estimatedShippingFee);
-      const estimatedTotalCdf = round2(estimatedTotalUsd * exchangeRate);
+      const response = buildItemResponse(
+        null,
+        productUrl,
+        productTitle,
+        productImageUrl,
+        store,
+        pricing,
+        shippingFeeUsd,
+        settings.exchangeRate
+      );
       
-      // Non-manual guest price - just return calculation
       return jsonResponse({
         success: true,
         isGuest: true,
-        item: {
-          id: null, // No DB record for guests
-          productUrl,
-          productTitle,
-          productImageUrl,
-          image_url: productImageUrl,
-          store,
-          basePriceUsd: pricing.basePriceUsd,
-          quantity: pricing.quantity,
-          unitPriceUsd: pricing.basePriceUsd,
-          itemBaseTotalUsd: pricing.itemBaseTotalUsd,
-          itemMarginUsd: pricing.itemMarginUsd,
-          itemSubtotalUsd: pricing.itemSubtotalUsd,
-          itemSubtotalCdf: pricing.itemSubtotalCdf,
-          estWeightKg,
-          requiresManualQuote: itemRequiresManualQuote,
-          shippingItemTypeId: finalShippingTypeId,
-          shippingCategory: autoDetectedCategory,
-          isShippingCategoryEstimated,
-          isVehicle,
-          isQuoteRequired: isVehicle && vehicleRequiresQuote,
-          quoteStatus: null,
-          estimatedShippingFee,
-          estimatedTotalUsd,
-          estimatedTotalCdf,
-        },
-        summary: {
-          itemTotalUsd: pricing.itemBaseTotalUsd,
-          serviceFeeUsd: pricing.itemMarginUsd,
-          shippingFeeUsd: estimatedShippingFee,
-          totalUsd: estimatedTotalUsd,
-          totalCdf: estimatedTotalCdf,
-          exchangeRate,
-          requiresManualQuote: itemRequiresManualQuote,
-        },
-        message: 'Price calculated. Login to save to cart.',
+        item: response,
+        isVehicle,
+        requiresQuote: requiresManualQuote,
       });
     }
-
-    // ========== AUTHENTICATED MODE: Full cart functionality ==========
     
-    // CRITICAL: Ensure user has a profile (orders.user_id references profiles.user_id)
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('user_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (!existingProfile) {
-      console.log('[mobile-add-cart-item] Creating profile for user:', user.id);
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({ 
-          user_id: user.id, 
-          full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
-        });
-
-      if (profileError) {
-        console.error('[mobile-add-cart-item] Failed to create profile:', profileError);
-        return errorResponse(`Failed to create user profile: ${profileError.message}`, 500);
-      }
-      console.log('[mobile-add-cart-item] Profile created successfully');
+    // Authenticated: Get or create draft order
+    const draftResult = await getOrCreateDraftOrder(db, userId!, correlationId);
+    if (draftResult.error || !draftResult.data) {
+      return errorResponse("Failed to get/create cart", 500);
     }
-
-    // SHARED CART RESOLUTION: Same logic as mobile-get-cart
-    // Returns the single DRAFT order ID for this user, creating if needed
-    const resolveCartId = async (userId: string): Promise<string> => {
-      console.log('[ADD_CART_DEBUG] resolveCartId called for userId:', userId);
-      
-      // Step 1: Find existing DRAFT orders for this user
-      const { data: drafts, error: draftsError } = await supabase
-        .from('orders')
-        .select('id, created_at')
-        .eq('user_id', userId)
-        .eq('status', 'DRAFT')
-        .order('created_at', { ascending: false });
-
-      if (draftsError) {
-        console.error('[ADD_CART_DEBUG] Failed to query drafts:', draftsError);
-        throw new Error('Failed to access cart');
-      }
-      
-      console.log('[ADD_CART_DEBUG] Found drafts:', drafts?.length || 0);
-
-      // Step 2: If no drafts, create one
-      if (!drafts || drafts.length === 0) {
-        console.log('[ADD_CART_DEBUG] Creating new DRAFT order for user:', userId);
-        const { data: newOrder, error: createError } = await supabase
-          .from('orders')
-          .insert({ 
-            user_id: userId, 
-            status: 'DRAFT',
-            exchange_rate_used: exchangeRate,
-          })
-          .select('id')
-          .single();
-        
-        if (createError || !newOrder) {
-          console.error('[ADD_CART_DEBUG] Failed to create order:', createError);
-          throw new Error('Failed to create cart');
-        }
-        
-        console.log('[ADD_CART_DEBUG] Created new order:', newOrder.id);
-        return newOrder.id;
-      }
-
-      // Step 3: If multiple drafts exist, merge them
-      if (drafts.length > 1) {
-        const primaryId = drafts[0].id;
-        const secondaryIds = drafts.slice(1).map(d => d.id);
-        console.log('[ADD_CART_DEBUG] Merging', secondaryIds.length, 'drafts into:', primaryId);
-        
-        for (const old of drafts.slice(1)) {
-          await supabase.from('order_items').update({ order_id: primaryId }).eq('order_id', old.id);
-          await supabase.from('orders').delete().eq('id', old.id);
-        }
-        
-        return primaryId;
-      }
-
-      console.log('[ADD_CART_DEBUG] Using existing draft:', drafts[0].id);
-      return drafts[0].id;
-    };
-
-    const orderId = await resolveCartId(user.id);
-    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'add-cart-item', userId: user.id, cartId: orderId, action: 'resolved' }));
-
-    // Check for duplicate items (same product_url in this order)
-    const { data: existingItem } = await supabase
-      .from('order_items')
-      .select('*')
-      .eq('order_id', orderId)
-      .eq('product_url', productUrl)
-      .single();
-
-    if (existingItem) {
-      // Merge by updating quantity and recalculating
+    const draft = draftResult.data;
+    
+    // Check for existing item (merge if found)
+    const existingResult = await findExistingCartItem(db, draft.id, productUrl, correlationId);
+    let merged = false;
+    let itemId: string;
+    
+    if (existingResult.data) {
+      // Merge quantities
+      const existingItem = existingResult.data;
       const newQuantity = existingItem.quantity + quantity;
-      const mergedPricing = calculateItemPricing(
-        existingItem.base_price_usd,
-        newQuantity,
-        markupPercent,
-        exchangeRate
-      );
-
-      // CRITICAL: Never overwrite existing non-null image with null
-      const mergeImageUrl = productImageUrl || existingItem.product_image_url || null;
-      const mergeTitle = productTitle || existingItem.title || null;
       
-      console.log('[CART_IMAGE] merge incoming=' + (productImageUrl ? productImageUrl.substring(0, 50) : 'null') + 
-                  ' existing=' + (existingItem.product_image_url ? 'yes' : 'null') +
-                  ' savedTo=product_image_url final=' + (mergeImageUrl ? mergeImageUrl.substring(0, 50) : 'null'));
-
-      const { data: updatedItem, error: updateError } = await supabase
-        .from('order_items')
-        .update({ 
-          quantity: newQuantity,
-          subtotal_usd: mergedPricing.itemBaseTotalUsd,
-          markup_fee_usd: mergedPricing.itemMarginUsd,
-          total_price_usd: mergedPricing.itemSubtotalUsd,
-          total_price_cdf: mergedPricing.itemSubtotalCdf,
-          // CRITICAL: Update image/title, never overwrite with null
-          product_image_url: mergeImageUrl,
-          title: mergeTitle,
-          // Update shipping fields if provided or auto-detected
-          ...(finalShippingTypeId && {
-            shipping_item_type_id: finalShippingTypeId,
-            est_weight_kg: estWeightKg,
-            requires_manual_quote: itemRequiresManualQuote,
-          }),
-        })
-        .eq('id', existingItem.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('[mobile-add-cart-item] Failed to merge item:', updateError);
-        return errorResponse('Failed to merge cart item', 500);
+      const updateResult = await updateCartItem(db, existingItem.id, {
+        quantity: newQuantity,
+        base_price_usd: productPrice,
+        product_image_url: productImageUrl,
+        updated_at: new Date().toISOString(),
+      }, correlationId);
+      
+      if (updateResult.error || !updateResult.data) {
+        return errorResponse("Failed to update cart item", 500);
       }
-
-      console.log('[mobile-add-cart-item] Merged duplicate item, new quantity:', newQuantity);
-
-      // UPDATE ORDER TOTALS after merge - use settings values
-      const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
-
-      const mergedImageUrl = updatedItem.product_image_url || null;
       
-      return jsonResponse({
-        success: true,
-        merged: true,
-        item: {
-          id: updatedItem.id,
-          productUrl: updatedItem.product_url,
-          productTitle: updatedItem.title || null,
-          productImageUrl: mergedImageUrl,
-          image_url: mergedImageUrl, // Alias for mobile app compatibility
-          store: updatedItem.store,
-          basePriceUsd: updatedItem.base_price_usd,
-          quantity: updatedItem.quantity,
-          unitPriceUsd: updatedItem.unit_price_usd || updatedItem.base_price_usd,
-          itemBaseTotalUsd: updatedItem.subtotal_usd,
-          itemMarginUsd: updatedItem.markup_fee_usd,
-          itemSubtotalUsd: updatedItem.total_price_usd,
-          itemSubtotalCdf: updatedItem.total_price_cdf,
-          estWeightKg: updatedItem.est_weight_kg,
-          requiresManualQuote: updatedItem.requires_manual_quote || false,
-          shippingItemTypeId: updatedItem.shipping_item_type_id || null,
-          // New shipping category fields
-          shippingCategory: autoDetectedCategory,
-          isShippingCategoryEstimated: isShippingCategoryEstimated,
-          isQuoteRequired: isVehicle && vehicleRequiresQuote,
-        },
-        summary,
-      });
-    }
-
-    // Insert new item into order_items
-    // CRITICAL: Set price_confirmation_status based on userEdited flag ONLY
-    const priceConfirmationStatus = userEdited ? 'PENDING' : 'APPROVED';
-    const priceSource = userEdited ? 'manual_user' : 'scraped';
-    
-    const { data, error: itemError } = await supabase
-      .from('order_items')
-      .insert({
-        order_id: orderId,
+      itemId = existingItem.id;
+      merged = true;
+      console.log(`[CART_ADD] ${correlationId} Merged item: ${itemId} qty=${newQuantity}`);
+    } else {
+      // Insert new item
+      const newItem = {
+        order_id: draft.id,
         product_url: productUrl,
         title: productTitle,
         product_image_url: productImageUrl,
         store,
-        base_price_usd: pricing.basePriceUsd,
-        unit_price_usd: pricing.basePriceUsd,
-        quantity: pricing.quantity,
-        subtotal_usd: pricing.itemBaseTotalUsd,
-        markup_fee_usd: pricing.itemMarginUsd,
-        shipping_fee_usd: 0,
-        total_price_usd: pricing.itemSubtotalUsd,
-        total_price_cdf: pricing.itemSubtotalCdf,
-        // Shipping type fields - use auto-detected or provided
+        quantity,
+        base_price_usd: productPrice,
         shipping_item_type_id: finalShippingTypeId,
         est_weight_kg: estWeightKg,
-        requires_manual_quote: itemRequiresManualQuote,
-        is_vehicle: isVehicle,
-        // CRITICAL: Price confirmation fields
-        price_confirmation_status: priceConfirmationStatus,
-        price_source: priceSource,
-        captured_price: capturedPrice,
-        // Device ID for linkage (always store if provided)
-        device_id: deviceId,
-      })
-      .select()
-      .single();
-
-    if (itemError) {
-      console.error('[mobile-add-cart-item] cart_items insert error:', itemError);
-      return errorResponse('Failed to add item to cart.', 500);
-    }
-
-    // CRITICAL: Read-back validation - confirm the item is readable
-    const { data: readBackItem, error: readBackError } = await supabase
-      .from('order_items')
-      .select('id, order_id')
-      .eq('id', data.id)
-      .eq('order_id', orderId)
-      .single();
-
-    if (readBackError || !readBackItem) {
-      console.error('[ADD_CART_DEBUG] READ-BACK FAILED! Insert succeeded but item not readable:', {
-        insertedId: data.id,
-        orderId,
-        userId: user.id,
-        readBackError: readBackError?.message,
-      });
-      return errorResponse('Insert reported success but row not readable; likely RLS or cart mismatch', 500);
-    }
-
-    console.log('[ADD_CART_DEBUG] Read-back confirmed:', { itemId: readBackItem.id, orderId: readBackItem.order_id });
-
-    // CRITICAL: If user edited price, UPSERT into price_confirmations - NO SILENT FAILURES
-    let priceConfirmationId: string | null = null;
-    
-    if (userEdited) {
-      const priceConfirmPayload = {
-        user_id: user.id,
-        user_email: user.email || null, // Store email for admin convenience
-        device_id: deviceId, // Include device_id for later claim linkage
-        cart_item_id: data.id,
-        product_url: productUrl,
-        store: store.toUpperCase(),
-        proposed_price: productPrice,
-        proposed_currency: currency.toUpperCase(),
-        extracted_price: capturedPrice,
-        extracted_currency: capturedPrice ? currency.toUpperCase() : null,
-        extraction_source: capturedPrice ? 'structured' : 'manual',
-        extraction_confidence: capturedPrice ? 0.8 : null,
-        status: 'PENDING',
-        updated_at: new Date().toISOString(),
+        requires_manual_quote: requiresManualQuote,
+        is_saved_for_later: false,
+        price_source: userEdited ? "manual_user" : "auto",
+        price_confirmation_status: userEdited ? "pending" : null,
+        captured_price_usd: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
+        proposed_price_usd: userEdited ? productPrice : null,
       };
       
-      // UPSERT using cart_item_id as unique key
-      const { data: priceConfirmation, error: pcError } = await supabase
-        .from('price_confirmations')
-        .upsert(priceConfirmPayload, { 
-          onConflict: 'cart_item_id',
-          ignoreDuplicates: false 
-        })
-        .select('id')
-        .single();
-      
-      // Structured log for debugging
-      console.log('[PRICE_CONFIRM]', JSON.stringify({
-        fn: 'mobile-add-cart-item',
-        orderItemId: data.id,
-        isManualPrice: true,
-        price_source: 'manual_user',
-        capturedPrice,
-        proposedPrice: productPrice,
-        upsertOk: !pcError,
-        errorMsg: pcError?.message || null,
-      }));
-      
-      if (pcError) {
-        console.error('[mobile-add-cart-item] CRITICAL: price_confirmations upsert failed:', pcError);
-        
-        // ROLLBACK: Reset order_item to scraped state since we can't track the pending confirmation
-        await supabase
-          .from('order_items')
-          .update({ 
-            price_confirmation_status: null,
-            price_source: 'scraped',
-            price_confirmation_id: null,
-          })
-          .eq('id', data.id);
-        
-        return jsonResponse({
-          ok: false,
-          code: 'PRICE_CONFIRMATION_INSERT_FAILED',
-          error: pcError.message,
-          message: 'Price confirmation record could not be created. Item was not marked as pending.',
-        }, 500);
+      const insertResult = await insertCartItem(db, newItem, correlationId);
+      if (insertResult.error || !insertResult.data) {
+        return errorResponse("Failed to add item to cart", 500);
       }
       
-      priceConfirmationId = priceConfirmation.id;
-      console.log('[mobile-add-cart-item] price_confirmations upserted:', priceConfirmationId);
-      
-      // Update order_item with the price_confirmation_id
-      await supabase
-        .from('order_items')
-        .update({ price_confirmation_id: priceConfirmationId })
-        .eq('id', data.id);
-      
-      // Create admin notification for review (non-blocking)
-      const { error: notifError } = await supabase
-        .from('admin_notifications')
-        .insert({
-          type: 'PRICE_REVIEW',
-          title: 'Price confirmation needed',
-          body: `User edited price for ${productTitle || store} item. Review required.`,
-          payload: {
-            cart_item_id: data.id,
-            user_id: user.id,
-            store,
-            product_url: productUrl,
-            captured_price: capturedPrice,
-            user_price: productPrice,
-            currency,
-            price_confirmation_id: priceConfirmationId,
-          },
-        });
-      
-      if (notifError) {
-        console.error('[mobile-add-cart-item] Failed to create admin notification:', notifError);
-        // Don't fail - notification is non-critical
-      }
+      itemId = insertResult.data.id;
+      console.log(`[CART_ADD] ${correlationId} Inserted item: ${itemId}`);
     }
-
-    // If this is a vehicle, create a quote request
-    let quoteStatus: string | null = null;
-    if (isVehicle && vehicleRequiresQuote) {
-      const { error: quoteError } = await supabase
-        .from('quote_requests')
-        .insert({
-          user_id: user.id,
-          order_item_id: data.id,
-          title: productTitle,
-          product_url: productUrl,
-          store_name: store,
-          status: 'PENDING',
-        });
-
-      if (quoteError) {
-        console.error('[mobile-add-cart-item] Failed to create quote request:', quoteError);
-        // Don't fail the whole operation, just log the error
-      } else {
-        quoteStatus = 'PENDING';
-        console.log('[mobile-add-cart-item] Created quote request for vehicle:', data.id);
-      }
-    }
-
-    // UPDATE ORDER TOTALS after adding new item - use settings values
-    const summary = await sharedUpdateOrderTotals(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate);
-
-    // CACHE UPSERT: Store image/title in product_cache for future requests
-    // This allows future add-cart calls for same product to find image even if app sends none
-    if (productImageUrl || productTitle) {
-      const cacheUpsertStart = Date.now();
-      const { error: cacheError } = await supabase
-        .from('product_cache')
-        .upsert({
-          product_url: productUrl,
-          image_url: productImageUrl || null,
-          title: productTitle || null,
-          store: store.toLowerCase(),
-          source: 'cart_item',
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24h TTL
-        }, { onConflict: 'product_url' });
-      
-      if (cacheError) {
-        console.warn('[mobile-add-cart-item] product_cache upsert failed (non-blocking):', cacheError.message);
-      } else {
-        console.log(`[mobile-add-cart-item] product_cache upserted in ${Date.now() - cacheUpsertStart}ms`);
-      }
-    }
-
-    // Get item count for the response
-    const { count: itemCount } = await supabase
-      .from('order_items')
-      .select('id', { count: 'exact', head: true })
-      .eq('order_id', orderId);
-
-    const newImageUrl = data.product_image_url || null;
     
-    console.log('[CART_DEBUG]', JSON.stringify({ fn: 'add-cart-item', userId: user.id, cartId: orderId, action: 'insert_success', insertedItemId: data.id, itemCount: itemCount, priceConfirmationStatus, pendingCount: priceConfirmationStatus === 'PENDING' ? 1 : 0 }));
+    // Update order totals (fire and forget)
+    try {
+      // Note: We use the shared cartHelpers for this as it handles vehicle logic
+      const adminClient = createAdminClient();
+      await sharedUpdateOrderTotals(adminClient, draft.id);
+    } catch (e) {
+      console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message);
+    }
+    
+    const duration = Date.now() - startTime;
+    console.log(`[CART_ADD] ${correlationId} Success in ${duration}ms merged=${merged}`);
+    
+    // Build response
+    const response = buildItemResponse(
+      itemId,
+      productUrl,
+      productTitle,
+      productImageUrl,
+      store,
+      pricing,
+      shippingFeeUsd,
+      settings.exchangeRate,
+      merged
+    );
     
     return jsonResponse({
       success: true,
-      cart_id: orderId,  // Include cart_id in response for verification
-      item_count: itemCount || 1,
-      item: {
-        id: data.id,
-        productUrl: data.product_url,
-        productTitle: data.title || null,
-        productImageUrl: newImageUrl,
-        image_url: newImageUrl, // Alias for mobile app compatibility
-        store: data.store,
-        basePriceUsd: data.base_price_usd,
-        quantity: data.quantity,
-        unitPriceUsd: data.unit_price_usd || data.base_price_usd,
-        itemBaseTotalUsd: data.subtotal_usd,
-        itemMarginUsd: data.markup_fee_usd,
-        itemSubtotalUsd: data.total_price_usd,
-        itemSubtotalCdf: data.total_price_cdf,
-        estWeightKg: data.est_weight_kg,
-        requiresManualQuote: data.requires_manual_quote || false,
-        shippingItemTypeId: data.shipping_item_type_id || null,
-        // New shipping category fields
-        shippingCategory: autoDetectedCategory,
-        isShippingCategoryEstimated: isShippingCategoryEstimated,
-        // Vehicle-specific fields
-        isVehicle: data.is_vehicle || false,
-        isQuoteRequired: isVehicle && vehicleRequiresQuote,
-        quoteStatus: quoteStatus,
-        // Price confirmation status
-        priceConfirmationStatus: data.price_confirmation_status,
-      },
-      summary,
+      merged,
+      isGuest: false,
+      item: response,
+      orderId: draft.id,
+      isVehicle,
+      requiresQuote: requiresManualQuote,
     });
-
-  } catch (error: any) {
-    console.error('[mobile-add-cart-item] Error:', error.message);
     
-    // Never return SESSION_EXPIRED for this endpoint - it's guest-friendly
-    return errorResponse(error.message || 'An error occurred', 500);
+  } catch (e: unknown) {
+    const duration = Date.now() - startTime;
+    console.error(`[CART_ADD] ${correlationId} Error after ${duration}ms:`, (e as Error).message);
+    return errorResponse((e as Error).message || "Internal error", 500);
   }
 });
+
+// Import for sharedUpdateOrderTotals fallback
+import { createAdminClient } from "../_shared/auth.ts";

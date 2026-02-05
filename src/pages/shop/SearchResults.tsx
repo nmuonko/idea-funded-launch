@@ -41,30 +41,35 @@ export default function SearchResults() {
   ];
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
+    // Build normalized query parameters for consistent cache keys
+    const searchQuery = query || category || 'popular';
+    const params: Record<string, any> = {
+      q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
+      limit: 24,
+    };
+
+    // Add sort only if not default
+    if (sort && sort !== 'relevance') {
+      params.sort = sort;
+    }
+
+    // Add price filters if set
+    const filters: Record<string, number> = {};
+    if (priceRange[0] > 0) filters.minPrice = priceRange[0];
+    if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+    if (Object.keys(filters).length > 0) {
+      params.filters = JSON.stringify(filters);
+    }
+
+    // For first page, show loading state only if no products yet
+    // This makes cached results appear instantly
+    if (pageNum === 1 && products.length === 0) {
+      setLoading(true);
+    } else if (pageNum > 1) {
+      setLoadingMore(true);
+    }
+
     try {
-      if (pageNum === 1) setLoading(true);
-      else setLoadingMore(true);
-
-      // Build normalized query parameters for consistent cache keys
-      const searchQuery = query || category || 'popular';
-      const params: Record<string, any> = {
-        q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
-        limit: 24,
-      };
-
-      // Add sort only if not default
-      if (sort && sort !== 'relevance') {
-        params.sort = sort;
-      }
-
-      // Add price filters if set
-      const filters: Record<string, number> = {};
-      if (priceRange[0] > 0) filters.minPrice = priceRange[0];
-      if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
-      if (Object.keys(filters).length > 0) {
-        params.filters = JSON.stringify(filters);
-      }
-
       // Use cached fetch for search (shared across users)
       // Skip cache for pagination beyond first page
       const data = await cachedCatalogFetch<any>('catalog-search', params, { 
@@ -96,7 +101,7 @@ export default function SearchResults() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [query, category, sort, priceRange]);
+  }, [query, category, sort, priceRange, products.length]);
 
   // Initial search
   useEffect(() => {

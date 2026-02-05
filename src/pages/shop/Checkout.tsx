@@ -28,7 +28,7 @@ interface ShippingAddress {
 export default function Checkout() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { items, totalUsd, clearCart } = useShopCart();
+  const { items, totalUsd, savePendingCheckout, restoreFromPendingCheckout } = useShopCart();
   const { user } = useAuth();
   
   const [loading, setLoading] = useState(false);
@@ -45,6 +45,16 @@ export default function Checkout() {
     postalCode: '',
     country: 'DR Congo',
   });
+
+  // Restore cart from pending checkout if cart is empty on mount
+  useEffect(() => {
+    if (items.length === 0) {
+      const restored = restoreFromPendingCheckout();
+      if (restored) {
+        console.log('[CHECKOUT] Cart restored from pending snapshot');
+      }
+    }
+  }, []);
 
   // Load profile data
   useEffect(() => {
@@ -234,7 +244,12 @@ export default function Checkout() {
         // Handle PawaPay USSD flow - redirect to pending page
         if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {
           console.log('[WEB_CHECKOUT] PawaPay USSD push initiated, redirecting to pending page');
-          await clearCart();
+          // Save pending checkout snapshot (cart will be cleared on payment success)
+          savePendingCheckout({ 
+            orderId: providerData.order_id, 
+            paymentMethod: 'mobile_money',
+            totalUsd 
+          });
           navigate(`/shop/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
           return;
         }
@@ -243,7 +258,12 @@ export default function Checkout() {
         if (providerData?.provider === 'stripe' && providerData?.clientSecret) {
           // Redirect to card payment page with client secret
           console.log('[WEB_CHECKOUT] Stripe clientSecret received, redirecting to card payment page');
-          await clearCart();
+          // Save pending checkout snapshot (cart will be cleared on payment success)
+          savePendingCheckout({ 
+            orderId: providerData.order_id, 
+            paymentMethod: 'card',
+            totalUsd 
+          });
           const cardPaymentUrl = `/shop/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
           navigate(cardPaymentUrl);
           return;
@@ -251,14 +271,18 @@ export default function Checkout() {
         
         // Handle bank transfer
         if (providerData?.provider === 'bank_transfer') {
-          await clearCart();
+          savePendingCheckout({ 
+            orderId: providerData.order_id, 
+            paymentMethod: 'bank_transfer',
+            totalUsd 
+          });
           navigate(`/bank-transfer-info?order_id=${providerData.order_id}`);
           return;
         }
         
         // Fallback - redirect to order
         if (providerData?.order_id) {
-          await clearCart();
+          savePendingCheckout({ orderId: providerData.order_id, totalUsd });
           navigate(`/shop/orders/${providerData.order_id}`);
           return;
         }
@@ -266,13 +290,16 @@ export default function Checkout() {
       // Legacy flows (direct responses without select-payment-provider)
       else if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
         // Redirect to Stripe checkout
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'card', totalUsd });
         navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
       } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'mobile_money', totalUsd });
         window.location.href = data.redirectUrl;
       } else if (data?.payment_flow === 'BANK_TRANSFER') {
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'bank_transfer', totalUsd });
         navigate(`/bank-transfer-info?order_id=${data.order_id}`);
       } else if (data?.order_id) {
-        await clearCart();
+        savePendingCheckout({ orderId: data.order_id, totalUsd });
         navigate(`/shop/orders/${data.order_id}`);
       }
     } catch (error: any) {

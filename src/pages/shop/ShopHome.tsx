@@ -9,7 +9,7 @@ import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
+import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
@@ -33,9 +33,8 @@ export default function ShopHome() {
     const fetchHomeSections = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase.functions.invoke('catalog-home');
-        
-        if (error) throw error;
+        // Use cached fetch for catalog-home (shared across users)
+        const data = await cachedCatalogFetch<any>('catalog-home', { lang: language });
         
         if (data?.sections) {
           const mappedSections: HomeSection[] = data.sections.map((section: any) => ({
@@ -65,7 +64,7 @@ export default function ShopHome() {
     };
 
     fetchHomeSections();
-  }, []);
+  }, [language]);
 
   return (
     <div className="min-h-screen bg-black pb-20 md:pb-0">

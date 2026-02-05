@@ -1,14 +1,17 @@
- import { useEffect, useState } from 'react';
+ import { useEffect, useState, useRef } from 'react';
  import { useSearchParams, useNavigate, Link } from 'react-router-dom';
  import { CheckCircle2, Loader2, Package, ArrowRight } from 'lucide-react';
  import { motion } from 'framer-motion';
  import { ShopHeader } from '@/components/shop/ShopHeader';
  import { Button } from '@/components/ui/button';
  import { supabase } from '@/integrations/supabase/client';
+ import { useShopCart } from '@/contexts/ShopCartContext';
  
  export default function PaymentSuccess() {
    const [searchParams] = useSearchParams();
    const navigate = useNavigate();
+   const { clearCartOnPaymentSuccess } = useShopCart();
+   const cartClearedRef = useRef(false);
    
    const orderId = searchParams.get('order_id');
    const provider = searchParams.get('provider') || 'stripe';
@@ -39,6 +42,12 @@
          if (await checkStatus()) {
            setVerified(true);
            setVerifying(false);
+           // Clear cart on confirmed payment success
+           if (!cartClearedRef.current) {
+             cartClearedRef.current = true;
+             await clearCartOnPaymentSuccess();
+             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
+           }
            return;
          }
          
@@ -46,10 +55,17 @@
          let attempts = 0;
          const interval = setInterval(async () => {
            attempts++;
-           if (await checkStatus() || attempts >= 6) {
+           const isPaid = await checkStatus();
+           if (isPaid || attempts >= 6) {
              clearInterval(interval);
              setVerified(true);
              setVerifying(false);
+             // Clear cart on confirmed payment success
+             if (isPaid && !cartClearedRef.current) {
+               cartClearedRef.current = true;
+               await clearCartOnPaymentSuccess();
+               console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
+             }
            }
          }, 2000);
          
@@ -59,11 +75,16 @@
          console.error('Error verifying payment:', error);
          setVerifying(false);
          setVerified(true); // Assume success since Stripe confirmed it
+         // Clear cart on assumed success
+         if (!cartClearedRef.current) {
+           cartClearedRef.current = true;
+           await clearCartOnPaymentSuccess();
+         }
        }
      };
      
      verifyPayment();
-   }, [orderId]);
+   }, [orderId, clearCartOnPaymentSuccess]);
    
    if (verifying) {
      return (

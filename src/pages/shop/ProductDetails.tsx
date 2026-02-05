@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useShopCart } from '@/contexts/ShopCartContext';
-import { supabase } from '@/integrations/supabase/client';
+import { cachedCatalogFetch } from '@/lib/catalogCache';
 
 interface ProductDetails {
   id: string;
@@ -105,15 +105,11 @@ export default function ProductDetailsPage() {
         // Fetch similar products
         if (item.title) {
           const keywords = item.title.split(' ').slice(0, 3).join(' ');
-          const similarResponse = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?q=${encodeURIComponent(keywords)}&limit=5`,
-            {
-              headers: {
-                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              },
-            }
-          );
-          const similarData = await similarResponse.json();
+          // Use cached fetch for similar products search
+          const similarData = await cachedCatalogFetch<any>('catalog-search', {
+            q: keywords.trim().toLowerCase(),
+            limit: 5,
+          });
           
           if (similarData?.items) {
             setSimilarProducts(

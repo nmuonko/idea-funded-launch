@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +14,9 @@ const FALLBACK_SECTIONS = [
   { key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", seed_query: "shoes sneakers nike adidas clothing", mode: "general" },
 ];
 
+// Cache for eBay OAuth token
+let ebayTokenCache: { token: string; expiresAt: number } | null = null;
+
 function generateCorrelationId(): string {
   return `chv2_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
@@ -24,6 +26,54 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function getEbayToken(): Promise<string | null> {
+  // Check cache first
+  if (ebayTokenCache && ebayTokenCache.expiresAt > Date.now() + 60000) {
+    return ebayTokenCache.token;
+  }
+
+  const clientId = Deno.env.get("EBAY_CLIENT_ID");
+  const clientSecret = Deno.env.get("EBAY_CLIENT_SECRET");
+
+  if (!clientId || !clientSecret) {
+    console.error("[CATALOG_HOME_V2] Missing EBAY_CLIENT_ID or EBAY_CLIENT_SECRET");
+    return null;
+  }
+
+  try {
+    const credentials = btoa(`${clientId}:${clientSecret}`);
+    const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${credentials}`,
+      },
+      body: "grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[CATALOG_HOME_V2] eBay OAuth error: ${response.status} ${errorText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const token = data.access_token;
+    const expiresIn = data.expires_in || 7200;
+
+    // Cache the token
+    ebayTokenCache = {
+      token,
+      expiresAt: Date.now() + expiresIn * 1000,
+    };
+
+    return token;
+  } catch (err) {
+    console.error(`[CATALOG_HOME_V2] eBay OAuth exception: ${err}`);
+    return null;
+  }
 }
 
 interface SectionConfig {
@@ -47,32 +97,29 @@ interface CatalogItem {
 async function fetchSectionItems(
   sectionConfig: SectionConfig,
   limit: number,
-  correlationId: string
+  correlationId: string,
+  ebayToken: string | null
 ): Promise<{ items: CatalogItem[]; error?: string; ms: number }> {
   const startMs = Date.now();
   const { key, seed_query, mode } = sectionConfig;
 
-  try {
-    // Use eBay Browse API for reliable results
-    const EBAY_APP_ID = Deno.env.get("EBAY_APP_ID");
-    if (!EBAY_APP_ID) {
-      console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} error=EBAY_APP_ID_MISSING`);
-      return { items: [], error: "EBAY_APP_ID not configured", ms: Date.now() - startMs };
-    }
+  if (!ebayToken) {
+    console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} error=NO_EBAY_TOKEN`);
+    return { items: [], error: "eBay OAuth token not available", ms: Date.now() - startMs };
+  }
 
-    // Build eBay search URL
+  try {
     const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
     searchUrl.searchParams.set("q", seed_query);
     searchUrl.searchParams.set("limit", String(limit));
     
-    // Add category filter for vehicles
     if (mode === "vehicle") {
-      searchUrl.searchParams.set("category_ids", "6000"); // eBay Motors
+      searchUrl.searchParams.set("category_ids", "6000");
     }
 
     const response = await fetch(searchUrl.toString(), {
       headers: {
-        Authorization: `Bearer ${EBAY_APP_ID}`,
+        Authorization: `Bearer ${ebayToken}`,
         "Content-Type": "application/json",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
       },
@@ -101,14 +148,46 @@ async function fetchSectionItems(
   } catch (err) {
     const ms = Date.now() - startMs;
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" error=${errorMessage} stack=${stack}`);
+    console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" error=${errorMessage}`);
     return { items: [], error: errorMessage, ms };
   }
 }
 
+async function loadSectionsFromDb(): Promise<{ sections: SectionConfig[] | null; error?: string }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return { sections: null, error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" };
+  }
+
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { sections: null, error: `DB error: ${response.status} ${errorText.substring(0, 100)}` };
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data) && data.length > 0) {
+      return { sections: data };
+    }
+    return { sections: null, error: "No sections found in DB" };
+  } catch (err) {
+    return { sections: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -117,7 +196,6 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    // Parse input
     let locale = "fr";
     let currency = "USD";
     let limitPerSection = 12;
@@ -129,7 +207,7 @@ serve(async (req) => {
         currency = body.currency || "USD";
         limitPerSection = Math.min(Math.max(body.limitPerSection || 12, 1), 50);
       } catch {
-        // Use defaults if JSON parsing fails
+        // Use defaults
       }
     } else {
       const url = new URL(req.url);
@@ -143,44 +221,22 @@ serve(async (req) => {
 
     console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} inputs=${JSON.stringify({ locale, currency, limitPerSection })}`);
 
+    // Get eBay OAuth token
+    const ebayToken = await getEbayToken();
+
     // Try to load sections from database
-    let sectionConfigs: SectionConfig[] = [];
-    let dbError: string | undefined;
+    const { sections: dbSections, error: dbError } = await loadSectionsFromDb();
+    const sectionConfigs: SectionConfig[] = dbSections || FALLBACK_SECTIONS;
 
-    try {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL");
-      const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-      if (supabaseUrl && serviceRoleKey) {
-        const supabase = createClient(supabaseUrl, serviceRoleKey);
-        const { data, error } = await supabase
-          .from("catalog_sections")
-          .select("key, title_fr, title_en, seed_query, mode")
-          .eq("is_active", true)
-          .order("sort_order", { ascending: true });
-
-        if (error) {
-          dbError = error.message;
-          console.warn(`[CATALOG_HOME_V2] db_error correlationId=${correlationId} error=${error.message}`);
-        } else if (data && data.length > 0) {
-          sectionConfigs = data;
-          console.log(`[CATALOG_HOME_V2] loaded ${data.length} sections from DB`);
-        }
-      }
-    } catch (err) {
-      dbError = err instanceof Error ? err.message : String(err);
-      console.warn(`[CATALOG_HOME_V2] db_exception correlationId=${correlationId} error=${dbError}`);
-    }
-
-    // Fallback to hardcoded sections if DB read failed or returned empty
-    if (sectionConfigs.length === 0) {
-      sectionConfigs = FALLBACK_SECTIONS;
-      console.log(`[CATALOG_HOME_V2] using fallback sections correlationId=${correlationId}`);
+    if (dbError) {
+      console.warn(`[CATALOG_HOME_V2] db_error correlationId=${correlationId} error=${dbError}`);
+    } else {
+      console.log(`[CATALOG_HOME_V2] loaded ${sectionConfigs.length} sections from DB correlationId=${correlationId}`);
     }
 
     // Fetch items for each section in parallel
     const sectionPromises = sectionConfigs.map(async (config) => {
-      const result = await fetchSectionItems(config, limitPerSection, correlationId);
+      const result = await fetchSectionItems(config, limitPerSection, correlationId, ebayToken);
       const title = locale === "en" ? config.title_en : config.title_fr;
       return {
         key: config.key,
@@ -193,7 +249,6 @@ serve(async (req) => {
 
     const sectionResults = await Promise.all(sectionPromises);
 
-    // Build response
     const sections = sectionResults.map(({ key, title, items }) => ({
       key,
       title,
@@ -232,14 +287,13 @@ serve(async (req) => {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[CATALOG_HOME_V2][FATAL] correlationId=${correlationId} error=${errorMessage} stack=${stack}`);
+    console.error(`[CATALOG_HOME_V2][FATAL] correlationId=${correlationId} error=${errorMessage}`);
 
     return jsonResponse({
       ok: false,
       error: "INTERNAL_ERROR",
       message: "An unexpected error occurred",
       correlationId,
-    }, 200); // Always return 200 with structured error
+    });
   }
 });

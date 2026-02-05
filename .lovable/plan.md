@@ -1,86 +1,93 @@
 
-# Fix: Product Page 404 Error - Route Mismatch
+# Fix: Mobile "Add to Cart" Failure - Column Name Mismatch
 
 ## Problem Summary
 
-When clicking any product from the home page or search results, the app shows a **404 "Page not found"** error.
+The "Add to Cart" button fails on mobile with error "Failed to add item to cart". The edge function logs reveal:
 
-**URL shown in screenshot:** `/shop/product/ebay/v1%7C1471367119951%7C0`
-
-This URL should work, but the app's router doesn't recognize it.
-
----
+```
+ERROR: Could not find the 'captured_price_usd' column of 'order_items' in the schema cache
+```
 
 ## Root Cause
 
-There's a path mismatch between where product links point and where the router expects them:
+The `mobile-add-cart-item` edge function is trying to insert columns that don't exist in the `order_items` table:
 
-| Component | Current Link Path | Router Expected Path |
-|-----------|------------------|---------------------|
-| ProductCard.tsx | `/shop/product/:provider/:id` | `/product/:provider/:id` |
+| Code Uses | Actual DB Column | Status |
+|-----------|------------------|--------|
+| `captured_price_usd` | `captured_price` | ❌ Wrong suffix |
+| `proposed_price_usd` | (none) | ❌ Does not exist |
 
-The ProductCard component generates URLs with `/shop/product/...` but the router only has a route for `/product/...` (without the `/shop` prefix).
+The insert fails immediately when attempting to use non-existent column names.
 
 ---
 
 ## Solution
 
-Two changes are needed:
+Fix the column name mapping in `supabase/functions/mobile-add-cart-item/index.ts`:
 
-### 1. Fix ProductCard Link (Primary Fix)
+### File: `supabase/functions/mobile-add-cart-item/index.ts`
 
-Update the link generation to use the correct path format.
-
-**File:** `src/components/shop/ProductCard.tsx`
-
-**Line 97 - Change:**
-```tsx
-// Before (broken)
-to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
-
-// After (fixed)
-to={`/product/${product.provider}/${encodeURIComponent(product.id)}`}
+**Lines 297-300 - Change from:**
+```typescript
+captured_price_usd: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
+proposed_price_usd: userEdited ? productPrice : null,
 ```
 
-### 2. Add Redirect for Legacy URLs (Compatibility)
-
-Add a redirect route to catch any existing bookmarks or shared links that use the old `/shop/product/` path.
-
-**File:** `src/App.tsx`
-
-Add new redirect in the "Legacy /shop redirects" section (around line 180):
-```tsx
-<Route 
-  path="/shop/product/:provider/:id" 
-  element={<Navigate to="/product/:provider/:id" replace />} 
-/>
-```
-
-**Note:** Since React Router Navigate doesn't automatically pass route params, we need a small wrapper component:
-
-```tsx
-// Add a ShopProductRedirect component that extracts params and redirects
-function ShopProductRedirect() {
-  const { provider, id } = useParams();
-  return <Navigate to={`/product/${provider}/${id}`} replace />;
-}
-
-// Then use it in routing:
-<Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
+**To:**
+```typescript
+captured_price: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
+// Note: proposed_price_usd removed - column doesn't exist
+// The admin_adjusted_price column will be used when admin reviews
 ```
 
 ---
 
-## Files to Modify
+## Technical Details
 
-1. **`src/components/shop/ProductCard.tsx`** - Fix line 97 to remove `/shop` prefix
-2. **`src/App.tsx`** - Add redirect route for `/shop/product/*` → `/product/*`
+The fix involves:
+
+1. **Rename `captured_price_usd`** → `captured_price` (line 299)
+2. **Remove `proposed_price_usd`** - This column doesn't exist. The intended behavior (storing user's proposed price when they manually edit) can use `base_price_usd` which is already being set
+
+---
+
+## Complete Change (Lines 285-309)
+
+```typescript
+// Insert new item
+const newItem = {
+  order_id: draft.id,
+  product_url: productUrl,
+  title: productTitle,
+  product_image_url: productImageUrl,
+  store,
+  quantity,
+  base_price_usd: productPrice,
+  shipping_item_type_id: finalShippingTypeId,
+  est_weight_kg: estWeightKg,
+  requires_manual_quote: requiresManualQuote,
+  is_saved_for_later: false,
+  price_source: userEdited ? "manual_user" : "auto",
+  price_confirmation_status: userEdited ? "pending" : null,
+  captured_price: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
+  // Note: proposed price is stored in base_price_usd above
+};
+```
 
 ---
 
 ## Expected Result
 
-After these changes:
-- Clicking any product card will navigate to `/product/ebay/v1|1471367...` (correct path)
-- Any existing bookmarks to `/shop/product/...` will automatically redirect
-- Product details page will load correctly showing full product information
+After this fix:
+- Mobile app can successfully add items to cart
+- Guest users get price calculations
+- Authenticated users get items persisted to database
+- No schema mismatch errors
+- No regressions to web functionality (same endpoint used)
+
+---
+
+## Files to Modify
+
+1. **`supabase/functions/mobile-add-cart-item/index.ts`** - Fix column names at lines 299-300

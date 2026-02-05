@@ -24,24 +24,24 @@ export function ShopFooter() {
     <footer className="bg-black border-t border-white/10 pb-24 md:pb-0">
       <div className="container mx-auto px-4 py-12">
         {/* Main Footer Content */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12 text-justify">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10 mb-12">
           {/* Company Info */}
-          <div className="col-span-2 space-y-4">
+          <div className="sm:col-span-2 lg:col-span-1 space-y-4">
             <img src={afrishopLogo} alt="AfriShop" className="h-8" />
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-start gap-2 text-white/60">
+            <ul className="space-y-4 text-sm">
+              <li className="flex items-start gap-3 text-white/60">
                 <Building2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>{shop.operatedBy || 'Operated by'} <strong className="text-white">AMERICAN GOODWILL SARL</strong></span>
               </li>
-              <li className="flex items-start gap-2 text-white/60">
+              <li className="flex items-start gap-3 text-white/60">
                 <FileText className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>RCCM: CD/LSH/RCCM/17-B-6093 | ID Nat: 05-F4300-N05127D</span>
               </li>
-              <li className="flex items-start gap-2 text-white/60">
+              <li className="flex items-start gap-3 text-white/60">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>114 Croisement Av. Ndjamena & Kasaï, Q. Makutano, Lubumbashi, Haut-Katanga, RDC</span>
               </li>
-              <li className="flex items-center gap-2 text-white/60">
+              <li className="flex items-center gap-3 text-white/60">
                 <Mail className="h-4 w-4 flex-shrink-0" />
                 <a href="mailto:nkadimisha@afrishop-usa.com" className="hover:text-white transition-colors">
                   nkadimisha@afrishop-usa.com
@@ -53,9 +53,9 @@ export function ShopFooter() {
           {/* Quick Links */}
           <div>
             <h3 className="text-white font-semibold mb-4">{shop.quickLinks || 'Quick Links'}</h3>
-            <ul className="space-y-3">
+            <ul className="space-y-2.5">
               <li>
-                <Link to="/shop" className="text-white/60 hover:text-white text-sm transition-colors">
+                <Link to="/browse" className="text-white/60 hover:text-white text-sm transition-colors">
                   {shop.shopFooterTitle || 'Shop'}
                 </Link>
               </li>
@@ -95,14 +95,14 @@ export function ShopFooter() {
           {/* Contact Us */}
           <div>
             <h3 className="text-white font-semibold mb-4">{shop.contactUs || 'Contact Us'}</h3>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-4">
               {/* Icon buttons */}
               <div className="flex items-center gap-3">
                 <a
                   href={`https://wa.me/${SUPPORT_WHATSAPP_E164.replace(/[^0-9]/g, '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center text-green-400 hover:bg-green-500/30 hover:text-green-300 transition-colors"
+                  className="w-11 h-11 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 hover:bg-emerald-500/30 hover:text-emerald-300 transition-colors"
                   title="WhatsApp"
                 >
                   <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
@@ -111,7 +111,7 @@ export function ShopFooter() {
                 </a>
                 <a
                   href="mailto:nkadimisha@afrishop-usa.com"
-                  className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 hover:bg-blue-500/30 hover:text-blue-300 transition-colors"
+                  className="w-11 h-11 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400 hover:bg-sky-500/30 hover:text-sky-300 transition-colors"
                   title="Email"
                 >
                   <Mail className="h-5 w-5" />
@@ -134,7 +134,7 @@ export function ShopFooter() {
           {/* Legal Links */}
           <div>
             <h3 className="text-white font-semibold mb-4">{shop.legalFooterTitle || 'Legal'}</h3>
-            <ul className="space-y-3">
+            <ul className="space-y-2.5">
               <li>
                 <Link to="/terms" className="text-white/60 hover:text-white text-sm transition-colors">
                   {common.terms || 'Terms'}

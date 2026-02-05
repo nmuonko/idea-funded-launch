@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, Building2, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
@@ -33,7 +33,7 @@ export default function Checkout() {
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [paymentMethod, setPaymentMethod] = useState('mobile_money');
+  const [paymentMethod, setPaymentMethod] = useState('card');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
@@ -377,15 +377,6 @@ export default function Checkout() {
                   
                   <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
                     <div className="space-y-3">
-                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
-                        <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
-                        <Smartphone className="h-5 w-5 text-white/70" />
-                        <div className="flex-1">
-                          <p className="text-white font-medium">Mobile Money</p>
-                          <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
-                        </div>
-                      </label>
-
                       <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
                         <RadioGroupItem value="card" id="card" className="border-white/40" />
                         <CreditCard className="h-5 w-5 text-white/70" />

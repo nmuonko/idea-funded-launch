@@ -3,7 +3,9 @@
  * Generates cart hashes and manages payment attempts for idempotency
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// SDK-free: use 'any' for client type to avoid bundle bloat
+type SupabaseClient = any;
+
 import { sanitizePaymentError } from "./errorSanitizer.ts";
 
 export interface PaymentAttempt {

@@ -8,7 +8,8 @@
  * but within a single request, multiple calls return cached values.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// SDK-free: use 'any' for client type to avoid bundle bloat
+type SupabaseClient = any;
 
 // Cache TTL in milliseconds (60 seconds)
 const CACHE_TTL_MS = 60_000;

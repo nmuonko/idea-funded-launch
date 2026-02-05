@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 // SDK-free: auth.ts now uses REST API internally
 import { 
   handleCors, 
@@ -117,52 +116,115 @@ function normalizeImageUrl(raw: unknown, productUrl?: string): string | null {
   }
 }
 
-// Input validation schema with resilient URL handling
-const addCartItemSchema = z.object({
-  productUrl: z.string()
-    .min(1, "Product URL is required")
-    .max(2048, "URL too long")
-    .transform(val => normalizeProductUrl(val))
-    .refine((url): url is string => url !== null, "Invalid URL format")
-    .refine((url) => {
-      try {
-        const parsed = new URL(url);
-        return ALLOWED_DOMAINS.some(d => parsed.hostname.endsWith(d));
-      } catch {
-        return false;
-      }
-    }, "URL must be from a supported retailer (Amazon, eBay, Walmart, BestBuy, Tesla, Edmunds, Target, Home Depot, SHEIN, Macy's, Mercari, Wayfair)"),
-  productPrice: z.number()
-    .positive("Price must be positive")
-    .max(1000000, "Price exceeds maximum"),
-  quantity: z.number().int().positive().max(100).optional().default(1),
-  shippingItemTypeId: z.string().uuid().optional(),
-  productTitle: z.string().max(500).optional().nullable()
-    .transform(val => (!val || val === '') ? undefined : val),
-  productImageUrl: z.string().max(2048).optional().nullable()
-    .transform(val => {
-      if (!val || val === '') return undefined;
-      try { new URL(val); return val; } catch { return undefined; }
-    }),
-  // CRITICAL: device_id for guest tracking
-  deviceId: z.string().min(10).max(128).optional(),
-  device_id: z.string().min(10).max(128).optional(),
-  // Explicit user-edited price signals (support multiple naming conventions)
-  priceEdited: z.union([z.boolean(), z.string()]).optional(),
-  manual_price: z.union([z.boolean(), z.string()]).optional(),
-  price_source: z.string().optional(),
-  priceSource: z.string().optional(),
-  price_confirmation_status: z.string().optional(),
-  priceConfirmationStatus: z.string().optional(),
-  // Captured price for reference (from scraper) - support multiple naming conventions
-  capturedPrice: z.number().optional(),
-  captured_price: z.number().optional(),
-  capturedPriceUsd: z.number().optional(),
-  captured_price_usd: z.number().optional(),
-  proposedPriceUsd: z.number().optional(),
-  proposed_price_usd: z.number().optional(),
-  currency: z.string().optional(),
-}).passthrough();
+// Input validation - replaces Zod schema (SDK-free for bundle size)
+interface AddCartItemInput {
+  productUrl: string;
+  productPrice: number;
+  quantity: number;
+  shippingItemTypeId?: string;
+  productTitle?: string;
+  productImageUrl?: string;
+  deviceId?: string;
+  device_id?: string;
+  priceEdited?: boolean | string;
+  manual_price?: boolean | string;
+  price_source?: string;
+  priceSource?: string;
+  price_confirmation_status?: string;
+  priceConfirmationStatus?: string;
+  capturedPrice?: number;
+  captured_price?: number;
+  capturedPriceUsd?: number;
+  captured_price_usd?: number;
+  proposedPriceUsd?: number;
+  proposed_price_usd?: number;
+  currency?: string;
+}
+
+function validateAddCartItemInput(body: unknown): { data: AddCartItemInput; error: null } | { data: null; error: string } {
+  if (!body || typeof body !== "object") {
+    return { data: null, error: "Invalid request body" };
+  }
+  
+  const b = body as Record<string, unknown>;
+  
+  // Validate productUrl
+  const rawUrl = typeof b.productUrl === "string" ? b.productUrl : "";
+  const productUrl = normalizeProductUrl(rawUrl);
+  if (!productUrl) {
+    return { data: null, error: "Product URL is required and must be valid" };
+  }
+  
+  // Check domain
+  try {
+    const parsed = new URL(productUrl);
+    const isAllowed = ALLOWED_DOMAINS.some(d => parsed.hostname.endsWith(d));
+    if (!isAllowed) {
+      return { data: null, error: "URL must be from a supported retailer" };
+    }
+  } catch {
+    return { data: null, error: "Invalid URL format" };
+  }
+  
+  // Validate productPrice
+  const productPrice = typeof b.productPrice === "number" ? b.productPrice : parseFloat(String(b.productPrice));
+  if (isNaN(productPrice) || productPrice <= 0 || productPrice > 1000000) {
+    return { data: null, error: "Price must be positive and under 1,000,000" };
+  }
+  
+  // Validate quantity
+  let quantity = 1;
+  if (b.quantity !== undefined) {
+    quantity = typeof b.quantity === "number" ? b.quantity : parseInt(String(b.quantity), 10);
+    if (isNaN(quantity) || quantity < 1 || quantity > 100 || !Number.isInteger(quantity)) {
+      return { data: null, error: "Quantity must be an integer between 1 and 100" };
+    }
+  }
+  
+  // Optional fields
+  const shippingItemTypeId = typeof b.shippingItemTypeId === "string" && b.shippingItemTypeId.length === 36 
+    ? b.shippingItemTypeId : undefined;
+  
+  const productTitle = typeof b.productTitle === "string" && b.productTitle.trim() && b.productTitle.length <= 500
+    ? b.productTitle.trim() : undefined;
+  
+  let productImageUrl: string | undefined;
+  if (typeof b.productImageUrl === "string" && b.productImageUrl.trim()) {
+    try {
+      new URL(b.productImageUrl);
+      productImageUrl = b.productImageUrl;
+    } catch {
+      productImageUrl = undefined;
+    }
+  }
+  
+  return {
+    data: {
+      productUrl,
+      productPrice,
+      quantity,
+      shippingItemTypeId,
+      productTitle,
+      productImageUrl,
+      deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
+      device_id: typeof b.device_id === "string" ? b.device_id : undefined,
+      priceEdited: b.priceEdited as boolean | string | undefined,
+      manual_price: b.manual_price as boolean | string | undefined,
+      price_source: typeof b.price_source === "string" ? b.price_source : undefined,
+      priceSource: typeof b.priceSource === "string" ? b.priceSource : undefined,
+      price_confirmation_status: typeof b.price_confirmation_status === "string" ? b.price_confirmation_status : undefined,
+      priceConfirmationStatus: typeof b.priceConfirmationStatus === "string" ? b.priceConfirmationStatus : undefined,
+      capturedPrice: typeof b.capturedPrice === "number" ? b.capturedPrice : undefined,
+      captured_price: typeof b.captured_price === "number" ? b.captured_price : undefined,
+      capturedPriceUsd: typeof b.capturedPriceUsd === "number" ? b.capturedPriceUsd : undefined,
+      captured_price_usd: typeof b.captured_price_usd === "number" ? b.captured_price_usd : undefined,
+      proposedPriceUsd: typeof b.proposedPriceUsd === "number" ? b.proposedPriceUsd : undefined,
+      proposed_price_usd: typeof b.proposed_price_usd === "number" ? b.proposed_price_usd : undefined,
+      currency: typeof b.currency === "string" ? b.currency : undefined,
+    },
+    error: null,
+  };
+}
 
 // Pricing helper - single source of truth for price calculations
 function calculateItemPricing(
@@ -306,15 +368,14 @@ serve(async (req) => {
     console.log('[DEBUG_RAW_PAYLOAD] productImageUrl type:', typeof body.productImageUrl, 'value:', String(body.productImageUrl ?? '').substring(0, 80));
     console.log('[DEBUG_RAW_PAYLOAD] keys:', Object.keys(body).join(', '));
 
-    // Validate input with zod schema
-    const parseResult = addCartItemSchema.safeParse(body);
-    if (!parseResult.success) {
-      const errorMessage = (parseResult as any).error?.errors?.map((e: any) => e.message).join(', ') || 'Validation failed';
-      console.log('[mobile-add-cart-item] Validation error:', errorMessage, 'raw productUrl:', String(body.productUrl ?? '').substring(0, 100));
-      return errorResponse(errorMessage, 400);
+    // Validate input (SDK-free, no Zod)
+    const validationResult = validateAddCartItemInput(body);
+    if (validationResult.error) {
+      console.log('[mobile-add-cart-item] Validation error:', validationResult.error, 'raw productUrl:', String(body.productUrl ?? '').substring(0, 100));
+      return errorResponse(validationResult.error, 400);
     }
 
-    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = parseResult.data;
+    const { productUrl, productPrice, quantity, shippingItemTypeId, productTitle: inputTitle, productImageUrl: inputImageUrl } = validationResult.data;
     
     // CRITICAL: Extract device_id (required for guests with manual prices)
     const deviceId = body.deviceId ?? body.device_id ?? null;

@@ -1,6 +1,7 @@
 import { Trash2, Mail, CheckCircle, Clock, AlertCircle, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -245,7 +246,7 @@ const DeleteAccount = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

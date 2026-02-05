@@ -1,6 +1,7 @@
 import { Shield, Mail, Lock, Eye, UserCheck, Database, ShieldCheck, Clock, Share2, Building2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -238,7 +239,7 @@ const Privacy = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

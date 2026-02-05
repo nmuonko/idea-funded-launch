@@ -1,6 +1,7 @@
 import { Wallet, ArrowDown, Users, ShieldCheck, FileText, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const Payouts = () => {
   const collectionsReasons = [
@@ -246,7 +247,7 @@ const Payouts = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

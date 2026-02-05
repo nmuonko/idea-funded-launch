@@ -1,6 +1,7 @@
 import { CreditCard, Shield, CheckCircle, Building2, Smartphone, Lock } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const PaymentsCompliance = () => {
   const complianceItems = [
@@ -175,7 +176,7 @@ const PaymentsCompliance = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

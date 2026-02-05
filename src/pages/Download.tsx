@@ -2,7 +2,8 @@ import { Download, Smartphone, Truck, CreditCard, Bell, HeadphonesIcon, Globe, A
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const DownloadPage = () => {
   const features = [
@@ -230,7 +231,7 @@ const DownloadPage = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

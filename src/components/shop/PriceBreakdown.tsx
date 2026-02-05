@@ -3,6 +3,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { calculateShippingUsd } from '@/lib/shippingCalculation';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 interface PriceBreakdownProps {
   itemPriceUsd: number;
@@ -18,6 +20,9 @@ export function PriceBreakdown({
   showDetails = true,
 }: PriceBreakdownProps) {
   const { feeSettings } = useShopCart();
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
   
   const subtotal = itemPriceUsd * quantity;
   
@@ -42,39 +47,39 @@ export function PriceBreakdown({
         <>
           <div className="flex items-center justify-between text-sm">
             <span className="text-white/60">
-              Item{quantity > 1 ? ` (×${quantity})` : ''}
+              {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
             </span>
             <span className="text-white/90">${subtotal.toFixed(2)}</span>
           </div>
 
           <div className="flex items-center justify-between text-sm">
             <span className="text-white/60 flex items-center gap-1">
-              Shipping & Import
+              {shop.markupFee || 'Markup Fee'}
               <Tooltip>
                 <TooltipTrigger>
                   <Info className="h-3 w-3 text-white/40" />
                 </TooltipTrigger>
                 <TooltipContent className="bg-black/90 text-white border-white/10">
-                  <p>International shipping and customs handling</p>
-                </TooltipContent>
-              </Tooltip>
-            </span>
-            <span className="text-white/90">${shippingFee.toFixed(2)}</span>
-          </div>
-
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-white/60 flex items-center gap-1">
-              Service Fee
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3 w-3 text-white/40" />
-                </TooltipTrigger>
-                <TooltipContent className="bg-black/90 text-white border-white/10">
-                  <p>Personal shopping and procurement service</p>
+                  <p>{shop.markupFeeTooltip || 'Personal shopping and procurement service'}</p>
                 </TooltipContent>
               </Tooltip>
             </span>
             <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+          </div>
+
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-white/60 flex items-center gap-1">
+              {shop.shippingFee || 'Shipping Fee'}
+              <Tooltip>
+                <TooltipTrigger>
+                  <Info className="h-3 w-3 text-white/40" />
+                </TooltipTrigger>
+                <TooltipContent className="bg-black/90 text-white border-white/10">
+                  <p>{shop.shippingFeeTooltip || 'International shipping and customs handling'}</p>
+                </TooltipContent>
+              </Tooltip>
+            </span>
+            <span className="text-white/90">${shippingFee.toFixed(2)}</span>
           </div>
 
           <div className="border-t border-white/10 pt-3" />
@@ -82,12 +87,12 @@ export function PriceBreakdown({
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-white font-medium">Estimated Total</span>
+        <span className="text-white font-medium">{shop.estimatedTotal || 'Estimated Total'}</span>
         <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
       </div>
 
       <p className="text-xs text-white/40">
-        Final price may vary based on item weight and destination
+        {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
       </p>
     </div>
   );

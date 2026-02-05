@@ -166,7 +166,7 @@ export default function ShopCart() {
               {/* Order Summary */}
               <div className="lg:col-span-1">
                 <div className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6">
-                  <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+                  <h2 className="text-lg font-semibold text-white mb-4">{shop.orderSummary || 'Order Summary'}</h2>
                   
                   <PriceBreakdown 
                     itemPriceUsd={totalUsd} 
@@ -177,18 +177,18 @@ export default function ShopCart() {
                     {user ? (
                       <Link to="/checkout" className="block">
                         <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
-                          Proceed to Checkout
+                          {shop.proceedToCheckout || 'Proceed to Checkout'}
                         </Button>
                       </Link>
                     ) : (
                       <>
                         <Link to="/shop-auth?redirect=/checkout" className="block">
                           <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
-                            Sign In to Checkout
+                            {shop.signInToCheckout || 'Sign In to Checkout'}
                           </Button>
                         </Link>
                         <p className="text-xs text-white/40 text-center">
-                          You need to sign in to complete your order
+                          {shop.signInToCheckoutHint || 'You need to sign in to complete your order'}
                         </p>
                       </>
                     )}

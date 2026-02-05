@@ -607,7 +607,7 @@ export default function Checkout() {
                   transition={{ delay: 0.3 }}
                   className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6"
                 >
-                  <h2 className="text-lg font-semibold text-white mb-4">Order Summary</h2>
+                  <h2 className="text-lg font-semibold text-white mb-4">{shop.orderSummary || 'Order Summary'}</h2>
                   
                   {/* Items Preview */}
                   <div className="space-y-3 mb-4 pb-4 border-b border-white/10">
@@ -620,13 +620,13 @@ export default function Checkout() {
                         />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-white/80 line-clamp-1">{item.title}</p>
-                          <p className="text-xs text-white/50">Qty: {item.quantity}</p>
+                          <p className="text-xs text-white/50">{shop.qty || 'Qty'}: {item.quantity}</p>
                         </div>
                       </div>
                     ))}
                     {items.length > 3 && (
                       <p className="text-sm text-white/50">
-                        +{items.length - 3} more item{items.length - 3 !== 1 ? 's' : ''}
+                        +{items.length - 3} {items.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
                       </p>
                     )}
                   </div>

@@ -393,6 +393,9 @@ verify_jwt = false
 [functions.catalog-home]
 verify_jwt = false
 
+[functions.catalog-home-v2]
+verify_jwt = false
+
 [functions.catalog-search]
 verify_jwt = false
 

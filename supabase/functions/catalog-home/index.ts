@@ -95,11 +95,80 @@ interface SectionConfig {
 interface CatalogItem {
   id: string;
   provider: string;
+  provider_product_id: string;
   title: string;
-  price: number | null;
+  price_usd: number | null;
+  priceUsd: number | null; // Alias for frontend compatibility
   currency: string;
-  imageUrl: string | null;
-  productUrl: string | null;
+  image_url: string | null;
+  imageUrl: string | null; // Alias for frontend compatibility
+  product_url: string | null;
+  productUrl: string | null; // Alias for frontend compatibility
+  in_stock: boolean;
+}
+
+/**
+ * Extract price from eBay item - robust multi-field extraction
+ */
+function extractPriceFromItem(item: Record<string, unknown>, correlationId: string): number | null {
+  // Try price.value first (standard eBay Browse API format)
+  const priceObj = item.price as Record<string, unknown> | undefined;
+  if (priceObj?.value !== undefined && priceObj?.value !== null) {
+    const val = typeof priceObj.value === "string" ? parseFloat(priceObj.value) : priceObj.value;
+    if (typeof val === "number" && !isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+  
+  // Try currentPrice.value
+  const currentPrice = item.currentPrice as Record<string, unknown> | undefined;
+  if (currentPrice?.value !== undefined) {
+    const val = typeof currentPrice.value === "string" ? parseFloat(currentPrice.value) : currentPrice.value;
+    if (typeof val === "number" && !isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+  
+  // Try sellingStatus.currentPrice.value (older eBay API)
+  const sellingStatus = item.sellingStatus as Record<string, unknown> | undefined;
+  const sellingPrice = sellingStatus?.currentPrice as Record<string, unknown> | undefined;
+  if (sellingPrice?.value !== undefined) {
+    const val = typeof sellingPrice.value === "string" ? parseFloat(sellingPrice.value) : sellingPrice.value;
+    if (typeof val === "number" && !isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+  
+  // Try pricingSummary.price.value
+  const pricingSummary = item.pricingSummary as Record<string, unknown> | undefined;
+  const summaryPrice = pricingSummary?.price as Record<string, unknown> | undefined;
+  if (summaryPrice?.value !== undefined) {
+    const val = typeof summaryPrice.value === "string" ? parseFloat(summaryPrice.value) : summaryPrice.value;
+    if (typeof val === "number" && !isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+
+  // Try convertedCurrentPrice.value
+  const convertedPrice = item.convertedCurrentPrice as Record<string, unknown> | undefined;
+  if (convertedPrice?.value !== undefined) {
+    const val = typeof convertedPrice.value === "string" ? parseFloat(convertedPrice.value) : convertedPrice.value;
+    if (typeof val === "number" && !isNaN(val) && val > 0) {
+      return val;
+    }
+  }
+  
+  // Log missing price for debugging
+  const itemId = item.itemId || "unknown";
+  const title = typeof item.title === "string" ? item.title.substring(0, 40) : "unknown";
+  const sampleFields = {
+    price: priceObj ? `{value:${priceObj.value}}` : null,
+    currentPrice: currentPrice ? `{value:${currentPrice.value}}` : null,
+    sellingStatus: sellingStatus ? "exists" : null,
+  };
+  console.log(`[PRICE_MAP] missing correlationId=${correlationId} provider=ebay itemId=${itemId} title="${title}" sampleFields=${JSON.stringify(sampleFields)}`);
+  
+  return null;
 }
 
 async function fetchSectionItems(
@@ -140,18 +209,38 @@ async function fetchSectionItems(
     }
 
     const data = await response.json();
-    const items: CatalogItem[] = (data.itemSummaries || []).slice(0, limit).map((item: any) => ({
-      id: `ebay_${item.itemId}`,
-      provider: "ebay",
-      title: item.title || "Unknown",
-      price: item.price?.value ? parseFloat(item.price.value) : null,
-      currency: item.price?.currency || "USD",
-      imageUrl: item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || null,
-      productUrl: item.itemWebUrl || null,
-    }));
+    const rawItems = data.itemSummaries || [];
+    
+    const items: CatalogItem[] = rawItems.slice(0, limit).map((item: Record<string, unknown>) => {
+      const priceUsd = extractPriceFromItem(item, correlationId);
+      const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || 
+                       ((item.thumbnailImages as Array<Record<string, unknown>>)?.[0]?.imageUrl as string) || 
+                       null;
+      const productUrl = (item.itemWebUrl as string) || null;
+      const priceObj = item.price as Record<string, unknown> | undefined;
+      
+      return {
+        id: `ebay_${item.itemId}`,
+        provider: "ebay",
+        provider_product_id: item.itemId as string,
+        title: (item.title as string) || "Unknown",
+        price_usd: priceUsd,
+        priceUsd: priceUsd, // Alias
+        currency: (priceObj?.currency as string) || "USD",
+        image_url: imageUrl,
+        imageUrl: imageUrl, // Alias
+        product_url: productUrl,
+        productUrl: productUrl, // Alias
+        in_stock: true,
+      };
+    });
+    
+    // Log price extraction stats
+    const withPrice = items.filter(i => i.price_usd !== null).length;
+    const withoutPrice = items.filter(i => i.price_usd === null).length;
 
     const ms = Date.now() - startMs;
-    console.log(`[CATALOG_HOME][SECTION] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" count=${items.length} ms=${ms}`);
+    console.log(`[CATALOG_HOME][SECTION] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" count=${items.length} withPrice=${withPrice} withoutPrice=${withoutPrice} ms=${ms}`);
     return { items, ms };
   } catch (err) {
     const ms = Date.now() - startMs;

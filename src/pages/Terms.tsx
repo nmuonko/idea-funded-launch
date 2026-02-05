@@ -1,6 +1,7 @@
 import { FileText, AlertTriangle, Scale, Ban, RefreshCw, Building2, CreditCard, Mail, MapPin, Gavel } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const Terms = () => {
   const userResponsibilities = [
@@ -366,7 +367,7 @@ const Terms = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

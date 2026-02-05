@@ -2,7 +2,8 @@ import { ArrowRight, Download, Package, Globe, Truck, Shield, HeadphonesIcon, Sm
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 30 },
@@ -316,7 +317,7 @@ const HowItWorks = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

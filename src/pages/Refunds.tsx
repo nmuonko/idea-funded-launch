@@ -1,6 +1,7 @@
 import { RotateCcw, CheckCircle, AlertCircle, MessageCircle, Mail, Clock, Building2, FileText } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const Refunds = () => {
   const eligibleReasons = [
@@ -281,7 +282,7 @@ const Refunds = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

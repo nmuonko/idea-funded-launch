@@ -1,6 +1,7 @@
 import { Mail, MessageCircle, MapPin, Phone, Building2, Clock } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 
 const Contact = () => {
   const contactMethods = [
@@ -202,7 +203,7 @@ const Contact = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

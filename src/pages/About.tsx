@@ -1,6 +1,7 @@
 import { Building2, Globe, Truck, Shield, Mail, MapPin, FileText } from "lucide-react";
 import { motion } from "framer-motion";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 import afrishopLogo from "@/assets/afrishop-logo.png";
 
 const About = () => {
@@ -184,7 +185,7 @@ const About = () => {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 };

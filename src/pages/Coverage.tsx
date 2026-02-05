@@ -3,7 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup, GeoJSON } from "react-leaflet";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { Globe, CheckCircle, Clock, ArrowRight, MapPin } from "lucide-react";
-import { PublicHeader, PublicFooter } from "@/components/public/PublicLayout";
+ import { PublicHeader } from "@/components/public/PublicLayout";
+ import { ShopFooter } from "@/components/shop/ShopFooter";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import L from "leaflet";
@@ -355,7 +356,7 @@ export default function Coverage() {
         </div>
       </section>
 
-      <PublicFooter />
+       <ShopFooter />
     </div>
   );
 }

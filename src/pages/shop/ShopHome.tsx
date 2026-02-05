@@ -68,7 +68,7 @@ export default function ShopHome() {
           const mappedSections: HomeSection[] = data.sections.map((section: any) => ({
             key: section.key,
             title: getSectionTitle(section.key, shop),
-            seeAllQuery: section.see_all_query || section.key,
+            seeAllQuery: section.see_all?.q || section.see_all_query || section.key,
             products: (section.items || []).slice(0, 12).map((item: any) => ({
               id: item.provider_product_id || item.id,
               provider: item.provider || 'amazon',

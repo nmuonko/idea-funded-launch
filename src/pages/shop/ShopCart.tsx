@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -9,10 +10,20 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function ShopCart() {
-  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart } = useShopCart();
+  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout } = useShopCart();
   const { user } = useAuth();
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+
+  // Try to restore cart from pending checkout if empty on mount
+  useEffect(() => {
+    if (items.length === 0) {
+      const restored = restoreFromPendingCheckout();
+      if (restored) {
+        console.log('[CART] Restored from pending checkout on cart page');
+      }
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-black">

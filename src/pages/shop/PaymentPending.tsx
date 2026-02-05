@@ -1,14 +1,17 @@
- import { useState, useEffect } from 'react';
+ import { useState, useEffect, useRef } from 'react';
  import { Link, useSearchParams, useNavigate } from 'react-router-dom';
  import { Smartphone, Loader2, CheckCircle2, XCircle, ArrowLeft, RefreshCw } from 'lucide-react';
  import { motion } from 'framer-motion';
  import { ShopHeader } from '@/components/shop/ShopHeader';
  import { Button } from '@/components/ui/button';
  import { supabase } from '@/integrations/supabase/client';
+ import { useShopCart } from '@/contexts/ShopCartContext';
  
  export default function PaymentPending() {
    const [searchParams] = useSearchParams();
    const navigate = useNavigate();
+   const { clearCartOnPaymentSuccess, clearPendingCheckout } = useShopCart();
+   const cartClearedRef = useRef(false);
    const orderId = searchParams.get('order_id');
    const provider = searchParams.get('provider') || 'pawapay';
    
@@ -30,9 +33,17 @@
          
          if (order?.status === 'PAID') {
            setStatus('paid');
+           // Clear cart on confirmed payment success
+           if (!cartClearedRef.current) {
+             cartClearedRef.current = true;
+             await clearCartOnPaymentSuccess();
+             console.log('[PAYMENT] success orderId=', orderId, '-> cart cleared');
+           }
         } else if (order?.status === 'DRAFT') {
           // Order was reset/cancelled - treat as failed
            setStatus('failed');
+           // Keep cart (don't clear), just clear pending snapshot
+           clearPendingCheckout();
          }
          setCheckCount(prev => prev + 1);
        } catch (error) {
@@ -51,7 +62,7 @@
      }, 5000);
      
      return () => clearInterval(interval);
-   }, [orderId, status, checkCount]);
+   }, [orderId, status, checkCount, clearCartOnPaymentSuccess, clearPendingCheckout]);
    
    const handleRetry = async () => {
      if (!orderId) return;

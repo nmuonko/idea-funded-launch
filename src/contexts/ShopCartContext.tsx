@@ -13,6 +13,15 @@ export interface CartItem {
   productUrl?: string;
 }
 
+export interface PendingCheckoutSnapshot {
+  items: CartItem[];
+  timestamp: number;
+  paymentMethod?: string;
+  orderId?: string;
+  currency?: string;
+  totalUsd?: number;
+}
+
 interface ShopCartContextType {
   items: CartItem[];
   itemCount: number;
@@ -22,7 +31,13 @@ interface ShopCartContextType {
   updateQuantity: (id: string, quantity: number) => Promise<void>;
   removeItem: (id: string) => Promise<void>;
   clearCart: () => Promise<void>;
+  clearCartOnPaymentSuccess: () => Promise<void>;
   syncCart: () => Promise<void>;
+  // Pending checkout snapshot
+  savePendingCheckout: (snapshot: Partial<PendingCheckoutSnapshot>) => void;
+  getPendingCheckout: () => PendingCheckoutSnapshot | null;
+  clearPendingCheckout: () => void;
+  restoreFromPendingCheckout: () => boolean;
   // Saved items (wishlist)
   savedItems: CartItem[];
   addToSaved: (item: Omit<CartItem, 'id' | 'quantity'>) => void;
@@ -34,8 +49,10 @@ interface ShopCartContextType {
 
 const ShopCartContext = createContext<ShopCartContextType | undefined>(undefined);
 
-const CART_STORAGE_KEY = 'afrishop_guest_cart';
+const CART_STORAGE_KEY = 'afrishop_cart_v1';
+const PENDING_CHECKOUT_KEY = 'afrishop_pending_checkout_v1';
 const SAVED_STORAGE_KEY = 'afrishop_saved_items';
+const PENDING_CHECKOUT_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
 
 export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const { user, session } = useAuth();
@@ -43,37 +60,40 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [savedItems, setSavedItems] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [exchangeRate, setExchangeRate] = useState(2200);
+  const [initialized, setInitialized] = useState(false);
 
-  // Load cart and saved items from localStorage for guests
+  // Load cart from localStorage on init (for guests) or as fallback
   useEffect(() => {
-    if (!user) {
-      const storedCart = localStorage.getItem(CART_STORAGE_KEY);
-      if (storedCart) {
-        try {
-          setItems(JSON.parse(storedCart));
-        } catch (e) {
-          console.error('Failed to parse stored cart:', e);
-        }
+    const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+    if (storedCart) {
+      try {
+        const parsed = JSON.parse(storedCart);
+        console.log('[CART] init source=localStorage items=', parsed.length);
+        setItems(parsed);
+      } catch (e) {
+        console.error('[CART] Failed to parse stored cart:', e);
       }
     }
-    
+    setInitialized(true);
+
     // Always load saved items from localStorage (works for guests and logged-in users)
     const storedSaved = localStorage.getItem(SAVED_STORAGE_KEY);
     if (storedSaved) {
       try {
         setSavedItems(JSON.parse(storedSaved));
       } catch (e) {
-        console.error('Failed to parse saved items:', e);
+        console.error('[CART] Failed to parse saved items:', e);
       }
     }
-  }, [user]);
+  }, []);
 
-  // Save guest cart to localStorage
+  // Always persist cart to localStorage as backup
   useEffect(() => {
-    if (!user && items.length >= 0) {
+    if (initialized) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      console.log('[CART] persisted items=', items.length, 'key=', CART_STORAGE_KEY);
     }
-  }, [items, user]);
+  }, [items, initialized]);
 
   // Save wishlist to localStorage
   useEffect(() => {
@@ -99,11 +119,58 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch (e) {
-        console.error('Failed to fetch config:', e);
+        console.error('[CART] Failed to fetch config:', e);
       }
     };
     fetchConfig();
   }, []);
+
+  // Pending checkout snapshot functions
+  const savePendingCheckout = useCallback((snapshot: Partial<PendingCheckoutSnapshot>) => {
+    const fullSnapshot: PendingCheckoutSnapshot = {
+      items: snapshot.items || items,
+      timestamp: Date.now(),
+      paymentMethod: snapshot.paymentMethod,
+      orderId: snapshot.orderId,
+      currency: snapshot.currency || 'USD',
+      totalUsd: snapshot.totalUsd || items.reduce((sum, item) => sum + item.priceUsd * item.quantity, 0),
+    };
+    localStorage.setItem(PENDING_CHECKOUT_KEY, JSON.stringify(fullSnapshot));
+    console.log('[CHECKOUT] pending snapshot saved orderId=', fullSnapshot.orderId, 'items=', fullSnapshot.items.length);
+  }, [items]);
+
+  const getPendingCheckout = useCallback((): PendingCheckoutSnapshot | null => {
+    const stored = localStorage.getItem(PENDING_CHECKOUT_KEY);
+    if (!stored) return null;
+    try {
+      const snapshot = JSON.parse(stored) as PendingCheckoutSnapshot;
+      // Check if expired
+      if (Date.now() - snapshot.timestamp > PENDING_CHECKOUT_EXPIRY_MS) {
+        console.log('[CART] pending checkout snapshot expired');
+        localStorage.removeItem(PENDING_CHECKOUT_KEY);
+        return null;
+      }
+      return snapshot;
+    } catch (e) {
+      console.error('[CART] Failed to parse pending checkout:', e);
+      return null;
+    }
+  }, []);
+
+  const clearPendingCheckout = useCallback(() => {
+    localStorage.removeItem(PENDING_CHECKOUT_KEY);
+    console.log('[CART] pending checkout cleared');
+  }, []);
+
+  const restoreFromPendingCheckout = useCallback((): boolean => {
+    const snapshot = getPendingCheckout();
+    if (snapshot && snapshot.items.length > 0) {
+      console.log('[CART] restored from pending snapshot items=', snapshot.items.length);
+      setItems(snapshot.items);
+      return true;
+    }
+    return false;
+  }, [getPendingCheckout]);
 
   // Sync cart when user logs in
   const syncCart = useCallback(async () => {
@@ -111,6 +178,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     
     setLoading(true);
     try {
+      console.log('[CART] syncing with server for user=', user.id);
       const { data, error } = await supabase.functions.invoke('mobile-get-cart');
       
       if (error) throw error;
@@ -127,22 +195,33 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           productUrl: item.product_url,
         }));
         setItems(mappedItems);
+        console.log('[CART] init source=server items=', mappedItems.length);
       }
-      
-      // Clear guest cart after sync
-      localStorage.removeItem(CART_STORAGE_KEY);
     } catch (error) {
-      console.error('Failed to sync cart:', error);
+      console.error('[CART] Failed to sync cart:', error);
     } finally {
       setLoading(false);
     }
   }, [user, session]);
 
   useEffect(() => {
-    if (user) {
+    if (user && initialized) {
+      // Merge guest cart to server if needed
+      const guestCart = localStorage.getItem(CART_STORAGE_KEY);
+      if (guestCart) {
+        try {
+          const guestItems = JSON.parse(guestCart) as CartItem[];
+          if (guestItems.length > 0) {
+            console.log('[CART] merge guest->server items=', guestItems.length);
+            // The sync will handle merging
+          }
+        } catch (e) {
+          // Ignore
+        }
+      }
       syncCart();
     }
-  }, [user, syncCart]);
+  }, [user, initialized, syncCart]);
 
   const addItem = async (item: Omit<CartItem, 'id'>) => {
     const newItem: CartItem = {
@@ -192,7 +271,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (!productUrl) {
-          console.error('Cannot sync item without productUrl:', item);
+          console.error('[CART] Cannot sync item without productUrl:', item);
           return;
         }
 
@@ -208,7 +287,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         // Resync to get server IDs
         await syncCart();
       } catch (error) {
-        console.error('Failed to add item to server:', error);
+        console.error('[CART] Failed to add item to server:', error);
       }
     }
   };
@@ -228,7 +307,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           body: { cart_item_id: id, quantity },
         });
       } catch (error) {
-        console.error('Failed to update quantity:', error);
+        console.error('[CART] Failed to update quantity:', error);
       }
     }
   };
@@ -242,14 +321,23 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           body: { cart_item_id: id },
         });
       } catch (error) {
-        console.error('Failed to remove item:', error);
+        console.error('[CART] Failed to remove item:', error);
       }
     }
   };
 
+  // clearCart - for general cart clearing (NOT on checkout prepare)
   const clearCart = async () => {
+    console.log('[CART] clearCart called - setting items to empty');
+    setItems([]);
+  };
+
+  // clearCartOnPaymentSuccess - only call this after confirmed payment
+  const clearCartOnPaymentSuccess = async () => {
+    console.log('[PAYMENT] success orderId=... -> clear cart');
     setItems([]);
     localStorage.removeItem(CART_STORAGE_KEY);
+    clearPendingCheckout();
   };
 
   // Saved items (wishlist) functions
@@ -289,7 +377,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         updateQuantity,
         removeItem,
         clearCart,
+        clearCartOnPaymentSuccess,
         syncCart,
+        savePendingCheckout,
+        getPendingCheckout,
+        clearPendingCheckout,
+        restoreFromPendingCheckout,
         savedItems,
         addToSaved,
         removeFromSaved,

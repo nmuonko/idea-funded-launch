@@ -50,7 +50,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment",
   "Access-Control-Max-Age": "86400",
-  "Cache-Control": "public, max-age=60",
 };
 
 const HOME_MIN_PER_SECTION = 6;
@@ -73,6 +72,25 @@ function decodeHomeCursor(encoded: string): HomeCursor | null {
   } catch {
     return null;
   }
+}
+
+
+// Helper to get cache TTL settings
+async function getCacheTtlSeconds(supabase: any): Promise<number> {
+  try {
+    const { data } = await supabase
+      .from("catalog_cache_settings")
+      .select("home_expires_minutes")
+      .eq("key", "default")
+      .single();
+    
+    if (data?.home_expires_minutes) {
+      return data.home_expires_minutes * 60; // Convert to seconds
+    }
+  } catch (e) {
+    console.warn("[HOME] Failed to fetch cache TTL settings:", e);
+  }
+  return 3600; // Default 1 hour
 }
 
 interface CatalogItem {
@@ -784,6 +802,10 @@ Deno.serve(async (req: Request) => {
     console.log(`[HOME] requestId=${requestId} sections=${sections.length} fromCache=${sectionsFromCache} fromFallback=${sectionsFromFallback} duration=${durationMs}ms`);
     console.log(`[HOME_MEDIA] requestId=${requestId} checked=${totalMediaStats.checked} cacheHit=${totalMediaStats.cacheHit} fetched=${totalMediaStats.fetched}`);
 
+    // Get cache TTL settings for response headers
+    const cacheTtlSeconds = await getCacheTtlSeconds(supabase);
+    console.log(`[CACHE] servedFrom=edgeFunction key=catalog-home ttlSeconds=${cacheTtlSeconds}`);
+
     return new Response(
       JSON.stringify({
         status: "success",
@@ -803,9 +825,17 @@ Deno.serve(async (req: Request) => {
           amazonFirstCount: catalogSettings.mixedAmazonFirstCount,
           blendRatio: catalogSettings.mixedBlendRatio,
         },
+        ttlSeconds: cacheTtlSeconds,
         error: null,
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { 
+        status: 200, 
+        headers: { 
+          ...corsHeaders, 
+          "Content-Type": "application/json",
+          "Cache-Control": `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`,
+        } 
+      }
     );
 
   } catch (err) {

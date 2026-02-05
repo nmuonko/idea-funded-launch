@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
+import { cachedCatalogFetch } from '@/lib/catalogCache';
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevance' },
@@ -38,37 +39,31 @@ export default function SearchResults() {
       if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
 
-      // Build query parameters for GET request
+      // Build normalized query parameters for consistent cache keys
       const searchQuery = query || category || 'popular';
-      const params = new URLSearchParams({
-        q: searchQuery,
-        limit: '24',
-      });
-      
-      // Add optional parameters
+      const params: Record<string, any> = {
+        q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
+        limit: 24,
+      };
+
+      // Add sort only if not default
       if (sort && sort !== 'relevance') {
-        params.set('sort', sort);
+        params.sort = sort;
       }
-      
-      // Build filters object if price range is set
+
+      // Add price filters if set
       const filters: Record<string, number> = {};
       if (priceRange[0] > 0) filters.minPrice = priceRange[0];
       if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
       if (Object.keys(filters).length > 0) {
-        params.set('filters', JSON.stringify(filters));
+        params.filters = JSON.stringify(filters);
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search?${params}`,
-        {
-          headers: {
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-        }
-      );
-      
-      if (!response.ok) throw new Error('Search failed');
-      const data = await response.json();
+      // Use cached fetch for search (shared across users)
+      // Skip cache for pagination beyond first page
+      const data = await cachedCatalogFetch<any>('catalog-search', params, { 
+        skipCache: pageNum > 1 
+      });
 
       const mappedProducts: Product[] = (data?.items || []).map((item: any) => ({
         id: item.provider_product_id || item.id,

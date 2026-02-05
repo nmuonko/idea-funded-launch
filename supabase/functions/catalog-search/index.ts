@@ -71,7 +71,6 @@ import {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
-  "Cache-Control": "public, max-age=60",
 };
 
 const VEHICLE_QUERY_KEYWORDS = [
@@ -852,6 +851,7 @@ interface SearchResponse {
   searchMeta?: SearchMeta;  // Query rewrite metadata
   mediaStats?: MediaEnrichmentStats;  // Media cache enrichment stats (dev only)
   durationMs: number;
+  ttlSeconds?: number;  // Cache TTL for client-side caching
   warning?: { message: string; code: string };
   error: { code: string; message: string } | null;
 }
@@ -2084,6 +2084,24 @@ Deno.serve(async (req: Request) => {
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";
 
+    // Get cache TTL from settings for response
+    let cacheTtlSeconds = 3600; // Default 1 hour
+    try {
+      const { data: cacheSettings } = await supabase
+        .from("catalog_cache_settings")
+        .select("search_expires_minutes")
+        .eq("key", "default")
+        .single();
+      
+      if (cacheSettings?.search_expires_minutes) {
+        cacheTtlSeconds = cacheSettings.search_expires_minutes * 60;
+      }
+    } catch (e) {
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} Failed to fetch cache TTL settings`);
+    }
+    
+    console.log(`[CACHE] servedFrom=edgeFunction key=catalog-search ttlSeconds=${cacheTtlSeconds}`);
+
     const response: SearchResponse = {
       status: "success",
       env: envName,
@@ -2097,6 +2115,7 @@ Deno.serve(async (req: Request) => {
       searchMeta, // Include query rewrite metadata
       mediaStats: DEV ? mediaStats : undefined, // Include media stats in dev only
       durationMs,
+      ttlSeconds: cacheTtlSeconds, // Include TTL for client-side caching
       error: null,
     };
 
@@ -2146,7 +2165,12 @@ Deno.serve(async (req: Request) => {
 
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { 
+        ...corsHeaders, 
+        "Content-Type": "application/json",
+        // Use Cache-Control with max-age for browser and s-maxage for CDN
+        "Cache-Control": `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`,
+      },
     });
 
   } catch (err) {

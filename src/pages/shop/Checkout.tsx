@@ -235,9 +235,27 @@ export default function Checkout() {
           provider,
         };
         
-        // Add phone for PawaPay
+        // Add phone and auto-detect operator for PawaPay
         if (provider === 'pawapay' && address.phone) {
           selectPayload.phone = address.phone;
+          // Auto-detect operator from phone prefix for DRC numbers
+          const cleanPhone = address.phone.replace(/[\s\-+]/g, '');
+          let prefix = '';
+          if (cleanPhone.startsWith('243')) {
+            prefix = cleanPhone.slice(3, 5);
+          } else if (cleanPhone.startsWith('0')) {
+            prefix = cleanPhone.slice(1, 3);
+          } else {
+            prefix = cleanPhone.slice(0, 2);
+          }
+          // Map prefix to operator
+          const operatorMap: Record<string, string> = {
+            '81': 'VODACOM_MPESA_COD', '82': 'VODACOM_MPESA_COD', '83': 'VODACOM_MPESA_COD',
+            '97': 'AIRTEL_COD', '99': 'AIRTEL_COD',
+            '84': 'ORANGE_COD', '85': 'ORANGE_COD', '89': 'ORANGE_COD',
+          };
+          selectPayload.operator = operatorMap[prefix] || 'VODACOM_MPESA_COD';
+          console.log('[WEB_CHECKOUT] Detected operator:', selectPayload.operator, 'from prefix:', prefix);
         }
         
         console.log('[WEB_CHECKOUT] Select provider payload:', selectPayload);

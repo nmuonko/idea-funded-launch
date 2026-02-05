@@ -410,6 +410,7 @@ serve(async (req) => {
           country,
           reference,
           description: `AfriShop Order #${orderId.slice(0, 8)}`,
+          operator, // Pass operator override from frontend
         });
 
         if (depositResult.success) {

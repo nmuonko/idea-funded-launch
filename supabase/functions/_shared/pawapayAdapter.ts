@@ -313,10 +313,11 @@ export interface ProviderErrorDetails {
  */
 export async function createDeposit(
   config: PawaPayConfig,
-  params: CreatePaymentParams
+  params: CreatePaymentParams & { operator?: string }
 ): Promise<CreatePaymentResult & { errorDetails?: ProviderErrorDetails }> {
   const depositId = generateDepositId();
-  const correspondent = detectCorrespondent(params.customerPhone || '');
+  // Use provided operator if available, otherwise auto-detect from phone
+  const correspondent = params.operator || detectCorrespondent(params.customerPhone || '');
   const phoneE164 = formatPhoneE164(params.customerPhone || '');
   
   const request: PawaPayDepositRequest = {

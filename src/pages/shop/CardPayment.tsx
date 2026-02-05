@@ -2,83 +2,96 @@
  import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { loadStripe, Stripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
- import { ArrowLeft, Loader2, CreditCard, CheckCircle2, XCircle, Lock } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, CheckCircle2, XCircle, Lock, RefreshCw } from 'lucide-react';
  import { motion } from 'framer-motion';
  import { ShopHeader } from '@/components/shop/ShopHeader';
  import { Button } from '@/components/ui/button';
  import { supabase } from '@/integrations/supabase/client';
  import { useToast } from '@/hooks/use-toast';
  
-// Stripe promise will be loaded dynamically from backend config
-let stripePromise: Promise<Stripe | null> | null = null;
-let stripeLoadAttempted = false;
+// Stripe instance cache with proper retry handling
+let cachedStripeInstance: Stripe | null = null;
+let lastLoadAttempt = 0;
+const RETRY_DELAY_MS = 3000; // Minimum 3s between retries
 
-async function getStripePromise(): Promise<Stripe | null> {
-  // Return cached instance if already loaded successfully
-  if (stripePromise && stripeLoadAttempted) {
-    try {
-      const cached = await stripePromise;
-      if (cached) {
-        console.log('[CardPayment] Using cached Stripe instance');
-        return cached;
-      }
-    } catch {
-      // Cached promise failed, allow retry
-      console.log('[CardPayment] Cached promise failed, retrying...');
-      stripePromise = null;
-    }
+async function getStripePromise(forceReload = false): Promise<Stripe | null> {
+  // Return cached instance if valid and not forcing reload
+  if (cachedStripeInstance && !forceReload) {
+    console.log('[CardPayment] Using cached Stripe instance');
+    return cachedStripeInstance;
   }
 
-  stripeLoadAttempted = true;
+  // Prevent rapid retry attempts
+  const now = Date.now();
+  if (now - lastLoadAttempt < RETRY_DELAY_MS && !forceReload) {
+    console.log('[CardPayment] Too soon to retry, waiting...');
+    return null;
+  }
+  lastLoadAttempt = now;
 
   try {
     console.log('[CardPayment] Fetching bootstrap config...');
     
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
-      {
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    // Use AbortController for proper timeout handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
+        {
+          headers: {
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal,
         },
+      );
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error('[CardPayment] Bootstrap config failed:', response.status, response.statusText);
+        throw new Error(`Config fetch failed: ${response.status}`);
       }
-    );
-    
-    if (!response.ok) {
-      console.error('[CardPayment] Failed to fetch bootstrap config:', response.status);
-      return null;
+      
+      const data = await response.json();
+      console.log('[CardPayment] Bootstrap config received:', { 
+        hasPayments: !!data?.payments,
+        providersCount: data?.payments?.providers?.length 
+      });
+      
+      const stripeProvider = data?.payments?.providers?.find((p: any) => p.id === 'stripe');
+      const publishableKey = stripeProvider?.publishable_key;
+      
+      if (!publishableKey) {
+        console.error('[CardPayment] Stripe publishable key not found in config');
+        throw new Error('Stripe not configured');
+      }
+      
+      console.log('[CardPayment] Loading Stripe with key:', publishableKey.substring(0, 15) + '...');
+      
+      const stripeInstance = await loadStripe(publishableKey);
+      
+      if (!stripeInstance) {
+        console.error('[CardPayment] Stripe.js failed to initialize');
+        throw new Error('Stripe.js failed to load');
+      }
+      
+      console.log('[CardPayment] Stripe initialized successfully');
+      cachedStripeInstance = stripeInstance;
+      return stripeInstance;
+      
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Network timeout - please check your connection');
+      }
+      throw fetchError;
     }
-    
-    const data = await response.json();
-    console.log('[CardPayment] Bootstrap config received');
-    
-    const stripeProvider = data?.payments?.providers?.find((p: any) => p.id === 'stripe');
-    const publishableKey = stripeProvider?.publishable_key;
-    
-    if (!publishableKey) {
-      console.error('[CardPayment] Stripe publishable key not found in config');
-      return null;
-    }
-    
-    console.log('[CardPayment] Loading Stripe with key:', publishableKey.substring(0, 15) + '...');
-    
-    // Store the promise and await it to catch any rejections
-    stripePromise = loadStripe(publishableKey);
-    const stripeInstance = await stripePromise;
-    
-    if (!stripeInstance) {
-      console.error('[CardPayment] Stripe failed to initialize');
-      stripePromise = null;
-      return null;
-    }
-    
-    console.log('[CardPayment] Stripe initialized successfully');
-    return stripeInstance;
     
   } catch (error) {
     console.error('[CardPayment] Error loading Stripe:', error);
-    stripePromise = null;
-    stripeLoadAttempted = false;
-    return null;
+    throw error;
   }
 }
  
@@ -195,66 +208,61 @@ async function getStripePromise(): Promise<Stripe | null> {
    
    const [loading, setLoading] = useState(true);
    const [error, setError] = useState<string | null>(null);
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [stripe, setStripe] = useState<Stripe | null>(null);
    
+  const initializeStripe = async (forceReload = false) => {
+    console.log('[CardPayment] Initializing...', { orderId, hasClientSecret: !!clientSecret, forceReload });
+    
+    if (!orderId || !clientSecret) {
+      console.error('[CardPayment] Missing orderId or clientSecret');
+      setError('Invalid payment session');
+      setErrorDetails('Missing order or payment information. Please try again from your cart.');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      setErrorDetails(null);
+      
+      const stripeInstance = await getStripePromise(forceReload);
+      
+      if (!stripeInstance) {
+        throw new Error('Could not initialize payment system');
+      }
+      
+      setStripe(stripeInstance);
+      setLoading(false);
+      console.log('[CardPayment] Ready to accept payment');
+      
+    } catch (err: any) {
+      console.error('[CardPayment] Initialization error:', err);
+      setError('Payment initialization failed');
+      setErrorDetails(err.message || 'Please check your internet connection and try again.');
+      setLoading(false);
+    }
+  };
+  
+  const handleRetry = async () => {
+    setRetrying(true);
+    await initializeStripe(true);
+    setRetrying(false);
+  };
+  
    useEffect(() => {
-    let cancelled = false;
-    
-    const init = async () => {
-      console.log('[CardPayment] Initializing...', { orderId, hasClientSecret: !!clientSecret });
-      
-      if (!orderId || !clientSecret) {
-        console.error('[CardPayment] Missing orderId or clientSecret');
-        setError('Invalid payment session. Please try again.');
-        setLoading(false);
-        return;
-      }
-      
-      try {
-        // Add timeout protection (15 seconds)
-        const timeoutPromise = new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Initialization timeout')), 15000)
-        );
-        
-        const stripeInstance = await Promise.race([
-          getStripePromise(),
-          timeoutPromise
-        ]);
-        
-        if (cancelled) return;
-        
-        if (!stripeInstance) {
-          setError('Failed to initialize payment. Please try again later.');
-          setLoading(false);
-          return;
-        }
-        
-        setStripe(stripeInstance);
-        setLoading(false);
-        console.log('[CardPayment] Ready to accept payment');
-        
-      } catch (err: any) {
-        console.error('[CardPayment] Initialization error:', err);
-        if (!cancelled) {
-          setError(err.message === 'Initialization timeout' 
-            ? 'Payment initialization timed out. Please refresh and try again.'
-            : 'Failed to initialize payment. Please try again later.');
-          setLoading(false);
-        }
-      }
-    };
-    
-    init();
-    
-    return () => { cancelled = true; };
+    initializeStripe(false);
    }, [orderId, clientSecret]);
    
    if (loading) {
      return (
        <div className="min-h-screen bg-black">
          <ShopHeader />
-         <main className="pt-24 px-4 pb-20 flex items-center justify-center">
-           <Loader2 className="w-8 h-8 animate-spin text-white/40" />
+        <main className="pt-24 px-4 pb-20 flex flex-col items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-10 h-10 animate-spin text-blue-400 mb-4" />
+          <p className="text-white/60 text-sm">Initializing secure payment...</p>
          </main>
        </div>
      );
@@ -275,13 +283,36 @@ async function getStripePromise(): Promise<Stripe | null> {
                  <XCircle className="w-10 h-10 text-red-500" />
                </div>
                <h1 className="text-2xl font-bold text-white">Payment Error</h1>
-               <p className="text-white/60">{error || 'Unable to load payment form.'}</p>
-               <Button
-                 onClick={() => navigate('/shop/cart')}
-                 className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full"
-               >
-                 Back to Cart
-               </Button>
+              <div className="space-y-2">
+                <p className="text-white/60">{error || 'Unable to load payment form.'}</p>
+                {errorDetails && (
+                  <p className="text-white/40 text-sm">{errorDetails}</p>
+                )}
+              </div>
+              <div className="flex flex-col gap-3">
+                {/* Retry button - only show if we have valid session params */}
+                {orderId && clientSecret && (
+                  <Button
+                    onClick={handleRetry}
+                    disabled={retrying}
+                    variant="outline"
+                    className="w-full border-white/20 text-white hover:bg-white/10 rounded-full"
+                  >
+                    {retrying ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                    )}
+                    Try Again
+                  </Button>
+                )}
+                <Button
+                  onClick={() => navigate('/shop/cart')}
+                  className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full"
+                >
+                  Back to Cart
+                </Button>
+              </div>
              </motion.div>
            </div>
          </main>

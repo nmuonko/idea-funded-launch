@@ -7,6 +7,7 @@ import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
+import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
@@ -157,14 +158,26 @@ export default function ShopHome() {
           <p className="text-white/60 mb-5 text-sm">
             {shop.searchAnyProduct}
           </p>
-          <Link to="/shop/search">
-            <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
-              {shop.searchProducts}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          </Link>
+          <Button 
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              setTimeout(() => {
+                const searchInput = document.querySelector('header input[type="text"]') as HTMLInputElement;
+                if (searchInput) {
+                  searchInput.focus();
+                }
+              }, 500);
+            }}
+            className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6"
+          >
+            {shop.searchProducts}
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
         </div>
       </section>
+
+      {/* Footer */}
+      <ShopFooter />
 
       {/* Bottom Navigation - Mobile Only */}
       <BottomNavigation />

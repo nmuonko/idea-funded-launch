@@ -155,25 +155,25 @@
              href={`https://wa.me/${SUPPORT_WHATSAPP_E164.replace(/[^0-9]/g, '')}`}
              target="_blank"
              rel="noopener noreferrer"
-             className="flex items-center gap-2 text-white/60 hover:text-white text-sm transition-colors"
+             className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
            >
-             <WhatsAppIcon className="h-4 w-4" />
+             <WhatsAppIcon className="h-4 w-4 text-emerald-500 group-hover:text-emerald-400" />
              <span>WhatsApp</span>
            </a>
            <span className="text-white/20">•</span>
            <a
              href="mailto:nkadimisha@afrishop-usa.com"
-             className="flex items-center gap-2 text-white/60 hover:text-white text-sm transition-colors"
+             className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
            >
-             <Mail className="h-4 w-4" />
+             <Mail className="h-4 w-4 text-sky-500 group-hover:text-sky-400" />
              <span>Email</span>
            </a>
            <span className="text-white/20">•</span>
            <button
              onClick={openChat}
-             className="flex items-center gap-2 text-white/60 hover:text-white text-sm transition-colors"
+             className="flex items-center gap-2 text-white/70 hover:text-white text-sm transition-colors group"
            >
-             <MessageCircle className="h-4 w-4" />
+             <MessageCircle className="h-4 w-4 text-primary group-hover:text-primary/80" />
              <span>Chat</span>
            </button>
          </div>

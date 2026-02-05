@@ -159,16 +159,40 @@ export function clearExpiredCache(): void {
 }
 
 /**
+ * Get current rotation key (matches backend homeRotation.ts)
+ * Format: YYYY-MM-DD-bN where N is bucket (0 or 1 for 12h rotation)
+ */
+function getCurrentRotationKey(): string {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+  const hour = now.getUTCHours();
+  const bucketIndex = Math.floor(hour / 12); // 0 or 1 for 12h buckets
+  return `${year}-${month}-${day}-b${bucketIndex}`;
+}
+
+/**
  * Cached fetch for catalog endpoints
  * Uses public API key only (no auth) for shared caching
  * Returns cached data synchronously when available for instant UI
+ * 
+ * For catalog-home specifically, uses rotation key to ensure
+ * all platforms see the same content per rotation period.
  */
 export async function cachedCatalogFetch<T>(
   endpoint: string,
   params: Record<string, any> = {},
   options: { skipCache?: boolean } = {}
 ): Promise<T> {
-  const cacheKey = generateCacheKey(endpoint, params);
+  // For catalog-home, include rotation key in cache key for cross-platform consistency
+  const isHomeEndpoint = endpoint === 'catalog-home';
+  const rotationKey = isHomeEndpoint ? getCurrentRotationKey() : null;
+  
+  const cacheKeyParams = rotationKey 
+    ? { ...params, _rotation: rotationKey }
+    : params;
+  const cacheKey = generateCacheKey(endpoint, cacheKeyParams);
   
   // Check cache first (unless skipping) - this is synchronous and fast
   if (!options.skipCache) {
@@ -205,7 +229,18 @@ export async function cachedCatalogFetch<T>(
   const data = await response.json();
   
   // Determine TTL from response
-  const ttlSeconds = parseTtlFromResponse(response, data);
+  let ttlSeconds = parseTtlFromResponse(response, data);
+  
+  // For home endpoint, cap TTL to remaining time in current rotation bucket
+  // This ensures cache expires when rotation changes
+  if (isHomeEndpoint) {
+    const now = new Date();
+    const hoursInBucket = now.getUTCHours() % 12;
+    const minutesRemaining = (12 - hoursInBucket) * 60 - now.getUTCMinutes();
+    const secondsRemaining = minutesRemaining * 60;
+    ttlSeconds = Math.min(ttlSeconds, Math.max(secondsRemaining, 300)); // Min 5 minutes
+    console.log('[CACHE] catalog-home rotation TTL capped to', ttlSeconds, 's');
+  }
   
   // Store in cache for next time
   setCache(cacheKey, data, ttlSeconds);

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,18 +77,9 @@ serve(async (req) => {
       );
     }
 
-    // Extract project reference for debugging - CRITICAL for env mismatch detection
-    const projectHost = supabaseUrl.replace('https://', '').split('.')[0];
-    const anonKeyPrefix = supabaseAnonKey.substring(0, 20);
-    
-    // Log full project info for mobile debugging
-    console.log(`[AUTH_LOGIN] email=${email.substring(0, 3)}*** urlHost=${projectHost} anonKeyPrefix=${anonKeyPrefix.substring(0, 8)}...`);
-    
-    // Verify expected project - helps detect environment mismatch
-    const EXPECTED_PROJECT = 'igmkhxffnyzoogcqvdab';
-    if (projectHost !== EXPECTED_PROJECT) {
-      console.error(`[AUTH_LOGIN] ⚠️ PROJECT_MISMATCH expected=${EXPECTED_PROJECT} actual=${projectHost}`);
-    }
+    // Log Supabase project info for debugging (first 8 chars of URL hash)
+    const projectRef = supabaseUrl.replace('https://', '').split('.')[0];
+    console.log(`[auth-login][${traceId}] supabase_project=${projectRef.substring(0, 8)}...`);
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -100,8 +91,7 @@ serve(async (req) => {
     });
 
     if (error) {
-      // Enhanced error logging with urlHost for env mismatch detection
-      console.error(`[AUTH_LOGIN_ERROR] status=${error.status} name=${error.name || 'AuthError'} message=${error.message} urlHost=${projectHost}`);
+      console.error(`[auth-login][${traceId}] AUTH_FAIL: ${error.message} status=${error.status}`);
       
       // Map error messages to user-friendly versions
       let errorMessage = 'Invalid email or password.';
@@ -112,8 +102,6 @@ serve(async (req) => {
         errorMessage = 'Invalid email or password.';
         errorMessageFr = 'Email ou mot de passe incorrect.';
         errorCode = 'INVALID_CREDENTIALS';
-        // Log additional debug info for 400 Invalid credentials
-        console.error(`[AUTH_LOGIN_DEBUG] INVALID_CREDENTIALS urlHost=${projectHost} email_domain=${email.split('@')[1]}`);
       } else if (error.message.includes('Email not confirmed')) {
         errorMessage = 'Please verify your email address before logging in.';
         errorMessageFr = 'Veuillez vérifier votre adresse email avant de vous connecter.';
@@ -140,7 +128,6 @@ serve(async (req) => {
             supabase_error: error.message,
             supabase_status: error.status,
             email_received: email.substring(0, 3) + '***@' + email.split('@')[1],
-            project_host: projectHost,
           }
         }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { Resend } from "npm:resend@4.0.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Resend } from "https://esm.sh/resend@4.0.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -221,20 +221,10 @@ serve(async (req) => {
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    
-    // Extract project reference for debugging - CRITICAL for env mismatch detection
-    const projectHost = supabaseUrl.replace('https://', '').split('.')[0];
-    console.log(`[AUTH_REGISTER] email=${email.substring(0, 3)}*** projectHost=${projectHost}`);
-    
-    // Verify expected project
-    const EXPECTED_PROJECT = 'igmkhxffnyzoogcqvdab';
-    if (projectHost !== EXPECTED_PROJECT) {
-      console.error(`[AUTH_REGISTER] ⚠️ PROJECT_MISMATCH expected=${EXPECTED_PROJECT} actual=${projectHost}`);
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
 
     // Create auth user - email verification required
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
@@ -352,7 +342,7 @@ serve(async (req) => {
     }
 
     const userId = authData.user.id;
-    console.log(`[AUTH_REGISTER] created userId=${userId} email=${email.substring(0,3)}*** projectHost=${projectHost}`);
+    console.log('[auth-register] User created:', userId);
 
     // Profile data to store - all required fields from signup (postalCode is optional for Africa)
     const profileData = {

@@ -324,7 +324,9 @@ async function processSection(
         }
 
         try {
-          const result = await searchRainforest(query, 1, 50, "amazon.com");
+          // For vehicle sections, use Amazon Autos category ID (10677469011) to get actual cars
+          const amazonCategoryId = section.isVehicle ? "10677469011" : undefined;
+          const result = await searchRainforest(query, 1, 50, "amazon.com", "relevance", undefined, amazonCategoryId);
 
           if (!result.error && result.products.length > 0) {
             await incrementBudget(supabase, "amazon", catalogSettings.amazonBudgetWindow, requestId);

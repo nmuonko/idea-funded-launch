@@ -403,6 +403,9 @@ function mapAmazonToResponse(p: Record<string, unknown>): CatalogItem {
   };
 }
 
+// Amazon Autos category ID for vehicle searches
+const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
+
 /**
  * Fetch Amazon items for fallback (Amazon-first strategy)
  */
@@ -423,10 +426,15 @@ async function fetchAmazonFallback(
 
   // Use first seed query for Amazon
   const query = config.seedQueries[0] || config.key;
-  console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Fetching Amazon q="${query}"`);
+  
+  // For vehicle sections, use Amazon Autos category ID to get actual cars (not parts)
+  const amazonCategoryId = config.isVehicle ? AMAZON_AUTOS_CATEGORY_ID : undefined;
+  
+  console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Fetching Amazon q="${query}"${amazonCategoryId ? ` categoryId=${amazonCategoryId}` : ""}`);
 
   try {
-    const result = await searchRainforest(query, 1, 30, "amazon.com");
+    // Pass amazonCategoryId for vehicle sections to target Amazon Autos department
+    const result = await searchRainforest(query, 1, 30, "amazon.com", "relevance", undefined, amazonCategoryId);
     
     if (!result.error && result.products.length > 0) {
       await incrementBudget(supabase, "amazon", "hour", requestId);

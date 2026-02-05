@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Globe, ChevronDown, Facebook, Instagram, Twitter } from 'lucide-react';
+import { Globe, ChevronDown, Facebook, Instagram, Twitter, MapPin, Phone, Mail, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, translations } from '@/lib/i18n/translations';
@@ -23,7 +23,7 @@ export function ShopFooter() {
     <footer className="bg-black border-t border-white/10 pb-24 md:pb-0">
       <div className="container mx-auto px-4 py-12">
         {/* Main Footer Content */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1 space-y-4">
             <img src={afrishopLogo} alt="AfriShop" className="h-8" />
@@ -57,6 +57,37 @@ export function ShopFooter() {
                 <Twitter className="h-5 w-5" />
               </a>
             </div>
+          </div>
+
+          {/* Company Details */}
+          <div className="col-span-2 md:col-span-1">
+            <h3 className="text-white font-semibold mb-4">{shop.companyFooterTitle || 'Contact'}</h3>
+            <ul className="space-y-3">
+              <li className="flex items-start gap-2 text-white/60 text-sm">
+                <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  123 Avenue de la Paix<br />
+                  Gombe, Kinshasa<br />
+                  DR Congo
+                </span>
+              </li>
+              <li className="flex items-center gap-2 text-white/60 text-sm">
+                <Phone className="h-4 w-4 flex-shrink-0" />
+                <a href="tel:+243973141627" className="hover:text-white transition-colors">
+                  +243 973 141 627
+                </a>
+              </li>
+              <li className="flex items-center gap-2 text-white/60 text-sm">
+                <Mail className="h-4 w-4 flex-shrink-0" />
+                <a href="mailto:support@afrishop.cd" className="hover:text-white transition-colors">
+                  support@afrishop.cd
+                </a>
+              </li>
+              <li className="flex items-center gap-2 text-white/60 text-sm">
+                <Clock className="h-4 w-4 flex-shrink-0" />
+                <span>{shop.businessHours || 'Mon-Sat: 8AM - 6PM'}</span>
+              </li>
+            </ul>
           </div>
 
           {/* Shop Links */}

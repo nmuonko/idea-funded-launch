@@ -306,8 +306,8 @@ async function processSection(
 
   try {
     // ─── FETCH AMAZON ITEMS ─────────────────────────────────────────────────────
-    // Skip Amazon for vehicle sections - Amazon only sells accessories, not real cars/trucks
-    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled && !section.isVehicle) {
+    // Amazon Auto has real vehicles (not just accessories) - fetch from both providers
+    if (catalogSettings.amazonEnabled && liveSettings.amazonHomePrewarmEnabled) {
       for (const query of section.amazonQueries) {
         const budgetCheck = await checkBudget(
           supabase,
@@ -333,6 +333,12 @@ async function processSection(
               
               const blocked = isDisallowedItem({ title: p.title || "", productUrl: p.productUrl || "" });
               if (blocked.isDisallowed) continue;
+
+              // For vehicle sections, apply motors filter to Amazon items too
+              if (section.isVehicle) {
+                const filterResult = isAllowedMotorListing({ title: p.title || "", priceUsd: p.priceUsd || 0 });
+                if (!filterResult.isAllowed) continue;
+              }
 
               amazonItems.push(mapAmazonToProviderItem(p, section.categoryKey, section.parentTab));
             }

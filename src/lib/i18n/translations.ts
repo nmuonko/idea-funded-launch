@@ -276,6 +276,9 @@ export const translations = {
       watches: 'Watches',
       fitness: 'Fitness',
       all: 'All',
+      refurbished: 'Refurbished',
+      partsAccessories: 'Parts & Accessories',
+      clothing: 'Clothing & Shoes',
       // Price ranges
       anyPrice: 'Any Price',
       under50: 'Under $50',
@@ -665,6 +668,9 @@ export const translations = {
       watches: 'Montres',
       fitness: 'Fitness',
       all: 'Tout',
+      refurbished: 'Reconditionné',
+      partsAccessories: 'Pièces & Accessoires',
+      clothing: 'Vêtements & Chaussures',
       // Price ranges
       anyPrice: 'Tout prix',
       under50: 'Moins de 50 $',
@@ -1058,6 +1064,9 @@ export const translations = {
       watches: 'Saa',
       fitness: 'Mazoezi',
       all: 'Zote',
+      refurbished: 'Imekarabatiwa',
+      partsAccessories: 'Vipuri & Vifaa',
+      clothing: 'Mavazi & Viatu',
       // Price ranges
       anyPrice: 'Bei Yoyote',
       under50: 'Chini ya $50',
@@ -1451,6 +1460,9 @@ export const translations = {
       watches: 'Montre',
       fitness: 'Masano',
       all: 'Nyonso',
+      refurbished: 'Ebongisami',
+      partsAccessories: 'Biteni & Biloko',
+      clothing: 'Bilamba & Sapato',
       // Price ranges
       anyPrice: 'Ntalo Nyonso',
       under50: 'Na nse ya $50',

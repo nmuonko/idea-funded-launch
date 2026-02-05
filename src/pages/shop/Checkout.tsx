@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CreditCard, Building2, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
@@ -33,7 +33,7 @@ export default function Checkout() {
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
-  const [paymentMethod, setPaymentMethod] = useState('card');
+  const [paymentMethod, setPaymentMethod] = useState('mobile_money');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
@@ -156,14 +156,28 @@ export default function Checkout() {
 
       // Step 2: Proceed to checkout with order item IDs
       console.log('[WEB_CHECKOUT] Step 2: Starting checkout...');
+      
+      // Build checkout payload
+      // IMPORTANT: For mobile money (PawaPay), don't send payment_method_preference
+      // Backend auto-routes standard orders to PawaPay when no preference is provided
+      const checkoutPayload: Record<string, any> = {
+        cart_item_ids: orderItemIds,
+        cart_id: orderId,
+      };
+      
+      // Only add payment_method_preference for Card or Bank Transfer
+      // Mobile money is the default route when no preference is sent
+      if (paymentMethod === 'card') {
+        checkoutPayload.payment_method_preference = 'CARD';
+      } else if (paymentMethod === 'bank_transfer') {
+        checkoutPayload.payment_method_preference = 'BANK_TRANSFER';
+      }
+      // For 'mobile_money', we intentionally don't send payment_method_preference
+      
+      console.log('[WEB_CHECKOUT] Checkout payload:', checkoutPayload);
+      
       const { data, error } = await supabase.functions.invoke('mobile-checkout', {
-        body: {
-          cart_item_ids: orderItemIds,
-          cart_id: orderId,
-          payment_method_preference: paymentMethod === 'card' ? 'CARD' : 
-                                      paymentMethod === 'bank_transfer' ? 'BANK_TRANSFER' : 
-                                      'MOBILE_MONEY',
-        },
+        body: checkoutPayload,
       });
 
       console.log('[WEB_CHECKOUT] Checkout response:', { data, error });
@@ -377,6 +391,15 @@ export default function Checkout() {
                   
                   <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
                     <div className="space-y-3">
+                      <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
+                        <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
+                        <Smartphone className="h-5 w-5 text-white/70" />
+                        <div className="flex-1">
+                          <p className="text-white font-medium">Mobile Money</p>
+                          <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
+                        </div>
+                      </label>
+
                       <label className="flex items-center gap-4 p-4 rounded-xl border border-white/10 cursor-pointer hover:bg-white/5 transition-colors">
                         <RadioGroupItem value="card" id="card" className="border-white/40" />
                         <CreditCard className="h-5 w-5 text-white/70" />

@@ -194,7 +194,73 @@ export default function Checkout() {
       }
 
       // Handle different payment flows
-      if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
+      // Step 3: Handle awaiting_provider_selection - need to call select-payment-provider
+      if (data?.status === 'awaiting_provider_selection' && data?.checkout_session_id) {
+        console.log('[WEB_CHECKOUT] Step 3: Selecting payment provider...');
+        
+        // Map frontend payment method to provider
+        const providerMap: Record<string, string> = {
+          'mobile_money': 'pawapay',
+          'card': 'stripe',
+          'bank_transfer': 'bank_transfer',
+        };
+        
+        const provider = providerMap[paymentMethod] || 'pawapay';
+        
+        const selectPayload: Record<string, any> = {
+          checkout_session_id: data.checkout_session_id,
+          provider,
+        };
+        
+        // Add phone for PawaPay
+        if (provider === 'pawapay' && address.phone) {
+          selectPayload.phone = address.phone;
+        }
+        
+        console.log('[WEB_CHECKOUT] Select provider payload:', selectPayload);
+        
+        const { data: providerData, error: providerError } = await supabase.functions.invoke(
+          'select-payment-provider',
+          { body: selectPayload }
+        );
+        
+        console.log('[WEB_CHECKOUT] Provider selection response:', { providerData, providerError });
+        
+        if (providerError || providerData?.error) {
+          console.error('[WEB_CHECKOUT] Provider selection error:', providerError || providerData);
+          throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
+        }
+        
+        // Handle PawaPay USSD flow - redirect to pending page
+        if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {
+          console.log('[WEB_CHECKOUT] PawaPay USSD push initiated, redirecting to pending page');
+          await clearCart();
+          navigate(`/shop/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
+          return;
+        }
+        
+        // Handle Stripe redirect
+        if (providerData?.provider === 'stripe' && providerData?.redirectUrl) {
+          window.location.href = providerData.redirectUrl;
+          return;
+        }
+        
+        // Handle bank transfer
+        if (providerData?.provider === 'bank_transfer') {
+          await clearCart();
+          navigate(`/bank-transfer-info?order_id=${providerData.order_id}`);
+          return;
+        }
+        
+        // Fallback - redirect to order
+        if (providerData?.order_id) {
+          await clearCart();
+          navigate(`/shop/orders/${providerData.order_id}`);
+          return;
+        }
+      }
+      // Legacy flows (direct responses without select-payment-provider)
+      else if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
         // Redirect to Stripe checkout
         navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
       } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
@@ -202,12 +268,8 @@ export default function Checkout() {
       } else if (data?.payment_flow === 'BANK_TRANSFER') {
         navigate(`/bank-transfer-info?order_id=${data.order_id}`);
       } else if (data?.order_id) {
-        toast({
-          title: 'Order Created',
-          description: 'Your order has been submitted successfully',
-        });
         await clearCart();
-        navigate(`/orders/${data.order_id}`);
+        navigate(`/shop/orders/${data.order_id}`);
       }
     } catch (error: any) {
       console.error('[WEB_CHECKOUT] Error:', error);

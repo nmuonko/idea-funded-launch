@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Fallback CSP - allows Supabase connections -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://*.supabase.in https://igmkhxffnyzoogcqvdab.supabase.co wss://*.supabase.co wss://*.supabase.in blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; frame-ancestors 'self';" />
+    <!-- CSP - allows Supabase and Stripe connections -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co https://*.supabase.in https://igmkhxffnyzoogcqvdab.supabase.co wss://*.supabase.co wss://*.supabase.in https://api.stripe.com https://maps.stripe.com blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; worker-src 'self' blob:;" />
     <title>AfriShop - From USA to You | Admin Portal</title>
     <meta name="description" content="AfriShop Admin Portal - Manage orders, payments, shipping, and customer support for USA to DRC e-commerce operations." />
     <meta name="author" content="AfriShop" />

@@ -3,7 +3,7 @@
  * Respects backend TTL and works across users for public catalog data
  */
 
-const CACHE_PREFIX = 'afrishop_cache:';
+const CACHE_PREFIX = 'afrishop_cache:v2:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback
 
 interface CacheEntry<T> {
@@ -14,7 +14,16 @@ interface CacheEntry<T> {
 }
 
 /**
+ * Remove accents/diacritics from text for consistent cache keys
+ * e.g., "téléphone" → "telephone", "café" → "cafe"
+ */
+function removeAccents(str: string): string {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * Generate a stable cache key from parameters
+ * Normalizes queries to maximize cache hits (accents, case, whitespace)
  */
 export function generateCacheKey(endpoint: string, params: Record<string, any>): string {
   // Normalize and sort params for consistent keys
@@ -24,9 +33,9 @@ export function generateCacheKey(endpoint: string, params: Record<string, any>):
     let value = params[key];
     if (value === undefined || value === null || value === '') return;
     
-    // Normalize string values
+    // Normalize string values - remove accents, lowercase, collapse whitespace
     if (typeof value === 'string') {
-      value = value.trim().toLowerCase().replace(/\s+/g, ' ');
+      value = removeAccents(value.trim().toLowerCase().replace(/\s+/g, ' '));
     }
     
     normalized[key] = String(value);
@@ -40,7 +49,7 @@ export function generateCacheKey(endpoint: string, params: Record<string, any>):
 }
 
 /**
- * Get cached data if not expired
+ * Get cached data if not expired (synchronous for instant UI)
  */
 export function getCached<T>(key: string): { data: T; expiresIn: number } | null {
   try {
@@ -51,16 +60,19 @@ export function getCached<T>(key: string): { data: T; expiresIn: number } | null
     const now = Date.now();
     
     if (now >= entry.expiresAt) {
-      console.log('[CACHE] EXPIRED key=', key);
+      // Don't log on every expired check - too noisy
       localStorage.removeItem(key);
       return null;
     }
     
     const expiresIn = Math.round((entry.expiresAt - now) / 1000);
-    console.log('[CACHE] HIT key=', key, 'expiresIn=', expiresIn, 's');
+    // Only log cache hits for debugging
+    if (expiresIn > 0) {
+      console.log('[CACHE] HIT key=', key.substring(0, 60), 'expiresIn=', expiresIn, 's');
+    }
     return { data: entry.value, expiresIn };
   } catch (e) {
-    console.error('[CACHE] Error reading cache:', e);
+    // Silently handle parse errors
     return null;
   }
 }
@@ -149,6 +161,7 @@ export function clearExpiredCache(): void {
 /**
  * Cached fetch for catalog endpoints
  * Uses public API key only (no auth) for shared caching
+ * Returns cached data synchronously when available for instant UI
  */
 export async function cachedCatalogFetch<T>(
   endpoint: string,
@@ -157,17 +170,16 @@ export async function cachedCatalogFetch<T>(
 ): Promise<T> {
   const cacheKey = generateCacheKey(endpoint, params);
   
-  // Check cache first (unless skipping)
+  // Check cache first (unless skipping) - this is synchronous and fast
   if (!options.skipCache) {
     const cached = getCached<T>(cacheKey);
     if (cached) {
+      // Return immediately from cache - no async delay
       return cached.data;
     }
   }
   
-  console.log('[CACHE] MISS key=', cacheKey, 'fetching');
-  
-  // Build URL with params
+  // Cache miss - fetch from network
   const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
@@ -195,7 +207,7 @@ export async function cachedCatalogFetch<T>(
   // Determine TTL from response
   const ttlSeconds = parseTtlFromResponse(response, data);
   
-  // Store in cache
+  // Store in cache for next time
   setCache(cacheKey, data, ttlSeconds);
   
   return data;

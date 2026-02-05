@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 export interface Product {
   id: string;
@@ -27,6 +29,9 @@ export function ProductCard({ product, className, compact = false }: ProductCard
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
 
   const isSaved = isItemSaved(product.id, product.provider);
 
@@ -126,7 +131,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         {/* Out of Stock Overlay */}
         {product.inStock === false && (
           <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-            <span className="text-white/80 font-medium text-sm">Out of Stock</span>
+            <span className="text-white/80 font-medium text-sm">{shop.outOfStock || 'Out of Stock'}</span>
           </div>
         )}
       </div>

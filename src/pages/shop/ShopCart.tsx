@@ -8,10 +8,15 @@ import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { Button } from '@/components/ui/button';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 export default function ShopCart() {
   const { items, totalUsd, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout } = useShopCart();
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -35,16 +40,16 @@ export default function ShopCart() {
           <div className="flex items-center justify-between mb-8">
             <div>
               <Link 
-                to="/shop" 
+                to="/" 
                 className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-2 transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
-                Continue Shopping
+                {shop.continueShopping || 'Continue Shopping'}
               </Link>
-              <h1 className="text-2xl font-bold text-white">Your Cart</h1>
+              <h1 className="text-2xl font-bold text-white">{shop.yourCart || 'Your Cart'}</h1>
               {items.length > 0 && (
                 <p className="text-white/60">
-                  {totalQuantity} item{totalQuantity !== 1 ? 's' : ''}
+                  {totalQuantity} {totalQuantity !== 1 ? (shop.items || 'items') : (shop.item || 'item')}
                 </p>
               )}
             </div>
@@ -57,7 +62,7 @@ export default function ShopCart() {
                 className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
-                Clear Cart
+                {shop.clearCart || 'Clear Cart'}
               </Button>
             )}
           </div>
@@ -69,13 +74,13 @@ export default function ShopCart() {
               className="min-h-[60vh] flex flex-col items-center justify-center text-center"
             >
               <ShoppingBag className="h-20 w-20 text-white/20 mx-auto mb-6" />
-              <h2 className="text-xl font-semibold text-white mb-2">Your cart is empty</h2>
+              <h2 className="text-xl font-semibold text-white mb-2">{shop.emptyCart || 'Your cart is empty'}</h2>
               <p className="text-white/60 mb-8">
-                Looks like you haven't added any products yet
+                {shop.emptyCartMessage || "Looks like you haven't added any products yet"}
               </p>
-              <Link to="/shop">
+              <Link to="/">
                 <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8">
-                  Start Shopping
+                  {shop.startShopping || 'Start Shopping'}
                 </Button>
               </Link>
             </motion.div>

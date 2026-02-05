@@ -286,6 +286,8 @@ export const translations = {
       // Product
       addToCart: 'Add to Cart',
       outOfStock: 'Out of Stock',
+      addedToCart: 'Added to Cart',
+      quantity: 'Quantity',
       // Cart
       cart: 'Cart',
       yourCart: 'Your Cart',
@@ -394,6 +396,29 @@ export const translations = {
       // Delivery Banner
       deliveryIn2To4Weeks: 'Delivery in 2-4 Weeks',
       deliverySubtext: 'From the USA, straight to your door in DRC',
+      // Filters & Sort
+      filters: 'Filters',
+      sortBy: 'Sort by',
+      relevance: 'Relevance',
+      priceLowToHigh: 'Price: Low to High',
+      priceHighToLow: 'Price: High to Low',
+      topRated: 'Top Rated',
+      applyFilters: 'Apply Filters',
+      clearSearch: 'Clear Search',
+      noProductsFound: 'No products found',
+      resultsFor: 'Results for',
+      productsFound: 'products found',
+      productFound: 'product found',
+      loadMore: 'Load More',
+      inStock: 'In Stock',
+      // Cart page
+      continueShopping: 'Continue Shopping',
+      clearCart: 'Clear Cart',
+      emptyCartMessage: "Looks like you haven't added any products yet",
+      // Checkout
+      termsRequired: 'Terms Required',
+      emptyCartTitle: 'Empty Cart',
+      acceptTermsMessage: 'Please accept the terms and conditions to continue',
     },
   },
   fr: {
@@ -630,6 +655,8 @@ export const translations = {
       // Product
       addToCart: 'Ajouter au panier',
       outOfStock: 'Rupture de stock',
+      addedToCart: 'Ajouté au panier',
+      quantity: 'Quantité',
       // Cart
       cart: 'Panier',
       yourCart: 'Votre panier',
@@ -680,6 +707,29 @@ export const translations = {
       // Delivery Banner
       deliveryIn2To4Weeks: 'Livraison en 2-4 Semaines',
       deliverySubtext: 'Des États-Unis, directement chez vous en RDC',
+      // Filters & Sort
+      filters: 'Filtres',
+      sortBy: 'Trier par',
+      relevance: 'Pertinence',
+      priceLowToHigh: 'Prix: croissant',
+      priceHighToLow: 'Prix: décroissant',
+      topRated: 'Mieux notés',
+      applyFilters: 'Appliquer les filtres',
+      clearSearch: 'Effacer la recherche',
+      noProductsFound: 'Aucun produit trouvé',
+      resultsFor: 'Résultats pour',
+      productsFound: 'produits trouvés',
+      productFound: 'produit trouvé',
+      loadMore: 'Charger plus',
+      inStock: 'En stock',
+      // Cart page
+      continueShopping: 'Continuer les achats',
+      clearCart: 'Vider le panier',
+      emptyCartMessage: "Vous n'avez pas encore ajouté de produits",
+      // Checkout
+      termsRequired: 'Conditions requises',
+      emptyCartTitle: 'Panier vide',
+      acceptTermsMessage: 'Veuillez accepter les conditions générales pour continuer',
     },
   },
   sw: {
@@ -916,6 +966,8 @@ export const translations = {
       // Product
       addToCart: 'Ongeza kwenye Kikapu',
       outOfStock: 'Haipatikani',
+      addedToCart: 'Imeongezwa Kikapuni',
+      quantity: 'Kiasi',
       // Cart
       cart: 'Kikapu',
       yourCart: 'Kikapu Chako',
@@ -966,6 +1018,29 @@ export const translations = {
       // Delivery Banner
       deliveryIn2To4Weeks: 'Uwasilishaji katika Wiki 2-4',
       deliverySubtext: 'Kutoka Marekani, moja kwa moja hadi mlango wako DRC',
+      // Filters & Sort
+      filters: 'Vichujio',
+      sortBy: 'Panga kwa',
+      relevance: 'Umuhimu',
+      priceLowToHigh: 'Bei: Chini hadi Juu',
+      priceHighToLow: 'Bei: Juu hadi Chini',
+      topRated: 'Vilivyopimwa Bora',
+      applyFilters: 'Tumia Vichujio',
+      clearSearch: 'Futa Utafutaji',
+      noProductsFound: 'Hakuna bidhaa zilizopatikana',
+      resultsFor: 'Matokeo ya',
+      productsFound: 'bidhaa zilizopatikana',
+      productFound: 'bidhaa imepatikana',
+      loadMore: 'Pakia Zaidi',
+      inStock: 'Inapatikana',
+      // Cart page
+      continueShopping: 'Endelea Kununua',
+      clearCart: 'Futa Kikapu',
+      emptyCartMessage: 'Bado hujaongeza bidhaa yoyote',
+      // Checkout
+      termsRequired: 'Masharti Yanahitajika',
+      emptyCartTitle: 'Kikapu Kitupu',
+      acceptTermsMessage: 'Tafadhali kubali masharti na vigezo kuendelea',
     },
   },
   ln: {
@@ -1202,6 +1277,8 @@ export const translations = {
       // Product
       addToCart: 'Tia na Panier',
       outOfStock: 'Ezali Te',
+      addedToCart: 'Etia Na Panier',
+      quantity: 'Motango',
       // Cart
       cart: 'Panier',
       yourCart: 'Panier Na Yo',
@@ -1221,6 +1298,34 @@ export const translations = {
       // Delivery Banner
       deliveryIn2To4Weeks: 'Livraison na Bapɔsɔ 2-4',
       deliverySubtext: 'Uta États-Unis, tii na ndako na yo na RDC',
+      // Filters & Sort
+      filters: 'Filtre',
+      sortBy: 'Bongisa na',
+      relevance: 'Bozali',
+      priceLowToHigh: 'Ntalo: Moke tii Mingi',
+      priceHighToLow: 'Ntalo: Mingi tii Moke',
+      topRated: 'Oyo Balinga Mingi',
+      applyFilters: 'Tia Filtre',
+      clearSearch: 'Longola Boluki',
+      noProductsFound: 'Biloko ezwami te',
+      resultsFor: 'Matomba mpo na',
+      productsFound: 'biloko ezwami',
+      productFound: 'eloko ezwami',
+      loadMore: 'Mema Mingi',
+      inStock: 'Ezali',
+      // Cart page
+      continueShopping: 'Koba Kosoma',
+      clearCart: 'Longola Panier',
+      emptyCartMessage: 'Naino otia eloko te',
+      // Checkout
+      termsRequired: 'Mibeko Esengeli',
+      emptyCartTitle: 'Panier Ezali Pamba',
+      acceptTermsMessage: 'Ndima mibeko mpo na kokoba',
+      // Bottom navigation tabs
+      browseTab: 'Tala',
+      savedTab: 'Ebombami',
+      ordersTab: 'Macommande',
+      accountTab: 'Compte',
     },
   },
 };

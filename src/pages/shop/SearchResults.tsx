@@ -11,19 +11,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
-const SORT_OPTIONS = [
-  { value: 'relevance', label: 'Relevance' },
-  { value: 'price_asc', label: 'Price: Low to High' },
-  { value: 'price_desc', label: 'Price: High to Low' },
-  { value: 'rating', label: 'Top Rated' },
-];
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') || '';
   const category = searchParams.get('category') || '';
   const initialSort = searchParams.get('sort') || 'relevance';
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +32,13 @@ export default function SearchResults() {
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
+
+  const SORT_OPTIONS = [
+    { value: 'relevance', label: shop.relevance || 'Relevance' },
+    { value: 'price_asc', label: shop.priceLowToHigh || 'Price: Low to High' },
+    { value: 'price_desc', label: shop.priceHighToLow || 'Price: High to Low' },
+    { value: 'rating', label: shop.topRated || 'Top Rated' },
+  ];
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
     try {
@@ -149,12 +155,12 @@ export default function SearchResults() {
             <div>
               {query && (
                 <h1 className="text-xl font-bold text-white">
-                  Results for "{query}"
+                  {shop.resultsFor || 'Results for'} "{query}"
                 </h1>
               )}
               {!loading && (
                 <p className="text-sm text-white/60">
-                  {totalResults} product{totalResults !== 1 ? 's' : ''} found
+                  {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
                 </p>
               )}
             </div>
@@ -163,7 +169,7 @@ export default function SearchResults() {
               {/* Sort */}
               <Select value={sort} onValueChange={handleSortChange}>
                 <SelectTrigger className="w-[160px] bg-white/5 border-white/10 text-white">
-                  <SelectValue placeholder="Sort by" />
+                  <SelectValue placeholder={shop.sortBy || 'Sort by'} />
                 </SelectTrigger>
                 <SelectContent className="bg-black/95 border-white/10">
                   {SORT_OPTIONS.map((option) => (
@@ -187,18 +193,18 @@ export default function SearchResults() {
                     className="border-white/10 text-white hover:bg-white/10"
                   >
                     <SlidersHorizontal className="h-4 w-4 mr-2" />
-                    Filters
+                    {shop.filters || 'Filters'}
                   </Button>
                 </SheetTrigger>
                 <SheetContent className="bg-black/95 border-white/10">
                   <SheetHeader>
-                    <SheetTitle className="text-white">Filters</SheetTitle>
+                    <SheetTitle className="text-white">{shop.filters || 'Filters'}</SheetTitle>
                   </SheetHeader>
                   
                   <div className="mt-6 space-y-6">
                     <div>
                       <label className="text-sm text-white/70 mb-3 block">
-                        Price Range: ${priceRange[0]} - ${priceRange[1]}
+                        {shop.priceRange || 'Price Range'}: ${priceRange[0]} - ${priceRange[1]}
                       </label>
                       <Slider
                         value={priceRange}
@@ -214,7 +220,7 @@ export default function SearchResults() {
                       onClick={handleApplyFilters}
                       className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
                     >
-                      Apply Filters
+                      {shop.applyFilters || 'Apply Filters'}
                     </Button>
                   </div>
                 </SheetContent>
@@ -237,10 +243,10 @@ export default function SearchResults() {
                 {loadingMore ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Loading...
+                    {t.common?.loading || 'Loading...'}
                   </>
                 ) : (
-                  'Load More'
+                  shop.loadMore || 'Load More'
                 )}
               </Button>
             </div>
@@ -249,14 +255,14 @@ export default function SearchResults() {
           {/* No Results */}
           {!loading && products.length === 0 && (
             <div className="text-center py-20">
-              <p className="text-white/60 mb-4">No products found for "{query}"</p>
+              <p className="text-white/60 mb-4">{shop.noProductsFound || 'No products found'} "{query}"</p>
               <Button
                 onClick={() => setSearchParams({})}
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10"
               >
                 <X className="h-4 w-4 mr-2" />
-                Clear Search
+                {shop.clearSearch || 'Clear Search'}
               </Button>
             </div>
           )}

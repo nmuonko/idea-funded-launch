@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 interface ProductDetails {
   id: string;
@@ -30,6 +32,9 @@ interface ProductDetails {
 export default function ProductDetailsPage() {
   const { provider, id } = useParams<{ provider: string; id: string }>();
   const { addItem } = useShopCart();
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
   
   const [product, setProduct] = useState<ProductDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -327,11 +332,11 @@ export default function ProductDetailsPage() {
               {/* Stock Status */}
               {product.inStock ? (
                 <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-                  In Stock
+                  {shop.inStock || 'In Stock'}
                 </Badge>
               ) : (
                 <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
-                  Out of Stock
+                  {shop.outOfStock || 'Out of Stock'}
                 </Badge>
               )}
 
@@ -345,7 +350,7 @@ export default function ProductDetailsPage() {
 
               {/* Quantity Selector */}
               <div className="flex items-center gap-4">
-                <span className="text-white/70">Quantity:</span>
+                <span className="text-white/70">{shop.quantity || 'Quantity'}:</span>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
@@ -382,12 +387,12 @@ export default function ProductDetailsPage() {
                 ) : added ? (
                   <>
                     <Check className="h-5 w-5 mr-2" />
-                    Added to Cart
+                    {shop.addedToCart || 'Added to Cart'}
                   </>
                 ) : (
                   <>
                     <ShoppingCart className="h-5 w-5 mr-2" />
-                    Add to Cart
+                    {shop.addToCart || 'Add to Cart'}
                   </>
                 )}
               </Button>

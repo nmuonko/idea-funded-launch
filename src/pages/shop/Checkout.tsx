@@ -13,6 +13,8 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { translations } from '@/lib/i18n/translations';
 
 interface ShippingAddress {
   fullName: string;
@@ -30,6 +32,9 @@ export default function Checkout() {
   const { toast } = useToast();
   const { items, totalUsd, savePendingCheckout, restoreFromPendingCheckout } = useShopCart();
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const t = translations[language] || translations.en;
+  const shop = (t.shop || {}) as any;
   
   const [loading, setLoading] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -107,8 +112,8 @@ export default function Checkout() {
     
     if (!termsAccepted) {
       toast({
-        title: 'Terms Required',
-        description: 'Please accept the terms and conditions to continue',
+        title: shop.termsRequired || 'Terms Required',
+        description: shop.acceptTermsMessage || 'Please accept the terms and conditions to continue',
         variant: 'destructive',
       });
       return;
@@ -116,8 +121,8 @@ export default function Checkout() {
 
     if (items.length === 0) {
       toast({
-        title: 'Empty Cart',
-        description: 'Your cart is empty',
+        title: shop.emptyCartTitle || 'Empty Cart',
+        description: shop.emptyCart || 'Your cart is empty',
         variant: 'destructive',
       });
       return;

@@ -224,7 +224,7 @@ export function ShopHeader() {
                 </Button>
               </Link>
             ) : (
-              <Link to="/auth">
+              <Link to="/shop-auth">
                 <Button
                   variant="ghost"
                   size="sm"

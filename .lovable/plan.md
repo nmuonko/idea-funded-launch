@@ -1,259 +1,171 @@
 
+# Fix: Make Homepage Match Admin Portal Configuration
 
-# Fix Homepage Section Relevance: Exclude Accessories
+## Problem Identified
 
-## Problem Summary
+The homepage does NOT reflect what's configured in the Admin Portal's "Home Curation" settings because:
 
-Homepage sections display irrelevant accessories instead of primary items:
-- **Ordinateurs**: Shows laptop bags, sleeves, stickers instead of actual laptops
-- **Véhicules**: Shows seat covers, hooks, organizers instead of real vehicles  
-- **Video Games**: Shows repair kits, screwdrivers instead of consoles/games
-- **Téléphones**: Shows cases, screen protectors instead of actual phones
+1. **Admin Portal** manages sections in `home_sections` table and seed queries in `home_section_seeds` table
+2. **catalog-home/catalog-home-v2** edge functions read from a completely DIFFERENT table: `catalog_sections`
 
-The eBay category filtering alone is insufficient because categories include both primary items and their accessories.
+This means any changes you make in the admin panel (adding seeds, enabling/disabling sections, reordering) have **zero effect** on the live homepage.
 
----
+### Evidence
 
-## Solution Architecture
+**Admin Portal tables (`home_sections`):**
+- 8 sections: phones, vehicles, gaming, computers, clothing, home_garden, refurbished, parts_accessories
+- Has detailed seed queries in `home_section_seeds` (50+ active seeds)
 
-### A. Database Schema Enhancement
-
-Add new columns to `catalog_sections` table:
-
-| Column | Type | Purpose |
-|--------|------|---------|
-| `include_keywords` | TEXT[] | Primary item keywords that MUST appear in title |
-| `exclude_keywords` | TEXT[] | Accessory keywords to filter OUT |
-| `min_price_usd` | NUMERIC | Price floor to exclude cheap accessories |
-| `strict` | BOOLEAN | Whether to enforce strict filtering |
-
-### B. Two-Layer Filtering Strategy
-
-**Layer 1 - Query Enhancement (eBay API)**
-- Build query with negative keywords: `q = "laptop macbook -case -sleeve -bag -skin"`
-- eBay supports `-term` to exclude matching items
-
-**Layer 2 - Server-Side Post-Filtering**
-- After fetching, scan each item's title
-- Remove any item where title contains excluded keywords
-- Apply regex patterns for common accessory indicators
+**catalog-home reads (`catalog_sections`):**
+- 5 sections: phones, video_games, computers, vehicles, fashion
+- Uses simple `seed_query` field, ignores `home_section_seeds` entirely
 
 ---
 
-## Technical Implementation
+## Solution: Connect catalog-home to Admin Tables
 
-### 1. Database Migration
+Refactor both `catalog-home` and `catalog-home-v2` edge functions to read from:
+1. `home_sections` (for section configuration, eBay category IDs, min_price, is_vehicle)
+2. `home_section_seeds` (for active seed queries per section)
+
+### Database Changes
+
+**Add relevance filtering columns to `home_sections`:**
 
 ```sql
-ALTER TABLE catalog_sections 
+ALTER TABLE public.home_sections
 ADD COLUMN include_keywords TEXT[] DEFAULT '{}',
 ADD COLUMN exclude_keywords TEXT[] DEFAULT '{}',
-ADD COLUMN min_price_usd NUMERIC DEFAULT NULL,
 ADD COLUMN strict BOOLEAN DEFAULT true;
 
--- phones: actual phones only
-UPDATE catalog_sections SET
-  include_keywords = ARRAY['iphone','samsung','galaxy','pixel','smartphone','unlocked','android','5g','pro max','ultra'],
-  exclude_keywords = ARRAY['case','cover','screen protector','tempered','charger','cable','parts','repair','lcd','digitizer','housing','frame','back glass','lot','bulk','battery','replacement'],
-  min_price_usd = 50,
+-- Populate with existing filtering rules
+UPDATE public.home_sections SET
+  include_keywords = ARRAY['iphone','samsung','galaxy','pixel','unlocked','smartphone'],
+  exclude_keywords = ARRAY['case','cover','screen protector','charger','parts','repair','lot','lcd','holder','stand'],
   strict = true
 WHERE key = 'phones';
 
--- video_games: consoles and games only
-UPDATE catalog_sections SET
-  include_keywords = ARRAY['ps5','playstation 5','xbox series','nintendo switch','console','game','controller','gaming'],
-  exclude_keywords = ARRAY['repair','tool','kit','screwdriver','shell','housing','replacement','mod','thumbstick','joystick','charging port','parts','flex cable','ribbon'],
-  min_price_usd = 20,
+UPDATE public.home_sections SET
+  include_keywords = ARRAY['ps5','playstation','xbox','nintendo','switch','console','game','controller'],
+  exclude_keywords = ARRAY['repair','tool','kit','screwdriver','shell','housing','replacement','mod','parts'],
   strict = true
-WHERE key = 'video_games';
+WHERE key = 'gaming';
 
--- computers: laptops/desktops only
-UPDATE catalog_sections SET
-  include_keywords = ARRAY['laptop','macbook','thinkpad','dell','hp','lenovo','surface','notebook','chromebook','desktop','pc','computer','workstation'],
-  exclude_keywords = ARRAY['case','sleeve','skin','sticker','decal','bag','cover','keyboard cover','trackpad','stand','mousepad','vinyl','protector','screen protector','holder','dock','hub','charger','adapter'],
-  min_price_usd = 100,
+UPDATE public.home_sections SET
+  include_keywords = ARRAY['laptop','macbook','thinkpad','dell','hp','lenovo','surface','notebook','desktop','pc'],
+  exclude_keywords = ARRAY['case','sleeve','skin','sticker','decal','bag','cover','stand','mousepad','charger'],
   strict = true
 WHERE key = 'computers';
 
--- vehicles: real vehicles only (most strict)
-UPDATE catalog_sections SET
-  include_keywords = ARRAY['toyota','honda','ford','bmw','mercedes','chevy','chevrolet','nissan','hyundai','kia','volkswagen','audi','lexus','mazda','subaru'],
-  exclude_keywords = ARRAY['seat cover','steering wheel cover','sticker','decal','hook','organizer','trim','handle cover','floor mat','parts','accessories','kit','emblem','badge','keychain','air freshener','phone holder','cup holder','tissue box','visor','sunshade'],
-  min_price_usd = 1000,
+UPDATE public.home_sections SET
+  include_keywords = ARRAY['toyota','honda','ford','bmw','mercedes','chevy','nissan','truck','suv','sedan'],
+  exclude_keywords = ARRAY['seat cover','floor mat','sticker','decal','hook','organizer','trim','parts','accessories'],
   strict = true
 WHERE key = 'vehicles';
 
--- fashion: actual clothing/shoes
-UPDATE catalog_sections SET
-  include_keywords = ARRAY['shoes','sneakers','boots','nike','adidas','jordan','puma','new balance','dress','shirt','jacket','pants','jeans'],
-  exclude_keywords = ARRAY['laces','insole','cleaner','protector','crease','shield','storage','organizer','spray','brush','polish'],
-  min_price_usd = 15,
+UPDATE public.home_sections SET
+  include_keywords = ARRAY['shoes','sneakers','nike','adidas','dress','shirt','jacket','pants','jeans'],
+  exclude_keywords = ARRAY['laces','insole','cleaner','protector','spray','brush','polish'],
   strict = true
-WHERE key = 'fashion';
+WHERE key = 'clothing';
 ```
 
-### 2. Update Edge Functions
+### Edge Function Changes
 
-Add filtering logic in both `catalog-home` and `catalog-home-v2`:
+**New data loading function:**
 
-**A. Update SectionConfig interface:**
 ```typescript
-interface SectionConfig {
-  key: string;
-  title_fr: string;
-  title_en: string;
-  seed_query: string;
-  mode: string;
-  ebay_category_id?: string;
-  include_keywords?: string[];
-  exclude_keywords?: string[];
-  min_price_usd?: number;
-  strict?: boolean;
-}
-```
-
-**B. Add query builder with negative keywords:**
-```typescript
-function buildEnhancedQuery(seedQuery: string, excludeKeywords: string[]): string {
-  if (!excludeKeywords || excludeKeywords.length === 0) {
-    return seedQuery;
-  }
-  // eBay supports up to ~10 negative terms effectively
-  const negatives = excludeKeywords.slice(0, 10).map(kw => `-${kw.replace(/\s+/g, '')}`);
-  return `${seedQuery} ${negatives.join(' ')}`;
-}
-```
-
-**C. Add server-side relevance filter:**
-```typescript
-function filterRelevantItems(
-  items: CatalogItem[],
-  config: SectionConfig,
-  correlationId: string
-): { filtered: CatalogItem[]; excluded: number; topExcluded: string[] } {
-  const { exclude_keywords = [], min_price_usd, strict = true } = config;
-  
-  // Build exclusion regex from keywords
-  const excludePatterns = exclude_keywords.map(kw => 
-    new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i')
+async function loadHomeSectionsAndSeeds(): Promise<{ sections: SectionConfig[] | null; error?: string }> {
+  // 1. Fetch active sections from home_sections
+  const sectionsRes = await fetch(
+    `${supabaseUrl}/rest/v1/home_sections?enabled=eq.true&order=sort_order.asc&select=*`,
+    { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` }}
   );
   
-  // Common accessory patterns
-  const accessoryRegex = /(case|cover|sleeve|skin|sticker|decal|protector|replacement|repair|tool|kit|parts|holder|mount|stand|charger|cable|adapter|bag|pouch|wallet|strap|hook|organizer|mat|trim|emblem)/i;
+  // 2. Fetch active seed queries from home_section_seeds
+  const seedsRes = await fetch(
+    `${supabaseUrl}/rest/v1/home_section_seeds?enabled=eq.true&select=section_key,query`,
+    { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` }}
+  );
   
-  const topExcluded: string[] = [];
+  // 3. Group seeds by section_key
+  const seedsMap = new Map<string, string[]>();
+  for (const seed of seeds) {
+    if (!seedsMap.has(seed.section_key)) seedsMap.set(seed.section_key, []);
+    seedsMap.get(seed.section_key)!.push(seed.query);
+  }
   
-  const filtered = items.filter(item => {
-    const title = (item.title || '').toLowerCase();
-    const price = item.price_usd ?? item.priceUsd ?? 0;
-    
-    // Price floor check
-    if (min_price_usd && price < min_price_usd) {
-      if (topExcluded.length < 5) topExcluded.push(`price<${min_price_usd}: ${title.substring(0,40)}`);
-      return false;
-    }
-    
-    // Excluded keywords check
-    for (const pattern of excludePatterns) {
-      if (pattern.test(title)) {
-        if (topExcluded.length < 5) topExcluded.push(`keyword: ${title.substring(0,40)}`);
-        return false;
-      }
-    }
-    
-    // General accessory pattern check (when strict)
-    if (strict && accessoryRegex.test(title)) {
-      if (topExcluded.length < 5) topExcluded.push(`accessory: ${title.substring(0,40)}`);
-      return false;
-    }
-    
-    return true;
-  });
-  
-  console.log(`[SECTION_RELEVANCE] key=${config.key} before=${items.length} after=${filtered.length} excluded=${items.length - filtered.length} topExcluded=${JSON.stringify(topExcluded)}`);
-  
-  return { filtered, excluded: items.length - filtered.length, topExcluded };
+  // 4. Combine sections with their seeds
+  return sections.map(section => ({
+    key: section.key,
+    title_fr: section.title_fr,
+    title_en: section.title_en,
+    ebay_category_id: section.ebay_category,
+    is_vehicle: section.is_vehicle,
+    min_price_usd: section.min_price,
+    include_keywords: section.include_keywords || [],
+    exclude_keywords: section.exclude_keywords || [],
+    strict: section.strict ?? true,
+    active_seed_queries: seedsMap.get(section.key) || [section.see_all_query],
+  }));
 }
 ```
 
-**D. Update DB query to fetch new columns:**
-```typescript
-const response = await fetch(
-  `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode,ebay_category_id,include_keywords,exclude_keywords,min_price_usd,strict`,
-  // ...
-);
-```
+**Updated query construction:**
 
-**E. Apply filtering in fetchSectionItems:**
 ```typescript
-// After getting raw items from eBay...
-const { filtered, excluded, topExcluded } = filterRelevantItems(rawMappedItems, sectionConfig, correlationId);
+// In fetchSectionItems:
+const { active_seed_queries, exclude_keywords } = sectionConfig;
 
-// For vehicles mode, apply additional vehicle-specific filtering
-if (mode === 'vehicle') {
-  console.log(`[VEHICLE_STRICT] key=${key} before=${rawMappedItems.length} after=${filtered.length} droppedParts=${excluded}`);
+// Combine multiple seed queries
+const baseQuery = active_seed_queries.slice(0, 5).join(' '); // Use up to 5 seeds
+const enhancedQuery = buildEnhancedQuery(baseQuery, exclude_keywords);
+
+// Use section's ebay_category from home_sections
+if (sectionConfig.ebay_category_id) {
+  searchUrl.searchParams.set("category_ids", sectionConfig.ebay_category_id);
 }
-
-return { items: filtered, ms: Date.now() - startMs };
 ```
 
-**F. Update FALLBACK_SECTIONS with default filters:**
+### Update FALLBACK_SECTIONS
+
+Match the 8 sections from admin:
+
 ```typescript
 const FALLBACK_SECTIONS = [
-  { 
-    key: "phones", 
-    title_fr: "Téléphones", 
-    title_en: "Phones", 
-    seed_query: "iphone samsung smartphone unlocked -case -cover -parts",
-    mode: "general", 
-    ebay_category_id: "9355",
-    exclude_keywords: ["case","cover","screen protector","charger","parts","repair","lot","lcd"],
-    min_price_usd: 50,
-    strict: true
-  },
-  // ... similar for other sections
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", ebay_category_id: "9355", ... },
+  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", ebay_category_id: "6001", is_vehicle: true, ... },
+  { key: "gaming", title_fr: "Gaming", title_en: "Gaming", ebay_category_id: "1249", ... },
+  { key: "computers", title_fr: "Ordinateurs", title_en: "Computers", ebay_category_id: "58058", ... },
+  { key: "clothing", title_fr: "Vêtements & Chaussures", title_en: "Clothing & Shoes", ebay_category_id: "63889", ... },
+  { key: "home_garden", title_fr: "Maison & Jardin", title_en: "Home & Garden", ebay_category_id: "11700", ... },
+  { key: "refurbished", title_fr: "Reconditionné", title_en: "Refurbished", ebay_category_id: "11800", ... },
+  { key: "parts_accessories", title_fr: "Pièces & Accessoires", title_en: "Parts & Accessories", ebay_category_id: "6028", ... },
 ];
 ```
 
-### 3. Bump Cache Version
+### Bump Cache Version
 
 ```typescript
 // src/lib/catalogCache.ts
-const CACHE_PREFIX = 'afrishop_cache:v5:';
+const CACHE_PREFIX = 'afrishop_cache:v6:';
 ```
 
 ---
 
 ## Files to Modify
 
-1. **Database Migration** - Add columns: `include_keywords`, `exclude_keywords`, `min_price_usd`, `strict`
-2. **`supabase/functions/catalog-home/index.ts`** - Add filtering logic
-3. **`supabase/functions/catalog-home-v2/index.ts`** - Add same filtering logic
-4. **`src/lib/catalogCache.ts`** - Bump version to v5
+1. **Database Migration** - Add `include_keywords`, `exclude_keywords`, `strict` columns to `home_sections` and populate
+2. **`supabase/functions/catalog-home/index.ts`** - Switch from `catalog_sections` to `home_sections` + `home_section_seeds`
+3. **`supabase/functions/catalog-home-v2/index.ts`** - Same changes
+4. **`src/lib/catalogCache.ts`** - Bump version to v6
 
 ---
 
-## Expected Results
+## Expected Results After Fix
 
-After implementation:
-- **Phones**: Shows actual iPhones, Samsung Galaxy, Pixels (not cases/parts)
-- **Video Games**: Shows PS5, Xbox, Nintendo consoles (not repair toolkits)
-- **Computers**: Shows MacBooks, Dell laptops, HP notebooks (not sleeves/stickers)
-- **Vehicles**: Shows actual car listings (not seat covers/hooks)
-- **Fashion**: Shows actual shoes/clothing (not laces/cleaners)
-
-### Logging Output
-```
-[SECTION_RELEVANCE] key=computers before=24 after=12 excluded=12 topExcluded=["keyword: laptop bag for...","accessory: laptop sleeve..."]
-[VEHICLE_STRICT] key=vehicles before=24 after=8 droppedParts=16
-```
-
----
-
-## Constraints Met
-
-- No supabase-js SDK usage
-- Response contract unchanged
-- Backend-only changes (no frontend modifications)
-- Lightweight implementation to avoid bundler timeout
-
+- Homepage sections will match exactly what's shown in Admin Portal "Home Curation"
+- All 8 sections (Phones, Vehicles, Gaming, Computers, Clothing & Shoes, Home & Garden, Refurbished, Parts & Accessories) will appear
+- Seed queries configured in admin will be used for eBay searches
+- The "Publish Now" button in admin will trigger prewarm with the correct seeds
+- Accessory/parts filtering will continue to work with the migrated exclude_keywords

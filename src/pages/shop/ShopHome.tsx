@@ -84,8 +84,8 @@ export default function ShopHome() {
       </motion.section>
 
       {/* Category Tabs */}
-      <section className="px-4 mb-6">
-        <div className="container mx-auto">
+      <section className="mb-6">
+        <div className="container mx-auto px-4">
           <CategoryTabs />
         </div>
       </section>

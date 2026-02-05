@@ -240,8 +240,12 @@ export default function Checkout() {
         }
         
         // Handle Stripe redirect
-        if (providerData?.provider === 'stripe' && providerData?.redirectUrl) {
-          window.location.href = providerData.redirectUrl;
+        if (providerData?.provider === 'stripe' && providerData?.clientSecret) {
+          // Redirect to card payment page with client secret
+          console.log('[WEB_CHECKOUT] Stripe clientSecret received, redirecting to card payment page');
+          await clearCart();
+          const cardPaymentUrl = `/shop/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
+          navigate(cardPaymentUrl);
           return;
         }
         

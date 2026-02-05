@@ -93,6 +93,8 @@ import ShopAccount from "./pages/shop/Account";
 import ShopAuth from "./pages/shop/ShopAuth";
 import Onboarding from "./pages/shop/Onboarding";
 import PaymentPending from "./pages/shop/PaymentPending";
+import CardPayment from "./pages/shop/CardPayment";
+import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
 
 const queryClient = new QueryClient();
 
@@ -155,6 +157,16 @@ const App = () => {
             <Route path="/shop/payment-pending" element={
               <ShopProtectedRoute>
                 <PaymentPending />
+              </ShopProtectedRoute>
+            } />
+            <Route path="/shop/card-payment" element={
+              <ShopProtectedRoute>
+                <CardPayment />
+              </ShopProtectedRoute>
+            } />
+            <Route path="/shop/payment-success" element={
+              <ShopProtectedRoute>
+                <ShopPaymentSuccess />
               </ShopProtectedRoute>
             } />
             

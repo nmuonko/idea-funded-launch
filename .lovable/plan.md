@@ -1,172 +1,190 @@
 
-# Fix Checkout Payment Failure - Database Constraints and Cart Sync
+# Plan: Fix Infinite Loading Spinner in Card Payment Flow
 
 ## Problem Summary
+When users attempt to pay with a card on the web app, the page shows an infinite loading spinner. The payment never completes and users are stuck.
 
-There are two issues preventing checkout from completing:
+## Root Cause Analysis
 
-1. **Database constraint violation** - The `mobile-checkout` function tries to insert `pay_method: 'CHOICE_REQUIRED'` and `status: 'choice_required'` but these values are not allowed by the `checkout_sessions` table constraints
-2. **Cart items not syncing** - When `productUrl` is missing, the fallback generates `https://afrishop.com/...` which is rejected by the edge function's allowed domains validation
+After investigating the code, I identified several issues in `src/pages/shop/CardPayment.tsx`:
+
+### Issue 1: No Timeout on Stripe Initialization
+The `getStripePromise()` function fetches configuration from `app-bootstrap` and then calls `loadStripe()`, but there's no timeout. If either operation hangs, the component stays in loading state forever.
+
+### Issue 2: Improper Error Handling for `loadStripe()`
+```typescript
+stripePromise = loadStripe(publishableKey);  // Returns a Promise
+return stripePromise;  // Returns before the Promise resolves
+```
+If `loadStripe()` returns a Promise that rejects (e.g., invalid key, network issue), the error is never caught. The `try/catch` block only catches synchronous errors, not async rejections from the returned Promise.
+
+### Issue 3: Stale Promise Caching
+The global `stripePromise` variable is cached indefinitely. If the first initialization attempt fails (e.g., network timeout), subsequent calls will return the same failed/pending promise without retrying.
+
+### Issue 4: Missing console.log statements
+There are no debug logs to help diagnose where the loading is getting stuck.
 
 ---
 
-## Issue 1: Database Constraint Fix
+## Solution
 
-### Current Constraints
+### 1. Add proper await and error handling for `loadStripe()`
+Currently: `stripePromise = loadStripe(publishableKey); return stripePromise;`
+Fix: `stripePromise = loadStripe(publishableKey); return await stripePromise;` wrapped in try-catch
 
-```sql
--- pay_method only allows CARD or MOBILE_MONEY
-CHECK ((pay_method = ANY (ARRAY['CARD', 'MOBILE_MONEY'])))
+### 2. Add timeout protection
+Add a 15-second timeout on the entire initialization flow to prevent infinite waiting.
 
--- status does not include choice_required  
-CHECK ((status = ANY (ARRAY['awaiting_provider_selection', ...])))
-```
+### 3. Reset cached promise on failure
+If loading fails, reset `stripePromise` to `null` so future attempts can retry.
 
-### Fix Required
-
-Add a database migration to update the CHECK constraints:
-
-```sql
--- Drop and recreate pay_method constraint to include BANK_TRANSFER and CHOICE_REQUIRED
-ALTER TABLE checkout_sessions DROP CONSTRAINT checkout_sessions_pay_method_check;
-ALTER TABLE checkout_sessions ADD CONSTRAINT checkout_sessions_pay_method_check 
-  CHECK (pay_method = ANY (ARRAY['CARD', 'MOBILE_MONEY', 'BANK_TRANSFER', 'CHOICE_REQUIRED']));
-
--- Drop and recreate status constraint to include choice_required
-ALTER TABLE checkout_sessions DROP CONSTRAINT checkout_sessions_status_check;
-ALTER TABLE checkout_sessions ADD CONSTRAINT checkout_sessions_status_check 
-  CHECK (status = ANY (ARRAY[
-    'awaiting_provider_selection', 'provider_selected', 'initiated', 
-    'pending', 'processing', 'paid', 'failed', 'cancelled', 'expired', 
-    'choice_required'
-  ]));
-```
+### 4. Add comprehensive error logging
+Add console.log statements throughout the flow to help debug issues.
 
 ---
 
-## Issue 2: Cart Item productUrl Fix
+## Technical Implementation
 
-### Problem
+### File: `src/pages/shop/CardPayment.tsx`
 
-When `productUrl` is missing from a cart item, the current fallback generates:
-```
-https://afrishop.com/product/rainforest/amazon_B0BP7JJWHC
-```
-
-But the edge function's `ALLOWED_DOMAINS` list only includes:
-- amazon.com, ebay.com, walmart.com, bestbuy.com, etc.
-
-It does NOT include `afrishop.com`, so the fallback URL is rejected.
-
-### Fix Required
-
-Update `ShopCartContext.tsx` to generate proper Amazon/eBay URLs using the `productId`:
+**Changes to `getStripePromise()` function:**
 
 ```typescript
-// Current fallback (WRONG - domain not allowed)
-productUrl = `https://afrishop.com/product/${item.provider}/${item.productId}`;
+let stripePromise: Promise<Stripe | null> | null = null;
+let stripeLoadAttempted = false;
 
-// Fixed fallback (CORRECT - uses allowed domains)
-if (item.provider === 'ebay') {
-  productUrl = `https://www.ebay.com/itm/${item.productId}`;
-} else if (item.provider === 'amazon' || item.provider === 'rainforest') {
-  // Extract ASIN from productId (may have prefix like "amazon_B0XYZ123")
-  let asin = item.productId;
-  if (asin.toLowerCase().startsWith('amazon_')) {
-    asin = asin.slice(7);
-  } else if (asin.toLowerCase().startsWith('rainforest_')) {
-    asin = asin.slice(11);
+async function getStripePromise(): Promise<Stripe | null> {
+  // Return cached instance if already loaded successfully
+  if (stripePromise && stripeLoadAttempted) {
+    try {
+      const cached = await stripePromise;
+      if (cached) return cached;
+    } catch {
+      // Cached promise failed, allow retry
+      stripePromise = null;
+    }
   }
-  productUrl = `https://www.amazon.com/dp/${asin}`;
-} else {
-  // For other providers, still try amazon.com as default
-  productUrl = `https://www.amazon.com/dp/${item.productId}`;
+
+  stripeLoadAttempted = true;
+  
+  try {
+    console.log('[CardPayment] Fetching bootstrap config...');
+    
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
+      {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      console.error('[CardPayment] Failed to fetch bootstrap config:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    console.log('[CardPayment] Bootstrap config received');
+    
+    const stripeProvider = data?.payments?.providers?.find((p: any) => p.id === 'stripe');
+    const publishableKey = stripeProvider?.publishable_key;
+    
+    if (!publishableKey) {
+      console.error('[CardPayment] Stripe publishable key not found in config');
+      return null;
+    }
+    
+    console.log('[CardPayment] Loading Stripe with key:', publishableKey.substring(0, 15) + '...');
+    
+    // Store the promise and await it to catch any rejections
+    stripePromise = loadStripe(publishableKey);
+    const stripeInstance = await stripePromise;
+    
+    if (!stripeInstance) {
+      console.error('[CardPayment] Stripe failed to initialize');
+      stripePromise = null;
+      return null;
+    }
+    
+    console.log('[CardPayment] Stripe initialized successfully');
+    return stripeInstance;
+    
+  } catch (error) {
+    console.error('[CardPayment] Error loading Stripe:', error);
+    stripePromise = null;
+    stripeLoadAttempted = false;
+    return null;
+  }
 }
 ```
 
+**Changes to `useEffect` in CardPayment component:**
+
+```typescript
+useEffect(() => {
+  let cancelled = false;
+  
+  const init = async () => {
+    console.log('[CardPayment] Initializing...', { orderId, hasClientSecret: !!clientSecret });
+    
+    if (!orderId || !clientSecret) {
+      console.error('[CardPayment] Missing orderId or clientSecret');
+      setError('Invalid payment session. Please try again.');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      // Add timeout protection
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Initialization timeout')), 15000)
+      );
+      
+      const stripeInstance = await Promise.race([
+        getStripePromise(),
+        timeoutPromise
+      ]);
+      
+      if (cancelled) return;
+      
+      if (!stripeInstance) {
+        setError('Failed to initialize payment. Please try again later.');
+        setLoading(false);
+        return;
+      }
+      
+      setStripe(stripeInstance);
+      setLoading(false);
+      console.log('[CardPayment] Ready to accept payment');
+      
+    } catch (err: any) {
+      console.error('[CardPayment] Initialization error:', err);
+      if (!cancelled) {
+        setError(err.message === 'Initialization timeout' 
+          ? 'Payment initialization timed out. Please refresh and try again.'
+          : 'Failed to initialize payment. Please try again later.');
+        setLoading(false);
+      }
+    }
+  };
+  
+  init();
+  
+  return () => { cancelled = true; };
+}, [orderId, clientSecret]);
+```
+
 ---
+
+## Expected Outcome
+
+After implementing these changes:
+1. Users will see helpful error messages instead of infinite loading
+2. If Stripe fails to load, users get a clear "try again" message within 15 seconds
+3. Console logs will help diagnose any remaining issues
+4. Failed initialization attempts will be retried instead of returning stale failures
 
 ## Files to Modify
+- `src/pages/shop/CardPayment.tsx` - Fix the Stripe initialization logic
 
-| File | Change |
-|------|--------|
-| Database migration | Add `CHOICE_REQUIRED` and `BANK_TRANSFER` to pay_method constraint; add `choice_required` to status constraint |
-| `src/contexts/ShopCartContext.tsx` | Fix productUrl fallback to use allowed domains (amazon.com, ebay.com) |
-
----
-
-## Technical Details
-
-### Migration SQL
-
-```sql
--- Fix checkout_sessions constraints for CHOICE_REQUIRED payment flow
-
--- 1. Update pay_method constraint
-ALTER TABLE checkout_sessions DROP CONSTRAINT IF EXISTS checkout_sessions_pay_method_check;
-ALTER TABLE checkout_sessions ADD CONSTRAINT checkout_sessions_pay_method_check 
-  CHECK (pay_method = ANY (ARRAY['CARD'::text, 'MOBILE_MONEY'::text, 'BANK_TRANSFER'::text, 'CHOICE_REQUIRED'::text]));
-
--- 2. Update status constraint  
-ALTER TABLE checkout_sessions DROP CONSTRAINT IF EXISTS checkout_sessions_status_check;
-ALTER TABLE checkout_sessions ADD CONSTRAINT checkout_sessions_status_check 
-  CHECK (status = ANY (ARRAY[
-    'awaiting_provider_selection'::text, 
-    'provider_selected'::text, 
-    'initiated'::text, 
-    'pending'::text, 
-    'processing'::text, 
-    'paid'::text, 
-    'failed'::text, 
-    'cancelled'::text, 
-    'expired'::text, 
-    'choice_required'::text
-  ]));
-```
-
-### ShopCartContext.tsx Update
-
-```typescript
-// In addItem function, replace the fallback URL logic:
-
-let productUrl = item.productUrl;
-if (!productUrl && item.productId) {
-  // Extract clean product ID (remove provider prefix if present)
-  let cleanId = item.productId;
-  const lowerCleanId = cleanId.toLowerCase();
-  
-  if (lowerCleanId.startsWith('amazon_')) {
-    cleanId = cleanId.slice(7);
-  } else if (lowerCleanId.startsWith('rainforest_')) {
-    cleanId = cleanId.slice(11);
-  } else if (lowerCleanId.startsWith('ebay_')) {
-    cleanId = cleanId.slice(5);
-  }
-  
-  // Build URL using allowed domain based on provider
-  if (item.provider === 'ebay') {
-    productUrl = `https://www.ebay.com/itm/${cleanId}`;
-  } else {
-    // Default to Amazon for rainforest/amazon providers
-    productUrl = `https://www.amazon.com/dp/${cleanId}`;
-  }
-}
-```
-
----
-
-## Expected Result After Fix
-
-1. **Database constraint updated** - `CHOICE_REQUIRED` payment flow will work
-2. **Cart items sync properly** - Fallback URLs use allowed domains
-3. **Checkout completes** - Both mobile money (Pawapay) and card (Stripe) payments will work
-
----
-
-## Testing Steps
-
-1. Clear browser cart/localStorage
-2. Add a product to cart from the shop
-3. Proceed to checkout
-4. Select payment method (mobile money or card)
-5. Payment should process successfully

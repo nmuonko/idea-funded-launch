@@ -103,8 +103,8 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/shop'];
-    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/shop'));
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
+    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop'));
   });
 
   return (
@@ -136,42 +136,52 @@ const App = () => {
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/cars" element={<Cars />} />
             
-            {/* Shop Routes */}
-            <Route path="/shop" element={<ShopHome />} />
-            <Route path="/shop/auth" element={<ShopAuth />} />
-            <Route path="/shop/auth/login" element={<Navigate to="/shop/auth" replace />} />
-            <Route path="/shop/auth/register" element={<Navigate to="/shop/auth" replace />} />
-            <Route path="/shop/onboarding" element={<Onboarding />} />
-            <Route path="/shop/search" element={<SearchResults />} />
-            <Route path="/shop/product/:provider/:id" element={<ProductDetails />} />
-            <Route path="/shop/cart" element={<ShopCart />} />
-            <Route path="/shop/saved" element={<SavedItems />} />
-            <Route path="/shop/orders" element={
+            {/* Shop Routes (root level) */}
+            <Route path="/browse" element={<ShopHome />} />
+            <Route path="/shop-auth" element={<ShopAuth />} />
+            <Route path="/shop-auth/login" element={<Navigate to="/shop-auth" replace />} />
+            <Route path="/shop-auth/register" element={<Navigate to="/shop-auth" replace />} />
+            <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/search" element={<SearchResults />} />
+            <Route path="/product/:provider/:id" element={<ProductDetails />} />
+            <Route path="/cart" element={<ShopCart />} />
+            <Route path="/saved" element={<SavedItems />} />
+            <Route path="/my-orders" element={
               <ShopProtectedRoute>
                 <MyShopOrders />
               </ShopProtectedRoute>
             } />
-            <Route path="/shop/account" element={<ShopAccount />} />
-            <Route path="/shop/checkout" element={
+            <Route path="/account" element={<ShopAccount />} />
+            <Route path="/checkout" element={
               <ShopProtectedRoute>
                 <Checkout />
               </ShopProtectedRoute>
             } />
-            <Route path="/shop/payment-pending" element={
+            <Route path="/payment-pending" element={
               <ShopProtectedRoute>
                 <PaymentPending />
               </ShopProtectedRoute>
             } />
-            <Route path="/shop/card-payment" element={
+            <Route path="/card-payment" element={
               <ShopProtectedRoute>
                 <CardPayment />
               </ShopProtectedRoute>
             } />
-            <Route path="/shop/payment-success" element={
+            <Route path="/payment-success-shop" element={
               <ShopProtectedRoute>
                 <ShopPaymentSuccess />
               </ShopProtectedRoute>
             } />
+            
+            {/* Legacy /shop redirects for compatibility */}
+            <Route path="/shop" element={<Navigate to="/browse" replace />} />
+            <Route path="/shop/auth" element={<Navigate to="/shop-auth" replace />} />
+            <Route path="/shop/cart" element={<Navigate to="/cart" replace />} />
+            <Route path="/shop/saved" element={<Navigate to="/saved" replace />} />
+            <Route path="/shop/orders" element={<Navigate to="/my-orders" replace />} />
+            <Route path="/shop/account" element={<Navigate to="/account" replace />} />
+            <Route path="/shop/checkout" element={<Navigate to="/checkout" replace />} />
+            <Route path="/shop/search" element={<Navigate to="/search" replace />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />

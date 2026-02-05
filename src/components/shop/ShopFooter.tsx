@@ -64,22 +64,22 @@ export function ShopFooter() {
             <h3 className="text-white font-semibold mb-4">{shop.shopFooterTitle || 'Shop'}</h3>
             <ul className="space-y-3">
               <li>
-                <Link to="/shop" className="text-white/60 hover:text-white text-sm transition-colors">
+                <Link to="/browse" className="text-white/60 hover:text-white text-sm transition-colors">
                   {shop.homeLink || 'Home'}
                 </Link>
               </li>
               <li>
-                <Link to="/shop/search" className="text-white/60 hover:text-white text-sm transition-colors">
+                <Link to="/search" className="text-white/60 hover:text-white text-sm transition-colors">
                   {shop.allProducts || 'All Products'}
                 </Link>
               </li>
               <li>
-                <Link to="/shop/search?category=electronics" className="text-white/60 hover:text-white text-sm transition-colors">
+                <Link to="/search?category=electronics" className="text-white/60 hover:text-white text-sm transition-colors">
                   {shop.electronics || 'Electronics'}
                 </Link>
               </li>
               <li>
-                <Link to="/shop/search?category=clothing" className="text-white/60 hover:text-white text-sm transition-colors">
+                <Link to="/search?category=clothing" className="text-white/60 hover:text-white text-sm transition-colors">
                   {shop.clothingFashion || 'Clothing'}
                 </Link>
               </li>

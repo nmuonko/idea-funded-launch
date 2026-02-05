@@ -342,7 +342,7 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
        <main className="pt-24 px-4 pb-20">
          <div className="container mx-auto max-w-md">
            <Link 
-             to="/shop/cart" 
+              to="/cart" 
              className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
            >
              <ArrowLeft className="h-4 w-4" />

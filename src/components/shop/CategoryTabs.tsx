@@ -93,9 +93,9 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
       onCategoryChange(category);
     } else {
       if (category === 'all') {
-        navigate('/shop');
+        navigate('/browse');
       } else {
-        navigate(`/shop/search?category=${category}`);
+        navigate(`/search?category=${category}`);
       }
     }
   };

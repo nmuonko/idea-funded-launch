@@ -99,7 +99,7 @@ export default function MyOrders() {
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/shop">
+            <Link to="/browse">
               <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -143,7 +143,7 @@ export default function MyOrders() {
               <p className="text-white/60 mb-6">
                 {shop?.noOrdersDescription || 'Your orders will appear here after you make a purchase'}
               </p>
-              <Link to="/shop">
+              <Link to="/browse">
                 <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
                   {shop?.startShopping || 'Start Shopping'}
                 </Button>

@@ -258,7 +258,7 @@ export default function Checkout() {
             paymentMethod: 'mobile_money',
             totalUsd 
           });
-          navigate(`/shop/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
+          navigate(`/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
           return;
         }
         
@@ -272,7 +272,7 @@ export default function Checkout() {
             paymentMethod: 'card',
             totalUsd 
           });
-          const cardPaymentUrl = `/shop/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
+          const cardPaymentUrl = `/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
           navigate(cardPaymentUrl);
           return;
         }
@@ -291,7 +291,7 @@ export default function Checkout() {
         // Fallback - redirect to order
         if (providerData?.order_id) {
           savePendingCheckout({ orderId: providerData.order_id, totalUsd });
-          navigate(`/shop/orders/${providerData.order_id}`);
+          navigate(`/orders/${providerData.order_id}`);
           return;
         }
       }
@@ -308,7 +308,7 @@ export default function Checkout() {
         navigate(`/bank-transfer-info?order_id=${data.order_id}`);
       } else if (data?.order_id) {
         savePendingCheckout({ orderId: data.order_id, totalUsd });
-        navigate(`/shop/orders/${data.order_id}`);
+        navigate(`/orders/${data.order_id}`);
       }
     } catch (error: any) {
       console.error('[WEB_CHECKOUT] Error:', error);
@@ -328,7 +328,7 @@ export default function Checkout() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-white/60 mb-4">Please sign in to checkout</p>
-          <Link to="/shop/auth?redirect=/shop/checkout">
+          <Link to="/shop-auth?redirect=/checkout">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
               Sign In
             </Button>
@@ -344,7 +344,7 @@ export default function Checkout() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-white/60 mb-4">Your cart is empty</p>
-          <Link to="/shop">
+          <Link to="/browse">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
               Continue Shopping
             </Button>
@@ -362,7 +362,7 @@ export default function Checkout() {
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <Link 
-            to="/shop/cart" 
+            to="/cart" 
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />

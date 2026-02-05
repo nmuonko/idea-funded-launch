@@ -6,11 +6,11 @@ import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
 const tabs = [
-  { key: 'browse', icon: Home, path: '/shop' },
-  { key: 'cart', icon: ShoppingCart, path: '/shop/cart' },
-  { key: 'saved', icon: Heart, path: '/shop/saved' },
-  { key: 'orders', icon: Package, path: '/shop/orders' },
-  { key: 'account', icon: User, path: '/shop/account' },
+  { key: 'browse', icon: Home, path: '/browse' },
+  { key: 'cart', icon: ShoppingCart, path: '/cart' },
+  { key: 'saved', icon: Heart, path: '/saved' },
+  { key: 'orders', icon: Package, path: '/my-orders' },
+  { key: 'account', icon: User, path: '/account' },
 ] as const;
 
 export function BottomNavigation() {
@@ -33,8 +33,8 @@ export function BottomNavigation() {
   };
 
   const isActive = (path: string) => {
-    if (path === '/shop') {
-      return location.pathname === '/shop' || location.pathname.startsWith('/shop/search') || location.pathname.startsWith('/shop/product');
+    if (path === '/browse') {
+      return location.pathname === '/browse' || location.pathname === '/' || location.pathname.startsWith('/search') || location.pathname.startsWith('/product');
     }
     return location.pathname.startsWith(path);
   };

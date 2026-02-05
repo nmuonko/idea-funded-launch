@@ -18,3 +18,13 @@ export const getEnvironmentName = (): string => {
   if (isLovablePreview()) return 'preview';
   return 'development';
 };
+
+/**
+ * Check if the current path is a shop route
+ */
+export const isShopRoute = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname;
+  const shopPaths = ['/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
+  return shopPaths.some(p => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'));
+};

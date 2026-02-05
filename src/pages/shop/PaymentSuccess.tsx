@@ -160,14 +160,14 @@
                className="space-y-3"
              >
                <Button
-                 onClick={() => navigate(`/shop/orders/${orderId}`)}
+                  onClick={() => navigate(`/orders/${orderId}`)}
                  className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full py-6"
                >
                  View Order Details
                  <ArrowRight className="w-5 h-5 ml-2" />
                </Button>
                
-               <Link to="/shop">
+                <Link to="/browse">
                  <Button variant="outline" className="w-full border-white/20 text-white rounded-full">
                    Continue Shopping
                  </Button>

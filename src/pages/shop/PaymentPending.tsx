@@ -106,7 +106,7 @@
                  Your payment has been confirmed. We'll start processing your order right away.
                </p>
                <Button
-                 onClick={() => navigate(`/shop/orders/${orderId}`)}
+                  onClick={() => navigate(`/orders/${orderId}`)}
                  className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full"
                >
                  View Order
@@ -145,7 +145,7 @@
                    {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                    Try Again
                  </Button>
-                 <Link to="/shop/checkout">
+                  <Link to="/checkout">
                    <Button variant="outline" className="w-full border-white/20 text-white rounded-full">
                      Back to Checkout
                    </Button>
@@ -165,7 +165,7 @@
        <main className="pt-24 px-4 pb-20">
          <div className="container mx-auto max-w-md">
            <Link 
-             to="/shop/orders" 
+              to="/my-orders" 
              className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
            >
              <ArrowLeft className="h-4 w-4" />

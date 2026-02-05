@@ -196,7 +196,7 @@ export default function ProductDetailsPage() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-red-400 mb-4">{error || 'Product not found'}</p>
-          <Link to="/shop">
+          <Link to="/browse">
             <Button variant="outline" className="border-white/20 text-white hover:bg-white/10">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Shop
@@ -219,7 +219,7 @@ export default function ProductDetailsPage() {
         <div className="container mx-auto max-w-6xl">
           {/* Back Button */}
           <Link 
-            to="/shop" 
+            to="/browse" 
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />

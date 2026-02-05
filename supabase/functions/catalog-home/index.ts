@@ -15,11 +15,11 @@ const corsHeaders = {
 
 // Hardcoded fallback sections (used if DB read fails)
 const FALLBACK_SECTIONS = [
-  { key: "phones", title_fr: "Téléphones", title_en: "Phones", seed_query: "iphone samsung smartphone unlocked", mode: "general" },
-  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", seed_query: "ps5 xbox nintendo switch console", mode: "general" },
-  { key: "computers", title_fr: "Ordinateurs", title_en: "Computers", seed_query: "laptop macbook dell hp notebook", mode: "general" },
-  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", seed_query: "toyota honda rav4 camry car", mode: "vehicle" },
-  { key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", seed_query: "shoes sneakers nike adidas clothing", mode: "general" },
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", seed_query: "iphone samsung smartphone unlocked", mode: "general", ebay_category_id: "9355" },
+  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", seed_query: "ps5 xbox nintendo switch console", mode: "general", ebay_category_id: "1249" },
+  { key: "computers", title_fr: "Ordinateurs", title_en: "Computers", seed_query: "laptop macbook dell hp notebook", mode: "general", ebay_category_id: "58058" },
+  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", seed_query: "toyota honda rav4 camry car", mode: "vehicle", ebay_category_id: "6000" },
+  { key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", seed_query: "shoes sneakers nike adidas clothing", mode: "general", ebay_category_id: "63889" },
 ];
 
 // Cache for eBay OAuth token
@@ -90,6 +90,7 @@ interface SectionConfig {
   title_en: string;
   seed_query: string;
   mode: string;
+  ebay_category_id?: string;
 }
 
 interface CatalogItem {
@@ -178,7 +179,7 @@ async function fetchSectionItems(
   ebayToken: string | null
 ): Promise<{ items: CatalogItem[]; error?: string; ms: number }> {
   const startMs = Date.now();
-  const { key, seed_query, mode } = sectionConfig;
+  const { key, seed_query, mode, ebay_category_id } = sectionConfig;
 
   if (!ebayToken) {
     console.error(`[CATALOG_HOME][SECTION_ERROR] correlationId=${correlationId} key=${key} error=NO_EBAY_TOKEN`);
@@ -190,7 +191,12 @@ async function fetchSectionItems(
     searchUrl.searchParams.set("q", seed_query);
     searchUrl.searchParams.set("limit", String(limit));
     
-    if (mode === "vehicle") {
+    // Apply eBay category filter if configured (restricts results to relevant category)
+    if (ebay_category_id) {
+      searchUrl.searchParams.set("category_ids", ebay_category_id);
+      console.log(`[CATALOG_HOME][SECTION] correlationId=${correlationId} key=${key} applying category_ids=${ebay_category_id}`);
+    } else if (mode === "vehicle") {
+      // Fallback for vehicles if no ebay_category_id
       searchUrl.searchParams.set("category_ids", "6000");
     }
 
@@ -260,7 +266,7 @@ async function loadSectionsFromDb(): Promise<{ sections: SectionConfig[] | null;
 
   try {
     const response = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode`,
+      `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode,ebay_category_id`,
       {
         headers: {
           apikey: serviceRoleKey,

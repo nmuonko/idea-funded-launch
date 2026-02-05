@@ -1,23 +1,103 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 import { normalizePaymentStatus as normalizeProviderStatus } from "../_shared/paymentProviders.ts";
 import { generateTraceId, logAudit } from "../_shared/auditLog.ts";
+
+// SDK-free: minimal REST client
+function createClient(url: string, key: string, options?: { global?: { headers?: Record<string, string> } }) {
+  const baseHeaders: Record<string, string> = { 
+    apikey: key, 
+    Authorization: `Bearer ${options?.global?.headers?.Authorization?.replace('Bearer ', '') || key}`,
+    'Content-Type': 'application/json',
+  };
+  return {
+    auth: {
+      getUser: async () => {
+        const res = await fetch(`${url}/auth/v1/user`, { headers: baseHeaders });
+        if (!res.ok) return { data: { user: null }, error: { message: 'Unauthorized' } };
+        return { data: { user: await res.json() }, error: null };
+      }
+    },
+    from: (table: string) => ({
+      select: (cols = "*") => ({
+        _table: table, _cols: cols, _filters: [] as string[], _single: false,
+        eq: function(col: string, val: unknown) { this._filters.push(`${col}=eq.${val}`); return this; },
+        maybeSingle: function() { this._single = true; return this; },
+        single: function() { this._single = true; return this; },
+        then: async function(resolve: (v: unknown) => void) {
+          const params = [`select=${this._cols}`, ...this._filters].join("&");
+          const headers = this._single ? { ...baseHeaders, Accept: "application/vnd.pgrst.object+json" } : baseHeaders;
+          try {
+            const res = await fetch(`${url}/rest/v1/${this._table}?${params}`, { headers });
+            if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
+            return resolve({ data: await res.json(), error: null });
+          } catch (e: unknown) { return resolve({ data: null, error: { message: String(e) } }); }
+        }
+      }),
+      update: (data: unknown) => ({
+        _table: table, _data: data, _filters: [] as string[],
+        eq: function(col: string, val: unknown) { this._filters.push(`${col}=eq.${val}`); return this; },
+        then: async function(resolve: (v: unknown) => void) {
+          const params = this._filters.join("&");
+          try {
+            const res = await fetch(`${url}/rest/v1/${this._table}?${params}`, {
+              method: 'PATCH', headers: baseHeaders, body: JSON.stringify(this._data)
+            });
+            if (!res.ok) return resolve({ error: { message: `${res.status}` } });
+            return resolve({ error: null });
+          } catch (e: unknown) { return resolve({ error: { message: String(e) } }); }
+        }
+      }),
+    }),
+    rpc: (fn: string, params?: Record<string, unknown>) => ({
+      then: async (resolve: (v: unknown) => void) => {
+        const res = await fetch(`${url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: baseHeaders, body: JSON.stringify(params || {}) });
+        if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
+        return resolve({ data: await res.json(), error: null });
+      }
+    }),
+  };
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-webhook-signature',
 };
 
-const verifyPaymentSchema = z.object({
-  orderId: z.string().uuid(),
-  status: z.union([z.string(), z.number()]),
-  description: z.string().max(500).optional().default(''),
-  transactionRefId: z.string().max(255).optional().default(''),
-  operatorRefId: z.string().max(255).optional().default(''),
-  currency: z.string().max(10).optional(),
-  amount: z.union([z.string(), z.number()]).optional(),
-});
+// Simple validation (replaces Zod)
+interface VerifyPaymentInput {
+  orderId: string;
+  status: string | number;
+  description?: string;
+  transactionRefId?: string;
+  operatorRefId?: string;
+  currency?: string;
+  amount?: string | number;
+}
+
+function validateVerifyPaymentInput(body: unknown): { data: VerifyPaymentInput; error: null } | { data: null; error: string } {
+  if (!body || typeof body !== "object") return { data: null, error: "Invalid body" };
+  const b = body as Record<string, unknown>;
+  
+  const orderId = typeof b.orderId === "string" ? b.orderId : "";
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(orderId)) return { data: null, error: "orderId must be a valid UUID" };
+  
+  const status = b.status;
+  if (status === undefined || status === null) return { data: null, error: "status is required" };
+  
+  return {
+    data: {
+      orderId,
+      status: status as string | number,
+      description: typeof b.description === "string" ? b.description.substring(0, 500) : "",
+      transactionRefId: typeof b.transactionRefId === "string" ? b.transactionRefId.substring(0, 255) : "",
+      operatorRefId: typeof b.operatorRefId === "string" ? b.operatorRefId.substring(0, 255) : "",
+      currency: typeof b.currency === "string" ? b.currency.substring(0, 10) : undefined,
+      amount: b.amount as string | number | undefined,
+    },
+    error: null,
+  };
+}
 
 async function verifyWebhookSignature(
   payload: string,
@@ -82,15 +162,15 @@ serve(async (req) => {
       );
     }
 
-    const parseResult = verifyPaymentSchema.safeParse(body);
-    if (!parseResult.success) {
+    const validationResult = validateVerifyPaymentInput(body);
+    if (validationResult.error) {
       return new Response(
-        JSON.stringify({ success: false, error: 'Invalid request data', details: (parseResult as any).error?.errors }),
+        JSON.stringify({ success: false, error: 'Invalid request data', details: validationResult.error }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { orderId, status, description, transactionRefId, operatorRefId } = parseResult.data;
+    const { orderId, status, description, transactionRefId, operatorRefId } = validationResult.data;
 
     // Authorization check
     const webhookSecret = Deno.env.get('MAISHAPAY_WEBHOOK_SECRET');

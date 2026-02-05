@@ -7,7 +7,8 @@
  * MaishaPay REMOVED - 2026-01
  */
 
-import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// SDK-free: use 'any' for client type to avoid bundle bloat
+type SupabaseClient = any;
 
 // ==================== Types ====================
 

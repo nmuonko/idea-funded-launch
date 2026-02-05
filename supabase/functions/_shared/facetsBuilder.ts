@@ -5,7 +5,8 @@
  * Supports caching to reduce costs.
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// SDK-free: use 'any' for client type to avoid bundle bloat
+type SupabaseClient = any;
 
 // ─── FACET TYPES ────────────────────────────────────────────────────────────────
 

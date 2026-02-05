@@ -25,7 +25,8 @@
  * - clothing_shoes_accessories: clothing_men, clothing_women, clothing_shoes, clothing_bags
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// SDK-free: use 'any' for client type to avoid bundle bloat
+type SupabaseClient = any;
 
 // ─── CANONICAL TABS ─────────────────────────────────────────────────────────────
 export const CANONICAL_TABS = [

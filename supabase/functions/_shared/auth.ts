@@ -207,6 +207,10 @@ function createUpdateBuilder(url: string, table: string, data: unknown, headers:
     neq(col: string, val: unknown) { this._filters.push(`${col}=neq.${encodeURIComponent(String(val))}`); return this; },
     in(col: string, vals: unknown[]) { this._filters.push(`${col}=in.(${vals.map(v => encodeURIComponent(String(v))).join(",")})`); return this; },
     is(col: string, val: unknown) { this._filters.push(`${col}=is.${val}`); return this; },
+    lt(col: string, val: unknown) { this._filters.push(`${col}=lt.${encodeURIComponent(String(val))}`); return this; },
+    gt(col: string, val: unknown) { this._filters.push(`${col}=gt.${encodeURIComponent(String(val))}`); return this; },
+    lte(col: string, val: unknown) { this._filters.push(`${col}=lte.${encodeURIComponent(String(val))}`); return this; },
+    gte(col: string, val: unknown) { this._filters.push(`${col}=gte.${encodeURIComponent(String(val))}`); return this; },
     select(cols?: string) {
       return {
         then: async (resolve: (v: unknown) => void) => {

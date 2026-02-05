@@ -7,6 +7,32 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
+// Helper function to get localized fallback from shop translations
+const getLocalizedFallback = (key: string, shop: Record<string, string>): string | undefined => {
+  const keyMap: Record<string, string> = {
+    electronics: 'electronics',
+    vehicles: 'vehicles',
+    home_garden: 'homeGarden',
+    clothing_shoes_accessories: 'clothingFashion',
+    toys: 'toys',
+    sporting_goods: 'sportingGoods',
+    business_industrial: 'electronics',
+    jewelry_watches: 'jewelryWatches',
+    refurbished: 'electronics',
+    parts_accessories: 'electronics',
+    phones: 'phones',
+    gaming: 'gaming',
+    computers: 'computers',
+    fashion: 'fashion',
+    home: 'home',
+    beauty: 'beauty',
+    watches: 'watches',
+    fitness: 'fitness',
+  };
+  const shopKey = keyMap[key];
+  return shopKey ? shop[shopKey] : undefined;
+};
+
 interface CategoryTab {
   key: string;
   title: string;
@@ -32,15 +58,15 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   // Build default tabs with i18n
   const getDefaultTabs = (): CategoryTab[] => [
     { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
-    { key: 'phones', title: shop.phones, icon: <Smartphone className="h-4 w-4" /> },
-    { key: 'vehicles', title: shop.vehicles, icon: <Car className="h-4 w-4" /> },
-    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
-    { key: 'fashion', title: shop.fashion, icon: <Shirt className="h-4 w-4" /> },
-    { key: 'home', title: shop.home, icon: <Home className="h-4 w-4" /> },
-    { key: 'beauty', title: shop.beauty, icon: <Sparkles className="h-4 w-4" /> },
-    { key: 'watches', title: shop.watches, icon: <Watch className="h-4 w-4" /> },
-    { key: 'fitness', title: shop.fitness, icon: <Dumbbell className="h-4 w-4" /> },
     { key: 'electronics', title: shop.electronics, icon: <Cpu className="h-4 w-4" /> },
+    { key: 'vehicles', title: shop.vehicles, icon: <Car className="h-4 w-4" /> },
+    { key: 'home', title: shop.homeGarden || shop.home, icon: <Home className="h-4 w-4" /> },
+    { key: 'fashion', title: shop.clothingFashion || shop.fashion, icon: <Shirt className="h-4 w-4" /> },
+    { key: 'toys', title: shop.toys || shop.toysGames, icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'sportingGoods', title: shop.sportingGoods || shop.sportsOutdoors, icon: <Dumbbell className="h-4 w-4" /> },
+    { key: 'watches', title: shop.jewelryWatches || shop.watches, icon: <Watch className="h-4 w-4" /> },
+    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'computers', title: shop.computers || shop.electronics, icon: <Cpu className="h-4 w-4" /> },
   ];
 
   // Update tabs when language changes
@@ -59,11 +85,17 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             vehicles: <Car className="h-4 w-4" />,
             gaming: <Gamepad2 className="h-4 w-4" />,
             fashion: <Shirt className="h-4 w-4" />,
+            clothing_shoes_accessories: <Shirt className="h-4 w-4" />,
             home: <Home className="h-4 w-4" />,
+            home_garden: <Home className="h-4 w-4" />,
             beauty: <Sparkles className="h-4 w-4" />,
             watches: <Watch className="h-4 w-4" />,
+            jewelry_watches: <Watch className="h-4 w-4" />,
             fitness: <Dumbbell className="h-4 w-4" />,
+            sporting_goods: <Dumbbell className="h-4 w-4" />,
             electronics: <Cpu className="h-4 w-4" />,
+            computers: <Cpu className="h-4 w-4" />,
+            toys: <Gamepad2 className="h-4 w-4" />,
           };
           
           // Get localized title based on language
@@ -71,9 +103,11 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
             ...data.tabs.map((tab: any) => ({
               key: tab.key,
-              title: language === 'fr' && tab.title_fr ? tab.title_fr :
-                     language === 'en' && tab.title_en ? tab.title_en :
-                     tab.title_en || tab.title,
+              title: language === 'fr' && tab.title_fr ? tab.title_fr 
+                   : language === 'sw' && tab.title_sw ? tab.title_sw
+                   : language === 'ln' && tab.title_ln ? tab.title_ln
+                   : language === 'en' && tab.title_en ? tab.title_en
+                   : getLocalizedFallback(tab.key, shop) || tab.title_en || tab.title,
               icon: iconMap[tab.key] || <Package className="h-4 w-4" />,
             })),
           ];

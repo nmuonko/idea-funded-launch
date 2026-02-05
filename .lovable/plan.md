@@ -1,70 +1,58 @@
 
+# Fix: $0.00 Pricing Regression - Cache Version Bump
 
-# Fix: Mobile Cart Buttons Not Working - "Requested function was not found"
+## Problem Diagnosis
 
-## Problem Identified
+After extensive investigation, the issue has been identified:
 
-Multiple critical mobile cart edge functions are **NOT DEPLOYED** (returning 404 errors):
+1. **Backend is working correctly** - The `catalog-home` endpoint returns valid prices (confirmed via API test: `priceUsd: 154.95, 189.99, 159.95, etc.`)
 
-| Function | Status | Lines | Purpose |
-|----------|--------|-------|---------|
-| `mobile-add-cart-item` | ❌ NOT DEPLOYED | 1106 | Add items to cart |
-| `mobile-get-cart` | ❌ NOT DEPLOYED | 596 | Fetch cart contents |
-| `mobile-update-cart-item` | ❌ NOT DEPLOYED | 400 | Update item quantity |
-| `mobile-delete-cart-item` | ❌ NOT DEPLOYED | 180 | Remove items from cart |
-| `mobile-create-order-from-cart` | ❌ NOT DEPLOYED | 306 | Create order from cart |
-| `mobile-checkout` | ❌ NOT DEPLOYED | 2304 | Checkout process |
+2. **Fresh browser shows correct prices** - Opening a new browser session displays prices correctly (verified with browser tool screenshot)
 
-The code for all these functions exists in the repository but they were never deployed to the Supabase Edge Functions runtime.
+3. **Your browser has stale cached data** - The frontend uses localStorage to cache catalog responses for 1 hour (3600 seconds). Your browser is serving old cached data from BEFORE the price extraction was fixed.
 
 ## Root Cause
 
-These functions were either:
-1. Never deployed after being created
-2. Deleted during the previous deployment attempts when `catalog-search` was causing issues
+```
+src/lib/catalogCache.ts (line 6):
+const CACHE_PREFIX = 'afrishop_cache:v2:';
+```
+
+Your browser's localStorage contains `afrishop_cache:v2:catalog-home:...` with old data where `priceUsd: 0`. The cache hasn't expired yet, so the frontend serves this stale response instead of fetching fresh data.
 
 ## Solution
 
-Deploy all mobile cart-related edge functions.
+**Increment the cache version from `v2` → `v3`** in the frontend cache module. This will:
 
-## Changes Required
+- Force ALL browsers to ignore old cached data (cache key changes from `afrishop_cache:v2:` to `afrishop_cache:v3:`)
+- Immediately fetch fresh catalog data with correct prices
+- No backend changes needed
 
-### Deploy Edge Functions (in order of criticality)
+---
 
-**Phase 1 - Core Cart Functions (smaller, should deploy quickly):**
-1. `mobile-delete-cart-item` (180 lines) - smallest, deploy first
-2. `mobile-create-order-from-cart` (306 lines)
-3. `mobile-update-cart-item` (400 lines)
-4. `mobile-get-cart` (596 lines)
+## Technical Changes
 
-**Phase 2 - Add to Cart (medium size):**
-5. `mobile-add-cart-item` (1106 lines) - this is the specific function causing the error
+### File: `src/lib/catalogCache.ts`
 
-**Phase 3 - Checkout (large, may timeout):**
-6. `mobile-checkout` (2304 lines) - **WARNING**: This is larger than `catalog-search` which times out. May need refactoring if deployment fails.
+**Change line 6:**
+```typescript
+// Before
+const CACHE_PREFIX = 'afrishop_cache:v2:';
 
-## Deployment Risk Assessment
+// After
+const CACHE_PREFIX = 'afrishop_cache:v3:';
+```
 
-| Function | Lines | Risk Level |
-|----------|-------|------------|
-| `mobile-delete-cart-item` | 180 | ✅ Low - should deploy instantly |
-| `mobile-create-order-from-cart` | 306 | ✅ Low |
-| `mobile-update-cart-item` | 400 | ✅ Low |
-| `mobile-get-cart` | 596 | ✅ Low |
-| `mobile-add-cart-item` | 1106 | ⚠️ Medium - larger but should work |
-| `mobile-checkout` | 2304 | ❌ HIGH - may timeout like catalog-search |
+This single-line change will:
+1. Invalidate all existing cached catalog data across all user browsers
+2. Cause the next page load to fetch fresh data from the backend
+3. Display correct prices ($154.95, $189.99, etc.) immediately
 
-## Expected Outcome
+---
 
-After deployment:
-- ✅ "Add to Cart" buttons will work on mobile
-- ✅ Cart management (view, update, delete) will work
-- ✅ Order creation will work
-- ⚠️ Checkout may still have issues if `mobile-checkout` times out during deployment
+## Verification Plan
 
-## Fallback Plan
-
-If `mobile-checkout` deployment times out:
-1. Cart functionality will still work (add, view, update, delete)
-2. The checkout function would need to be refactored into smaller modules in a future session
-
+After the change:
+1. Reload the homepage
+2. Verify prices display correctly (e.g., $154.95, $189.99)
+3. Check console logs show `[CACHE] STORE key= afrishop_cache:v3:...` (new version)

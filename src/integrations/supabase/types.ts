@@ -1434,6 +1434,42 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_sections: {
+        Row: {
+          created_at: string
+          is_active: boolean
+          key: string
+          mode: string
+          seed_query: string
+          sort_order: number
+          title_en: string
+          title_fr: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          is_active?: boolean
+          key: string
+          mode: string
+          seed_query: string
+          sort_order?: number
+          title_en: string
+          title_fr: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          is_active?: boolean
+          key?: string
+          mode?: string
+          seed_query?: string
+          sort_order?: number
+          title_en?: string
+          title_fr?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       catalog_seed_queries: {
         Row: {
           category: string

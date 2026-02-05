@@ -1,93 +1,147 @@
 
-# Fix: Mobile "Add to Cart" Failure - Column Name Mismatch
+# Fix: Homepage Sections Showing Irrelevant Items
 
 ## Problem Summary
 
-The "Add to Cart" button fails on mobile with error "Failed to add item to cart". The edge function logs reveal:
+The homepage category sections display irrelevant items:
+- **Phones** shows very old phone models
+- **Video Games** shows unrelated items like screwdrivers
+- **Computers**, **Vehicles**, **Fashion** also show mixed/irrelevant results
+
+## Root Cause Analysis
+
+The `catalog-home` and `catalog-home-v2` edge functions search eBay using **keyword-only queries without category filtering**. This causes eBay to return any item matching any word in the query:
 
 ```
-ERROR: Could not find the 'captured_price_usd' column of 'order_items' in the schema cache
+Current: q="ps5 xbox nintendo switch console"
+Problem: "switch" matches network switches, light switches, screwdrivers labeled as "switch repair tools"
 ```
 
-## Root Cause
-
-The `mobile-add-cart-item` edge function is trying to insert columns that don't exist in the `order_items` table:
-
-| Code Uses | Actual DB Column | Status |
-|-----------|------------------|--------|
-| `captured_price_usd` | `captured_price` | ❌ Wrong suffix |
-| `proposed_price_usd` | (none) | ❌ Does not exist |
-
-The insert fails immediately when attempting to use non-existent column names.
+The only category that uses a filter is **Vehicles** (`category_ids=6000`). All other sections perform unfiltered broad searches.
 
 ---
 
-## Solution
+## Solution Overview
 
-Fix the column name mapping in `supabase/functions/mobile-add-cart-item/index.ts`:
+Add eBay category IDs to each section to restrict search results to the correct product type:
 
-### File: `supabase/functions/mobile-add-cart-item/index.ts`
+| Section | Seed Query | eBay Category ID | Category Name |
+|---------|------------|------------------|---------------|
+| phones | iphone samsung smartphone unlocked | `9355` | Cell Phones & Smartphones |
+| video_games | ps5 xbox nintendo switch console | `1249` | Video Games & Consoles |
+| computers | laptop macbook dell hp notebook | `58058` | Computers/Tablets & Networking |
+| vehicles | toyota honda rav4 camry car | `6000` | Motors (already implemented) |
+| fashion | shoes sneakers nike adidas clothing | `63889` | Shoes |
 
-**Lines 297-300 - Change from:**
+---
+
+## Technical Changes
+
+### 1. Database Schema Update
+
+Add `ebay_category_id` column to `catalog_sections` table:
+
+```sql
+ALTER TABLE catalog_sections 
+ADD COLUMN ebay_category_id TEXT DEFAULT NULL;
+
+UPDATE catalog_sections SET ebay_category_id = '9355' WHERE key = 'phones';
+UPDATE catalog_sections SET ebay_category_id = '1249' WHERE key = 'video_games';
+UPDATE catalog_sections SET ebay_category_id = '58058' WHERE key = 'computers';
+UPDATE catalog_sections SET ebay_category_id = '6000' WHERE key = 'vehicles';
+UPDATE catalog_sections SET ebay_category_id = '63889' WHERE key = 'fashion';
+```
+
+### 2. Update FALLBACK_SECTIONS in Both Edge Functions
+
+**Files:** `supabase/functions/catalog-home/index.ts` and `supabase/functions/catalog-home-v2/index.ts`
+
+Update the hardcoded fallback sections to include `ebay_category_id`:
+
 ```typescript
-captured_price_usd: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
-proposed_price_usd: userEdited ? productPrice : null,
+const FALLBACK_SECTIONS = [
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", 
+    seed_query: "iphone samsung smartphone unlocked", mode: "general", ebay_category_id: "9355" },
+  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", 
+    seed_query: "ps5 xbox nintendo switch console", mode: "general", ebay_category_id: "1249" },
+  { key: "computers", title_fr: "Ordinateurs", title_en: "Computers", 
+    seed_query: "laptop macbook dell hp notebook", mode: "general", ebay_category_id: "58058" },
+  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", 
+    seed_query: "toyota honda rav4 camry car", mode: "vehicle", ebay_category_id: "6000" },
+  { key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", 
+    seed_query: "shoes sneakers nike adidas clothing", mode: "general", ebay_category_id: "63889" },
+];
 ```
 
-**To:**
-```typescript
-captured_price: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
-// Note: proposed_price_usd removed - column doesn't exist
-// The admin_adjusted_price column will be used when admin reviews
-```
+### 3. Update SectionConfig Interface
 
----
-
-## Technical Details
-
-The fix involves:
-
-1. **Rename `captured_price_usd`** → `captured_price` (line 299)
-2. **Remove `proposed_price_usd`** - This column doesn't exist. The intended behavior (storing user's proposed price when they manually edit) can use `base_price_usd` which is already being set
-
----
-
-## Complete Change (Lines 285-309)
+Add `ebay_category_id` to the TypeScript interface:
 
 ```typescript
-// Insert new item
-const newItem = {
-  order_id: draft.id,
-  product_url: productUrl,
-  title: productTitle,
-  product_image_url: productImageUrl,
-  store,
-  quantity,
-  base_price_usd: productPrice,
-  shipping_item_type_id: finalShippingTypeId,
-  est_weight_kg: estWeightKg,
-  requires_manual_quote: requiresManualQuote,
-  is_saved_for_later: false,
-  price_source: userEdited ? "manual_user" : "auto",
-  price_confirmation_status: userEdited ? "pending" : null,
-  captured_price: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
-  // Note: proposed price is stored in base_price_usd above
-};
+interface SectionConfig {
+  key: string;
+  title_fr: string;
+  title_en: string;
+  seed_query: string;
+  mode: string;
+  ebay_category_id?: string;  // NEW
+}
 ```
 
----
+### 4. Update fetchSectionItems Function
 
-## Expected Result
+Modify the search URL construction to include `category_ids` for ALL sections (not just vehicles):
 
-After this fix:
-- Mobile app can successfully add items to cart
-- Guest users get price calculations
-- Authenticated users get items persisted to database
-- No schema mismatch errors
-- No regressions to web functionality (same endpoint used)
+```typescript
+// In fetchSectionItems function
+const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
+searchUrl.searchParams.set("q", seed_query);
+searchUrl.searchParams.set("limit", String(limit));
+
+// Apply category filter for ALL sections that have one
+if (sectionConfig.ebay_category_id) {
+  searchUrl.searchParams.set("category_ids", sectionConfig.ebay_category_id);
+}
+```
+
+### 5. Update Database Query to Fetch ebay_category_id
+
+In `loadSectionsFromDb()`, update the SELECT to include the new column:
+
+```typescript
+const response = await fetch(
+  `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode,ebay_category_id`,
+  // ...
+);
+```
+
+### 6. Bump Cache Version
+
+Increment the frontend cache version to force fresh data:
+
+```typescript
+// src/lib/catalogCache.ts
+const CACHE_PREFIX = 'afrishop_cache:v4:';
+```
 
 ---
 
 ## Files to Modify
 
-1. **`supabase/functions/mobile-add-cart-item/index.ts`** - Fix column names at lines 299-300
+1. **Database Migration** - Add `ebay_category_id` column and populate values
+2. **`supabase/functions/catalog-home/index.ts`** - Update interface, fallbacks, fetch logic, and DB query
+3. **`supabase/functions/catalog-home-v2/index.ts`** - Same updates
+4. **`src/lib/catalogCache.ts`** - Bump cache version to v4
+
+---
+
+## Expected Results
+
+After implementation:
+- **Phones** shows only smartphones (iPhones, Samsung Galaxy, etc.)
+- **Video Games** shows only gaming consoles and games (PS5, Xbox, Nintendo)
+- **Computers** shows only laptops and computers (MacBooks, Dell, HP)
+- **Vehicles** continues to show cars (already working)
+- **Fashion** shows shoes and clothing items
+
+Each section will be constrained to its proper eBay category, eliminating irrelevant items like screwdrivers appearing in Video Games.

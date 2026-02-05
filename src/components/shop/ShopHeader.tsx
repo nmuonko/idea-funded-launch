@@ -72,9 +72,12 @@ export function ShopHeader() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-4 py-3">
         <div className="flex items-center gap-2 md:gap-3">
-          {/* Left Side: Menu + Logo */}
-          
-          {/* Hamburger Menu */}
+          {/* Logo - First (Far Left) */}
+          <Link to="/shop" className="flex-shrink-0">
+            <img src={afrishopLogo} alt="AfriShop" className="h-8" />
+          </Link>
+
+          {/* Hamburger Menu - After Logo */}
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
               <Button
@@ -166,11 +169,6 @@ export function ShopHeader() {
               </div>
             </SheetContent>
           </Sheet>
-
-          {/* Logo */}
-          <Link to="/shop" className="flex-shrink-0">
-            <img src={afrishopLogo} alt="AfriShop" className="h-8" />
-          </Link>
 
           {/* Search Bar - CENTER: Takes most space */}
           <div className="flex-1 mx-2 md:mx-4">

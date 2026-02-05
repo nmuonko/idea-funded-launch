@@ -5,13 +5,10 @@ import {
   ArrowLeft, 
   Globe, 
   Bell, 
-  MessageCircle, 
-  Mail, 
   LogOut, 
   ChevronRight,
   Shield,
-  HelpCircle,
-  ExternalLink
+  HelpCircle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -28,7 +25,6 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations, languages } from '@/lib/i18n/translations';
-import { cn } from '@/lib/utils';
 
 export default function Account() {
   const { user, profile, signOut } = useAuth();
@@ -42,14 +38,6 @@ export default function Account() {
   const handleSignOut = async () => {
     await signOut();
     navigate('/shop');
-  };
-
-  const openWhatsApp = () => {
-    window.open('https://wa.me/15551234567', '_blank');
-  };
-
-  const openEmail = () => {
-    window.location.href = 'mailto:support@afrishop.com';
   };
 
   return (
@@ -152,38 +140,16 @@ export default function Account() {
             </div>
           </motion.section>
 
-          {/* Support Section */}
+          {/* Help & Legal Section */}
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden mb-4"
           >
-            <button
-              onClick={openWhatsApp}
-              className="w-full flex items-center justify-between px-5 py-4 border-b border-white/10 hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <MessageCircle className="h-5 w-5 text-green-400" />
-                <span className="text-white">{shop?.whatsappSupport || 'WhatsApp Support'}</span>
-              </div>
-              <ExternalLink className="h-4 w-4 text-white/40" />
-            </button>
-
-            <button
-              onClick={openEmail}
-              className="w-full flex items-center justify-between px-5 py-4 border-b border-white/10 hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <Mail className="h-5 w-5 text-blue-400" />
-                <span className="text-white">{shop?.emailSupport || 'Email Support'}</span>
-              </div>
-              <ExternalLink className="h-4 w-4 text-white/40" />
-            </button>
-
             <Link
               to="/knowledge-base"
-              className="flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors"
+              className="flex items-center justify-between px-5 py-4 border-b border-white/10 hover:bg-white/5 transition-colors"
             >
               <div className="flex items-center gap-3">
                 <HelpCircle className="h-5 w-5 text-white/60" />
@@ -191,15 +157,7 @@ export default function Account() {
               </div>
               <ChevronRight className="h-4 w-4 text-white/40" />
             </Link>
-          </motion.section>
 
-          {/* Legal Section */}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden mb-4"
-          >
             <Link
               to="/privacy"
               className="flex items-center justify-between px-5 py-4 border-b border-white/10 hover:bg-white/5 transition-colors"
@@ -228,7 +186,7 @@ export default function Account() {
             <motion.section
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
+              transition={{ delay: 0.3 }}
             >
               <Button
                 onClick={handleSignOut}

@@ -12,7 +12,6 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, AlertCircle, Mail, Lock, Globe } from 'lucide-react';
 import { LanguageDropdown } from '@/components/support/LanguageDropdown';
-import { SupportChat } from '@/components/support/SupportChat';
 
 export default function Profile() {
   const { user, profile, setProfile, loadProfile } = useAuth();
@@ -337,9 +336,6 @@ export default function Profile() {
               </div>
               <LanguageDropdown />
             </div>
-
-            {/* Support Chat */}
-            <SupportChat />
           </CardContent>
         </Card>
       </div>

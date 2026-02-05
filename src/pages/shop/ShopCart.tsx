@@ -66,7 +66,7 @@ export default function ShopCart() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-center py-20"
+              className="min-h-[60vh] flex flex-col items-center justify-center text-center"
             >
               <ShoppingBag className="h-20 w-20 text-white/20 mx-auto mb-6" />
               <h2 className="text-xl font-semibold text-white mb-2">Your cart is empty</h2>

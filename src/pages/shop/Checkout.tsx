@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
@@ -35,6 +35,7 @@ export default function Checkout() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(false);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',
@@ -62,6 +63,7 @@ export default function Checkout() {
       if (!user) return;
       
       try {
+        console.log('[CHECKOUT] Loading profile for user:', user.id);
         const { data } = await supabase
           .from('profiles')
           .select('*')
@@ -79,6 +81,7 @@ export default function Checkout() {
             postalCode: data.postal_code || '',
             country: data.country || 'DR Congo',
           });
+          console.log('[CHECKOUT] Profile loaded, hasAddress:', !!(data.address_line1));
         }
       } catch (error) {
         console.error('Failed to load profile:', error);
@@ -89,6 +92,11 @@ export default function Checkout() {
 
     loadProfile();
   }, [user]);
+
+  // Check if user has a saved address
+  const hasSavedAddress = useMemo(() => {
+    return !!(address.fullName && address.addressLine1 && address.city && address.country);
+  }, [address]);
 
   const handleInputChange = (field: keyof ShippingAddress, value: string) => {
     setAddress(prev => ({ ...prev, [field]: value }));
@@ -379,8 +387,58 @@ export default function Checkout() {
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin text-white/40" />
                     </div>
+                  ) : hasSavedAddress && !editingAddress ? (
+                    /* Saved Address Confirmation Card */
+                    <div className="space-y-4">
+                      <div className="bg-white/5 rounded-xl border border-white/10 p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                            <MapPin className="h-5 w-5 text-green-400" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-medium">{address.fullName}</p>
+                            <p className="text-sm text-white/70 mt-1">{address.phone}</p>
+                            <p className="text-sm text-white/60 mt-2">
+                              {address.addressLine1}
+                              {address.addressLine2 && `, ${address.addressLine2}`}
+                            </p>
+                            <p className="text-sm text-white/60">
+                              {address.city}
+                              {address.stateProvince && `, ${address.stateProvince}`}
+                              {address.postalCode && ` ${address.postalCode}`}
+                            </p>
+                            <p className="text-sm text-white/60">{address.country}</p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingAddress(true)}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                          Edit Address
+                        </button>
+                      </div>
+                      
+                      <p className="text-xs text-green-400 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Using your saved shipping address
+                      </p>
+                    </div>
                   ) : (
                     <div className="grid gap-4">
+                      {hasSavedAddress && editingAddress && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingAddress(false)}
+                          className="text-sm text-white/60 hover:text-white mb-2 flex items-center gap-1"
+                        >
+                          ← Back to saved address
+                        </button>
+                      )}
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor="fullName" className="text-white/70">Full Name</Label>

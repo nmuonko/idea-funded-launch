@@ -80,6 +80,7 @@ import DownloadPage from "./pages/Download";
 import Coverage from "./pages/Coverage";
 import DeleteAccount from "./pages/DeleteAccount";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
 
 // Shop pages
 import ShopHome from "./pages/shop/ShopHome";
@@ -118,6 +119,8 @@ const App = () => {
                 <Toaster />
               <Sonner />
               <BrowserRouter>
+          {/* Global floating contact widget for shop */}
+          <FloatingContactWidget />
           <Routes>
             <Route path="/" element={<HowItWorks />} />
             <Route path="/how-it-works" element={<HowItWorks />} />

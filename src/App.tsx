@@ -122,7 +122,7 @@ const App = () => {
           {/* Global floating contact widget for shop */}
           <FloatingContactWidget />
           <Routes>
-            <Route path="/" element={<HowItWorks />} />
+        <Route path="/" element={<ShopHome />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/about" element={<About />} />
             <Route path="/coverage" element={<Coverage />} />
@@ -136,8 +136,8 @@ const App = () => {
             <Route path="/download" element={<DownloadPage />} />
             <Route path="/cars" element={<Cars />} />
             
-            {/* Shop Routes (root level) */}
-            <Route path="/browse" element={<ShopHome />} />
+            {/* Legacy /browse redirect */}
+            <Route path="/browse" element={<Navigate to="/" replace />} />
             <Route path="/shop-auth" element={<ShopAuth />} />
             <Route path="/shop-auth/login" element={<Navigate to="/shop-auth" replace />} />
             <Route path="/shop-auth/register" element={<Navigate to="/shop-auth" replace />} />
@@ -174,7 +174,7 @@ const App = () => {
             } />
             
             {/* Legacy /shop redirects for compatibility */}
-            <Route path="/shop" element={<Navigate to="/browse" replace />} />
+            <Route path="/shop" element={<Navigate to="/" replace />} />
             <Route path="/shop/auth" element={<Navigate to="/shop-auth" replace />} />
             <Route path="/shop/cart" element={<Navigate to="/cart" replace />} />
             <Route path="/shop/saved" element={<Navigate to="/saved" replace />} />

@@ -6,7 +6,7 @@ import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
 const tabs = [
-  { key: 'browse', icon: Home, path: '/browse' },
+  { key: 'browse', icon: Home, path: '/' },
   { key: 'cart', icon: ShoppingCart, path: '/cart' },
   { key: 'saved', icon: Heart, path: '/saved' },
   { key: 'orders', icon: Package, path: '/my-orders' },
@@ -33,8 +33,8 @@ export function BottomNavigation() {
   };
 
   const isActive = (path: string) => {
-    if (path === '/browse') {
-      return location.pathname === '/browse' || location.pathname === '/' || location.pathname.startsWith('/search') || location.pathname.startsWith('/product');
+    if (path === '/') {
+      return location.pathname === '/' || location.pathname.startsWith('/search') || location.pathname.startsWith('/product');
     }
     return location.pathname.startsWith(path);
   };

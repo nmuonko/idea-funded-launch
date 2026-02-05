@@ -1,104 +1,70 @@
 
-# Fix: Mobile "Catalogue Indisponible" - Multiple Endpoints Missing CORS Headers
+
+# Fix: Mobile Cart Buttons Not Working - "Requested function was not found"
 
 ## Problem Identified
 
-The `catalog-home` function was fixed, but the mobile app calls multiple catalog endpoints on startup. These other endpoints are **missing the mobile-specific CORS headers**, causing the mobile app to fail:
+Multiple critical mobile cart edge functions are **NOT DEPLOYED** (returning 404 errors):
 
-| Endpoint | Current Headers | Status |
-|----------|-----------------|--------|
-| `catalog-home` | ✅ Has mobile headers | Fixed |
-| `mobile-public-config` | ❌ Missing mobile headers | **Broken** |
-| `catalog-search` | ❌ Missing mobile headers | **Broken** |
-| `catalog-product` | ❌ Missing mobile headers | **Broken** |
+| Function | Status | Lines | Purpose |
+|----------|--------|-------|---------|
+| `mobile-add-cart-item` | ❌ NOT DEPLOYED | 1106 | Add items to cart |
+| `mobile-get-cart` | ❌ NOT DEPLOYED | 596 | Fetch cart contents |
+| `mobile-update-cart-item` | ❌ NOT DEPLOYED | 400 | Update item quantity |
+| `mobile-delete-cart-item` | ❌ NOT DEPLOYED | 180 | Remove items from cart |
+| `mobile-create-order-from-cart` | ❌ NOT DEPLOYED | 306 | Create order from cart |
+| `mobile-checkout` | ❌ NOT DEPLOYED | 2304 | Checkout process |
 
-The mobile app likely calls `mobile-public-config` first to bootstrap, and if that fails with a CORS error, the entire catalog becomes unavailable.
+The code for all these functions exists in the repository but they were never deployed to the Supabase Edge Functions runtime.
 
 ## Root Cause
 
-Mobile Supabase clients (React Native) send these headers that need to be explicitly allowed:
-- `x-supabase-client-platform`
-- `x-supabase-client-platform-version`
-- `x-supabase-client-runtime`
-- `x-supabase-client-runtime-version`
+These functions were either:
+1. Never deployed after being created
+2. Deleted during the previous deployment attempts when `catalog-search` was causing issues
 
 ## Solution
 
-Update CORS headers in all mobile-facing catalog endpoints to include the mobile-specific headers.
+Deploy all mobile cart-related edge functions.
 
 ## Changes Required
 
-### 1. Update `supabase/functions/mobile-public-config/index.ts` (Line 12-16)
+### Deploy Edge Functions (in order of criticality)
 
-```typescript
-// FROM:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment",
-  "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
-};
+**Phase 1 - Core Cart Functions (smaller, should deploy quickly):**
+1. `mobile-delete-cart-item` (180 lines) - smallest, deploy first
+2. `mobile-create-order-from-cart` (306 lines)
+3. `mobile-update-cart-item` (400 lines)
+4. `mobile-get-cart` (596 lines)
 
-// TO:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
-};
-```
+**Phase 2 - Add to Cart (medium size):**
+5. `mobile-add-cart-item` (1106 lines) - this is the specific function causing the error
 
-### 2. Update `supabase/functions/catalog-search/index.ts` (Line 71-74)
+**Phase 3 - Checkout (large, may timeout):**
+6. `mobile-checkout` (2304 lines) - **WARNING**: This is larger than `catalog-search` which times out. May need refactoring if deployment fails.
 
-```typescript
-// FROM:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
-};
+## Deployment Risk Assessment
 
-// TO:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
-```
+| Function | Lines | Risk Level |
+|----------|-------|------------|
+| `mobile-delete-cart-item` | 180 | ✅ Low - should deploy instantly |
+| `mobile-create-order-from-cart` | 306 | ✅ Low |
+| `mobile-update-cart-item` | 400 | ✅ Low |
+| `mobile-get-cart` | 596 | ✅ Low |
+| `mobile-add-cart-item` | 1106 | ⚠️ Medium - larger but should work |
+| `mobile-checkout` | 2304 | ❌ HIGH - may timeout like catalog-search |
 
-### 3. Update `supabase/functions/catalog-product/index.ts` (Line 33-37)
+## Expected Outcome
 
-```typescript
-// FROM:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
-  "Cache-Control": "public, max-age=300",
-};
+After deployment:
+- ✅ "Add to Cart" buttons will work on mobile
+- ✅ Cart management (view, update, delete) will work
+- ✅ Order creation will work
+- ⚠️ Checkout may still have issues if `mobile-checkout` times out during deployment
 
-// TO:
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Cache-Control": "public, max-age=300",
-};
-```
+## Fallback Plan
 
-### 4. Redeploy All Three Functions
+If `mobile-checkout` deployment times out:
+1. Cart functionality will still work (add, view, update, delete)
+2. The checkout function would need to be refactored into smaller modules in a future session
 
-Deploy the updated functions to apply the CORS fixes.
-
-## Technical Details
-
-| Aspect | Details |
-|--------|---------|
-| Root Cause | Multiple catalog endpoints missing mobile CORS headers |
-| Most Critical | `mobile-public-config` - called first on app startup |
-| Fix Scope | Add 4 mobile-specific headers to 3 edge functions |
-| Risk | None - only adds allowed headers, no functionality changes |
-
-## Why This Will Work
-
-1. `mobile-public-config` is the **first endpoint** called when the mobile app starts
-2. If this CORS fails, the app cannot get configuration and shows "Catalogue Indisponible"
-3. Even if `catalog-home` works, the app needs config first to know what to display
-4. Fixing all three endpoints ensures the complete mobile flow works

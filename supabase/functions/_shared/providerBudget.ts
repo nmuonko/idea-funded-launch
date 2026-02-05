@@ -3,7 +3,9 @@
  * Manages API call budgets for cost control
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
+
 import { BudgetWindow } from "./catalogSettings.ts";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────

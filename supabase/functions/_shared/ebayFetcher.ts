@@ -3,15 +3,14 @@
  * Used by catalog-search and catalog-category
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClientAny = any;
+
 import { searchEbay, NormalizedItem } from "./ebayBrowseSearch.ts";
 import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { isAllowedMotorListing } from "./motorsFilter.ts";
 import { CatalogFilters } from "./sortFilterNormalizer.ts";
 import { CatalogItem, mapEbayItemToResponse } from "./catalogItemMapper.ts";
-
-// deno-lint-ignore no-explicit-any
-type SupabaseClientAny = ReturnType<typeof createClient<any, any>>;
 
 export interface EbayFetchParams {
   supabase: SupabaseClientAny;

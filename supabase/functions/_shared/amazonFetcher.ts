@@ -3,7 +3,9 @@
  * Used by catalog-search and catalog-category
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClientAny = any;
+
 import { searchRainforest } from "./rainforestAdapter.ts";
 import { mapCategoryAndSubcategory } from "./categoryMapper.ts";
 import { CatalogSettings } from "./catalogSettings.ts";
@@ -22,9 +24,6 @@ import {
   mapRainforestProduct 
 } from "./catalogItemMapper.ts";
 import { upgradeAmazonImage } from "./imageUpgrade.ts";
-
-// deno-lint-ignore no-explicit-any
-type SupabaseClientAny = ReturnType<typeof createClient<any, any>>;
 
 export interface AmazonFetchParams {
   supabase: SupabaseClientAny;

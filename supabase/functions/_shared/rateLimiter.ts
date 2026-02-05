@@ -4,7 +4,8 @@
  * Supports per-user and per-IP rate limiting
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
 
 export interface RateLimitResult {
   allowed: boolean;

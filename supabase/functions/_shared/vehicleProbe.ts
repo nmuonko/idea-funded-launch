@@ -110,21 +110,24 @@ export async function probeEbayVehicleCategory(
     const expiresAt = new Date(Date.now() + PROBE_CACHE_TTL_HOURS * 60 * 60 * 1000).toISOString();
     const staleAt = new Date(Date.now() + PROBE_STALE_TTL_HOURS * 60 * 60 * 1000).toISOString();
     
-    supabase.from("catalog_cache").upsert({
-      cache_key: probeKey,
-      cache_type: "search",
-      response: result,
-      expires_at: expiresAt,
-      stale_at: staleAt,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "cache_key" }).catch((err: Error) => {
+    // Wrap in try/catch since REST client doesn't support .catch()
+    try {
+      await supabase.from("catalog_cache").upsert({
+        cache_key: probeKey,
+        cache_type: "search",
+        response: result,
+        expires_at: expiresAt,
+        stale_at: staleAt,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "cache_key" });
+    } catch (err) {
       console.error(JSON.stringify({
         event: "[VEHICLE_PROBE] cache_write_error",
         query,
         error: String(err),
         requestId,
       }));
-    });
+    }
   }
   
   return result;

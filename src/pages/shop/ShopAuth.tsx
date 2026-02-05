@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Loader2, Mail, Lock, User, Phone, Check, MapPin, Building, Globe, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, translations } from '@/lib/i18n/translations';
@@ -18,15 +19,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Globe, ChevronDown } from 'lucide-react';
 
 type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot' | 'verify';
 
 export default function ShopAuth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/browse';
-  const { signIn, signUp, user } = useAuth();
+  const redirect = searchParams.get('redirect') || '/';
+  const { signIn, signUp, user, checkAdminStatus } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { toast } = useToast();
   
@@ -41,12 +41,47 @@ export default function ShopAuth() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [city, setCity] = useState('');
+  const [province, setProvince] = useState('');
+  const [country] = useState('DR Congo'); // Prefilled and locked
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
   const t = translations[language] || translations.en;
   const auth = (t as any).auth || {};
   const common = t.common as Record<string, string>;
   const currentLanguage = languages.find(l => l.code === language) || languages[0];
+
+  // DRC Provinces
+  const drcProvinces = [
+    'Kinshasa',
+    'Kongo-Central',
+    'Kwango',
+    'Kwilu',
+    'Mai-Ndombe',
+    'Kasaï',
+    'Kasaï-Central',
+    'Kasaï-Oriental',
+    'Lomami',
+    'Sankuru',
+    'Maniema',
+    'Sud-Kivu',
+    'Nord-Kivu',
+    'Ituri',
+    'Haut-Uele',
+    'Tshopo',
+    'Bas-Uele',
+    'Nord-Ubangi',
+    'Mongala',
+    'Sud-Ubangi',
+    'Équateur',
+    'Tshuapa',
+    'Tanganyika',
+    'Haut-Lomami',
+    'Lualaba',
+    'Haut-Katanga',
+  ];
 
   // Redirect if already logged in
   if (user) {
@@ -67,11 +102,24 @@ export default function ShopAuth() {
 
     setLoading(true);
     try {
-      await signIn(email, password);
+      const { userId } = await signIn(email, password, rememberMe);
       toast({
         title: auth.signInSuccess || 'Welcome back!',
       });
-      navigate(redirect, { replace: true });
+      
+      // Check if user is admin and redirect accordingly
+      if (userId) {
+        try {
+          const isAdminUser = await checkAdminStatus(userId);
+          if (isAdminUser) {
+            navigate('/admin', { replace: true });
+            return;
+          }
+        } catch (e) {
+          // Non-admin user, continue to shop
+        }
+      }
+      navigate(redirect || '/', { replace: true });
     } catch (error: any) {
       console.error('Sign in error:', error);
       toast({
@@ -118,6 +166,30 @@ export default function ShopAuth() {
       return;
     }
 
+    if (!phone || phone.length < 9) {
+      toast({
+        title: auth.errors?.phoneRequired || 'Phone number is required for mobile payments',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!city) {
+      toast({
+        title: auth.errors?.cityRequired || 'City is required for shipping',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!province) {
+      toast({
+        title: auth.errors?.provinceRequired || 'Province is required for shipping',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!termsAccepted) {
       toast({
         title: auth.errors?.termsRequired || 'Please accept the terms and conditions',
@@ -128,19 +200,12 @@ export default function ShopAuth() {
 
     setLoading(true);
     try {
-      await signUp(email, password, fullName);
-      
-      // Update profile with phone if provided
-      if (phone) {
-        const { data: { user: newUser } } = await supabase.auth.getUser();
-        if (newUser) {
-          await supabase.from('profiles').upsert({
-            user_id: newUser.id,
-            name: fullName,
-            phone,
-          });
-        }
-      }
+      await signUp(email, password, fullName, phone, {
+        country,
+        city,
+        province,
+        address_line1: addressLine1,
+      });
       
       setMode('verify');
     } catch (error: any) {
@@ -370,6 +435,21 @@ export default function ShopAuth() {
                 >
                   {auth.forgotPassword || 'Forgot Password?'}
                 </button>
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                    className="border-white/30 data-[state=checked]:bg-blue-500"
+                  />
+                  <label
+                    htmlFor="rememberMe"
+                    className="text-sm text-white/60 cursor-pointer"
+                  >
+                    {auth.rememberMe || 'Remember me'}
+                  </label>
+                </div>
               </div>
 
               <Button
@@ -442,7 +522,7 @@ export default function ShopAuth() {
                 </div>
 
                 <div>
-                  <Label htmlFor="phone" className="text-white/70">{auth.phone || 'Phone Number'}</Label>
+                  <Label htmlFor="phone" className="text-white/70">{auth.phone || 'Phone Number'} *</Label>
                   <div className="relative mt-1">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
                     <Input
@@ -452,8 +532,81 @@ export default function ShopAuth() {
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="+243 XXX XXX XXX"
                       className="pl-10 bg-white/5 border-white/10 text-white h-12"
+                      required
                     />
                   </div>
+                  <p className="text-xs text-white/40 mt-1">{auth.phoneNote || 'Required for mobile payment (M-Pesa, Orange Money, Airtel Money)'}</p>
+                </div>
+
+                {/* Shipping Address Section */}
+                <div className="pt-2 border-t border-white/10">
+                  <p className="text-xs text-white/50 mb-3">{auth.shippingInfo || 'Shipping Information'}</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="addressLine1" className="text-white/70">{auth.address || 'Shipping Address'}</Label>
+                  <div className="relative mt-1">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+                    <Input
+                      id="addressLine1"
+                      type="text"
+                      value={addressLine1}
+                      onChange={(e) => setAddressLine1(e.target.value)}
+                      placeholder="123 Avenue de la Paix"
+                      className="pl-10 bg-white/5 border-white/10 text-white h-12"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="city" className="text-white/70">{auth.city || 'City'} *</Label>
+                  <div className="relative mt-1">
+                    <Building className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+                    <Input
+                      id="city"
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="Kinshasa"
+                      className="pl-10 bg-white/5 border-white/10 text-white h-12"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="province" className="text-white/70">{auth.province || 'Province'} *</Label>
+                  <Select value={province} onValueChange={setProvince}>
+                    <SelectTrigger className="h-12 bg-white/5 border-white/10 text-white">
+                      <SelectValue placeholder={auth.selectProvince || 'Select province'} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl max-h-60">
+                      {drcProvinces.map((prov) => (
+                        <SelectItem 
+                          key={prov} 
+                          value={prov}
+                          className="text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+                        >
+                          {prov}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="country" className="text-white/70">{auth.country || 'Country'}</Label>
+                  <div className="relative mt-1">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+                    <Input
+                      id="country"
+                      type="text"
+                      value={country}
+                      disabled
+                      className="pl-10 bg-white/5 border-white/10 text-white/60 h-12 cursor-not-allowed"
+                    />
+                  </div>
+                  <p className="text-xs text-white/40 mt-1">{auth.countryNote || 'Currently shipping to DRC only'}</p>
                 </div>
 
                 <div>

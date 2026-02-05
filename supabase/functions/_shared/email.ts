@@ -1,4 +1,7 @@
-import { Resend } from "https://esm.sh/resend@4.0.0";
+/**
+ * Email Helper - SDK-free implementation using Resend REST API
+ * Replaces esm.sh/resend dependency to avoid bundle timeout
+ */
 
 // Default sender configuration
 export const DEFAULT_FROM_EMAIL = "AfriShop USA <nkadimisha@afrishop-usa.com>";
@@ -41,20 +44,6 @@ export interface SendEmailResult {
   error?: string;
 }
 
-// Singleton Resend client
-let resendClient: Resend | null = null;
-
-function getResendClient(): Resend {
-  if (!resendClient) {
-    const apiKey = Deno.env.get("RESEND_API_KEY");
-    if (!apiKey) {
-      throw new Error("[Email] RESEND_API_KEY environment variable is not set. Email sending will fail.");
-    }
-    resendClient = new Resend(apiKey);
-  }
-  return resendClient;
-}
-
 // Strip HTML tags for plain text fallback
 function stripHtml(html: string): string {
   return html
@@ -66,12 +55,17 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Send an email using Resend
- * @param opts Email options
- * @returns Result with success status and optional error
+ * Send an email using Resend REST API directly
+ * No SDK dependency - uses native fetch
  */
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   const { to, subject, html, text, from = DEFAULT_FROM_EMAIL, category = "test", replyTo } = opts;
+
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) {
+    console.error("[Email] RESEND_API_KEY not set");
+    return { success: false, error: "RESEND_API_KEY not configured" };
+  }
 
   // Generate plain text fallback if not provided
   const plainText = text || stripHtml(html);
@@ -82,9 +76,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
   console.log(`[Email] Sending ${category} email to ${recipients.join(", ")} - Subject: "${subject}"`);
 
   try {
-    const resend = getResendClient();
-
-    const emailPayload: any = {
+    const payload: Record<string, unknown> = {
       from,
       to: recipients,
       subject,
@@ -93,21 +85,32 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     };
 
     if (replyTo) {
-      emailPayload.reply_to = replyTo;
+      payload.reply_to = replyTo;
     }
 
-    const response = await resend.emails.send(emailPayload);
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-    if (response.error) {
-      console.error(`[Email] Resend API error for ${category}:`, response.error);
-      return { success: false, error: response.error.message };
+    const data = await res.json();
+
+    if (!res.ok) {
+      const errMsg = data?.message || data?.error?.message || `HTTP ${res.status}`;
+      console.error(`[Email] Resend API error for ${category}:`, errMsg);
+      return { success: false, error: errMsg };
     }
 
-    console.log(`[Email] Successfully sent ${category} email, ID: ${response.data?.id}`);
-    return { success: true, id: response.data?.id };
-  } catch (error: any) {
-    console.error(`[Email] Failed to send ${category} email to ${recipients.join(", ")}:`, error.message);
-    return { success: false, error: error.message };
+    console.log(`[Email] Successfully sent ${category} email, ID: ${data.id}`);
+    return { success: true, id: data.id };
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Email] Failed to send ${category} email to ${recipients.join(", ")}:`, errMsg);
+    return { success: false, error: errMsg };
   }
 }
 

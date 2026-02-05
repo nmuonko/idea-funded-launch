@@ -7,5 +7,12 @@
     "strictFunctionTypes": false,
     "strictPropertyInitialization": false,
     "noImplicitThis": false
+  },
+  "imports": {
+    "@supabase/supabase-js": "./_shared/supabaseShim.ts",
+    "https://esm.sh/@supabase/supabase-js@2": "./_shared/supabaseShim.ts",
+    "https://esm.sh/@supabase/supabase-js@2.7.1": "./_shared/supabaseShim.ts",
+    "https://esm.sh/@supabase/supabase-js@2.39.3": "./_shared/supabaseShim.ts",
+    "https://esm.sh/@supabase/supabase-js@2.49.1": "./_shared/supabaseShim.ts"
   }
 }

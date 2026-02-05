@@ -1437,6 +1437,7 @@ export type Database = {
       catalog_sections: {
         Row: {
           created_at: string
+          ebay_category_id: string | null
           is_active: boolean
           key: string
           mode: string
@@ -1448,6 +1449,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          ebay_category_id?: string | null
           is_active?: boolean
           key: string
           mode: string
@@ -1459,6 +1461,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          ebay_category_id?: string | null
           is_active?: boolean
           key?: string
           mode?: string

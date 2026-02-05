@@ -1,12 +1,12 @@
 import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useShopCart } from '@/contexts/ShopCartContext';
+import { calculateShippingUsd } from '@/lib/shippingCalculation';
 
 interface PriceBreakdownProps {
   itemPriceUsd: number;
   quantity?: number;
-  shippingPercent?: number;
-  markupPercent?: number;
   className?: string;
   showDetails?: boolean;
 }
@@ -14,14 +14,26 @@ interface PriceBreakdownProps {
 export function PriceBreakdown({
   itemPriceUsd,
   quantity = 1,
-  shippingPercent = 15,
-  markupPercent = 10,
   className,
   showDetails = true,
 }: PriceBreakdownProps) {
+  const { feeSettings } = useShopCart();
+  
   const subtotal = itemPriceUsd * quantity;
-  const shippingFee = subtotal * (shippingPercent / 100);
-  const serviceFee = subtotal * (markupPercent / 100);
+  
+  // Use canonical shipping formula: base + (subtotal * percent)
+  const shippingFee = calculateShippingUsd(
+    subtotal,
+    feeSettings.shippingBaseFeeUsd,
+    feeSettings.shippingPercent
+  );
+  
+  // Service fee: subtotal * markup percent (normalize if > 1)
+  const markupRate = feeSettings.markupPercent > 1 
+    ? feeSettings.markupPercent / 100 
+    : feeSettings.markupPercent;
+  const serviceFee = Math.round(subtotal * markupRate * 100) / 100;
+  
   const total = subtotal + shippingFee + serviceFee;
 
   return (

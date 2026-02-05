@@ -2,6 +2,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
+export interface FeeSettings {
+  markupPercent: number;
+  shippingBaseFeeUsd: number;
+  shippingPercent: number;
+}
+
 export interface CartItem {
   id: string;
   productId: string;
@@ -45,6 +51,8 @@ interface ShopCartContextType {
   isItemSaved: (productId: string, provider: string) => boolean;
   // Exchange rate for multi-currency
   exchangeRate: number;
+  // Fee settings from admin
+  feeSettings: FeeSettings;
 }
 
 const ShopCartContext = createContext<ShopCartContextType | undefined>(undefined);
@@ -61,6 +69,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [exchangeRate, setExchangeRate] = useState(2200);
   const [initialized, setInitialized] = useState(false);
+  const [feeSettings, setFeeSettings] = useState<FeeSettings>({
+    markupPercent: 15,
+    shippingBaseFeeUsd: 20,
+    shippingPercent: 10,
+  });
 
   // Load cart from localStorage on init (for guests) or as fallback
   useEffect(() => {
@@ -116,6 +129,20 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           const data = await response.json();
           if (data?.exchangeRate) {
             setExchangeRate(data.exchangeRate);
+          }
+          // Extract fee settings from API response
+          if (data) {
+            setFeeSettings({
+              // API returns nested structure: markup.value, shipping.flatUsd, shipping.percentValue
+              markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
+              shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
+              shippingPercent: data.shipping?.percentValue ?? data.shippingPercent ?? 10,
+            });
+            console.log('[CART] Fee settings loaded:', {
+              markupPercent: data.markup?.value,
+              shippingBaseFeeUsd: data.shipping?.flatUsd,
+              shippingPercent: data.shipping?.percentValue,
+            });
           }
         }
       } catch (e) {
@@ -388,6 +415,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         removeFromSaved,
         isItemSaved,
         exchangeRate,
+        feeSettings,
       }}
     >
       {children}

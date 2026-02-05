@@ -13,93 +13,8 @@
  * ALWAYS returns HTTP 200 with stable JSON
  */
 
-// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
-type SupabaseClient = any;
-
-function createClient(url: string, key: string, _options?: unknown): SupabaseClient {
-  // Return a minimal client that uses REST API directly
-  const baseHeaders = { apikey: key, Authorization: `Bearer ${key}` };
-  return {
-    from: (table: string) => ({
-      select: (cols = "*") => ({
-        _table: table, _cols: cols, _filters: [] as string[], _single: false,
-        eq: function(col: string, val: unknown) { this._filters.push(`${col}=eq.${val}`); return this; },
-        in: function(col: string, vals: unknown[]) { this._filters.push(`${col}=in.(${vals.join(",")})`); return this; },
-        gte: function(col: string, val: unknown) { this._filters.push(`${col}=gte.${val}`); return this; },
-        lte: function(col: string, val: unknown) { this._filters.push(`${col}=lte.${val}`); return this; },
-        order: function(col: string, opts?: { ascending?: boolean }) { 
-          this._filters.push(`order=${col}.${opts?.ascending === false ? "desc" : "asc"}`); 
-          return this; 
-        },
-        limit: function(n: number) { this._filters.push(`limit=${n}`); return this; },
-        maybeSingle: function() { this._single = true; return this; },
-        single: function() { this._single = true; return this; },
-        then: async function(resolve: (v: unknown) => void) {
-          const params = [`select=${this._cols}`, ...this._filters].join("&");
-          const headers = this._single 
-            ? { ...baseHeaders, Accept: "application/vnd.pgrst.object+json" } 
-            : baseHeaders;
-          try {
-            const res = await fetch(`${url}/rest/v1/${this._table}?${params}`, { headers });
-            if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
-            return resolve({ data: await res.json(), error: null });
-          } catch (e: unknown) { 
-            return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }); 
-          }
-        }
-      }),
-      insert: (rows: unknown) => ({
-        _table: table, _rows: rows,
-        then: async function(resolve: (v: unknown) => void) {
-          try {
-            const res = await fetch(`${url}/rest/v1/${this._table}`, {
-              method: "POST", headers: { ...baseHeaders, "Content-Type": "application/json", Prefer: "return=representation" },
-              body: JSON.stringify(this._rows)
-            });
-            if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
-            return resolve({ data: await res.json(), error: null });
-          } catch (e: unknown) { 
-            return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }); 
-          }
-        }
-      }),
-      upsert: (rows: unknown, opts?: { onConflict?: string }) => ({
-        _table: table, _rows: rows, _conflict: opts?.onConflict,
-        then: async function(resolve: (v: unknown) => void) {
-          try {
-            const prefer = this._conflict 
-              ? `resolution=merge-duplicates,return=representation` 
-              : "return=representation";
-            const res = await fetch(`${url}/rest/v1/${this._table}`, {
-              method: "POST", 
-              headers: { ...baseHeaders, "Content-Type": "application/json", Prefer: prefer },
-              body: JSON.stringify(this._rows)
-            });
-            if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
-            return resolve({ data: await res.json(), error: null });
-          } catch (e: unknown) { 
-            return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }); 
-          }
-        }
-      }),
-    }),
-    rpc: (fn: string, params?: Record<string, unknown>) => ({
-      _fn: fn, _params: params || {},
-      then: async function(resolve: (v: unknown) => void) {
-        try {
-          const res = await fetch(`${url}/rest/v1/rpc/${this._fn}`, {
-            method: "POST", headers: { ...baseHeaders, "Content-Type": "application/json" },
-            body: JSON.stringify(this._params)
-          });
-          if (!res.ok) return resolve({ data: null, error: { message: `${res.status}` } });
-          return resolve({ data: await res.json(), error: null });
-        } catch (e: unknown) { 
-          return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }); 
-        }
-      }
-    })
-  };
-}
+// Import the shared PostgREST client instead of inline SDK-like client
+import { PostgrestClient, createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { isBlockedSearchQuery, getBlockedSearchMessage, filterDisallowedItems } from "../_shared/contentBlocker.ts";
 import { getCatalogSettings, getEffectiveMode } from "../_shared/catalogSettings.ts";
@@ -216,12 +131,9 @@ Deno.serve(async (req: Request) => {
   );
   
   if (!hasBuyingIntent && !hasAccessoryInQuery && isAmbiguousQuery(qCanonicalized)) {
-    // Need to initialize supabase early for probe (normally done later)
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
-    if (supabaseUrl && supabaseKey) {
-      const supabaseForProbe = createClient(supabaseUrl, supabaseKey);
+    // Use shared PostgREST client for probe
+    try {
+      const supabaseForProbe = createAdminPostgrestClient();
       
       console.log(JSON.stringify({
         event: "[VEHICLE_PROBE] triggered",
@@ -243,6 +155,8 @@ Deno.serve(async (req: Request) => {
           probeSource: vehicleProbeResult.probeSource,
         }));
       }
+    } catch (e) {
+      console.warn(`[VEHICLE_PROBE] requestId=${requestId} probe failed:`, (e as Error).message);
     }
   }
   
@@ -316,20 +230,8 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildEmptyResponse({
-        code: "CONFIG_ERROR",
-        message: "Backend unavailable",
-      })), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Use the shared PostgREST client (no SDK)
+    const supabase = createAdminPostgrestClient();
 
     // ─── PERF TRACKING ──────────────────────────────────────────────────────────
     const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, amazon_ms: 0, ebay_ms: 0, mix_ms: 0, flags_ms: 0 };

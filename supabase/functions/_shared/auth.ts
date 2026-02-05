@@ -3,9 +3,22 @@
  * Uses direct REST API calls to avoid bundle bloat
  */
 
-// Use 'any' for SupabaseClient type
+import { PostgrestClient, createPostgrestClient, createAdminPostgrestClient, getDbClient as getPostgrestDbClient } from "./postgrest.ts";
+
+// Use 'any' for SupabaseClient type (backward compatibility)
 type SupabaseClient = any;
 type User = any;
+
+// Re-export PostgrestClient for modules that want to use it directly
+export { PostgrestClient, createPostgrestClient, createAdminPostgrestClient };
+
+/**
+ * Get PostgREST DB client from request - extracts JWT from Authorization header
+ * This is the preferred way to get a database client in edge functions
+ */
+export function getDbClient(req: Request): PostgrestClient {
+  return getPostgrestDbClient(req);
+}
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

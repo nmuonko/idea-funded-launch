@@ -443,22 +443,18 @@ async function fetchSectionWithTimeout(
     const response = cached.response as { items?: unknown[]; metadata?: HomeSectionMetadata };
     const rawItems = response.items || [];
     
-    // For vehicle sections, filter out any Amazon items from cache (they're accessories, not real cars)
-    let filteredItems = rawItems;
-    if (config.isVehicle) {
-      filteredItems = rawItems.filter((item: unknown) => {
-        const i = item as Record<string, unknown>;
-        return i.provider !== "rainforest" && i.provider !== "amazon";
-      });
-    }
+    // No provider filtering - Amazon Auto and eBay Motors both have real vehicles
+    // Filtering for parts/accessories is done during prewarm using motorsFilter
+    const items = rawItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
     
-    const items = filteredItems.map(item => mapCacheItemToResponse(item as Record<string, unknown>));
+    const amazonCount = items.filter(i => i.provider === "rainforest" || i.provider === "amazon").length;
+    const ebayCount = items.filter(i => i.provider === "ebay").length;
     
     return {
       items,
       cacheHit: true,
-      amazonCount: config.isVehicle ? 0 : (response.metadata?.amazonCount || 0),
-      ebayCount: response.metadata?.ebayCount || items.length,
+      amazonCount,
+      ebayCount,
       timedOut: false,
     };
   }

@@ -1928,11 +1928,14 @@ export type Database = {
           default_category_key: string | null
           ebay_category: string | null
           enabled: boolean | null
+          exclude_keywords: string[] | null
+          include_keywords: string[] | null
           is_vehicle: boolean | null
           key: string
           min_price: number | null
           see_all_query: string | null
           sort_order: number | null
+          strict: boolean | null
           title_en: string
           title_fr: string
           updated_at: string | null
@@ -1941,11 +1944,14 @@ export type Database = {
           default_category_key?: string | null
           ebay_category?: string | null
           enabled?: boolean | null
+          exclude_keywords?: string[] | null
+          include_keywords?: string[] | null
           is_vehicle?: boolean | null
           key: string
           min_price?: number | null
           see_all_query?: string | null
           sort_order?: number | null
+          strict?: boolean | null
           title_en: string
           title_fr: string
           updated_at?: string | null
@@ -1954,11 +1960,14 @@ export type Database = {
           default_category_key?: string | null
           ebay_category?: string | null
           enabled?: boolean | null
+          exclude_keywords?: string[] | null
+          include_keywords?: string[] | null
           is_vehicle?: boolean | null
           key?: string
           min_price?: number | null
           see_all_query?: string | null
           sort_order?: number | null
+          strict?: boolean | null
           title_en?: string
           title_fr?: string
           updated_at?: string | null

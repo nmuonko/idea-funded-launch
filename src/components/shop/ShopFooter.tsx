@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Globe, ChevronDown, Facebook, Instagram, Twitter, MapPin, Phone, Mail, Clock } from 'lucide-react';
+import { Globe, ChevronDown, Building2, FileText, MapPin, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, translations } from '@/lib/i18n/translations';
@@ -23,128 +23,70 @@ export function ShopFooter() {
     <footer className="bg-black border-t border-white/10 pb-24 md:pb-0">
       <div className="container mx-auto px-4 py-12">
         {/* Main Footer Content */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
-          {/* Brand */}
-          <div className="col-span-2 md:col-span-1 space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
+          {/* Company Info */}
+          <div className="col-span-2 space-y-4">
             <img src={afrishopLogo} alt="AfriShop" className="h-8" />
-            <p className="text-white/60 text-sm">
-              {shop.footerTagline || 'Shop USA, Deliver to Africa'}
-            </p>
-            {/* Social Links */}
-            <div className="flex items-center gap-3">
-              <a
-                href="https://facebook.com/afrishop"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <Facebook className="h-5 w-5" />
-              </a>
-              <a
-                href="https://instagram.com/afrishop"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <Instagram className="h-5 w-5" />
-              </a>
-              <a
-                href="https://twitter.com/afrishop"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-              >
-                <Twitter className="h-5 w-5" />
-              </a>
-            </div>
-          </div>
-
-          {/* Company Details */}
-          <div className="col-span-2 md:col-span-1">
-            <h3 className="text-white font-semibold mb-4">{shop.companyFooterTitle || 'Contact'}</h3>
-            <ul className="space-y-3">
-              <li className="flex items-start gap-2 text-white/60 text-sm">
+            <ul className="space-y-3 text-sm">
+              <li className="flex items-start gap-2 text-white/60">
+                <Building2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>{shop.operatedBy || 'Operated by'} <strong className="text-white">AMERICAN GOODWILL SARL</strong></span>
+              </li>
+              <li className="flex items-start gap-2 text-white/60">
+                <FileText className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>RCCM: CD/LSH/RCCM/17-B-6093 | ID Nat: 05-F4300-N05127D</span>
+              </li>
+              <li className="flex items-start gap-2 text-white/60">
                 <MapPin className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span>
-                  123 Avenue de la Paix<br />
-                  Gombe, Kinshasa<br />
-                  DR Congo
-                </span>
+                <span>114 Croisement Av. Ndjamena & Kasaï, Q. Makutano, Lubumbashi, Haut-Katanga, RDC</span>
               </li>
-              <li className="flex items-center gap-2 text-white/60 text-sm">
-                <Phone className="h-4 w-4 flex-shrink-0" />
-                <a href="tel:+243973141627" className="hover:text-white transition-colors">
-                  +243 973 141 627
-                </a>
-              </li>
-              <li className="flex items-center gap-2 text-white/60 text-sm">
+              <li className="flex items-center gap-2 text-white/60">
                 <Mail className="h-4 w-4 flex-shrink-0" />
-                <a href="mailto:support@afrishop.cd" className="hover:text-white transition-colors">
-                  support@afrishop.cd
+                <a href="mailto:support@afrishop-usa.com" className="hover:text-white transition-colors">
+                  support@afrishop-usa.com
                 </a>
               </li>
-              <li className="flex items-center gap-2 text-white/60 text-sm">
-                <Clock className="h-4 w-4 flex-shrink-0" />
-                <span>{shop.businessHours || 'Mon-Sat: 8AM - 6PM'}</span>
-              </li>
             </ul>
           </div>
 
-          {/* Shop Links */}
+          {/* Quick Links */}
           <div>
-            <h3 className="text-white font-semibold mb-4">{shop.shopFooterTitle || 'Shop'}</h3>
+            <h3 className="text-white font-semibold mb-4">{shop.quickLinks || 'Quick Links'}</h3>
             <ul className="space-y-3">
               <li>
-                <Link to="/browse" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.homeLink || 'Home'}
+                <Link to="/shop" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.shopFooterTitle || 'Shop'}
                 </Link>
               </li>
               <li>
-                <Link to="/search" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.allProducts || 'All Products'}
+                <Link to="/how-it-works" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.howItWorks || 'How It Works'}
                 </Link>
               </li>
               <li>
-                <Link to="/search?category=electronics" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.electronics || 'Electronics'}
+                <Link to="/about" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.about || 'About'}
                 </Link>
               </li>
               <li>
-                <Link to="/search?category=clothing" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.clothingFashion || 'Clothing'}
+                <Link to="/coverage" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.coverage || 'Coverage'}
                 </Link>
               </li>
-            </ul>
-          </div>
-
-          {/* Support Links */}
-          <div>
-            <h3 className="text-white font-semibold mb-4">{shop.supportFooterTitle || 'Support'}</h3>
-            <ul className="space-y-3">
               <li>
-                <Link to="/knowledge-base" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.helpCenter || 'Help Center'}
+                <Link to="/payouts" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.payouts || 'Payouts'}
                 </Link>
               </li>
               <li>
                 <Link to="/contact" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.contactUs || 'Contact Us'}
+                  {shop.contact || 'Contact'}
                 </Link>
               </li>
               <li>
-                <Link to="/track-order" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.trackOrder || 'Track Order'}
+                <Link to="/download" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.downloadApp || 'Download App'}
                 </Link>
-              </li>
-              <li>
-                <a
-                  href="https://wa.me/243973141627"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-white/60 hover:text-white text-sm transition-colors"
-                >
-                  WhatsApp
-                </a>
               </li>
             </ul>
           </div>
@@ -155,22 +97,27 @@ export function ShopFooter() {
             <ul className="space-y-3">
               <li>
                 <Link to="/terms" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {common.terms || 'Terms of Service'}
+                  {common.terms || 'Terms'}
                 </Link>
               </li>
               <li>
                 <Link to="/privacy" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {common.privacy || 'Privacy Policy'}
+                  {common.privacy || 'Privacy'}
                 </Link>
               </li>
               <li>
                 <Link to="/refunds" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.refundPolicy || 'Refund Policy'}
+                  {shop.refunds || 'Refunds'}
+                </Link>
+              </li>
+              <li>
+                <Link to="/payouts-beneficiaries" className="text-white/60 hover:text-white text-sm transition-colors">
+                  {shop.payoutsBeneficiaries || 'Payouts & Beneficiaries'}
                 </Link>
               </li>
               <li>
                 <Link to="/payments-compliance" className="text-white/60 hover:text-white text-sm transition-colors">
-                  {shop.paymentsCompliance || 'Payments'}
+                  {shop.payments || 'Payments'}
                 </Link>
               </li>
             </ul>
@@ -183,35 +130,41 @@ export function ShopFooter() {
             © {currentYear} AfriShop. {shop.allRightsReserved || 'All rights reserved.'}
           </p>
 
-          {/* Language Selector */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white/60 hover:text-white hover:bg-white/10 rounded-full gap-2"
-              >
-                <Globe className="h-4 w-4" />
-                <span>{currentLanguage.flag}</span>
-                <span>{currentLanguage.name}</span>
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-black/95 border-white/10 backdrop-blur-xl">
-              {languages.map((lang) => (
-                <DropdownMenuItem
-                  key={lang.code}
-                  onClick={() => setLanguage(lang.code)}
-                  className={`text-white/80 hover:text-white hover:bg-white/10 cursor-pointer ${
-                    language === lang.code ? 'bg-blue-500/20 text-blue-400' : ''
-                  }`}
+          <div className="flex items-center gap-4">
+            <p className="text-white/40 text-sm">
+              {shop.aBrandOf || 'A brand of'} <span className="text-white/60">AMERICAN GOODWILL SARL</span>
+            </p>
+
+            {/* Language Selector */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-white/60 hover:text-white hover:bg-white/10 rounded-full gap-2"
                 >
-                  <span className="mr-2">{lang.flag}</span>
-                  {lang.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <Globe className="h-4 w-4" />
+                  <span>{currentLanguage.flag}</span>
+                  <span className="hidden sm:inline">{currentLanguage.name}</span>
+                  <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-black/95 border-white/10 backdrop-blur-xl">
+                {languages.map((lang) => (
+                  <DropdownMenuItem
+                    key={lang.code}
+                    onClick={() => setLanguage(lang.code)}
+                    className={`text-white/80 hover:text-white hover:bg-white/10 cursor-pointer ${
+                      language === lang.code ? 'bg-blue-500/20 text-blue-400' : ''
+                    }`}
+                  >
+                    <span className="mr-2">{lang.flag}</span>
+                    {lang.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
     </footer>

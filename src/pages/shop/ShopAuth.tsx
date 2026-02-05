@@ -25,7 +25,7 @@ type AuthMode = 'welcome' | 'signin' | 'signup' | 'forgot' | 'verify';
 export default function ShopAuth() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/shop';
+  const redirect = searchParams.get('redirect') || '/browse';
   const { signIn, signUp, user } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { toast } = useToast();

@@ -38,7 +38,7 @@ export default function SavedItems() {
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/shop">
+            <Link to="/browse">
               <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -62,7 +62,7 @@ export default function SavedItems() {
               <p className="text-white/60 mb-6">
                 {shop?.savedItemsDescription || 'Save items you love to find them easily later'}
               </p>
-              <Link to="/shop">
+              <Link to="/browse">
                 <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
                   {shop?.startShopping || 'Start Shopping'}
                 </Button>
@@ -80,7 +80,7 @@ export default function SavedItems() {
                 >
                   {/* Product Image */}
                   <Link 
-                    to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                    to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                     className="w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-white/5"
                   >
                     <img
@@ -93,7 +93,7 @@ export default function SavedItems() {
                   {/* Product Info */}
                   <div className="flex-1 min-w-0">
                     <Link 
-                      to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                      to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                       className="text-sm font-medium text-white line-clamp-2 hover:text-blue-400 transition-colors"
                     >
                       {item.title}

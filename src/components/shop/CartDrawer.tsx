@@ -63,7 +63,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <ShoppingCart className="h-16 w-16 text-white/20 mb-4" />
             <p className="text-white/60 mb-4">{shop.emptyCart}</p>
-            <Link to="/shop">
+            <Link to="/browse">
               <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
                 {shop.startShopping}
               </Button>
@@ -144,7 +144,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
               </p>
               
               <div className="flex gap-2">
-                <Link to="/shop/cart" className="flex-1">
+                <Link to="/cart" className="flex-1">
                   <Button 
                     variant="outline" 
                     className="w-full border-white/20 text-white hover:bg-white/10 rounded-full"
@@ -152,7 +152,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
                     {shop.viewCart}
                   </Button>
                 </Link>
-                <Link to="/shop/checkout" className="flex-1">
+                <Link to="/checkout" className="flex-1">
                   <Button className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
                     {shop.checkout}
                   </Button>

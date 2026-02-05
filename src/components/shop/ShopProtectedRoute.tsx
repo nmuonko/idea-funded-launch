@@ -35,10 +35,10 @@ export function ShopProtectedRoute({ children }: ShopProtectedRouteProps) {
 
   // User must have a valid session
   if (!session || !user) {
-    console.log('[ShopProtectedRoute] ❌ No session - Redirecting to /shop/auth');
+    console.log('[ShopProtectedRoute] ❌ No session - Redirecting to /shop-auth');
     // Encode the current path to redirect back after login
     const redirectPath = encodeURIComponent(location.pathname + location.search);
-    return <Navigate to={`/shop/auth?redirect=${redirectPath}`} replace />;
+    return <Navigate to={`/shop-auth?redirect=${redirectPath}`} replace />;
   }
 
   console.log('[ShopProtectedRoute] ✅ Access granted');

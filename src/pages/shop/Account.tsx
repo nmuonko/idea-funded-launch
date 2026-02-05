@@ -37,7 +37,7 @@ export default function Account() {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/shop');
+    navigate('/browse');
   };
 
   return (
@@ -48,7 +48,7 @@ export default function Account() {
         <div className="container mx-auto max-w-lg">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/shop">
+            <Link to="/browse">
               <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -90,7 +90,7 @@ export default function Account() {
                   {shop?.signInDescription || 'Sign in to access your account'}
                 </p>
                 <div className="flex gap-3 justify-center">
-                  <Link to="/shop/auth">
+                  <Link to="/shop-auth">
                     <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
                       {shop?.signIn || 'Sign In'}
                     </Button>

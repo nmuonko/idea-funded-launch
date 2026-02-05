@@ -93,7 +93,7 @@ export default function ShopCart() {
                   >
                     {/* Image */}
                     <Link 
-                      to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                      to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                       className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                     >
                       <img
@@ -106,7 +106,7 @@ export default function ShopCart() {
                     {/* Details */}
                     <div className="flex-1 min-w-0">
                       <Link 
-                        to={`/shop/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                        to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                         className="text-white hover:text-blue-400 transition-colors"
                       >
                         <h3 className="font-medium line-clamp-2 mb-1">
@@ -170,14 +170,14 @@ export default function ShopCart() {
 
                   <div className="mt-6 space-y-3">
                     {user ? (
-                      <Link to="/shop/checkout" className="block">
+                      <Link to="/checkout" className="block">
                         <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
                           Proceed to Checkout
                         </Button>
                       </Link>
                     ) : (
                       <>
-                        <Link to="/auth?redirect=/shop/checkout" className="block">
+                        <Link to="/shop-auth?redirect=/checkout" className="block">
                           <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
                             Sign In to Checkout
                           </Button>

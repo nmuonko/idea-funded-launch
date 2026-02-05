@@ -53,7 +53,7 @@ export default function Onboarding() {
   useEffect(() => {
     const completed = localStorage.getItem(ONBOARDING_KEY);
     if (completed === 'true') {
-      navigate('/shop', { replace: true });
+      navigate('/browse', { replace: true });
     }
   }, [navigate]);
 
@@ -71,7 +71,7 @@ export default function Onboarding() {
 
   const handleComplete = () => {
     localStorage.setItem(ONBOARDING_KEY, 'true');
-    navigate('/shop', { replace: true });
+    navigate('/browse', { replace: true });
   };
 
   const step = steps[currentStep];

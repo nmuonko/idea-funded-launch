@@ -73,7 +73,7 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
     if (onSearch) {
       onSearch(trimmed);
     } else {
-      navigate(`/shop/search?q=${encodeURIComponent(trimmed)}`);
+      navigate(`/search?q=${encodeURIComponent(trimmed)}`);
     }
   };
 
@@ -85,7 +85,7 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
     if (onSearch) {
       onSearch(search);
     } else {
-      navigate(`/shop/search?q=${encodeURIComponent(search)}`);
+      navigate(`/search?q=${encodeURIComponent(search)}`);
     }
   };
 

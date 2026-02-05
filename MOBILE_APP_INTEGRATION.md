@@ -39,62 +39,69 @@ console.log('[AUTH_DEBUG]', config.environment);
 
 All mobile API endpoints require authentication using Supabase Auth JWT tokens.
 
-### 1. Configure Supabase Client
+### 1. CRITICAL: Single Supabase Client Instance
+
+**⚠️ ROOT CAUSE OF LOGIN FAILURES**: Multiple Supabase client instances with different configs.
+
+**You MUST have exactly ONE Supabase client in your entire mobile app.**
+
+Create `src/lib/supabase.ts`:
 
 ```typescript
-import { createClient } from '@supabase/supabase-js';
-import * as SecureStore from 'expo-secure-store'; // For Expo
-// OR import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// OR: import * as SecureStore from 'expo-secure-store';
 
 // ═══════════════════════════════════════════════════════════════════
-// CRITICAL: Use these EXACT values - must match web app and backend
+// CRITICAL: These MUST match the web app EXACTLY
+// DO NOT use staging values, DO NOT use different env vars
 // ═══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnbWtoeGZmbnl6b29nY3F2ZGFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzM2NjYsImV4cCI6MjA3OTcwOTY2Nn0.xMa-K25tL63StMYRZDq7xovDPyrWlB_LA-KkGciqZaA';
 
-// Custom storage adapter for React Native (required for session persistence)
-const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
-};
+// Verify at module load - log to console for debugging
+const PROJECT_HOST = SUPABASE_URL.split('//')[1].split('.')[0];
+const ANON_KEY_PREFIX = SUPABASE_ANON_KEY.substring(0, 20);
+console.log(`[SUPABASE_CLIENT] urlHost=${PROJECT_HOST} anonKeyPrefix=${ANON_KEY_PREFIX.substring(0, 8)}...`);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// Expected: [SUPABASE_CLIENT] urlHost=igmkhxffnyzoogcqvdab anonKeyPrefix=eyJhbGci...
+if (PROJECT_HOST !== 'igmkhxffnyzoogcqvdab') {
+  console.error(`[SUPABASE_CLIENT] ⚠️ WRONG PROJECT! Expected igmkhxffnyzoogcqvdab, got ${PROJECT_HOST}`);
+}
+
+// Create the SINGLE client instance
+const supabaseClient: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    storage: ExpoSecureStoreAdapter,  // Use secure storage for sessions
-    autoRefreshToken: true,           // Automatically refresh tokens before expiry
-    persistSession: true,             // Persist session to storage
-    detectSessionInUrl: false,        // Don't process OAuth redirects (mobile apps)
-  }
+    storage: AsyncStorage, // Use AsyncStorage for React Native
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false, // Mobile app, no URL detection
+  },
 });
+
+// Export the SINGLE instance - use this everywhere
+export const supabase = supabaseClient;
+
+// DEPRECATED: Remove any getSupabaseClient() functions that create new instances
+// export function getSupabaseClient() { return supabaseClient; } // ← Use direct import instead
 ```
 
-### 2. Load Session on App Startup
+### 2. Update ALL Files to Use Single Import
 
-**CRITICAL**: Always check for existing session when app starts:
+**Remove any duplicate client creation:**
 
 ```typescript
-async function initializeAuth() {
-  // Log environment for debugging
-  console.log('[AUTH_ENV] project=' + SUPABASE_URL.split('//')[1].split('.')[0]);
-  
-  const { data: { session }, error } = await supabase.auth.getSession();
-  
-  if (error) {
-    console.error('[AUTH] session_load_error:', error.message);
-    navigateToLogin();
-    return;
-  }
-  
-  if (!session) {
-    console.log('[AUTH] no_active_session');
-    navigateToLogin();
-    return;
-  }
-  
-  console.log('[AUTH] session_loaded userId=' + session.user.id);
-  // User is authenticated, proceed to main app
+// ❌ WRONG - Creates new client on each call
+export function getSupabaseClient() {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {...});
 }
+
+// ❌ WRONG - Different file creates its own client
+const client = createClient(url, key); // in auth.ts
+const client2 = createClient(url, key); // in profile.ts
+
+// ✅ CORRECT - Single import everywhere
+import { supabase } from '@/lib/supabase';
 ```
 
 ### 3. Sign In (FIX FOR YOUR ARCHITECTURE)

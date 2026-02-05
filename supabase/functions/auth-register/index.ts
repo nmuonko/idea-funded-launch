@@ -221,10 +221,20 @@ serve(async (req) => {
       );
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    
+    // Extract project reference for debugging - CRITICAL for env mismatch detection
+    const projectHost = supabaseUrl.replace('https://', '').split('.')[0];
+    console.log(`[AUTH_REGISTER] email=${email.substring(0, 3)}*** projectHost=${projectHost}`);
+    
+    // Verify expected project
+    const EXPECTED_PROJECT = 'igmkhxffnyzoogcqvdab';
+    if (projectHost !== EXPECTED_PROJECT) {
+      console.error(`[AUTH_REGISTER] ⚠️ PROJECT_MISMATCH expected=${EXPECTED_PROJECT} actual=${projectHost}`);
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Create auth user - email verification required
     const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
@@ -342,7 +352,7 @@ serve(async (req) => {
     }
 
     const userId = authData.user.id;
-    console.log('[auth-register] User created:', userId);
+    console.log(`[AUTH_REGISTER] created userId=${userId} email=${email.substring(0,3)}*** projectHost=${projectHost}`);
 
     // Profile data to store - all required fields from signup (postalCode is optional for Africa)
     const profileData = {

@@ -1438,11 +1438,15 @@ export type Database = {
         Row: {
           created_at: string
           ebay_category_id: string | null
+          exclude_keywords: string[] | null
+          include_keywords: string[] | null
           is_active: boolean
           key: string
+          min_price_usd: number | null
           mode: string
           seed_query: string
           sort_order: number
+          strict: boolean | null
           title_en: string
           title_fr: string
           updated_at: string
@@ -1450,11 +1454,15 @@ export type Database = {
         Insert: {
           created_at?: string
           ebay_category_id?: string | null
+          exclude_keywords?: string[] | null
+          include_keywords?: string[] | null
           is_active?: boolean
           key: string
+          min_price_usd?: number | null
           mode: string
           seed_query: string
           sort_order?: number
+          strict?: boolean | null
           title_en: string
           title_fr: string
           updated_at?: string
@@ -1462,11 +1470,15 @@ export type Database = {
         Update: {
           created_at?: string
           ebay_category_id?: string | null
+          exclude_keywords?: string[] | null
+          include_keywords?: string[] | null
           is_active?: boolean
           key?: string
+          min_price_usd?: number | null
           mode?: string
           seed_query?: string
           sort_order?: number
+          strict?: boolean | null
           title_en?: string
           title_fr?: string
           updated_at?: string

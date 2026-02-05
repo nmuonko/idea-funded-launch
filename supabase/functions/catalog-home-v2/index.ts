@@ -5,13 +5,43 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Hardcoded fallback sections (used if DB read fails)
-const FALLBACK_SECTIONS = [
-  { key: "phones", title_fr: "Téléphones", title_en: "Phones", seed_query: "iphone samsung smartphone unlocked", mode: "general", ebay_category_id: "9355" },
-  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", seed_query: "ps5 xbox nintendo switch console", mode: "general", ebay_category_id: "1249" },
-  { key: "computers", title_fr: "Ordinateurs", title_en: "Computers", seed_query: "laptop macbook dell hp notebook", mode: "general", ebay_category_id: "58058" },
-  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", seed_query: "toyota honda rav4 camry car", mode: "vehicle", ebay_category_id: "6000" },
-  { key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", seed_query: "shoes sneakers nike adidas clothing", mode: "general", ebay_category_id: "63889" },
+// Hardcoded fallback sections with filtering rules (used if DB read fails)
+const FALLBACK_SECTIONS: SectionConfig[] = [
+  { 
+    key: "phones", title_fr: "Téléphones", title_en: "Phones", 
+    seed_query: "iphone samsung smartphone unlocked -case -cover -parts", 
+    mode: "general", ebay_category_id: "9355",
+    exclude_keywords: ["case","cover","screen protector","charger","parts","repair","lot","lcd","holder","stand","mount"],
+    min_price_usd: 50, strict: true
+  },
+  { 
+    key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", 
+    seed_query: "ps5 xbox nintendo switch console -repair -tool -kit", 
+    mode: "general", ebay_category_id: "1249",
+    exclude_keywords: ["repair","tool","kit","screwdriver","shell","housing","replacement","mod","parts"],
+    min_price_usd: 20, strict: true
+  },
+  { 
+    key: "computers", title_fr: "Ordinateurs", title_en: "Computers", 
+    seed_query: "laptop macbook dell hp notebook -case -sleeve -bag -skin", 
+    mode: "general", ebay_category_id: "58058",
+    exclude_keywords: ["case","sleeve","skin","sticker","decal","bag","cover","stand","mousepad","charger","adapter"],
+    min_price_usd: 100, strict: true
+  },
+  { 
+    key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", 
+    seed_query: "toyota honda ford bmw car suv sedan -cover -mat -sticker -accessories", 
+    mode: "vehicle", ebay_category_id: "6000",
+    exclude_keywords: ["seat cover","floor mat","sticker","decal","hook","organizer","trim","parts","accessories","emblem","badge"],
+    min_price_usd: 1000, strict: true
+  },
+  { 
+    key: "fashion", title_fr: "Vêtements et Mode", title_en: "Fashion", 
+    seed_query: "shoes sneakers nike adidas clothing -laces -cleaner", 
+    mode: "general", ebay_category_id: "63889",
+    exclude_keywords: ["laces","insole","cleaner","protector","spray","brush","polish","tree","stretcher"],
+    min_price_usd: 15, strict: true
+  },
 ];
 
 // Cache for eBay OAuth token
@@ -83,6 +113,10 @@ interface SectionConfig {
   seed_query: string;
   mode: string;
   ebay_category_id?: string;
+  include_keywords?: string[];
+  exclude_keywords?: string[];
+  min_price_usd?: number;
+  strict?: boolean;
 }
 
 interface CatalogItem {
@@ -98,6 +132,87 @@ interface CatalogItem {
   product_url: string | null;
   productUrl: string | null; // Alias for frontend compatibility
   in_stock: boolean;
+}
+
+/**
+ * Build enhanced query with negative keywords for eBay
+ */
+function buildEnhancedQuery(seedQuery: string, excludeKeywords: string[]): string {
+  if (!excludeKeywords || excludeKeywords.length === 0) {
+    return seedQuery;
+  }
+  // eBay supports negative terms with "-" prefix (limit to ~10 for best results)
+  const negatives = excludeKeywords.slice(0, 10).map(kw => `-${kw.replace(/\s+/g, '')}`);
+  return `${seedQuery} ${negatives.join(' ')}`;
+}
+
+/**
+ * Filter items for relevance based on section config
+ */
+function filterRelevantItems(
+  items: CatalogItem[],
+  config: SectionConfig,
+  correlationId: string
+): { filtered: CatalogItem[]; excluded: number; topExcluded: string[] } {
+  const { key, exclude_keywords = [], min_price_usd, strict = true, mode } = config;
+  
+  // Build exclusion patterns from keywords
+  const excludePatterns = exclude_keywords.map(kw => 
+    new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i')
+  );
+  
+  // Common accessory patterns - applied when strict=true
+  const accessoryRegex = /(case|cover|sleeve|skin|sticker|decal|protector|replacement|repair|tool|kit|parts|holder|mount|stand|charger|cable|adapter|bag|pouch|wallet|strap|hook|organizer|mat|trim|emblem|badge|keychain|freshener|liner|cushion|headrest|visor|sunshade)/i;
+  
+  // Vehicle-specific: must NOT be parts/accessories
+  const vehiclePartsRegex = /(seat cover|floor mat|steering wheel|dash|bumper|fender|mirror|hood|door panel|trunk|cargo|headlight|taillight|wheel cover|hub cap|antenna|emblem|badge|decal|sticker|air freshener|tissue|cup holder|phone holder|sun visor|key|remote|fob|cable|charger|mount|stand|hook|organizer|liner|cushion|mat|cover|protector)/i;
+  
+  const topExcluded: string[] = [];
+  
+  const filtered = items.filter(item => {
+    const title = (item.title || '').toLowerCase();
+    const price = item.price_usd ?? item.priceUsd ?? 0;
+    
+    // Price floor check
+    if (min_price_usd && price > 0 && price < min_price_usd) {
+      if (topExcluded.length < 5) topExcluded.push(`price<${min_price_usd}: ${title.substring(0,40)}`);
+      return false;
+    }
+    
+    // Excluded keywords check
+    for (const pattern of excludePatterns) {
+      if (pattern.test(title)) {
+        if (topExcluded.length < 5) topExcluded.push(`keyword: ${title.substring(0,40)}`);
+        return false;
+      }
+    }
+    
+    // Vehicle mode: extra strict filtering
+    if (mode === 'vehicle') {
+      if (vehiclePartsRegex.test(title)) {
+        if (topExcluded.length < 5) topExcluded.push(`vehicle_part: ${title.substring(0,40)}`);
+        return false;
+      }
+    }
+    
+    // General accessory pattern check (when strict)
+    if (strict && accessoryRegex.test(title)) {
+      if (topExcluded.length < 5) topExcluded.push(`accessory: ${title.substring(0,40)}`);
+      return false;
+    }
+    
+    return true;
+  });
+  
+  const excludedCount = items.length - filtered.length;
+  if (excludedCount > 0 || mode === 'vehicle') {
+    console.log(`[SECTION_RELEVANCE] key=${key} before=${items.length} after=${filtered.length} excluded=${excludedCount} topExcluded=${JSON.stringify(topExcluded)}`);
+  }
+  if (mode === 'vehicle') {
+    console.log(`[VEHICLE_STRICT] key=${key} before=${items.length} after=${filtered.length} droppedParts=${excludedCount}`);
+  }
+  
+  return { filtered, excluded: excludedCount, topExcluded };
 }
 
 /**
@@ -151,16 +266,6 @@ function extractPriceFromItem(item: Record<string, unknown>, correlationId: stri
     }
   }
   
-  // Log missing price for debugging
-  const itemId = item.itemId || "unknown";
-  const title = typeof item.title === "string" ? item.title.substring(0, 40) : "unknown";
-  const sampleFields = {
-    price: priceObj ? `{value:${priceObj.value}}` : null,
-    currentPrice: currentPrice ? `{value:${currentPrice.value}}` : null,
-    sellingStatus: sellingStatus ? "exists" : null,
-  };
-  console.log(`[PRICE_MAP] missing correlationId=${correlationId} provider=ebay itemId=${itemId} title="${title}" sampleFields=${JSON.stringify(sampleFields)}`);
-  
   return null;
 }
 
@@ -171,7 +276,7 @@ async function fetchSectionItems(
   ebayToken: string | null
 ): Promise<{ items: CatalogItem[]; error?: string; ms: number }> {
   const startMs = Date.now();
-  const { key, seed_query, mode, ebay_category_id } = sectionConfig;
+  const { key, seed_query, mode, ebay_category_id, exclude_keywords = [] } = sectionConfig;
 
   if (!ebayToken) {
     console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} error=NO_EBAY_TOKEN`);
@@ -179,14 +284,18 @@ async function fetchSectionItems(
   }
 
   try {
+    // Build enhanced query with negative keywords
+    const enhancedQuery = buildEnhancedQuery(seed_query, exclude_keywords);
+    
     const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
-    searchUrl.searchParams.set("q", seed_query);
-    searchUrl.searchParams.set("limit", String(limit));
+    searchUrl.searchParams.set("q", enhancedQuery);
+    // Fetch more items to account for filtering
+    searchUrl.searchParams.set("limit", String(Math.min(limit * 3, 50)));
     
     // Apply eBay category filter if configured (restricts results to relevant category)
     if (ebay_category_id) {
       searchUrl.searchParams.set("category_ids", ebay_category_id);
-      console.log(`[CATALOG_HOME_V2][SECTION] correlationId=${correlationId} key=${key} applying category_ids=${ebay_category_id}`);
+      console.log(`[CATALOG_HOME_V2][SECTION] correlationId=${correlationId} key=${key} applying category_ids=${ebay_category_id} query="${enhancedQuery}"`);
     } else if (mode === "vehicle") {
       // Fallback for vehicles if no ebay_category_id
       searchUrl.searchParams.set("category_ids", "6000");
@@ -202,14 +311,14 @@ async function fetchSectionItems(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" error=HTTP_${response.status} body=${errorText.substring(0, 200)}`);
+      console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay query="${enhancedQuery}" error=HTTP_${response.status} body=${errorText.substring(0, 200)}`);
       return { items: [], error: `eBay API error: ${response.status}`, ms: Date.now() - startMs };
     }
 
     const data = await response.json();
     const rawItems = data.itemSummaries || [];
     
-    const items: CatalogItem[] = rawItems.slice(0, limit).map((item: Record<string, unknown>) => {
+    const mappedItems: CatalogItem[] = rawItems.map((item: Record<string, unknown>) => {
       const priceUsd = extractPriceFromItem(item, correlationId);
       const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || 
                        ((item.thumbnailImages as Array<Record<string, unknown>>)?.[0]?.imageUrl as string) || 
@@ -233,17 +342,23 @@ async function fetchSectionItems(
       };
     });
     
+    // Apply relevance filtering
+    const { filtered } = filterRelevantItems(mappedItems, sectionConfig, correlationId);
+    
+    // Take only the requested limit after filtering
+    const items = filtered.slice(0, limit);
+    
     // Log price extraction stats
     const withPrice = items.filter(i => i.price_usd !== null).length;
     const withoutPrice = items.filter(i => i.price_usd === null).length;
 
     const ms = Date.now() - startMs;
-    console.log(`[CATALOG_HOME_V2][SECTION] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" count=${items.length} withPrice=${withPrice} withoutPrice=${withoutPrice} ms=${ms}`);
+    console.log(`[CATALOG_HOME_V2][SECTION] correlationId=${correlationId} key=${key} provider=ebay rawCount=${rawItems.length} filteredCount=${items.length} withPrice=${withPrice} withoutPrice=${withoutPrice} ms=${ms}`);
     return { items, ms };
   } catch (err) {
     const ms = Date.now() - startMs;
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay query="${seed_query}" error=${errorMessage}`);
+    console.error(`[CATALOG_HOME_V2][SECTION_ERROR] correlationId=${correlationId} key=${key} provider=ebay error=${errorMessage}`);
     return { items: [], error: errorMessage, ms };
   }
 }
@@ -258,7 +373,7 @@ async function loadSectionsFromDb(): Promise<{ sections: SectionConfig[] | null;
 
   try {
     const response = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode,ebay_category_id`,
+      `${supabaseUrl}/rest/v1/catalog_sections?is_active=eq.true&order=sort_order.asc&select=key,title_fr,title_en,seed_query,mode,ebay_category_id,include_keywords,exclude_keywords,min_price_usd,strict`,
       {
         headers: {
           apikey: serviceRoleKey,

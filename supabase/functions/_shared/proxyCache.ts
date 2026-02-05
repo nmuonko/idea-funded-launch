@@ -3,7 +3,8 @@
  * SHA-256 based cache key generation, cache operations, and stale-while-revalidate logic
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
 
 export interface SearchParams {
   q: string;

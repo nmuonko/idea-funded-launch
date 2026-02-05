@@ -4,7 +4,8 @@
  * and vehicle filtering rules
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
 
 // eBay Browse API constants
 const EBAY_BROWSE_API = "https://api.ebay.com/buy/browse/v1/item_summary/search";

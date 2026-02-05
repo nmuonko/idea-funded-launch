@@ -6,7 +6,8 @@
  * Enhanced with staging-only debug logging and marketplace header support
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

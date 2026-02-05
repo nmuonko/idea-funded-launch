@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
-import { createClient, SupabaseClient, User } from "https://esm.sh/@supabase/supabase-js@2";
+// SDK-free: auth.ts now uses REST API internally
 import { 
   handleCors, 
   corsHeaders, 

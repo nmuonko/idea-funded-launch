@@ -5,7 +5,8 @@
  * Settings are fetched fresh each request to ensure instant admin updates
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 

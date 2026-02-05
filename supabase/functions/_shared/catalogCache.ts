@@ -6,7 +6,9 @@
  * UPGRADE B: Store only NORMALIZED payloads (no raw Rainforest JSON)
  */
 
-import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
+type SupabaseClient = any;
+
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes

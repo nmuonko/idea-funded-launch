@@ -76,9 +76,21 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     }
   };
 
-  const providerColor = product.provider === 'amazon' 
+  const providerColor = product.provider === 'amazon' || product.provider === 'rainforest'
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+
+  // Normalize provider display name
+  const getProviderDisplayName = (provider: string): string => {
+    const normalized = provider.toLowerCase();
+    if (normalized === 'rainforest' || normalized === 'amazon') {
+      return 'Amazon';
+    }
+    if (normalized === 'ebay') {
+      return 'Ebay';
+    }
+    return provider.charAt(0).toUpperCase() + provider.slice(1);
+  };
 
   return (
     <Link
@@ -107,12 +119,12 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         <Badge 
           variant="outline" 
           className={cn(
-            "absolute top-2 left-2 capitalize",
+            "absolute top-2 left-2",
             providerColor,
             compact ? "text-[10px] px-1.5 py-0.5" : "text-xs"
           )}
         >
-          {product.provider}
+          {getProviderDisplayName(product.provider)}
         </Badge>
 
         {/* Save Button */}

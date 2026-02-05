@@ -14,6 +14,33 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
+// Map section keys to translation keys
+const getSectionTitle = (key: string, shop: Record<string, any>): string => {
+  const keyMap: Record<string, string> = {
+    phones: 'phones',
+    vehicles: 'vehicles',
+    gaming: 'gaming',
+    computers: 'computers',
+    clothing: 'clothing',
+    clothing_shoes: 'clothing',
+    home_garden: 'homeGarden',
+    refurbished: 'refurbished',
+    parts_accessories: 'partsAccessories',
+    electronics: 'electronics',
+    toys: 'toys',
+    fashion: 'fashion',
+    home: 'home',
+    watches: 'watches',
+  };
+  
+  const translationKey = keyMap[key];
+  if (translationKey && shop[translationKey]) {
+    return shop[translationKey];
+  }
+  // Fallback: capitalize key
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+};
+
 interface HomeSection {
   key: string;
   title: string;
@@ -40,7 +67,7 @@ export default function ShopHome() {
         if (data?.sections) {
           const mappedSections: HomeSection[] = data.sections.map((section: any) => ({
             key: section.key,
-            title: section.title || section.title_en || section.key,
+            title: getSectionTitle(section.key, shop),
             seeAllQuery: section.see_all_query || section.key,
             products: (section.items || []).slice(0, 12).map((item: any) => ({
               id: item.provider_product_id || item.id,

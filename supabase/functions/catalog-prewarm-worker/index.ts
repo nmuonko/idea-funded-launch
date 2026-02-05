@@ -158,9 +158,10 @@ function getDefaultSections(): SectionConfig[] {
       subtabKey: "cars_trucks",
       isVehicle: true,
       minPrice: 1500,
-      amazonQueries: ["car accessories", "car parts"],
+      // Amazon Auto has real vehicles - use SUV-focused queries
+      amazonQueries: ["Toyota RAV4 SUV", "Honda CR-V SUV", "BMW X5 SUV", "Mercedes GLE SUV", "Jeep Grand Cherokee", "Ford Explorer SUV", "Toyota Highlander", "Lexus RX"],
       ebayCategory: "6001",
-      ebayQueries: ["used car", "toyota", "honda"],
+      ebayQueries: ["Toyota RAV4 SUV", "Honda CR-V", "BMW X5", "Mercedes GLE", "Jeep Grand Cherokee", "Ford Explorer", "Range Rover Sport", "Lexus RX"],
     },
     { 
       key: "gaming", 

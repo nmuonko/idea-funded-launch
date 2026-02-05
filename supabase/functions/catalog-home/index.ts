@@ -182,9 +182,10 @@ const HOME_SECTIONS_FALLBACK: HomeSectionConfig[] = [
     title: "Vehicles",
     isVehicle: true,
     minPrice: 1500,
-    seedQueries: ["used car for sale", "toyota camry"],
+    // SUV-focused queries for Amazon Auto + eBay Motors
+    seedQueries: ["Toyota RAV4 SUV", "Honda CR-V SUV", "BMW X5 SUV", "Mercedes GLE SUV", "Jeep Grand Cherokee", "Ford Explorer SUV"],
     ebayCategory: "6001",
-    seeAllQuery: "cars",
+    seeAllQuery: "SUV",
   },
   {
     key: "gaming",

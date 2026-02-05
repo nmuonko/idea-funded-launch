@@ -103,6 +103,9 @@ const VEHICLE_QUERY_KEYWORDS = [
   // Other vehicles
   "boat", "pontoon", "yacht", "rv", "camper", "trailer", "motorhome",
   "atv", "utv", "quad", "polaris", "can-am", "side by side", "rzr",
+  // Agricultural/Heavy equipment
+  "tractor", "tractors", "tracteur", "tracteurs", "bulldozer", "excavator",
+  "john deere", "kubota", "massey ferguson", "case ih", "new holland", "caterpillar",
   // French vehicle terms + English generic
   "voiture", "voitures", "moto", "camion", "vehicule", "vehicle", "vehicles", "automobile",
 ];

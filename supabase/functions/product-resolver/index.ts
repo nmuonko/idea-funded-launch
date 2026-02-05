@@ -5,6 +5,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Cache for eBay OAuth token
+let ebayTokenCache: { token: string; expiresAt: number } | null = null;
+
 function generateCorrelationId(): string {
   return `pr_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
@@ -14,6 +17,49 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function getEbayToken(): Promise<string | null> {
+  if (ebayTokenCache && ebayTokenCache.expiresAt > Date.now() + 60000) {
+    return ebayTokenCache.token;
+  }
+
+  const clientId = Deno.env.get("EBAY_CLIENT_ID");
+  const clientSecret = Deno.env.get("EBAY_CLIENT_SECRET");
+
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  try {
+    const credentials = btoa(`${clientId}:${clientSecret}`);
+    const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${credentials}`,
+      },
+      body: "grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope",
+    });
+
+    if (!response.ok) {
+      await response.text();
+      return null;
+    }
+
+    const data = await response.json();
+    const token = data.access_token;
+    const expiresIn = data.expires_in || 7200;
+
+    ebayTokenCache = {
+      token,
+      expiresAt: Date.now() + expiresIn * 1000,
+    };
+
+    return token;
+  } catch {
+    return null;
+  }
 }
 
 interface ProductResult {
@@ -27,19 +73,9 @@ interface ProductResult {
   attributes: Record<string, unknown>;
 }
 
-/**
- * Parse composite ID formats:
- * - "ebay_v1||137007358045||0" -> { provider: "ebay", listingId: "137007358045", variant: "0" }
- * - "ebay_137007358045" -> { provider: "ebay", listingId: "137007358045" }
- * - "137007358045" -> { provider: null, listingId: "137007358045" }
- */
 function parseCompositeId(id: string): { listingId: string; variant?: string } {
-  // Handle "provider_v1||listingId||variant" format
   if (id.includes("||")) {
     const parts = id.split("||");
-    // parts[0] might be "ebay_v1" or just "v1"
-    // parts[1] is the listing ID
-    // parts[2] is the variant (optional)
     if (parts.length >= 2) {
       return {
         listingId: parts[1],
@@ -48,7 +84,6 @@ function parseCompositeId(id: string): { listingId: string; variant?: string } {
     }
   }
 
-  // Handle "provider_listingId" format
   const underscoreMatch = id.match(/^(?:ebay_|amazon_|rainforest_)?(.+)$/);
   if (underscoreMatch) {
     return { listingId: underscoreMatch[1] };
@@ -58,31 +93,31 @@ function parseCompositeId(id: string): { listingId: string; variant?: string } {
 }
 
 async function fetchEbayProduct(listingId: string, correlationId: string): Promise<ProductResult | null> {
-  const EBAY_APP_ID = Deno.env.get("EBAY_APP_ID");
-  if (!EBAY_APP_ID) {
-    console.error(`[PRODUCT_RESOLVER][ERROR] correlationId=${correlationId} error=EBAY_APP_ID_MISSING`);
+  const token = await getEbayToken();
+  if (!token) {
+    console.error(`[PRODUCT_RESOLVER][ERROR] correlationId=${correlationId} error=EBAY_TOKEN_FAILED`);
     return null;
   }
 
   try {
-    // Use eBay Browse API to get item details
+    // Try with v1| prefix format first
     const itemId = listingId.startsWith("v1|") ? listingId : `v1|${listingId}|0`;
     const url = `https://api.ebay.com/buy/browse/v1/item/${encodeURIComponent(itemId)}`;
 
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${EBAY_APP_ID}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
       },
     });
 
     if (!response.ok) {
-      // Try alternate ID format without v1 prefix
+      // Try alternate format
       const altUrl = `https://api.ebay.com/buy/browse/v1/item/v1|${listingId}|0`;
       const altResponse = await fetch(altUrl, {
         headers: {
-          Authorization: `Bearer ${EBAY_APP_ID}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
           "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
         },
@@ -90,6 +125,7 @@ async function fetchEbayProduct(listingId: string, correlationId: string): Promi
 
       if (!altResponse.ok) {
         console.warn(`[PRODUCT_RESOLVER] ebay_not_found correlationId=${correlationId} listingId=${listingId} status=${response.status}`);
+        await altResponse.text();
         return null;
       }
 
@@ -141,7 +177,6 @@ async function fetchAmazonProduct(listingId: string, correlationId: string): Pro
   }
 
   try {
-    // Clean ASIN - remove any prefix
     const asin = listingId.replace(/^(amazon_|rainforest_|ASIN_)/i, "").toUpperCase();
     
     const url = new URL("https://api.rainforestapi.com/request");
@@ -153,6 +188,7 @@ async function fetchAmazonProduct(listingId: string, correlationId: string): Pro
     const response = await fetch(url.toString());
     if (!response.ok) {
       console.warn(`[PRODUCT_RESOLVER] amazon_not_found correlationId=${correlationId} asin=${asin} status=${response.status}`);
+      await response.text();
       return null;
     }
 
@@ -183,7 +219,6 @@ async function fetchAmazonProduct(listingId: string, correlationId: string): Pro
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -192,7 +227,6 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    // Parse input
     let provider: string | undefined;
     let id: string | undefined;
 
@@ -215,7 +249,6 @@ serve(async (req) => {
       id = url.searchParams.get("id") || undefined;
     }
 
-    // Validate required fields
     if (!id) {
       return jsonResponse({
         ok: false,
@@ -225,21 +258,18 @@ serve(async (req) => {
       });
     }
 
-    // Decode ID (handle URL encoding like %7C%7C)
     const idRaw = id;
     let idDecoded: string;
     try {
       idDecoded = decodeURIComponent(id);
     } catch {
-      idDecoded = id; // Use as-is if decoding fails
+      idDecoded = id;
     }
 
     console.log(`[PRODUCT_RESOLVER] start provider=${provider || "auto"} idRaw=${idRaw} idDecoded=${idDecoded} correlationId=${correlationId}`);
 
-    // Parse the composite ID to extract listing ID
     const { listingId } = parseCompositeId(idDecoded);
 
-    // Determine provider from ID if not specified
     let resolvedProvider = provider;
     if (!resolvedProvider) {
       if (idDecoded.includes("ebay") || idDecoded.startsWith("v1|")) {
@@ -247,12 +277,10 @@ serve(async (req) => {
       } else if (idDecoded.includes("amazon") || idDecoded.includes("rainforest") || /^[A-Z0-9]{10}$/.test(listingId)) {
         resolvedProvider = "amazon";
       } else {
-        // Default to eBay for numeric IDs
         resolvedProvider = "ebay";
       }
     }
 
-    // Fetch product based on provider
     let product: ProductResult | null = null;
 
     if (resolvedProvider === "ebay") {
@@ -295,14 +323,13 @@ serve(async (req) => {
     });
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error(`[PRODUCT_RESOLVER][ERROR] correlationId=${correlationId} error=${errorMessage} stack=${stack}`);
+    console.error(`[PRODUCT_RESOLVER][ERROR] correlationId=${correlationId} error=${errorMessage}`);
 
     return jsonResponse({
       ok: false,
       error: "INTERNAL_ERROR",
       message: "An unexpected error occurred",
       correlationId,
-    }, 200); // Always return 200 with structured error
+    });
   }
 });

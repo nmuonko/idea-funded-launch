@@ -2,6 +2,39 @@
 
 Complete API reference for integrating the AfriShop native mobile app with the backend.
 
+## ⚠️ CRITICAL: Authentication Configuration
+
+### Environment Verification
+
+**Before any auth work, verify your app uses the CORRECT Supabase project:**
+
+```typescript
+// Add this at app startup to verify configuration
+console.log('[AUTH_ENV] supabaseUrl=' + SUPABASE_URL.replace('https://', '').split('.')[0]);
+console.log('[AUTH_ENV] anonKeyPrefix=' + SUPABASE_ANON_KEY.substring(0, 20));
+
+// Expected output:
+// [AUTH_ENV] supabaseUrl=igmkhxffnyzoogcqvdab
+// [AUTH_ENV] anonKeyPrefix=eyJhbGciOiJIUzI1NiIs
+```
+
+If the output doesn't match, your app is pointing to the wrong Supabase project!
+
+### Debug Endpoint
+
+Call `GET /functions/v1/auth-debug` to verify your app's configuration matches the backend:
+
+```typescript
+const response = await fetch('https://igmkhxffnyzoogcqvdab.supabase.co/functions/v1/auth-debug', {
+  headers: { 'apikey': SUPABASE_ANON_KEY }
+});
+const config = await response.json();
+console.log('[AUTH_DEBUG]', config.environment);
+// Should show: matches_expected: true
+```
+
+---
+
 ## Authentication
 
 All mobile API endpoints require authentication using Supabase Auth JWT tokens.
@@ -10,16 +43,28 @@ All mobile API endpoints require authentication using Supabase Auth JWT tokens.
 
 ```typescript
 import { createClient } from '@supabase/supabase-js';
+import * as SecureStore from 'expo-secure-store'; // For Expo
+// OR import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// IMPORTANT: Use these EXACT values - they must match the Lovable Cloud backend
+// ═══════════════════════════════════════════════════════════════════
+// CRITICAL: Use these EXACT values - must match web app and backend
+// ═══════════════════════════════════════════════════════════════════
 const SUPABASE_URL = 'https://igmkhxffnyzoogcqvdab.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnbWtoeGZmbnl6b29nY3F2ZGFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzM2NjYsImV4cCI6MjA3OTcwOTY2Nn0.xMa-K25tL63StMYRZDq7xovDPyrWlB_LA-KkGciqZaA';
 
+// Custom storage adapter for React Native (required for session persistence)
+const ExpoSecureStoreAdapter = {
+  getItem: (key: string) => SecureStore.getItemAsync(key),
+  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
+};
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    autoRefreshToken: true,    // Automatically refresh tokens before expiry
-    persistSession: true,      // Persist session to storage
-    detectSessionInUrl: false, // Don't process OAuth redirects (mobile apps)
+    storage: ExpoSecureStoreAdapter,  // Use secure storage for sessions
+    autoRefreshToken: true,           // Automatically refresh tokens before expiry
+    persistSession: true,             // Persist session to storage
+    detectSessionInUrl: false,        // Don't process OAuth redirects (mobile apps)
   }
 });
 ```
@@ -30,41 +75,65 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 
 ```typescript
 async function initializeAuth() {
+  // Log environment for debugging
+  console.log('[AUTH_ENV] project=' + SUPABASE_URL.split('//')[1].split('.')[0]);
+  
   const { data: { session }, error } = await supabase.auth.getSession();
   
   if (error) {
-    console.error('Session load error:', error);
+    console.error('[AUTH] session_load_error:', error.message);
     navigateToLogin();
     return;
   }
   
   if (!session) {
-    console.log('No active session');
+    console.log('[AUTH] no_active_session');
     navigateToLogin();
     return;
   }
   
-  console.log('Session loaded, expires:', new Date(session.expires_at * 1000));
+  console.log('[AUTH] session_loaded userId=' + session.user.id);
   // User is authenticated, proceed to main app
 }
 ```
 
-### 3. Sign In and Get Token
+### 3. Sign In (RECOMMENDED: Direct Supabase Auth)
+
+**⚠️ IMPORTANT**: Use `supabase.auth.signInWithPassword` directly - NOT a custom edge function.
+This ensures the same auth flow as the web app.
 
 ```typescript
 async function signIn(email: string, password: string) {
+  // ═══════════════════════════════════════════════════════════════
+  // CRITICAL INPUT HANDLING:
+  // - Email: trim() and toLowerCase() - email comparison is case-insensitive
+  // - Password: NEVER modify - passwords are case-sensitive!
+  // ═══════════════════════════════════════════════════════════════
+  const normalizedEmail = email.trim().toLowerCase();
+  const rawPassword = password; // Keep exactly as entered
+  
+  console.log('[AUTH] login_attempt email=' + normalizedEmail.substring(0, 3) + '***');
+  
   const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password
+    email: normalizedEmail,
+    password: rawPassword,
   });
   
   if (error) {
-    console.error('Sign in error:', error.message);
-    return null;
+    console.error('[AUTH] login_failed code=' + error.status + ' message=' + error.message);
+    
+    // Return user-friendly error
+    let userMessage = 'Email ou mot de passe incorrect.';
+    if (error.message.includes('Email not confirmed')) {
+      userMessage = 'Veuillez vérifier votre email avant de vous connecter.';
+    } else if (error.message.includes('Too many requests')) {
+      userMessage = 'Trop de tentatives. Réessayez plus tard.';
+    }
+    
+    throw new Error(userMessage);
   }
   
-  // Session automatically persisted
-  console.log('Signed in:', data.user?.email);
+  console.log('[AUTH] login_success userId=' + data.user.id + ' email=' + data.user.email);
   return data.session;
 }
 ```

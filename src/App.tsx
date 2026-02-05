@@ -81,6 +81,7 @@ import Coverage from "./pages/Coverage";
 import DeleteAccount from "./pages/DeleteAccount";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
+ import { SupportChatProvider } from "@/contexts/SupportChatContext";
 
 // Shop pages
 import ShopHome from "./pages/shop/ShopHome";
@@ -114,13 +115,14 @@ const App = () => {
         <LanguageProvider>
           <AuthProvider>
             <ShopCartProvider>
-              <TooltipProvider>
+               <SupportChatProvider>
+                 <TooltipProvider>
                 <LanguagePreferenceModal />
                 <Toaster />
-              <Sonner />
-              <BrowserRouter>
-          {/* Global floating contact widget for shop */}
-          <FloatingContactWidget />
+                   <Sonner />
+                   <BrowserRouter>
+                     {/* Global floating contact widget for shop */}
+                     <FloatingContactWidget />
           <Routes>
         <Route path="/" element={<ShopHome />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
@@ -377,7 +379,8 @@ const App = () => {
             <Route path="*" element={<NotFound />} />
           </Routes>
               </BrowserRouter>
-              </TooltipProvider>
+                 </TooltipProvider>
+               </SupportChatProvider>
             </ShopCartProvider>
           </AuthProvider>
         </LanguageProvider>

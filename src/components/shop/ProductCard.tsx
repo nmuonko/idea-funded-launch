@@ -94,7 +94,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
 
   return (
     <Link
-      to={`/shop/product/${product.provider}/${encodeURIComponent(product.id)}`}
+      to={`/product/${product.provider}/${encodeURIComponent(product.id)}`}
       className={cn(
         "group block bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-[1.02]",
         className

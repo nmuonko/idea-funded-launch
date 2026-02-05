@@ -3,7 +3,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+
+// Helper component for legacy /shop/product redirects
+function ShopProductRedirect() {
+  const { provider, id } = useParams();
+  return <Navigate to={`/product/${provider}/${id}`} replace />;
+}
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { AdminThemeProvider } from "@/contexts/AdminThemeContext";
@@ -184,6 +190,7 @@ const App = () => {
             <Route path="/shop/account" element={<Navigate to="/account" replace />} />
             <Route path="/shop/checkout" element={<Navigate to="/checkout" replace />} />
             <Route path="/shop/search" element={<Navigate to="/search" replace />} />
+            <Route path="/shop/product/:provider/:id" element={<ShopProductRedirect />} />
             
             <Route path="/admin-login" element={<Index />} />
             <Route path="/auth" element={<Auth />} />

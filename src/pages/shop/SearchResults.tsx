@@ -42,11 +42,18 @@ export default function SearchResults() {
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
     // Build normalized query parameters for consistent cache keys
-    const searchQuery = query || category || 'popular';
+    // Use query if provided, otherwise use category name, otherwise 'popular'
+    const searchQuery = query || (category ? category.replace(/_/g, ' ') : 'popular');
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
       limit: 24,
     };
+
+    // IMPORTANT: Pass category to backend for proper filtering
+    // This ensures "View All" for Phones shows phones, not phone cases
+    if (category) {
+      params.category_key = category;
+    }
 
     // Add sort only if not default
     if (sort && sort !== 'relevance') {

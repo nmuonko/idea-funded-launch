@@ -46,6 +46,7 @@ interface HomeSection {
   title: string;
   products: Product[];
   seeAllQuery?: string;
+  categoryKey?: string;
 }
 
 export default function ShopHome() {
@@ -69,6 +70,7 @@ export default function ShopHome() {
             key: section.key,
             title: getSectionTitle(section.key, shop),
             seeAllQuery: section.see_all?.q || section.see_all_query || section.key,
+            categoryKey: section.see_all?.category_key || section.category_key || section.key,
             products: (section.items || []).slice(0, 12).map((item: any) => ({
               id: item.provider_product_id || item.id,
               provider: item.provider || 'amazon',
@@ -160,7 +162,7 @@ export default function ShopHome() {
                     {section.title}
                   </h2>
                   <Link 
-                    to={`/shop/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}`}
+                    to={`/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}${section.categoryKey ? `&category=${section.categoryKey}` : ''}`}
                     className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
                   >
                     {shop.seeAll}

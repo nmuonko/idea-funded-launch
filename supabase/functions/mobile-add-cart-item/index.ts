@@ -296,8 +296,7 @@ serve(async (req) => {
         is_saved_for_later: false,
         price_source: userEdited ? "manual_user" : "auto",
         price_confirmation_status: userEdited ? "pending" : null,
-        captured_price_usd: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
-        proposed_price_usd: userEdited ? productPrice : null,
+        captured_price: userEdited ? (body.capturedPrice ?? body.captured_price ?? null) : null,
       };
       
       const insertResult = await insertCartItem(db, newItem, correlationId);

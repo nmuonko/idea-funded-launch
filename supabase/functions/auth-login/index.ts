@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,27 +12,52 @@ serve(async (req) => {
   }
 
   try {
-    const { email, password } = await req.json();
+    const body = await req.json();
+    
+    // Handle both field naming conventions (mobile may send emailAddress or email)
+    const email = (body.email || body.emailAddress || '').trim().toLowerCase();
+    const password = body.password || '';
+
+    console.log('[auth-login] Attempt for email:', email);
 
     if (!email || !password) {
+      console.log('[auth-login] Missing email or password');
       return new Response(
-        JSON.stringify({ error: 'Email and password are required' }),
+        JSON.stringify({ 
+          success: false,
+          error: 'Email and password are required',
+          code: 'MISSING_FIELDS'
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
-    );
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[auth-login] Missing Supabase configuration');
+      return new Response(
+        JSON.stringify({ 
+          success: false,
+          error: 'Server configuration error',
+          code: 'CONFIG_ERROR'
+        }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    console.log('[auth-login] Calling signInWithPassword for:', email);
+    
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      console.error('[auth-login] Auth error:', error.message);
+      console.error('[auth-login] Auth error:', error.message, error.status);
       
       // Return clean, user-friendly error messages
       let errorMessage = 'Invalid email or password.';
@@ -59,6 +84,8 @@ serve(async (req) => {
       );
     }
 
+    console.log('[auth-login] Login successful for user:', data.user.id);
+
     // Get profile - use maybeSingle to avoid errors if no profile or duplicates
     const { data: profile } = await supabase
       .from('profiles')
@@ -68,6 +95,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
+        success: true,
         user: {
           id: data.user.id,
           email: data.user.email,
@@ -86,8 +114,13 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
+    console.error('[auth-login] Exception:', error.message);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        success: false,
+        error: 'An unexpected error occurred',
+        code: 'SERVER_ERROR'
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -1,9 +1,4 @@
 {
-  "nodeModulesDir": "auto",
-  "imports": {
-    "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
-    "resend": "npm:resend@4.0.0"
-  },
   "compilerOptions": {
     "jsx": "react",
     "strict": false,

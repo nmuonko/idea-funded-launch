@@ -1,7 +1,7 @@
  import { useState, useEffect } from 'react';
  import { useSearchParams, useNavigate, Link } from 'react-router-dom';
- import { loadStripe } from '@stripe/stripe-js';
- import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { loadStripe, Stripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
  import { ArrowLeft, Loader2, CreditCard, CheckCircle2, XCircle, Lock } from 'lucide-react';
  import { motion } from 'framer-motion';
  import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -9,8 +9,43 @@
  import { supabase } from '@/integrations/supabase/client';
  import { useToast } from '@/hooks/use-toast';
  
- // Initialize Stripe with publishable key
- const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
+// Stripe promise will be loaded dynamically from backend config
+let stripePromise: Promise<Stripe | null> | null = null;
+
+async function getStripePromise(): Promise<Stripe | null> {
+  if (stripePromise) return stripePromise;
+  
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/app-bootstrap`,
+      {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      console.error('Failed to fetch bootstrap config');
+      return null;
+    }
+    
+    const data = await response.json();
+    const stripeProvider = data?.payments?.providers?.find((p: any) => p.id === 'stripe');
+    const publishableKey = stripeProvider?.publishable_key;
+    
+    if (!publishableKey) {
+      console.error('Stripe publishable key not found in config');
+      return null;
+    }
+    
+    stripePromise = loadStripe(publishableKey);
+    return stripePromise;
+  } catch (error) {
+    console.error('Error loading Stripe:', error);
+    return null;
+  }
+}
  
  function PaymentForm({ orderId, amount, currency }: { orderId: string; amount: number; currency: string }) {
    const stripe = useStripe();
@@ -125,14 +160,28 @@
    
    const [loading, setLoading] = useState(true);
    const [error, setError] = useState<string | null>(null);
+  const [stripe, setStripe] = useState<Stripe | null>(null);
    
    useEffect(() => {
-     if (!orderId || !clientSecret) {
-       setError('Invalid payment session. Please try again.');
-       setLoading(false);
-       return;
-     }
-     setLoading(false);
+    const init = async () => {
+      if (!orderId || !clientSecret) {
+        setError('Invalid payment session. Please try again.');
+        setLoading(false);
+        return;
+      }
+      
+      const stripeInstance = await getStripePromise();
+      if (!stripeInstance) {
+        setError('Failed to initialize payment. Please try again later.');
+        setLoading(false);
+        return;
+      }
+      
+      setStripe(stripeInstance);
+      setLoading(false);
+    };
+    
+    init();
    }, [orderId, clientSecret]);
    
    if (loading) {
@@ -225,7 +274,7 @@
              </div>
              
              {/* Stripe Elements */}
-             <Elements stripe={stripePromise} options={stripeOptions}>
+      <Elements stripe={stripe} options={stripeOptions}>
                <PaymentForm orderId={orderId} amount={amount} currency={currency} />
              </Elements>
            </motion.div>

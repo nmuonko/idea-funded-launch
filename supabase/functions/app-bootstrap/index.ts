@@ -42,6 +42,7 @@ interface PaymentProviderConfig {
   configured: boolean;
   limits?: ProviderLimit;
   instructions?: BankTransferInstructions;
+  publishable_key?: string;
 }
 
 interface BootstrapResponse {
@@ -106,6 +107,9 @@ function buildStripeConfig(
   const isEnabled = safeBoolean(provider?.is_enabled, false) && safeBoolean(paymentSettings?.stripe_enabled, false);
   const hasSecrets = !!(Deno.env.get('STRIPE_SECRET_KEY'));
   
+  // Get publishable key from provider config or environment
+  const publishableKey = provider?.config_public?.publishable_key || Deno.env.get('STRIPE_PUBLISHABLE_KEY') || '';
+  
   // Stripe handles amounts above pawaPay limit
   const pawaPayMax = safeNumber(paymentSettings?.mobile_money_max_usd, 5000);
   
@@ -118,6 +122,7 @@ function buildStripeConfig(
       max: 100000, // 100k USD practical upper limit
       currency: 'USD',
     },
+    publishable_key: publishableKey,
   };
 }
 

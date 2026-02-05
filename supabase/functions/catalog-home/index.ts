@@ -22,10 +22,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { searchEbay, NormalizedItem } from "../_shared/ebayBrowseSearch.ts";
+import { searchRainforest } from "../_shared/rainforestAdapter.ts";
 import { isDisallowedItem } from "../_shared/contentBlocker.ts";
 import { isAllowedMotorListing } from "../_shared/motorsFilter.ts";
 import { normalizeAndValidateImageUrl } from "../_shared/imageValidation.ts";
 import { getCatalogSettings } from "../_shared/catalogSettings.ts";
+import { checkBudget, incrementBudget } from "../_shared/providerBudget.ts";
 import { 
   CANONICAL_TABS, 
   CANONICAL_SUBTABS,
@@ -370,9 +372,96 @@ function mapEbayItemToResponse(item: NormalizedItem): CatalogItem {
   };
 }
 
-// Per-section timeout for fallback fetches (5 seconds)
-const SECTION_TIMEOUT_MS = 5000;
+// Per-section timeout for fallback fetches (8 seconds to allow Amazon + eBay)
+const SECTION_TIMEOUT_MS = 8000;
 
+/**
+ * Map Amazon/Rainforest product to CatalogItem
+ */
+function mapAmazonToResponse(p: Record<string, unknown>): CatalogItem {
+  const rawImageUrl = (p.imageUrl || p.image_url) as string | null;
+  const validatedImageUrl = normalizeAndValidateImageUrl(rawImageUrl, p.productUrl as string || p.product_url as string);
+  const imagesArray = (p.images || []) as string[];
+
+  return {
+    id: `amazon_${p.providerProductId || p.asin}`,
+    provider: "rainforest",
+    providerProductId: (p.providerProductId || p.asin) as string,
+    title: (p.title as string) || null,
+    priceUsd: (p.priceUsd || p.price_usd) as number | null,
+    mainImageUrl: validatedImageUrl,
+    imageUrl: validatedImageUrl,
+    images: imagesArray.length > 0 ? imagesArray : (validatedImageUrl ? [validatedImageUrl] : []),
+    imageUrls: imagesArray.length > 0 ? imagesArray : (validatedImageUrl ? [validatedImageUrl] : []),
+    imageCount: imagesArray.length || 1,
+    imageMissing: !validatedImageUrl,
+    productUrl: (p.productUrl || p.product_url) as string | null,
+    inStock: (p.inStock ?? true) as boolean,
+    rating: (p.rating as number) || null,
+    unifiedCategory: null,
+    unifiedSubcategory: null,
+  };
+}
+
+/**
+ * Fetch Amazon items for fallback (Amazon-first strategy)
+ */
+async function fetchAmazonFallback(
+  supabase: any,
+  config: HomeSectionConfig,
+  requestId: string
+): Promise<CatalogItem[]> {
+  const items: CatalogItem[] = [];
+  const seenIds = new Set<string>();
+
+  // Check budget before making Amazon calls
+  const budgetCheck = await checkBudget(supabase, "amazon", "hour", 100, requestId);
+  if (!budgetCheck.allowed) {
+    console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Amazon budget exhausted`);
+    return items;
+  }
+
+  // Use first seed query for Amazon
+  const query = config.seedQueries[0] || config.key;
+  console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Fetching Amazon q="${query}"`);
+
+  try {
+    const result = await searchRainforest(query, 1, 30, "amazon.com");
+    
+    if (!result.error && result.products.length > 0) {
+      await incrementBudget(supabase, "amazon", "hour", requestId);
+      
+      for (const p of result.products) {
+        if (items.length >= 10) break; // Cap Amazon items at 10 for mixing
+        
+        const blocked = isDisallowedItem({ title: p.title || "", productUrl: p.productUrl || "" });
+        if (blocked.isDisallowed) continue;
+
+        // For vehicle sections, apply motors filter
+        if (config.isVehicle) {
+          const filterResult = isAllowedMotorListing({ title: p.title || "", priceUsd: p.priceUsd || 0 });
+          if (!filterResult.isAllowed) continue;
+        }
+
+        const id = `amazon_${p.providerProductId}`;
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+        
+        items.push(mapAmazonToResponse(p as Record<string, unknown>));
+      }
+      
+      console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Amazon fetched=${items.length}`);
+    }
+  } catch (err) {
+    console.error(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} Amazon error:`, err);
+  }
+
+  return items;
+}
+
+/**
+ * Fetch eBay items for fallback
+ */
 async function fetchEbayFallback(
   supabase: any,
   config: HomeSectionConfig,
@@ -425,6 +514,47 @@ async function fetchEbayFallback(
 }
 
 /**
+ * Fetch mixed Amazon+eBay items with Amazon-first strategy
+ */
+async function fetchMixedFallback(
+  supabase: any,
+  config: HomeSectionConfig,
+  requestId: string
+): Promise<{ items: CatalogItem[]; amazonCount: number; ebayCount: number }> {
+  // Fetch both providers in parallel for speed
+  const [amazonItems, ebayItems] = await Promise.all([
+    fetchAmazonFallback(supabase, config, requestId),
+    fetchEbayFallback(supabase, config, requestId),
+  ]);
+
+  // Amazon-first mixing: put Amazon items first, then eBay
+  const mixedItems: CatalogItem[] = [];
+  const seenIds = new Set<string>();
+
+  // Add Amazon items first (up to 10)
+  for (const item of amazonItems) {
+    if (mixedItems.length >= HOME_PAGE_SIZE) break;
+    if (seenIds.has(item.providerProductId)) continue;
+    seenIds.add(item.providerProductId);
+    mixedItems.push(item);
+  }
+
+  // Fill with eBay items
+  for (const item of ebayItems) {
+    if (mixedItems.length >= HOME_PAGE_SIZE) break;
+    if (seenIds.has(item.providerProductId)) continue;
+    seenIds.add(item.providerProductId);
+    mixedItems.push(item);
+  }
+
+  return {
+    items: mixedItems,
+    amazonCount: amazonItems.length,
+    ebayCount: ebayItems.length,
+  };
+}
+
+/**
  * Fetch a single section with timeout protection
  */
 async function fetchSectionWithTimeout(
@@ -460,20 +590,23 @@ async function fetchSectionWithTimeout(
     };
   }
 
-  // Fallback: fetch eBay live with timeout
+  // Fallback: fetch mixed Amazon+eBay live with timeout
   try {
-    const timeoutPromise = new Promise<CatalogItem[]>((_, reject) => {
+    type MixedResult = { items: CatalogItem[]; amazonCount: number; ebayCount: number };
+    const timeoutPromise = new Promise<MixedResult>((_, reject) => {
       setTimeout(() => reject(new Error("TIMEOUT")), SECTION_TIMEOUT_MS);
     });
 
-    const fetchPromise = fetchEbayFallback(supabase, config, requestId);
-    const items = await Promise.race([fetchPromise, timeoutPromise]);
+    const fetchPromise = fetchMixedFallback(supabase, config, requestId);
+    const result = await Promise.race([fetchPromise, timeoutPromise]);
+
+    console.log(`[HOME_FALLBACK] requestId=${requestId} section=${config.key} mixed amazon=${result.amazonCount} ebay=${result.ebayCount}`);
 
     return {
-      items,
+      items: result.items,
       cacheHit: false,
-      amazonCount: 0,
-      ebayCount: items.length,
+      amazonCount: result.amazonCount,
+      ebayCount: result.ebayCount,
       timedOut: false,
     };
   } catch (err) {

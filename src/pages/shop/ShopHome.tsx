@@ -46,11 +46,13 @@ export default function ShopHome() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(10); // Default 10 pages of cached items
   const [hasMore, setHasMore] = useState(true);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
+  
+  const PAGE_SIZE = 100; // Match backend default
 
   const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
     id: item.provider_product_id || item.id || '',
@@ -71,11 +73,28 @@ export default function ShopHome() {
         setLoadingMore(true);
       }
 
-      const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', { 
-        lang: language,
-        page,
-        pageSize: 60
+      // For pages beyond cached pool, auto-switch to live mode
+      const isLiveMode = page > totalPages;
+      
+      const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home`);
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('pageSize', String(PAGE_SIZE));
+      if (isLiveMode) {
+        url.searchParams.set('live', '1');
+      }
+      
+      const response = await fetch(url.toString(), {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Content-Type': 'application/json',
+        },
       });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load products');
+      }
+      
+      const data = await response.json() as HomeFeedResponse & { totalPages?: number; hasMore?: boolean };
       
       if (data?.sections?.[0]?.items) {
         const mappedProducts = data.sections[0].items
@@ -88,61 +107,28 @@ export default function ShopHome() {
           setProducts(mappedProducts);
         }
         
-        setTotalItems(data.totalItems || mappedProducts.length);
+        // Update pagination state
+        if (data.totalPages) {
+          setTotalPages(data.totalPages);
+        }
         setHasMore(data.hasMore !== false && mappedProducts.length > 0);
         setCurrentPage(page);
       }
     } catch (err: any) {
       console.error('Failed to fetch home feed:', err);
-      setError(err.message || 'Failed to load products');
+      if (page === 1) {
+        setError(err.message || 'Failed to load products');
+      }
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
   };
 
-  // Fetch LIVE items (not cached) for "Load more"
-  const fetchLiveItems = async () => {
-    try {
-      setLoadingMore(true);
-      
-      const nextPage = currentPage + 1;
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home?page=${nextPage}&pageSize=60&live=1`;
-      
-      const response = await fetch(url, {
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to load more products');
-      }
-      
-      const data = await response.json() as HomeFeedResponse;
-      
-      if (data?.sections?.[0]?.items) {
-        const mappedProducts = data.sections[0].items
-          .map(mapItemToProduct)
-          .filter(p => p.id && p.priceUsd > 0);
-        
-        if (mappedProducts.length > 0) {
-          setProducts(prev => [...prev, ...mappedProducts]);
-          setCurrentPage(nextPage);
-        }
-        
-        // If we got fewer than requested, no more items
-        if (mappedProducts.length < 60) {
-          setHasMore(false);
-        }
-      } else {
-        setHasMore(false);
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch live items:', err);
-    } finally {
-      setLoadingMore(false);
+  // Load more handler - automatically switches to live after cached pages exhausted
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      fetchFeed(currentPage + 1, true);
     }
   };
 
@@ -239,10 +225,10 @@ export default function ShopHome() {
                     {language === 'fr' ? "Rechercher des produits" : "Search products"}
                   </Button>
                   
-                  {/* Secondary: Load More (live fetch) */}
+                  {/* Secondary: Load More (auto-switches to live after cache exhausted) */}
                   {hasMore && (
                     <Button
-                      onClick={fetchLiveItems}
+                      onClick={handleLoadMore}
                       variant="outline"
                       className="border-white/20 text-white hover:bg-white/10 rounded-full px-8"
                       size="lg"
@@ -256,7 +242,9 @@ export default function ShopHome() {
                       ) : (
                         <>
                           <ChevronDown className="h-4 w-4 mr-2" />
-                          {language === 'fr' ? "Charger plus" : "Load more"}
+                          {language === 'fr' 
+                            ? `Charger plus${currentPage <= totalPages ? ` (page ${currentPage}/${totalPages})` : ' (live)'}`
+                            : `Load more${currentPage <= totalPages ? ` (page ${currentPage}/${totalPages})` : ' (live)'}`}
                         </>
                       )}
                     </Button>

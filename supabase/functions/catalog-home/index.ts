@@ -5,25 +5,21 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
  * 
  * PRODUCTION HOTFIX: This function is designed to NEVER fail:
  * - Always returns HTTP 200 with proper CORS
- * - Uses stale cache fallback if fresh build fails
- * - Returns empty feed structure (not empty sections) on total failure
+ * - Uses 3-tier fallback: Cache → Stale Cache → DB Bootstrap
+ * - Mobile ALWAYS gets ok:true with 8 sections to prevent "Catalogue Indisponible"
  * 
- * Returns ONE feed (no multiple titled sections) with 1000+ curated items:
- * - Phones segment (250): iPhones, Samsung, Pixel
- * - Accessories segment (200): cases, chargers, earbuds
- * - Cars/Vehicles segment (150): car electronics, dashcams, etc.
- * - Gaming segment (200): consoles, controllers, games
- * - Home/Furniture segment (200): sofas, beds, appliances
+ * Web: Single "featured" section (1000 items, paged at 100)
+ * Mobile: 8 sections with localized titles (phones, electronics, vehicles, etc.)
  * 
  * Cache TTL is admin-controlled via admin_settings table.
- * Supports live=1 for "Load more" that fetches fresh items.
  */
 
+// Enhanced CORS headers - support ALL mobile headers
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
-  "Access-Control-Expose-Headers": "content-type",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-afrishop-client, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
+  "Access-Control-Expose-Headers": "content-type, x-correlation-id",
 };
 
 // ===== CLIENT DETECTION =====
@@ -37,13 +33,21 @@ function detectClientType(req: Request): ClientType {
   // Check x-supabase-client-info header (case-insensitive)
   const clientInfo = req.headers.get("x-supabase-client-info") 
     || req.headers.get("X-Supabase-Client-Info") 
+    || req.headers.get("x-client-info")
+    || req.headers.get("X-Client-Info")
     || "";
   
   // Check user-agent
   const userAgent = req.headers.get("user-agent") || "";
   
+  // Check platform header
+  const platform = req.headers.get("x-supabase-client-platform")
+    || req.headers.get("X-Supabase-Client-Platform")
+    || "";
+  
   const clientInfoLower = clientInfo.toLowerCase();
   const userAgentLower = userAgent.toLowerCase();
+  const platformLower = platform.toLowerCase();
   
   // Mobile indicators
   const isMobile = 
@@ -52,20 +56,20 @@ function detectClientType(req: Request): ClientType {
     clientInfoLower.includes("reactnative") ||
     userAgentLower.includes("okhttp") ||
     userAgentLower.includes("reactnative") ||
-    userAgentLower.includes("expo");
+    userAgentLower.includes("expo") ||
+    platformLower.includes("android") ||
+    platformLower.includes("ios");
   
   return isMobile ? "mobile" : "web";
 }
 
-// Mobile section definitions for sectioned experience (restores OLD mobile homepage)
+// Mobile section definitions for sectioned experience
 interface MobileSection {
   key: string;
   title_fr: string;
   title_en: string;
   title: string;
-  seeds: string[];
-  category?: string;
-  minPrice?: number;
+  keywords: string[];
   target: number;
 }
 
@@ -76,7 +80,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Téléphones", 
     title_en: "Phones", 
     title: "Phones",
-    seeds: ["iphone 15", "samsung galaxy s24", "pixel 8", "android phone"],
+    keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile"],
     target: 20 
   },
   { 
@@ -84,7 +88,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Électronique", 
     title_en: "Electronics", 
     title: "Electronics",
-    seeds: ["airpods pro", "sony headphones", "samsung tv", "bluetooth speaker"],
+    keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth"],
     target: 20 
   },
   { 
@@ -92,9 +96,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Véhicules", 
     title_en: "Vehicles", 
     title: "Vehicles",
-    seeds: ["toyota camry", "honda civic", "bmw 3 series", "ford f150"],
-    category: "6000",
-    minPrice: 5000,
+    keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto"],
     target: 20 
   },
   { 
@@ -102,7 +104,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Jeux vidéo", 
     title_en: "Video Games", 
     title: "Video Games",
-    seeds: ["ps5 console", "nintendo switch", "xbox series x", "gaming controller"],
+    keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"],
     target: 20 
   },
   { 
@@ -110,7 +112,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Vêtements et mode", 
     title_en: "Clothing & Fashion", 
     title: "Clothing & Fashion",
-    seeds: ["nike jordan", "adidas originals", "levi jeans", "designer dress"],
+    keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"],
     target: 20 
   },
   { 
@@ -118,7 +120,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Maison et jardin", 
     title_en: "Home & Garden", 
     title: "Home & Garden",
-    seeds: ["sofa", "dining table", "garden tools", "home decor"],
+    keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"],
     target: 20 
   },
   { 
@@ -126,7 +128,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Jouets", 
     title_en: "Toys", 
     title: "Toys",
-    seeds: ["lego set", "barbie doll", "action figure", "board game"],
+    keywords: ["lego", "doll", "toy", "barbie", "figure", "game", "puzzle", "kids", "children"],
     target: 20 
   },
   { 
@@ -134,14 +136,14 @@ const MOBILE_SECTIONS: MobileSection[] = [
     title_fr: "Articles de sport", 
     title_en: "Sporting Goods", 
     title: "Sporting Goods",
-    seeds: ["basketball", "yoga mat", "fitness equipment", "running shoes"],
+    keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise"],
     target: 20 
   },
 ];
 
 // Default settings (overridden by admin_settings)
 const DEFAULT_POOL_SIZE = 1000;
-const DEFAULT_PAGE_SIZE = 100; // 100 items per page = 10 pages for 1000 pool
+const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_TTL_SECONDS = 172800; // 2 days
 
 interface FeedSettings {
@@ -228,45 +230,124 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
 }
 
 /**
- * Return a safe empty feed response - used when everything fails
- * ALWAYS returns HTTP 200 with proper structure so frontend doesn't crash
+ * Build GUARANTEED mobile sections response
+ * ALWAYS returns ok:true with 8 sections (even if items are empty)
+ * This PREVENTS "Catalogue Indisponible" on mobile
  */
-function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<string, unknown>): Response {
-  // MOBILE CONTRACT: Must always have key="featured", even on empty
+function buildMobileSectionsResponse(
+  items: CatalogItem[],
+  locale: string,
+  correlationId: string,
+  source: string,
+  isStale: boolean,
+  envUsed: string,
+  envRequested: string
+): Response {
+  const sections = buildMobileSectionsFromPool(items, locale);
+  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
+  
+  console.log(`[CATALOG_HOME] mobile_response correlationId=${correlationId} source=${source} sections=${sections.length} totalItems=${totalItems}`);
+  
+  // CRITICAL: ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
   return jsonResponse({
-    ok: false,
-    sections: [{
-      key: "featured",
-      title: "",
-      title_en: "",
-      title_fr: "",
-      hideTitle: true,
-      items: [],
-    }],
+    ok: true, // ALWAYS TRUE FOR MOBILE
+    sections,
     page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
-    totalPages: 0,
-    totalItems: 0,
+    pageSize: 20,
+    totalPages: 1,
+    totalItems,
     hasMore: false,
     hasMoreCached: false,
+    ttlSeconds: DEFAULT_TTL_SECONDS,
     correlationId,
-    error: error || "Unknown error",
     meta: {
-      envUsed: meta?.envUsed || "production",
-      envRequested: meta?.envRequested || "unknown",
-      source: "error",
-      isStale: false,
+      client: "mobile",
+      envUsed,
+      envRequested,
+      source,
+      isStale,
       correlationId,
       ts: Date.now(),
-      message: error || "Unknown error",
-    },
-    _meta: {
-      source: "error",
-      error: error || "Unknown error",
-      ts: Date.now(),
-      ...meta,
     }
-  }, 200); // ALWAYS 200
+  });
+}
+
+/**
+ * Build mobile sections from a pool of items
+ * Groups items by keyword matching OR distributes evenly
+ */
+function buildMobileSectionsFromPool(
+  items: CatalogItem[], 
+  locale: string
+): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
+  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
+  
+  // If no items, still return 8 empty sections (mobile expects this structure)
+  if (!items || items.length === 0) {
+    for (const mobileSec of MOBILE_SECTIONS) {
+      sections.push({
+        key: mobileSec.key,
+        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title_fr: mobileSec.title_fr,
+        title_en: mobileSec.title_en,
+        items: [],
+      });
+    }
+    return sections;
+  }
+  
+  // Try to match items to sections by keywords
+  const usedItems = new Set<string>();
+  
+  for (const mobileSec of MOBILE_SECTIONS) {
+    const sectionItems: CatalogItem[] = [];
+    
+    // Find items matching this section's keywords
+    for (const item of items) {
+      if (usedItems.has(item.id)) continue;
+      if (sectionItems.length >= mobileSec.target) break;
+      
+      const titleLower = (item.title || "").toLowerCase();
+      const matchesKeyword = mobileSec.keywords.some(kw => titleLower.includes(kw));
+      
+      if (matchesKeyword) {
+        sectionItems.push(item);
+        usedItems.add(item.id);
+      }
+    }
+    
+    sections.push({
+      key: mobileSec.key,
+      title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+      title_fr: mobileSec.title_fr,
+      title_en: mobileSec.title_en,
+      items: sectionItems,
+    });
+  }
+  
+  // If most sections are empty, redistribute items evenly
+  const sectionsWithItems = sections.filter(s => s.items.length > 0);
+  if (sectionsWithItems.length < 3 && items.length > 0) {
+    // Clear and redistribute
+    sections.length = 0;
+    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTIONS.length);
+    let offset = 0;
+    
+    for (const mobileSec of MOBILE_SECTIONS) {
+      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
+      offset += itemsPerSection;
+      
+      sections.push({
+        key: mobileSec.key,
+        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title_fr: mobileSec.title_fr,
+        title_en: mobileSec.title_en,
+        items: sectionItems,
+      });
+    }
+  }
+  
+  return sections;
 }
 
 async function loadFeedSettings(): Promise<FeedSettings> {
@@ -288,7 +369,7 @@ async function loadFeedSettings(): Promise<FeedSettings> {
       "home_feed_pool_size",
       "home_feed_page_size",
       "home_feed_ttl_seconds",
-      "home_feed_limit", // legacy key
+      "home_feed_limit",
       "home_feed_enabled"
     ];
     
@@ -315,7 +396,6 @@ async function loadFeedSettings(): Promise<FeedSettings> {
     const rows = await res.json() as Array<{ key: string; value: string }>;
     const settingsMap = new Map(rows.map(r => [r.key, r.value]));
 
-    // Support both new and legacy keys
     const poolSize = parseInt(settingsMap.get("home_feed_pool_size") || settingsMap.get("home_feed_limit") || "") || DEFAULT_POOL_SIZE;
 
     return {
@@ -336,8 +416,8 @@ async function loadFeedSettings(): Promise<FeedSettings> {
 }
 
 /**
- * Get cached feed - ALSO returns stale cache if available
- * Returns { cache, isStale } where cache can be stale but still usable
+ * TIER 1 & 2: Get cached feed (fresh or stale)
+ * Returns cache if available, even if expired (stale-while-revalidate)
  */
 async function getCachedFeedWithStale(env: string, category: string): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -391,6 +471,72 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
   } catch (err) {
     console.warn(`[CATALOG_HOME] Cache read error: ${err}`);
     return { cache: null, isStale: false };
+  }
+}
+
+/**
+ * TIER 3: BOOTSTRAP FROM DATABASE (CRITICAL SAFETY NET)
+ * This ensures mobile NEVER sees "Catalogue Indisponible"
+ * Fetches from catalog_items table when all cache fails
+ */
+async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem[]> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error(`[CATALOG_HOME][BOOTSTRAP] Missing env vars`);
+    return [];
+  }
+
+  try {
+    console.log(`[CATALOG_HOME][BOOTSTRAP] correlationId=${correlationId} fetching from catalog_items table`);
+    
+    // Fetch recent items from catalog_items table
+    // Order by updated_at desc to get freshest items
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast,created_at.desc&limit=300`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
+
+    if (!res.ok) {
+      console.error(`[CATALOG_HOME][BOOTSTRAP] DB fetch failed: ${res.status}`);
+      return [];
+    }
+
+    const rows = await res.json() as Array<Record<string, unknown>>;
+    
+    if (!Array.isArray(rows) || rows.length === 0) {
+      console.warn(`[CATALOG_HOME][BOOTSTRAP] No items found in catalog_items`);
+      return [];
+    }
+
+    // Map to CatalogItem format
+    const items: CatalogItem[] = rows.map(row => ({
+      id: `${row.provider}_${row.provider_product_id}`,
+      provider: row.provider as string,
+      provider_product_id: row.provider_product_id as string,
+      title: row.title as string || "Product",
+      price_usd: row.price_usd as number | null,
+      priceUsd: row.price_usd as number | null,
+      currency: "USD",
+      image_url: row.image_url as string | null,
+      imageUrl: row.image_url as string | null,
+      product_url: row.product_url as string | null,
+      productUrl: row.product_url as string | null,
+      in_stock: true,
+    })).filter(item => item.title && item.image_url && item.price_usd && item.price_usd > 0);
+
+    console.log(`[CATALOG_HOME][BOOTSTRAP] correlationId=${correlationId} source=bootstrap_db itemsTotal=${items.length}`);
+    
+    return items;
+  } catch (err) {
+    console.error(`[CATALOG_HOME][BOOTSTRAP] Exception: ${err}`);
+    return [];
   }
 }
 
@@ -488,23 +634,13 @@ function extractPriceFromEbay(item: Record<string, unknown>): number | null {
   return null;
 }
 
-/**
- * Validate if an eBay item ID is click-safe
- * Must have v1| format or be a numeric eBay item ID
- */
 function isValidEbayId(itemId: string): boolean {
   if (!itemId) return false;
-  // eBay v1| format: v1|itemId|variationId
   if (itemId.startsWith("v1|")) return true;
-  // Legacy numeric eBay IDs (12+ digits)
   if (/^\d{12,}$/.test(itemId)) return true;
   return false;
 }
 
-/**
- * Validate if an Amazon ASIN is click-safe
- * Must be exactly 10 alphanumeric characters
- */
 function isValidAsin(asin: string): boolean {
   if (!asin) return false;
   return /^[A-Z0-9]{10}$/i.test(asin);
@@ -517,13 +653,10 @@ function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogIt
   const priceObj = item.price as Record<string, unknown> | undefined;
   const itemId = item.itemId as string || "";
   
-  // Validate eBay ID is click-safe
   if (!isValidEbayId(itemId)) {
-    console.log(`[CATALOG_HOME][WARN] drop_unclickable provider=ebay id=${itemId}`);
     return null;
   }
   
-  // Canonical ID format: ebay_<rawId> (raw ID includes v1| prefix if present)
   const canonicalId = `ebay_${itemId}`;
   
   return {
@@ -549,13 +682,10 @@ function mapRainforestItem(item: Record<string, unknown>, segment?: string): Cat
   const priceValue = price?.value as number || null;
   const imageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
   
-  // Validate ASIN is click-safe
   if (!isValidAsin(asin)) {
-    console.log(`[CATALOG_HOME][WARN] drop_unclickable provider=amazon asin=${asin}`);
     return null;
   }
   
-  // Canonical ID format: amazon_<ASIN>
   const canonicalId = `amazon_${asin}`;
   
   return {
@@ -603,7 +733,6 @@ async function fetchEbayItems(
 
     const data = await response.json();
     const rawItems = data.itemSummaries || [];
-    // Map and filter: null items are invalid/unclickable
     const items = rawItems
       .map((i: Record<string, unknown>) => mapEbayItem(i, segment))
       .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url);
@@ -647,7 +776,6 @@ async function fetchRainforestItems(
 
     const data = await response.json();
     const rawItems = data.search_results || [];
-    // Map and filter: null items are invalid/unclickable
     const items = rawItems
       .slice(0, limit)
       .map((i: Record<string, unknown>) => mapRainforestItem(i, segment))
@@ -695,9 +823,7 @@ function stableShuffle<T>(items: T[], seed: string): T[] {
   return arr;
 }
 
-// ===== SEGMENT CONFIGURATIONS =====
 function getSegmentConfigs(poolSize: number): SegmentConfig[] {
-  // Scale proportions to pool size
   const scale = poolSize / 1000;
   
   return [
@@ -723,7 +849,7 @@ function getSegmentConfigs(poolSize: number): SegmentConfig[] {
         "airpods", "airpods pro", "earbuds wireless", "power bank",
         "phone stand", "car phone mount", "wireless charger"
       ],
-      excludePatterns: [], // We WANT accessories here
+      excludePatterns: [],
     },
     {
       name: "cars",
@@ -766,10 +892,9 @@ async function buildSegment(
   correlationId: string
 ): Promise<CatalogItem[]> {
   const startMs = Date.now();
-  const fetchLimit = Math.ceil(config.target * 4); // Fetch 4x target to ensure enough after filtering
+  const fetchLimit = Math.ceil(config.target * 4);
   const perSeed = Math.ceil(fetchLimit / config.seeds.length);
   
-  // Fetch from Amazon
   const amazonPromises = config.seeds.map(seed =>
     fetchRainforestItems(seed, perSeed, amazonDomain, correlationId, config.name)
   );
@@ -779,9 +904,8 @@ async function buildSegment(
   const amazonResults = await Promise.all(amazonPromises);
   allItems.push(...amazonResults.flat());
   
-  // Fetch from eBay for some segments
   if (ebayToken && ["accessories", "cars", "gaming"].includes(config.name)) {
-    const ebaySeeds = config.seeds.slice(0, 4); // Use first 4 seeds for eBay
+    const ebaySeeds = config.seeds.slice(0, 4);
     const ebayPromises = ebaySeeds.map(seed =>
       fetchEbayItems(seed, 30, ebayToken, correlationId, config.name)
     );
@@ -789,19 +913,15 @@ async function buildSegment(
     allItems.push(...ebayResults.flat());
   }
   
-  // Filter
   allItems = filterByPatterns(allItems, config.excludePatterns);
   
-  // Price filter if specified
   if (config.minPrice) {
     allItems = allItems.filter(i => (i.price_usd || 0) >= config.minPrice!);
   }
   
-  // Dedupe and shuffle
   allItems = deduplicateItems(allItems);
   allItems = stableShuffle(allItems, `${correlationId}_${config.name}`);
   
-  // Keep target
   const kept = allItems.slice(0, config.target);
   
   console.log(`[CATALOG_HOME][SEGMENT] correlationId=${correlationId} segment=${config.name} raw=${allItems.length} kept=${kept.length} target=${config.target} ms=${Date.now()-startMs}`);
@@ -818,14 +938,12 @@ async function buildFullFeed(
   const startMs = Date.now();
   const segments = getSegmentConfigs(settings.poolSize);
   
-  // Build all segments in parallel
   const segmentPromises = segments.map(config =>
     buildSegment(config, amazonDomain, ebayToken, correlationId)
   );
   
   const segmentResults = await Promise.all(segmentPromises);
   
-  // Combine in order: phones -> accessories -> cars -> gaming -> home
   let allItems: CatalogItem[] = [];
   const segmentCounts: Record<string, number> = {};
   
@@ -835,7 +953,6 @@ async function buildFullFeed(
     segmentCounts[segments[i].name] = segmentItems.length;
   }
   
-  // Cross-dedupe
   const beforeDedup = allItems.length;
   allItems = deduplicateItems(allItems);
   const afterDedup = allItems.length;
@@ -844,7 +961,6 @@ async function buildFullFeed(
     console.log(`[CATALOG_HOME] correlationId=${correlationId} cross_dedup removed=${beforeDedup - afterDedup}`);
   }
   
-  // Check shortfall
   const shortfall = allItems.length < settings.poolSize;
   if (shortfall) {
     console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} shortfall final=${allItems.length} target=${settings.poolSize}`);
@@ -856,7 +972,6 @@ async function buildFullFeed(
   return { items: allItems, segmentCounts, ms, shortfall };
 }
 
-// ===== LIVE FETCH (for Load More) =====
 async function fetchLiveItems(
   page: number,
   pageSize: number,
@@ -866,7 +981,6 @@ async function fetchLiveItems(
 ): Promise<CatalogItem[]> {
   const startMs = Date.now();
   
-  // Rotate through different seeds based on page
   const liveSeeds = [
     "electronics deals", "smartphone accessories", "home gadgets",
     "gaming deals", "tech accessories", "kitchen appliances",
@@ -878,7 +992,6 @@ async function fetchLiveItems(
   
   let items: CatalogItem[] = [];
   
-  // Fetch from both providers
   const amazonItems = await fetchRainforestItems(seed, pageSize, amazonDomain, correlationId, "live");
   items.push(...amazonItems);
   
@@ -895,160 +1008,60 @@ async function fetchLiveItems(
   return items.slice(0, pageSize);
 }
 
-/**
- * Build mobile sectioned response from cached pool
- * Groups items by segment property or distributes evenly across all 8 sections
- */
-function buildMobileSectionsFromPool(
-  items: CatalogItem[], 
-  locale: string,
-  page: number,
-  pageSize: number
-): { sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }>; totalItems: number } {
-  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
-  
-  // Group items by segment if available
-  const segmentMap = new Map<string, CatalogItem[]>();
-  
-  for (const item of items) {
-    const segment = item.segment || "electronics"; // Default segment
-    if (!segmentMap.has(segment)) {
-      segmentMap.set(segment, []);
-    }
-    segmentMap.get(segment)!.push(item);
-  }
-  
-  // Related segment names that map to the 8 mobile sections
-  const relatedSegments: Record<string, string[]> = {
-    phones: ["phones", "phone", "mobile"],
-    electronics: ["electronics", "accessories", "audio", "tech"],
-    vehicles: ["vehicles", "cars", "automotive", "car"],
-    video_games: ["gaming", "games", "video_games", "video games"],
-    clothing_fashion: ["clothing", "fashion", "apparel", "clothes"],
-    home_garden: ["home", "garden", "furniture", "decor"],
-    toys: ["toys", "toy", "games", "kids"],
-    sporting_goods: ["sports", "sporting", "fitness", "outdoor"],
-  };
-  
-  // Build sections with proper titles
-  for (const mobileSec of MOBILE_SECTIONS) {
-    const sectionItems: CatalogItem[] = [];
-    
-    // Try to get items from matching segment
-    if (segmentMap.has(mobileSec.key)) {
-      sectionItems.push(...segmentMap.get(mobileSec.key)!);
-    }
-    
-    // Also check for related segment names
-    for (const related of (relatedSegments[mobileSec.key] || [])) {
-      if (related !== mobileSec.key && segmentMap.has(related)) {
-        sectionItems.push(...segmentMap.get(related)!);
-      }
-    }
-    
-    // Limit to target items per section (20 default for mobile)
-    const sectionItemsLimited = sectionItems.slice(0, mobileSec.target);
-    
-    // Always add section with proper titles (even if empty - mobile will handle)
-    sections.push({
-      key: mobileSec.key,
-      title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-      title_fr: mobileSec.title_fr,
-      title_en: mobileSec.title_en,
-      items: sectionItemsLimited,
-    });
-  }
-  
-  // If most sections are empty, redistribute items evenly across all 8 sections
-  const sectionsWithItems = sections.filter(s => s.items.length > 0);
-  if (sectionsWithItems.length < 3 && items.length > 0) {
-    // Clear existing sections and distribute evenly
-    sections.length = 0;
-    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTIONS.length);
-    let offset = 0;
-    
-    for (const mobileSec of MOBILE_SECTIONS) {
-      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
-      offset += itemsPerSection;
-      
-      sections.push({
-        key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: sectionItems,
-      });
-    }
-  }
-  
-  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
-  return { sections, totalItems };
-}
-
 serve(async (req) => {
   const correlationId = generateCorrelationId();
   
-  // CORS preflight - ALWAYS handle first
+  // CORS preflight - ALWAYS handle first with proper headers
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   const startTime = Date.now();
-  
-  // ===== CLIENT DETECTION =====
   const clientType = detectClientType(req);
+  const { envRequested, envUsed } = normalizeEnv(req);
+  let env = envUsed;
 
-  // Wrap EVERYTHING in try/catch to guarantee no throws
+  // Wrap EVERYTHING in try/catch to GUARANTEE no throws
   try {
     // Parse parameters
     const url = new URL(req.url);
     let page = 1;
-    let pageSize = 0; // 0 means use default from settings
+    let pageSize = clientType === "mobile" ? 20 : DEFAULT_PAGE_SIZE;
     let category = "";
     let amazonDomain = "amazon.com";
     let forceLive = false;
-    let locale = "fr"; // Default locale for mobile section titles
-
-    // CRITICAL: Normalize environment with proper fallback
-    const { envRequested, envUsed } = normalizeEnv(req);
-    let env = envUsed;
+    let locale = "fr";
 
     if (req.method === "POST") {
       try {
         const body = await req.json();
         page = parseInt(body.page) || 1;
-        pageSize = parseInt(body.pageSize) || 0;
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
         locale = body.locale || body.lang || "fr";
-        // Override env from body if provided (but still normalize)
         if (body.env) {
           const bodyEnv = body.env.toLowerCase().trim();
           env = bodyEnv === "prod" ? "production" : (["production", "staging", "dev"].includes(bodyEnv) ? bodyEnv : "production");
         }
         forceLive = body.live === true || body.live === "1" || body.source === "live";
       } catch {
-        // Use defaults - don't throw
+        // Use defaults
       }
     } else {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
-      pageSize = parseInt(url.searchParams.get("pageSize") || "0") || 0;
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
-    // For MOBILE: use smaller page size (20 items per section)
-    // For WEB: use standard 100 items per page
-    const mobilePageSize = 20;
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
-    // Load settings (with fallback to defaults)
+    // Load settings
     let settings: FeedSettings;
     try {
       settings = await loadFeedSettings();
-    } catch (settingsErr) {
-      console.warn(`[CATALOG_HOME] Settings load failed, using defaults: ${settingsErr}`);
+    } catch {
       settings = {
         poolSize: DEFAULT_POOL_SIZE,
         pageSize: DEFAULT_PAGE_SIZE,
@@ -1056,30 +1069,11 @@ serve(async (req) => {
         enabled: true,
       };
     }
-    
-    // PAGE SIZE: Web uses 100, Mobile uses 20 per section
-    pageSize = clientType === "mobile" ? mobilePageSize : DEFAULT_PAGE_SIZE;
-
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
-      // Return appropriate format based on client
       if (clientType === "mobile") {
-        return jsonResponse({
-          ok: true,
-          sections: MOBILE_SECTIONS.map(s => ({
-            key: s.key,
-            title: locale === "fr" ? s.title_fr : s.title_en,
-            title_fr: s.title_fr,
-            title_en: s.title_en,
-            items: [],
-          })),
-          page,
-          pageSize,
-          correlationId,
-          meta: { client: clientType, source: "disabled" }
-        });
+        return buildMobileSectionsResponse([], locale, correlationId, "disabled", false, env, envRequested);
       }
       return jsonResponse({
         ok: true,
@@ -1092,19 +1086,23 @@ serve(async (req) => {
       });
     }
 
-    // ===== CACHE-FIRST: Check for valid cache (includes stale fallback) =====
+    // ===== 3-TIER FALLBACK STRATEGY =====
+    // TIER 1: Fresh cache
+    // TIER 2: Stale cache
+    // TIER 3: DB bootstrap (for mobile, ensures NEVER "Catalogue Indisponible")
+    
     let cached: CacheEntry | null = null;
     let isStale = false;
-    let cacheEnvUsed = env; // Track which env cache was actually used
+    let cacheEnvUsed = env;
     
     try {
       const cacheResult = await getCachedFeedWithStale(env, category);
       cached = cacheResult.cache;
       isStale = cacheResult.isStale;
       
-      // CRITICAL: If requested env (e.g., staging) has no cache, fall back to production
+      // Fallback to production cache if requested env has no data
       if ((!cached || !cached.items || cached.items.length === 0) && env !== "production") {
-        console.log(`[CATALOG_HOME] cache_fallback_to_production correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} reason=no_cache_for_env`);
+        console.log(`[CATALOG_HOME] cache_fallback_to_production correlationId=${correlationId} envRequested=${envRequested} reason=no_cache_for_env`);
         const prodCacheResult = await getCachedFeedWithStale("production", category);
         if (prodCacheResult.cache && prodCacheResult.cache.items && prodCacheResult.cache.items.length > 0) {
           cached = prodCacheResult.cache;
@@ -1117,50 +1115,23 @@ serve(async (req) => {
       console.warn(`[CATALOG_HOME] Cache read failed: ${cacheErr}`);
     }
     
-    if (cached && cached.items && cached.items.length > 0) {
+    // ===== TIER 1 & 2: Serve from cache (fresh or stale) =====
+    if (cached && cached.items && cached.items.length > 0 && !forceLive) {
       const actualTotalPages = Math.ceil(cached.items.length / pageSize);
       
-      // If requesting page beyond cached pages, switch to live
-      if (!forceLive && page <= actualTotalPages) {
+      if (page <= actualTotalPages) {
         const offset = (page - 1) * pageSize;
         const pageItems = cached.items.slice(offset, offset + pageSize);
         const hasMoreCached = page < actualTotalPages;
         
-        const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
+        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed}`);
         
-        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached} cacheEnvUsed=${cacheEnvUsed}`);
-        
-        // ===== DUAL-MODE RESPONSE =====
+        // MOBILE: Multi-section response
         if (clientType === "mobile") {
-          // MOBILE: Return multiple sections with real titles
-          const { sections, totalItems } = buildMobileSectionsFromPool(cached.items, locale, page, pageSize);
-          
-          console.log(`[CATALOG_HOME] mobile_sections correlationId=${correlationId} sectionsCount=${sections.length} totalItems=${totalItems}`);
-          
-          return jsonResponse({
-            ok: true,
-            sections,
-            page,
-            pageSize,
-            totalPages: 1, // Mobile uses sections, not pages
-            totalItems,
-            hasMore: false, // Mobile gets all sections at once
-            hasMoreCached: false,
-            ttlSeconds: settings.ttlSeconds,
-            correlationId,
-            meta: {
-              client: "mobile",
-              envUsed: cacheEnvUsed,
-              envRequested,
-              source: "cache",
-              isStale,
-              correlationId,
-              ts: Date.now(),
-            }
-          });
+          return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested);
         }
         
-        // WEB: Return single "featured" section (current working behavior)
+        // WEB: Single feed
         return jsonResponse({
           ok: true,
           sections: [{
@@ -1183,70 +1154,42 @@ serve(async (req) => {
             client: "web",
             envUsed: cacheEnvUsed,
             envRequested,
-            source: "cache",
+            source: isStale ? "stale-cache" : "cache",
             isStale,
             correlationId,
             ts: Date.now(),
-          },
-          _meta: {
-            source: "cache",
-            cache: isStale ? "stale" : "hit",
-            isStale,
-            envUsed: cacheEnvUsed,
-            envRequested,
-            expiresAt: cached.expires_at,
-            ttlSeconds: settings.ttlSeconds,
-            poolSize: cached.items.length,
-            page,
-            totalPages: actualTotalPages,
-            ...cached.meta
           }
         });
       }
-      
-      // Page is beyond cached pages OR forceLive - use live mode
-      const reason = forceLive ? "force_live" : "cache_exhausted";
-      console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page} actualTotalPages=${actualTotalPages} reason=${reason}`);
-      
-      let liveItems: CatalogItem[] = [];
-      try {
-        const ebayToken = await getEbayToken();
-        liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
-      } catch (liveErr) {
-        console.warn(`[CATALOG_HOME] Live fetch failed, serving empty: ${liveErr}`);
-      }
-      
-      return jsonResponse({
-        ok: true,
-        sections: [{
-          key: "featured",
-          title: "",
-          title_en: "",
-          title_fr: "",
-          hideTitle: true,
-          items: liveItems,
-        }],
-        page,
-        pageSize,
-        totalPages: actualTotalPages,
-        totalItems: liveItems.length,
-        hasMore: liveItems.length >= pageSize, // Assume more if we got a full page
-        hasMoreCached: false, // No more cached pages
-        correlationId,
-        _meta: {
-          source: "live",
-          reason,
-          page,
-          pageSize,
-          cachedTotalPages: actualTotalPages,
-          liveCount: liveItems.length,
-        }
-      });
     }
 
-    // ===== FORCE LIVE if requested but no cache =====
-    if (forceLive) {
-      console.log(`[CATALOG_HOME] live_mode_no_cache correlationId=${correlationId} page=${page}`);
+    // ===== TIER 3: DB BOOTSTRAP (CRITICAL FOR MOBILE) =====
+    // If cache is empty and we're mobile, bootstrap from DB to prevent "Catalogue Indisponible"
+    if (clientType === "mobile" && (!cached || !cached.items || cached.items.length === 0)) {
+      console.log(`[CATALOG_HOME] tier3_bootstrap correlationId=${correlationId} reason=cache_empty_for_mobile`);
+      
+      const bootstrapItems = await bootstrapFromDatabase(correlationId);
+      
+      if (bootstrapItems.length > 0) {
+        // Save bootstrap as last-known-good cache
+        try {
+          await saveCachedFeed(env, category, bootstrapItems, 3600, { source: "bootstrap_db" });
+        } catch {
+          // Ignore save errors
+        }
+        
+        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested);
+      }
+      
+      // Even if bootstrap fails, return empty sections with ok:true
+      // This prevents "Catalogue Indisponible"
+      console.log(`[CATALOG_HOME] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
+      return buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested);
+    }
+
+    // ===== LIVE MODE: Either forceLive or cache exhausted =====
+    if (forceLive || page > Math.ceil((cached?.items?.length || 0) / pageSize)) {
+      console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page} reason=${forceLive ? "force_live" : "cache_exhausted"}`);
       
       let liveItems: CatalogItem[] = [];
       try {
@@ -1254,6 +1197,10 @@ serve(async (req) => {
         liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
       } catch (liveErr) {
         console.warn(`[CATALOG_HOME] Live fetch failed: ${liveErr}`);
+      }
+      
+      if (clientType === "mobile") {
+        return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested);
       }
       
       return jsonResponse({
@@ -1273,19 +1220,17 @@ serve(async (req) => {
         hasMore: liveItems.length >= pageSize,
         hasMoreCached: false,
         correlationId,
-        _meta: {
+        meta: {
+          client: "web",
           source: "live",
-          reason: "force_live_no_cache",
           page,
-          pageSize,
-          liveCount: liveItems.length,
         }
       });
     }
 
+    // ===== CACHE MISS: Build fresh feed =====
     console.log(`[CATALOG_HOME] cache_miss correlationId=${correlationId} building_feed...`);
 
-    // ===== CACHE MISS: Build fresh feed =====
     let items: CatalogItem[] = [];
     let segmentCounts: Record<string, number> = {};
     let buildMs = 0;
@@ -1306,57 +1251,28 @@ serve(async (req) => {
       buildMs = buildResult.ms;
       shortfall = buildResult.shortfall;
     } catch (buildErr) {
-      console.error(`[CATALOG_HOME][ERROR] Build failed, checking stale cache: ${buildErr}`);
+      console.error(`[CATALOG_HOME][ERROR] Build failed: ${buildErr}`);
       
-      // Try stale cache as fallback
-      try {
-        const staleResult = await getCachedFeedWithStale(env, category);
-        if (staleResult.cache && staleResult.cache.items.length > 0) {
-          console.log(`[CATALOG_HOME] build_failed_using_stale correlationId=${correlationId} items=${staleResult.cache.items.length}`);
-          
-          const staleItems = staleResult.cache.items;
-          const actualTotalPages = Math.ceil(staleItems.length / pageSize);
-          const offset = (page - 1) * pageSize;
-          const pageItems = staleItems.slice(offset, offset + pageSize);
-          
-          return jsonResponse({
-            ok: true,
-            sections: [{
-              key: "featured",
-              title: "",
-              title_en: "",
-              title_fr: "",
-              hideTitle: true,
-              items: pageItems,
-            }],
-            page,
-            pageSize,
-            totalPages: actualTotalPages,
-            totalItems: staleItems.length,
-            hasMore: true,
-            hasMoreCached: page < actualTotalPages,
-            correlationId,
-            _meta: {
-              source: "cache",
-              cache: "stale_fallback",
-              isStale: true,
-              buildError: String(buildErr),
-              poolSize: staleItems.length,
-              page,
-              totalPages: actualTotalPages,
-            }
-          });
-        }
-      } catch (staleFetchErr) {
-        console.error(`[CATALOG_HOME][ERROR] Stale cache fallback also failed: ${staleFetchErr}`);
+      // For mobile, try bootstrap
+      if (clientType === "mobile") {
+        const bootstrapItems = await bootstrapFromDatabase(correlationId);
+        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested);
       }
       
-      // Total failure - return empty feed with ok: false but HTTP 200
-      console.error(`[CATALOG_HOME][ERROR] Total failure, returning empty feed: ${buildErr}`);
-      return emptyFeedResponse(correlationId, String(buildErr), { buildError: String(buildErr) });
+      // For web, return empty
+      return jsonResponse({
+        ok: false,
+        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
+        page,
+        pageSize,
+        totalPages: 0,
+        correlationId,
+        error: String(buildErr),
+        meta: { source: "error" }
+      });
     }
 
-    // Save to cache (async, don't wait, don't fail if save fails)
+    // Save to cache
     try {
       saveCachedFeed(env, category, items, settings.ttlSeconds, { 
         segmentCounts,
@@ -1364,15 +1280,18 @@ serve(async (req) => {
         buildMs,
         shortfall,
       });
-    } catch (saveErr) {
-      console.warn(`[CATALOG_HOME] Cache save failed (non-fatal): ${saveErr}`);
+    } catch {
+      // Ignore save errors
     }
 
-    // Paginate response
+    // Respond
+    if (clientType === "mobile") {
+      return buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested);
+    }
+
     const offset = (page - 1) * pageSize;
     const pageItems = items.slice(offset, offset + pageSize);
     const actualTotalPages = Math.ceil(items.length / pageSize);
-    const hasMoreCached = page < actualTotalPages;
 
     const totalMs = Date.now() - startTime;
     console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} poolSize=${items.length} page=${page}/${actualTotalPages} totalMs=${totalMs}`);
@@ -1391,19 +1310,15 @@ serve(async (req) => {
       pageSize,
       totalPages: actualTotalPages,
       totalItems: items.length,
-      hasMore: true, // Always true - can continue with live after cache
-      hasMoreCached,
+      hasMore: true,
+      hasMoreCached: page < actualTotalPages,
       ttlSeconds: settings.ttlSeconds,
       correlationId,
-      _meta: {
-        source: "cache",
-        cache: "miss",
-        building_feed_ms: buildMs,
+      meta: {
+        client: "web",
+        source: "fresh_build",
+        buildMs,
         segmentCounts,
-        total: items.length,
-        page,
-        totalPages: actualTotalPages,
-        shortfall,
       }
     });
   } catch (err) {
@@ -1411,10 +1326,32 @@ serve(async (req) => {
     const totalMs = Date.now() - startTime;
     console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
     
-    // Return proper empty feed structure with HTTP 200
-    return emptyFeedResponse(correlationId, String(err), { 
-      totalMs,
-      stack: (err as Error).stack,
+    // For mobile: ALWAYS return ok:true with empty sections
+    if (clientType === "mobile") {
+      const locale = "fr";
+      return buildMobileSectionsResponse([], locale, correlationId, "error_fallback", true, env, envRequested);
+    }
+    
+    // For web: Return proper structure with ok:false but HTTP 200
+    return jsonResponse({
+      ok: false,
+      sections: [{
+        key: "featured",
+        title: "",
+        title_en: "",
+        title_fr: "",
+        hideTitle: true,
+        items: [],
+      }],
+      page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
+      totalPages: 0,
+      correlationId,
+      error: String(err),
+      meta: {
+        source: "error",
+        totalMs,
+      }
     });
   }
 });

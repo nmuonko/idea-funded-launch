@@ -431,3 +431,9 @@ verify_jwt = false
 
 [functions.send-order-assistance-email]
 verify_jwt = false
+
+[functions.catalog-smoke-home]
+verify_jwt = false
+
+[functions.catalog-smoke-product]
+verify_jwt = false

@@ -86,6 +86,21 @@ function isLikelyAsin(id: string): boolean {
   return /^[A-Z0-9]{10}$/i.test(id);
 }
 
+/**
+ * Parse canonical product ID format
+ * 
+ * CANONICAL FORMATS (no provider param needed):
+ * - amazon_B0DQVHHTFN -> provider=amazon, productId=B0DQVHHTFN
+ * - ebay_v1|123456789|987654321 -> provider=ebay, productId=v1|123456789|987654321
+ * - ebay_123456789012 -> provider=ebay, productId=123456789012
+ * 
+ * LEGACY FORMATS (still supported):
+ * - rainforest:B0DQVHHTFN -> provider=amazon, productId=B0DQVHHTFN
+ * - ebay:v1|... -> provider=ebay, productId=v1|...
+ * - Raw ASIN with provider=amazon -> provider=amazon
+ * 
+ * IMPORTANT: This function NEVER requires a provider param if canonical ID is used.
+ */
 function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null; externalProvider: string } {
   let provider: string | null = null;
   let productId: string | null = null;
@@ -98,33 +113,42 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   const decodedId = decodeURIComponent(id);
   const decodedLower = decodedId.toLowerCase();
   
-  // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123" or "amazon:B0XYZ..."
-  if (decodedId && decodedId.includes(":") && !decodedId.startsWith("v1")) {
-    const colonIndex = decodedId.indexOf(":");
-    const providerPart = decodedId.slice(0, colonIndex).toLowerCase();
-    provider = providerPart;
-    productId = decodedId.slice(colonIndex + 1) || null;
+  // ===== CANONICAL FORMAT: amazon_<ASIN> or ebay_<fullId> =====
+  // This is the PREFERRED format - no provider param needed
+  if (decodedLower.startsWith("amazon_")) {
+    provider = "amazon";
+    productId = decodedId.slice(7).toUpperCase(); // ASIN always uppercase
+    externalProvider = "amazon";
+    console.log(`[CATALOG_PRODUCT] canonical_amazon productId=${productId}`);
   }
-  // Handle underscore prefix: "ebay_v1|..." or "amazon_B0XYZ..."
   else if (decodedLower.startsWith("ebay_")) {
     provider = "ebay";
-    productId = decodedId.slice(5);
+    productId = decodedId.slice(5); // Keep ebay IDs as-is (v1|...|...)
+    externalProvider = "ebay";
+    console.log(`[CATALOG_PRODUCT] canonical_ebay productId=${productId?.substring(0, 30)}`);
   }
+  // ===== LEGACY: rainforest_ prefix (normalize to amazon) =====
   else if (decodedLower.startsWith("rainforest_")) {
-    provider = "amazon"; // Normalize rainforest -> amazon for consistency
-    productId = decodedId.slice(11);
-  }
-  else if (decodedLower.startsWith("amazon_")) {
     provider = "amazon";
-    productId = decodedId.slice(7);
+    productId = decodedId.slice(11).toUpperCase();
+    externalProvider = "amazon";
+    console.log(`[CATALOG_PRODUCT] legacy_rainforest productId=${productId}`);
   }
-  // Use explicit provider param if given
+  // ===== LEGACY: colon separator (rainforest:ASIN, ebay:v1|...) =====
+  else if (decodedId && decodedId.includes(":") && !decodedId.startsWith("v1")) {
+    const colonIndex = decodedId.indexOf(":");
+    const providerPart = decodedId.slice(0, colonIndex).toLowerCase();
+    provider = providerPart === "rainforest" ? "amazon" : providerPart;
+    productId = decodedId.slice(colonIndex + 1) || null;
+    externalProvider = provider === "ebay" ? "ebay" : "amazon";
+  }
+  // ===== EXPLICIT provider param (legacy web app support) =====
   else if (providerParam && decodedId) {
-    // Accept amazon, rainforest, ebay - normalize rainforest to amazon
     provider = providerParam === "rainforest" ? "amazon" : providerParam;
     productId = decodedId;
+    externalProvider = provider === "ebay" ? "ebay" : "amazon";
   }
-  // Fallback: try to infer from ID format
+  // ===== INFER from ID format (fallback) =====
   else if (decodedId) {
     const asin = url.searchParams.get("asin")?.trim();
     const itemId = url.searchParams.get("itemId")?.trim();
@@ -142,18 +166,19 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
       provider = "amazon";
       productId = decodedId.toUpperCase();
     } else {
-      // Default to ebay for unknown formats (legacy behavior)
-      provider = "ebay";
-      productId = decodedId;
+      // Unknown format - try as raw ASIN (most common case)
+      provider = "amazon";
+      productId = decodedId.toUpperCase();
     }
+    externalProvider = provider === "ebay" ? "ebay" : "amazon";
   }
 
-  // Normalize provider names: rainforest -> amazon (externally we use amazon/ebay only)
+  // Normalize provider names
   if (provider === "rainforest") {
     provider = "amazon";
   }
   
-  // Set external provider (for response) - only amazon or ebay
+  // Set external provider
   externalProvider = provider === "ebay" ? "ebay" : "amazon";
 
   // Normalize ASIN to uppercase for amazon

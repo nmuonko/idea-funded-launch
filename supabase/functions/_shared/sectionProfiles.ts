@@ -110,6 +110,12 @@ const REFURB_WORDS = [
 
 // ─── SECTION PROFILES ─────────────────────────────────────────────────────────
 
+// Cross-category exclusion helpers
+const PHONE_EXCLUDE = ["phone","iphone","samsung","galaxy","pixel","smartphone","cell phone","mobile phone","case","charger","airpods","earbuds","screen protector","magsafe"];
+const VEHICLE_EXCLUDE = ["car","truck","suv","motorcycle","vin","mileage","ebay motors","motors","van","sedan","coupe","trailer","boat"];
+const GAMING_EXCLUDE = ["playstation","ps5","ps4","xbox","nintendo","switch","console","controller","joy-con","gaming"];
+const PARTS_EXCLUDE = ["bumper","brake","headlight","oem","aftermarket","rotor","fender","taillight","exhaust","muffler"];
+
 export const SECTION_PROFILES: SectionProfile[] = [
   {
     key: "phones",
@@ -123,7 +129,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "electronics",
     title: { en: "Electronics", fr: "Électronique" },
     includeAny: ELECTRONICS_WORDS.concat(PHONE_ACCESSORIES),
-    excludeAny: VEHICLE_CORE,
+    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS),
     preferProviders: ["amazon", "ebay"],
     minItems: 20,
   },
@@ -131,7 +137,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "vehicles",
     title: { en: "Vehicles", fr: "Véhicules" },
     includeAny: VEHICLE_CORE,
-    excludeAny: PHONE_WORDS.concat(PHONE_ACCESSORIES, GAMING_WORDS, TOYS_WORDS),
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, PARTS_EXCLUDE, ["accessory","accessories","parts","toy","toys","lego","doll"]),
     preferProviders: ["ebay", "amazon"],
     minItems: 12,
   },
@@ -139,7 +145,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "parts_accessories",
     title: { en: "Parts & Accessories", fr: "Pièces & Accessoires" },
     includeAny: PARTS_WORDS,
-    excludeAny: PHONE_WORDS.concat(GAMING_WORDS, TOYS_WORDS),
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, TOYS_WORDS),
     preferProviders: ["ebay", "amazon"],
     minItems: 12,
   },
@@ -147,7 +153,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "gaming",
     title: { en: "Gaming", fr: "Jeux Vidéo" },
     includeAny: GAMING_WORDS,
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS),
+    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 12,
   },
@@ -155,7 +161,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "clothing",
     title: { en: "Clothing & Fashion", fr: "Vêtements et Mode" },
     includeAny: CLOTHING_WORDS,
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS),
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 12,
   },
@@ -163,7 +169,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "home_garden",
     title: { en: "Home & Garden", fr: "Maison & Jardin" },
     includeAny: HOME_WORDS,
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, PHONE_WORDS),
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 12,
   },
@@ -171,7 +177,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "toys",
     title: { en: "Toys", fr: "Jouets" },
     includeAny: TOYS_WORDS,
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS),
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 10,
   },
@@ -179,7 +185,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "sporting_goods",
     title: { en: "Sporting Goods", fr: "Articles de Sport" },
     includeAny: SPORTS_WORDS,
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS),
+    excludeAny: VEHICLE_EXCLUDE.concat(PARTS_EXCLUDE, PHONE_EXCLUDE, GAMING_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 10,
   },

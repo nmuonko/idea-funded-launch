@@ -13,7 +13,7 @@ import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.t
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 1;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 2;
 const DEFAULT_TTL_SECONDS = 1800; // 30 min — short so rebuilds pick up new items
 const ITEMS_PER_SECTION_RESPONSE = 20; // returned to client
 const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability

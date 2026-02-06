@@ -1,53 +1,76 @@
 
-# Surgical Hotfix: Force Cache Invalidation + Strengthen Section Gates
+# Fix: Mobile Section Filtering — Word Boundary Matching + Keyword Precision
 
-## Root Cause (confirmed)
+## Root Cause (verified with live data)
 
-The mobile sections cache (`catalog_home_mobile_sections_cache`) has `schema_version=1` data that was built with weaker filtering. The current code architecture is correct -- `serveMobileSections()` checks schema version and rebuilds on mismatch -- but the version hasn't been bumped since the profiles were strengthened. Additionally, some exclude lists need hardening (e.g., vehicles must forbid bare "phone", "samsung", "case").
+The `filterItemsForProfile` function in `sectionProfiles.ts` uses `text.includes(keyword)` for matching, which is a pure substring check. This causes massive false positives:
 
-## Changes (3 files only)
+- **Clothing shows bed frames** because "tee" matches "s**tee**l" in "Steel Slats"
+- **Vehicles shows car accessories** because "car" matches "car vacuum", "car stereo", "car seat cover"
+- **Electronics shows phones** because `excludeAny` doesn't include phone keywords -- phones aren't excluded from electronics at all
+- **Sporting goods shows dining tables** because backfill returns wrong items that slip through substring matching
+- **Parts shows dash cams and vacuums** because "dash cam", "car vacuum", "seat cover" are literally in `PARTS_WORDS`
 
-### 1. `supabase/functions/_shared/mobileSectionsCache.ts`
-- Bump `MOBILE_SECTIONS_SCHEMA_VERSION` from `1` to `2`
-- This single change forces every mobile request to treat existing cache as invalid, triggering a full rebuild with the current strict profiles
-- No other changes to this file
+Additionally, `normText()` includes the product URL in the text being matched, and Amazon/eBay URLs contain keyword params (e.g., `keywords=bed+frame+queen`) that trigger false matches on unrelated sections.
 
-### 2. `supabase/functions/_shared/sectionProfiles.ts`
-Strengthen keyword lists per the user's exact gate specifications:
+## Changes (2 files only)
 
-**Vehicles `excludeAny`**: Add bare "phone", "samsung", "case", "charger", "airpods", "earbuds", "screen protector", "magsafe", "controller", "accessory", "accessories", "parts" (currently only excludes compound phrases like "samsung galaxy")
+### 1. `supabase/functions/_shared/sectionProfiles.ts`
 
-**Gaming `excludeAny`**: Add "phone", "samsung", "case", "charger", "screen protector", "magsafe", "car", "truck", "suv", "motorcycle", "bumper", "brake", "headlight"
+**A) Replace `includes()` with word-boundary regex matching**
 
-**Phones `excludeAny`**: Add bare "bumper", "brake", "headlight", "oem", "aftermarket" (already has VEHICLE_CORE + PARTS_WORDS but verify completeness)
+Change `matchesAny` to use `\b` word boundaries so "tee" only matches the word "tee", not "steel":
 
-**Electronics `excludeAny`**: Strengthen to also exclude PARTS_WORDS and PHONE_WORDS to prevent phone/parts bleed
+```text
+Current:  text.includes(w)         -> "steel".includes("tee") = TRUE (wrong)
+Fixed:    /\btee\b/.test(text)     -> /\btee\b/.test("steel") = FALSE (correct)
+```
 
-**Parts `excludeAny`**: Already excludes PHONE_WORDS + GAMING_WORDS -- verify completeness
+For multi-word phrases like "cell phone", keep using `includes()` since word boundaries don't apply well to phrases.
 
-**Clothing, Home, Toys, Sporting Goods**: Add phone and gaming exclusions to prevent cross-contamination
+**B) Change `normText()` to use title only (not URLs)**
 
-### 3. `supabase/functions/_shared/titleNormalizer.ts`
-- Add the new section keys ("parts_accessories", "gaming", "clothing", "refurbished") to the `TITLE_MAP` so title normalization works for all 10 sections
-- No other changes
+Remove `product_url` and `productUrl` from the text used for matching. URLs contain search keywords, category paths, and query params that cause false positives.
+
+**C) Fix keyword lists to be more precise**
+
+- **VEHICLE_CORE**: Remove overly generic words "car", "van" (match "car vacuum", "carplay", "canvas", "vanguard"). Replace with compound phrases: "used car", "new car", "car for sale", or keep "car" but add "car vacuum", "car stereo", "car charger", "car seat cover", "car mount", "car phone" to vehicle `excludeAny`
+- **PARTS_WORDS**: Remove "dash cam", "car vacuum", "car stereo", "car charger", "car mount", "car phone", "seat cover", "floor mat" -- these are accessories, not parts. Move them to a new accessories-friendly section or just remove
+- **CLOTHING_WORDS**: Remove "tee" (too short, matches "steel", "teeth", "steer"). Use "t-shirt" and "tee shirt" instead. Remove "boots" if it causes "bootstrap" matches (verify)
+- **HOME_WORDS**: Remove "home" (too generic, matches everything with "home" in the URL or brand name). Keep specific terms like "sofa", "bed", "mattress", "furniture"
+- **SPORTS_WORDS**: Remove "sport" and "sports" (too generic). Keep specific terms. Remove "outdoor" (matches "outdoor camera", "outdoor speaker")
+- **ELECTRONICS_WORDS**: Add phone exclusions to `excludeAny` so iPhones don't appear in Electronics
+
+**D) Add vehicle-specific accessory exclusions**
+
+Vehicles `excludeAny` should include: "vacuum", "stereo", "radio", "dash cam", "dashcam", "seat cover", "floor mat", "mount", "holder", "charger", "scanner", "obd", "obd2", "diagnostic", "jump starter", "air freshener", "organizer", "cleaning"
+
+### 2. `supabase/functions/_shared/mobileSectionsCache.ts`
+
+- Bump `MOBILE_SECTIONS_SCHEMA_VERSION` from `2` to `3` to force cache invalidation and rebuild with the corrected filtering logic
 
 ### What does NOT change
-- `catalog-home/index.ts` -- no code changes needed, it already delegates to `serveMobileSections()`
-- `catalog-home-v2/index.ts` -- no code changes needed, same delegation
+- `catalog-home/index.ts` -- no changes, imports shared modules
+- `catalog-home-v2/index.ts` -- no changes, imports shared modules
 - Web UI / web response path -- completely untouched
 - Payments, cart, checkout -- zero changes
-- Response shape -- identical `ok`, `sections[]`, `page`, `pageSize`, `hasMore`, `meta`
-- Cache table schema -- same table, just new schema_version value in data
+- Response shape -- identical structure
+- Cache table schema -- same table, just new schema_version value
+- `titleNormalizer.ts` -- no changes needed
 
 ### Deploy
-- Redeploy `catalog-home` and `catalog-home-v2` (they import the shared modules)
-- First mobile request after deploy will see `schema_version` mismatch, rebuild strict sections from pool + backfill, cache result with `schema_version=2`
+- Redeploy `catalog-home` and `catalog-home-v2` (they import the updated shared modules)
+- First mobile request rebuilds sections with corrected word-boundary matching + cleaned keywords + bumped schema version
 - Subsequent requests are instant cache hits
 
-## Technical Details
-
-The `MOBILE_SECTIONS_SCHEMA_VERSION` check in `readMobileSectionsCache()` (line 73) does an exact match:
-```
-if (row.schema_version !== MOBILE_SECTIONS_SCHEMA_VERSION) -> cache miss -> rebuild
-```
-Bumping from 1 to 2 triggers this path, which calls `buildStrictSectionsFromPool()` using the updated `SECTION_PROFILES` with hardened exclude lists. The rebuilt sections are then cached with `schema_version=2`.
+### Expected Results After Deploy
+- Phones: only phones (iPhones, Samsung Galaxy, Pixel, etc.)
+- Vehicles: only actual vehicle listings (no vacuums, no stereos, no seat covers)
+- Electronics: laptops, TVs, cameras, speakers (no iPhones)
+- Parts: brake pads, bumpers, headlights (no dash cams, no vacuums)
+- Gaming: PS5, Xbox, Nintendo, controllers (no gaming mice, no gaming headsets)
+- Clothing: actual shoes, shirts, jackets (no bed frames, no microwaves)
+- Home: sofas, beds, kitchen appliances (correct)
+- Sporting goods: actual sports equipment (no dining tables)
+- Toys: toys and games (correct)
+- Refurbished: renewed/refurbished items (correct)

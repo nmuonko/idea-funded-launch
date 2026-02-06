@@ -443,3 +443,9 @@ verify_jwt = false
 
 [functions.catalog-home-legacy]
 verify_jwt = false
+
+[functions.admin-rebuild-home]
+verify_jwt = false
+
+[functions.home-auto-refresh]
+verify_jwt = false

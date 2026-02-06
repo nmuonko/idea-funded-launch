@@ -9,6 +9,15 @@ import {
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
 import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
+import {
+  readMobileCache,
+  readWebCache,
+  buildMobileHomepage,
+  buildWebHomepage,
+  writeMobileCache,
+  writeWebCache,
+  loadRefreshSettings,
+} from "../_shared/homeRecipeBuilder.ts";
 
 /**
  * catalog-home-v2 - Single unified homepage feed with cache-first loading
@@ -548,7 +557,180 @@ serve(async (req) => {
 
     console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} client=${clientType} locale=${locale} page=${page} forceLive=${forceLive}`);
 
-    // ===== 3-TIER FALLBACK =====
+    // ===== RECIPE CACHE (PRIMARY SOURCE) =====
+    if (!forceLive) {
+      try {
+        const recipeSettings = await loadRefreshSettings(env);
+        
+        if (clientType === "mobile") {
+          const mobileCache = await readMobileCache(env);
+          if (mobileCache.hit && mobileCache.payload && mobileCache.schemaVersion === recipeSettings.mobile_schema_version) {
+            const payload = mobileCache.payload as Record<string, unknown>;
+            const sections = payload.sections as Array<Record<string, unknown>> || [];
+            if (sections.length > 0) {
+              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              const normalized = sections.map(s => ({
+                ...s,
+                title: langKey === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                items: (s.items as unknown[] || []).slice(0, 20),
+              }));
+              const normalizedSections = normalizeSectionTitles(normalized, langKey) as typeof normalized;
+              const totalItems = calculateTotalItems(normalizedSections);
+              const totalMs = Date.now() - startTime;
+              
+              console.log(`[CATALOG_HOME_V2] recipe_cache_hit correlationId=${correlationId} client=mobile sections=${normalizedSections.length} totalItems=${totalItems} ms=${totalMs}`);
+              
+              return jsonResponse({
+                ok: true,
+                sections: normalizedSections,
+                page: 1,
+                pageSize: 20,
+                totalPages: 1,
+                totalItems,
+                hasMore: false,
+                hasMoreCached: false,
+                ttlSeconds: recipeSettings.mobile_refresh_hours * 3600,
+                correlationId,
+                meta: {
+                  client: "mobile",
+                  detectedBy,
+                  envUsed: env,
+                  envRequested,
+                  source: "recipe_cache",
+                  isStale: false,
+                  ageSeconds: mobileCache.ageSeconds,
+                  correlationId,
+                  ts: Date.now(),
+                  totalMs,
+                  schemaVersion: recipeSettings.mobile_schema_version,
+                },
+              });
+            }
+          }
+          // Serve stale recipe cache if available
+          if (!mobileCache.hit && mobileCache.payload) {
+            const payload = mobileCache.payload as Record<string, unknown>;
+            const sections = payload.sections as Array<Record<string, unknown>> || [];
+            if (sections.length > 0) {
+              console.log(`[CATALOG_HOME_V2] recipe_cache_stale correlationId=${correlationId} client=mobile ageSeconds=${mobileCache.ageSeconds}`);
+              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              const normalized = sections.map(s => ({
+                ...s,
+                title: langKey === "fr" ? (s.title_fr || s.title) : (s.title_en || s.title),
+                items: (s.items as unknown[] || []).slice(0, 20),
+              }));
+              const normalizedSections = normalizeSectionTitles(normalized, langKey) as typeof normalized;
+              const totalItems = calculateTotalItems(normalizedSections);
+              
+              buildMobileHomepage(env).then(async (result) => {
+                const ttl = recipeSettings.mobile_refresh_hours * 3600;
+                await writeMobileCache(env, result.payload, ttl, recipeSettings.mobile_schema_version);
+                console.log(`[CATALOG_HOME_V2] recipe_rebuilt_async correlationId=${correlationId} items=${result.itemCount}`);
+              }).catch(err => console.error(`[CATALOG_HOME_V2] async_rebuild_error: ${err}`));
+              
+              return jsonResponse({
+                ok: true,
+                sections: normalizedSections,
+                page: 1,
+                pageSize: 20,
+                totalPages: 1,
+                totalItems,
+                hasMore: false,
+                hasMoreCached: false,
+                ttlSeconds: recipeSettings.mobile_refresh_hours * 3600,
+                correlationId,
+                meta: { client: "mobile", detectedBy, envUsed: env, envRequested, source: "recipe_cache_stale", isStale: true, correlationId, ts: Date.now(), schemaVersion: recipeSettings.mobile_schema_version },
+              });
+            }
+          }
+        } else {
+          // WEB
+          const webCache = await readWebCache(env);
+          if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
+            const payload = webCache.payload as Record<string, unknown>;
+            const allItems = payload.items as Array<Record<string, unknown>> || [];
+            if (allItems.length > 0) {
+              const totalPages = Math.ceil(allItems.length / pageSize) || 1;
+              const offset = (page - 1) * pageSize;
+              const pageItems = allItems.slice(offset, offset + pageSize);
+              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              
+              let sections = [{
+                key: "featured",
+                title: langKey === "fr" ? "En vedette" : "Featured",
+                title_en: "Featured",
+                title_fr: "En vedette",
+                hideTitle: true,
+                items: pageItems,
+              }];
+              sections = normalizeSectionTitles(sections, langKey) as typeof sections;
+              const totalMs = Date.now() - startTime;
+              
+              console.log(`[CATALOG_HOME_V2] recipe_web_cache_hit correlationId=${correlationId} poolSize=${allItems.length} page=${page}/${totalPages} ms=${totalMs}`);
+              
+              return jsonResponse({
+                ok: true,
+                sections,
+                page,
+                pageSize,
+                totalPages,
+                totalItems: allItems.length,
+                hasMore: true,
+                hasMoreCached: page < totalPages,
+                ttlSeconds: recipeSettings.web_refresh_hours * 3600,
+                correlationId,
+                meta: { client: "web", envUsed: env, envRequested, source: "recipe_cache", isStale: false, correlationId, ts: Date.now(), totalMs, schemaVersion: recipeSettings.web_schema_version },
+              });
+            }
+          }
+          // Stale web fallback
+          if (!webCache.hit && webCache.payload) {
+            const payload = webCache.payload as Record<string, unknown>;
+            const allItems = payload.items as Array<Record<string, unknown>> || [];
+            if (allItems.length > 0) {
+              console.log(`[CATALOG_HOME_V2] recipe_web_cache_stale correlationId=${correlationId} poolSize=${allItems.length}`);
+              const totalPages = Math.ceil(allItems.length / pageSize) || 1;
+              const offset = (page - 1) * pageSize;
+              const pageItems = allItems.slice(offset, offset + pageSize);
+              const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+              
+              let sections = [{
+                key: "featured",
+                title: langKey === "fr" ? "En vedette" : "Featured",
+                title_en: "Featured",
+                title_fr: "En vedette",
+                hideTitle: true,
+                items: pageItems,
+              }];
+              sections = normalizeSectionTitles(sections, langKey) as typeof sections;
+              
+              buildWebHomepage(env).then(async (result) => {
+                const ttl = recipeSettings.web_refresh_hours * 3600;
+                await writeWebCache(env, result.payload, ttl, recipeSettings.web_schema_version);
+              }).catch(err => console.error(`[CATALOG_HOME_V2] async_web_rebuild_error: ${err}`));
+              
+              return jsonResponse({
+                ok: true,
+                sections,
+                page,
+                pageSize,
+                totalPages,
+                totalItems: allItems.length,
+                hasMore: true,
+                hasMoreCached: page < totalPages,
+                ttlSeconds: recipeSettings.web_refresh_hours * 3600,
+                correlationId,
+                meta: { client: "web", envUsed: env, envRequested, source: "recipe_cache_stale", isStale: true, correlationId, ts: Date.now(), schemaVersion: recipeSettings.web_schema_version },
+              });
+            }
+          }
+        }
+      } catch (recipeCacheErr) {
+        console.warn(`[CATALOG_HOME_V2] recipe_cache_error: ${recipeCacheErr} — falling through to legacy`);
+      }
+    }
+
+    // ===== LEGACY 3-TIER FALLBACK =====
     let cached: CacheEntry | null = null;
     let isStale = false;
     let cacheEnvUsed = env;

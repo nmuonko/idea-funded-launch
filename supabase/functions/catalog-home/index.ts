@@ -160,6 +160,7 @@ interface FeedSettings {
   poolSize: number;
   pageSize: number;
   ttlSeconds: number;
+  mobileTtlSeconds: number;
   enabled: boolean;
 }
 
@@ -250,7 +251,8 @@ async function buildMobileSectionsResponse(
   isStale: boolean,
   envUsed: string,
   envRequested: string,
-  detectedBy: string = "unknown"
+  detectedBy: string = "unknown",
+  mobileTtlSeconds?: number
 ): Promise<Response> {
   const lang: "fr" | "en" = locale === "en" ? "en" : "fr";
   
@@ -261,7 +263,8 @@ async function buildMobileSectionsResponse(
     lang,
     correlationId,
     detectedBy,
-    items as SectionItem[]
+    items as SectionItem[],
+    mobileTtlSeconds
   );
 }
 async function loadFeedSettings(): Promise<FeedSettings> {
@@ -274,6 +277,7 @@ async function loadFeedSettings(): Promise<FeedSettings> {
       poolSize: DEFAULT_POOL_SIZE,
       pageSize: DEFAULT_PAGE_SIZE,
       ttlSeconds: DEFAULT_TTL_SECONDS,
+      mobileTtlSeconds: 1800,
       enabled: true,
     };
   }
@@ -284,38 +288,69 @@ async function loadFeedSettings(): Promise<FeedSettings> {
       "home_feed_page_size",
       "home_feed_ttl_seconds",
       "home_feed_limit",
-      "home_feed_enabled"
+      "home_feed_enabled",
+      "home_cache_ttl_seconds"
     ];
     
-    const res = await fetch(
-      `${supabaseUrl}/rest/v1/admin_settings?key=in.(${keys.map(k => `"${k}"`).join(",")})`,
-      {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-      }
-    );
+    // Fetch admin_settings and catalog_cache_settings in parallel
+    const [adminRes, cacheRes] = await Promise.all([
+      fetch(
+        `${supabaseUrl}/rest/v1/admin_settings?key=in.(${keys.map(k => `"${k}"`).join(",")})`,
+        {
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+        }
+      ),
+      fetch(
+        `${supabaseUrl}/rest/v1/catalog_cache_settings?key=eq.default`,
+        {
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            Accept: "application/vnd.pgrst.object+json",
+          },
+        }
+      ),
+    ]);
 
-    if (!res.ok) {
-      console.warn(`[CATALOG_HOME] Failed to load settings: ${res.status}`);
-      return {
-        poolSize: DEFAULT_POOL_SIZE,
-        pageSize: DEFAULT_PAGE_SIZE,
-        ttlSeconds: DEFAULT_TTL_SECONDS,
-        enabled: true,
-      };
+    let settingsMap = new Map<string, string>();
+    if (adminRes.ok) {
+      const rows = await adminRes.json() as Array<{ key: string; value: string }>;
+      settingsMap = new Map(rows.map(r => [r.key, r.value]));
     }
 
-    const rows = await res.json() as Array<{ key: string; value: string }>;
-    const settingsMap = new Map(rows.map(r => [r.key, r.value]));
+    // Parse catalog_cache_settings (admin Cache tab)
+    let cacheSettingsTtl: number | null = null;
+    if (cacheRes.ok && cacheRes.status !== 406) {
+      try {
+        const cacheRow = await cacheRes.json() as {
+          home_expires_minutes?: number | null;
+          updated_at?: string | null;
+        };
+        if (cacheRow?.home_expires_minutes && cacheRow.home_expires_minutes > 0) {
+          cacheSettingsTtl = cacheRow.home_expires_minutes * 60; // convert minutes → seconds
+          console.log(`[CATALOG_HOME] catalog_cache_settings home_expires=${cacheRow.home_expires_minutes}m → ${cacheSettingsTtl}s`);
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
 
     const poolSize = parseInt(settingsMap.get("home_feed_pool_size") || settingsMap.get("home_feed_limit") || "") || DEFAULT_POOL_SIZE;
+    const adminTtl = parseInt(settingsMap.get("home_feed_ttl_seconds") || "") || 0;
+    const adminHomeCacheTtl = parseInt(settingsMap.get("home_cache_ttl_seconds") || "") || 0;
+
+    // Priority: catalog_cache_settings (Cache tab) > admin_settings home_cache_ttl > admin_settings home_feed_ttl > default
+    const webTtl = cacheSettingsTtl || adminHomeCacheTtl || adminTtl || DEFAULT_TTL_SECONDS;
+    const mobileTtl = cacheSettingsTtl || adminHomeCacheTtl || 1800;
 
     return {
       poolSize,
       pageSize: parseInt(settingsMap.get("home_feed_page_size") || "") || DEFAULT_PAGE_SIZE,
-      ttlSeconds: parseInt(settingsMap.get("home_feed_ttl_seconds") || "") || DEFAULT_TTL_SECONDS,
+      ttlSeconds: webTtl,
+      mobileTtlSeconds: mobileTtl,
       enabled: settingsMap.get("home_feed_enabled") !== "false",
     };
   } catch (err) {
@@ -324,6 +359,7 @@ async function loadFeedSettings(): Promise<FeedSettings> {
       poolSize: DEFAULT_POOL_SIZE,
       pageSize: DEFAULT_PAGE_SIZE,
       ttlSeconds: DEFAULT_TTL_SECONDS,
+      mobileTtlSeconds: 1800,
       enabled: true,
     };
   }
@@ -1069,7 +1105,7 @@ serve(async (req) => {
         
         // MOBILE: Multi-section response with normalized titles
         if (clientType === "mobile") {
-          return await buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
+          return await buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy, settings.mobileTtlSeconds);
         }
         
         // WEB: Single feed with normalized title
@@ -1123,13 +1159,13 @@ serve(async (req) => {
           // Ignore save errors
         }
         
-        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy, settings.mobileTtlSeconds);
       }
       
       // Even if bootstrap fails, return empty sections with ok:true
       // This prevents "Catalogue Indisponible"
       console.log(`[CATALOG_HOME] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
-      return await buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
+      return await buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy, settings.mobileTtlSeconds);
     }
 
     // ===== LIVE MODE: Either forceLive or cache exhausted =====
@@ -1145,7 +1181,7 @@ serve(async (req) => {
       }
       
       if (clientType === "mobile") {
-        return await buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested, detectedBy, settings.mobileTtlSeconds);
       }
       
       // WEB: Normalized sections
@@ -1206,7 +1242,7 @@ serve(async (req) => {
       // For mobile, try bootstrap
       if (clientType === "mobile") {
         const bootstrapItems = await bootstrapFromDatabase(correlationId);
-        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested, detectedBy, settings.mobileTtlSeconds);
       }
       
       // For web, return empty with normalized sections
@@ -1238,7 +1274,7 @@ serve(async (req) => {
 
     // Respond
     if (clientType === "mobile") {
-      return await buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested, detectedBy);
+      return await buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested, detectedBy, settings.mobileTtlSeconds);
     }
 
     const offset = (page - 1) * pageSize;

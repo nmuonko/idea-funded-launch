@@ -1013,7 +1013,7 @@ export default function CatalogSourcesSettings() {
         </CardContent>
       </Card>
 
-      {/* Cache TTLs */}
+      {/* Cache TTLs - Redirect to Cache Tab */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
@@ -1022,103 +1022,22 @@ export default function CatalogSourcesSettings() {
           </CardTitle>
           <CardDescription>
             {language === 'fr'
-              ? "Combien de temps les résultats sont mis en cache (en secondes)."
-              : 'How long results are cached (in seconds).'}
+              ? "Les paramètres de cache sont gérés dans l'onglet Cache & Performance."
+              : 'Cache settings are managed in the Cache & Performance tab.'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="search_ttl">
-                {language === 'fr' ? 'Cache Recherche' : 'Search Cache'}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="search_ttl"
-                  type="number"
-                  min={60}
-                  value={settings.search_cache_ttl_seconds}
-                  onChange={(e) => handleChange('search_cache_ttl_seconds', parseInt(e.target.value) || 172800)}
-                />
-                <span className="text-sm text-muted-foreground min-w-[40px]">
-                  {formatSeconds(settings.search_cache_ttl_seconds)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="home_ttl">
-                {language === 'fr' ? 'Cache Accueil' : 'Home Cache'}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="home_ttl"
-                  type="number"
-                  min={60}
-                  value={settings.home_cache_ttl_seconds}
-                  onChange={(e) => handleChange('home_cache_ttl_seconds', parseInt(e.target.value) || 86400)}
-                />
-                <span className="text-sm text-muted-foreground min-w-[40px]">
-                  {formatSeconds(settings.home_cache_ttl_seconds)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="offers_ttl">
-                {language === 'fr' ? 'Cache Offres' : 'Offers Cache'}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="offers_ttl"
-                  type="number"
-                  min={60}
-                  value={settings.offers_cache_ttl_seconds}
-                  onChange={(e) => handleChange('offers_cache_ttl_seconds', parseInt(e.target.value) || 43200)}
-                />
-                <span className="text-sm text-muted-foreground min-w-[40px]">
-                  {formatSeconds(settings.offers_cache_ttl_seconds)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="negative_ttl">
-                {language === 'fr' ? 'Cache Négatif' : 'Negative Cache'}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="negative_ttl"
-                  type="number"
-                  min={30}
-                  max={600}
-                  value={settings.negative_cache_ttl_seconds}
-                  onChange={(e) => handleChange('negative_cache_ttl_seconds', parseInt(e.target.value) || 120)}
-                />
-                <span className="text-sm text-muted-foreground min-w-[40px]">
-                  {formatSeconds(settings.negative_cache_ttl_seconds)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="ebay_ttl">
-                {language === 'fr' ? 'Cache eBay' : 'eBay Cache'}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="ebay_ttl"
-                  type="number"
-                  min={0}
-                  value={settings.ebay_cache_ttl_seconds}
-                  onChange={(e) => handleChange('ebay_cache_ttl_seconds', parseInt(e.target.value) || 0)}
-                />
-                <span className="text-sm text-muted-foreground min-w-[40px]">
-                  {settings.ebay_cache_ttl_seconds === 0 
-                    ? (language === 'fr' ? 'Désactivé' : 'Off') 
-                    : formatSeconds(settings.ebay_cache_ttl_seconds)}
-                </span>
-              </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-muted/50 border">
+            <AlertCircle className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">
+                {language === 'fr' ? 'Paramètres centralisés' : 'Centralized Settings'}
+              </p>
+              <p className="text-muted-foreground">
+                {language === 'fr' 
+                  ? "Les TTL du cache (recherche, accueil, offres, négatif) sont maintenant contrôlés depuis l'onglet 'Cache & Performance' du panneau admin."
+                  : "Cache TTLs (search, home, offers, negative) are now controlled from the 'Cache & Performance' tab in the admin panel."}
+              </p>
             </div>
           </div>
         </CardContent>

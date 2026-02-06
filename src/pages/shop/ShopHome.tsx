@@ -84,6 +84,7 @@ export default function ShopHome() {
       const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home`);
       url.searchParams.set('page', String(page));
       url.searchParams.set('pageSize', String(PAGE_SIZE));
+      url.searchParams.set('client', 'web'); // Explicitly identify as web client
       if (shouldUseLive) {
         url.searchParams.set('live', '1');
       }

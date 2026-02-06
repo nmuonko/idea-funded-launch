@@ -664,10 +664,11 @@ serve(async (req) => {
       return jsonResponse({
         ok: true,
         sections: [{
-          key: "featured",
+          key: "feed",
           title: "",
           title_en: "",
           title_fr: "",
+          hideTitle: true,
           items: pageItems,
         }],
         page,
@@ -717,10 +718,11 @@ serve(async (req) => {
     return jsonResponse({
       ok: true,
       sections: [{
-        key: "featured",
+        key: "feed",
         title: "",
         title_en: "",
         title_fr: "",
+        hideTitle: true,
         items: pageItems,
       }],
       page,

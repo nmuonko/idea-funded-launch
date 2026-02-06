@@ -1003,6 +1003,33 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_home_cache: {
+        Row: {
+          created_at: string
+          env: string
+          expires_at: string
+          id: string
+          items: Json
+          meta: Json | null
+        }
+        Insert: {
+          created_at?: string
+          env: string
+          expires_at: string
+          id: string
+          items?: Json
+          meta?: Json | null
+        }
+        Update: {
+          created_at?: string
+          env?: string
+          expires_at?: string
+          id?: string
+          items?: Json
+          meta?: Json | null
+        }
+        Relationships: []
+      }
       catalog_item_media: {
         Row: {
           expires_at: string

@@ -13,29 +13,12 @@ import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.t
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const MOBILE_SECTIONS_SCHEMA_VERSION = 3;
+export const MOBILE_SECTIONS_SCHEMA_VERSION = 4;
 const DEFAULT_TTL_SECONDS = 1800; // 30 min — short so rebuilds pick up new items
 const ITEMS_PER_SECTION_RESPONSE = 20; // returned to client
 const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability
 
-// ─── HIDE TITLES TRANSFORM ───────────────────────────────────────────────────
-
-/**
- * Flatten all sections into a SINGLE "featured" section.
- * Mobile app ignores hideTitle, so the only way to remove headers
- * is to return exactly 1 section — no headers to render.
- */
-function flattenToSingleSection<T extends { items?: unknown[]; [k: string]: unknown }>(sections: T[]): Array<{ key: string; hideTitle: true; title: string; title_en: string; title_fr: string; items: unknown[] }> {
-  const allItems = sections.flatMap(s => Array.isArray(s.items) ? s.items : []);
-  return [{
-    key: "featured",
-    hideTitle: true as const,
-    title: " ",
-    title_en: " ",
-    title_fr: " ",
-    items: allItems,
-  }];
-}
+// (flattenToSingleSection removed — mobile needs multi-section response)
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -328,12 +311,12 @@ export async function serveMobileSections(
       items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
     }));
     const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-    const hidden = flattenToSingleSection(normalized);
-    const totalItems = hidden[0].items.length;
+    const totalItems = calculateTotalItems(normalized);
+    console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=${env} isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);
 
     return new Response(JSON.stringify({
       ok: true,
-      sections: hidden,
+      sections: normalized,
       page: 1,
       pageSize: ITEMS_PER_SECTION_RESPONSE,
       totalPages: 1,
@@ -361,7 +344,51 @@ export async function serveMobileSections(
     });
   }
 
-  // 2) Cache miss — rebuild strict sections
+  // 2) Cache miss — check staging→production fallback before rebuilding
+  if (poolItems.length === 0 && env !== "production") {
+    console.log(`[MOBILE_SECTIONS_CACHE] env=${env} pool empty, trying production fallback correlationId=${correlationId}`);
+    const prodCache = await readMobileSectionsCache("production", correlationId);
+    if (prodCache.hit && prodCache.payload) {
+      const sliced = prodCache.payload.sections.map(s => ({
+        ...s,
+        items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
+      }));
+      const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
+      const totalItems = calculateTotalItems(normalized);
+      console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=production isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);
+
+      return new Response(JSON.stringify({
+        ok: true,
+        sections: normalized,
+        page: 1,
+        pageSize: ITEMS_PER_SECTION_RESPONSE,
+        totalPages: 1,
+        totalItems,
+        hasMore: false,
+        hasMoreCached: false,
+        ttlSeconds: DEFAULT_TTL_SECONDS,
+        correlationId,
+        meta: {
+          client: "mobile",
+          detectedBy,
+          envUsed: "production",
+          envRequested,
+          source: "staging_to_production_fallback",
+          isStale: false,
+          builtAt: prodCache.payload.builtAt,
+          ageSeconds: prodCache.ageSeconds,
+          correlationId,
+          ts: Date.now(),
+          schemaVersion: MOBILE_SECTIONS_SCHEMA_VERSION,
+        },
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+      });
+    }
+  }
+
+  // 3) Rebuild strict sections from pool
   console.log(`[MOBILE_SECTIONS_CACHE] rebuilding env=${env} poolSize=${poolItems.length} correlationId=${correlationId}`);
 
   const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId);
@@ -375,12 +402,12 @@ export async function serveMobileSections(
     items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
   }));
   const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-  const hidden = flattenToSingleSection(normalized);
-  const totalItems = hidden[0].items.length;
+  const totalItems = calculateTotalItems(normalized);
+  console.log(`[CATALOG_HOME][MODE] envRequested=${envRequested} envUsed=${env} isMobile=true sections=${normalized.length} keys=${normalized.map(s=>s.key).join(",")}`);
 
   return new Response(JSON.stringify({
     ok: true,
-    sections: hidden,
+    sections: normalized,
     page: 1,
     pageSize: ITEMS_PER_SECTION_RESPONSE,
     totalPages: 1,
@@ -426,15 +453,15 @@ export function emptyMobileSectionsResponse(
     items: [],
   }));
   const normalized = normalizeSectionTitles(sections, lang) as typeof sections;
-  const hidden = flattenToSingleSection(normalized);
+  const totalItems = calculateTotalItems(normalized);
 
   return new Response(JSON.stringify({
     ok: true,
-    sections: hidden,
+    sections: normalized,
     page: 1,
     pageSize: ITEMS_PER_SECTION_RESPONSE,
     totalPages: 1,
-    totalItems: 0,
+    totalItems,
     hasMore: false,
     hasMoreCached: false,
     ttlSeconds: DEFAULT_TTL_SECONDS,

@@ -563,7 +563,12 @@ serve(async (req) => {
         const recipeSettings = await loadRefreshSettings(env);
         
         if (clientType === "mobile") {
-          const mobileCache = await readMobileCache(env);
+          let mobileCache = await readMobileCache(env);
+          // Production fallback: if requested env (e.g. staging) has no recipe cache, try production
+          if ((!mobileCache.hit || !mobileCache.payload) && env !== "production") {
+            console.log(`[CATALOG_HOME_V2] recipe_cache_fallback_to_production env=${env} correlationId=${correlationId}`);
+            mobileCache = await readMobileCache("production");
+          }
           if (mobileCache.hit && mobileCache.payload && mobileCache.schemaVersion === recipeSettings.mobile_schema_version) {
             const payload = mobileCache.payload as Record<string, unknown>;
             const sections = payload.sections as Array<Record<string, unknown>> || [];
@@ -645,7 +650,12 @@ serve(async (req) => {
           }
         } else {
           // WEB
-          const webCache = await readWebCache(env);
+          let webCache = await readWebCache(env);
+          // Production fallback for web recipe cache
+          if ((!webCache.hit || !webCache.payload) && env !== "production") {
+            console.log(`[CATALOG_HOME_V2] recipe_web_cache_fallback_to_production env=${env} correlationId=${correlationId}`);
+            webCache = await readWebCache("production");
+          }
           if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
             const allItems = payload.items as Array<Record<string, unknown>> || [];

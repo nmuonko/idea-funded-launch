@@ -3,6 +3,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 /**
  * catalog-home - Single unified homepage feed with cache-first loading
  * 
+ * PRODUCTION HOTFIX: This function is designed to NEVER fail:
+ * - Always returns HTTP 200 with proper CORS
+ * - Uses stale cache fallback if fresh build fails
+ * - Returns empty feed structure (not empty sections) on total failure
+ * 
  * Returns ONE feed (no multiple titled sections) with 1000+ curated items:
  * - Phones segment (250): iPhones, Samsung, Pixel
  * - Accessories segment (200): cases, chargers, earbuds
@@ -78,6 +83,38 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Return a safe empty feed response - used when everything fails
+ * ALWAYS returns HTTP 200 with proper structure so frontend doesn't crash
+ */
+function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<string, unknown>): Response {
+  return jsonResponse({
+    ok: false,
+    sections: [{
+      key: "feed",
+      title: "",
+      title_en: "",
+      title_fr: "",
+      hideTitle: true,
+      items: [],
+    }],
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalPages: 0,
+    totalItems: 0,
+    hasMore: false,
+    hasMoreCached: false,
+    correlationId,
+    error: error || "Unknown error",
+    _meta: {
+      source: "error",
+      error: error || "Unknown error",
+      ts: Date.now(),
+      ...meta,
+    }
+  }, 200); // ALWAYS 200
+}
+
 async function loadFeedSettings(): Promise<FeedSettings> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -144,16 +181,21 @@ async function loadFeedSettings(): Promise<FeedSettings> {
   }
 }
 
-async function getCachedFeed(env: string, category: string): Promise<CacheEntry | null> {
+/**
+ * Get cached feed - ALSO returns stale cache if available
+ * Returns { cache, isStale } where cache can be stale but still usable
+ */
+async function getCachedFeedWithStale(env: string, category: string): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) return null;
+  if (!supabaseUrl || !serviceRoleKey) return { cache: null, isStale: false };
 
   const cacheKey = `${env}:${category || "all"}`;
 
   try {
-    const res = await fetch(
+    // First try fresh cache (not expired)
+    const freshRes = await fetch(
       `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.${encodeURIComponent(cacheKey)}&expires_at=gt.${new Date().toISOString()}`,
       {
         headers: {
@@ -164,15 +206,37 @@ async function getCachedFeed(env: string, category: string): Promise<CacheEntry 
       }
     );
 
-    if (res.status === 406 || !res.ok) {
-      return null;
+    if (freshRes.ok && freshRes.status !== 406) {
+      const data = await freshRes.json();
+      if (data && data.items && data.items.length > 0) {
+        return { cache: data as CacheEntry, isStale: false };
+      }
     }
 
-    const data = await res.json();
-    return data as CacheEntry;
+    // No fresh cache - try stale cache (any cache for this key)
+    const staleRes = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.${encodeURIComponent(cacheKey)}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/vnd.pgrst.object+json",
+        },
+      }
+    );
+
+    if (staleRes.ok && staleRes.status !== 406) {
+      const data = await staleRes.json();
+      if (data && data.items && data.items.length > 0) {
+        console.log(`[CATALOG_HOME] stale_cache_available key=${cacheKey} items=${data.items.length} expired_at=${data.expires_at}`);
+        return { cache: data as CacheEntry, isStale: true };
+      }
+    }
+
+    return { cache: null, isStale: false };
   } catch (err) {
     console.warn(`[CATALOG_HOME] Cache read error: ${err}`);
-    return null;
+    return { cache: null, isStale: false };
   }
 }
 
@@ -680,12 +744,14 @@ async function fetchLiveItems(
 serve(async (req) => {
   const correlationId = generateCorrelationId();
   
+  // CORS preflight - ALWAYS handle first
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   const startTime = Date.now();
 
+  // Wrap EVERYTHING in try/catch to guarantee no throws
   try {
     // Parse parameters
     const url = new URL(req.url);
@@ -706,7 +772,7 @@ serve(async (req) => {
         env = body.env || "prod";
         forceLive = body.live === true || body.live === "1" || body.source === "live";
       } catch {
-        // Use defaults
+        // Use defaults - don't throw
       }
     } else {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
@@ -717,8 +783,19 @@ serve(async (req) => {
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
-    // Load settings
-    const settings = await loadFeedSettings();
+    // Load settings (with fallback to defaults)
+    let settings: FeedSettings;
+    try {
+      settings = await loadFeedSettings();
+    } catch (settingsErr) {
+      console.warn(`[CATALOG_HOME] Settings load failed, using defaults: ${settingsErr}`);
+      settings = {
+        poolSize: DEFAULT_POOL_SIZE,
+        pageSize: DEFAULT_PAGE_SIZE,
+        ttlSeconds: DEFAULT_TTL_SECONDS,
+        enabled: true,
+      };
+    }
     
     // Use settings page size if not specified (default 100)
     if (pageSize === 0) {
@@ -742,8 +819,17 @@ serve(async (req) => {
       });
     }
 
-    // ===== CACHE-FIRST: Check for valid cache =====
-    const cached = await getCachedFeed(env, category);
+    // ===== CACHE-FIRST: Check for valid cache (includes stale fallback) =====
+    let cached: CacheEntry | null = null;
+    let isStale = false;
+    
+    try {
+      const cacheResult = await getCachedFeedWithStale(env, category);
+      cached = cacheResult.cache;
+      isStale = cacheResult.isStale;
+    } catch (cacheErr) {
+      console.warn(`[CATALOG_HOME] Cache read failed: ${cacheErr}`);
+    }
     
     if (cached && cached.items && cached.items.length > 0) {
       const actualTotalPages = Math.ceil(cached.items.length / pageSize);
@@ -756,7 +842,7 @@ serve(async (req) => {
         
         const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
         
-        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached}`);
+        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached}`);
         
         return jsonResponse({
           ok: true,
@@ -778,7 +864,8 @@ serve(async (req) => {
           correlationId,
           _meta: {
             source: "cache",
-            cache: "hit",
+            cache: isStale ? "stale" : "hit",
+            isStale,
             expiresAt: cached.expires_at,
             ttlSeconds: settings.ttlSeconds,
             poolSize: cached.items.length,
@@ -793,8 +880,13 @@ serve(async (req) => {
       const reason = forceLive ? "force_live" : "cache_exhausted";
       console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page} actualTotalPages=${actualTotalPages} reason=${reason}`);
       
-      const ebayToken = await getEbayToken();
-      const liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
+      let liveItems: CatalogItem[] = [];
+      try {
+        const ebayToken = await getEbayToken();
+        liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
+      } catch (liveErr) {
+        console.warn(`[CATALOG_HOME] Live fetch failed, serving empty: ${liveErr}`);
+      }
       
       return jsonResponse({
         ok: true,
@@ -828,8 +920,13 @@ serve(async (req) => {
     if (forceLive) {
       console.log(`[CATALOG_HOME] live_mode_no_cache correlationId=${correlationId} page=${page}`);
       
-      const ebayToken = await getEbayToken();
-      const liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
+      let liveItems: CatalogItem[] = [];
+      try {
+        const ebayToken = await getEbayToken();
+        liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
+      } catch (liveErr) {
+        console.warn(`[CATALOG_HOME] Live fetch failed: ${liveErr}`);
+      }
       
       return jsonResponse({
         ok: true,
@@ -861,22 +958,87 @@ serve(async (req) => {
     console.log(`[CATALOG_HOME] cache_miss correlationId=${correlationId} building_feed...`);
 
     // ===== CACHE MISS: Build fresh feed =====
-    const ebayToken = await getEbayToken();
+    let items: CatalogItem[] = [];
+    let segmentCounts: Record<string, number> = {};
+    let buildMs = 0;
+    let shortfall = false;
     
-    const { items, segmentCounts, ms: buildMs, shortfall } = await buildFullFeed(
-      settings,
-      correlationId,
-      amazonDomain,
-      ebayToken
-    );
+    try {
+      const ebayToken = await getEbayToken();
+      
+      const buildResult = await buildFullFeed(
+        settings,
+        correlationId,
+        amazonDomain,
+        ebayToken
+      );
+      
+      items = buildResult.items;
+      segmentCounts = buildResult.segmentCounts;
+      buildMs = buildResult.ms;
+      shortfall = buildResult.shortfall;
+    } catch (buildErr) {
+      console.error(`[CATALOG_HOME][ERROR] Build failed, checking stale cache: ${buildErr}`);
+      
+      // Try stale cache as fallback
+      try {
+        const staleResult = await getCachedFeedWithStale(env, category);
+        if (staleResult.cache && staleResult.cache.items.length > 0) {
+          console.log(`[CATALOG_HOME] build_failed_using_stale correlationId=${correlationId} items=${staleResult.cache.items.length}`);
+          
+          const staleItems = staleResult.cache.items;
+          const actualTotalPages = Math.ceil(staleItems.length / pageSize);
+          const offset = (page - 1) * pageSize;
+          const pageItems = staleItems.slice(offset, offset + pageSize);
+          
+          return jsonResponse({
+            ok: true,
+            sections: [{
+              key: "feed",
+              title: "",
+              title_en: "",
+              title_fr: "",
+              hideTitle: true,
+              items: pageItems,
+            }],
+            page,
+            pageSize,
+            totalPages: actualTotalPages,
+            totalItems: staleItems.length,
+            hasMore: true,
+            hasMoreCached: page < actualTotalPages,
+            correlationId,
+            _meta: {
+              source: "cache",
+              cache: "stale_fallback",
+              isStale: true,
+              buildError: String(buildErr),
+              poolSize: staleItems.length,
+              page,
+              totalPages: actualTotalPages,
+            }
+          });
+        }
+      } catch (staleFetchErr) {
+        console.error(`[CATALOG_HOME][ERROR] Stale cache fallback also failed: ${staleFetchErr}`);
+      }
+      
+      // Total failure - return empty feed with ok: false but HTTP 200
+      console.error(`[CATALOG_HOME][ERROR] Total failure, returning empty feed: ${buildErr}`);
+      return emptyFeedResponse(correlationId, String(buildErr), { buildError: String(buildErr) });
+    }
 
-    // Save to cache (async, don't wait)
-    saveCachedFeed(env, category, items, settings.ttlSeconds, { 
-      segmentCounts,
-      total: items.length,
-      buildMs,
-      shortfall,
-    });
+    // Save to cache (async, don't wait, don't fail if save fails)
+    try {
+      saveCachedFeed(env, category, items, settings.ttlSeconds, { 
+        segmentCounts,
+        total: items.length,
+        buildMs,
+        shortfall,
+      });
+    } catch (saveErr) {
+      console.warn(`[CATALOG_HOME] Cache save failed (non-fatal): ${saveErr}`);
+    }
 
     // Paginate response
     const offset = (page - 1) * pageSize;
@@ -917,14 +1079,14 @@ serve(async (req) => {
       }
     });
   } catch (err) {
+    // CRITICAL: This catch block ensures we NEVER throw
     const totalMs = Date.now() - startTime;
-    console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} ms=${totalMs}`);
+    console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
     
-    return jsonResponse({
-      ok: false,
-      error: String(err),
-      sections: [],
-      correlationId
-    }, 200); // Always return 200 with error in body
+    // Return proper empty feed structure with HTTP 200
+    return emptyFeedResponse(correlationId, String(err), { 
+      totalMs,
+      stack: (err as Error).stack,
+    });
   }
 });

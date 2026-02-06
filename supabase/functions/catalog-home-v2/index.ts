@@ -50,7 +50,7 @@ function detectClientType(req: Request): ClientType {
   return isMobile ? "mobile" : "web";
 }
 
-// Mobile section definitions for sectioned experience
+// Mobile section definitions for sectioned experience (restores OLD mobile homepage)
 interface MobileSectionDef {
   key: string;
   title_fr: string;
@@ -62,47 +62,14 @@ interface MobileSectionDef {
   target: number;
 }
 
+// EXACT SECTIONS EXPECTED BY MOBILE APP - DO NOT CHANGE KEYS/TITLES
 const MOBILE_SECTION_DEFS: MobileSectionDef[] = [
   { 
     key: "phones", 
     title_fr: "Téléphones", 
     title_en: "Phones", 
     title: "Phones",
-    seeds: ["iphone 15", "samsung galaxy s24", "pixel 8"],
-    target: 20 
-  },
-  { 
-    key: "video_games", 
-    title_fr: "Jeux Vidéo", 
-    title_en: "Video Games", 
-    title: "Video Games",
-    seeds: ["ps5 console", "nintendo switch", "xbox series x"],
-    target: 20 
-  },
-  { 
-    key: "computers", 
-    title_fr: "Ordinateurs", 
-    title_en: "Computers", 
-    title: "Computers",
-    seeds: ["macbook pro", "dell laptop", "gaming laptop"],
-    target: 20 
-  },
-  { 
-    key: "vehicles", 
-    title_fr: "Véhicules", 
-    title_en: "Vehicles", 
-    title: "Vehicles",
-    seeds: ["toyota camry", "honda civic", "bmw 3 series"],
-    category: "6000",
-    minPrice: 5000,
-    target: 20 
-  },
-  { 
-    key: "clothing", 
-    title_fr: "Vêtements", 
-    title_en: "Clothing", 
-    title: "Clothing",
-    seeds: ["nike jordan", "adidas originals", "levi jeans"],
+    seeds: ["iphone 15", "samsung galaxy s24", "pixel 8", "android phone"],
     target: 20 
   },
   { 
@@ -110,7 +77,57 @@ const MOBILE_SECTION_DEFS: MobileSectionDef[] = [
     title_fr: "Électronique", 
     title_en: "Electronics", 
     title: "Electronics",
-    seeds: ["airpods pro", "sony headphones", "samsung tv"],
+    seeds: ["airpods pro", "sony headphones", "samsung tv", "bluetooth speaker"],
+    target: 20 
+  },
+  { 
+    key: "vehicles", 
+    title_fr: "Véhicules", 
+    title_en: "Vehicles", 
+    title: "Vehicles",
+    seeds: ["toyota camry", "honda civic", "bmw 3 series", "ford f150"],
+    category: "6000",
+    minPrice: 5000,
+    target: 20 
+  },
+  { 
+    key: "video_games", 
+    title_fr: "Jeux vidéo", 
+    title_en: "Video Games", 
+    title: "Video Games",
+    seeds: ["ps5 console", "nintendo switch", "xbox series x", "gaming controller"],
+    target: 20 
+  },
+  { 
+    key: "clothing_fashion", 
+    title_fr: "Vêtements et mode", 
+    title_en: "Clothing & Fashion", 
+    title: "Clothing & Fashion",
+    seeds: ["nike jordan", "adidas originals", "levi jeans", "designer dress"],
+    target: 20 
+  },
+  { 
+    key: "home_garden", 
+    title_fr: "Maison et jardin", 
+    title_en: "Home & Garden", 
+    title: "Home & Garden",
+    seeds: ["sofa", "dining table", "garden tools", "home decor"],
+    target: 20 
+  },
+  { 
+    key: "toys", 
+    title_fr: "Jouets", 
+    title_en: "Toys", 
+    title: "Toys",
+    seeds: ["lego set", "barbie doll", "action figure", "board game"],
+    target: 20 
+  },
+  { 
+    key: "sporting_goods", 
+    title_fr: "Articles de sport", 
+    title_en: "Sporting Goods", 
+    title: "Sporting Goods",
+    seeds: ["basketball", "yoga mat", "fitness equipment", "running shoes"],
     target: 20 
   },
 ];
@@ -835,7 +852,7 @@ interface CacheEntry {
 
 /**
  * Build mobile sectioned response from cached pool
- * Groups items by segment property or distributes evenly across sections
+ * Distributes items evenly across all 8 mobile sections
  */
 function buildMobileSectionsFromPoolV2(
   items: CatalogItem[], 
@@ -843,7 +860,7 @@ function buildMobileSectionsFromPoolV2(
 ): { sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }>; totalItems: number } {
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
   
-  // Distribute items evenly across mobile sections
+  // Distribute items evenly across all 8 mobile sections
   const itemsPerSection = Math.ceil(items.length / MOBILE_SECTION_DEFS.length);
   let offset = 0;
   
@@ -851,15 +868,14 @@ function buildMobileSectionsFromPoolV2(
     const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
     offset += itemsPerSection;
     
-    if (sectionItems.length > 0) {
-      sections.push({
-        key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: sectionItems,
-      });
-    }
+    // Always add section with proper titles (mobile expects all 8 sections)
+    sections.push({
+      key: mobileSec.key,
+      title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+      title_fr: mobileSec.title_fr,
+      title_en: mobileSec.title_en,
+      items: sectionItems,
+    });
   }
   
   const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);

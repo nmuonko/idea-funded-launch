@@ -1354,6 +1354,7 @@ serve(async (req) => {
     
     // For mobile: ALWAYS return ok:true with normalized empty sections
     if (clientType === "mobile") {
+      console.log(`[CATALOG_HOME][FAILSAFE] returning empty 8-section ok:true correlationId=${correlationId}`);
       return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
     }
     

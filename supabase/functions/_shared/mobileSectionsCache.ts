@@ -18,6 +18,24 @@ const DEFAULT_TTL_SECONDS = 1800; // 30 min — short so rebuilds pick up new it
 const ITEMS_PER_SECTION_RESPONSE = 20; // returned to client
 const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability
 
+// ─── HIDE TITLES TRANSFORM ───────────────────────────────────────────────────
+
+/**
+ * Hide section titles for mobile response.
+ * Sets hideTitle:true and title to single space (not empty string)
+ * to prevent the mobile app from falling back to "Section".
+ * Does NOT touch items[] or see_all.
+ */
+function hideMobileTitles<T extends { key?: string; title?: string; title_en?: string; title_fr?: string; [k: string]: unknown }>(sections: T[]): (T & { hideTitle: true })[] {
+  return sections.map(s => ({
+    ...s,
+    hideTitle: true as const,
+    title: " ",
+    title_en: " ",
+    title_fr: " ",
+  }));
+}
+
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
 interface CachedSectionsPayload {
@@ -309,11 +327,12 @@ export async function serveMobileSections(
       items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
     }));
     const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-    const totalItems = calculateTotalItems(normalized);
+    const hidden = hideMobileTitles(normalized);
+    const totalItems = calculateTotalItems(hidden);
 
     return new Response(JSON.stringify({
       ok: true,
-      sections: normalized,
+      sections: hidden,
       page: 1,
       pageSize: ITEMS_PER_SECTION_RESPONSE,
       totalPages: 1,
@@ -355,11 +374,12 @@ export async function serveMobileSections(
     items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
   }));
   const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-  const totalItems = calculateTotalItems(normalized);
+  const hidden = hideMobileTitles(normalized);
+  const totalItems = calculateTotalItems(hidden);
 
   return new Response(JSON.stringify({
     ok: true,
-    sections: normalized,
+    sections: hidden,
     page: 1,
     pageSize: ITEMS_PER_SECTION_RESPONSE,
     totalPages: 1,
@@ -405,10 +425,11 @@ export function emptyMobileSectionsResponse(
     items: [],
   }));
   const normalized = normalizeSectionTitles(sections, lang) as typeof sections;
+  const hidden = hideMobileTitles(normalized);
 
   return new Response(JSON.stringify({
     ok: true,
-    sections: normalized,
+    sections: hidden,
     page: 1,
     pageSize: ITEMS_PER_SECTION_RESPONSE,
     totalPages: 1,

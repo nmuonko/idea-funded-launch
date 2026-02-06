@@ -1,138 +1,73 @@
 
 
-# Hotfix: Make Mobile Search Fast (cache-first + stale-while-revalidate)
+# Surgical Fix: Search Returns 0 Results for Common Queries
 
-## Problem
+## Root Cause Analysis
 
-The current `catalog-search` edge function has:
-- **Short cache TTLs**: 10 min stale / 30 min expire -- causes constant live provider fetches
-- **No stale-serve**: When cache is stale, it falls through to a full live fetch (lines 476-480 just log "will refresh" then do the slow path)
-- **No env fallback**: Staging requests never check production cache, so mobile users always get cold cache misses
-- **No hard timeout**: Provider calls (Rainforest/eBay) can take 10s+ with no abort
+I tested the live endpoint with `q=google pixel 9` and confirmed it returns **0 items** despite the DB having **162 Pixel items** and **370 Samsung items**.
 
-## Solution (3 changes, all in existing files)
+Three bugs combine to cause this:
 
-### 1. Increase Search Cache TTL (catalogCache.ts)
+1. **No DB-first search path**: The flow is cache -> live providers -> DB fallback. When both Rainforest API returns empty AND eBay token is expired/missing, users get 0 results even though the DB has data.
 
-Change the search TTL constants from 10min/30min to 24h/7d:
+2. **Broken double `.or()` in amazonFetcher.ts**: The Amazon DB fallback (line 181-185) chains two `.or()` calls. The custom PostgREST client produces duplicate `or=` URL params, which PostgREST doesn't handle correctly. Additionally, `%` wildcards inside `.or()` strings are NOT URL-encoded (unlike the `.ilike()` method which encodes properly), so `%google` gets misinterpreted as percent-encoding.
 
+3. **No token-level matching**: The DB query uses `title.ilike.%google pixel 9%` which requires the EXACT substring. Items titled "Google Pixel 9 Pro" match, but "Pixel 9 128GB Google" would not.
+
+## Solution: Two Changes
+
+### Change 1: Add DB-First Search Step in `catalog-search/index.ts`
+
+Insert ~60 lines after the stale-while-revalidate block (line 579) and before the provider fetch (line 597).
+
+**Logic:**
+- Split `qNorm` into tokens (length >= 2)
+- Take the 3 longest tokens (most distinctive)
+- Query `catalog_items` using chained `.ilike("title", "%token%")` calls (properly URL-encoded by the PostgREST client, ANDed together)
+- Safety filters: `is_disallowed` not true, `image_url` not null, `price_usd > 0`
+- If results >= MIN_RESULTS (8): return immediately with `meta.source="db"`, write to cache async, fire background live refresh
+- If results < 8: continue to existing live provider fetch, merge DB + live results
+
+Example for "google pixel 9":
+- Tokens: ["google", "pixel", "9"] -> sorted by length: ["google", "pixel"]
+- Query: `title ILIKE '%google%' AND title ILIKE '%pixel%'` -> matches 162 items
+
+### Change 2: Fix Amazon DB Fallback in `amazonFetcher.ts`
+
+Replace the broken double `.or()` (lines 181-185):
+
+```text
+// BEFORE (broken):
+.or("provider.eq.rainforest,provider.eq.amazon")
+.or(`title.ilike.%${query}%,search_text.ilike.%${query}%`)
+
+// AFTER (fixed):
+.in("provider", ["rainforest", "amazon"])
+.ilike("title", `%${query}%`)
 ```
-// Before
-search: { stale: 10, expire: 30 },
 
-// After  
-search: { stale: 1440, expire: 10080 },  // 24h stale, 7 days expire
-```
-
-This is in `supabase/functions/_shared/catalogCache.ts` line 20.
-
-### 2. Return Stale Immediately + Background Refresh (catalog-search/index.ts)
-
-Currently at line 476-480, when cache is stale it just logs and falls through to the slow provider path. Change this to:
-
-- If stale cache exists: return it immediately with `meta.source="stale"`, `meta.isStale=true`
-- Fire a background refresh using `EdgeRuntime.waitUntil()` or detached promise (no await)
-- The background refresh writes fresh data to cache for the next request
-
-This is inserted right after line 480 (the stale detection block), before the provider fetch code.
-
-### 3. Add Environment Fallback for Search Cache (catalog-search/index.ts)
-
-After the cache check at line 358, if cache misses and `env !== "production"`, try reading cache with a production-equivalent key. Same pattern already used in catalog-home.
-
-### 4. Add Hard 4s Timeout on Provider Calls (catalog-search/index.ts)
-
-Wrap the `Promise.allSettled([fetchAmazonItems, fetchEbayItems])` at line 502 with `Promise.race` against a 4-second timeout. If timeout fires and stale cache exists, return stale. If no stale cache, return empty.
-
-### 5. Add Response Meta (catalog-search/index.ts)
-
-Add a `meta` field to all responses with: `source`, `isStale`, `envUsed`, `envRequested`, `correlationId`, `ts`. This does not change existing fields -- it is additive only.
+Using `.in()` for provider filtering (no `.or()` needed) and `.ilike()` for text matching (properly URL-encoded). This fixes the DB fallback for when the DB-first step is skipped (e.g., vehicle searches with special logic).
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
-| `supabase/functions/_shared/catalogCache.ts` | Line 20: TTL 10/30 to 1440/10080 |
-| `supabase/functions/catalog-search/index.ts` | Lines 402-480: stale-serve-immediately logic |
-| `supabase/functions/catalog-search/index.ts` | Lines 358-360: env fallback cache read |
-| `supabase/functions/catalog-search/index.ts` | Lines 500-530: 4s hard timeout wrapper |
-| `supabase/functions/catalog-search/index.ts` | Lines 763-778: add meta field to response |
-
-No new tables needed -- uses existing `catalog_cache` table.
+| File | Lines | Change |
+|------|-------|--------|
+| `supabase/functions/catalog-search/index.ts` | After line 579, before 581 | Insert DB-first search step (~60 lines) |
+| `supabase/functions/_shared/amazonFetcher.ts` | Lines 181-185 | Fix broken double `.or()` to `.in()` + `.ilike()` |
 
 ## What Does NOT Change
 
 - Homepage (catalog-home) -- not touched
 - Cart, checkout, payments -- not touched
 - Mobile or web frontend code -- not touched
-- Response JSON shape -- existing fields remain identical; `meta` is additive
-- `hasMore`, `nextCursor`, `items`, `providerStats` -- all unchanged
+- Response JSON shape -- existing fields unchanged; `meta.source` adds "db" value
+- Product pages, vehicle detection, content blocking -- all unchanged
+- Cache TTLs and stale-while-revalidate -- unchanged from previous hotfix
 
-## Technical Details
+## Expected Results After Fix
 
-### Stale-Serve Logic (core change)
-
-```text
-// After cache check (line ~477):
-if (isStaleCache && cacheResult.data) {
-  // Return stale data INSTANTLY
-  const staleResponse = { ...cacheResult.data, meta: { source: "stale", isStale: true, ... } };
-  
-  // Fire background refresh (detached, no await)
-  (async () => {
-    try {
-      // ... full provider fetch + cache write ...
-    } catch (e) {
-      console.warn("[CATALOG_SEARCH] background refresh failed:", e);
-    }
-  })();
-  
-  return new Response(JSON.stringify(staleResponse), { status: 200, ... });
-}
-```
-
-### Environment Fallback
-
-```text
-// After initial cache miss (line ~358):
-if (!cacheResult.hit && envName !== "production") {
-  const prodCacheKey = globalCacheKey.replace(`env=${envName}`, "env=production");
-  // (actually rebuild key with env=production since env is embedded in buildCacheKey)
-  cacheResult = await getCache(supabase, prodCacheKey);
-  if (cacheResult.hit) {
-    console.log(`[CATALOG_SEARCH] env_fallback staging->production`);
-  }
-}
-```
-
-### Hard Timeout
-
-```text
-const PROVIDER_TIMEOUT_MS = 4000;
-
-const providerPromise = Promise.allSettled([fetchAmazon, fetchEbay]);
-const timeoutPromise = new Promise((_, reject) => 
-  setTimeout(() => reject(new Error("PROVIDER_TIMEOUT")), PROVIDER_TIMEOUT_MS)
-);
-
-try {
-  [amazonSettled, ebaySettled] = await Promise.race([providerPromise, timeoutPromise]);
-} catch (e) {
-  if (isStaleCache) return stale response;
-  // else return empty
-}
-```
-
-## Deployment
-
-- Redeploy `catalog-search` only
-- No database migration needed
-- No admin UI changes
-
-## Validation
-
-- First search: `source=live`, cache written with 24h TTL
-- Second identical search: `source=cache`, response in under 100ms
-- After 24h: `source=stale`, instant response, background refresh triggered
-- Staging with empty cache but warm production: `source=cache`, `envUsed=production`
+- "google pixel 9" -> returns 20+ results from DB in under 200ms
+- "samsung galaxy" -> returns 20+ results from DB in under 200ms
+- Repeat searches -> served from cache (under 50ms)
+- When live providers recover, background refresh updates cache with fresh data
 

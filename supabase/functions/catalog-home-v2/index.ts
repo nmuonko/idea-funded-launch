@@ -529,16 +529,39 @@ function extractPriceFromItem(item: Record<string, unknown>): number | null {
   return null;
 }
 
-function mapEbayItem(item: Record<string, unknown>): CatalogItem {
+/**
+ * Validate if an eBay item ID is click-safe
+ * Must have v1| format or be a numeric eBay item ID
+ */
+function isValidEbayId(itemId: string): boolean {
+  if (!itemId) return false;
+  // eBay v1| format: v1|itemId|variationId
+  if (itemId.startsWith("v1|")) return true;
+  // Legacy numeric eBay IDs (12+ digits)
+  if (/^\d{12,}$/.test(itemId)) return true;
+  return false;
+}
+
+function mapEbayItem(item: Record<string, unknown>): CatalogItem | null {
   const priceUsd = extractPriceFromItem(item);
   const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
   const productUrl = (item.itemWebUrl as string) || null;
   const priceObj = item.price as Record<string, unknown> | undefined;
+  const itemId = item.itemId as string || "";
+  
+  // Validate eBay ID is click-safe - DROP unclickable items
+  if (!isValidEbayId(itemId)) {
+    console.log(`[CATALOG_HOME_V2][WARN] drop_unclickable provider=ebay id=${itemId}`);
+    return null;
+  }
+  
+  // CANONICAL ID FORMAT: ebay_<rawId> (includes v1| prefix if present)
+  const canonicalId = `ebay_${itemId}`;
   
   return {
-    id: `ebay_${item.itemId}`,
+    id: canonicalId,
     provider: "ebay",
-    provider_product_id: item.itemId as string,
+    provider_product_id: itemId,
     title: (item.title as string) || "Unknown",
     price_usd: priceUsd,
     priceUsd: priceUsd,
@@ -581,7 +604,10 @@ async function fetchEbayItems(
 
   const data = await response.json();
   const rawItems = data.itemSummaries || [];
-  return rawItems.map(mapEbayItem);
+  // Map and filter: null items are invalid/unclickable
+  return rawItems
+    .map(mapEbayItem)
+    .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url);
 }
 
 /**

@@ -694,7 +694,7 @@ Deno.serve(async (req: Request) => {
             
             return new Response(JSON.stringify(dbResponse), {
               status: 200,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=3600, s-maxage=3600" },
             });
           } else if (dbItems && dbCount > 0) {
             // Partial results — save as fallback in case providers fail
@@ -1052,13 +1052,13 @@ Deno.serve(async (req: Request) => {
         providerStats,
         searchMeta,
         durationMs: Date.now() - startTime,
-        ttlSeconds: 3600,
+        ttlSeconds: 1800,
         error: null,
         meta: { source: "db_fallback", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
       };
       return new Response(JSON.stringify(dbFallbackResponse), {
         status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=1800, s-maxage=1800" },
       });
     }
 
@@ -1120,13 +1120,22 @@ Deno.serve(async (req: Request) => {
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Negative cache write failed:`, err));
     }
 
+    // Dynamic Cache-Control: never let browsers/CDNs cache empty results
+    const cacheControlHeader = finalItems.length > 0
+      ? `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`
+      : "no-store, max-age=0";
+    
+    // Safety net: set ttlSeconds=0 in body for empty results so client-side parseTtlFromResponse returns 0
+    if (finalItems.length === 0) {
+      response.ttlSeconds = 0;
+    }
+
     return new Response(JSON.stringify(response), {
       status: 200,
       headers: { 
         ...corsHeaders, 
         "Content-Type": "application/json",
-        // Use Cache-Control with max-age for browser and s-maxage for CDN
-        "Cache-Control": `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`,
+        "Cache-Control": cacheControlHeader,
       },
     });
 

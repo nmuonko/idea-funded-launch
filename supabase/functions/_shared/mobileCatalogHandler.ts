@@ -135,20 +135,33 @@ export const corsHeaders = {
  */
 export function isMobileClient(req: Request): boolean {
   const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
-  const clientInfo = (req.headers.get("x-supabase-client-info") || req.headers.get("x-client-info") || "").toLowerCase();
+  const clientInfo = (
+    req.headers.get("x-supabase-client-info") || 
+    req.headers.get("x-client-info") || 
+    ""
+  ).toLowerCase();
   const platform = (req.headers.get("x-supabase-client-platform") || "").toLowerCase();
   const afrishopClient = (req.headers.get("x-afrishop-client") || "").toLowerCase();
   
   return (
+    // User-Agent patterns
     userAgent.includes("okhttp") ||
     userAgent.includes("expo") ||
     userAgent.includes("reactnative") ||
     userAgent.includes("react-native") ||
+    userAgent.includes("dart") ||
+    userAgent.includes("flutter") ||
+    // Client info patterns
     clientInfo.includes("expo") ||
     clientInfo.includes("react-native") ||
     clientInfo.includes("reactnative") ||
+    clientInfo.includes("supabase-flutter") ||
+    // Platform header
     platform === "android" ||
     platform === "ios" ||
+    platform.includes("android") ||
+    platform.includes("ios") ||
+    // AfriShop client header
     afrishopClient.includes("mobile")
   );
 }
@@ -189,7 +202,7 @@ export function buildMobileSections(items: CatalogItem[], locale: string = "fr")
   const sections: MobileSectionResponse[] = [];
   const usedItems = new Set<string>();
   
-  // Always create all 8 sections
+  // Always create all 8 sections with GUARANTEED non-empty titles
   for (const sectionDef of MOBILE_SECTIONS) {
     const sectionItems: CatalogItem[] = [];
     
@@ -209,9 +222,12 @@ export function buildMobileSections(items: CatalogItem[], locale: string = "fr")
       }
     }
     
+    // CRITICAL: title MUST be non-empty to prevent "Section" fallback in mobile app
+    const title = locale === "fr" ? sectionDef.title_fr : sectionDef.title_en;
+    
     sections.push({
       key: sectionDef.key,
-      title: locale === "fr" ? sectionDef.title_fr : sectionDef.title_en,
+      title: title || sectionDef.title_fr || "Featured",  // Guaranteed non-empty
       title_fr: sectionDef.title_fr,
       title_en: sectionDef.title_en,
       items: sectionItems,

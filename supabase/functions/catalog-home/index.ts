@@ -27,38 +27,54 @@ type ClientType = "mobile" | "web";
 
 /**
  * Detect if client is mobile (React Native / Expo) or web
- * Mobile clients send specific headers that identify them
+ * ROBUST: Treat as mobile if ANY mobile indicator is present
  */
 function detectClientType(req: Request): ClientType {
-  // Check x-supabase-client-info header (case-insensitive)
-  const clientInfo = req.headers.get("x-supabase-client-info") 
-    || req.headers.get("X-Supabase-Client-Info") 
-    || req.headers.get("x-client-info")
-    || req.headers.get("X-Client-Info")
-    || "";
+  // Gather all relevant headers (case-insensitive)
+  const clientInfo = (
+    req.headers.get("x-supabase-client-info") || 
+    req.headers.get("X-Supabase-Client-Info") || 
+    req.headers.get("x-client-info") ||
+    req.headers.get("X-Client-Info") ||
+    ""
+  ).toLowerCase();
   
-  // Check user-agent
-  const userAgent = req.headers.get("user-agent") || "";
+  const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
   
-  // Check platform header
-  const platform = req.headers.get("x-supabase-client-platform")
-    || req.headers.get("X-Supabase-Client-Platform")
-    || "";
+  const platform = (
+    req.headers.get("x-supabase-client-platform") ||
+    req.headers.get("X-Supabase-Client-Platform") ||
+    ""
+  ).toLowerCase();
   
-  const clientInfoLower = clientInfo.toLowerCase();
-  const userAgentLower = userAgent.toLowerCase();
-  const platformLower = platform.toLowerCase();
+  const afrishopClient = (
+    req.headers.get("x-afrishop-client") ||
+    req.headers.get("X-Afrishop-Client") ||
+    ""
+  ).toLowerCase();
   
-  // Mobile indicators
-  const isMobile = 
-    clientInfoLower.includes("expo") ||
-    clientInfoLower.includes("react-native") ||
-    clientInfoLower.includes("reactnative") ||
-    userAgentLower.includes("okhttp") ||
-    userAgentLower.includes("reactnative") ||
-    userAgentLower.includes("expo") ||
-    platformLower.includes("android") ||
-    platformLower.includes("ios");
+  // ROBUST MOBILE DETECTION: ANY of these = mobile
+  const isMobile = (
+    // User-Agent patterns
+    userAgent.includes("okhttp") ||
+    userAgent.includes("expo") ||
+    userAgent.includes("reactnative") ||
+    userAgent.includes("react-native") ||
+    userAgent.includes("dart") ||
+    userAgent.includes("flutter") ||
+    // Client info patterns
+    clientInfo.includes("expo") ||
+    clientInfo.includes("react-native") ||
+    clientInfo.includes("reactnative") ||
+    clientInfo.includes("supabase-flutter") ||
+    // Platform header (explicit mobile platform)
+    platform === "android" ||
+    platform === "ios" ||
+    platform.includes("android") ||
+    platform.includes("ios") ||
+    // AfriShop client header
+    afrishopClient.includes("mobile")
+  );
   
   return isMobile ? "mobile" : "web";
 }
@@ -74,52 +90,53 @@ interface MobileSection {
 }
 
 // EXACT SECTIONS EXPECTED BY MOBILE APP - DO NOT CHANGE KEYS/TITLES
+// CRITICAL: title field must NEVER be empty string to prevent "Section" fallback
 const MOBILE_SECTIONS: MobileSection[] = [
   { 
     key: "phones", 
     title_fr: "Téléphones", 
     title_en: "Phones", 
-    title: "Phones",
-    keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile"],
+    title: "Téléphones",  // Default to French (primary market)
+    keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile", "unlocked"],
     target: 20 
   },
   { 
     key: "electronics", 
     title_fr: "Électronique", 
     title_en: "Electronics", 
-    title: "Electronics",
-    keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth"],
+    title: "Électronique",
+    keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth", "charger", "monitor"],
     target: 20 
   },
   { 
     key: "vehicles", 
     title_fr: "Véhicules", 
     title_en: "Vehicles", 
-    title: "Vehicles",
-    keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto"],
+    title: "Véhicules",
+    keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"],
     target: 20 
   },
   { 
     key: "video_games", 
-    title_fr: "Jeux vidéo", 
+    title_fr: "Jeux Vidéo", 
     title_en: "Video Games", 
-    title: "Video Games",
+    title: "Jeux Vidéo",
     keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"],
     target: 20 
   },
   { 
     key: "clothing_fashion", 
-    title_fr: "Vêtements et mode", 
+    title_fr: "Vêtements et Mode", 
     title_en: "Clothing & Fashion", 
-    title: "Clothing & Fashion",
+    title: "Vêtements et Mode",
     keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"],
     target: 20 
   },
   { 
     key: "home_garden", 
-    title_fr: "Maison et jardin", 
+    title_fr: "Maison et Jardin", 
     title_en: "Home & Garden", 
-    title: "Home & Garden",
+    title: "Maison et Jardin",
     keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"],
     target: 20 
   },
@@ -127,16 +144,16 @@ const MOBILE_SECTIONS: MobileSection[] = [
     key: "toys", 
     title_fr: "Jouets", 
     title_en: "Toys", 
-    title: "Toys",
-    keywords: ["lego", "doll", "toy", "barbie", "figure", "game", "puzzle", "kids", "children"],
+    title: "Jouets",
+    keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"],
     target: 20 
   },
   { 
     key: "sporting_goods", 
-    title_fr: "Articles de sport", 
+    title_fr: "Articles de Sport", 
     title_en: "Sporting Goods", 
-    title: "Sporting Goods",
-    keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise"],
+    title: "Articles de Sport",
+    keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"],
     target: 20 
   },
 ];

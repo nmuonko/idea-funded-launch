@@ -7,6 +7,7 @@ import {
   TITLE_MAP,
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
+import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
 
 /**
  * catalog-home - Single unified homepage feed with cache-first loading
@@ -235,98 +236,12 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
 }
 
 // Segment-to-section mapping: cache segments → mobile section keys
-const SEGMENT_TO_SECTION: Record<string, string> = {
-  phones: "phones",
-  accessories: "electronics",
-  cars: "vehicles",
-  gaming: "video_games",
-  home: "home_garden",
-};
-
 /**
- * Build mobile sections from a pool of items
- * Phase 1: Match by segment tag (fast, accurate)
- * Phase 2: Keyword fallback for unmatched items only
- * NO blind redistribution — empty sections are better than wrong items
- */
-function buildMobileSectionsFromPool(
-  items: CatalogItem[], 
-  lang: "fr" | "en"
-): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
-  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
-  
-  // If no items, still return 8 empty sections (mobile expects this structure)
-  if (!items || items.length === 0) {
-    for (const mobileSec of MOBILE_SECTIONS) {
-      sections.push({
-        key: mobileSec.key,
-        title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: [],
-      });
-    }
-    return sections;
-  }
-  
-  const usedItems = new Set<string>();
-  
-  // Build a reverse map: section key → items matched by segment
-  const sectionBuckets: Record<string, CatalogItem[]> = {};
-  for (const mobileSec of MOBILE_SECTIONS) {
-    sectionBuckets[mobileSec.key] = [];
-  }
-  
-  // PHASE 1: Assign items by segment tag (primary, accurate)
-  for (const item of items) {
-    if (!item.segment) continue;
-    const targetSection = SEGMENT_TO_SECTION[item.segment];
-    if (targetSection && sectionBuckets[targetSection]) {
-      const sec = MOBILE_SECTIONS.find(s => s.key === targetSection);
-      if (sec && sectionBuckets[targetSection].length < sec.target) {
-        sectionBuckets[targetSection].push(item);
-        usedItems.add(item.id);
-      }
-    }
-  }
-  
-  // PHASE 2: Keyword fallback for items WITHOUT a segment tag
-  for (const item of items) {
-    if (usedItems.has(item.id)) continue;
-    if (item.segment) continue; // Already processed in phase 1 (or no matching section)
-    
-    const titleLower = (item.title || "").toLowerCase();
-    for (const mobileSec of MOBILE_SECTIONS) {
-      if (sectionBuckets[mobileSec.key].length >= mobileSec.target) continue;
-      const matchesKeyword = mobileSec.keywords.some(kw => titleLower.includes(kw));
-      if (matchesKeyword) {
-        sectionBuckets[mobileSec.key].push(item);
-        usedItems.add(item.id);
-        break; // Each item goes to one section only
-      }
-    }
-  }
-  
-  // Build final sections array
-  for (const mobileSec of MOBILE_SECTIONS) {
-    sections.push({
-      key: mobileSec.key,
-      title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-      title_fr: mobileSec.title_fr,
-      title_en: mobileSec.title_en,
-      items: sectionBuckets[mobileSec.key],
-    });
-  }
-  
-  return sections;
-}
-
-/**
- * Build GUARANTEED mobile sections response with title normalization
- * ALWAYS returns ok:true with 8 sections (even if items are empty)
+ * Build GUARANTEED mobile sections response with strict profile filtering
+ * ALWAYS returns ok:true with sections (even if items are empty)
  * This PREVENTS "Catalogue Indisponible" on mobile
  */
-function buildMobileSectionsResponse(
+async function buildMobileSectionsResponse(
   items: CatalogItem[],
   locale: string,
   correlationId: string,
@@ -335,12 +250,11 @@ function buildMobileSectionsResponse(
   envUsed: string,
   envRequested: string,
   detectedBy: string = "unknown"
-): Response {
+): Promise<Response> {
   const lang: "fr" | "en" = locale === "en" ? "en" : "fr";
-  let sections = buildMobileSectionsFromPool(items, lang);
+  let sections = await buildStrictMobileSections(items as SectionItem[], lang);
   
   // CRITICAL: Normalize titles RIGHT BEFORE returning
-  // This ensures section.title is NEVER "" (empty string)
   sections = normalizeSectionTitles(sections, lang) as typeof sections;
   
   const totalItems = calculateTotalItems(sections);
@@ -349,7 +263,7 @@ function buildMobileSectionsResponse(
   
   // CRITICAL: ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
   return jsonResponse({
-    ok: true, // ALWAYS TRUE FOR MOBILE
+    ok: true,
     sections,
     page: 1,
     pageSize: 20,
@@ -372,7 +286,6 @@ function buildMobileSectionsResponse(
     }
   });
 }
-
 async function loadFeedSettings(): Promise<FeedSettings> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -1178,7 +1091,7 @@ serve(async (req) => {
         
         // MOBILE: Multi-section response with normalized titles
         if (clientType === "mobile") {
-          return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
+          return await buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
         }
         
         // WEB: Single feed with normalized title
@@ -1232,13 +1145,13 @@ serve(async (req) => {
           // Ignore save errors
         }
         
-        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
       }
       
       // Even if bootstrap fails, return empty sections with ok:true
       // This prevents "Catalogue Indisponible"
       console.log(`[CATALOG_HOME] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
-      return buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
+      return await buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
     }
 
     // ===== LIVE MODE: Either forceLive or cache exhausted =====
@@ -1254,7 +1167,7 @@ serve(async (req) => {
       }
       
       if (clientType === "mobile") {
-        return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested, detectedBy);
       }
       
       // WEB: Normalized sections
@@ -1315,7 +1228,7 @@ serve(async (req) => {
       // For mobile, try bootstrap
       if (clientType === "mobile") {
         const bootstrapItems = await bootstrapFromDatabase(correlationId);
-        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested, detectedBy);
       }
       
       // For web, return empty with normalized sections
@@ -1347,7 +1260,7 @@ serve(async (req) => {
 
     // Respond
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested, detectedBy);
+      return await buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested, detectedBy);
     }
 
     const offset = (page - 1) * pageSize;
@@ -1395,7 +1308,7 @@ serve(async (req) => {
     // For mobile: ALWAYS return ok:true with normalized empty sections
     if (clientType === "mobile") {
       console.log(`[CATALOG_HOME][FAILSAFE] returning empty 8-section ok:true correlationId=${correlationId}`);
-      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
+      return await buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
     }
     
     // For web: Return proper structure with ok:false but HTTP 200, with normalized sections

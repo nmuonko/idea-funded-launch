@@ -7,6 +7,7 @@ import {
   TITLE_MAP,
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
+import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
 
 /**
  * catalog-home-v2 - Single unified homepage feed with cache-first loading
@@ -208,94 +209,11 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   return { envRequested, envUsed };
 }
 
-// Segment-to-section mapping: cache segments → mobile section keys
-const SEGMENT_TO_SECTION: Record<string, string> = {
-  phones: "phones",
-  accessories: "electronics",
-  cars: "vehicles",
-  gaming: "video_games",
-  home: "home_garden",
-};
-
 /**
- * Build mobile sections from a pool of items
- * Phase 1: Match by segment tag (fast, accurate)
- * Phase 2: Keyword fallback for unmatched items only
- * NO blind redistribution — empty sections are better than wrong items
+ * Build GUARANTEED mobile sections response with strict profile filtering
+ * ALWAYS returns ok:true with sections to prevent "Catalogue Indisponible"
  */
-function buildMobileSectionsFromPool(
-  items: CatalogItem[], 
-  lang: "fr" | "en"
-): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
-  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
-  
-  if (!items || items.length === 0) {
-    for (const def of MOBILE_SECTION_DEFS) {
-      sections.push({
-        key: def.key,
-        title: lang === "fr" ? def.title_fr : def.title_en,
-        title_fr: def.title_fr,
-        title_en: def.title_en,
-        items: [],
-      });
-    }
-    return sections;
-  }
-  
-  const usedItems = new Set<string>();
-  const sectionBuckets: Record<string, CatalogItem[]> = {};
-  for (const def of MOBILE_SECTION_DEFS) {
-    sectionBuckets[def.key] = [];
-  }
-  
-  // PHASE 1: Assign items by segment tag (primary, accurate)
-  for (const item of items) {
-    if (!item.segment) continue;
-    const targetSection = SEGMENT_TO_SECTION[item.segment];
-    if (targetSection && sectionBuckets[targetSection]) {
-      const def = MOBILE_SECTION_DEFS.find(d => d.key === targetSection);
-      if (def && sectionBuckets[targetSection].length < def.target) {
-        sectionBuckets[targetSection].push(item);
-        usedItems.add(item.id);
-      }
-    }
-  }
-  
-  // PHASE 2: Keyword fallback for items WITHOUT a segment tag
-  for (const item of items) {
-    if (usedItems.has(item.id)) continue;
-    if (item.segment) continue;
-    
-    const titleLower = (item.title || "").toLowerCase();
-    for (const def of MOBILE_SECTION_DEFS) {
-      if (sectionBuckets[def.key].length >= def.target) continue;
-      const matchesKeyword = def.keywords.some(kw => titleLower.includes(kw));
-      if (matchesKeyword) {
-        sectionBuckets[def.key].push(item);
-        usedItems.add(item.id);
-        break;
-      }
-    }
-  }
-  
-  for (const def of MOBILE_SECTION_DEFS) {
-    sections.push({
-      key: def.key,
-      title: lang === "fr" ? def.title_fr : def.title_en,
-      title_fr: def.title_fr,
-      title_en: def.title_en,
-      items: sectionBuckets[def.key],
-    });
-  }
-  
-  return sections;
-}
-
-/**
- * Build GUARANTEED mobile sections response with title normalization
- * ALWAYS returns ok:true with 8 sections to prevent "Catalogue Indisponible"
- */
-function buildMobileSectionsResponse(
+async function buildMobileSectionsResponse(
   items: CatalogItem[],
   lang: "fr" | "en",
   correlationId: string,
@@ -304,11 +222,10 @@ function buildMobileSectionsResponse(
   envUsed: string,
   envRequested: string,
   detectedBy: string = "unknown"
-): Response {
-  let sections = buildMobileSectionsFromPool(items, lang);
+): Promise<Response> {
+  let sections = await buildStrictMobileSections(items as SectionItem[], lang);
   
   // CRITICAL: Normalize titles RIGHT BEFORE returning
-  // This ensures section.title is NEVER "" (empty string)
   sections = normalizeSectionTitles(sections, lang) as typeof sections;
   
   const totalItems = calculateTotalItems(sections);
@@ -338,9 +255,6 @@ function buildMobileSectionsResponse(
       ts: Date.now(),
       schemaVersion: CACHE_SCHEMA_VERSION,
     }
-  });
-}
-
 /**
  * TIER 1 & 2: Get cached feed with stale fallback
  * Now includes schema version validation
@@ -691,7 +605,7 @@ serve(async (req) => {
         console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${poolSize} page=${page}/${actualTotalPages} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
         
         if (clientType === "mobile") {
-          return buildMobileSectionsResponse(cached.items, locale as "fr" | "en", correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
+          return await buildMobileSectionsResponse(cached.items, locale as "fr" | "en", correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
         }
         
         // WEB: Single feed with normalized title (even if hideTitle=true)
@@ -740,12 +654,12 @@ serve(async (req) => {
       const bootstrapItems = await bootstrapFromDatabase(correlationId);
       
       if (bootstrapItems.length > 0) {
-        return buildMobileSectionsResponse(bootstrapItems, locale as "fr" | "en", correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
+        return await buildMobileSectionsResponse(bootstrapItems, locale as "fr" | "en", correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
       }
       
       // Even if empty, return ok:true for mobile
       console.log(`[CATALOG_HOME_V2] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
-      return buildMobileSectionsResponse([], locale as "fr" | "en", correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
+      return await buildMobileSectionsResponse([], locale as "fr" | "en", correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
     }
 
     // Live mode - try eBay direct
@@ -767,7 +681,7 @@ serve(async (req) => {
     console.log(`[CATALOG_HOME_V2] live_result correlationId=${correlationId} items=${liveItems.length} ms=${totalMs}`);
 
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse(liveItems, locale as "fr" | "en", correlationId, "live", false, env, envRequested, detectedBy);
+      return await buildMobileSectionsResponse(liveItems, locale as "fr" | "en", correlationId, "live", false, env, envRequested, detectedBy);
     }
 
     // WEB: Normalized sections
@@ -812,7 +726,7 @@ serve(async (req) => {
     // Mobile: ALWAYS ok:true with normalized sections
     if (clientType === "mobile") {
       console.log(`[CATALOG_HOME_V2][FAILSAFE] returning empty 8-section ok:true correlationId=${correlationId}`);
-      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
+      return await buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
     }
     
     // Web: ok:false but HTTP 200 with normalized sections

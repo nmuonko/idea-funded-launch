@@ -1,98 +1,126 @@
 
-# Fix: Mobile Add-to-Cart "Requested Function Was Not Found" Error
+# Fix: Deploy catalog-product Edge Function
 
-## Problem Summary
+## Root Cause
 
-The `mobile-add-cart-item` edge function returns HTTP 404 "Requested function was not found" because the function **failed to deploy**. This is caused by:
+The `catalog-product` edge function returns **404 "Requested function was not found"** because:
 
-1. **Import at end of file** - Line 354 has `import { createAdminClient } from "../_shared/auth.ts";` which is syntactically incorrect (imports must be at top of file)
+1. **Bundler timeout during deployment** - The function imports `@supabase/supabase-js` SDK directly (line 15) which is a heavy dependency that can cause the bundler to time out
+2. **No logs exist** for this function, confirming it was never successfully deployed
 
-2. **Wrong function signature** - Line 315 calls `sharedUpdateOrderTotals(adminClient, draft.id)` with only 2 arguments, but the function requires 5 arguments: `(supabase, orderId, shippingBaseFeeUsd, shippingPercent, exchangeRate)`
-
-The bundler fails during deployment due to these errors, resulting in the function not being available.
+The function code exists in `supabase/functions/catalog-product/index.ts` (572 lines) and is registered in `config.toml`, but failed to deploy.
 
 ---
 
 ## Solution
 
-### 1. Move Import to Top of File
+### 1. Replace Heavy SDK Import with Lightweight REST Client
 
-Move the `createAdminClient` import from line 354 to the top with other imports (around line 19).
-
+**Current (causes bundler timeout):**
 ```typescript
-// Line 19 - existing imports from auth.ts
-import { 
-  handleCors, 
-  corsHeaders, 
-  errorResponse, 
-  jsonResponse,
-  extractBearerToken,
-  getDbClient,
-  createAdminPostgrestClient,
-  createAdminClient,  // ADD THIS
-} from "../_shared/auth.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 ```
 
-### 2. Fix the `updateOrderTotals` Call
-
-The `sharedUpdateOrderTotals` function requires settings parameters. Update the call on lines 311-318:
-
-**Before (broken):**
+**Fixed (SDK-free approach):**
 ```typescript
-try {
-  const adminClient = createAdminClient();
-  await sharedUpdateOrderTotals(adminClient, draft.id);
-} catch (e) {
-  console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message);
-}
+import { createAdminPostgrestClient, PostgrestClient } from "../_shared/postgrest.ts";
 ```
 
-**After (fixed):**
+Then update all `supabase.from()` calls to use the lightweight PostgREST client pattern.
+
+### 2. Add POST Method Support
+
+The current implementation only supports GET. Add POST method handling to match `product-resolver`:
+
 ```typescript
-try {
-  const adminClient = createAdminClient();
-  await sharedUpdateOrderTotals(
-    adminClient, 
-    draft.id,
-    settings.shippingBaseFeeUsd,
-    settings.shippingPercent,
-    settings.exchangeRate
-  );
-} catch (e) {
-  console.warn(`[CART_ADD] ${correlationId} Failed to update totals:`, (e as Error).message);
-}
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const correlationId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  let provider: string | null = null;
+  let productId: string | null = null;
+  
+  if (req.method === "POST") {
+    try {
+      const body = await req.json();
+      provider = body.provider;
+      productId = body.id;
+    } catch {
+      // Fall through to GET params
+    }
+  }
+  
+  const url = new URL(req.url);
+  // Parse from query params if not in body
+  if (!productId) {
+    const { provider: parsedProvider, productId: parsedId } = parseProductId(url);
+    provider = parsedProvider;
+    productId = parsedId;
+  }
+  
+  console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} provider=${provider} idRaw=${productId}`);
+  // ... rest of logic
+});
 ```
 
-### 3. Remove Duplicate Import at End of File
+### 3. Add Structured Correlation ID Logging
 
-Delete line 354 entirely:
-```typescript
-// DELETE THIS LINE
-import { createAdminClient } from "../_shared/auth.ts";
-```
+Add consistent logging pattern:
+- `[CATALOG_PRODUCT] start correlationId=... provider=... idRaw=... idDecoded=...`
+- `[CATALOG_PRODUCT] success correlationId=... ms=...`
+- `[CATALOG_PRODUCT][ERROR] correlationId=... status=... error=... stack=...`
+
+### 4. Deploy Both Functions
+
+Deploy:
+- `catalog-product` - Main product details endpoint
+- `health` - Health check endpoint (also returning 404)
 
 ---
 
 ## Files to Modify
 
-1. **`supabase/functions/mobile-add-cart-item/index.ts`**
-   - Add `createAdminClient` to imports at line 19
-   - Fix `sharedUpdateOrderTotals` call at line 315 to include required parameters
-   - Remove duplicate import at line 354
+### `supabase/functions/catalog-product/index.ts`
+
+Key changes:
+- Replace `@supabase/supabase-js` import with lightweight `_shared/postgrest.ts`
+- Add POST method support alongside GET
+- Add correlationId logging throughout
+- Ensure URL-encoded IDs are properly decoded (`v1%7C` becomes `v1|`)
+
+### Database Calls Refactoring
+
+**Before (SDK):**
+```typescript
+const supabase = createClient(supabaseUrl, supabaseKey);
+const { data: dbItem } = await supabase
+  .from("catalog_items")
+  .select("*")
+  .eq("id", fullProductId)
+  .maybeSingle();
+```
+
+**After (SDK-free):**
+```typescript
+const db = createAdminPostgrestClient();
+const { data: dbItem, error } = await db
+  .from("catalog_items")
+  .select("*")
+  .eq("id", fullProductId)
+  .single();
+```
 
 ---
 
-## Deployment
+## Expected Results After Implementation
 
-After fixing, deploy the function:
-- `mobile-add-cart-item`
-
----
-
-## Expected Results
-
-After implementation:
-- `mobile-add-cart-item` deploys successfully (no 404)
-- Mobile app can add items to cart
-- Order totals update correctly after adding items
-- No bundler/syntax errors during deployment
+- `/functions/v1/catalog-product` returns **200 JSON** with CORS headers
+- Clicking any product on homepage **opens product detail page successfully**
+- eBay IDs like `v1|127568923109|428695839251` (and URL-encoded `v1%7C127568923109%7C428695839251`) work correctly
+- Structured logging with correlationId for debugging
+- No bundler timeout during deployment
+- Both GET and POST methods supported

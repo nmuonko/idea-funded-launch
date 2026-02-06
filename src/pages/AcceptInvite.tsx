@@ -48,11 +48,16 @@ export default function AcceptInvite() {
     try {
       console.log('[AcceptInvite] Validating token:', token?.substring(0, 10) + '...');
       
-      // First try to query locally (this will work for pending invitations via RLS)
+      // Hash token client-side for secure DB lookup (never query by plaintext token)
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(token!));
+      const tokenHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      // Query by token_hash instead of plaintext token
       const { data, error: fetchError } = await supabase
         .from('admin_invitations')
         .select('id, email, role, status, expires_at')
-        .eq('token', token)
+        .eq('token_hash', tokenHash)
         .maybeSingle();
 
       console.log('[AcceptInvite] Query result:', { data, error: fetchError?.message });

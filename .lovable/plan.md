@@ -1,86 +1,68 @@
 
+# Fix: Mobile Section Relevancy — Use `segment` Field Instead of Keyword Matching
 
-# Fix Mobile "Catalogue Indisponible" - Root Cause Analysis Complete
+## Problem
 
-## Current Status: Backend is WORKING
+The cached items already have a correct `segment` tag (e.g., `phones`, `cars`, `gaming`, `accessories`, `home`) assigned during cache building. However, the `buildMobileSectionsFromPool()` function in `catalog-home/index.ts` and `catalog-home-v2/index.ts` **ignores this field entirely** and instead does loose keyword matching on item titles. This causes:
 
-The backend edge functions are correctly returning the 8-section mobile response:
+- **Vehicles section** showing phones (because "Samsung Galaxy" doesn't match any vehicle keyword, so it falls into redistribution)
+- **Video Games section** showing phone stands (because "cell phone stand" matches the keyword "game" nowhere, but redistribution dumps random items there)
+- **Home & Garden** showing phone cases (redistribution)
 
-### Evidence from Server Logs
+### Current cache pool (891 items):
+- `phones`: 146 items
+- `cars`: 145 items  
+- `gaming`: 200 items
+- `accessories`: 200 items
+- `home`: 200 items
+
+These segment tags are accurate but unused.
+
+## Solution
+
+Replace keyword-based matching with **segment-based matching** in `buildMobileSectionsFromPool()`. Map the 5 segment values to the 8 mobile section keys. Sections without a matching segment (e.g., toys, sporting_goods) stay empty — this is better than showing irrelevant products.
+
+### Segment-to-Section Mapping:
+```text
+segment "phones"      -> section "phones"
+segment "accessories"  -> section "electronics"  
+segment "cars"         -> section "vehicles"
+segment "gaming"       -> section "video_games"
+segment "home"         -> section "home_garden"
 ```
-[CATALOG_HOME] mobile_response sections=8 totalItems=117
-```
 
-### Evidence from Direct API Test
-Testing with mobile User-Agent returns:
-```json
-{
-  "ok": true,
-  "sections": [
-    { "key": "phones", "title": "Téléphones", "items": [...] },
-    { "key": "electronics", "title": "Électronique", "items": [...] },
-    { "key": "vehicles", "title": "Véhicules", "items": [...] },
-    { "key": "video_games", "title": "Jeux Vidéo", "items": [...] },
-    { "key": "clothing_fashion", "title": "Vêtements et Mode", "items": [...] },
-    { "key": "home_garden", "title": "Maison et Jardin", "items": [...] },
-    { "key": "toys", "title": "Jouets", "items": [...] },
-    { "key": "sporting_goods", "title": "Articles de Sport", "items": [...] }
-  ]
-}
-```
+Sections without segment matches (clothing_fashion, toys, sporting_goods) will only get items via keyword fallback on unmatched items — never random redistribution.
 
-## Root Cause: NOT Backend
+## Changes
 
-The backend is correctly:
-1. Detecting mobile clients (via okhttp/expo User-Agent)
-2. Building 8 sections with proper titles
-3. Returning `ok: true` with non-empty sections
+### 1. `supabase/functions/catalog-home/index.ts` — `buildMobileSectionsFromPool()`
 
-## Possible Mobile App Issues
+- Add a segment-to-section-key mapping
+- **Phase 1**: Assign items to sections by their `segment` field (fast, accurate)
+- **Phase 2**: For remaining unmatched items, use keyword matching as a secondary signal
+- **Remove the blind redistribution** fallback that dumps random items into sections when fewer than 3 sections have items — this is the main source of irrelevant products
 
-### 1. Cached Error Response
-The mobile app may have cached the previous failed response. This is common in React Native/Expo apps that use local storage or AsyncStorage.
+### 2. `supabase/functions/catalog-home-v2/index.ts` — Same fix
 
-**Action Required**: Clear app cache/data and restart the app completely (force quit and reopen).
+Apply the identical change to the v2 function since both define their own `buildMobileSectionsFromPool`.
 
-### 2. Wrong Endpoint URL
-The app might be calling a different path that doesn't exist:
-- Wrong: `/catalog/home` (old path)
-- Correct: `/functions/v1/catalog-home`
+### 3. `supabase/functions/_shared/mobileCatalogHandler.ts` — Same fix  
 
-### 3. Mobile-Side Parse Error
-The app may be expecting a different response shape. Check if the app's parser expects:
-- `sections` array with specific field names
-- Different casing (`title` vs `Title`)
-- Different field order
+The shared handler also has `buildMobileSections()` with the same redistribution bug. Apply the same segment-first logic.
 
-### 4. Network/CORS Blocking
-The request may be failing silently due to:
-- Network connectivity issues
-- SSL certificate problems
-- CORS blocking (though our headers should handle this)
+## What Does NOT Change
 
-## Recommended Next Steps
+- Section keys, titles, and count (still 8 sections)
+- Cache structure and cache-building logic
+- Web response format
+- Client detection logic
+- Title normalization
+- Fallback tiers (fresh cache, stale cache, DB bootstrap)
+- CORS headers
 
-Since the backend is confirmed working, the fix needs to happen on the mobile app side:
+## Risk Assessment
 
-1. **Force quit and restart the mobile app** - This clears any in-memory cache
-2. **Clear app data/cache** - In device settings > Apps > AfriShop > Clear Cache
-3. **Check the app's network tab** (if using Expo/React Native debugger) to see:
-   - What URL is being called
-   - What response is being received
-   - Any network errors
-
-4. **If using Expo Go**: Shake device > Network Inspector > Check requests
-
-## No Backend Changes Required
-
-The current backend implementation includes:
-- Forward-compatible cache schema (accepts null/0/older versions)
-- Fixed bootstrap query (removed `created_at`)
-- Proper 8-section mobile response with French titles
-- Aggressive mobile detection (okhttp, expo, reactnative patterns)
-- Failsafe empty-sections fallback
-
-All these changes are deployed and working as verified by direct curl testing.
-
+- **Zero regression risk on web**: Web path is completely separate (`clientType === "web"`)
+- **Zero regression on mobile detection**: No changes to detection logic
+- **Mobile sections will be more relevant**: Items placed by segment tag rather than loose title matching
+- **Some sections may have fewer items**: Clothing, toys, sporting_goods may be empty if no matching segment exists in the cache — this is correct behavior (empty section is better than wrong items)

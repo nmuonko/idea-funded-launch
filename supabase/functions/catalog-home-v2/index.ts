@@ -123,6 +123,15 @@ const FALLBACK_SECTIONS: SectionConfig[] = [
 
 let ebayTokenCache: { token: string; expiresAt: number } | null = null;
 
+interface CacheEntry {
+  id: string;
+  env: string;
+  items: CatalogItem[];
+  created_at: string;
+  expires_at: string;
+  meta: Record<string, unknown>;
+}
+
 function generateCorrelationId(): string {
   return `chv2_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
@@ -132,6 +141,95 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+/**
+ * Normalize environment from request - handles mobile header casing variants
+ * Falls back to "production" if env is invalid or unrecognized
+ */
+function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
+  const url = new URL(req.url);
+  
+  // Read from query param OR headers (multiple casing variants)
+  let envRequested = url.searchParams.get("env") 
+    || req.headers.get("X-Afrishop-Environment") 
+    || req.headers.get("x-afrishop-environment")
+    || "production";
+  
+  envRequested = envRequested.toLowerCase().trim();
+  
+  let envUsed = envRequested;
+  
+  // Normalize "prod" -> "production"
+  if (envUsed === "prod") {
+    envUsed = "production";
+  }
+  
+  // Validate environment - default to production if invalid
+  if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") {
+    envUsed = "production";
+  }
+  
+  return { envRequested, envUsed };
+}
+
+/**
+ * Get cached feed - ALSO returns stale cache if available
+ * Returns { cache, isStale } where cache can be stale but still usable
+ */
+async function getCachedFeedWithStale(env: string, key = "v2"): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) return { cache: null, isStale: false };
+
+  const cacheKey = `${env}:${key}`;
+
+  try {
+    // First try fresh cache (not expired)
+    const freshRes = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.${encodeURIComponent(cacheKey)}&expires_at=gt.${new Date().toISOString()}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/vnd.pgrst.object+json",
+        },
+      }
+    );
+
+    if (freshRes.ok && freshRes.status !== 406) {
+      const data = await freshRes.json();
+      if (data && data.items && data.items.length > 0) {
+        return { cache: data as CacheEntry, isStale: false };
+      }
+    }
+
+    // No fresh cache - try stale cache (any cache for this key)
+    const staleRes = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.${encodeURIComponent(cacheKey)}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/vnd.pgrst.object+json",
+        },
+      }
+    );
+
+    if (staleRes.ok && staleRes.status !== 406) {
+      const data = await staleRes.json();
+      if (data && data.items && data.items.length > 0) {
+        console.log(`[CATALOG_HOME_V2] stale_cache_available key=${cacheKey} items=${data.items.length} expired_at=${data.expires_at}`);
+        return { cache: data as CacheEntry, isStale: true };
+      }
+    }
+
+    return { cache: null, isStale: false };
+  } catch (err) {
+    console.warn(`[CATALOG_HOME_V2] Cache read error: ${err}`);
+    return { cache: null, isStale: false };
+  }
 }
 
 /**
@@ -153,7 +251,10 @@ function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<
     correlationId,
     error: error || "Unknown error",
     meta: {
+      envUsed: meta?.envUsed || "production",
+      envRequested: meta?.envRequested || "unknown",
       source: "error",
+      isStale: false,
       message: error || "Unknown error",
       correlationId,
       ts: Date.now(),
@@ -698,7 +799,11 @@ serve(async (req) => {
 
   const startTime = Date.now();
   
-  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId}`);
+  // CRITICAL: Normalize environment with proper fallback
+  const { envRequested, envUsed } = normalizeEnv(req);
+  let env = envUsed;
+  
+  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} envRequested=${envRequested} envUsed=${env}`);
 
   // Wrap EVERYTHING in try/catch to guarantee no throws
   try {
@@ -712,6 +817,11 @@ serve(async (req) => {
         locale = body.locale || "fr";
         currency = body.currency || "USD";
         limitPerSection = Math.min(Math.max(body.limitPerSection || TARGET_ITEMS, 1), 50);
+        // Override env from body if provided (but still normalize)
+        if (body.env) {
+          const bodyEnv = body.env.toLowerCase().trim();
+          env = bodyEnv === "prod" ? "production" : (["production", "staging", "dev"].includes(bodyEnv) ? bodyEnv : "production");
+        }
       } catch {
         // Use defaults
       }
@@ -727,6 +837,64 @@ serve(async (req) => {
 
     console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} locale=${locale} limitPerSection=${limitPerSection}`);
 
+    // ===== CACHE-FIRST: Check for cached v2 feed before live fetch =====
+    let cached: CacheEntry | null = null;
+    let isStale = false;
+    let cacheEnvUsed = env;
+    
+    try {
+      const cacheResult = await getCachedFeedWithStale(env, "v2");
+      cached = cacheResult.cache;
+      isStale = cacheResult.isStale;
+      
+      // CRITICAL: If requested env (e.g., staging) has no cache, fall back to production
+      if ((!cached || !cached.items || cached.items.length === 0) && env !== "production") {
+        console.log(`[CATALOG_HOME_V2] cache_fallback_to_production correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} reason=no_cache_for_env`);
+        const prodCacheResult = await getCachedFeedWithStale("production", "v2");
+        if (prodCacheResult.cache && prodCacheResult.cache.items && prodCacheResult.cache.items.length > 0) {
+          cached = prodCacheResult.cache;
+          isStale = prodCacheResult.isStale;
+          cacheEnvUsed = "production";
+          console.log(`[CATALOG_HOME_V2] cache_fallback_success correlationId=${correlationId} prodItems=${cached.items.length}`);
+        }
+      }
+    } catch (cacheErr) {
+      console.warn(`[CATALOG_HOME_V2] Cache read failed: ${cacheErr}`);
+    }
+    
+    // If cache exists and has items, return immediately with ok:true
+    if (cached && cached.items && cached.items.length > 0) {
+      const totalMs = Date.now() - startTime;
+      console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} isStale=${isStale} items=${cached.items.length} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
+      
+      // Map cached items to section format expected by mobile
+      return jsonResponse({
+        ok: true, // CRITICAL: Always ok:true when we have items
+        sections: [{
+          key: "feed",
+          title: "",
+          title_en: "",
+          title_fr: "",
+          hideTitle: true,
+          items: cached.items,
+        }],
+        ttlSeconds: 1800,
+        correlationId,
+        meta: {
+          envUsed: cacheEnvUsed,
+          envRequested,
+          source: "cache",
+          isStale,
+          correlationId,
+          ts: Date.now(),
+          totalMs,
+        }
+      });
+    }
+
+    // ===== CACHE MISS: Try live fetch =====
+    console.log(`[CATALOG_HOME_V2] cache_miss correlationId=${correlationId} attempting_live_fetch`);
+
     // Load sections from Admin Portal tables
     const { sections: dbSections, error: dbError } = await loadHomeSectionsAndSeeds();
     
@@ -736,7 +904,7 @@ serve(async (req) => {
 
     const sections = dbSections || FALLBACK_SECTIONS;
     
-    // Get eBay token - if fails, return empty feed (not 500)
+    // Get eBay token - if fails, return empty feed with ok:false (not 500)
     let ebayToken: string | null = null;
     try {
       ebayToken = await getEbayToken();
@@ -746,7 +914,11 @@ serve(async (req) => {
     
     if (!ebayToken) {
       console.error(`[CATALOG_HOME_V2] correlationId=${correlationId} error=NO_EBAY_TOKEN returning empty feed`);
-      return emptyFeedResponse(correlationId, "eBay authentication failed", { reason: "no_token" });
+      return emptyFeedResponse(correlationId, "eBay authentication failed", { 
+        reason: "no_token",
+        envUsed: env,
+        envRequested,
+      });
     }
 
     // Fetch all sections in parallel
@@ -780,7 +952,7 @@ serve(async (req) => {
     });
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_V2] success correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs}`);
+    console.log(`[CATALOG_HOME_V2] success correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs} envUsed=${env}`);
 
     return jsonResponse({
       ok: true,
@@ -788,8 +960,12 @@ serve(async (req) => {
       ttlSeconds: 1800,
       correlationId,
       meta: {
+        envUsed: env,
+        envRequested,
         source: "live",
+        isStale: false,
         totalSections: nonEmptySections.length,
+        correlationId,
         totalMs,
         ts: Date.now(),
       }

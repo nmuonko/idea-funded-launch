@@ -1,100 +1,85 @@
 
-# Backend Verification and Mobile Compatibility Fix
+# Fix Mobile Homepage Categories - Backend Hotfix
 
-## Summary
-After thorough investigation, the **backend edge functions are working correctly**. All tests with mobile headers return `ok: true` with 8 sections and products. The "Catalogue Indisponible" error on mobile is likely caused by one of the following:
+## Problem Identified
+Mobile app shows "En vedette" (single section) instead of the 8 category sections (Téléphones, Véhicules, etc.) due to two critical backend issues:
 
-1. The mobile app is NOT sending headers that identify it as mobile
-2. The mobile app is calling a different endpoint than `catalog-home`
-3. The mobile app has client-side caching that's showing old errors
-4. The mobile app expects a different response structure than what's being returned
-
-## Technical Investigation Results
-
-### Backend Status (Confirmed Working)
-
-| Test Scenario | Result | Items | Sections |
-|--------------|--------|-------|----------|
-| Mobile headers (`okhttp`) | `ok: true` | 132 | 8 |
-| Mobile + staging env | `ok: true` | 133 | 8 |
-| Web (no mobile headers) | `ok: true` | 100 | 1 (featured) |
-| All environments | HTTP 200 | Has data | Correct format |
-
-### Edge Function Logs
+### Issue 1: Bootstrap DB Query Failure (400 Error)
+The `bootstrapFromDatabase()` function in both `catalog-home` and `catalog-home-v2` edge functions uses this query:
 ```
-[CATALOG_HOME] client=mobile sections=8 totalItems=132 source=cache
-[CATALOG_HOME] client=mobile sections=8 totalItems=133 source=cache
+order=updated_at.desc.nullslast,created_at.desc
 ```
+**Problem**: The `catalog_items` table does NOT have a `created_at` column, causing a 400 Bad Request.
 
-No errors logged. Functions are responding correctly.
+### Issue 2: Cache Schema Version Mismatch
+- Current cached rows have `schemaVersion = null` (or missing)
+- Code requires `CACHE_SCHEMA_VERSION = 4`
+- All cache is rejected → triggers bootstrap → bootstrap fails → empty sections
 
-## Root Cause Analysis
+## Solution
 
-The mobile app is showing "Catalogue Indisponible" despite the backend returning valid data. This indicates one of:
+### Step 1: Fix Bootstrap Query
+**Files to modify:**
+- `supabase/functions/catalog-home/index.ts` (line ~494)
+- `supabase/functions/catalog-home-v2/index.ts` (line ~395)
 
-1. **Client Detection Mismatch**: Mobile app may not be sending expected headers
-2. **Endpoint Mismatch**: Mobile may be calling `catalog-home-v2` which has no recent logs
-3. **Response Parsing Issue**: Mobile may expect different field names or structure
-4. **Network/Cache Issue**: Mobile app may have cached a previous failed response
-
-## Implementation Plan
-
-### Phase 1: Deploy and Test Debug Endpoint (Already Done)
-The `catalog-debug` endpoint is now deployed and can be called by the mobile app to verify what headers it's actually sending.
-
-### Phase 2: Ensure catalog-home-v2 Has Same Behavior
-Verify that `catalog-home-v2` is fully deployed and matches `catalog-home` behavior since mobile might be calling either endpoint.
-
-### Phase 3: Additional Hardening (Backend Only)
-
-**File: `supabase/functions/catalog-home/index.ts`**
-- Add additional mobile detection patterns for any Supabase React Native SDK variants
-- Ensure `ok: true` is returned even with zero items by returning empty sections structure
-
-**File: `supabase/functions/catalog-home-v2/index.ts`**  
-- Sync all changes from `catalog-home` to ensure both endpoints behave identically
-
-**File: `supabase/functions/catalog-smoke-home/index.ts`**
-- Update to return 8 sections (matching mobile expectation) instead of single "featured" section
-- This allows mobile to test the exact response format it expects
-
-### Phase 4: Update Smoke Test for Mobile Format
-
-The smoke test currently returns a single `featured` section (web format). Update it to return the 8-section mobile format so it can be used to verify mobile parsing.
-
+Change from:
 ```typescript
-// Return 8 sections matching mobile expectation
-sections: [
-  { key: "phones", title_fr: "Téléphones", title_en: "Phones", items: [...] },
-  { key: "electronics", title_fr: "Électronique", title_en: "Electronics", items: [] },
-  // ... etc
-]
+order=updated_at.desc.nullslast,created_at.desc
 ```
 
-## Files to Modify (Backend Only)
+To:
+```typescript
+order=updated_at.desc.nullslast
+```
 
-1. `supabase/functions/catalog-smoke-home/index.ts`
-   - Update to return 8-section mobile format for testing
+### Step 2: Regenerate Valid Cache
+After fixing the bootstrap query:
+1. The bootstrap will successfully fetch ~300 items from `catalog_items`
+2. These will be used to build mobile sections (Phones, Electronics, Vehicles, etc.)
+3. The cache will be saved with correct `schemaVersion: 4`
 
-2. Redeploy edge functions:
-   - `catalog-home`
-   - `catalog-home-v2`
-   - `catalog-smoke-home`
-   - `catalog-debug`
+### Step 3: Deploy Edge Functions
+Redeploy both functions:
+- `catalog-home`
+- `catalog-home-v2`
 
-## Acceptance Criteria
+## Technical Details
 
-1. `/catalog-home` with mobile headers returns 8 sections with `ok: true`
-2. `/catalog-home-v2` with mobile headers returns 8 sections with `ok: true`
-3. `/catalog-smoke-home` returns 8 sections with test data for mobile parsing verification
-4. `/catalog-debug` returns the exact headers/params mobile is sending
-5. No 4xx/5xx responses from any catalog endpoint
-6. Web homepage remains unchanged (single-feed behavior preserved)
+### Current Bootstrap Query (Broken)
+```
+supabaseUrl/rest/v1/catalog_items?
+  provider=in.(amazon,ebay)&
+  price_usd=gt.0&
+  image_url=neq.null&
+  is_disallowed=eq.false&
+  order=updated_at.desc.nullslast,created_at.desc&  ← FAILS: created_at doesn't exist
+  limit=300
+```
 
-## Next Steps for Mobile Team
+### Fixed Bootstrap Query
+```
+supabaseUrl/rest/v1/catalog_items?
+  provider=in.(amazon,ebay)&
+  price_usd=gt.0&
+  image_url=neq.null&
+  is_disallowed=eq.false&
+  order=updated_at.desc.nullslast&  ← WORKS: only updated_at
+  limit=300
+```
 
-Since the backend is verified working, the mobile team should:
-1. Call `/catalog-debug` and check what headers are being sent
-2. Verify the mobile app is calling `/catalog-home` (not a different URL)
-3. Clear any client-side cache and retry
-4. Check if the mobile app properly parses the response structure
+### Database Verification
+- `catalog_items` has 2,501 items available
+- 2,500 have images, 2,501 have prices
+- Query without `created_at` works correctly
+
+## Files to Modify
+1. `supabase/functions/catalog-home/index.ts` - Line 494
+2. `supabase/functions/catalog-home-v2/index.ts` - Line 395
+
+## Expected Outcome
+After deployment:
+1. Bootstrap query succeeds (no more 400 error)
+2. Mobile gets 8 sections with proper titles (Téléphones, Véhicules, etc.)
+3. Cache is regenerated with correct schema version
+4. Web remains unchanged (single-feed behavior preserved)

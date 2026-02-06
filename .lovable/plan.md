@@ -1,68 +1,53 @@
 
-# Fix: Mobile Section Relevancy — Use `segment` Field Instead of Keyword Matching
+# Surgical Hotfix: Force Cache Invalidation + Strengthen Section Gates
 
-## Problem
+## Root Cause (confirmed)
 
-The cached items already have a correct `segment` tag (e.g., `phones`, `cars`, `gaming`, `accessories`, `home`) assigned during cache building. However, the `buildMobileSectionsFromPool()` function in `catalog-home/index.ts` and `catalog-home-v2/index.ts` **ignores this field entirely** and instead does loose keyword matching on item titles. This causes:
+The mobile sections cache (`catalog_home_mobile_sections_cache`) has `schema_version=1` data that was built with weaker filtering. The current code architecture is correct -- `serveMobileSections()` checks schema version and rebuilds on mismatch -- but the version hasn't been bumped since the profiles were strengthened. Additionally, some exclude lists need hardening (e.g., vehicles must forbid bare "phone", "samsung", "case").
 
-- **Vehicles section** showing phones (because "Samsung Galaxy" doesn't match any vehicle keyword, so it falls into redistribution)
-- **Video Games section** showing phone stands (because "cell phone stand" matches the keyword "game" nowhere, but redistribution dumps random items there)
-- **Home & Garden** showing phone cases (redistribution)
+## Changes (3 files only)
 
-### Current cache pool (891 items):
-- `phones`: 146 items
-- `cars`: 145 items  
-- `gaming`: 200 items
-- `accessories`: 200 items
-- `home`: 200 items
+### 1. `supabase/functions/_shared/mobileSectionsCache.ts`
+- Bump `MOBILE_SECTIONS_SCHEMA_VERSION` from `1` to `2`
+- This single change forces every mobile request to treat existing cache as invalid, triggering a full rebuild with the current strict profiles
+- No other changes to this file
 
-These segment tags are accurate but unused.
+### 2. `supabase/functions/_shared/sectionProfiles.ts`
+Strengthen keyword lists per the user's exact gate specifications:
 
-## Solution
+**Vehicles `excludeAny`**: Add bare "phone", "samsung", "case", "charger", "airpods", "earbuds", "screen protector", "magsafe", "controller", "accessory", "accessories", "parts" (currently only excludes compound phrases like "samsung galaxy")
 
-Replace keyword-based matching with **segment-based matching** in `buildMobileSectionsFromPool()`. Map the 5 segment values to the 8 mobile section keys. Sections without a matching segment (e.g., toys, sporting_goods) stay empty — this is better than showing irrelevant products.
+**Gaming `excludeAny`**: Add "phone", "samsung", "case", "charger", "screen protector", "magsafe", "car", "truck", "suv", "motorcycle", "bumper", "brake", "headlight"
 
-### Segment-to-Section Mapping:
-```text
-segment "phones"      -> section "phones"
-segment "accessories"  -> section "electronics"  
-segment "cars"         -> section "vehicles"
-segment "gaming"       -> section "video_games"
-segment "home"         -> section "home_garden"
+**Phones `excludeAny`**: Add bare "bumper", "brake", "headlight", "oem", "aftermarket" (already has VEHICLE_CORE + PARTS_WORDS but verify completeness)
+
+**Electronics `excludeAny`**: Strengthen to also exclude PARTS_WORDS and PHONE_WORDS to prevent phone/parts bleed
+
+**Parts `excludeAny`**: Already excludes PHONE_WORDS + GAMING_WORDS -- verify completeness
+
+**Clothing, Home, Toys, Sporting Goods**: Add phone and gaming exclusions to prevent cross-contamination
+
+### 3. `supabase/functions/_shared/titleNormalizer.ts`
+- Add the new section keys ("parts_accessories", "gaming", "clothing", "refurbished") to the `TITLE_MAP` so title normalization works for all 10 sections
+- No other changes
+
+### What does NOT change
+- `catalog-home/index.ts` -- no code changes needed, it already delegates to `serveMobileSections()`
+- `catalog-home-v2/index.ts` -- no code changes needed, same delegation
+- Web UI / web response path -- completely untouched
+- Payments, cart, checkout -- zero changes
+- Response shape -- identical `ok`, `sections[]`, `page`, `pageSize`, `hasMore`, `meta`
+- Cache table schema -- same table, just new schema_version value in data
+
+### Deploy
+- Redeploy `catalog-home` and `catalog-home-v2` (they import the shared modules)
+- First mobile request after deploy will see `schema_version` mismatch, rebuild strict sections from pool + backfill, cache result with `schema_version=2`
+- Subsequent requests are instant cache hits
+
+## Technical Details
+
+The `MOBILE_SECTIONS_SCHEMA_VERSION` check in `readMobileSectionsCache()` (line 73) does an exact match:
 ```
-
-Sections without segment matches (clothing_fashion, toys, sporting_goods) will only get items via keyword fallback on unmatched items — never random redistribution.
-
-## Changes
-
-### 1. `supabase/functions/catalog-home/index.ts` — `buildMobileSectionsFromPool()`
-
-- Add a segment-to-section-key mapping
-- **Phase 1**: Assign items to sections by their `segment` field (fast, accurate)
-- **Phase 2**: For remaining unmatched items, use keyword matching as a secondary signal
-- **Remove the blind redistribution** fallback that dumps random items into sections when fewer than 3 sections have items — this is the main source of irrelevant products
-
-### 2. `supabase/functions/catalog-home-v2/index.ts` — Same fix
-
-Apply the identical change to the v2 function since both define their own `buildMobileSectionsFromPool`.
-
-### 3. `supabase/functions/_shared/mobileCatalogHandler.ts` — Same fix  
-
-The shared handler also has `buildMobileSections()` with the same redistribution bug. Apply the same segment-first logic.
-
-## What Does NOT Change
-
-- Section keys, titles, and count (still 8 sections)
-- Cache structure and cache-building logic
-- Web response format
-- Client detection logic
-- Title normalization
-- Fallback tiers (fresh cache, stale cache, DB bootstrap)
-- CORS headers
-
-## Risk Assessment
-
-- **Zero regression risk on web**: Web path is completely separate (`clientType === "web"`)
-- **Zero regression on mobile detection**: No changes to detection logic
-- **Mobile sections will be more relevant**: Items placed by segment tag rather than loose title matching
-- **Some sections may have fewer items**: Clothing, toys, sporting_goods may be empty if no matching segment exists in the cache — this is correct behavior (empty section is better than wrong items)
+if (row.schema_version !== MOBILE_SECTIONS_SCHEMA_VERSION) -> cache miss -> rebuild
+```
+Bumping from 1 to 2 triggers this path, which calls `buildStrictSectionsFromPool()` using the updated `SECTION_PROFILES` with hardened exclude lists. The rebuilt sections are then cached with `schema_version=2`.

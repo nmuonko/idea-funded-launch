@@ -222,7 +222,8 @@ async function buildMobileSectionsResponse(
   isStale: boolean,
   envUsed: string,
   envRequested: string,
-  detectedBy: string = "unknown"
+  detectedBy: string = "unknown",
+  mobileTtlSeconds?: number
 ): Promise<Response> {
   // Use dedicated mobile sections cache — builds strict sections once, caches result
   return serveMobileSections(
@@ -231,7 +232,8 @@ async function buildMobileSectionsResponse(
     lang,
     correlationId,
     detectedBy,
-    items as SectionItem[]
+    items as SectionItem[],
+    mobileTtlSeconds
   );
 }
 

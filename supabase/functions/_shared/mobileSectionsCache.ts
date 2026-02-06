@@ -14,7 +14,7 @@ import { normalizeSectionTitles, calculateTotalItems } from "./titleNormalizer.t
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
 export const MOBILE_SECTIONS_SCHEMA_VERSION = 4;
-const DEFAULT_TTL_SECONDS = 1800; // 30 min — short so rebuilds pick up new items
+const DEFAULT_TTL_SECONDS = 1800; // 30 min default — overridden by admin settings
 const ITEMS_PER_SECTION_RESPONSE = 20; // returned to client
 const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability
 
@@ -105,7 +105,8 @@ export async function readMobileSectionsCache(
 async function writeMobileSectionsCache(
   env: string,
   payload: CachedSectionsPayload,
-  correlationId: string
+  correlationId: string,
+  ttlSeconds: number = DEFAULT_TTL_SECONDS
 ): Promise<void> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -124,7 +125,7 @@ async function writeMobileSectionsCache(
         env,
         schema_version: MOBILE_SECTIONS_SCHEMA_VERSION,
         built_at: new Date().toISOString(),
-        ttl_seconds: DEFAULT_TTL_SECONDS,
+        ttl_seconds: ttlSeconds,
         payload,
       }),
     });
@@ -299,8 +300,10 @@ export async function serveMobileSections(
   lang: "fr" | "en",
   correlationId: string,
   detectedBy: string,
-  poolItems: SectionItem[]
+  poolItems: SectionItem[],
+  ttlOverride?: number
 ): Promise<Response> {
+  const effectiveTtl = ttlOverride && ttlOverride > 0 ? ttlOverride : DEFAULT_TTL_SECONDS;
   // 1) Try cache
   const { hit, payload, ageSeconds } = await readMobileSectionsCache(env, correlationId);
 
@@ -323,7 +326,7 @@ export async function serveMobileSections(
       totalItems,
       hasMore: false,
       hasMoreCached: false,
-      ttlSeconds: DEFAULT_TTL_SECONDS,
+      ttlSeconds: effectiveTtl,
       correlationId,
       meta: {
         client: "mobile",
@@ -366,7 +369,7 @@ export async function serveMobileSections(
         totalItems,
         hasMore: false,
         hasMoreCached: false,
-        ttlSeconds: DEFAULT_TTL_SECONDS,
+        ttlSeconds: effectiveTtl,
         correlationId,
         meta: {
           client: "mobile",
@@ -394,7 +397,7 @@ export async function serveMobileSections(
   const built = await buildStrictSectionsFromPool(poolItems, lang, correlationId);
 
   // 3) Save to cache (fire-and-forget)
-  writeMobileSectionsCache(env, built, correlationId).catch(() => {});
+  writeMobileSectionsCache(env, built, correlationId, effectiveTtl).catch(() => {});
 
   // 4) Slice for response
   const sliced = built.sections.map(s => ({
@@ -414,7 +417,7 @@ export async function serveMobileSections(
     totalItems,
     hasMore: false,
     hasMoreCached: false,
-    ttlSeconds: DEFAULT_TTL_SECONDS,
+    ttlSeconds: effectiveTtl,
     correlationId,
     meta: {
       client: "mobile",

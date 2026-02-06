@@ -7,7 +7,9 @@
  * - minItems: target count per section
  * - backfill: when pool filtering yields < minItems, query catalog_items DB
  *
- * Used by catalog-home and catalog-home-v2 for mobile multi-section responses.
+ * IMPORTANT: Matching uses word-boundary regex for short keywords (≤4 chars)
+ * and includes() for longer keywords/phrases. This prevents false positives
+ * like "tee" matching "steel" or "car" matching "carplay".
  */
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -41,20 +43,21 @@ export interface SectionItem {
 // ─── KEYWORD LISTS ────────────────────────────────────────────────────────────
 
 const VEHICLE_CORE = [
-  "car","cars","truck","trucks","suv","pickup","van","sedan","coupe","hatchback",
+  // Removed generic "car","van" — too many false positives (car vacuum, canvas, vanguard)
+  "used car","new car","cars","truck","trucks","suv","pickup",
+  "sedan","coupe","hatchback",
   "motorcycle","motorbike","scooter","atv","utv","powersports",
   "rv","camper","trailer","boat","jetski","watercraft",
-  "ebay motors","motors","vin","mileage","dealer","auction",
+  "ebay motors","vin","mileage","dealer","auction",
 ];
 
 const PARTS_WORDS = [
-  "part","parts","oem","aftermarket","replacement",
+  // Actual mechanical parts only — removed accessories (dash cam, car vacuum, seat cover, floor mat, etc.)
+  "oem","aftermarket","replacement",
   "bumper","fender","hood","mirror","headlight","taillight","rim","wheel","tire","tyre",
-  "brake","rotor","caliper","spark plug","filter","oil","engine","transmission",
+  "brake","rotor","caliper","spark plug","filter","engine","transmission",
   "radiator","suspension","shock","strut","axle","bearing","belt","sensor","catalytic",
   "exhaust","muffler","intake","turbo","ecu","alternator","starter",
-  "carplay","android auto","dash cam","floor mat","seat cover",
-  "car stereo","car vacuum","car charger","car mount","car phone",
 ];
 
 const PHONE_WORDS = [
@@ -71,50 +74,76 @@ const PHONE_ACCESSORIES = [
 
 const GAMING_WORDS = [
   "playstation","ps5","ps4","xbox","series x","series s","nintendo","switch",
-  "gaming","controller","joy-con","console","steam deck",
+  "controller","joy-con","console","steam deck",
   "game disc","video game",
 ];
 
 const CLOTHING_WORDS = [
-  "shirt","t-shirt","tee","hoodie","jacket","coat","pants","jeans","dress","skirt",
+  // Removed "tee" (matches "steel","teeth","steer") — use "t-shirt" instead
+  "shirt","t-shirt","tee shirt","hoodie","jacket","coat","pants","jeans","dress","skirt",
   "shoes","sneakers","boots","sandals","nike","adidas","puma","reebok","jordan",
 ];
 
 const HOME_WORDS = [
+  // Removed "home" (too generic — matches everything)
   "sofa","couch","bed","mattress","table","chair","dresser","wardrobe","cabinet",
   "lamp","rug","curtain","kitchen","microwave","blender","toaster","vacuum cleaner",
-  "tool","drill","screwdriver","wrench","garden","outdoor","patio","storage",
-  "furniture","decor","home",
+  "drill","screwdriver","wrench","garden","patio","storage",
+  "furniture","decor",
 ];
 
 const TOYS_WORDS = [
-  "toy","toys","lego","doll","action figure","rc car","remote control","kids toy",
+  "lego","doll","action figure","rc car","remote control","kids toy",
   "puzzle","board game","playset","barbie","figure",
 ];
 
 const SPORTS_WORDS = [
-  "sport","sports","camping","tent","hiking","fitness","gym",
+  // Removed "sport","sports","outdoor" (too generic)
+  "camping","tent","hiking","fitness","gym",
   "dumbbell","treadmill","bicycle","soccer","basketball","football","boxing",
   "yoga","running","exercise","tennis",
 ];
 
 const ELECTRONICS_WORDS = [
-  "laptop","notebook","macbook","desktop","pc","monitor","tv","television",
+  "laptop","notebook","macbook","desktop","monitor","tv","television",
   "camera","dslr","mirrorless","speaker","bluetooth speaker","router","ssd","gpu",
-  "tablet","audio","bluetooth",
+  "tablet","bluetooth",
 ];
 
 const REFURB_WORDS = [
   "renewed","refurbished","reconditioned","open box","certified refurbished","remanufactured",
 ];
 
-// ─── SECTION PROFILES ─────────────────────────────────────────────────────────
+// ─── CROSS-CATEGORY EXCLUSION HELPERS ─────────────────────────────────────────
 
-// Cross-category exclusion helpers
-const PHONE_EXCLUDE = ["phone","iphone","samsung","galaxy","pixel","smartphone","cell phone","mobile phone","case","charger","airpods","earbuds","screen protector","magsafe"];
-const VEHICLE_EXCLUDE = ["car","truck","suv","motorcycle","vin","mileage","ebay motors","motors","van","sedan","coupe","trailer","boat"];
-const GAMING_EXCLUDE = ["playstation","ps5","ps4","xbox","nintendo","switch","console","controller","joy-con","gaming"];
-const PARTS_EXCLUDE = ["bumper","brake","headlight","oem","aftermarket","rotor","fender","taillight","exhaust","muffler"];
+const PHONE_EXCLUDE = [
+  "phone","iphone","samsung","galaxy","pixel","smartphone","cell phone","mobile phone",
+  "case","charger","airpods","earbuds","screen protector","magsafe",
+];
+
+const VEHICLE_EXCLUDE = [
+  "truck","suv","motorcycle","vin","mileage","ebay motors","motors",
+  "sedan","coupe","trailer","boat",
+];
+
+const GAMING_EXCLUDE = [
+  "playstation","ps5","ps4","xbox","nintendo","switch","console","controller","joy-con",
+];
+
+const PARTS_EXCLUDE = [
+  "bumper","brake","headlight","oem","aftermarket","rotor","fender","taillight",
+  "exhaust","muffler","radiator","transmission",
+];
+
+// Vehicle-specific accessory exclusions (things with "car" in name but aren't vehicles)
+const VEHICLE_ACCESSORY_EXCLUDE = [
+  "vacuum","stereo","radio","dash cam","dashcam","seat cover","floor mat",
+  "mount","holder","charger","scanner","obd","obd2","diagnostic",
+  "jump starter","air freshener","organizer","cleaning","car phone","car mount",
+  "car charger","car stereo","car vacuum","carplay","android auto",
+];
+
+// ─── SECTION PROFILES ─────────────────────────────────────────────────────────
 
 export const SECTION_PROFILES: SectionProfile[] = [
   {
@@ -129,7 +158,8 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "electronics",
     title: { en: "Electronics", fr: "Électronique" },
     includeAny: ELECTRONICS_WORDS.concat(PHONE_ACCESSORIES),
-    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS),
+    // Exclude phones so iPhones don't appear here
+    excludeAny: VEHICLE_CORE.concat(PARTS_WORDS, GAMING_WORDS, PHONE_WORDS),
     preferProviders: ["amazon", "ebay"],
     minItems: 20,
   },
@@ -137,7 +167,9 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "vehicles",
     title: { en: "Vehicles", fr: "Véhicules" },
     includeAny: VEHICLE_CORE,
-    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, PARTS_EXCLUDE, ["accessory","accessories","parts","toy","toys","lego","doll"]),
+    excludeAny: PHONE_EXCLUDE.concat(GAMING_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE, [
+      "accessory","accessories","parts","toy","toys","lego","doll",
+    ]),
     preferProviders: ["ebay", "amazon"],
     minItems: 12,
   },
@@ -153,7 +185,7 @@ export const SECTION_PROFILES: SectionProfile[] = [
     key: "gaming",
     title: { en: "Gaming", fr: "Jeux Vidéo" },
     includeAny: GAMING_WORDS,
-    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE),
+    excludeAny: PHONE_EXCLUDE.concat(VEHICLE_EXCLUDE, PARTS_EXCLUDE, VEHICLE_ACCESSORY_EXCLUDE),
     preferProviders: ["amazon", "ebay"],
     minItems: 12,
   },
@@ -201,16 +233,44 @@ export const SECTION_PROFILES: SectionProfile[] = [
 
 // ─── FILTERING ────────────────────────────────────────────────────────────────
 
+/**
+ * Build text for matching — TITLE ONLY, no URLs.
+ * URLs contain search keywords and category paths that cause false positives.
+ */
 function normText(item: SectionItem): string {
-  return [item.title, item.product_url, item.productUrl]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  return (item.title || "").toLowerCase();
+}
+
+// Regex cache to avoid recompiling
+const regexCache = new Map<string, RegExp>();
+
+function getWordBoundaryRegex(word: string): RegExp {
+  let re = regexCache.get(word);
+  if (!re) {
+    re = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "i");
+    regexCache.set(word, re);
+  }
+  return re;
+}
+
+/**
+ * Smart matching: word-boundary regex for short keywords (≤5 chars),
+ * includes() for longer keywords and multi-word phrases.
+ * This prevents "tee" matching "steel", "car" matching "carplay", etc.
+ */
+function smartMatch(text: string, word: string): boolean {
+  const w = word.toLowerCase();
+  // Multi-word phrases or long words: includes() is fine
+  if (w.includes(" ") || w.length > 5) {
+    return text.includes(w);
+  }
+  // Short single words: use word boundary regex
+  return getWordBoundaryRegex(w).test(text);
 }
 
 function matchesAny(text: string, words: string[]): boolean {
   for (const w of words) {
-    if (text.includes(w.toLowerCase())) return true;
+    if (smartMatch(text, w)) return true;
   }
   return false;
 }
@@ -243,8 +303,13 @@ async function backfillForProfile(
   if (!supabaseUrl || !serviceRoleKey) return [];
 
   try {
-    // Build OR filter from top 6 include keywords
-    const queryKeywords = profile.includeAny.slice(0, 6);
+    // Build OR filter from top 6 include keywords (skip very short ones for DB query)
+    const queryKeywords = profile.includeAny
+      .filter(kw => kw.length > 3) // Skip short keywords for DB ilike queries
+      .slice(0, 6);
+    
+    if (queryKeywords.length === 0) return [];
+    
     const orClauses = queryKeywords
       .map(kw => `title.ilike.*${kw.replace(/ /g, "+")}*`)
       .join(",");
@@ -268,7 +333,6 @@ async function backfillForProfile(
     const rows = await res.json() as Array<Record<string, unknown>>;
     if (!Array.isArray(rows) || rows.length === 0) return [];
 
-    // Map DB rows to SectionItem
     const mapped: SectionItem[] = rows.map(row => ({
       id: `${row.provider}_${row.provider_product_id}`,
       provider: row.provider as string,
@@ -310,7 +374,6 @@ export async function buildStrictMobileSections(
   const usedIds = new Set<string>();
   const sectionBuckets: Record<string, SectionItem[]> = {};
 
-  // Initialize buckets
   for (const profile of SECTION_PROFILES) {
     sectionBuckets[profile.key] = [];
   }
@@ -335,7 +398,6 @@ export async function buildStrictMobileSections(
   for (const profile of SECTION_PROFILES) {
     const current = sectionBuckets[profile.key].length;
     if (current < Math.min(profile.minItems, 5)) {
-      // Only backfill if significantly under target (< 5 items)
       const needed = profile.minItems - current;
       backfillTasks.push({
         key: profile.key,

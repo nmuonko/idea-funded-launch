@@ -11,7 +11,8 @@
 
 // Cache schema version - increment when making breaking changes
 // Old cache rows with different version will be treated as cache miss
-export const CACHE_SCHEMA_VERSION = 3;
+// V4: Force invalidation after mobile section title fix (2024-02-06)
+export const CACHE_SCHEMA_VERSION = 4;
 
 // Helper: Returns non-empty string or null
 export function nonEmpty(v: unknown): string | null {

@@ -35,53 +35,66 @@ const corsHeaders = {
 // ===== CLIENT DETECTION =====
 type ClientType = "mobile" | "web";
 
+interface DetectionResult {
+  clientType: ClientType;
+  detectedBy: string;
+}
+
 /**
  * Detect if client is mobile (React Native / Expo) or web
+ * DETERMINISTIC: x-device-id is PRIMARY indicator
  * ROBUST: Treat as mobile if ANY mobile indicator is present
  */
-function detectClientType(req: Request): ClientType {
+function detectClientType(req: Request): DetectionResult {
+  const h = req.headers;
+  
+  // PRIMARY: x-device-id header (most reliable for mobile app)
+  const deviceId = h.get("x-device-id") || h.get("X-Device-Id") || "";
+  if (deviceId && deviceId.trim().length > 0) {
+    return { clientType: "mobile", detectedBy: "x-device-id" };
+  }
+  
+  // SECONDARY: Platform header
+  const platform = (h.get("x-supabase-client-platform") || h.get("X-Supabase-Client-Platform") || "").toLowerCase();
+  if (platform.includes("android") || platform.includes("ios")) {
+    return { clientType: "mobile", detectedBy: "platform" };
+  }
+  
+  // TERTIARY: User-Agent patterns
+  const userAgent = (h.get("user-agent") || "").toLowerCase();
+  if (userAgent.includes("okhttp")) {
+    return { clientType: "mobile", detectedBy: "ua-okhttp" };
+  }
+  if (userAgent.includes("expo")) {
+    return { clientType: "mobile", detectedBy: "ua-expo" };
+  }
+  if (userAgent.includes("reactnative") || userAgent.includes("react-native")) {
+    return { clientType: "mobile", detectedBy: "ua-reactnative" };
+  }
+  if (userAgent.includes("dart") || userAgent.includes("flutter")) {
+    return { clientType: "mobile", detectedBy: "ua-flutter" };
+  }
+  
+  // QUATERNARY: Client info headers
   const clientInfo = (
-    req.headers.get("x-supabase-client-info") || 
-    req.headers.get("X-Supabase-Client-Info") || 
-    req.headers.get("x-client-info") ||
-    req.headers.get("X-Client-Info") ||
+    h.get("x-supabase-client-info") || 
+    h.get("X-Supabase-Client-Info") || 
+    h.get("x-client-info") ||
+    h.get("X-Client-Info") ||
     ""
   ).toLowerCase();
+  if (clientInfo.includes("expo") || clientInfo.includes("react-native") || clientInfo.includes("reactnative") || clientInfo.includes("supabase-flutter")) {
+    return { clientType: "mobile", detectedBy: "client-info" };
+  }
   
-  const userAgent = (req.headers.get("user-agent") || "").toLowerCase();
+  // QUINARY: AfriShop client header
+  const afrishopClient = (h.get("x-afrishop-client") || h.get("X-Afrishop-Client") || "").toLowerCase();
+  if (afrishopClient.includes("mobile")) {
+    return { clientType: "mobile", detectedBy: "afrishop-client" };
+  }
   
-  const platform = (
-    req.headers.get("x-supabase-client-platform") ||
-    req.headers.get("X-Supabase-Client-Platform") ||
-    ""
-  ).toLowerCase();
-  
-  const afrishopClient = (
-    req.headers.get("x-afrishop-client") ||
-    req.headers.get("X-Afrishop-Client") ||
-    ""
-  ).toLowerCase();
-  
-  // ROBUST MOBILE DETECTION: ANY of these = mobile
-  const isMobile = (
-    userAgent.includes("okhttp") ||
-    userAgent.includes("expo") ||
-    userAgent.includes("reactnative") ||
-    userAgent.includes("react-native") ||
-    userAgent.includes("dart") ||
-    userAgent.includes("flutter") ||
-    clientInfo.includes("expo") ||
-    clientInfo.includes("react-native") ||
-    clientInfo.includes("reactnative") ||
-    clientInfo.includes("supabase-flutter") ||
-    platform === "android" ||
-    platform === "ios" ||
-    platform.includes("android") ||
-    platform.includes("ios") ||
-    afrishopClient.includes("mobile")
-  );
-  
-  return isMobile ? "mobile" : "web";
+  // Default: Web
+  return { clientType: "web", detectedBy: "none" };
 }
 
 // Mobile section definitions for sectioned experience
@@ -280,7 +293,8 @@ function buildMobileSectionsResponse(
   source: string,
   isStale: boolean,
   envUsed: string,
-  envRequested: string
+  envRequested: string,
+  detectedBy: string = "unknown"
 ): Response {
   const lang: "fr" | "en" = locale === "en" ? "en" : "fr";
   let sections = buildMobileSectionsFromPool(items, lang);
@@ -291,7 +305,7 @@ function buildMobileSectionsResponse(
   
   const totalItems = calculateTotalItems(sections);
   
-  console.log(`[CATALOG_HOME] mobile_response correlationId=${correlationId} source=${source} sections=${sections.length} totalItems=${totalItems}`);
+  console.log(`[CATALOG_HOME] mobile_response correlationId=${correlationId} source=${source} detectedBy=${detectedBy} sections=${sections.length} totalItems=${totalItems}`);
   
   // CRITICAL: ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
   return jsonResponse({
@@ -307,6 +321,7 @@ function buildMobileSectionsResponse(
     correlationId,
     meta: {
       client: "mobile",
+      detectedBy,
       envUsed,
       envRequested,
       source,
@@ -1002,7 +1017,9 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
-  const clientType = detectClientType(req);
+  const detection = detectClientType(req);
+  const clientType = detection.clientType;
+  const detectedBy = detection.detectedBy;
   const { envRequested, envUsed } = normalizeEnv(req);
   const lang = getResponseLanguage(req);
   let env = envUsed;
@@ -1041,7 +1058,7 @@ serve(async (req) => {
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} detectedBy=${detectedBy} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
     // Load settings
     let settings: FeedSettings;
@@ -1059,7 +1076,7 @@ serve(async (req) => {
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
       if (clientType === "mobile") {
-        return buildMobileSectionsResponse([], locale, correlationId, "disabled", false, env, envRequested);
+        return buildMobileSectionsResponse([], locale, correlationId, "disabled", false, env, envRequested, detectedBy);
       }
       // WEB: Normalized sections even when disabled
       let sections = [{ key: "featured", title: locale === "fr" ? "En vedette" : "Featured", title_en: "Featured", title_fr: "En vedette", hideTitle: true, items: [] }];
@@ -1117,7 +1134,7 @@ serve(async (req) => {
         
         // MOBILE: Multi-section response with normalized titles
         if (clientType === "mobile") {
-          return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested);
+          return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested, detectedBy);
         }
         
         // WEB: Single feed with normalized title
@@ -1171,13 +1188,13 @@ serve(async (req) => {
           // Ignore save errors
         }
         
-        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested);
+        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested, detectedBy);
       }
       
       // Even if bootstrap fails, return empty sections with ok:true
       // This prevents "Catalogue Indisponible"
       console.log(`[CATALOG_HOME] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
-      return buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested);
+      return buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested, detectedBy);
     }
 
     // ===== LIVE MODE: Either forceLive or cache exhausted =====
@@ -1193,7 +1210,7 @@ serve(async (req) => {
       }
       
       if (clientType === "mobile") {
-        return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested);
+        return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested, detectedBy);
       }
       
       // WEB: Normalized sections
@@ -1254,7 +1271,7 @@ serve(async (req) => {
       // For mobile, try bootstrap
       if (clientType === "mobile") {
         const bootstrapItems = await bootstrapFromDatabase(correlationId);
-        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested);
+        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested, detectedBy);
       }
       
       // For web, return empty with normalized sections
@@ -1286,7 +1303,7 @@ serve(async (req) => {
 
     // Respond
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested);
+      return buildMobileSectionsResponse(items, locale, correlationId, "fresh_build", false, env, envRequested, detectedBy);
     }
 
     const offset = (page - 1) * pageSize;
@@ -1333,7 +1350,7 @@ serve(async (req) => {
     
     // For mobile: ALWAYS return ok:true with normalized empty sections
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested);
+      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested, detectedBy);
     }
     
     // For web: Return proper structure with ok:false but HTTP 200, with normalized sections

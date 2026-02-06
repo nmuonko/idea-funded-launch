@@ -255,6 +255,9 @@ async function buildMobileSectionsResponse(
       ts: Date.now(),
       schemaVersion: CACHE_SCHEMA_VERSION,
     }
+  });
+}
+
 /**
  * TIER 1 & 2: Get cached feed with stale fallback
  * Now includes schema version validation

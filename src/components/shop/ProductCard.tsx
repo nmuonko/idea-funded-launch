@@ -92,9 +92,39 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   };
 
+  // Strip provider prefix from ID for URL routing
+  // e.g., "amazon_B0XYZ..." -> "B0XYZ...", "ebay_v1|123|456" -> "v1|123|456"
+  const getProductIdForUrl = (): string => {
+    const id = product.id;
+    const provider = product.provider.toLowerCase();
+    
+    // Strip prefix if present
+    if (id.toLowerCase().startsWith('amazon_')) {
+      return id.slice(7);
+    }
+    if (id.toLowerCase().startsWith('rainforest_')) {
+      return id.slice(11);
+    }
+    if (id.toLowerCase().startsWith('ebay_')) {
+      return id.slice(5);
+    }
+    
+    // If no prefix, return as-is
+    return id;
+  };
+
+  // Normalize provider for URL (amazon/rainforest -> rainforest for API compatibility)
+  const getProviderForUrl = (): string => {
+    const provider = product.provider.toLowerCase();
+    if (provider === 'amazon' || provider === 'rainforest') {
+      return 'rainforest';
+    }
+    return provider;
+  };
+
   return (
     <Link
-      to={`/product/${product.provider}/${encodeURIComponent(product.id)}`}
+      to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       className={cn(
         "group block bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-[1.02]",
         className

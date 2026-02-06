@@ -1,78 +1,69 @@
 
 
-# Fix: Search Returns 0 Results for Queries with Model Numbers
+# Fix: Empty Search Results Cached for Hours in Browser
 
 ## Problem
 
-"google pixel 9" works (returns 20 items), but "google pixel 11" returns 0 items. The core issue is in the DB-first search token strategy and the fallback logic.
+The screenshot shows "google pixel 9" returning "No products found" on the production website. However, the backend endpoint returns 20+ results correctly. The issue is a **browser/CDN cache poisoning** problem.
 
-**Trace for "google pixel 11":**
-1. DB-first: tokens = ["google", "pixel", "11"] (all kept because "11" has length >= 2)
-2. Query: `title ILIKE '%google%' AND title ILIKE '%pixel%' AND title ILIKE '%11%'` -- returns only 2 items (below MIN_RESULTS=8)
-3. Falls through to live providers, which timeout at 4s
-4. Returns 0 items -- the 2 DB results are thrown away
+**Root cause chain:**
+1. At some point before the recent fixes, "google pixel 9" returned 0 results from the backend
+2. The backend response included `Cache-Control: public, max-age=3600` (1 hour) even for that empty response
+3. The client-side `catalogCache.ts` (localStorage cache) stored the empty response with that 1-hour TTL
+4. The browser HTTP cache also stored it
+5. Now the backend is fixed and returns results, but the user's browser keeps serving the cached empty response
 
-"google pixel 9" works because "9" has length 1 and is filtered out, so tokens become ["google", "pixel"] which matches 160+ items.
+**Why the server-side guards don't help:**
+- Guard A/B only protect the Supabase `catalog_cache` table (server-side DB cache)
+- They do NOT affect the `Cache-Control` HTTP header sent to the browser
+- Line 1129 sends `Cache-Control: public, max-age=3600` for ALL responses, including 0-item responses
+- The client's `catalogCache.ts` reads this header and caches the empty payload for 3600 seconds in localStorage
 
-## Root Causes
+## Solution: 3 Backend-Only Changes in catalog-search/index.ts
 
-1. **Pure-number tokens narrow results too aggressively**: "11" matches very few product titles but is kept because length >= 2
-2. **DB partial results discarded**: When DB returns 2 items (less than MIN_RESULTS=8), those results are thrown away entirely. If providers then fail/timeout, the user gets 0 instead of 2.
-3. **No progressive token relaxation**: When strict tokens return too few results, the system should drop the least-useful tokens and retry
+### Change 1: Cache-Control header must reflect content (line 1123-1131)
 
-## Solution: Two Changes in catalog-search/index.ts
+When building the final response, set `Cache-Control` based on whether there are results:
 
-### Change 1: Exclude pure-number tokens from DB search
+- If `finalItems.length > 0`: Keep current `Cache-Control: public, max-age=3600, s-maxage=...`
+- If `finalItems.length === 0`: Use `Cache-Control: no-store, max-age=0` so browsers and CDNs do NOT cache the empty response
 
-In the DB-first search block (line 596), change the token filter to also exclude pure-number tokens. Numbers like "9", "11", "12", "pro" as part of model names are too restrictive as individual ILIKE filters. The remaining brand/product tokens ("google", "pixel", "samsung", "galaxy") are distinctive enough.
+This is the critical fix. The client-side `catalogCache.ts` calls `parseTtlFromResponse()` which reads `max-age` from the Cache-Control header. If `max-age=0`, it will store with 0 TTL and the next request will be a cache miss.
 
-```
-// BEFORE (line 596):
-const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
+### Change 2: DB-first response also needs proper Cache-Control (line 695-698)
 
-// AFTER:
-const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
-```
+The DB-first early return (when DB has >= 8 results) currently sends no Cache-Control header at all. Add `Cache-Control: public, max-age=3600` so the client caches these positive results properly.
 
-This means:
-- "google pixel 9" -> tokens: ["google", "pixel"] (unchanged, "9" already filtered by length)
-- "google pixel 11" -> tokens: ["google", "pixel"] (now "11" is also filtered as pure number)
-- "samsung galaxy s24" -> tokens: ["samsung", "galaxy", "s24"] ("s24" kept because not pure number)
-- "iphone 15 pro max" -> tokens: ["iphone", "pro", "max"]
+### Change 3: DB fallback response needs proper Cache-Control (line 1053-1062)
 
-### Change 2: Save partial DB results as fallback for provider failure
+The `dbFallbackItems` response also sends no Cache-Control. Add `Cache-Control: public, max-age=1800` (30 min, shorter since it's partial results that should be refreshed sooner).
 
-Currently, if DB returns < 8 results, those results are discarded and the code falls through to providers. If providers then fail or timeout, the response is empty.
+### Change 4: Add ttlSeconds=0 to empty response body as safety net
 
-After the DB-first block (around line 684), save any partial DB results. Then in the provider timeout/failure handler, return those partial results instead of empty.
-
-Implementation:
-- Add a variable `dbFallbackItems` initialized to null before the DB-first block
-- If DB returns > 0 but < MIN_RESULTS items, save them to `dbFallbackItems`
-- After the provider fetch (around line 830 where the final response is built), if providers returned 0 items AND `dbFallbackItems` has items, use those instead
+The client's `parseTtlFromResponse` also checks `data.ttlSeconds` as a fallback. Set `ttlSeconds: 0` in the response body when items are empty, so even if Cache-Control parsing fails, the client won't long-cache.
 
 ## Files Modified
 
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-search/index.ts` | Line 596: Add pure-number token filter |
-| `supabase/functions/catalog-search/index.ts` | Lines 590-690: Save partial DB results as fallback |
-| `supabase/functions/catalog-search/index.ts` | Response builder: Use DB fallback when providers return 0 |
+| File | Lines | Change |
+|------|-------|--------|
+| `supabase/functions/catalog-search/index.ts` | ~1123-1131 | Set `Cache-Control: no-store, max-age=0` when `finalItems.length === 0` |
+| `supabase/functions/catalog-search/index.ts` | ~695-698 | Add `Cache-Control: public, max-age=3600` to DB-first response |
+| `supabase/functions/catalog-search/index.ts` | ~1053-1062 | Add `Cache-Control: public, max-age=1800` to DB fallback response |
+| `supabase/functions/catalog-search/index.ts` | ~1065 (response object) | Set `ttlSeconds: 0` when items.length === 0 |
 
 ## What Does NOT Change
 
-- Homepage (catalog-home) -- not touched
-- Cart, checkout, payments -- not touched
-- Mobile or web frontend code -- not touched
-- Cache TTLs and stale-while-revalidate -- unchanged
-- Typo correction (already handled by queryCanonicalizer with Levenshtein fuzzy matching)
-- Response JSON shape -- unchanged
+- Frontend code (no changes to catalogCache.ts or SearchResults.tsx)
+- Homepage endpoints (catalog-home / catalog-home-v2)
+- Cart, checkout, payments
+- Response JSON shape (same keys, same structure)
+- Server-side cache guards (Guard A/B remain intact)
+- Existing positive caching behavior (unchanged for non-empty results)
 
-## Expected Results
+## Expected Results After Fix
 
-- "google pixel 11" -> returns 20+ results (tokens: ["google", "pixel"] -> 160 DB matches)
-- "samsung galaxy s24" -> returns results (tokens: ["samsung", "galaxy", "s24"])
-- "iphone 15" -> returns results (tokens: ["iphone"])
-- If providers timeout for any query, partial DB results returned instead of empty
-- Typos like "samsun galaxi" already corrected by canonicalizer ("samsung galaxy")
+- "google pixel 9" works immediately for new users (no poisoned cache)
+- Existing users with poisoned localStorage cache: their cached entry expires naturally (within the remaining TTL, up to 1 hour max), then the next request gets fresh results with proper headers
+- Future empty results: browser receives `max-age=0` so they are never cached long-term
+- Positive results: still cached for 1 hour client-side (unchanged behavior)
 

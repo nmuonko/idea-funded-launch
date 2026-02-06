@@ -39,25 +39,32 @@ interface DetectionResult {
 
 /**
  * Detect if client is mobile (React Native / Expo) or web
- * DETERMINISTIC: x-device-id is PRIMARY indicator
+ * DETERMINISTIC: Query param > x-device-id header > platform > UA
  * ROBUST: Treat as mobile if ANY mobile indicator is present
  */
 function detectClientType(req: Request): DetectionResult {
   const h = req.headers;
+  const url = new URL(req.url);
   
-  // PRIMARY: x-device-id header (most reliable for mobile app)
+  // PRIORITY 0: Explicit ?client=mobile query param (most reliable)
+  const clientParam = url.searchParams.get("client")?.toLowerCase() || "";
+  if (clientParam === "mobile") {
+    return { clientType: "mobile", detectedBy: "query-param" };
+  }
+  
+  // PRIORITY 1: x-device-id header (mobile app should send this)
   const deviceId = h.get("x-device-id") || h.get("X-Device-Id") || "";
   if (deviceId && deviceId.trim().length > 0) {
     return { clientType: "mobile", detectedBy: "x-device-id" };
   }
   
-  // SECONDARY: Platform header
+  // PRIORITY 2: Platform header
   const platform = (h.get("x-supabase-client-platform") || h.get("X-Supabase-Client-Platform") || "").toLowerCase();
   if (platform.includes("android") || platform.includes("ios")) {
     return { clientType: "mobile", detectedBy: "platform" };
   }
   
-  // TERTIARY: User-Agent patterns
+  // PRIORITY 3: User-Agent patterns
   const userAgent = (h.get("user-agent") || "").toLowerCase();
   if (userAgent.includes("okhttp")) {
     return { clientType: "mobile", detectedBy: "ua-okhttp" };
@@ -72,7 +79,7 @@ function detectClientType(req: Request): DetectionResult {
     return { clientType: "mobile", detectedBy: "ua-flutter" };
   }
   
-  // QUATERNARY: Client info headers
+  // PRIORITY 4: Client info headers
   const clientInfo = (
     h.get("x-supabase-client-info") || 
     h.get("X-Supabase-Client-Info") || 
@@ -84,7 +91,7 @@ function detectClientType(req: Request): DetectionResult {
     return { clientType: "mobile", detectedBy: "client-info" };
   }
   
-  // QUINARY: AfriShop client header
+  // PRIORITY 5: AfriShop client header
   const afrishopClient = (h.get("x-afrishop-client") || h.get("X-Afrishop-Client") || "").toLowerCase();
   if (afrishopClient.includes("mobile")) {
     return { clientType: "mobile", detectedBy: "afrishop-client" };

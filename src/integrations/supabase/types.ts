@@ -1030,6 +1030,30 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_home_mobile_sections_cache: {
+        Row: {
+          built_at: string
+          env: string
+          payload: Json
+          schema_version: number
+          ttl_seconds: number
+        }
+        Insert: {
+          built_at?: string
+          env: string
+          payload?: Json
+          schema_version?: number
+          ttl_seconds?: number
+        }
+        Update: {
+          built_at?: string
+          env?: string
+          payload?: Json
+          schema_version?: number
+          ttl_seconds?: number
+        }
+        Relationships: []
+      }
       catalog_item_media: {
         Row: {
           expires_at: string

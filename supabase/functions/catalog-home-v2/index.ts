@@ -8,6 +8,7 @@ import {
   nonEmpty
 } from "../_shared/titleNormalizer.ts";
 import { buildStrictMobileSections, type SectionItem } from "../_shared/sectionProfiles.ts";
+import { serveMobileSections, emptyMobileSectionsResponse } from "../_shared/mobileSectionsCache.ts";
 
 /**
  * catalog-home-v2 - Single unified homepage feed with cache-first loading
@@ -223,39 +224,15 @@ async function buildMobileSectionsResponse(
   envRequested: string,
   detectedBy: string = "unknown"
 ): Promise<Response> {
-  let sections = await buildStrictMobileSections(items as SectionItem[], lang);
-  
-  // CRITICAL: Normalize titles RIGHT BEFORE returning
-  sections = normalizeSectionTitles(sections, lang) as typeof sections;
-  
-  const totalItems = calculateTotalItems(sections);
-  
-  console.log(`[CATALOG_HOME_V2] mobile_response correlationId=${correlationId} source=${source} detectedBy=${detectedBy} sections=${sections.length} totalItems=${totalItems}`);
-  
-  // ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
-  return jsonResponse({
-    ok: true,
-    sections,
-    page: 1,
-    pageSize: 20,
-    totalPages: 1,
-    totalItems,
-    hasMore: false,
-    hasMoreCached: false,
-    ttlSeconds: DEFAULT_TTL_SECONDS,
+  // Use dedicated mobile sections cache — builds strict sections once, caches result
+  return serveMobileSections(
+    envUsed,
+    envRequested,
+    lang,
     correlationId,
-    meta: {
-      client: "mobile",
-      detectedBy,
-      envUsed,
-      envRequested,
-      source,
-      isStale,
-      correlationId,
-      ts: Date.now(),
-      schemaVersion: CACHE_SCHEMA_VERSION,
-    }
-  });
+    detectedBy,
+    items as SectionItem[]
+  );
 }
 
 /**

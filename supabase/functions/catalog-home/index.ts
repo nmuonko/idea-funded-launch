@@ -1,4 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { 
+  normalizeSectionTitles, 
+  getResponseLanguage, 
+  calculateTotalItems,
+  CACHE_SCHEMA_VERSION,
+  TITLE_MAP,
+  nonEmpty
+} from "../_shared/titleNormalizer.ts";
 
 /**
  * catalog-home - Single unified homepage feed with cache-first loading
@@ -7,6 +15,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
  * - Always returns HTTP 200 with proper CORS
  * - Uses 3-tier fallback: Cache → Stale Cache → DB Bootstrap
  * - Mobile ALWAYS gets ok:true with 8 sections to prevent "Catalogue Indisponible"
+ * - Title normalization runs RIGHT BEFORE returning to guarantee no empty titles
+ * - Cache schema versioning ignores old cached rows with empty titles
  * 
  * Web: Single "featured" section (1000 items, paged at 100)
  * Mobile: 8 sections with localized titles (phones, electronics, vehicles, etc.)
@@ -19,7 +29,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-afrishop-client, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
-  "Access-Control-Expose-Headers": "content-type, x-correlation-id",
+  "Access-Control-Expose-Headers": "content-type, x-correlation-id, x-env-used",
 };
 
 // ===== CLIENT DETECTION =====
@@ -30,7 +40,6 @@ type ClientType = "mobile" | "web";
  * ROBUST: Treat as mobile if ANY mobile indicator is present
  */
 function detectClientType(req: Request): ClientType {
-  // Gather all relevant headers (case-insensitive)
   const clientInfo = (
     req.headers.get("x-supabase-client-info") || 
     req.headers.get("X-Supabase-Client-Info") || 
@@ -55,24 +64,20 @@ function detectClientType(req: Request): ClientType {
   
   // ROBUST MOBILE DETECTION: ANY of these = mobile
   const isMobile = (
-    // User-Agent patterns
     userAgent.includes("okhttp") ||
     userAgent.includes("expo") ||
     userAgent.includes("reactnative") ||
     userAgent.includes("react-native") ||
     userAgent.includes("dart") ||
     userAgent.includes("flutter") ||
-    // Client info patterns
     clientInfo.includes("expo") ||
     clientInfo.includes("react-native") ||
     clientInfo.includes("reactnative") ||
     clientInfo.includes("supabase-flutter") ||
-    // Platform header (explicit mobile platform)
     platform === "android" ||
     platform === "ios" ||
     platform.includes("android") ||
     platform.includes("ios") ||
-    // AfriShop client header
     afrishopClient.includes("mobile")
   );
   
@@ -84,78 +89,20 @@ interface MobileSection {
   key: string;
   title_fr: string;
   title_en: string;
-  title: string;
   keywords: string[];
   target: number;
 }
 
 // EXACT SECTIONS EXPECTED BY MOBILE APP - DO NOT CHANGE KEYS/TITLES
-// CRITICAL: title field must NEVER be empty string to prevent "Section" fallback
 const MOBILE_SECTIONS: MobileSection[] = [
-  { 
-    key: "phones", 
-    title_fr: "Téléphones", 
-    title_en: "Phones", 
-    title: "Téléphones",  // Default to French (primary market)
-    keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile", "unlocked"],
-    target: 20 
-  },
-  { 
-    key: "electronics", 
-    title_fr: "Électronique", 
-    title_en: "Electronics", 
-    title: "Électronique",
-    keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth", "charger", "monitor"],
-    target: 20 
-  },
-  { 
-    key: "vehicles", 
-    title_fr: "Véhicules", 
-    title_en: "Vehicles", 
-    title: "Véhicules",
-    keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"],
-    target: 20 
-  },
-  { 
-    key: "video_games", 
-    title_fr: "Jeux Vidéo", 
-    title_en: "Video Games", 
-    title: "Jeux Vidéo",
-    keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"],
-    target: 20 
-  },
-  { 
-    key: "clothing_fashion", 
-    title_fr: "Vêtements et Mode", 
-    title_en: "Clothing & Fashion", 
-    title: "Vêtements et Mode",
-    keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"],
-    target: 20 
-  },
-  { 
-    key: "home_garden", 
-    title_fr: "Maison et Jardin", 
-    title_en: "Home & Garden", 
-    title: "Maison et Jardin",
-    keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"],
-    target: 20 
-  },
-  { 
-    key: "toys", 
-    title_fr: "Jouets", 
-    title_en: "Toys", 
-    title: "Jouets",
-    keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"],
-    target: 20 
-  },
-  { 
-    key: "sporting_goods", 
-    title_fr: "Articles de Sport", 
-    title_en: "Sporting Goods", 
-    title: "Articles de Sport",
-    keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"],
-    target: 20 
-  },
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile", "unlocked"], target: 20 },
+  { key: "electronics", title_fr: "Électronique", title_en: "Electronics", keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth", "charger", "monitor"], target: 20 },
+  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"], target: 20 },
+  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"], target: 20 },
+  { key: "clothing_fashion", title_fr: "Vêtements et Mode", title_en: "Clothing & Fashion", keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"], target: 20 },
+  { key: "home_garden", title_fr: "Maison et Jardin", title_en: "Home & Garden", keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"], target: 20 },
+  { key: "toys", title_fr: "Jouets", title_en: "Toys", keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"], target: 20 },
+  { key: "sporting_goods", title_fr: "Articles de Sport", title_en: "Sporting Goods", keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"], target: 20 },
 ];
 
 // Default settings (overridden by admin_settings)
@@ -201,6 +148,7 @@ interface CacheEntry {
   created_at: string;
   expires_at: string;
   meta: Record<string, unknown>;
+  schema_version?: number;
 }
 
 let ebayTokenCache: { token: string; expiresAt: number } | null = null;
@@ -223,22 +171,18 @@ function jsonResponse(data: unknown, status = 200): Response {
 function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   const url = new URL(req.url);
   
-  // Read from query param OR headers (multiple casing variants)
   let envRequested = url.searchParams.get("env") 
     || req.headers.get("X-Afrishop-Environment") 
     || req.headers.get("x-afrishop-environment")
     || "production";
   
   envRequested = envRequested.toLowerCase().trim();
-  
   let envUsed = envRequested;
   
-  // Normalize "prod" -> "production"
   if (envUsed === "prod") {
     envUsed = "production";
   }
   
-  // Validate environment - default to production if invalid
   if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") {
     envUsed = "production";
   }
@@ -247,55 +191,12 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
 }
 
 /**
- * Build GUARANTEED mobile sections response
- * ALWAYS returns ok:true with 8 sections (even if items are empty)
- * This PREVENTS "Catalogue Indisponible" on mobile
- */
-function buildMobileSectionsResponse(
-  items: CatalogItem[],
-  locale: string,
-  correlationId: string,
-  source: string,
-  isStale: boolean,
-  envUsed: string,
-  envRequested: string
-): Response {
-  const sections = buildMobileSectionsFromPool(items, locale);
-  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
-  
-  console.log(`[CATALOG_HOME] mobile_response correlationId=${correlationId} source=${source} sections=${sections.length} totalItems=${totalItems}`);
-  
-  // CRITICAL: ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
-  return jsonResponse({
-    ok: true, // ALWAYS TRUE FOR MOBILE
-    sections,
-    page: 1,
-    pageSize: 20,
-    totalPages: 1,
-    totalItems,
-    hasMore: false,
-    hasMoreCached: false,
-    ttlSeconds: DEFAULT_TTL_SECONDS,
-    correlationId,
-    meta: {
-      client: "mobile",
-      envUsed,
-      envRequested,
-      source,
-      isStale,
-      correlationId,
-      ts: Date.now(),
-    }
-  });
-}
-
-/**
  * Build mobile sections from a pool of items
  * Groups items by keyword matching OR distributes evenly
  */
 function buildMobileSectionsFromPool(
   items: CatalogItem[], 
-  locale: string
+  lang: "fr" | "en"
 ): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
   
@@ -304,7 +205,7 @@ function buildMobileSectionsFromPool(
     for (const mobileSec of MOBILE_SECTIONS) {
       sections.push({
         key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
         title_fr: mobileSec.title_fr,
         title_en: mobileSec.title_en,
         items: [],
@@ -335,7 +236,7 @@ function buildMobileSectionsFromPool(
     
     sections.push({
       key: mobileSec.key,
-      title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+      title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
       title_fr: mobileSec.title_fr,
       title_en: mobileSec.title_en,
       items: sectionItems,
@@ -356,7 +257,7 @@ function buildMobileSectionsFromPool(
       
       sections.push({
         key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
         title_fr: mobileSec.title_fr,
         title_en: mobileSec.title_en,
         items: sectionItems,
@@ -365,6 +266,56 @@ function buildMobileSectionsFromPool(
   }
   
   return sections;
+}
+
+/**
+ * Build GUARANTEED mobile sections response with title normalization
+ * ALWAYS returns ok:true with 8 sections (even if items are empty)
+ * This PREVENTS "Catalogue Indisponible" on mobile
+ */
+function buildMobileSectionsResponse(
+  items: CatalogItem[],
+  locale: string,
+  correlationId: string,
+  source: string,
+  isStale: boolean,
+  envUsed: string,
+  envRequested: string
+): Response {
+  const lang: "fr" | "en" = locale === "en" ? "en" : "fr";
+  let sections = buildMobileSectionsFromPool(items, lang);
+  
+  // CRITICAL: Normalize titles RIGHT BEFORE returning
+  // This ensures section.title is NEVER "" (empty string)
+  sections = normalizeSectionTitles(sections, lang) as typeof sections;
+  
+  const totalItems = calculateTotalItems(sections);
+  
+  console.log(`[CATALOG_HOME] mobile_response correlationId=${correlationId} source=${source} sections=${sections.length} totalItems=${totalItems}`);
+  
+  // CRITICAL: ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
+  return jsonResponse({
+    ok: true, // ALWAYS TRUE FOR MOBILE
+    sections,
+    page: 1,
+    pageSize: 20,
+    totalPages: 1,
+    totalItems,
+    hasMore: false,
+    hasMoreCached: false,
+    ttlSeconds: DEFAULT_TTL_SECONDS,
+    correlationId,
+    meta: {
+      client: "mobile",
+      envUsed,
+      envRequested,
+      source,
+      isStale,
+      correlationId,
+      ts: Date.now(),
+      schemaVersion: CACHE_SCHEMA_VERSION,
+    }
+  });
 }
 
 async function loadFeedSettings(): Promise<FeedSettings> {
@@ -435,6 +386,7 @@ async function loadFeedSettings(): Promise<FeedSettings> {
 /**
  * TIER 1 & 2: Get cached feed (fresh or stale)
  * Returns cache if available, even if expired (stale-while-revalidate)
+ * Now includes schema version validation
  */
 async function getCachedFeedWithStale(env: string, category: string): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -460,7 +412,14 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
     if (freshRes.ok && freshRes.status !== 406) {
       const data = await freshRes.json();
       if (data && data.items && data.items.length > 0) {
-        return { cache: data as CacheEntry, isStale: false };
+        // Check schema version - treat old schema as cache miss
+        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
+        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
+          console.log(`[CATALOG_HOME] cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
+          // Continue to try stale or return null
+        } else {
+          return { cache: data as CacheEntry, isStale: false };
+        }
       }
     }
 
@@ -479,6 +438,12 @@ async function getCachedFeedWithStale(env: string, category: string): Promise<{ 
     if (staleRes.ok && staleRes.status !== 406) {
       const data = await staleRes.json();
       if (data && data.items && data.items.length > 0) {
+        // Check schema version for stale cache too
+        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
+        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
+          console.log(`[CATALOG_HOME] stale_cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
+          return { cache: null, isStale: false };
+        }
         console.log(`[CATALOG_HOME] stale_cache_available key=${cacheKey} items=${data.items.length} expired_at=${data.expires_at}`);
         return { cache: data as CacheEntry, isStale: true };
       }
@@ -586,10 +551,13 @@ async function saveCachedFeed(
         env,
         items,
         expires_at: expiresAt,
-        meta,
+        meta: {
+          ...meta,
+          schemaVersion: CACHE_SCHEMA_VERSION,
+        },
       }),
     });
-    console.log(`[CATALOG_HOME] Cache saved key=${cacheKey} items=${items.length} expiresAt=${expiresAt}`);
+    console.log(`[CATALOG_HOME] Cache saved key=${cacheKey} items=${items.length} expiresAt=${expiresAt} schemaVersion=${CACHE_SCHEMA_VERSION}`);
   } catch (err) {
     console.warn(`[CATALOG_HOME] Cache save error: ${err}`);
   }
@@ -1036,6 +1004,7 @@ serve(async (req) => {
   const startTime = Date.now();
   const clientType = detectClientType(req);
   const { envRequested, envUsed } = normalizeEnv(req);
+  const lang = getResponseLanguage(req);
   let env = envUsed;
 
   // Wrap EVERYTHING in try/catch to GUARANTEE no throws
@@ -1047,7 +1016,7 @@ serve(async (req) => {
     let category = "";
     let amazonDomain = "amazon.com";
     let forceLive = false;
-    let locale = "fr";
+    let locale = lang;
 
     if (req.method === "POST") {
       try {
@@ -1055,7 +1024,7 @@ serve(async (req) => {
         page = parseInt(body.page) || 1;
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
-        locale = body.locale || body.lang || "fr";
+        locale = body.locale || body.lang || lang;
         if (body.env) {
           const bodyEnv = body.env.toLowerCase().trim();
           env = bodyEnv === "prod" ? "production" : (["production", "staging", "dev"].includes(bodyEnv) ? bodyEnv : "production");
@@ -1068,11 +1037,11 @@ serve(async (req) => {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
-      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
+      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || lang;
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} lang=${lang} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
     // Load settings
     let settings: FeedSettings;
@@ -1092,14 +1061,17 @@ serve(async (req) => {
       if (clientType === "mobile") {
         return buildMobileSectionsResponse([], locale, correlationId, "disabled", false, env, envRequested);
       }
+      // WEB: Normalized sections even when disabled
+      let sections = [{ key: "featured", title: locale === "fr" ? "En vedette" : "Featured", title_en: "Featured", title_fr: "En vedette", hideTitle: true, items: [] }];
+      sections = normalizeSectionTitles(sections, locale === "en" ? "en" : "fr") as typeof sections;
       return jsonResponse({
         ok: true,
-        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
+        sections,
         page,
         pageSize,
         totalPages: 0,
         correlationId,
-        meta: { client: clientType, source: "disabled" }
+        meta: { client: clientType, source: "disabled", schemaVersion: CACHE_SCHEMA_VERSION }
       });
     }
 
@@ -1143,22 +1115,25 @@ serve(async (req) => {
         
         console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed}`);
         
-        // MOBILE: Multi-section response
+        // MOBILE: Multi-section response with normalized titles
         if (clientType === "mobile") {
           return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested);
         }
         
-        // WEB: Single feed
+        // WEB: Single feed with normalized title
+        let sections = [{
+          key: "featured",
+          title: locale === "fr" ? "En vedette" : "Featured",
+          title_en: "Featured",
+          title_fr: "En vedette",
+          hideTitle: true,
+          items: pageItems,
+        }];
+        sections = normalizeSectionTitles(sections, locale === "en" ? "en" : "fr") as typeof sections;
+        
         return jsonResponse({
           ok: true,
-          sections: [{
-            key: "featured",
-            title: "",
-            title_en: "",
-            title_fr: "",
-            hideTitle: true,
-            items: pageItems,
-          }],
+          sections,
           page,
           pageSize,
           totalPages: actualTotalPages,
@@ -1175,6 +1150,7 @@ serve(async (req) => {
             isStale,
             correlationId,
             ts: Date.now(),
+            schemaVersion: CACHE_SCHEMA_VERSION,
           }
         });
       }
@@ -1220,16 +1196,20 @@ serve(async (req) => {
         return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested);
       }
       
+      // WEB: Normalized sections
+      let sections = [{
+        key: "featured",
+        title: locale === "fr" ? "En vedette" : "Featured",
+        title_en: "Featured",
+        title_fr: "En vedette",
+        hideTitle: true,
+        items: liveItems,
+      }];
+      sections = normalizeSectionTitles(sections, locale === "en" ? "en" : "fr") as typeof sections;
+      
       return jsonResponse({
         ok: true,
-        sections: [{
-          key: "featured",
-          title: "",
-          title_en: "",
-          title_fr: "",
-          hideTitle: true,
-          items: liveItems,
-        }],
+        sections,
         page,
         pageSize,
         totalPages: 0,
@@ -1241,6 +1221,7 @@ serve(async (req) => {
           client: "web",
           source: "live",
           page,
+          schemaVersion: CACHE_SCHEMA_VERSION,
         }
       });
     }
@@ -1276,20 +1257,22 @@ serve(async (req) => {
         return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_build_failed", true, env, envRequested);
       }
       
-      // For web, return empty
+      // For web, return empty with normalized sections
+      let sections = [{ key: "featured", title: locale === "fr" ? "En vedette" : "Featured", title_en: "Featured", title_fr: "En vedette", hideTitle: true, items: [] }];
+      sections = normalizeSectionTitles(sections, locale === "en" ? "en" : "fr") as typeof sections;
       return jsonResponse({
         ok: false,
-        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
+        sections,
         page,
         pageSize,
         totalPages: 0,
         correlationId,
         error: String(buildErr),
-        meta: { source: "error" }
+        meta: { source: "error", schemaVersion: CACHE_SCHEMA_VERSION }
       });
     }
 
-    // Save to cache
+    // Save to cache with schema version
     try {
       saveCachedFeed(env, category, items, settings.ttlSeconds, { 
         segmentCounts,
@@ -1313,16 +1296,20 @@ serve(async (req) => {
     const totalMs = Date.now() - startTime;
     console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} poolSize=${items.length} page=${page}/${actualTotalPages} totalMs=${totalMs}`);
 
+    // WEB: Normalized sections
+    let sections = [{
+      key: "featured",
+      title: locale === "fr" ? "En vedette" : "Featured",
+      title_en: "Featured",
+      title_fr: "En vedette",
+      hideTitle: true,
+      items: pageItems,
+    }];
+    sections = normalizeSectionTitles(sections, locale === "en" ? "en" : "fr") as typeof sections;
+
     return jsonResponse({
       ok: true,
-      sections: [{
-        key: "featured",
-        title: "",
-        title_en: "",
-        title_fr: "",
-        hideTitle: true,
-        items: pageItems,
-      }],
+      sections,
       page,
       pageSize,
       totalPages: actualTotalPages,
@@ -1336,6 +1323,7 @@ serve(async (req) => {
         source: "fresh_build",
         buildMs,
         segmentCounts,
+        schemaVersion: CACHE_SCHEMA_VERSION,
       }
     });
   } catch (err) {
@@ -1343,23 +1331,25 @@ serve(async (req) => {
     const totalMs = Date.now() - startTime;
     console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
     
-    // For mobile: ALWAYS return ok:true with empty sections
+    // For mobile: ALWAYS return ok:true with normalized empty sections
     if (clientType === "mobile") {
-      const locale = "fr";
-      return buildMobileSectionsResponse([], locale, correlationId, "error_fallback", true, env, envRequested);
+      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested);
     }
     
-    // For web: Return proper structure with ok:false but HTTP 200
+    // For web: Return proper structure with ok:false but HTTP 200, with normalized sections
+    let sections = [{
+      key: "featured",
+      title: lang === "fr" ? "En vedette" : "Featured",
+      title_en: "Featured",
+      title_fr: "En vedette",
+      hideTitle: true,
+      items: [],
+    }];
+    sections = normalizeSectionTitles(sections, lang) as typeof sections;
+    
     return jsonResponse({
       ok: false,
-      sections: [{
-        key: "featured",
-        title: "",
-        title_en: "",
-        title_fr: "",
-        hideTitle: true,
-        items: [],
-      }],
+      sections,
       page: 1,
       pageSize: DEFAULT_PAGE_SIZE,
       totalPages: 0,
@@ -1368,6 +1358,7 @@ serve(async (req) => {
       meta: {
         source: "error",
         totalMs,
+        schemaVersion: CACHE_SCHEMA_VERSION,
       }
     });
   }

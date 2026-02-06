@@ -21,19 +21,20 @@ const ITEMS_PER_SECTION_CACHE = 30; // stored in cache for stability
 // ─── HIDE TITLES TRANSFORM ───────────────────────────────────────────────────
 
 /**
- * Hide section titles for mobile response.
- * Sets hideTitle:true and title to single space (not empty string)
- * to prevent the mobile app from falling back to "Section".
- * Does NOT touch items[] or see_all.
+ * Flatten all sections into a SINGLE "featured" section.
+ * Mobile app ignores hideTitle, so the only way to remove headers
+ * is to return exactly 1 section — no headers to render.
  */
-function hideMobileTitles<T extends { key?: string; title?: string; title_en?: string; title_fr?: string; [k: string]: unknown }>(sections: T[]): (T & { hideTitle: true })[] {
-  return sections.map(s => ({
-    ...s,
+function flattenToSingleSection<T extends { items?: unknown[]; [k: string]: unknown }>(sections: T[]): Array<{ key: string; hideTitle: true; title: string; title_en: string; title_fr: string; items: unknown[] }> {
+  const allItems = sections.flatMap(s => Array.isArray(s.items) ? s.items : []);
+  return [{
+    key: "featured",
     hideTitle: true as const,
     title: " ",
     title_en: " ",
     title_fr: " ",
-  }));
+    items: allItems,
+  }];
 }
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -327,8 +328,8 @@ export async function serveMobileSections(
       items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
     }));
     const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-    const hidden = hideMobileTitles(normalized);
-    const totalItems = calculateTotalItems(hidden);
+    const hidden = flattenToSingleSection(normalized);
+    const totalItems = hidden[0].items.length;
 
     return new Response(JSON.stringify({
       ok: true,
@@ -374,8 +375,8 @@ export async function serveMobileSections(
     items: s.items.slice(0, ITEMS_PER_SECTION_RESPONSE),
   }));
   const normalized = normalizeSectionTitles(sliced, lang) as typeof sliced;
-  const hidden = hideMobileTitles(normalized);
-  const totalItems = calculateTotalItems(hidden);
+  const hidden = flattenToSingleSection(normalized);
+  const totalItems = hidden[0].items.length;
 
   return new Response(JSON.stringify({
     ok: true,
@@ -425,7 +426,7 @@ export function emptyMobileSectionsResponse(
     items: [],
   }));
   const normalized = normalizeSectionTitles(sections, lang) as typeof sections;
-  const hidden = hideMobileTitles(normalized);
+  const hidden = flattenToSingleSection(normalized);
 
   return new Response(JSON.stringify({
     ok: true,

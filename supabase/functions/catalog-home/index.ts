@@ -428,95 +428,171 @@ async function buildFeed(
   correlationId: string,
   amazonDomain: string,
   ebayToken: string | null
-): Promise<{ items: CatalogItem[]; amazonCount: number; dealsCount: number; ms: number }> {
+): Promise<{ items: CatalogItem[]; amazonCount: number; dealsCount: number; ebayCount: number; ms: number; shortfall: boolean; shortfallReason?: string }> {
   const startMs = Date.now();
+  const targetTotal = settings.limit; // default 200
+  const targetAmazon = settings.amazonFirstCount; // default 100
+  const targetDeals = settings.dealsCount; // default 100
+  
+  let shortfall = false;
+  let shortfallReason = "";
   
   // ===== BLOCK 1: Amazon Popular Electronics (first 100) =====
+  // Fetch MORE than needed (400) to allow for filtering and dedup
   const amazonSeeds = [
     "iphone unlocked",
     "samsung galaxy unlocked", 
     "airpods pro",
-    "ipad",
+    "ipad pro",
     "ps5 console",
     "macbook laptop",
-    "nintendo switch",
-    "gaming laptop"
+    "nintendo switch oled",
+    "gaming laptop",
+    "sony headphones",
+    "apple watch",
+    "samsung tablet",
+    "kindle fire tablet"
   ];
   
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} building amazon block seeds=${amazonSeeds.length}`);
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} building amazon block seeds=${amazonSeeds.length} target=${targetAmazon}`);
   
+  // Fetch 35 items per seed to get ~400+ raw items
   const amazonPromises = amazonSeeds.map(seed => 
-    fetchRainforestItems(seed, 25, amazonDomain, correlationId)
+    fetchRainforestItems(seed, 35, amazonDomain, correlationId)
   );
   
   const amazonResults = await Promise.all(amazonPromises);
-  let amazonItems = amazonResults.flat();
-  amazonItems = lightFilter(amazonItems);
-  amazonItems = deduplicateItems(amazonItems);
-  amazonItems = stableShuffle(amazonItems, correlationId + "_amazon");
-  amazonItems = amazonItems.slice(0, settings.amazonFirstCount);
+  let amazonRaw = amazonResults.flat();
+  amazonRaw = lightFilter(amazonRaw);
+  amazonRaw = deduplicateItems(amazonRaw);
+  amazonRaw = stableShuffle(amazonRaw, correlationId + "_amazon");
   
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} amazonBlock=${amazonItems.length}`);
+  // Keep exactly targetAmazon (100)
+  const amazonItems = amazonRaw.slice(0, targetAmazon);
+  const amazonKept = amazonItems.length;
+  
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} amazonBlock raw=${amazonRaw.length} kept=${amazonKept}`);
 
   // ===== BLOCK 2: Mixed Deals/Refurbished (last 100) =====
-  const dealsSeeds = [
-    "refurbished iphone",
+  // Fetch MORE than needed (400) for deals block
+  const amazonDealsSeeds = [
+    "refurbished iphone unlocked",
     "renewed iphone unlocked",
     "android phone unlocked",
     "refurbished laptop",
-    "used ps4 console",
-    "certified refurbished"
+    "refurbished macbook",
+    "certified refurbished electronics"
   ];
   
-  let dealsItems: CatalogItem[] = [];
+  const ebayDealsSeeds = [
+    "refurbished iphone",
+    "gaming console used",
+    "laptop refurbished",
+    "airpods renewed",
+    "ps4 console used",
+    "ipad refurbished",
+    "samsung galaxy renewed"
+  ];
   
-  // Amazon deals
-  const amazonDealsPromises = dealsSeeds.slice(0, 3).map(seed =>
-    fetchRainforestItems(seed, 30, amazonDomain, correlationId)
+  let dealsRaw: CatalogItem[] = [];
+  let ebayKept = 0;
+  
+  // Amazon deals - fetch 40 per seed
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} building deals block amazonSeeds=${amazonDealsSeeds.length}`);
+  const amazonDealsPromises = amazonDealsSeeds.map(seed =>
+    fetchRainforestItems(seed, 40, amazonDomain, correlationId)
   );
   const amazonDealsResults = await Promise.all(amazonDealsPromises);
-  dealsItems.push(...amazonDealsResults.flat());
+  dealsRaw.push(...amazonDealsResults.flat());
   
-  // eBay deals if token available
+  // eBay deals if token available - fetch 30 per seed
   if (ebayToken) {
-    const ebayDealsSeeds = [
-      "refurbished iphone",
-      "gaming console used",
-      "laptop refurbished",
-      "airpods renewed"
-    ];
-    
+    console.log(`[CATALOG_HOME] correlationId=${correlationId} building deals block ebaySeeds=${ebayDealsSeeds.length}`);
     const ebayPromises = ebayDealsSeeds.map(seed =>
-      fetchEbayItems(seed, 25, ebayToken, correlationId)
+      fetchEbayItems(seed, 30, ebayToken, correlationId)
     );
     const ebayResults = await Promise.all(ebayPromises);
-    dealsItems.push(...ebayResults.flat());
+    const ebayItems = ebayResults.flat();
+    ebayKept = ebayItems.length;
+    dealsRaw.push(...ebayItems);
+  } else {
+    console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} no_ebay_token deals will be amazon-only`);
+    shortfallReason = "no_ebay_token";
   }
   
-  dealsItems = lightFilter(dealsItems);
-  dealsItems = deduplicateItems(dealsItems);
-  dealsItems = stableShuffle(dealsItems, correlationId + "_deals");
-  dealsItems = dealsItems.slice(0, settings.dealsCount);
+  dealsRaw = lightFilter(dealsRaw);
+  dealsRaw = deduplicateItems(dealsRaw);
+  dealsRaw = stableShuffle(dealsRaw, correlationId + "_deals");
   
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} dealsBlock=${dealsItems.length}`);
+  // Keep exactly targetDeals (100)
+  const dealsItems = dealsRaw.slice(0, targetDeals);
+  const dealsKept = dealsItems.length;
+  
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} dealsBlock raw=${dealsRaw.length} kept=${dealsKept} ebayItems=${ebayKept}`);
 
   // ===== COMBINE =====
   let allItems = [...amazonItems, ...dealsItems];
   
-  // Final de-dup across boundary
+  // Final cross-boundary de-dup (removes items that appear in both blocks)
+  const beforeDedupCount = allItems.length;
   allItems = deduplicateItems(allItems);
+  const afterDedupCount = allItems.length;
+  const lostInDedup = beforeDedupCount - afterDedupCount;
   
-  // If we lost items in de-dup, we already have what we have
-  const finalItems = allItems.slice(0, settings.limit);
+  if (lostInDedup > 0) {
+    console.log(`[CATALOG_HOME] correlationId=${correlationId} cross_dedup removed=${lostInDedup}`);
+  }
+
+  // ===== BACKFILL if needed to guarantee 200 =====
+  if (allItems.length < targetTotal) {
+    const deficit = targetTotal - allItems.length;
+    console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill_needed current=${allItems.length} target=${targetTotal} deficit=${deficit}`);
+    
+    // Backfill from unused amazon raw items
+    const usedIds = new Set(allItems.map(i => `${i.provider}:${i.provider_product_id}`));
+    const backfillCandidates = amazonRaw.filter(i => !usedIds.has(`${i.provider}:${i.provider_product_id}`));
+    const backfillItems = backfillCandidates.slice(0, deficit);
+    
+    if (backfillItems.length > 0) {
+      allItems.push(...backfillItems);
+      console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill added=${backfillItems.length} from amazonRaw`);
+    }
+    
+    // If still short, try from deals raw
+    if (allItems.length < targetTotal) {
+      const usedIds2 = new Set(allItems.map(i => `${i.provider}:${i.provider_product_id}`));
+      const dealsBackfill = dealsRaw.filter(i => !usedIds2.has(`${i.provider}:${i.provider_product_id}`));
+      const deficit2 = targetTotal - allItems.length;
+      const addFromDeals = dealsBackfill.slice(0, deficit2);
+      
+      if (addFromDeals.length > 0) {
+        allItems.push(...addFromDeals);
+        console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill added=${addFromDeals.length} from dealsRaw`);
+      }
+    }
+  }
+  
+  // Final slice to limit
+  const finalItems = allItems.slice(0, targetTotal);
+  
+  // Check for shortfall
+  if (finalItems.length < targetTotal) {
+    shortfall = true;
+    shortfallReason = shortfallReason || "provider_timeout_or_low_results";
+    console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} shortfall final=${finalItems.length} target=${targetTotal} reason=${shortfallReason}`);
+  }
   
   const ms = Date.now() - startMs;
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} built amazonCount=${amazonItems.length} dealsCount=${dealsItems.length} total=${finalItems.length} ms=${ms}`);
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} built amazonKept=${amazonKept} dealsKept=${dealsKept} ebayCount=${ebayKept} final=${finalItems.length} ms=${ms}`);
   
   return { 
     items: finalItems, 
-    amazonCount: amazonItems.length, 
-    dealsCount: dealsItems.length, 
-    ms 
+    amazonCount: amazonKept, 
+    dealsCount: dealsKept,
+    ebayCount: ebayKept,
+    ms,
+    shortfall,
+    shortfallReason
   };
 }
 
@@ -613,15 +689,23 @@ serve(async (req) => {
     // ===== CACHE MISS: Build fresh feed =====
     const ebayToken = await getEbayToken();
     
-    const { items, amazonCount, dealsCount, ms: buildMs } = await buildFeed(
+    const { items, amazonCount, dealsCount, ebayCount, ms: buildMs, shortfall, shortfallReason } = await buildFeed(
       settings,
       correlationId,
       amazonDomain,
       ebayToken
     );
 
-    // Save to cache (async, don't wait)
-    saveCachedFeed(env, category, items, settings.ttlSeconds, { amazonCount, dealsCount });
+    // Save to cache with full meta (async, don't wait)
+    saveCachedFeed(env, category, items, settings.ttlSeconds, { 
+      amazonCount, 
+      dealsCount, 
+      ebayCount, 
+      total: items.length,
+      buildMs,
+      shortfall,
+      shortfallReason 
+    });
 
     // Paginate response
     const offset = (page - 1) * pageSize;
@@ -649,7 +733,10 @@ serve(async (req) => {
         building_feed_ms: buildMs,
         amazonCount,
         dealsCount,
-        total: items.length
+        ebayCount,
+        total: items.length,
+        shortfall,
+        shortfallReason
       }
     });
   } catch (err) {

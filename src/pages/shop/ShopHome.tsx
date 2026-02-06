@@ -46,8 +46,10 @@ export default function ShopHome() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(10); // Default 10 pages of cached items
+  const [totalPages, setTotalPages] = useState(0); // Will be set from backend response
+  const [poolSize, setPoolSize] = useState(0); // Track actual pool size for debugging
   const [hasMore, setHasMore] = useState(true);
+  const [isLiveMode, setIsLiveMode] = useState(false); // Track if we're in live mode
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -69,19 +71,23 @@ export default function ShopHome() {
     try {
       if (page === 1) {
         setLoading(true);
+        setIsLiveMode(false);
       } else {
         setLoadingMore(true);
       }
 
-      // For pages beyond cached pool, auto-switch to live mode
-      const isLiveMode = page > totalPages;
+      // Determine if we should request live mode
+      // Only switch to live if we've exhausted cached pages (based on backend's totalPages)
+      const shouldUseLive = totalPages > 0 && page > totalPages;
       
       const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home`);
       url.searchParams.set('page', String(page));
       url.searchParams.set('pageSize', String(PAGE_SIZE));
-      if (isLiveMode) {
+      if (shouldUseLive) {
         url.searchParams.set('live', '1');
       }
+      
+      console.log(`[ShopHome] fetching page=${page} shouldUseLive=${shouldUseLive} currentTotalPages=${totalPages}`);
       
       const response = await fetch(url.toString(), {
         headers: {
@@ -94,7 +100,14 @@ export default function ShopHome() {
         throw new Error('Failed to load products');
       }
       
-      const data = await response.json() as HomeFeedResponse & { totalPages?: number; hasMore?: boolean };
+      const data = await response.json() as HomeFeedResponse & { 
+        totalPages?: number; 
+        hasMore?: boolean;
+        hasMoreCached?: boolean;
+        _meta?: { source?: string; poolSize?: number };
+      };
+      
+      console.log(`[ShopHome] response page=${page} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
       
       if (data?.sections?.[0]?.items) {
         const mappedProducts = data.sections[0].items
@@ -107,10 +120,20 @@ export default function ShopHome() {
           setProducts(mappedProducts);
         }
         
-        // Update pagination state
-        if (data.totalPages) {
+        // Update pagination state FROM BACKEND RESPONSE
+        // totalPages from backend is computed from poolSize / pageSize
+        if (data.totalPages !== undefined && data.totalPages > 0) {
           setTotalPages(data.totalPages);
         }
+        if (data._meta?.poolSize) {
+          setPoolSize(data._meta.poolSize);
+        }
+        
+        // Track if we're now in live mode
+        const nowLive = data._meta?.source === 'live' || shouldUseLive;
+        setIsLiveMode(nowLive);
+        
+        // hasMore is true as long as we got items (cache or live)
         setHasMore(data.hasMore !== false && mappedProducts.length > 0);
         setCurrentPage(page);
       }
@@ -242,9 +265,14 @@ export default function ShopHome() {
                       ) : (
                         <>
                           <ChevronDown className="h-4 w-4 mr-2" />
-                          {language === 'fr' 
-                            ? `Charger plus${currentPage <= totalPages ? ` (page ${currentPage}/${totalPages})` : ' (live)'}`
-                            : `Load more${currentPage <= totalPages ? ` (page ${currentPage}/${totalPages})` : ' (live)'}`}
+                          {isLiveMode 
+                            ? (language === 'fr' ? 'Charger plus (live)' : 'Load more (live)')
+                            : totalPages > 0
+                              ? (language === 'fr' 
+                                  ? `Charger plus (page ${currentPage}/${totalPages})`
+                                  : `Load more (page ${currentPage}/${totalPages})`)
+                              : (language === 'fr' ? 'Charger plus' : 'Load more')
+                          }
                         </>
                       )}
                     </Button>

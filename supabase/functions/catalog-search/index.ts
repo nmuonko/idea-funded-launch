@@ -428,6 +428,15 @@ Deno.serve(async (req: Request) => {
     }
 
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
+      // GUARD B: If cached payload has 0 items, treat as negative/stale — don't serve empty
+      const cachedItemCount = cacheResult.data?.items?.length ?? 0;
+      if (cachedItemCount === 0) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} empty_cache_guard: cached payload has 0 items, treating as miss`);
+        cacheResult = { ...cacheResult, hit: false, stale: false };
+      }
+    }
+
+    if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       // INSTANT RETURN: Fresh cache hit
       console.log(JSON.stringify({
         event: "[CATALOG_SEARCH] cache_hit",
@@ -503,8 +512,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── STALE-WHILE-REVALIDATE: RETURN STALE INSTANTLY ────────────────────────
+    // GUARD B (stale path): If stale cache has 0 items, skip serving it — fall through to DB-first + providers
     const isStaleCache = cacheResult.hit && cacheResult.stale && !cacheResult.negativeCached;
-    if (isStaleCache && cacheResult.data) {
+    const staleItemCount = cacheResult.data?.items?.length ?? 0;
+    if (isStaleCache && cacheResult.data && staleItemCount === 0) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} empty_stale_guard: stale payload has 0 items, skipping stale serve`);
+    } else if (isStaleCache && cacheResult.data) {
       const staleDuration = Date.now() - startTime;
       console.log(`[CATALOG_SEARCH] requestId=${requestId} stale_serve age=${cacheResult.cacheAgeSec}s ms=${staleDuration}`);
       
@@ -1088,6 +1101,23 @@ Deno.serve(async (req: Request) => {
         minPriceUsed: cacheMeta.minPriceUsed,
         requestId,
       }));
+    } else {
+      // GUARD A: Do NOT write a normal long-TTL cache for empty results
+      // Write a short-lived negative cache (120s) so the next request retries DB+providers
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} negative_cache_guard: 0 items, writing 120s negative cache`);
+      setCache(supabase, "search", globalCacheKey, {
+        ...response,
+        _meta: { ...cacheMeta, cachedAt: new Date().toISOString(), isNegative: true },
+        _negativeTtlSeconds: 120,
+      }, {
+        provider: "mixed",
+        query: qNorm,
+        category: categoryKey || undefined,
+        page: cacheMeta.page,
+        pageSize: limit,
+        amazonDomain: "amazon.com",
+        ttlOverrideSeconds: 120,
+      }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Negative cache write failed:`, err));
     }
 
     return new Response(JSON.stringify(response), {

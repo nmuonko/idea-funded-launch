@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowRight, ChevronRight } from 'lucide-react';
+import { ArrowRight, Search, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
-import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
+import { VerticalProductGrid } from '@/components/shop/VerticalProductGrid';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Product } from '@/components/shop/ProductCard';
@@ -14,87 +13,112 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
-// Map section keys to translation keys
-const getSectionTitle = (key: string, shop: Record<string, any>): string => {
-  const keyMap: Record<string, string> = {
-    phones: 'phones',
-    vehicles: 'vehicles',
-    gaming: 'gaming',
-    computers: 'computers',
-    clothing: 'clothing',
-    clothing_shoes: 'clothing',
-    home_garden: 'homeGarden',
-    refurbished: 'refurbished',
-    parts_accessories: 'partsAccessories',
-    electronics: 'electronics',
-    toys: 'toys',
-    fashion: 'fashion',
-    home: 'home',
-    watches: 'watches',
-  };
-  
-  const translationKey = keyMap[key];
-  if (translationKey && shop[translationKey]) {
-    return shop[translationKey];
-  }
-  // Fallback: capitalize key
-  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-};
-
-interface HomeSection {
-  key: string;
-  title: string;
-  products: Product[];
-  seeAllQuery?: string;
-  categoryKey?: string;
+interface HomeFeedResponse {
+  ok: boolean;
+  sections: Array<{
+    key: string;
+    title: string;
+    hideTitle?: boolean;
+    items: Array<{
+      id?: string;
+      provider_product_id?: string;
+      provider?: string;
+      title?: string;
+      image_url?: string;
+      imageUrl?: string;
+      price_usd?: number;
+      priceUsd?: number;
+      rating?: number;
+      in_stock?: boolean;
+      product_url?: string;
+    }>;
+  }>;
+  page?: number;
+  pageSize?: number;
+  totalItems?: number;
 }
 
 export default function ShopHome() {
   const { language } = useLanguage();
-  const [sections, setSections] = useState<HomeSection[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
 
-  useEffect(() => {
-    const fetchHomeSections = async () => {
-      try {
-        setLoading(true);
-        // Use cached fetch for catalog-home (shared across users)
-        const data = await cachedCatalogFetch<any>('catalog-home', { lang: language });
-        
-        if (data?.sections) {
-          const mappedSections: HomeSection[] = data.sections.map((section: any) => ({
-            key: section.key,
-            title: getSectionTitle(section.key, shop),
-            seeAllQuery: section.see_all?.q || section.see_all_query || section.key,
-            categoryKey: section.see_all?.category_key || section.category_key || section.key,
-            products: (section.items || []).slice(0, 12).map((item: any) => ({
-              id: item.provider_product_id || item.id,
-              provider: item.provider || 'amazon',
-              title: item.title || 'Product',
-              imageUrl: item.image_url || item.imageUrl || '',
-              priceUsd: item.price_usd || item.priceUsd || 0,
-              rating: item.rating,
-              inStock: item.in_stock !== false,
-              productUrl: item.product_url,
-            })),
-          })).filter((s: HomeSection) => s.products.length > 0);
-          
-          setSections(mappedSections);
-        }
-      } catch (err: any) {
-        console.error('Failed to fetch home sections:', err);
-        setError(err.message || 'Failed to load products');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
+    id: item.provider_product_id || item.id || '',
+    provider: item.provider || 'amazon',
+    title: item.title || 'Product',
+    imageUrl: item.image_url || item.imageUrl || '',
+    priceUsd: item.price_usd || item.priceUsd || 0,
+    rating: item.rating,
+    inStock: item.in_stock !== false,
+    productUrl: item.product_url,
+  });
 
-    fetchHomeSections();
+  const fetchFeed = async (page = 1, append = false) => {
+    try {
+      if (page === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', { 
+        lang: language,
+        page,
+        pageSize: 200
+      });
+      
+      if (data?.sections?.[0]?.items) {
+        const mappedProducts = data.sections[0].items
+          .map(mapItemToProduct)
+          .filter(p => p.id && p.priceUsd > 0);
+        
+        if (append) {
+          setProducts(prev => [...prev, ...mappedProducts]);
+        } else {
+          setProducts(mappedProducts);
+        }
+        
+        setTotalItems(data.totalItems || mappedProducts.length);
+        setHasMore(mappedProducts.length > 0 && (data.totalItems || 0) > products.length + mappedProducts.length);
+        setCurrentPage(page);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch home feed:', err);
+      setError(err.message || 'Failed to load products');
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchFeed(1);
   }, [language]);
+
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      fetchFeed(currentPage + 1, true);
+    }
+  };
+
+  const focusSearchBar = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => {
+      const searchInput = document.querySelector('header input[type="text"]') as HTMLInputElement;
+      if (searchInput) {
+        searchInput.focus();
+      }
+    }, 500);
+  };
 
   return (
     <div className="min-h-screen bg-black pb-20 md:pb-0">
@@ -120,92 +144,85 @@ export default function ShopHome() {
         </div>
       </section>
 
-      {/* Product Sections - Now Horizontal Scrolling */}
-      <main className="pb-20">
-        <div className="container mx-auto space-y-8">
+      {/* Unified Vertical Feed - NO section headers, NO carousels */}
+      <main className="pb-8">
+        <div className="container mx-auto px-4">
           {loading ? (
-            <div className="space-y-8 px-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i}>
-                  <div className="h-6 w-32 bg-white/10 rounded shimmer mb-4" />
-                  <HorizontalProductRow products={[]} loading skeletonCount={6} />
-                </div>
-              ))}
-            </div>
+            <VerticalProductGrid products={[]} loading skeletonCount={12} />
           ) : error ? (
-            <div className="text-center py-20 px-4">
+            <div className="text-center py-20">
               <p className="text-red-400 mb-4">{error}</p>
               <Button 
-                onClick={() => window.location.reload()}
+                onClick={() => fetchFeed(1)}
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10"
               >
                 {shop.tryAgain}
               </Button>
             </div>
-          ) : sections.length === 0 ? (
-            <div className="text-center py-20 px-4">
+          ) : products.length === 0 ? (
+            <div className="text-center py-20">
               <p className="text-white/60">{shop.noProducts}</p>
             </div>
           ) : (
-            sections.map((section, index) => (
-              <motion.section
-                key={section.key}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="px-4"
-              >
-                {/* Section Header - only show if title is non-empty (backend controls this) */}
-                {section.title && section.title.trim() !== "" && (
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-lg md:text-xl font-bold text-white">
-                      {section.title}
-                    </h2>
-                    <Link 
-                      to={`/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}${section.categoryKey ? `&category=${section.categoryKey}` : ''}`}
-                      className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      {shop.seeAll}
-                      <ChevronRight className="h-4 w-4" />
-                    </Link>
-                  </div>
-                )}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <VerticalProductGrid products={products} />
+            </motion.div>
+          )}
 
-                {/* Horizontal Scrolling Products */}
-                <HorizontalProductRow products={section.products} />
-              </motion.section>
-            ))
+          {/* End of Feed CTA */}
+          {!loading && products.length > 0 && (
+            <div className="mt-10 py-8 border-t border-white/10">
+              <div className="text-center space-y-4">
+                <h3 className="text-lg font-semibold text-white">
+                  {shop.dontSeeWhatYoureLookingFor || "Don't see what you're looking for?"}
+                </h3>
+                <p className="text-white/60 text-sm">
+                  {shop.searchAnyProduct || "Search for any product from Amazon & eBay"}
+                </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  {/* Primary CTA: Search */}
+                  <Button 
+                    onClick={focusSearchBar}
+                    className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8"
+                    size="lg"
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    {shop.searchProducts || "Search products"}
+                  </Button>
+                  
+                  {/* Secondary: Load More (only if more items exist) */}
+                  {hasMore && (
+                    <Button
+                      onClick={handleLoadMore}
+                      variant="outline"
+                      className="border-white/20 text-white hover:bg-white/10 rounded-full px-8"
+                      size="lg"
+                      disabled={loadingMore}
+                    >
+                      {loadingMore ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <ArrowRight className="h-4 w-4 mr-2" />
+                          Load more
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </main>
-
-      {/* Footer CTA */}
-      <section className="py-12 px-4 border-t border-white/10">
-        <div className="container mx-auto text-center">
-          <h2 className="text-xl font-bold text-white mb-3">
-            {shop.dontSeeWhatYoureLookingFor}
-          </h2>
-          <p className="text-white/60 mb-5 text-sm">
-            {shop.searchAnyProduct}
-          </p>
-          <Button 
-            onClick={() => {
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-              setTimeout(() => {
-                const searchInput = document.querySelector('header input[type="text"]') as HTMLInputElement;
-                if (searchInput) {
-                  searchInput.focus();
-                }
-              }, 500);
-            }}
-            className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6"
-          >
-            {shop.searchProducts}
-            <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
-        </div>
-      </section>
 
       {/* Footer */}
       <ShopFooter />

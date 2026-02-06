@@ -1,10 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 /**
- * catalog-home-v2 - Homepage sections from Admin Portal configuration
+ * catalog-home-v2 - Single unified homepage feed with cache-first loading
+ * 
+ * MOBILE CONTRACT: Returns exactly ONE section with empty titles to prevent
+ * mobile from rendering section headers / "Voir tout" links.
  * 
  * Uses 2-pass filtering: strict first, then relaxed fallback to ensure
- * each section returns 10-20 items without starving results.
+ * dense results without accessory bloat.
+ * 
+ * Pool: 1000 items, 100 per page, 10 pages
  */
 
 const corsHeaders = {
@@ -14,8 +19,13 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "content-type",
 };
 
+// ===== POOL & PAGINATION CONSTANTS =====
+const DEFAULT_POOL_SIZE = 1000;
+const DEFAULT_PAGE_SIZE = 100; // Fixed at 100 for stable mobile UX
+const DEFAULT_TTL_SECONDS = 172800; // 2 days
+
 // ===== FILTERING CONSTANTS =====
-const TARGET_ITEMS = 12; // Default items per section
+const TARGET_ITEMS = 12; // Default items per section for building
 const MIN_ITEMS_RATIO = 0.66; // At least 66% of target before fallback
 const STRICT_FETCH_MULTIPLIER = 4; // Fetch 4x target for strict pass
 const RELAX_FETCH_MULTIPLIER = 6; // Fetch 6x target for relaxed pass
@@ -23,114 +33,6 @@ const RELAX_FETCH_MULTIPLIER = 6; // Fetch 6x target for relaxed pass
 // Calculate min items threshold
 function getMinItems(target: number): number {
   return Math.max(8, Math.floor(target * MIN_ITEMS_RATIO));
-}
-
-// ===== TIERED EXCLUDE KEYWORDS =====
-// exclude_hard: ALWAYS exclude (true accessories/parts)
-// exclude_soft: Only exclude in strict pass
-
-interface ExcludeConfig {
-  hard: string[];
-  soft: string[];
-}
-
-const SECTION_EXCLUDES: Record<string, ExcludeConfig> = {
-  phones: {
-    hard: ["case", "cover", "screen protector", "tempered glass", "digitizer", "lcd", "housing", "frame", "back glass", "repair kit", "replacement part", "charger only", "lot of", "bulk"],
-    soft: ["holder", "stand", "mount", "cable", "adapter"]
-  },
-  gaming: {
-    hard: ["repair", "screwdriver", "tool kit", "replacement part", "shell", "housing", "mod chip", "flex cable", "ribbon cable"],
-    soft: ["controller skin", "thumb grip", "charging dock"]
-  },
-  computers: {
-    hard: ["sleeve", "sticker", "decal", "skin", "keyboard cover", "trackpad protector", "vinyl", "screen protector"],
-    soft: ["stand", "bag", "mousepad", "hub", "dock"]
-  },
-  vehicles: {
-    // Vehicles are ALWAYS strict - never fallback to accessories
-    hard: ["seat cover", "floor mat", "steering wheel cover", "sticker", "decal", "hook", "organizer", "trim", "emblem", "badge", "keychain", "air freshener", "tissue box", "phone holder", "cup holder", "visor", "sunshade", "cargo liner", "dash cover", "headrest", "cushion", "protector", "accessory kit", "parts only"],
-    soft: [] // No soft excludes - all strict for vehicles
-  },
-  clothing: {
-    hard: ["laces only", "insole", "cleaner", "protector spray", "brush", "polish", "shoe tree"],
-    soft: ["storage", "organizer"]
-  },
-  home_garden: {
-    hard: ["replacement part", "repair kit", "cover only"],
-    soft: ["cleaner", "polish", "spray"]
-  },
-  refurbished: {
-    hard: ["for parts", "as is", "broken", "not working", "parts only"],
-    soft: []
-  },
-  parts_accessories: {
-    hard: [], // This section IS for parts/accessories
-    soft: []
-  }
-};
-
-// Hardcoded fallback sections
-const FALLBACK_SECTIONS: SectionConfig[] = [
-  { 
-    key: "phones", title_fr: "Téléphones", title_en: "Phones", 
-    ebay_category: "9355", min_price: 50, is_vehicle: false,
-    include_keywords: ["iphone","samsung","galaxy","pixel","smartphone","unlocked","android","5g"],
-    strict: true, seed_queries: ["iphone pro max", "samsung galaxy", "google pixel unlocked"]
-  },
-  { 
-    key: "gaming", title_fr: "Gaming", title_en: "Gaming", 
-    ebay_category: "1249", min_price: 20, is_vehicle: false,
-    include_keywords: ["ps5","playstation","xbox","nintendo","switch","console","game","controller"],
-    strict: true, seed_queries: ["ps5 console", "xbox series x", "nintendo switch oled"]
-  },
-  { 
-    key: "computers", title_fr: "Ordinateurs", title_en: "Computers", 
-    ebay_category: "58058", min_price: 100, is_vehicle: false,
-    include_keywords: ["laptop","macbook","thinkpad","dell","hp","lenovo","surface","notebook","desktop","pc","computer"],
-    strict: true, seed_queries: ["macbook pro", "dell xps laptop", "hp notebook"]
-  },
-  { 
-    key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", 
-    ebay_category: "6000", min_price: 1000, is_vehicle: true,
-    include_keywords: ["toyota","honda","ford","bmw","mercedes","chevy","nissan","truck","suv","sedan","car","vehicle"],
-    strict: true, seed_queries: ["toyota camry", "honda accord", "ford f150 truck"]
-  },
-  { 
-    key: "clothing", title_fr: "Vêtements & Chaussures", title_en: "Clothing & Shoes", 
-    ebay_category: "63889", min_price: 15, is_vehicle: false,
-    include_keywords: ["shoes","sneakers","nike","adidas","jordan","dress","shirt","jacket","pants","jeans","boots"],
-    strict: true, seed_queries: ["nike air max", "adidas ultraboost", "jordan retro"]
-  },
-  { 
-    key: "home_garden", title_fr: "Maison & Jardin", title_en: "Home & Garden", 
-    ebay_category: "11700", min_price: 10, is_vehicle: false,
-    include_keywords: ["furniture","sofa","table","chair","lamp","decor","garden","patio","outdoor"],
-    strict: true, seed_queries: ["patio furniture set", "home decor", "garden tools"]
-  },
-  { 
-    key: "refurbished", title_fr: "Reconditionné", title_en: "Refurbished", 
-    ebay_category: "11800", min_price: 50, is_vehicle: false,
-    include_keywords: ["refurbished","renewed","certified","like new"],
-    strict: true, seed_queries: ["refurbished iphone", "renewed macbook", "certified refurbished"]
-  },
-  { 
-    key: "parts_accessories", title_fr: "Pièces & Accessoires", title_en: "Parts & Accessories", 
-    ebay_category: "6028", min_price: 5, is_vehicle: false,
-    include_keywords: ["parts","accessories","replacement","oem","aftermarket"],
-    strict: false, seed_queries: ["car parts", "phone accessories", "laptop parts"]
-  },
-];
-
-let ebayTokenCache: { token: string; expiresAt: number } | null = null;
-
-interface CacheEntry {
-  id: string;
-  env: string;
-  items: CatalogItem[];
-  created_at: string;
-  expires_at: string;
-  meta: Record<string, unknown>;
 }
 
 function generateCorrelationId(): string {
@@ -178,7 +80,7 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
  * Get cached feed - ALSO returns stale cache if available
  * Returns { cache, isStale } where cache can be stale but still usable
  */
-async function getCachedFeedWithStale(env: string, key = "v2"): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
+async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
@@ -249,6 +151,12 @@ function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<
       hideTitle: true,
       items: [],
     }],
+    page: 1,
+    pageSize: DEFAULT_PAGE_SIZE,
+    totalPages: 0,
+    totalItems: 0,
+    hasMore: false,
+    hasMoreCached: false,
     ttlSeconds: 300,
     correlationId,
     error: error || "Unknown error",
@@ -257,6 +165,9 @@ function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<
       envRequested: meta?.envRequested || "unknown",
       source: "error",
       isStale: false,
+      page: 1,
+      pageSize: DEFAULT_PAGE_SIZE,
+      totalPages: 0,
       message: error || "Unknown error",
       correlationId,
       ts: Date.now(),
@@ -838,6 +749,11 @@ serve(async (req) => {
     let locale = "fr";
     let currency = "USD";
     let limitPerSection = TARGET_ITEMS;
+    
+    // PAGINATION: Fixed at 100 per page for stable mobile UX
+    const pageSize = DEFAULT_PAGE_SIZE; // Always 100
+    let page = 1;
+    let forceLive = false;
 
     if (req.method === "POST") {
       try {
@@ -845,6 +761,9 @@ serve(async (req) => {
         locale = body.locale || "fr";
         currency = body.currency || "USD";
         limitPerSection = Math.min(Math.max(body.limitPerSection || TARGET_ITEMS, 1), 50);
+        page = Math.max(1, parseInt(body.page, 10) || 1);
+        forceLive = body.live === true || body.live === "1";
+        
         // Override env from body if provided (but still normalize)
         if (body.env) {
           const bodyEnv = body.env.toLowerCase().trim();
@@ -857,28 +776,32 @@ serve(async (req) => {
       const url = new URL(req.url);
       locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
       currency = url.searchParams.get("currency") || "USD";
+      page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
+      forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("live") === "true";
+      
       const limitParam = url.searchParams.get("limitPerSection") || url.searchParams.get("limit");
       if (limitParam) {
         limitPerSection = Math.min(Math.max(parseInt(limitParam, 10) || TARGET_ITEMS, 1), 50);
       }
     }
 
-    console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} locale=${locale} limitPerSection=${limitPerSection}`);
+    console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} locale=${locale} page=${page} pageSize=${pageSize} forceLive=${forceLive}`);
 
-    // ===== CACHE-FIRST: Check for cached v2 feed before live fetch =====
+    // ===== CACHE-FIRST: Check for cached feed (shared with catalog-home) =====
     let cached: CacheEntry | null = null;
     let isStale = false;
     let cacheEnvUsed = env;
     
     try {
-      const cacheResult = await getCachedFeedWithStale(env, "v2");
+      // Use "all" to share cache with catalog-home endpoint
+      const cacheResult = await getCachedFeedWithStale(env, "all");
       cached = cacheResult.cache;
       isStale = cacheResult.isStale;
       
       // CRITICAL: If requested env (e.g., staging) has no cache, fall back to production
       if ((!cached || !cached.items || cached.items.length === 0) && env !== "production") {
         console.log(`[CATALOG_HOME_V2] cache_fallback_to_production correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} reason=no_cache_for_env`);
-        const prodCacheResult = await getCachedFeedWithStale("production", "v2");
+        const prodCacheResult = await getCachedFeedWithStale("production", "all");
         if (prodCacheResult.cache && prodCacheResult.cache.items && prodCacheResult.cache.items.length > 0) {
           cached = prodCacheResult.cache;
           isStale = prodCacheResult.isStale;
@@ -890,38 +813,60 @@ serve(async (req) => {
       console.warn(`[CATALOG_HOME_V2] Cache read failed: ${cacheErr}`);
     }
     
-    // If cache exists and has items, return immediately with ok:true
-    if (cached && cached.items && cached.items.length > 0) {
-      const totalMs = Date.now() - startTime;
-      console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} isStale=${isStale} items=${cached.items.length} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
+    // If cache exists and has items, use it for paginated response
+    if (cached && cached.items && cached.items.length > 0 && !forceLive) {
+      const poolSize = cached.items.length;
+      const actualTotalPages = Math.ceil(poolSize / pageSize);
       
-      // Map cached items to section format expected by mobile
-      return jsonResponse({
-        ok: true, // CRITICAL: Always ok:true when we have items
-        sections: [{
-          key: "featured",
-          title: "",
-          title_en: "",
-          title_fr: "",
-          hideTitle: true,
-          items: cached.items,
-        }],
-        ttlSeconds: 1800,
-        correlationId,
-        meta: {
-          envUsed: cacheEnvUsed,
-          envRequested,
-          source: "cache",
-          isStale,
+      // If requested page is within cached pool
+      if (page <= actualTotalPages) {
+        const offset = (page - 1) * pageSize;
+        const pageItems = cached.items.slice(offset, offset + pageSize);
+        const hasMoreCached = page < actualTotalPages;
+        
+        const totalMs = Date.now() - startTime;
+        console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} isStale=${isStale} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
+        
+        // MOBILE CONTRACT: Single section with empty titles for one-feed experience
+        return jsonResponse({
+          ok: true,
+          sections: [{
+            key: "featured",
+            title: "",
+            title_en: "",
+            title_fr: "",
+            hideTitle: true,
+            items: pageItems,
+          }],
+          page,
+          pageSize,
+          totalPages: actualTotalPages,
+          totalItems: poolSize,
+          hasMore: true, // Always true - can continue with live after cache
+          hasMoreCached,
+          ttlSeconds: 1800,
           correlationId,
-          ts: Date.now(),
-          totalMs,
-        }
-      });
+          meta: {
+            envUsed: cacheEnvUsed,
+            envRequested,
+            source: "cache",
+            isStale,
+            page,
+            pageSize,
+            totalPages: actualTotalPages,
+            correlationId,
+            ts: Date.now(),
+            totalMs,
+          }
+        });
+      }
+      
+      // Page is beyond cached pool - fall through to live mode
+      console.log(`[CATALOG_HOME_V2] cache_exhausted correlationId=${correlationId} page=${page} actualTotalPages=${actualTotalPages} switching_to_live`);
     }
 
-    // ===== CACHE MISS: Try live fetch =====
-    console.log(`[CATALOG_HOME_V2] cache_miss correlationId=${correlationId} attempting_live_fetch`);
+    // ===== CACHE MISS OR LIVE MODE: Fetch fresh items =====
+    console.log(`[CATALOG_HOME_V2] ${forceLive ? 'force_live' : 'cache_miss'} correlationId=${correlationId} attempting_live_fetch`);
 
     // Load sections from Admin Portal tables
     const { sections: dbSections, error: dbError } = await loadHomeSectionsAndSeeds();
@@ -949,42 +894,54 @@ serve(async (req) => {
       });
     }
 
-    // Fetch all sections in parallel
+    // Fetch all sections in parallel and MERGE into single pool
     const sectionPromises = sections.map(async (section) => {
       const { items, error, ms } = await fetchSectionItems(section, limitPerSection, correlationId, ebayToken);
-      
-      return {
-        key: section.key,
-        title: locale === "fr" ? section.title_fr : section.title_en,
-        title_fr: section.title_fr,
-        title_en: section.title_en,
-        items,
-        see_all: {
-          q: section.see_all_query || section.key,
-          category_key: section.key,
-        },
-        error,
-        ms,
-      };
+      return { key: section.key, items, error, ms };
     });
 
     const results = await Promise.all(sectionPromises);
     
-    // Filter out empty sections (but log them)
-    const nonEmptySections = results.filter(r => {
-      if (r.items.length === 0) {
+    // MERGE all section items into a single pool (no separate sections for mobile)
+    const allItems: CatalogItem[] = [];
+    const segmentCounts: Record<string, number> = {};
+    
+    for (const r of results) {
+      if (r.items.length > 0) {
+        allItems.push(...r.items);
+        segmentCounts[r.key] = r.items.length;
+      } else {
         console.warn(`[CATALOG_HOME_V2] Section ${r.key} returned 0 items`);
-        return false;
       }
-      return true;
-    });
+    }
+    
+    // Paginate merged items
+    const poolSize = allItems.length;
+    const actualTotalPages = Math.ceil(poolSize / pageSize);
+    const offset = (page - 1) * pageSize;
+    const pageItems = allItems.slice(offset, offset + pageSize);
+    const hasMoreCached = page < actualTotalPages;
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_V2] success correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs} envUsed=${env}`);
+    console.log(`[CATALOG_HOME_V2] live_success correlationId=${correlationId} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} totalMs=${totalMs} envUsed=${env}`);
 
+    // MOBILE CONTRACT: Single section with empty titles
     return jsonResponse({
-      ok: true,
-      sections: nonEmptySections,
+      ok: pageItems.length > 0,
+      sections: [{
+        key: "featured",
+        title: "",
+        title_en: "",
+        title_fr: "",
+        hideTitle: true,
+        items: pageItems,
+      }],
+      page,
+      pageSize,
+      totalPages: actualTotalPages,
+      totalItems: poolSize,
+      hasMore: pageItems.length >= pageSize,
+      hasMoreCached,
       ttlSeconds: 1800,
       correlationId,
       meta: {
@@ -992,7 +949,10 @@ serve(async (req) => {
         envRequested,
         source: "live",
         isStale: false,
-        totalSections: nonEmptySections.length,
+        page,
+        pageSize,
+        totalPages: actualTotalPages,
+        segmentCounts,
         correlationId,
         totalMs,
         ts: Date.now(),

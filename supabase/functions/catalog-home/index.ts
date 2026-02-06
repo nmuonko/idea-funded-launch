@@ -844,12 +844,9 @@ serve(async (req) => {
       };
     }
     
-    // Use settings page size if not specified (default 100)
-    if (pageSize === 0) {
-      pageSize = settings.pageSize;
-    }
-    // Cap page size at 200, default to 100
-    pageSize = Math.min(Math.max(pageSize, 1), 200);
+    // MOBILE CONTRACT: Fixed pageSize at 100 for stable paging UX
+    // Override any client-specified pageSize to ensure consistent feed behavior
+    pageSize = DEFAULT_PAGE_SIZE; // Always 100
 
     console.log(`[CATALOG_HOME] start correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive}`);
 

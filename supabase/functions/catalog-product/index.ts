@@ -276,7 +276,8 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=GET provider=${provider} externalProvider=${externalProvider} idRaw=${productId?.substring(0, 40)}`);
   }
 
-  const errorResponse = (code: string, message: string, statusCode: number = 200) => {
+  const errorResponse = (code: string, message: string) => {
+    // ALWAYS return 200 for error responses - never 4xx/5xx
     console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} code=${code} error=${message} ms=${Date.now() - startTime}`);
     return new Response(JSON.stringify({
       ok: false,
@@ -288,20 +289,28 @@ Deno.serve(async (req: Request) => {
       item: null,
       product: null,
       source: "error",
+      meta: {
+        provider: externalProvider,
+        idRaw: rawId || productId || null,
+        idNormalized: productId || null,
+        correlationId,
+        ts: Date.now(),
+      },
       error: { code, message },
     }), {
-      status: statusCode,
+      status: 200, // ALWAYS 200 - never throw on errors
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   };
 
-  if (idError) return errorResponse("INVALID_ID", idError, 400);
-  if (!productId) return errorResponse("MISSING_ID", "Product ID is required", 400);
+  // Return errors as 200 JSON - don't block frontend
+  if (idError) return errorResponse("INVALID_ID", idError);
+  if (!productId) return errorResponse("MISSING_ID", "Product ID is required");
   
   // Accept amazon, rainforest, ebay - normalize amazon to rainforest for internal use
   const SUPPORTED_PROVIDERS = ["amazon", "rainforest", "ebay"];
   if (provider && !SUPPORTED_PROVIDERS.includes(provider)) {
-    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported. Use 'amazon' or 'ebay'.`, 400);
+    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported. Use 'amazon' or 'ebay'.`);
   }
 
   // Internal provider: amazon -> rainforest for DB lookups

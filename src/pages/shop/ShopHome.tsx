@@ -72,6 +72,7 @@ export default function ShopHome() {
       if (page === 1) {
         setLoading(true);
         setIsLiveMode(false);
+        setError(null); // Clear any previous error
       } else {
         setLoadingMore(true);
       }
@@ -96,18 +97,44 @@ export default function ShopHome() {
         },
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to load products');
+      // Check Content-Type before parsing to detect HTML error pages
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const textResponse = await response.text();
+        console.error('[ShopHome] Expected JSON but got:', contentType, textResponse.substring(0, 200));
+        
+        // Don't show error for first page - just show empty state with search CTA
+        if (page === 1) {
+          setProducts([]);
+          setHasMore(false);
+        }
+        return;
       }
       
+      // Even if HTTP status is not OK, try to parse JSON (backend returns 200 with ok:false)
       const data = await response.json() as HomeFeedResponse & { 
+        ok?: boolean;
+        error?: string;
         totalPages?: number; 
         hasMore?: boolean;
         hasMoreCached?: boolean;
-        _meta?: { source?: string; poolSize?: number };
+        _meta?: { source?: string; poolSize?: number; isStale?: boolean };
       };
       
-      console.log(`[ShopHome] response page=${page} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
+      console.log(`[ShopHome] response page=${page} ok=${data.ok} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
+      
+      // Handle ok:false gracefully - don't show error banner, just empty state
+      if (data.ok === false) {
+        console.warn('[ShopHome] Backend returned ok:false, rendering empty feed:', data.error);
+        
+        if (page === 1) {
+          // Show empty state instead of error - user can still search
+          setProducts([]);
+          setHasMore(false);
+          // DON'T set error - we want to show "Search products" CTA instead
+        }
+        return;
+      }
       
       if (data?.sections?.[0]?.items) {
         const mappedProducts = data.sections[0].items
@@ -136,10 +163,16 @@ export default function ShopHome() {
         // hasMore is true as long as we got items (cache or live)
         setHasMore(data.hasMore !== false && mappedProducts.length > 0);
         setCurrentPage(page);
+      } else if (page === 1) {
+        // No items in response - show empty state
+        setProducts([]);
+        setHasMore(false);
       }
     } catch (err: any) {
-      console.error('Failed to fetch home feed:', err);
+      // Only show error for true network failures, not backend errors
+      console.error('[ShopHome] Network/fetch error:', err);
       if (page === 1) {
+        // Show error only for actual network failures
         setError(err.message || 'Failed to load products');
       }
     } finally {

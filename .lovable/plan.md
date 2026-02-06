@@ -1,73 +1,78 @@
 
 
-# Surgical Fix: Search Returns 0 Results for Common Queries
+# Fix: Search Returns 0 Results for Queries with Model Numbers
 
-## Root Cause Analysis
+## Problem
 
-I tested the live endpoint with `q=google pixel 9` and confirmed it returns **0 items** despite the DB having **162 Pixel items** and **370 Samsung items**.
+"google pixel 9" works (returns 20 items), but "google pixel 11" returns 0 items. The core issue is in the DB-first search token strategy and the fallback logic.
 
-Three bugs combine to cause this:
+**Trace for "google pixel 11":**
+1. DB-first: tokens = ["google", "pixel", "11"] (all kept because "11" has length >= 2)
+2. Query: `title ILIKE '%google%' AND title ILIKE '%pixel%' AND title ILIKE '%11%'` -- returns only 2 items (below MIN_RESULTS=8)
+3. Falls through to live providers, which timeout at 4s
+4. Returns 0 items -- the 2 DB results are thrown away
 
-1. **No DB-first search path**: The flow is cache -> live providers -> DB fallback. When both Rainforest API returns empty AND eBay token is expired/missing, users get 0 results even though the DB has data.
+"google pixel 9" works because "9" has length 1 and is filtered out, so tokens become ["google", "pixel"] which matches 160+ items.
 
-2. **Broken double `.or()` in amazonFetcher.ts**: The Amazon DB fallback (line 181-185) chains two `.or()` calls. The custom PostgREST client produces duplicate `or=` URL params, which PostgREST doesn't handle correctly. Additionally, `%` wildcards inside `.or()` strings are NOT URL-encoded (unlike the `.ilike()` method which encodes properly), so `%google` gets misinterpreted as percent-encoding.
+## Root Causes
 
-3. **No token-level matching**: The DB query uses `title.ilike.%google pixel 9%` which requires the EXACT substring. Items titled "Google Pixel 9 Pro" match, but "Pixel 9 128GB Google" would not.
+1. **Pure-number tokens narrow results too aggressively**: "11" matches very few product titles but is kept because length >= 2
+2. **DB partial results discarded**: When DB returns 2 items (less than MIN_RESULTS=8), those results are thrown away entirely. If providers then fail/timeout, the user gets 0 instead of 2.
+3. **No progressive token relaxation**: When strict tokens return too few results, the system should drop the least-useful tokens and retry
 
-## Solution: Two Changes
+## Solution: Two Changes in catalog-search/index.ts
 
-### Change 1: Add DB-First Search Step in `catalog-search/index.ts`
+### Change 1: Exclude pure-number tokens from DB search
 
-Insert ~60 lines after the stale-while-revalidate block (line 579) and before the provider fetch (line 597).
+In the DB-first search block (line 596), change the token filter to also exclude pure-number tokens. Numbers like "9", "11", "12", "pro" as part of model names are too restrictive as individual ILIKE filters. The remaining brand/product tokens ("google", "pixel", "samsung", "galaxy") are distinctive enough.
 
-**Logic:**
-- Split `qNorm` into tokens (length >= 2)
-- Take the 3 longest tokens (most distinctive)
-- Query `catalog_items` using chained `.ilike("title", "%token%")` calls (properly URL-encoded by the PostgREST client, ANDed together)
-- Safety filters: `is_disallowed` not true, `image_url` not null, `price_usd > 0`
-- If results >= MIN_RESULTS (8): return immediately with `meta.source="db"`, write to cache async, fire background live refresh
-- If results < 8: continue to existing live provider fetch, merge DB + live results
+```
+// BEFORE (line 596):
+const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
 
-Example for "google pixel 9":
-- Tokens: ["google", "pixel", "9"] -> sorted by length: ["google", "pixel"]
-- Query: `title ILIKE '%google%' AND title ILIKE '%pixel%'` -> matches 162 items
-
-### Change 2: Fix Amazon DB Fallback in `amazonFetcher.ts`
-
-Replace the broken double `.or()` (lines 181-185):
-
-```text
-// BEFORE (broken):
-.or("provider.eq.rainforest,provider.eq.amazon")
-.or(`title.ilike.%${query}%,search_text.ilike.%${query}%`)
-
-// AFTER (fixed):
-.in("provider", ["rainforest", "amazon"])
-.ilike("title", `%${query}%`)
+// AFTER:
+const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
 ```
 
-Using `.in()` for provider filtering (no `.or()` needed) and `.ilike()` for text matching (properly URL-encoded). This fixes the DB fallback for when the DB-first step is skipped (e.g., vehicle searches with special logic).
+This means:
+- "google pixel 9" -> tokens: ["google", "pixel"] (unchanged, "9" already filtered by length)
+- "google pixel 11" -> tokens: ["google", "pixel"] (now "11" is also filtered as pure number)
+- "samsung galaxy s24" -> tokens: ["samsung", "galaxy", "s24"] ("s24" kept because not pure number)
+- "iphone 15 pro max" -> tokens: ["iphone", "pro", "max"]
+
+### Change 2: Save partial DB results as fallback for provider failure
+
+Currently, if DB returns < 8 results, those results are discarded and the code falls through to providers. If providers then fail or timeout, the response is empty.
+
+After the DB-first block (around line 684), save any partial DB results. Then in the provider timeout/failure handler, return those partial results instead of empty.
+
+Implementation:
+- Add a variable `dbFallbackItems` initialized to null before the DB-first block
+- If DB returns > 0 but < MIN_RESULTS items, save them to `dbFallbackItems`
+- After the provider fetch (around line 830 where the final response is built), if providers returned 0 items AND `dbFallbackItems` has items, use those instead
 
 ## Files Modified
 
-| File | Lines | Change |
-|------|-------|--------|
-| `supabase/functions/catalog-search/index.ts` | After line 579, before 581 | Insert DB-first search step (~60 lines) |
-| `supabase/functions/_shared/amazonFetcher.ts` | Lines 181-185 | Fix broken double `.or()` to `.in()` + `.ilike()` |
+| File | Change |
+|------|--------|
+| `supabase/functions/catalog-search/index.ts` | Line 596: Add pure-number token filter |
+| `supabase/functions/catalog-search/index.ts` | Lines 590-690: Save partial DB results as fallback |
+| `supabase/functions/catalog-search/index.ts` | Response builder: Use DB fallback when providers return 0 |
 
 ## What Does NOT Change
 
 - Homepage (catalog-home) -- not touched
 - Cart, checkout, payments -- not touched
 - Mobile or web frontend code -- not touched
-- Response JSON shape -- existing fields unchanged; `meta.source` adds "db" value
-- Product pages, vehicle detection, content blocking -- all unchanged
-- Cache TTLs and stale-while-revalidate -- unchanged from previous hotfix
+- Cache TTLs and stale-while-revalidate -- unchanged
+- Typo correction (already handled by queryCanonicalizer with Levenshtein fuzzy matching)
+- Response JSON shape -- unchanged
 
-## Expected Results After Fix
+## Expected Results
 
-- "google pixel 9" -> returns 20+ results from DB in under 200ms
-- "samsung galaxy" -> returns 20+ results from DB in under 200ms
-- Repeat searches -> served from cache (under 50ms)
-- When live providers recover, background refresh updates cache with fresh data
+- "google pixel 11" -> returns 20+ results (tokens: ["google", "pixel"] -> 160 DB matches)
+- "samsung galaxy s24" -> returns results (tokens: ["samsung", "galaxy", "s24"])
+- "iphone 15" -> returns results (tokens: ["iphone"])
+- If providers timeout for any query, partial DB results returned instead of empty
+- Typos like "samsun galaxi" already corrected by canonicalizer ("samsung galaxy")
 

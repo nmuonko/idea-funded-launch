@@ -437,3 +437,6 @@ verify_jwt = false
 
 [functions.catalog-smoke-product]
 verify_jwt = false
+
+[functions.catalog-debug]
+verify_jwt = false

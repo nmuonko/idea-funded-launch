@@ -21,8 +21,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
+  "Access-Control-Expose-Headers": "content-type",
 };
 
 // Default settings (overridden by admin_settings)
@@ -79,7 +80,7 @@ function generateCorrelationId(): string {
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
   });
 }
 
@@ -118,10 +119,11 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
  * ALWAYS returns HTTP 200 with proper structure so frontend doesn't crash
  */
 function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<string, unknown>): Response {
+  // MOBILE CONTRACT: Must always have key="featured", even on empty
   return jsonResponse({
     ok: false,
     sections: [{
-      key: "feed",
+      key: "featured",
       title: "",
       title_en: "",
       title_fr: "",
@@ -137,8 +139,8 @@ function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<
     correlationId,
     error: error || "Unknown error",
     meta: {
-      envUsed: "production",
-      envRequested: "unknown",
+      envUsed: meta?.envUsed || "production",
+      envRequested: meta?.envRequested || "unknown",
       source: "error",
       isStale: false,
       correlationId,
@@ -855,7 +857,7 @@ serve(async (req) => {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
       return jsonResponse({
         ok: true,
-        sections: [{ key: "feed", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
+        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
         page,
         pageSize,
         totalPages: 0,
@@ -905,7 +907,7 @@ serve(async (req) => {
         return jsonResponse({
           ok: true, // CRITICAL: Always ok:true when we have items
           sections: [{
-            key: "feed",
+            key: "featured",
             title: "",
             title_en: "",
             title_fr: "",
@@ -959,7 +961,7 @@ serve(async (req) => {
       return jsonResponse({
         ok: true,
         sections: [{
-          key: "feed",
+          key: "featured",
           title: "",
           title_en: "",
           title_fr: "",
@@ -999,7 +1001,7 @@ serve(async (req) => {
       return jsonResponse({
         ok: true,
         sections: [{
-          key: "feed",
+          key: "featured",
           title: "",
           title_en: "",
           title_fr: "",
@@ -1062,7 +1064,7 @@ serve(async (req) => {
           return jsonResponse({
             ok: true,
             sections: [{
-              key: "feed",
+              key: "featured",
               title: "",
               title_en: "",
               title_fr: "",
@@ -1120,7 +1122,7 @@ serve(async (req) => {
     return jsonResponse({
       ok: true,
       sections: [{
-        key: "feed",
+        key: "featured",
         title: "",
         title_en: "",
         title_fr: "",

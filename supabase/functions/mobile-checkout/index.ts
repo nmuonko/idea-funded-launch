@@ -441,14 +441,22 @@ function createPerfTimer() {
 }
 
 serve(async (req) => {
-  // 🔖 VERSION MARKER - P0 FULL PAYMENT WITH CHECKOUT SESSION LOCKING + PERF TIMING
-  console.log("MOBILE_CHECKOUT_VERSION", "v2026-01-22-perf-timing");
+  // 🔖 VERSION MARKER - P0 FULL PAYMENT WITH CHECKOUT SESSION LOCKING + PERF TIMING + SDK-FREE
+  const correlationId = crypto.randomUUID().slice(0, 8);
+  const startTime = Date.now();
+  
+  // Parse environment from query or header
+  const urlParsed = new URL(req.url);
+  const env = urlParsed.searchParams.get('env') || req.headers.get('X-Afrishop-Environment') || 'prod';
+  
+  console.log(`[CHECKOUT] start correlationId=${correlationId} env=${env} method=${req.method}`);
+  console.log("MOBILE_CHECKOUT_VERSION", "v2026-02-06-sdk-free-always-json");
   
   const corsResponse = handleCors(req);
   if (corsResponse) return corsResponse;
 
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+    return jsonResponse({ ok: false, success: false, error: 'Method not allowed', correlationId }, 200);
   }
 
   // Start performance timer
@@ -460,9 +468,28 @@ serve(async (req) => {
     // ============================================
     perf.mark('init');
 
-    const { user, supabase } = await verifyAndGetUser(req);
+    // Handle auth errors gracefully - return HTTP 200 with JSON error
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req);
+      user = authResult.user;
+      supabase = authResult.supabase;
+    } catch (authError: any) {
+      const elapsedMs = Date.now() - startTime;
+      console.log(`[CHECKOUT][ERROR] correlationId=${correlationId} code=UNAUTHENTICATED message=${authError.message} ms=${elapsedMs}`);
+      return jsonResponse({
+        ok: false,
+        success: false,
+        error: 'UNAUTHENTICATED',
+        message: 'Login required',
+        message_fr: 'Connexion requise',
+        correlationId,
+      }, 200);
+    }
+    
     perf.mark('auth');
-    console.log('[mobile-checkout] User authenticated:', user.id);
+    console.log(`[CHECKOUT] correlationId=${correlationId} userId=${user.id}`);
 
     const body = await req.json();
     perf.mark('body_parsed');
@@ -2273,25 +2300,29 @@ serve(async (req) => {
     // ============================================
 
   } catch (error: any) {
-    console.error('[mobile-checkout] Error:', error.message, 'elapsed_ms=' + (typeof perf !== 'undefined' ? perf.total() : 'N/A'));
-    const debugId = `err-${Date.now().toString(36)}`;
+    const elapsedMs = typeof perf !== 'undefined' ? perf.total() : Date.now() - startTime;
+    console.error(`[CHECKOUT][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`, error.stack);
     
+    // ALWAYS return HTTP 200 with JSON (never non-2xx for application errors)
     if (error.name === 'AuthError') {
       return jsonResponse({ 
+        ok: false,
         success: false, 
         code: 'AUTH_ERROR',
         error: error.message,
-        debug_id: debugId,
-      }, error.status);
+        correlationId,
+      }, 200);
     }
     
     return jsonResponse({ 
+      ok: false,
       success: false, 
       code: 'RETRY',
       message: 'Temporary issue, please retry.',
+      message_fr: 'Problème temporaire, veuillez réessayer.',
       error: 'An unexpected error occurred. Please try again.',
-      debug_id: debugId,
-    }, 500);
+      correlationId,
+    }, 200);
   }
 });
 

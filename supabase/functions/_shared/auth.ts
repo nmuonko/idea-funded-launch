@@ -22,7 +22,8 @@ export function getDbClient(req: Request): PostgrestClient {
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, X-Afrishop-Environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
 /**
@@ -159,21 +160,35 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
 function createMutationBuilder(url: string, table: string, rows: unknown, headers: Record<string, string>, method: string) {
   return {
     _rows: rows,
+    _single: false,
     select(cols?: string) {
+      const parent = this;
       return {
-        then: async (resolve: (v: unknown) => void) => {
+        _cols: cols,
+        _single: false,
+        single() { this._single = true; return this; },
+        maybeSingle() { this._single = true; return this; },
+        async then(resolve: (v: unknown) => void) {
           try {
-            const selectParam = cols ? `?select=${encodeURIComponent(cols)}` : '';
+            const selectParam = this._cols ? `?select=${encodeURIComponent(this._cols)}` : '';
+            const finalHeaders = this._single 
+              ? { ...headers, Prefer: 'return=representation', Accept: 'application/vnd.pgrst.object+json' }
+              : { ...headers, Prefer: 'return=representation' };
             const res = await fetch(`${url}/rest/v1/${table}${selectParam}`, {
               method,
-              headers: { ...headers, Prefer: 'return=representation' },
+              headers: finalHeaders,
               body: JSON.stringify(rows),
             });
             if (!res.ok) {
               const errText = await res.text();
+              // Handle 406 for single() when no rows returned
+              if (res.status === 406 && this._single) {
+                return resolve({ data: null, error: null });
+              }
               return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
             }
-            return resolve({ data: await res.json(), error: null });
+            const data = await res.json();
+            return resolve({ data, error: null });
           } catch (e: unknown) {
             return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } });
           }
@@ -212,18 +227,30 @@ function createUpdateBuilder(url: string, table: string, data: unknown, headers:
     lte(col: string, val: unknown) { this._filters.push(`${col}=lte.${encodeURIComponent(String(val))}`); return this; },
     gte(col: string, val: unknown) { this._filters.push(`${col}=gte.${encodeURIComponent(String(val))}`); return this; },
     select(cols?: string) {
+      const parentBuilder = builder;
       return {
-        then: async (resolve: (v: unknown) => void) => {
-          const filterStr = builder._filters.length > 0 ? `?${builder._filters.join('&')}` : '';
-          const selectParam = cols ? `${filterStr ? '&' : '?'}select=${encodeURIComponent(cols)}` : '';
+        _cols: cols,
+        _single: false,
+        single() { this._single = true; return this; },
+        maybeSingle() { this._single = true; return this; },
+        async then(resolve: (v: unknown) => void) {
+          const filterStr = parentBuilder._filters.length > 0 ? `?${parentBuilder._filters.join('&')}` : '';
+          const selectParam = this._cols ? `${filterStr ? '&' : '?'}select=${encodeURIComponent(this._cols)}` : '';
+          const finalHeaders = this._single 
+            ? { ...headers, Prefer: 'return=representation', Accept: 'application/vnd.pgrst.object+json' }
+            : { ...headers, Prefer: 'return=representation' };
           try {
             const res = await fetch(`${url}/rest/v1/${table}${filterStr}${selectParam}`, {
               method: 'PATCH',
-              headers: { ...headers, Prefer: 'return=representation' },
+              headers: finalHeaders,
               body: JSON.stringify(data),
             });
             if (!res.ok) {
               const errText = await res.text();
+              // Handle 406 for single() when no rows returned
+              if (res.status === 406 && this._single) {
+                return resolve({ data: null, error: null });
+              }
               return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
             }
             return resolve({ data: await res.json(), error: null });

@@ -1,10 +1,10 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { 
+  verifyAndGetUser, 
+  handleCors, 
+  jsonResponse,
+  corsHeaders 
+} from "../_shared/auth.ts";
 
 // Round to 2 decimals helper
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -55,40 +55,43 @@ function calculateCartSummary(
 }
 
 serve(async (req) => {
+  // Generate correlationId for tracing
+  const correlationId = crypto.randomUUID().slice(0, 8);
+  const startTime = Date.now();
+  
+  // Parse environment from query or header
+  const url = new URL(req.url);
+  const env = url.searchParams.get('env') || req.headers.get('X-Afrishop-Environment') || 'prod';
+  
+  console.log(`[CREATE_ORDER] start correlationId=${correlationId} env=${env} method=${req.method}`);
+
   // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  const corsResponse = handleCors(req);
+  if (corsResponse) return corsResponse;
 
   try {
-    console.log('[mobile-create-order-from-cart] Request received');
+    console.log(`[CREATE_ORDER] correlationId=${correlationId} Request received`);
 
-    // Get auth header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'UNAUTHORIZED', message: 'Missing authorization' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Verify user authentication using SDK-free helper
+    let user: any;
+    let supabase: any;
+    try {
+      const authResult = await verifyAndGetUser(req);
+      user = authResult.user;
+      supabase = authResult.supabase;
+    } catch (authError: any) {
+      console.log(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=UNAUTHENTICATED message=${authError.message}`);
+      // Return HTTP 200 with JSON error (never non-2xx for auth)
+      return jsonResponse({
+        ok: false,
+        success: false,
+        error: 'UNAUTHENTICATED',
+        message: 'Login required',
+        correlationId,
+      }, 200);
     }
 
-    // Create Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Verify user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'UNAUTHORIZED', message: 'Invalid token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    console.log('[mobile-create-order-from-cart] User authenticated:', user.id);
+    console.log(`[CREATE_ORDER] correlationId=${correlationId} userId=${user.id}`);
 
     // Get existing DRAFT order with items
     let { data: existingOrder, error: orderFetchError } = await supabase
@@ -99,21 +102,20 @@ serve(async (req) => {
       .maybeSingle();
 
     if (orderFetchError) {
-      console.error('[mobile-create-order-from-cart] Error fetching draft order:', orderFetchError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'DB_FETCH_ERROR', 
-          message: 'Failed to fetch cart data.',
-          details: orderFetchError.message 
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=DB_FETCH_ERROR message=${orderFetchError.message}`);
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'DB_FETCH_ERROR', 
+        message: 'Failed to fetch cart data.',
+        correlationId,
+        details: orderFetchError.message 
+      }, 200);
     }
 
     // FALLBACK: If no DRAFT order, check for a recent PENDING_PAYMENT order that can be reused
-    // This handles the case where a previous checkout attempt converted DRAFT → PENDING_PAYMENT but payment failed
     if (!existingOrder) {
-      console.log('[mobile-create-order-from-cart] No draft order found, checking for recent PENDING_PAYMENT...');
+      console.log(`[CREATE_ORDER] correlationId=${correlationId} No draft order found, checking for recent PENDING_PAYMENT...`);
       
       const { data: pendingOrder, error: pendingFetchError } = await supabase
         .from('orders')
@@ -125,56 +127,43 @@ serve(async (req) => {
         .maybeSingle();
 
       if (pendingFetchError) {
-        console.error('[mobile-create-order-from-cart] Error fetching pending order:', pendingFetchError);
+        console.error(`[CREATE_ORDER] correlationId=${correlationId} Error fetching pending order:`, pendingFetchError.message);
       }
 
       if (pendingOrder && pendingOrder.order_items && pendingOrder.order_items.length > 0) {
-        // Check if this PENDING_PAYMENT order is recent (within last 30 minutes) - it can be reused
         const updatedAt = new Date(pendingOrder.updated_at);
         const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
         
         if (updatedAt > thirtyMinutesAgo) {
-          console.log('[mobile-create-order-from-cart] Reusing recent PENDING_PAYMENT order:', {
-            orderId: pendingOrder.id,
-            itemCount: pendingOrder.order_items.length,
-            updatedAt: pendingOrder.updated_at
-          });
+          console.log(`[CREATE_ORDER] correlationId=${correlationId} Reusing recent PENDING_PAYMENT order: orderId=${pendingOrder.id}`);
           existingOrder = pendingOrder;
-        } else {
-          console.log('[mobile-create-order-from-cart] PENDING_PAYMENT order too old, not reusing:', {
-            orderId: pendingOrder.id,
-            updatedAt: pendingOrder.updated_at
-          });
         }
       }
     }
 
     if (!existingOrder) {
-      console.log('[mobile-create-order-from-cart] No draft order found');
-      return new Response(
-        JSON.stringify({ 
-          error: 'EMPTY_CART', 
-          message: 'Your cart is empty. Please add items before checkout.' 
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.log(`[CREATE_ORDER] correlationId=${correlationId} No draft order found`);
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'EMPTY_CART', 
+        message: 'Your cart is empty. Please add items before checkout.',
+        correlationId,
+      }, 200);
     }
 
     if (!existingOrder.order_items || existingOrder.order_items.length === 0) {
-      console.log('[mobile-create-order-from-cart] Order has no items');
-      return new Response(
-        JSON.stringify({ 
-          error: 'EMPTY_CART', 
-          message: 'Your cart is empty. Please add items before checkout.' 
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.log(`[CREATE_ORDER] correlationId=${correlationId} Order has no items`);
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'EMPTY_CART', 
+        message: 'Your cart is empty. Please add items before checkout.',
+        correlationId,
+      }, 200);
     }
 
-    console.log('[mobile-create-order-from-cart] Found draft order:', {
-      orderId: existingOrder.id,
-      itemCount: existingOrder.order_items.length
-    });
+    console.log(`[CREATE_ORDER] correlationId=${correlationId} Found order: orderId=${existingOrder.id} itemCount=${existingOrder.order_items.length}`);
 
     // Get pricing settings
     const { data: settings, error: settingsError } = await supabase
@@ -183,15 +172,15 @@ serve(async (req) => {
       .single();
 
     if (settingsError || !settings) {
-      console.error('[mobile-create-order-from-cart] Error fetching settings:', settingsError);
-      return new Response(
-        JSON.stringify({ 
-          error: 'SETTINGS_ERROR', 
-          message: 'Failed to load pricing configuration.',
-          details: settingsError?.message 
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=SETTINGS_ERROR message=${settingsError?.message}`);
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'SETTINGS_ERROR', 
+        message: 'Failed to load pricing configuration.',
+        correlationId,
+        details: settingsError?.message 
+      }, 200);
     }
 
     const exchangeRate = settings.exchange_rate_usd_to_cdf ?? 2800;
@@ -206,9 +195,9 @@ serve(async (req) => {
       exchangeRate
     );
 
-    console.log('[mobile-create-order-from-cart] Calculated totals:', summary);
+    console.log(`[CREATE_ORDER] correlationId=${correlationId} Calculated totals: grandTotalUsd=${summary.grandTotalUsd}`);
 
-    // Update existing DRAFT order to PENDING_PAYMENT status
+    // Update existing order to PENDING_PAYMENT status
     const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({
@@ -227,80 +216,72 @@ serve(async (req) => {
       .single();
 
     if (updateError) {
-      console.error('[mobile-create-order-from-cart] Error updating order:', {
-        error: updateError,
-        orderId: existingOrder.id,
-        userId: user.id
-      });
+      console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=DB_ORDER_UPDATE_FAILED orderId=${existingOrder.id} message=${updateError.message}`);
       
-      return new Response(
-        JSON.stringify({ 
-          error: 'DB_ORDER_UPDATE_FAILED', 
-          message: 'Failed to finalize order. Please try again.',
-          details: updateError.message,
-          code: updateError.code
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'DB_ORDER_UPDATE_FAILED', 
+        message: 'Failed to finalize order. Please try again.',
+        correlationId,
+        details: updateError.message,
+      }, 200);
     }
 
     if (!updatedOrder) {
-      console.error('[mobile-create-order-from-cart] Order update returned no data');
-      return new Response(
-        JSON.stringify({ 
-          error: 'DB_ORDER_UPDATE_FAILED', 
-          message: 'Failed to finalize order. Please try again.' 
-        }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=DB_ORDER_UPDATE_FAILED No data returned`);
+      return jsonResponse({ 
+        ok: false,
+        success: false,
+        error: 'DB_ORDER_UPDATE_FAILED', 
+        message: 'Failed to finalize order. Please try again.',
+        correlationId,
+      }, 200);
     }
 
-    console.log('[mobile-create-order-from-cart] Order updated successfully:', {
-      orderId: updatedOrder.id,
-      status: updatedOrder.status,
-      totalUsd: updatedOrder.total_usd,
-      totalCdf: updatedOrder.total_cdf
-    });
+    const elapsedMs = Date.now() - startTime;
+    console.log(`[CREATE_ORDER] success correlationId=${correlationId} orderId=${updatedOrder.id} totalUsd=${updatedOrder.total_usd} ms=${elapsedMs}`);
 
     // Extract order item IDs for the checkout step
     const orderItemIds = existingOrder.order_items.map((item: any) => item.id);
 
     // Return success with order details
     // Include BOTH camelCase and snake_case for mobile/web compatibility
-    return new Response(
-      JSON.stringify({
-        success: true,
-        // snake_case for web compatibility
-        order_id: updatedOrder.id,
-        order_item_ids: orderItemIds,
-        // camelCase for mobile compatibility
-        orderId: updatedOrder.id,
-        orderItemIds: orderItemIds,
-        order: {
-          id: updatedOrder.id,
-          status: updatedOrder.status,
-          itemCount: summary.itemCount,
-          totalItemsUsd: summary.totalItemsUsd,
-          totalMarginUsd: summary.totalMarginUsd,
-          shippingFeeUsd: summary.shippingFeeUsd,
-          grandTotalUsd: summary.grandTotalUsd,
-          grandTotalCdf: summary.grandTotalCdf,
-          exchangeRate: exchangeRate,
-        }
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return jsonResponse({
+      ok: true,
+      success: true,
+      correlationId,
+      // snake_case for web compatibility
+      order_id: updatedOrder.id,
+      order_item_ids: orderItemIds,
+      // camelCase for mobile compatibility
+      orderId: updatedOrder.id,
+      orderItemIds: orderItemIds,
+      order: {
+        id: updatedOrder.id,
+        status: updatedOrder.status,
+        itemCount: summary.itemCount,
+        totalItemsUsd: summary.totalItemsUsd,
+        totalMarginUsd: summary.totalMarginUsd,
+        shippingFeeUsd: summary.shippingFeeUsd,
+        grandTotalUsd: summary.grandTotalUsd,
+        grandTotalCdf: summary.grandTotalCdf,
+        exchangeRate: exchangeRate,
+      }
+    }, 200);
 
   } catch (error: any) {
-    console.error('[mobile-create-order-from-cart] Error:', error.message);
+    const elapsedMs = Date.now() - startTime;
+    console.error(`[CREATE_ORDER][ERROR] correlationId=${correlationId} code=INTERNAL_ERROR message=${error.message} ms=${elapsedMs}`, error.stack);
     
-    return new Response(
-      JSON.stringify({ 
-        error: 'INTERNAL_ERROR', 
-        message: 'An unexpected error occurred. Please try again.',
-        details: error.message 
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Return HTTP 200 with JSON error (never non-2xx)
+    return jsonResponse({ 
+      ok: false,
+      success: false,
+      error: 'INTERNAL_ERROR', 
+      message: 'An unexpected error occurred. Please try again.',
+      correlationId,
+      details: error.message 
+    }, 200);
   }
 });

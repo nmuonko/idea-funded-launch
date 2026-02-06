@@ -1,58 +1,138 @@
 
-# Fix: Vehicles Showing Toys/Parts — Recipe Cache Not Being Served to Mobile
 
-## Root Cause
+# Hotfix: Make Mobile Search Fast (cache-first + stale-while-revalidate)
 
-The recipe-based cache (which contains correct vehicle items like Honda CR-V, Toyota RAV4, GMC Yukon at $5,500+) is stored under `env=production`. But the mobile app sends `env=staging` in its headers. The recipe cache lookup does NOT fall back to production, so it misses and falls through to the **legacy** mixed-pool keyword-filtering path, which is the original cause of category bleeding (vehicles section gets car lights, backup cameras, etc.).
+## Problem
 
-**Evidence from logs:**
+The current `catalog-search` edge function has:
+- **Short cache TTLs**: 10 min stale / 30 min expire -- causes constant live provider fetches
+- **No stale-serve**: When cache is stale, it falls through to a full live fetch (lines 476-480 just log "will refresh" then do the slow path)
+- **No env fallback**: Staging requests never check production cache, so mobile users always get cold cache misses
+- **No hard timeout**: Provider calls (Rainforest/eBay) can take 10s+ with no abort
+
+## Solution (3 changes, all in existing files)
+
+### 1. Increase Search Cache TTL (catalogCache.ts)
+
+Change the search TTL constants from 10min/30min to 24h/7d:
+
 ```
-[MOBILE_SECTIONS_CACHE] hit=true env=staging schema=4
-[CATALOG_HOME] cache_hit client=mobile poolSize=888 cacheEnvUsed=staging
+// Before
+search: { stale: 10, expire: 30 },
+
+// After  
+search: { stale: 1440, expire: 10080 },  // 24h stale, 7 days expire
 ```
-The mobile app is being served from the OLD `catalog_home_mobile_sections_cache` (staging), not from the new `home_cache_mobile_sections`.
 
-**Evidence from DB:**
-The recipe cache contains 30 vehicle items — all real cars (Honda CR-V $5,500-$31,495, Toyota RAV4 $6,800-$38,500). The builder works correctly. The issue is purely that catalog-home never reaches this data for mobile requests.
+This is in `supabase/functions/_shared/catalogCache.ts` line 20.
 
-## Fix (Surgical, 1 File)
+### 2. Return Stale Immediately + Background Refresh (catalog-search/index.ts)
 
-**File:** `supabase/functions/catalog-home/index.ts`
+Currently at line 476-480, when cache is stale it just logs and falls through to the slow provider path. Change this to:
 
-In the recipe cache section (around line 1045-1145), add a production fallback when the requested env has no recipe cache data. This mirrors the existing legacy fallback pattern already at lines 1304-1313.
+- If stale cache exists: return it immediately with `meta.source="stale"`, `meta.isStale=true`
+- Fire a background refresh using `EdgeRuntime.waitUntil()` or detached promise (no await)
+- The background refresh writes fresh data to cache for the next request
 
-### Changes:
+This is inserted right after line 480 (the stale detection block), before the provider fetch code.
 
-1. After `readMobileCache(env)` returns empty/miss and `env !== "production"`, try `readMobileCache("production")` as fallback
-2. Same for web cache path: after `readWebCache(env)` returns empty and `env !== "production"`, try `readWebCache("production")`
-3. Log the fallback so it's observable
+### 3. Add Environment Fallback for Search Cache (catalog-search/index.ts)
+
+After the cache check at line 358, if cache misses and `env !== "production"`, try reading cache with a production-equivalent key. Same pattern already used in catalog-home.
+
+### 4. Add Hard 4s Timeout on Provider Calls (catalog-search/index.ts)
+
+Wrap the `Promise.allSettled([fetchAmazonItems, fetchEbayItems])` at line 502 with `Promise.race` against a 4-second timeout. If timeout fires and stale cache exists, return stale. If no stale cache, return empty.
+
+### 5. Add Response Meta (catalog-search/index.ts)
+
+Add a `meta` field to all responses with: `source`, `isStale`, `envUsed`, `envRequested`, `correlationId`, `ts`. This does not change existing fields -- it is additive only.
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `supabase/functions/_shared/catalogCache.ts` | Line 20: TTL 10/30 to 1440/10080 |
+| `supabase/functions/catalog-search/index.ts` | Lines 402-480: stale-serve-immediately logic |
+| `supabase/functions/catalog-search/index.ts` | Lines 358-360: env fallback cache read |
+| `supabase/functions/catalog-search/index.ts` | Lines 500-530: 4s hard timeout wrapper |
+| `supabase/functions/catalog-search/index.ts` | Lines 763-778: add meta field to response |
+
+No new tables needed -- uses existing `catalog_cache` table.
+
+## What Does NOT Change
+
+- Homepage (catalog-home) -- not touched
+- Cart, checkout, payments -- not touched
+- Mobile or web frontend code -- not touched
+- Response JSON shape -- existing fields remain identical; `meta` is additive
+- `hasMore`, `nextCursor`, `items`, `providerStats` -- all unchanged
+
+## Technical Details
+
+### Stale-Serve Logic (core change)
 
 ```text
-// Pseudocode for the mobile path fix:
-let mobileCache = await readMobileCache(env);
-
-// Production fallback (same pattern as legacy cache at line 1304)
-if ((!mobileCache.hit || !mobileCache.payload) && env !== "production") {
-  console.log(`[CATALOG_HOME] recipe_cache_fallback_to_production env=${env}`);
-  mobileCache = await readMobileCache("production");
+// After cache check (line ~477):
+if (isStaleCache && cacheResult.data) {
+  // Return stale data INSTANTLY
+  const staleResponse = { ...cacheResult.data, meta: { source: "stale", isStale: true, ... } };
+  
+  // Fire background refresh (detached, no await)
+  (async () => {
+    try {
+      // ... full provider fetch + cache write ...
+    } catch (e) {
+      console.warn("[CATALOG_SEARCH] background refresh failed:", e);
+    }
+  })();
+  
+  return new Response(JSON.stringify(staleResponse), { status: 200, ... });
 }
-
-// Then proceed with existing freshness + schema version check...
 ```
 
-### What This Fixes:
-- Mobile app (which sends env=staging) will now read from the recipe cache (env=production)
-- Vehicles section will show real SUVs/cars from curated seeds instead of mixed-pool keyword-filtered junk
-- All 10 sections served from per-section seed builds (no category bleeding)
+### Environment Fallback
 
-### What Does NOT Change:
-- Response shapes (identical JSON structure)
-- Web homepage (already works — sends env=production)
-- Cart, checkout, payments — zero changes
-- Mobile app code — zero changes
-- Legacy fallback still exists as safety net if recipe cache is completely empty
+```text
+// After initial cache miss (line ~358):
+if (!cacheResult.hit && envName !== "production") {
+  const prodCacheKey = globalCacheKey.replace(`env=${envName}`, "env=production");
+  // (actually rebuild key with env=production since env is embedded in buildCacheKey)
+  cacheResult = await getCache(supabase, prodCacheKey);
+  if (cacheResult.hit) {
+    console.log(`[CATALOG_SEARCH] env_fallback staging->production`);
+  }
+}
+```
 
-### Deployment:
-- Redeploy `catalog-home` and `catalog-home-v2`
+### Hard Timeout
+
+```text
+const PROVIDER_TIMEOUT_MS = 4000;
+
+const providerPromise = Promise.allSettled([fetchAmazon, fetchEbay]);
+const timeoutPromise = new Promise((_, reject) => 
+  setTimeout(() => reject(new Error("PROVIDER_TIMEOUT")), PROVIDER_TIMEOUT_MS)
+);
+
+try {
+  [amazonSettled, ebaySettled] = await Promise.race([providerPromise, timeoutPromise]);
+} catch (e) {
+  if (isStaleCache) return stale response;
+  // else return empty
+}
+```
+
+## Deployment
+
+- Redeploy `catalog-search` only
 - No database migration needed
-- No admin UI changes needed
+- No admin UI changes
+
+## Validation
+
+- First search: `source=live`, cache written with 24h TTL
+- Second identical search: `source=cache`, response in under 100ms
+- After 24h: `source=stale`, instant response, background refresh triggered
+- Staging with empty cache but warm production: `source=cache`, `envUsed=production`
+

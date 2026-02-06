@@ -17,7 +17,7 @@ export const AMAZON_CACHE_VERSION = "v4"; // v4: Added _meta payload signature f
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
   home: { stale: 15, expire: 60 },
-  search: { stale: 10, expire: 30 },
+  search: { stale: 1440, expire: 10080 }, // 24h stale, 7 days expire (hotfix: fast mobile search)
   product: { stale: 1440 * 7, expire: 1440 * 30 }, // 7 days stale, 30 days expire
   offers: { stale: 60, expire: 360 }, // 1 hour stale, 6 hours expire
 } as const;

@@ -22,7 +22,7 @@ const corsHeaders = {
 
 // Default settings (overridden by admin_settings)
 const DEFAULT_POOL_SIZE = 1000;
-const DEFAULT_PAGE_SIZE = 60;
+const DEFAULT_PAGE_SIZE = 100; // 100 items per page = 10 pages for 1000 pool
 const DEFAULT_TTL_SECONDS = 172800; // 2 days
 
 interface FeedSettings {
@@ -646,7 +646,7 @@ serve(async (req) => {
     let category = "";
     let amazonDomain = "amazon.com";
     let env = "prod";
-    let liveMode = false;
+    let forceLive = false;
 
     if (req.method === "POST") {
       try {
@@ -656,7 +656,7 @@ serve(async (req) => {
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
         env = body.env || "prod";
-        liveMode = body.live === true || body.live === "1" || body.source === "live";
+        forceLive = body.live === true || body.live === "1" || body.source === "live";
       } catch {
         // Use defaults
       }
@@ -666,20 +666,20 @@ serve(async (req) => {
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       env = url.searchParams.get("env") || req.headers.get("X-Afrishop-Environment") || "prod";
-      liveMode = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
+      forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
     // Load settings
     const settings = await loadFeedSettings();
     
-    // Use settings page size if not specified
+    // Use settings page size if not specified (default 100)
     if (pageSize === 0) {
       pageSize = settings.pageSize;
     }
-    // Cap page size at 200
+    // Cap page size at 200, default to 100
     pageSize = Math.min(Math.max(pageSize, 1), 200);
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category} live=${liveMode}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive}`);
 
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
@@ -688,14 +688,62 @@ serve(async (req) => {
         sections: [{ key: "feed", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
         page,
         pageSize,
+        totalPages: 0,
         correlationId,
         _meta: { cache: "disabled" }
       });
     }
 
-    // ===== LIVE MODE: Fetch fresh items (for Load More) =====
-    if (liveMode) {
-      console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page}`);
+    // ===== CACHE-FIRST: Check for valid cache =====
+    const cached = await getCachedFeed(env, category);
+    
+    if (cached && cached.items && cached.items.length > 0) {
+      const actualTotalPages = Math.ceil(cached.items.length / pageSize);
+      
+      // If requesting page beyond cached pages, switch to live
+      if (!forceLive && page <= actualTotalPages) {
+        const offset = (page - 1) * pageSize;
+        const pageItems = cached.items.slice(offset, offset + pageSize);
+        const hasMoreCached = page < actualTotalPages;
+        
+        const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
+        
+        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached}`);
+        
+        return jsonResponse({
+          ok: true,
+          sections: [{
+            key: "feed",
+            title: "",
+            title_en: "",
+            title_fr: "",
+            hideTitle: true,
+            items: pageItems,
+          }],
+          page,
+          pageSize,
+          totalPages: actualTotalPages,
+          totalItems: cached.items.length,
+          hasMore: true, // Always true - can continue with live after cache
+          hasMoreCached, // True if more cached pages available
+          ttlSeconds: settings.ttlSeconds,
+          correlationId,
+          _meta: {
+            source: "cache",
+            cache: "hit",
+            expiresAt: cached.expires_at,
+            ttlSeconds: settings.ttlSeconds,
+            poolSize: cached.items.length,
+            page,
+            totalPages: actualTotalPages,
+            ...cached.meta
+          }
+        });
+      }
+      
+      // Page is beyond cached pages OR forceLive - use live mode
+      const reason = forceLive ? "force_live" : "cache_exhausted";
+      console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page} actualTotalPages=${actualTotalPages} reason=${reason}`);
       
       const ebayToken = await getEbayToken();
       const liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
@@ -712,26 +760,28 @@ serve(async (req) => {
         }],
         page,
         pageSize,
+        totalPages: actualTotalPages,
         totalItems: liveItems.length,
+        hasMore: liveItems.length >= pageSize, // Assume more if we got a full page
+        hasMoreCached: false, // No more cached pages
         correlationId,
         _meta: {
-          cache: "live",
+          source: "live",
+          reason,
+          page,
+          pageSize,
+          cachedTotalPages: actualTotalPages,
           liveCount: liveItems.length,
         }
       });
     }
 
-    // ===== CACHE-FIRST: Check for valid cache =====
-    const cached = await getCachedFeed(env, category);
-    
-    if (cached && cached.items && cached.items.length > 0) {
-      const offset = (page - 1) * pageSize;
-      const pageItems = cached.items.slice(offset, offset + pageSize);
+    // ===== FORCE LIVE if requested but no cache =====
+    if (forceLive) {
+      console.log(`[CATALOG_HOME] live_mode_no_cache correlationId=${correlationId} page=${page}`);
       
-      const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
-      const hasMore = (offset + pageSize) < cached.items.length;
-      
-      console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s count=${cached.items.length} returning=${pageItems.length} hasMore=${hasMore}`);
+      const ebayToken = await getEbayToken();
+      const liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
       
       return jsonResponse({
         ok: true,
@@ -741,20 +791,21 @@ serve(async (req) => {
           title_en: "",
           title_fr: "",
           hideTitle: true,
-          items: pageItems,
+          items: liveItems,
         }],
         page,
         pageSize,
-        totalItems: cached.items.length,
-        hasMore,
-        ttlSeconds: settings.ttlSeconds,
+        totalPages: 0,
+        totalItems: liveItems.length,
+        hasMore: liveItems.length >= pageSize,
+        hasMoreCached: false,
         correlationId,
         _meta: {
-          cache: "hit",
-          expiresAt: cached.expires_at,
-          ttlSeconds: settings.ttlSeconds,
-          poolSize: cached.items.length,
-          ...cached.meta
+          source: "live",
+          reason: "force_live_no_cache",
+          page,
+          pageSize,
+          liveCount: liveItems.length,
         }
       });
     }
@@ -782,10 +833,11 @@ serve(async (req) => {
     // Paginate response
     const offset = (page - 1) * pageSize;
     const pageItems = items.slice(offset, offset + pageSize);
-    const hasMore = (offset + pageSize) < items.length;
+    const actualTotalPages = Math.ceil(items.length / pageSize);
+    const hasMoreCached = page < actualTotalPages;
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} poolSize=${items.length} hasMore=${hasMore} totalMs=${totalMs}`);
+    console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} poolSize=${items.length} page=${page}/${actualTotalPages} totalMs=${totalMs}`);
 
     return jsonResponse({
       ok: true,
@@ -799,15 +851,20 @@ serve(async (req) => {
       }],
       page,
       pageSize,
+      totalPages: actualTotalPages,
       totalItems: items.length,
-      hasMore,
+      hasMore: true, // Always true - can continue with live after cache
+      hasMoreCached,
       ttlSeconds: settings.ttlSeconds,
       correlationId,
       _meta: {
+        source: "cache",
         cache: "miss",
         building_feed_ms: buildMs,
         segmentCounts,
         total: items.length,
+        page,
+        totalPages: actualTotalPages,
         shortfall,
       }
     });

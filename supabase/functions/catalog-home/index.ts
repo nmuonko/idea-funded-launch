@@ -234,9 +234,20 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   return { envRequested, envUsed };
 }
 
+// Segment-to-section mapping: cache segments → mobile section keys
+const SEGMENT_TO_SECTION: Record<string, string> = {
+  phones: "phones",
+  accessories: "electronics",
+  cars: "vehicles",
+  gaming: "video_games",
+  home: "home_garden",
+};
+
 /**
  * Build mobile sections from a pool of items
- * Groups items by keyword matching OR distributes evenly
+ * Phase 1: Match by segment tag (fast, accurate)
+ * Phase 2: Keyword fallback for unmatched items only
+ * NO blind redistribution — empty sections are better than wrong items
  */
 function buildMobileSectionsFromPool(
   items: CatalogItem[], 
@@ -258,55 +269,53 @@ function buildMobileSectionsFromPool(
     return sections;
   }
   
-  // Try to match items to sections by keywords
   const usedItems = new Set<string>();
   
+  // Build a reverse map: section key → items matched by segment
+  const sectionBuckets: Record<string, CatalogItem[]> = {};
   for (const mobileSec of MOBILE_SECTIONS) {
-    const sectionItems: CatalogItem[] = [];
-    
-    // Find items matching this section's keywords
-    for (const item of items) {
-      if (usedItems.has(item.id)) continue;
-      if (sectionItems.length >= mobileSec.target) break;
-      
-      const titleLower = (item.title || "").toLowerCase();
-      const matchesKeyword = mobileSec.keywords.some(kw => titleLower.includes(kw));
-      
-      if (matchesKeyword) {
-        sectionItems.push(item);
+    sectionBuckets[mobileSec.key] = [];
+  }
+  
+  // PHASE 1: Assign items by segment tag (primary, accurate)
+  for (const item of items) {
+    if (!item.segment) continue;
+    const targetSection = SEGMENT_TO_SECTION[item.segment];
+    if (targetSection && sectionBuckets[targetSection]) {
+      const sec = MOBILE_SECTIONS.find(s => s.key === targetSection);
+      if (sec && sectionBuckets[targetSection].length < sec.target) {
+        sectionBuckets[targetSection].push(item);
         usedItems.add(item.id);
       }
     }
+  }
+  
+  // PHASE 2: Keyword fallback for items WITHOUT a segment tag
+  for (const item of items) {
+    if (usedItems.has(item.id)) continue;
+    if (item.segment) continue; // Already processed in phase 1 (or no matching section)
     
+    const titleLower = (item.title || "").toLowerCase();
+    for (const mobileSec of MOBILE_SECTIONS) {
+      if (sectionBuckets[mobileSec.key].length >= mobileSec.target) continue;
+      const matchesKeyword = mobileSec.keywords.some(kw => titleLower.includes(kw));
+      if (matchesKeyword) {
+        sectionBuckets[mobileSec.key].push(item);
+        usedItems.add(item.id);
+        break; // Each item goes to one section only
+      }
+    }
+  }
+  
+  // Build final sections array
+  for (const mobileSec of MOBILE_SECTIONS) {
     sections.push({
       key: mobileSec.key,
       title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
       title_fr: mobileSec.title_fr,
       title_en: mobileSec.title_en,
-      items: sectionItems,
+      items: sectionBuckets[mobileSec.key],
     });
-  }
-  
-  // If most sections are empty, redistribute items evenly
-  const sectionsWithItems = sections.filter(s => s.items.length > 0);
-  if (sectionsWithItems.length < 3 && items.length > 0) {
-    // Clear and redistribute
-    sections.length = 0;
-    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTIONS.length);
-    let offset = 0;
-    
-    for (const mobileSec of MOBILE_SECTIONS) {
-      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
-      offset += itemsPerSection;
-      
-      sections.push({
-        key: mobileSec.key,
-        title: lang === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: sectionItems,
-      });
-    }
   }
   
   return sections;

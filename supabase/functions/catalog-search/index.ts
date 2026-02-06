@@ -356,6 +356,34 @@ Deno.serve(async (req: Request) => {
     });
 
     let cacheResult = await getCache(supabase, globalCacheKey);
+    let envUsed = envName;
+    
+    // ─── ENVIRONMENT FALLBACK ──────────────────────────────────────────────────
+    // If staging cache miss, try production cache before doing expensive live fetch
+    if (!cacheResult.hit && envName !== "production") {
+      const prodCacheKey = buildCacheKey("search", {
+        env: "production",
+        query: qNorm,
+        provider: providerParam || "all",
+        category: categoryKey || undefined,
+        page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+        pageSize: limit,
+        minPrice: catalogFilters.minPrice,
+        maxPrice: catalogFilters.maxPrice,
+        brand: catalogFilters.brand?.join(","),
+        rating: catalogFilters.rating,
+        condition: catalogFilters.condition,
+        sort,
+        vehicleMode: hasBuyingIntent,
+      });
+      const prodCache = await getCache(supabase, prodCacheKey);
+      if (prodCache.hit) {
+        cacheResult = prodCache;
+        envUsed = "production";
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} env_fallback ${envName}->production cache_age=${prodCache.cacheAgeSec}s`);
+      }
+    }
+    
     perfLog.cache_ms = Date.now() - cacheStart;
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -460,23 +488,94 @@ Deno.serve(async (req: Request) => {
       
       return new Response(JSON.stringify({
         ...cachedResponse,
-        items: cachedItems, // Use filtered items
+        items: cachedItems,
         total: cachedItems.length,
-        query: qOriginal, // Use original query for display
+        query: qOriginal,
         env: envName,
         durationMs: instantDuration,
         _cacheHit: true,
         _cacheAgeSec: cacheResult.cacheAgeSec,
+        meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Track if we should do stale-while-revalidate
+    // ─── STALE-WHILE-REVALIDATE: RETURN STALE INSTANTLY ────────────────────────
     const isStaleCache = cacheResult.hit && cacheResult.stale && !cacheResult.negativeCached;
-    if (isStaleCache) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_stale (${cacheResult.cacheAgeSec}s old) - will refresh`);
+    if (isStaleCache && cacheResult.data) {
+      const staleDuration = Date.now() - startTime;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} stale_serve age=${cacheResult.cacheAgeSec}s ms=${staleDuration}`);
+      
+      const staleData = cacheResult.data;
+      let staleItems = staleData.items || [];
+      
+      // Apply post-filters to stale results
+      const hasFiltersForStale = catalogFilters.minPrice !== undefined || 
+                                  catalogFilters.maxPrice !== undefined ||
+                                  catalogFilters.brand !== undefined ||
+                                  catalogFilters.rating !== undefined;
+      if (hasFiltersForStale && staleItems.length > 0) {
+        staleItems = postFilterItems(staleItems, catalogFilters);
+      }
+      
+      // Vehicle safety filter on stale data
+      if (hasBuyingIntent && staleItems.length > 0) {
+        staleItems = staleItems.filter((item: any) => {
+          const price = item.priceUsd ?? item.price_usd ?? 0;
+          return price >= 1000;
+        });
+        staleItems = staleItems.filter((item: any) => {
+          const title = ((item.title || "") as string).toLowerCase();
+          return !VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => title.includes(kw));
+        });
+      }
+      
+      // Fire-and-forget background refresh (detached, no await)
+      (async () => {
+        try {
+          const bgStart = Date.now();
+          const bgId = requestId + "-bg";
+          
+          const [bgAmazon, bgEbay] = await Promise.allSettled([
+            fetchAmazonItems({ supabase, query: qNorm, settings, effectiveMode, mixerCursor, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: bgId }),
+            fetchEbayItems({ supabase, query: qNorm, effectiveMode, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: bgId }),
+          ]);
+          
+          const bgAmazonItems = bgAmazon.status === "fulfilled" ? bgAmazon.value.items : [];
+          const bgEbayItems = bgEbay.status === "fulfilled" ? bgEbay.value.items : [];
+          
+          if (bgAmazonItems.length > 0 || bgEbayItems.length > 0) {
+            const bgMix = mixProviderItems({ amazonItems: bgAmazonItems as ProviderItem[], ebayItems: bgEbayItems as ProviderItem[], limit, cursor: mixerCursor, amazonFirstCount: settings.mixedAmazonFirstCount, blendRatio: settings.mixedBlendRatio, amazonCap: settings.amazonMaxResultsPerQuery, amazonHasMore: false, ebayHasMore: false, categoryKey: categoryKey || "search", requestId: bgId });
+            
+            let bgFinal = filterDisallowedItems(bgMix.items.map(item => ({ ...item, title: (item as CatalogItem).title, productUrl: (item as CatalogItem).productUrl, category: (item as CatalogItem).category })), `[BG_REFRESH] ${bgId}`).allowed;
+            
+            const bgResponse = { status: "success", items: bgFinal, total: bgFinal.length, nextCursor: bgMix.nextCursor ? encodeMixerCursor(bgMix.nextCursor) : null, hasMore: bgMix.hasMore, _meta: { qNorm, provider: providerParam || "mixed", page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, sort, category_key: categoryKey || undefined, vehicleMode: hasBuyingIntent, minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0, cachedAt: new Date().toISOString() } };
+            
+            await setCache(supabase, "search", globalCacheKey, bgResponse, { provider: "mixed", query: qNorm, category: categoryKey || undefined, page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, amazonDomain: "amazon.com" });
+            
+            console.log(`[CATALOG_SEARCH] bg_refresh_ok id=${bgId} items=${bgFinal.length} ms=${Date.now() - bgStart}`);
+          }
+        } catch (e) {
+          console.warn(`[CATALOG_SEARCH] bg_refresh_fail requestId=${requestId}:`, (e as Error).message);
+        }
+      })();
+      
+      return new Response(JSON.stringify({
+        ...staleData,
+        items: staleItems,
+        total: staleItems.length,
+        query: qOriginal,
+        env: envName,
+        durationMs: staleDuration,
+        _cacheHit: true,
+        _cacheAgeSec: cacheResult.cacheAgeSec,
+        meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     console.log(`[CATALOG_SEARCH] requestId=${requestId} effective_mode`, JSON.stringify({ mode: effectiveMode.mode, amazon: effectiveMode.amazonActive, ebay: effectiveMode.ebayActive }));
@@ -495,11 +594,12 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} vehicle_query: "${qNorm}" - using eBay Motors + Amazon Autos`);
     }
 
-    // ─── PARALLEL PROVIDER FETCH ──────────────────────────────────────────────
-    // Run Amazon and eBay fetches concurrently for ~50% faster initial searches
+    // ─── PARALLEL PROVIDER FETCH WITH HARD TIMEOUT ─────────────────────────────
+    // 4s hard timeout: if providers are slow and stale cache exists, return stale
     const providerStartMs = Date.now();
+    const PROVIDER_TIMEOUT_MS = 4000;
 
-    const [amazonSettled, ebaySettled] = await Promise.allSettled([
+    const providerPromise = Promise.allSettled([
       // Amazon fetch (only if active)
       fetchAmazonItems({
         supabase,
@@ -508,10 +608,10 @@ Deno.serve(async (req: Request) => {
         effectiveMode,
         mixerCursor,
         isVehicle,
-        hasBuyingIntent,  // NEW: Pass buying intent for minPrice enforcement at Amazon level
+        hasBuyingIntent,
         categoryKey: categoryKey || undefined,
         limit,
-        catalogFilters,   // NEW: Pass filters for minPrice/maxPrice at Amazon level
+        catalogFilters,
         requestId,
       }),
       // eBay fetch (only if active)
@@ -520,7 +620,7 @@ Deno.serve(async (req: Request) => {
         query: qNorm,
         effectiveMode,
         isVehicle,
-        hasBuyingIntent,  // Pass smart intent flag to control minPrice and category
+        hasBuyingIntent,
         categoryKey: categoryKey || undefined,
         page,
         limit,
@@ -528,6 +628,26 @@ Deno.serve(async (req: Request) => {
         requestId,
       }),
     ]);
+
+    let amazonSettled: PromiseSettledResult<any>;
+    let ebaySettled: PromiseSettledResult<any>;
+    let providerTimedOut = false;
+
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("PROVIDER_TIMEOUT")), PROVIDER_TIMEOUT_MS)
+      );
+      const settled = await Promise.race([providerPromise, timeoutPromise]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+      [amazonSettled, ebaySettled] = settled;
+    } catch (timeoutErr) {
+      providerTimedOut = true;
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms`);
+      
+      // If we had stale cache data (from the earlier check where isStaleCache was false because data was null/negative),
+      // return empty. The stale path above already handled the case where stale data existed.
+      amazonSettled = { status: "rejected", reason: new Error("PROVIDER_TIMEOUT") };
+      ebaySettled = { status: "rejected", reason: new Error("PROVIDER_TIMEOUT") };
+    }
 
     const providerMs = Date.now() - providerStartMs;
 
@@ -770,11 +890,12 @@ Deno.serve(async (req: Request) => {
       total: Math.max(ebayTotal, amazonItems.length, finalItems.length),
       appliedFilters: buildAppliedSortFilter(sort, catalogFilters, sort !== 'relevance'),
       providerStats,
-      searchMeta, // Include query rewrite metadata
-      mediaStats: DEV ? mediaStats : undefined, // Include media stats in dev only
+      searchMeta,
+      mediaStats: DEV ? mediaStats : undefined,
       durationMs,
-      ttlSeconds: cacheTtlSeconds, // Include TTL for client-side caching
+      ttlSeconds: cacheTtlSeconds,
       error: null,
+      meta: { source: "live", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
     };
 
     // ─── CACHE FINAL RESPONSE ──────────────────────────────────────────────────

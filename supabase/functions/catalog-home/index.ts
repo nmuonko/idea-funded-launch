@@ -3,11 +3,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 /**
  * catalog-home - Single unified homepage feed with cache-first loading
  * 
- * Returns ONE feed (no multiple titled sections) with:
- * - First 100 items: Amazon popular electronics
- * - Last 100 items: Mixed Amazon+eBay deals/refurbished
+ * Returns ONE feed (no multiple titled sections) with 1000+ curated items:
+ * - Phones segment (250): iPhones, Samsung, Pixel
+ * - Accessories segment (200): cases, chargers, earbuds
+ * - Cars/Vehicles segment (150): car electronics, dashcams, etc.
+ * - Gaming segment (200): consoles, controllers, games
+ * - Home/Furniture segment (200): sofas, beds, appliances
  * 
  * Cache TTL is admin-controlled via admin_settings table.
+ * Supports live=1 for "Load more" that fetches fresh items.
  */
 
 const corsHeaders = {
@@ -17,17 +21,23 @@ const corsHeaders = {
 };
 
 // Default settings (overridden by admin_settings)
+const DEFAULT_POOL_SIZE = 1000;
+const DEFAULT_PAGE_SIZE = 60;
 const DEFAULT_TTL_SECONDS = 172800; // 2 days
-const DEFAULT_LIMIT = 200;
-const DEFAULT_AMAZON_FIRST = 100;
-const DEFAULT_DEALS_COUNT = 100;
 
 interface FeedSettings {
+  poolSize: number;
+  pageSize: number;
   ttlSeconds: number;
-  limit: number;
-  amazonFirstCount: number;
-  dealsCount: number;
   enabled: boolean;
+}
+
+interface SegmentConfig {
+  name: string;
+  target: number;
+  seeds: string[];
+  excludePatterns: RegExp[];
+  minPrice?: number;
 }
 
 interface CatalogItem {
@@ -43,6 +53,7 @@ interface CatalogItem {
   product_url: string | null;
   productUrl: string | null;
   in_stock: boolean;
+  segment?: string;
 }
 
 interface CacheEntry {
@@ -74,20 +85,19 @@ async function loadFeedSettings(): Promise<FeedSettings> {
   if (!supabaseUrl || !serviceRoleKey) {
     console.warn("[CATALOG_HOME] Missing env vars, using defaults");
     return {
+      poolSize: DEFAULT_POOL_SIZE,
+      pageSize: DEFAULT_PAGE_SIZE,
       ttlSeconds: DEFAULT_TTL_SECONDS,
-      limit: DEFAULT_LIMIT,
-      amazonFirstCount: DEFAULT_AMAZON_FIRST,
-      dealsCount: DEFAULT_DEALS_COUNT,
       enabled: true,
     };
   }
 
   try {
     const keys = [
+      "home_feed_pool_size",
+      "home_feed_page_size",
       "home_feed_ttl_seconds",
-      "home_feed_limit", 
-      "home_feed_amazon_first_count",
-      "home_feed_deals_count",
+      "home_feed_limit", // legacy key
       "home_feed_enabled"
     ];
     
@@ -104,10 +114,9 @@ async function loadFeedSettings(): Promise<FeedSettings> {
     if (!res.ok) {
       console.warn(`[CATALOG_HOME] Failed to load settings: ${res.status}`);
       return {
+        poolSize: DEFAULT_POOL_SIZE,
+        pageSize: DEFAULT_PAGE_SIZE,
         ttlSeconds: DEFAULT_TTL_SECONDS,
-        limit: DEFAULT_LIMIT,
-        amazonFirstCount: DEFAULT_AMAZON_FIRST,
-        dealsCount: DEFAULT_DEALS_COUNT,
         enabled: true,
       };
     }
@@ -115,20 +124,21 @@ async function loadFeedSettings(): Promise<FeedSettings> {
     const rows = await res.json() as Array<{ key: string; value: string }>;
     const settingsMap = new Map(rows.map(r => [r.key, r.value]));
 
+    // Support both new and legacy keys
+    const poolSize = parseInt(settingsMap.get("home_feed_pool_size") || settingsMap.get("home_feed_limit") || "") || DEFAULT_POOL_SIZE;
+
     return {
+      poolSize,
+      pageSize: parseInt(settingsMap.get("home_feed_page_size") || "") || DEFAULT_PAGE_SIZE,
       ttlSeconds: parseInt(settingsMap.get("home_feed_ttl_seconds") || "") || DEFAULT_TTL_SECONDS,
-      limit: parseInt(settingsMap.get("home_feed_limit") || "") || DEFAULT_LIMIT,
-      amazonFirstCount: parseInt(settingsMap.get("home_feed_amazon_first_count") || "") || DEFAULT_AMAZON_FIRST,
-      dealsCount: parseInt(settingsMap.get("home_feed_deals_count") || "") || DEFAULT_DEALS_COUNT,
       enabled: settingsMap.get("home_feed_enabled") !== "false",
     };
   } catch (err) {
     console.warn(`[CATALOG_HOME] Settings load error: ${err}`);
     return {
+      poolSize: DEFAULT_POOL_SIZE,
+      pageSize: DEFAULT_PAGE_SIZE,
       ttlSeconds: DEFAULT_TTL_SECONDS,
-      limit: DEFAULT_LIMIT,
-      amazonFirstCount: DEFAULT_AMAZON_FIRST,
-      dealsCount: DEFAULT_DEALS_COUNT,
       enabled: true,
     };
   }
@@ -155,7 +165,6 @@ async function getCachedFeed(env: string, category: string): Promise<CacheEntry 
     );
 
     if (res.status === 406 || !res.ok) {
-      // No cache found
       return null;
     }
 
@@ -261,7 +270,7 @@ function extractPriceFromEbay(item: Record<string, unknown>): number | null {
   return null;
 }
 
-function mapEbayItem(item: Record<string, unknown>): CatalogItem {
+function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogItem {
   const priceUsd = extractPriceFromEbay(item);
   const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
   const productUrl = (item.itemWebUrl as string) || null;
@@ -280,10 +289,11 @@ function mapEbayItem(item: Record<string, unknown>): CatalogItem {
     product_url: productUrl,
     productUrl: productUrl,
     in_stock: true,
+    segment,
   };
 }
 
-function mapRainforestItem(item: Record<string, unknown>): CatalogItem {
+function mapRainforestItem(item: Record<string, unknown>, segment?: string): CatalogItem {
   const asin = item.asin as string || "";
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value as number || null;
@@ -302,6 +312,7 @@ function mapRainforestItem(item: Record<string, unknown>): CatalogItem {
     product_url: item.link as string || `https://www.amazon.com/dp/${asin}`,
     productUrl: item.link as string || `https://www.amazon.com/dp/${asin}`,
     in_stock: true,
+    segment,
   };
 }
 
@@ -309,7 +320,8 @@ async function fetchEbayItems(
   query: string,
   limit: number,
   ebayToken: string,
-  correlationId: string
+  correlationId: string,
+  segment?: string
 ): Promise<CatalogItem[]> {
   const startMs = Date.now();
   const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
@@ -332,7 +344,7 @@ async function fetchEbayItems(
 
     const data = await response.json();
     const rawItems = data.itemSummaries || [];
-    const items = rawItems.map(mapEbayItem).filter((i: CatalogItem) => i.title && i.image_url);
+    const items = rawItems.map((i: Record<string, unknown>) => mapEbayItem(i, segment)).filter((i: CatalogItem) => i.title && i.image_url);
     
     console.log(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;
@@ -346,7 +358,8 @@ async function fetchRainforestItems(
   query: string,
   limit: number,
   amazonDomain: string,
-  correlationId: string
+  correlationId: string,
+  segment?: string
 ): Promise<CatalogItem[]> {
   const startMs = Date.now();
   const apiKey = Deno.env.get("RAINFOREST_API_KEY");
@@ -372,7 +385,7 @@ async function fetchRainforestItems(
 
     const data = await response.json();
     const rawItems = data.search_results || [];
-    const items = rawItems.slice(0, limit).map(mapRainforestItem).filter((i: CatalogItem) => i.title && i.image_url && i.price_usd);
+    const items = rawItems.slice(0, limit).map((i: Record<string, unknown>) => mapRainforestItem(i, segment)).filter((i: CatalogItem) => i.title && i.image_url && i.price_usd);
     
     console.log(`[CATALOG_HOME][RAINFOREST] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;
@@ -382,18 +395,12 @@ async function fetchRainforestItems(
   }
 }
 
-// Light filtering - only remove obvious accessories
-const EXCLUDE_PATTERNS = [
-  /\bcase\b/i, /\bcover\b/i, /\bscreen protector\b/i, /\btempered glass\b/i,
-  /\bdigitizer\b/i, /\blcd only\b/i, /\bhousing\b/i, /\bframe only\b/i,
-  /\brepair kit\b/i, /\breplacement part\b/i, /\bfor parts\b/i
-];
-
-function lightFilter(items: CatalogItem[]): CatalogItem[] {
+function filterByPatterns(items: CatalogItem[], excludePatterns: RegExp[]): CatalogItem[] {
+  if (excludePatterns.length === 0) return items;
   return items.filter(item => {
     if (!item.title || !item.image_url) return false;
     const title = item.title.toLowerCase();
-    return !EXCLUDE_PATTERNS.some(pattern => pattern.test(title));
+    return !excludePatterns.some(pattern => pattern.test(title));
   });
 }
 
@@ -407,7 +414,6 @@ function deduplicateItems(items: CatalogItem[]): CatalogItem[] {
   });
 }
 
-// Stable shuffle using correlationId as seed
 function stableShuffle<T>(items: T[], seed: string): T[] {
   const arr = [...items];
   let h = 0;
@@ -423,177 +429,204 @@ function stableShuffle<T>(items: T[], seed: string): T[] {
   return arr;
 }
 
-async function buildFeed(
+// ===== SEGMENT CONFIGURATIONS =====
+function getSegmentConfigs(poolSize: number): SegmentConfig[] {
+  // Scale proportions to pool size
+  const scale = poolSize / 1000;
+  
+  return [
+    {
+      name: "phones",
+      target: Math.round(250 * scale),
+      seeds: [
+        "iphone unlocked", "iphone 13 unlocked", "iphone 14 unlocked", "iphone 15 unlocked",
+        "samsung galaxy unlocked", "google pixel unlocked", "android phone unlocked",
+        "iphone pro max unlocked", "samsung galaxy s24", "pixel 8 pro"
+      ],
+      excludePatterns: [
+        /\bcase\b/i, /\bcover\b/i, /\bscreen protector\b/i, /\bdigitizer\b/i,
+        /\blcd\b/i, /\bhousing\b/i, /\brepair\b/i, /\bparts\b/i, /\blot\b/i
+      ],
+      minPrice: 100,
+    },
+    {
+      name: "accessories",
+      target: Math.round(200 * scale),
+      seeds: [
+        "iphone case", "magsafe case", "usb c charger", "fast charger",
+        "airpods", "airpods pro", "earbuds wireless", "power bank",
+        "phone stand", "car phone mount", "wireless charger"
+      ],
+      excludePatterns: [], // We WANT accessories here
+    },
+    {
+      name: "cars",
+      target: Math.round(150 * scale),
+      seeds: [
+        "car stereo carplay", "dashcam", "car jump starter", "obd2 scanner",
+        "car bluetooth adapter", "backup camera", "car phone holder",
+        "car vacuum", "car seat cover", "car led lights"
+      ],
+      excludePatterns: [/\bfor\s+toy\b/i, /\bmodel\s+car\b/i, /\bdiecast\b/i],
+    },
+    {
+      name: "gaming",
+      target: Math.round(200 * scale),
+      seeds: [
+        "xbox series x", "xbox series s", "ps5 console", "nintendo switch oled",
+        "gaming console", "xbox controller", "ps5 controller",
+        "gaming headset", "gaming keyboard", "gaming mouse"
+      ],
+      excludePatterns: [/\brepair kit\b/i, /\bfor parts\b/i],
+    },
+    {
+      name: "home",
+      target: Math.round(200 * scale),
+      seeds: [
+        "sofa", "couch living room", "bed frame queen", "mattress",
+        "dining table", "tv stand", "refrigerator", "microwave oven",
+        "air fryer", "vacuum cleaner", "coffee maker"
+      ],
+      excludePatterns: [/\bcover only\b/i, /\breplacement part only\b/i],
+      minPrice: 20,
+    },
+  ];
+}
+
+async function buildSegment(
+  config: SegmentConfig,
+  amazonDomain: string,
+  ebayToken: string | null,
+  correlationId: string
+): Promise<CatalogItem[]> {
+  const startMs = Date.now();
+  const fetchLimit = Math.ceil(config.target * 4); // Fetch 4x target to ensure enough after filtering
+  const perSeed = Math.ceil(fetchLimit / config.seeds.length);
+  
+  // Fetch from Amazon
+  const amazonPromises = config.seeds.map(seed =>
+    fetchRainforestItems(seed, perSeed, amazonDomain, correlationId, config.name)
+  );
+  
+  let allItems: CatalogItem[] = [];
+  
+  const amazonResults = await Promise.all(amazonPromises);
+  allItems.push(...amazonResults.flat());
+  
+  // Fetch from eBay for some segments
+  if (ebayToken && ["accessories", "cars", "gaming"].includes(config.name)) {
+    const ebaySeeds = config.seeds.slice(0, 4); // Use first 4 seeds for eBay
+    const ebayPromises = ebaySeeds.map(seed =>
+      fetchEbayItems(seed, 30, ebayToken, correlationId, config.name)
+    );
+    const ebayResults = await Promise.all(ebayPromises);
+    allItems.push(...ebayResults.flat());
+  }
+  
+  // Filter
+  allItems = filterByPatterns(allItems, config.excludePatterns);
+  
+  // Price filter if specified
+  if (config.minPrice) {
+    allItems = allItems.filter(i => (i.price_usd || 0) >= config.minPrice!);
+  }
+  
+  // Dedupe and shuffle
+  allItems = deduplicateItems(allItems);
+  allItems = stableShuffle(allItems, `${correlationId}_${config.name}`);
+  
+  // Keep target
+  const kept = allItems.slice(0, config.target);
+  
+  console.log(`[CATALOG_HOME][SEGMENT] correlationId=${correlationId} segment=${config.name} raw=${allItems.length} kept=${kept.length} target=${config.target} ms=${Date.now()-startMs}`);
+  
+  return kept;
+}
+
+async function buildFullFeed(
   settings: FeedSettings,
   correlationId: string,
   amazonDomain: string,
   ebayToken: string | null
-): Promise<{ items: CatalogItem[]; amazonCount: number; dealsCount: number; ebayCount: number; ms: number; shortfall: boolean; shortfallReason?: string }> {
+): Promise<{ items: CatalogItem[]; segmentCounts: Record<string, number>; ms: number; shortfall: boolean }> {
   const startMs = Date.now();
-  const targetTotal = settings.limit; // default 200
-  const targetAmazon = settings.amazonFirstCount; // default 100
-  const targetDeals = settings.dealsCount; // default 100
+  const segments = getSegmentConfigs(settings.poolSize);
   
-  let shortfall = false;
-  let shortfallReason = "";
-  
-  // ===== BLOCK 1: Amazon Popular Electronics (first 100) =====
-  // Fetch MORE than needed (400) to allow for filtering and dedup
-  const amazonSeeds = [
-    "iphone unlocked",
-    "samsung galaxy unlocked", 
-    "airpods pro",
-    "ipad pro",
-    "ps5 console",
-    "macbook laptop",
-    "nintendo switch oled",
-    "gaming laptop",
-    "sony headphones",
-    "apple watch",
-    "samsung tablet",
-    "kindle fire tablet"
-  ];
-  
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} building amazon block seeds=${amazonSeeds.length} target=${targetAmazon}`);
-  
-  // Fetch 35 items per seed to get ~400+ raw items
-  const amazonPromises = amazonSeeds.map(seed => 
-    fetchRainforestItems(seed, 35, amazonDomain, correlationId)
+  // Build all segments in parallel
+  const segmentPromises = segments.map(config =>
+    buildSegment(config, amazonDomain, ebayToken, correlationId)
   );
   
-  const amazonResults = await Promise.all(amazonPromises);
-  let amazonRaw = amazonResults.flat();
-  amazonRaw = lightFilter(amazonRaw);
-  amazonRaw = deduplicateItems(amazonRaw);
-  amazonRaw = stableShuffle(amazonRaw, correlationId + "_amazon");
+  const segmentResults = await Promise.all(segmentPromises);
   
-  // Keep exactly targetAmazon (100)
-  const amazonItems = amazonRaw.slice(0, targetAmazon);
-  const amazonKept = amazonItems.length;
+  // Combine in order: phones -> accessories -> cars -> gaming -> home
+  let allItems: CatalogItem[] = [];
+  const segmentCounts: Record<string, number> = {};
   
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} amazonBlock raw=${amazonRaw.length} kept=${amazonKept}`);
-
-  // ===== BLOCK 2: Mixed Deals/Refurbished (last 100) =====
-  // Fetch MORE than needed (400) for deals block
-  const amazonDealsSeeds = [
-    "refurbished iphone unlocked",
-    "renewed iphone unlocked",
-    "android phone unlocked",
-    "refurbished laptop",
-    "refurbished macbook",
-    "certified refurbished electronics"
-  ];
-  
-  const ebayDealsSeeds = [
-    "refurbished iphone",
-    "gaming console used",
-    "laptop refurbished",
-    "airpods renewed",
-    "ps4 console used",
-    "ipad refurbished",
-    "samsung galaxy renewed"
-  ];
-  
-  let dealsRaw: CatalogItem[] = [];
-  let ebayKept = 0;
-  
-  // Amazon deals - fetch 40 per seed
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} building deals block amazonSeeds=${amazonDealsSeeds.length}`);
-  const amazonDealsPromises = amazonDealsSeeds.map(seed =>
-    fetchRainforestItems(seed, 40, amazonDomain, correlationId)
-  );
-  const amazonDealsResults = await Promise.all(amazonDealsPromises);
-  dealsRaw.push(...amazonDealsResults.flat());
-  
-  // eBay deals if token available - fetch 30 per seed
-  if (ebayToken) {
-    console.log(`[CATALOG_HOME] correlationId=${correlationId} building deals block ebaySeeds=${ebayDealsSeeds.length}`);
-    const ebayPromises = ebayDealsSeeds.map(seed =>
-      fetchEbayItems(seed, 30, ebayToken, correlationId)
-    );
-    const ebayResults = await Promise.all(ebayPromises);
-    const ebayItems = ebayResults.flat();
-    ebayKept = ebayItems.length;
-    dealsRaw.push(...ebayItems);
-  } else {
-    console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} no_ebay_token deals will be amazon-only`);
-    shortfallReason = "no_ebay_token";
+  for (let i = 0; i < segments.length; i++) {
+    const segmentItems = segmentResults[i];
+    allItems.push(...segmentItems);
+    segmentCounts[segments[i].name] = segmentItems.length;
   }
   
-  dealsRaw = lightFilter(dealsRaw);
-  dealsRaw = deduplicateItems(dealsRaw);
-  dealsRaw = stableShuffle(dealsRaw, correlationId + "_deals");
-  
-  // Keep exactly targetDeals (100)
-  const dealsItems = dealsRaw.slice(0, targetDeals);
-  const dealsKept = dealsItems.length;
-  
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} dealsBlock raw=${dealsRaw.length} kept=${dealsKept} ebayItems=${ebayKept}`);
-
-  // ===== COMBINE =====
-  let allItems = [...amazonItems, ...dealsItems];
-  
-  // Final cross-boundary de-dup (removes items that appear in both blocks)
-  const beforeDedupCount = allItems.length;
+  // Cross-dedupe
+  const beforeDedup = allItems.length;
   allItems = deduplicateItems(allItems);
-  const afterDedupCount = allItems.length;
-  const lostInDedup = beforeDedupCount - afterDedupCount;
+  const afterDedup = allItems.length;
   
-  if (lostInDedup > 0) {
-    console.log(`[CATALOG_HOME] correlationId=${correlationId} cross_dedup removed=${lostInDedup}`);
-  }
-
-  // ===== BACKFILL if needed to guarantee 200 =====
-  if (allItems.length < targetTotal) {
-    const deficit = targetTotal - allItems.length;
-    console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill_needed current=${allItems.length} target=${targetTotal} deficit=${deficit}`);
-    
-    // Backfill from unused amazon raw items
-    const usedIds = new Set(allItems.map(i => `${i.provider}:${i.provider_product_id}`));
-    const backfillCandidates = amazonRaw.filter(i => !usedIds.has(`${i.provider}:${i.provider_product_id}`));
-    const backfillItems = backfillCandidates.slice(0, deficit);
-    
-    if (backfillItems.length > 0) {
-      allItems.push(...backfillItems);
-      console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill added=${backfillItems.length} from amazonRaw`);
-    }
-    
-    // If still short, try from deals raw
-    if (allItems.length < targetTotal) {
-      const usedIds2 = new Set(allItems.map(i => `${i.provider}:${i.provider_product_id}`));
-      const dealsBackfill = dealsRaw.filter(i => !usedIds2.has(`${i.provider}:${i.provider_product_id}`));
-      const deficit2 = targetTotal - allItems.length;
-      const addFromDeals = dealsBackfill.slice(0, deficit2);
-      
-      if (addFromDeals.length > 0) {
-        allItems.push(...addFromDeals);
-        console.log(`[CATALOG_HOME] correlationId=${correlationId} backfill added=${addFromDeals.length} from dealsRaw`);
-      }
-    }
+  if (beforeDedup > afterDedup) {
+    console.log(`[CATALOG_HOME] correlationId=${correlationId} cross_dedup removed=${beforeDedup - afterDedup}`);
   }
   
-  // Final slice to limit
-  const finalItems = allItems.slice(0, targetTotal);
-  
-  // Check for shortfall
-  if (finalItems.length < targetTotal) {
-    shortfall = true;
-    shortfallReason = shortfallReason || "provider_timeout_or_low_results";
-    console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} shortfall final=${finalItems.length} target=${targetTotal} reason=${shortfallReason}`);
+  // Check shortfall
+  const shortfall = allItems.length < settings.poolSize;
+  if (shortfall) {
+    console.log(`[CATALOG_HOME][WARN] correlationId=${correlationId} shortfall final=${allItems.length} target=${settings.poolSize}`);
   }
   
   const ms = Date.now() - startMs;
-  console.log(`[CATALOG_HOME] correlationId=${correlationId} built amazonKept=${amazonKept} dealsKept=${dealsKept} ebayCount=${ebayKept} final=${finalItems.length} ms=${ms}`);
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} built total=${allItems.length} segments=${JSON.stringify(segmentCounts)} ms=${ms}`);
   
-  return { 
-    items: finalItems, 
-    amazonCount: amazonKept, 
-    dealsCount: dealsKept,
-    ebayCount: ebayKept,
-    ms,
-    shortfall,
-    shortfallReason
-  };
+  return { items: allItems, segmentCounts, ms, shortfall };
+}
+
+// ===== LIVE FETCH (for Load More) =====
+async function fetchLiveItems(
+  page: number,
+  pageSize: number,
+  amazonDomain: string,
+  ebayToken: string | null,
+  correlationId: string
+): Promise<CatalogItem[]> {
+  const startMs = Date.now();
+  
+  // Rotate through different seeds based on page
+  const liveSeeds = [
+    "electronics deals", "smartphone accessories", "home gadgets",
+    "gaming deals", "tech accessories", "kitchen appliances",
+    "laptop accessories", "smart home devices", "fitness electronics"
+  ];
+  
+  const seedIndex = (page - 1) % liveSeeds.length;
+  const seed = liveSeeds[seedIndex];
+  
+  let items: CatalogItem[] = [];
+  
+  // Fetch from both providers
+  const amazonItems = await fetchRainforestItems(seed, pageSize, amazonDomain, correlationId, "live");
+  items.push(...amazonItems);
+  
+  if (ebayToken && items.length < pageSize) {
+    const ebayItems = await fetchEbayItems(seed, pageSize - items.length, ebayToken, correlationId, "live");
+    items.push(...ebayItems);
+  }
+  
+  items = deduplicateItems(items);
+  items = stableShuffle(items, `${correlationId}_live_${page}`);
+  
+  console.log(`[CATALOG_HOME][LIVE] correlationId=${correlationId} page=${page} seed="${seed}" fetched=${items.length} ms=${Date.now()-startMs}`);
+  
+  return items.slice(0, pageSize);
 }
 
 serve(async (req) => {
@@ -609,44 +642,82 @@ serve(async (req) => {
     // Parse parameters
     const url = new URL(req.url);
     let page = 1;
-    let pageSize = 20;
+    let pageSize = 0; // 0 means use default from settings
     let category = "";
     let amazonDomain = "amazon.com";
     let env = "prod";
+    let liveMode = false;
 
     if (req.method === "POST") {
       try {
         const body = await req.json();
         page = parseInt(body.page) || 1;
-        pageSize = Math.min(Math.max(parseInt(body.pageSize) || 20, 1), 200);
+        pageSize = parseInt(body.pageSize) || 0;
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
         env = body.env || "prod";
+        liveMode = body.live === true || body.live === "1" || body.source === "live";
       } catch {
         // Use defaults
       }
     } else {
       page = parseInt(url.searchParams.get("page") || "1") || 1;
-      pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "20"), 1), 200);
+      pageSize = parseInt(url.searchParams.get("pageSize") || "0") || 0;
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
       env = url.searchParams.get("env") || req.headers.get("X-Afrishop-Environment") || "prod";
+      liveMode = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
-
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category}`);
 
     // Load settings
     const settings = await loadFeedSettings();
     
+    // Use settings page size if not specified
+    if (pageSize === 0) {
+      pageSize = settings.pageSize;
+    }
+    // Cap page size at 200
+    pageSize = Math.min(Math.max(pageSize, 1), 200);
+
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category} live=${liveMode}`);
+
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
       return jsonResponse({
         ok: true,
-        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", items: [] }],
+        sections: [{ key: "feed", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
         page,
         pageSize,
         correlationId,
         _meta: { cache: "disabled" }
+      });
+    }
+
+    // ===== LIVE MODE: Fetch fresh items (for Load More) =====
+    if (liveMode) {
+      console.log(`[CATALOG_HOME] live_mode correlationId=${correlationId} page=${page}`);
+      
+      const ebayToken = await getEbayToken();
+      const liveItems = await fetchLiveItems(page, pageSize, amazonDomain, ebayToken, correlationId);
+      
+      return jsonResponse({
+        ok: true,
+        sections: [{
+          key: "feed",
+          title: "",
+          title_en: "",
+          title_fr: "",
+          hideTitle: true,
+          items: liveItems,
+        }],
+        page,
+        pageSize,
+        totalItems: liveItems.length,
+        correlationId,
+        _meta: {
+          cache: "live",
+          liveCount: liveItems.length,
+        }
       });
     }
 
@@ -658,8 +729,9 @@ serve(async (req) => {
       const pageItems = cached.items.slice(offset, offset + pageSize);
       
       const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
+      const hasMore = (offset + pageSize) < cached.items.length;
       
-      console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s count=${cached.items.length} returning=${pageItems.length}`);
+      console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s count=${cached.items.length} returning=${pageItems.length} hasMore=${hasMore}`);
       
       return jsonResponse({
         ok: true,
@@ -674,12 +746,14 @@ serve(async (req) => {
         page,
         pageSize,
         totalItems: cached.items.length,
+        hasMore,
         ttlSeconds: settings.ttlSeconds,
         correlationId,
         _meta: {
           cache: "hit",
           expiresAt: cached.expires_at,
           ttlSeconds: settings.ttlSeconds,
+          poolSize: cached.items.length,
           ...cached.meta
         }
       });
@@ -690,30 +764,28 @@ serve(async (req) => {
     // ===== CACHE MISS: Build fresh feed =====
     const ebayToken = await getEbayToken();
     
-    const { items, amazonCount, dealsCount, ebayCount, ms: buildMs, shortfall, shortfallReason } = await buildFeed(
+    const { items, segmentCounts, ms: buildMs, shortfall } = await buildFullFeed(
       settings,
       correlationId,
       amazonDomain,
       ebayToken
     );
 
-    // Save to cache with full meta (async, don't wait)
+    // Save to cache (async, don't wait)
     saveCachedFeed(env, category, items, settings.ttlSeconds, { 
-      amazonCount, 
-      dealsCount, 
-      ebayCount, 
+      segmentCounts,
       total: items.length,
       buildMs,
       shortfall,
-      shortfallReason 
     });
 
     // Paginate response
     const offset = (page - 1) * pageSize;
     const pageItems = items.slice(offset, offset + pageSize);
+    const hasMore = (offset + pageSize) < items.length;
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} one_feed=true sections=1 totalMs=${totalMs}`);
+    console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} poolSize=${items.length} hasMore=${hasMore} totalMs=${totalMs}`);
 
     return jsonResponse({
       ok: true,
@@ -728,17 +800,15 @@ serve(async (req) => {
       page,
       pageSize,
       totalItems: items.length,
+      hasMore,
       ttlSeconds: settings.ttlSeconds,
       correlationId,
       _meta: {
         cache: "miss",
         building_feed_ms: buildMs,
-        amazonCount,
-        dealsCount,
-        ebayCount,
+        segmentCounts,
         total: items.length,
         shortfall,
-        shortfallReason
       }
     });
   } catch (err) {

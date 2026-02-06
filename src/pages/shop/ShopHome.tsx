@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, ChevronDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -36,6 +36,7 @@ interface HomeFeedResponse {
   page?: number;
   pageSize?: number;
   totalItems?: number;
+  hasMore?: boolean;
 }
 
 export default function ShopHome() {
@@ -46,7 +47,7 @@ export default function ShopHome() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -73,7 +74,7 @@ export default function ShopHome() {
       const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', { 
         lang: language,
         page,
-        pageSize: 200
+        pageSize: 60
       });
       
       if (data?.sections?.[0]?.items) {
@@ -88,7 +89,7 @@ export default function ShopHome() {
         }
         
         setTotalItems(data.totalItems || mappedProducts.length);
-        setHasMore(mappedProducts.length > 0 && (data.totalItems || 0) > products.length + mappedProducts.length);
+        setHasMore(data.hasMore !== false && mappedProducts.length > 0);
         setCurrentPage(page);
       }
     } catch (err: any) {
@@ -100,15 +101,54 @@ export default function ShopHome() {
     }
   };
 
+  // Fetch LIVE items (not cached) for "Load more"
+  const fetchLiveItems = async () => {
+    try {
+      setLoadingMore(true);
+      
+      const nextPage = currentPage + 1;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home?page=${nextPage}&pageSize=60&live=1`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load more products');
+      }
+      
+      const data = await response.json() as HomeFeedResponse;
+      
+      if (data?.sections?.[0]?.items) {
+        const mappedProducts = data.sections[0].items
+          .map(mapItemToProduct)
+          .filter(p => p.id && p.priceUsd > 0);
+        
+        if (mappedProducts.length > 0) {
+          setProducts(prev => [...prev, ...mappedProducts]);
+          setCurrentPage(nextPage);
+        }
+        
+        // If we got fewer than requested, no more items
+        if (mappedProducts.length < 60) {
+          setHasMore(false);
+        }
+      } else {
+        setHasMore(false);
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch live items:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   useEffect(() => {
     fetchFeed(1);
   }, [language]);
-
-  const handleLoadMore = () => {
-    if (!loadingMore && hasMore) {
-      fetchFeed(currentPage + 1, true);
-    }
-  };
 
   const focusSearchBar = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -144,7 +184,7 @@ export default function ShopHome() {
         </div>
       </section>
 
-      {/* Unified Vertical Feed - NO section headers, NO carousels */}
+      {/* Unified Vertical Feed - NO section headers */}
       <main className="pb-8">
         <div className="container mx-auto px-4">
           {loading ? (
@@ -179,10 +219,14 @@ export default function ShopHome() {
             <div className="mt-10 py-8 border-t border-white/10">
               <div className="text-center space-y-4">
                 <h3 className="text-lg font-semibold text-white">
-                  {shop.dontSeeWhatYoureLookingFor || "Don't see what you're looking for?"}
+                  {language === 'fr' 
+                    ? "Vous ne trouvez pas ce que vous cherchez ?" 
+                    : "Don't find what you're looking for?"}
                 </h3>
                 <p className="text-white/60 text-sm">
-                  {shop.searchAnyProduct || "Search for any product from Amazon & eBay"}
+                  {language === 'fr'
+                    ? "Recherchez n'importe quel produit d'Amazon et eBay"
+                    : "Search for any product from Amazon & eBay"}
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                   {/* Primary CTA: Search */}
@@ -192,13 +236,13 @@ export default function ShopHome() {
                     size="lg"
                   >
                     <Search className="h-4 w-4 mr-2" />
-                    {shop.searchProducts || "Search products"}
+                    {language === 'fr' ? "Rechercher des produits" : "Search products"}
                   </Button>
                   
-                  {/* Secondary: Load More (only if more items exist) */}
+                  {/* Secondary: Load More (live fetch) */}
                   {hasMore && (
                     <Button
-                      onClick={handleLoadMore}
+                      onClick={fetchLiveItems}
                       variant="outline"
                       className="border-white/20 text-white hover:bg-white/10 rounded-full px-8"
                       size="lg"
@@ -207,12 +251,12 @@ export default function ShopHome() {
                       {loadingMore ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Loading...
+                          {language === 'fr' ? "Chargement..." : "Loading..."}
                         </>
                       ) : (
                         <>
-                          <ArrowRight className="h-4 w-4 mr-2" />
-                          Load more
+                          <ChevronDown className="h-4 w-4 mr-2" />
+                          {language === 'fr' ? "Charger plus" : "Load more"}
                         </>
                       )}
                     </Button>

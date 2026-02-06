@@ -86,9 +86,10 @@ function isLikelyAsin(id: string): boolean {
   return /^[A-Z0-9]{10}$/i.test(id);
 }
 
-function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null } {
+function parseProductId(url: URL): { provider: string | null; productId: string | null; rawId: string; idError: string | null; externalProvider: string } {
   let provider: string | null = null;
   let productId: string | null = null;
+  let externalProvider: string = "amazon"; // For response - always amazon or ebay
 
   const id = (url.searchParams.get("id") || "").trim();
   const providerParam = (url.searchParams.get("provider") || "").trim().toLowerCase();
@@ -97,10 +98,11 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   const decodedId = decodeURIComponent(id);
   const decodedLower = decodedId.toLowerCase();
   
-  // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123"
-  if (decodedId && decodedId.includes(":")) {
+  // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123" or "amazon:B0XYZ..."
+  if (decodedId && decodedId.includes(":") && !decodedId.startsWith("v1")) {
     const colonIndex = decodedId.indexOf(":");
-    provider = decodedId.slice(0, colonIndex).toLowerCase() || null;
+    const providerPart = decodedId.slice(0, colonIndex).toLowerCase();
+    provider = providerPart;
     productId = decodedId.slice(colonIndex + 1) || null;
   }
   // Handle underscore prefix: "ebay_v1|..." or "amazon_B0XYZ..."
@@ -109,16 +111,17 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
     productId = decodedId.slice(5);
   }
   else if (decodedLower.startsWith("rainforest_")) {
-    provider = "rainforest";
+    provider = "amazon"; // Normalize rainforest -> amazon for consistency
     productId = decodedId.slice(11);
   }
   else if (decodedLower.startsWith("amazon_")) {
-    provider = "rainforest"; // Normalize amazon -> rainforest
+    provider = "amazon";
     productId = decodedId.slice(7);
   }
   // Use explicit provider param if given
   else if (providerParam && decodedId) {
-    provider = providerParam === "amazon" ? "rainforest" : providerParam;
+    // Accept amazon, rainforest, ebay - normalize rainforest to amazon
+    provider = providerParam === "rainforest" ? "amazon" : providerParam;
     productId = decodedId;
   }
   // Fallback: try to infer from ID format
@@ -127,7 +130,7 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
     const itemId = url.searchParams.get("itemId")?.trim();
     
     if (asin) {
-      provider = "rainforest";
+      provider = "amazon";
       productId = asin.toUpperCase();
     } else if (itemId) {
       provider = "ebay";
@@ -136,7 +139,7 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
       provider = "ebay";
       productId = decodedId;
     } else if (isLikelyAsin(decodedId)) {
-      provider = "rainforest";
+      provider = "amazon";
       productId = decodedId.toUpperCase();
     } else {
       // Default to ebay for unknown formats (legacy behavior)
@@ -145,26 +148,31 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
     }
   }
 
-  // Normalize provider: amazon -> rainforest
-  if (provider === "amazon") {
-    provider = "rainforest";
+  // Normalize provider names: rainforest -> amazon (externally we use amazon/ebay only)
+  if (provider === "rainforest") {
+    provider = "amazon";
   }
+  
+  // Set external provider (for response) - only amazon or ebay
+  externalProvider = provider === "ebay" ? "ebay" : "amazon";
 
-  // Normalize ASIN to uppercase
-  if (provider === "rainforest" && productId) {
+  // Normalize ASIN to uppercase for amazon
+  if (provider === "amazon" && productId) {
     productId = productId.toUpperCase();
   }
 
-  const rawId = provider && productId ? `${provider}:${productId}` : productId || id || "";
+  // For internal lookups, we still use rainforest:ASIN format in DB
+  const internalProvider = provider === "amazon" ? "rainforest" : provider;
+  const rawId = internalProvider && productId ? `${internalProvider}:${productId}` : productId || id || "";
   
   let idError: string | null = null;
   if (!productId) {
     idError = "Product ID is required";
-  } else if (provider === "rainforest") {
+  } else if (provider === "amazon") {
     idError = validateAsin(productId);
   }
 
-  return { provider, productId, rawId, idError };
+  return { provider, productId, rawId, idError, externalProvider };
 }
 
 interface CatalogItem {
@@ -257,42 +265,48 @@ Deno.serve(async (req: Request) => {
   }
   
   // Fall back to GET params
+  let externalProvider: string = "amazon";
   if (!productId) {
     const parsed = parseProductId(url);
     provider = parsed.provider;
     productId = parsed.productId;
     rawId = parsed.rawId;
     idError = parsed.idError;
-    console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=GET provider=${provider} idRaw=${productId?.substring(0, 40)}`);
+    externalProvider = parsed.externalProvider;
+    console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=GET provider=${provider} externalProvider=${externalProvider} idRaw=${productId?.substring(0, 40)}`);
   }
 
-  const errorResponse = (code: string, message: string) => {
+  const errorResponse = (code: string, message: string, statusCode: number = 200) => {
     console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} code=${code} error=${message} ms=${Date.now() - startTime}`);
     return new Response(JSON.stringify({
       ok: false,
       status: "error",
       env: envName,
       id: rawId || null,
+      provider: externalProvider,
+      correlationId,
       item: null,
       product: null,
       source: "error",
       error: { code, message },
     }), {
-      status: 200,
+      status: statusCode,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   };
 
-  if (idError) return errorResponse("INVALID_ID", idError);
-  if (!productId) return errorResponse("MISSING_ID", "Product ID is required");
+  if (idError) return errorResponse("INVALID_ID", idError, 400);
+  if (!productId) return errorResponse("MISSING_ID", "Product ID is required", 400);
   
-  const SUPPORTED_PROVIDERS = ["rainforest", "ebay"];
+  // Accept amazon, rainforest, ebay - normalize amazon to rainforest for internal use
+  const SUPPORTED_PROVIDERS = ["amazon", "rainforest", "ebay"];
   if (provider && !SUPPORTED_PROVIDERS.includes(provider)) {
-    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported`);
+    return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported. Use 'amazon' or 'ebay'.`, 400);
   }
 
-  const effectiveProvider = provider || "rainforest";
-  const fullProductId = `${effectiveProvider}:${productId}`;
+  // Internal provider: amazon -> rainforest for DB lookups
+  const internalProvider = (provider === "amazon" || provider === "rainforest" || !provider) ? "rainforest" : provider;
+  const fullProductId = `${internalProvider}:${productId}`;
 
   try {
     // Create SDK-free DB client
@@ -342,7 +356,7 @@ Deno.serve(async (req: Request) => {
     console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);
 
     // ========== FALLBACK: Legacy catalog_products (Rainforest only) ==========
-    if (effectiveProvider === "rainforest") {
+    if (internalProvider === "rainforest") {
       const { data: legacyItem } = await db
         .from("catalog_products")
         .select("*")
@@ -406,7 +420,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ========== LIVE FETCH: eBay ==========
-    if (effectiveProvider === "ebay") {
+    if (internalProvider === "ebay") {
       try {
         // Pass db client (has .from() compatible interface)
         const ebayResult = await getEbayItem(db, productId!);

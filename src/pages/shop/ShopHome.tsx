@@ -148,39 +148,34 @@ export default function ShopHome() {
               <p className="text-white/60">{shop.noProducts}</p>
             </div>
           ) : (
-            sections.map((section, index) => {
-              // Hide section header for unified "featured" feed
-              const isFeaturedFeed = section.key === "featured" && (!section.title || section.title === "Featured");
-              
-              return (
-                <motion.section
-                  key={section.key}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="px-4"
-                >
-                  {/* Section Header - hidden for unified feed */}
-                  {!isFeaturedFeed && (
-                    <div className="flex items-center justify-between mb-3">
-                      <h2 className="text-lg md:text-xl font-bold text-white">
-                        {section.title}
-                      </h2>
-                      <Link 
-                        to={`/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}${section.categoryKey ? `&category=${section.categoryKey}` : ''}`}
-                        className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
-                      >
-                        {shop.seeAll}
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  )}
+            sections.map((section, index) => (
+              <motion.section
+                key={section.key}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="px-4"
+              >
+                {/* Section Header - only show if title is non-empty (backend controls this) */}
+                {section.title && section.title.trim() !== "" && (
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-lg md:text-xl font-bold text-white">
+                      {section.title}
+                    </h2>
+                    <Link 
+                      to={`/search?q=${encodeURIComponent(section.seeAllQuery || section.key)}${section.categoryKey ? `&category=${section.categoryKey}` : ''}`}
+                      className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      {shop.seeAll}
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+                )}
 
-                  {/* Horizontal Scrolling Products */}
-                  <HorizontalProductRow products={section.products} />
-                </motion.section>
-              );
-            })
+                {/* Horizontal Scrolling Products */}
+                <HorizontalProductRow products={section.products} />
+              </motion.section>
+            ))
           )}
         </div>
       </main>

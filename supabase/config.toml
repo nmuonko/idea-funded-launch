@@ -163,7 +163,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.mobile-checkout]
-verify_jwt = true
+verify_jwt = false
 
 [functions.saved-cart-reminders]
 verify_jwt = false

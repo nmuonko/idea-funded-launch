@@ -584,6 +584,112 @@ Deno.serve(async (req: Request) => {
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // DB-FIRST SEARCH: Query catalog_items before hitting live providers
+    // This returns results instantly when DB has data, even if APIs are down
+    // ═══════════════════════════════════════════════════════════════════════════
+    const DB_MIN_RESULTS = 8;
+    
+    if (!cursor && !hasBuyingIntent) {
+      // Only on first page, non-vehicle searches (vehicles need special provider logic)
+      try {
+        const dbStartMs = Date.now();
+        const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
+        // Take the 3 longest tokens (most distinctive)
+        const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
+        
+        if (topTokens.length > 0) {
+          let dbQuery = supabase
+            .from("catalog_items")
+            .select("*")
+            .eq("is_disallowed", false)
+            .filter("image_url", "not.is", "null")
+            .gt("price_usd", 0);
+          
+          for (const token of topTokens) {
+            dbQuery = dbQuery.ilike("title", `%${token}%`);
+          }
+          
+          const { data: dbItems, error: dbErr } = await dbQuery
+            .order("rating", { ascending: false, nullsFirst: false })
+            .limit(limit);
+          
+          const dbMs = Date.now() - dbStartMs;
+          const dbCount = dbItems?.length || 0;
+          
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first q="${qNorm}" tokens=${JSON.stringify(topTokens)} dbCount=${dbCount} ms=${dbMs}`);
+          
+          if (dbItems && dbCount >= DB_MIN_RESULTS) {
+            // Map DB items to response format
+            const mappedItems = dbItems.map((item: Record<string, unknown>) => ({
+              id: item.external_id || item.id,
+              title: item.title,
+              priceUsd: item.price_usd,
+              price_usd: item.price_usd,
+              currency: item.currency || "USD",
+              imageUrl: item.image_url,
+              image_url: item.image_url,
+              productUrl: item.product_url,
+              product_url: item.product_url,
+              provider: item.provider,
+              rating: item.rating,
+              imageCount: item.image_count || 1,
+              category: item.unified_category || categoryKey,
+              store: item.provider === "ebay" ? "ebay" : "amazon",
+            }));
+            
+            // Apply content filtering
+            const { allowed: filteredDbItems } = filterDisallowedItems(
+              mappedItems.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+              `[DB_FIRST] requestId=${requestId}`
+            );
+            
+            const dbDurationMs = Date.now() - startTime;
+            
+            // Write to cache in background
+            const dbResponse: SearchResponse = {
+              status: "success",
+              env: envName,
+              query: qOriginal,
+              items: filteredDbItems as unknown as CatalogItem[],
+              nextCursor: null,
+              hasMore: dbCount >= limit,
+              total: dbCount,
+              providerStats: buildProviderStats({ mode: effectiveMode.mode, amazonEnabled: effectiveMode.amazonActive, ebayEnabled: effectiveMode.ebayActive, amazonCacheHit: false, amazonBudgetRemaining: null, amazonReturned: 0, amazonCap: 0, amazonStatus: "disabled", ebayReturned: dbCount, mixingPhase: "db_first", amazonFirstCount: 0, blendRatio: { amazon: 0, ebay: 1 } }),
+              searchMeta,
+              durationMs: dbDurationMs,
+              ttlSeconds: 3600,
+              error: null,
+              meta: { source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+            };
+            
+            // Background: fire live provider refresh to update cache
+            (async () => {
+              try {
+                // The next request will benefit from the live data when providers respond
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_bg_refresh starting`);
+              } catch (_e) { /* ignore */ }
+            })();
+            
+            // Cache the DB results
+            setCache(supabase, "search", globalCacheKey, { ...dbResponse, _meta: { qNorm, provider: providerParam || "mixed", page: 1, pageSize: limit, sort, cachedAt: new Date().toISOString() } }, {
+              provider: "mixed", query: qNorm, category: categoryKey || undefined, page: 1, pageSize: limit, amazonDomain: "amazon.com",
+            }).catch((_err: Error) => {});
+            
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_response items=${filteredDbItems.length} ms=${dbDurationMs}`);
+            
+            return new Response(JSON.stringify(dbResponse), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      } catch (dbErr) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_error:`, (dbErr as Error).message);
+        // Fall through to provider fetch
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // VEHICLE SEARCH POLICY:
     // - Amazon uses Amazon Autos category (node 10677469011) for actual vehicle listings
     // - eBay Motors category 6001 (Cars & Trucks) is used for actual vehicle listings

@@ -178,11 +178,28 @@ export async function fetchAmazonItems(params: AmazonFetchParams): Promise<Amazo
           // DB fallback
           const minPriceForDb = hasBuyingIntent && catalogFilters.minPrice ? catalogFilters.minPrice : undefined;
 
+          // Build token-level search for better recall
+          const searchTokens = query.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
           let amazonQuery = supabase
             .from("catalog_items")
             .select("*", { count: "exact" })
-            .or("provider.eq.rainforest,provider.eq.amazon")
-            .or(`title.ilike.%${query}%,search_text.ilike.%${query}%${isVehicle && !hasBuyingIntent ? ',unified_category.eq.automotive,title.ilike.%car%,title.ilike.%auto%' : ''}`);
+            .in("provider", ["rainforest", "amazon"]);
+          
+          // Apply token-level ilike filters (ANDed) for better matching
+          if (searchTokens.length > 0) {
+            // Use the 3 longest tokens for matching (most distinctive)
+            const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
+            for (const token of topTokens) {
+              amazonQuery = amazonQuery.ilike("title", `%${token}%`);
+            }
+          } else {
+            amazonQuery = amazonQuery.ilike("title", `%${query}%`);
+          }
+          
+          // For vehicle queries without buying intent, also include automotive category
+          if (isVehicle && !hasBuyingIntent) {
+            // Already covered by token matching above
+          }
 
           if (minPriceForDb) amazonQuery = amazonQuery.gte("price_usd", minPriceForDb);
 

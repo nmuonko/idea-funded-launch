@@ -1130,13 +1130,20 @@ Deno.serve(async (req: Request) => {
       response.ttlSeconds = 0;
     }
 
+    const responseHeaders: Record<string, string> = { 
+      ...corsHeaders, 
+      "Content-Type": "application/json",
+      "Cache-Control": cacheControlHeader,
+      "Vary": "Origin, X-Afrishop-Environment",
+    };
+    if (finalItems.length === 0) {
+      responseHeaders["Pragma"] = "no-cache";
+      responseHeaders["Expires"] = "0";
+    }
+
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: { 
-        ...corsHeaders, 
-        "Content-Type": "application/json",
-        "Cache-Control": cacheControlHeader,
-      },
+      headers: responseHeaders,
     });
 
   } catch (err) {

@@ -91,6 +91,7 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   let productId: string | null = null;
 
   const id = (url.searchParams.get("id") || "").trim();
+  const providerParam = (url.searchParams.get("provider") || "").trim().toLowerCase();
   
   // Decode URL-encoded characters (e.g., %7C -> |)
   const decodedId = decodeURIComponent(id);
@@ -98,11 +99,11 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   
   // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123"
   if (decodedId && decodedId.includes(":")) {
-    const parts = decodedId.split(":", 2);
-    provider = (parts[0] || "").trim().toLowerCase() || null;
-    productId = (parts[1] || "").trim() || null;
+    const colonIndex = decodedId.indexOf(":");
+    provider = decodedId.slice(0, colonIndex).toLowerCase() || null;
+    productId = decodedId.slice(colonIndex + 1) || null;
   }
-  // Handle underscore separator
+  // Handle underscore prefix: "ebay_v1|..." or "amazon_B0XYZ..."
   else if (decodedLower.startsWith("ebay_")) {
     provider = "ebay";
     productId = decodedId.slice(5);
@@ -112,26 +113,44 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
     productId = decodedId.slice(11);
   }
   else if (decodedLower.startsWith("amazon_")) {
-    provider = "rainforest";
+    provider = "rainforest"; // Normalize amazon -> rainforest
     productId = decodedId.slice(7);
   }
-  // Fallback to query params
-  else {
-    provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
-    productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
-    if (!productId && decodedId) {
+  // Use explicit provider param if given
+  else if (providerParam && decodedId) {
+    provider = providerParam === "amazon" ? "rainforest" : providerParam;
+    productId = decodedId;
+  }
+  // Fallback: try to infer from ID format
+  else if (decodedId) {
+    const asin = url.searchParams.get("asin")?.trim();
+    const itemId = url.searchParams.get("itemId")?.trim();
+    
+    if (asin) {
+      provider = "rainforest";
+      productId = asin.toUpperCase();
+    } else if (itemId) {
+      provider = "ebay";
+      productId = itemId;
+    } else if (isLikelyEbayId(decodedId)) {
+      provider = "ebay";
       productId = decodedId;
-      if (isLikelyEbayId(decodedId)) {
-        provider = "ebay";
-      } else if (isLikelyAsin(decodedId)) {
-        provider = "rainforest";
-        productId = decodedId.toUpperCase();
-      } else {
-        provider = "ebay";
-      }
+    } else if (isLikelyAsin(decodedId)) {
+      provider = "rainforest";
+      productId = decodedId.toUpperCase();
+    } else {
+      // Default to ebay for unknown formats (legacy behavior)
+      provider = "ebay";
+      productId = decodedId;
     }
   }
 
+  // Normalize provider: amazon -> rainforest
+  if (provider === "amazon") {
+    provider = "rainforest";
+  }
+
+  // Normalize ASIN to uppercase
   if (provider === "rainforest" && productId) {
     productId = productId.toUpperCase();
   }

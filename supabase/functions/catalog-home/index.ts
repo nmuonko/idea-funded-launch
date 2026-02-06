@@ -270,16 +270,48 @@ function extractPriceFromEbay(item: Record<string, unknown>): number | null {
   return null;
 }
 
-function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogItem {
+/**
+ * Validate if an eBay item ID is click-safe
+ * Must have v1| format or be a numeric eBay item ID
+ */
+function isValidEbayId(itemId: string): boolean {
+  if (!itemId) return false;
+  // eBay v1| format: v1|itemId|variationId
+  if (itemId.startsWith("v1|")) return true;
+  // Legacy numeric eBay IDs (12+ digits)
+  if (/^\d{12,}$/.test(itemId)) return true;
+  return false;
+}
+
+/**
+ * Validate if an Amazon ASIN is click-safe
+ * Must be exactly 10 alphanumeric characters
+ */
+function isValidAsin(asin: string): boolean {
+  if (!asin) return false;
+  return /^[A-Z0-9]{10}$/i.test(asin);
+}
+
+function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogItem | null {
   const priceUsd = extractPriceFromEbay(item);
   const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
   const productUrl = (item.itemWebUrl as string) || null;
   const priceObj = item.price as Record<string, unknown> | undefined;
+  const itemId = item.itemId as string || "";
+  
+  // Validate eBay ID is click-safe
+  if (!isValidEbayId(itemId)) {
+    console.log(`[CATALOG_HOME][WARN] drop_unclickable provider=ebay id=${itemId}`);
+    return null;
+  }
+  
+  // Canonical ID format: ebay_<rawId> (raw ID includes v1| prefix if present)
+  const canonicalId = `ebay_${itemId}`;
   
   return {
-    id: `ebay_${item.itemId}`,
+    id: canonicalId,
     provider: "ebay",
-    provider_product_id: item.itemId as string,
+    provider_product_id: itemId,
     title: (item.title as string) || "Unknown",
     price_usd: priceUsd,
     priceUsd: priceUsd,
@@ -293,14 +325,23 @@ function mapEbayItem(item: Record<string, unknown>, segment?: string): CatalogIt
   };
 }
 
-function mapRainforestItem(item: Record<string, unknown>, segment?: string): CatalogItem {
-  const asin = item.asin as string || "";
+function mapRainforestItem(item: Record<string, unknown>, segment?: string): CatalogItem | null {
+  const asin = (item.asin as string || "").toUpperCase();
   const price = item.price as Record<string, unknown> | undefined;
   const priceValue = price?.value as number || null;
   const imageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
   
+  // Validate ASIN is click-safe
+  if (!isValidAsin(asin)) {
+    console.log(`[CATALOG_HOME][WARN] drop_unclickable provider=amazon asin=${asin}`);
+    return null;
+  }
+  
+  // Canonical ID format: amazon_<ASIN>
+  const canonicalId = `amazon_${asin}`;
+  
   return {
-    id: `amazon_${asin}`,
+    id: canonicalId,
     provider: "amazon",
     provider_product_id: asin,
     title: (item.title as string) || "Unknown",
@@ -344,7 +385,10 @@ async function fetchEbayItems(
 
     const data = await response.json();
     const rawItems = data.itemSummaries || [];
-    const items = rawItems.map((i: Record<string, unknown>) => mapEbayItem(i, segment)).filter((i: CatalogItem) => i.title && i.image_url);
+    // Map and filter: null items are invalid/unclickable
+    const items = rawItems
+      .map((i: Record<string, unknown>) => mapEbayItem(i, segment))
+      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url);
     
     console.log(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;
@@ -385,7 +429,11 @@ async function fetchRainforestItems(
 
     const data = await response.json();
     const rawItems = data.search_results || [];
-    const items = rawItems.slice(0, limit).map((i: Record<string, unknown>) => mapRainforestItem(i, segment)).filter((i: CatalogItem) => i.title && i.image_url && i.price_usd);
+    // Map and filter: null items are invalid/unclickable
+    const items = rawItems
+      .slice(0, limit)
+      .map((i: Record<string, unknown>) => mapRainforestItem(i, segment))
+      .filter((i: CatalogItem | null): i is CatalogItem => i !== null && !!i.title && !!i.image_url && !!i.price_usd);
     
     console.log(`[CATALOG_HOME][RAINFOREST] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
     return items;

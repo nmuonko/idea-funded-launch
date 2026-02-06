@@ -19,6 +19,102 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "content-type",
 };
 
+// ===== CLIENT DETECTION =====
+type ClientType = "mobile" | "web";
+
+/**
+ * Detect if client is mobile (React Native / Expo) or web
+ * Mobile clients send specific headers that identify them
+ */
+function detectClientType(req: Request): ClientType {
+  // Check x-supabase-client-info header (case-insensitive)
+  const clientInfo = req.headers.get("x-supabase-client-info") 
+    || req.headers.get("X-Supabase-Client-Info") 
+    || "";
+  
+  // Check user-agent
+  const userAgent = req.headers.get("user-agent") || "";
+  
+  const clientInfoLower = clientInfo.toLowerCase();
+  const userAgentLower = userAgent.toLowerCase();
+  
+  // Mobile indicators
+  const isMobile = 
+    clientInfoLower.includes("expo") ||
+    clientInfoLower.includes("react-native") ||
+    clientInfoLower.includes("reactnative") ||
+    userAgentLower.includes("okhttp") ||
+    userAgentLower.includes("reactnative") ||
+    userAgentLower.includes("expo");
+  
+  return isMobile ? "mobile" : "web";
+}
+
+// Mobile section definitions for sectioned experience
+interface MobileSectionDef {
+  key: string;
+  title_fr: string;
+  title_en: string;
+  title: string;
+  seeds: string[];
+  category?: string;
+  minPrice?: number;
+  target: number;
+}
+
+const MOBILE_SECTION_DEFS: MobileSectionDef[] = [
+  { 
+    key: "phones", 
+    title_fr: "Téléphones", 
+    title_en: "Phones", 
+    title: "Phones",
+    seeds: ["iphone 15", "samsung galaxy s24", "pixel 8"],
+    target: 20 
+  },
+  { 
+    key: "video_games", 
+    title_fr: "Jeux Vidéo", 
+    title_en: "Video Games", 
+    title: "Video Games",
+    seeds: ["ps5 console", "nintendo switch", "xbox series x"],
+    target: 20 
+  },
+  { 
+    key: "computers", 
+    title_fr: "Ordinateurs", 
+    title_en: "Computers", 
+    title: "Computers",
+    seeds: ["macbook pro", "dell laptop", "gaming laptop"],
+    target: 20 
+  },
+  { 
+    key: "vehicles", 
+    title_fr: "Véhicules", 
+    title_en: "Vehicles", 
+    title: "Vehicles",
+    seeds: ["toyota camry", "honda civic", "bmw 3 series"],
+    category: "6000",
+    minPrice: 5000,
+    target: 20 
+  },
+  { 
+    key: "clothing", 
+    title_fr: "Vêtements", 
+    title_en: "Clothing", 
+    title: "Clothing",
+    seeds: ["nike jordan", "adidas originals", "levi jeans"],
+    target: 20 
+  },
+  { 
+    key: "electronics", 
+    title_fr: "Électronique", 
+    title_en: "Electronics", 
+    title: "Electronics",
+    seeds: ["airpods pro", "sony headphones", "samsung tv"],
+    target: 20 
+  },
+];
+
 // ===== POOL & PAGINATION CONSTANTS =====
 const DEFAULT_POOL_SIZE = 1000;
 const DEFAULT_PAGE_SIZE = 100; // Fixed at 100 for stable mobile UX
@@ -728,6 +824,48 @@ async function loadHomeSectionsAndSeeds(): Promise<{ sections: SectionConfig[] |
   }
 }
 
+interface CacheEntry {
+  id: string;
+  env: string;
+  items: CatalogItem[];
+  created_at: string;
+  expires_at: string;
+  meta: Record<string, unknown>;
+}
+
+/**
+ * Build mobile sectioned response from cached pool
+ * Groups items by segment property or distributes evenly across sections
+ */
+function buildMobileSectionsFromPoolV2(
+  items: CatalogItem[], 
+  locale: string
+): { sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }>; totalItems: number } {
+  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
+  
+  // Distribute items evenly across mobile sections
+  const itemsPerSection = Math.ceil(items.length / MOBILE_SECTION_DEFS.length);
+  let offset = 0;
+  
+  for (const mobileSec of MOBILE_SECTION_DEFS) {
+    const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
+    offset += itemsPerSection;
+    
+    if (sectionItems.length > 0) {
+      sections.push({
+        key: mobileSec.key,
+        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title_fr: mobileSec.title_fr,
+        title_en: mobileSec.title_en,
+        items: sectionItems,
+      });
+    }
+  }
+  
+  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
+  return { sections, totalItems };
+}
+
 serve(async (req) => {
   const correlationId = generateCorrelationId();
   
@@ -738,11 +876,14 @@ serve(async (req) => {
 
   const startTime = Date.now();
   
+  // ===== CLIENT DETECTION =====
+  const clientType = detectClientType(req);
+  
   // CRITICAL: Normalize environment with proper fallback
   const { envRequested, envUsed } = normalizeEnv(req);
   let env = envUsed;
   
-  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} envRequested=${envRequested} envUsed=${env}`);
+  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env}`);
 
   // Wrap EVERYTHING in try/catch to guarantee no throws
   try {
@@ -750,8 +891,9 @@ serve(async (req) => {
     let currency = "USD";
     let limitPerSection = TARGET_ITEMS;
     
-    // PAGINATION: Fixed at 100 per page for stable mobile UX
-    const pageSize = DEFAULT_PAGE_SIZE; // Always 100
+    // PAGE SIZE: Web uses 100, Mobile uses 20 per section
+    const mobilePageSize = 20;
+    let pageSize = clientType === "mobile" ? mobilePageSize : DEFAULT_PAGE_SIZE;
     let page = 1;
     let forceLive = false;
 
@@ -785,7 +927,7 @@ serve(async (req) => {
       }
     }
 
-    console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} locale=${locale} page=${page} pageSize=${pageSize} forceLive=${forceLive}`);
+    console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} client=${clientType} locale=${locale} page=${page} pageSize=${pageSize} forceLive=${forceLive}`);
 
     // ===== CACHE-FIRST: Check for cached feed (shared with catalog-home) =====
     let cached: CacheEntry | null = null;
@@ -825,9 +967,40 @@ serve(async (req) => {
         const hasMoreCached = page < actualTotalPages;
         
         const totalMs = Date.now() - startTime;
-        console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} isStale=${isStale} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
+        console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
         
-        // MOBILE CONTRACT: Single section with empty titles for one-feed experience
+        // ===== DUAL-MODE RESPONSE =====
+        if (clientType === "mobile") {
+          // MOBILE: Return multiple sections with real titles
+          const { sections: mobileSections, totalItems } = buildMobileSectionsFromPoolV2(cached.items, locale);
+          
+          console.log(`[CATALOG_HOME_V2] mobile_sections correlationId=${correlationId} sectionsCount=${mobileSections.length} totalItems=${totalItems}`);
+          
+          return jsonResponse({
+            ok: true,
+            sections: mobileSections,
+            page,
+            pageSize,
+            totalPages: 1, // Mobile uses sections, not pages
+            totalItems,
+            hasMore: false, // Mobile gets all sections at once
+            hasMoreCached: false,
+            ttlSeconds: 1800,
+            correlationId,
+            meta: {
+              client: "mobile",
+              envUsed: cacheEnvUsed,
+              envRequested,
+              source: "cache",
+              isStale,
+              correlationId,
+              ts: Date.now(),
+              totalMs,
+            }
+          });
+        }
+        
+        // WEB: Return single "featured" section (current working behavior)
         return jsonResponse({
           ok: true,
           sections: [{
@@ -842,11 +1015,12 @@ serve(async (req) => {
           pageSize,
           totalPages: actualTotalPages,
           totalItems: poolSize,
-          hasMore: true, // Always true - can continue with live after cache
+          hasMore: true,
           hasMoreCached,
           ttlSeconds: 1800,
           correlationId,
           meta: {
+            client: "web",
             envUsed: cacheEnvUsed,
             envRequested,
             source: "cache",
@@ -923,9 +1097,39 @@ serve(async (req) => {
     const hasMoreCached = page < actualTotalPages;
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_V2] live_success correlationId=${correlationId} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} totalMs=${totalMs} envUsed=${env}`);
+    console.log(`[CATALOG_HOME_V2] live_success correlationId=${correlationId} client=${clientType} poolSize=${poolSize} page=${page}/${actualTotalPages} returning=${pageItems.length} totalMs=${totalMs} envUsed=${env}`);
 
-    // MOBILE CONTRACT: Single section with empty titles
+    // ===== DUAL-MODE RESPONSE FOR LIVE =====
+    if (clientType === "mobile") {
+      // MOBILE: Return multiple sections with real titles from live results
+      const { sections: mobileSections, totalItems } = buildMobileSectionsFromPoolV2(allItems, locale);
+      
+      return jsonResponse({
+        ok: mobileSections.length > 0,
+        sections: mobileSections,
+        page,
+        pageSize,
+        totalPages: 1,
+        totalItems,
+        hasMore: false,
+        hasMoreCached: false,
+        ttlSeconds: 1800,
+        correlationId,
+        meta: {
+          client: "mobile",
+          envUsed: env,
+          envRequested,
+          source: "live",
+          isStale: false,
+          segmentCounts,
+          correlationId,
+          totalMs,
+          ts: Date.now(),
+        }
+      });
+    }
+
+    // WEB: Single "featured" section (current working behavior)
     return jsonResponse({
       ok: pageItems.length > 0,
       sections: [{
@@ -945,6 +1149,7 @@ serve(async (req) => {
       ttlSeconds: 1800,
       correlationId,
       meta: {
+        client: "web",
         envUsed: env,
         envRequested,
         source: "live",

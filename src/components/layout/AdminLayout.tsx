@@ -92,6 +92,7 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Système' : 'System',
       items: [
         { to: '/admin/home-curation', icon: Home, label: language === 'fr' ? 'Curation Accueil' : 'Home Curation', exact: false, permission: 'can_view_settings' as const },
+        { to: '/admin/home-recipes', icon: Store, label: language === 'fr' ? 'Recettes Accueil' : 'Home Recipes', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Sources Catalogue' : 'Catalog Sources', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/cars-settings', icon: Car, label: language === 'fr' ? 'Voitures' : 'Cars API', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/cache-settings', icon: Database, label: language === 'fr' ? 'Cache' : 'Cache', exact: false, permission: 'can_view_settings' as const },

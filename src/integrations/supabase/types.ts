@@ -1966,6 +1966,170 @@ export type Database = {
         }
         Relationships: []
       }
+      home_cache_mobile_sections: {
+        Row: {
+          built_at: string
+          env: string
+          payload: Json
+          schema_version: number
+          ttl_seconds: number
+        }
+        Insert: {
+          built_at?: string
+          env: string
+          payload: Json
+          schema_version: number
+          ttl_seconds: number
+        }
+        Update: {
+          built_at?: string
+          env?: string
+          payload?: Json
+          schema_version?: number
+          ttl_seconds?: number
+        }
+        Relationships: []
+      }
+      home_cache_web_feed: {
+        Row: {
+          built_at: string
+          env: string
+          payload: Json
+          schema_version: number
+          ttl_seconds: number
+        }
+        Insert: {
+          built_at?: string
+          env: string
+          payload: Json
+          schema_version: number
+          ttl_seconds: number
+        }
+        Update: {
+          built_at?: string
+          env?: string
+          payload?: Json
+          schema_version?: number
+          ttl_seconds?: number
+        }
+        Relationships: []
+      }
+      home_recipe_seeds: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          query: string
+          recipe_id: string
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          query: string
+          recipe_id: string
+          weight?: number
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          query?: string
+          recipe_id?: string
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "home_recipe_seeds_recipe_id_fkey"
+            columns: ["recipe_id"]
+            isOneToOne: false
+            referencedRelation: "home_recipes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      home_recipes: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          key: string
+          max_price_usd: number | null
+          min_price_usd: number | null
+          mode: string
+          provider_policy: Json
+          sort_order: number
+          target: string
+          title_en: string | null
+          title_fr: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          key: string
+          max_price_usd?: number | null
+          min_price_usd?: number | null
+          mode?: string
+          provider_policy?: Json
+          sort_order?: number
+          target: string
+          title_en?: string | null
+          title_fr?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          key?: string
+          max_price_usd?: number | null
+          min_price_usd?: number | null
+          mode?: string
+          provider_policy?: Json
+          sort_order?: number
+          target?: string
+          title_en?: string | null
+          title_fr?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      home_refresh_settings: {
+        Row: {
+          env: string
+          mobile_enabled: boolean
+          mobile_refresh_hours: number
+          mobile_schema_version: number
+          updated_at: string
+          web_enabled: boolean
+          web_refresh_hours: number
+          web_schema_version: number
+        }
+        Insert: {
+          env: string
+          mobile_enabled?: boolean
+          mobile_refresh_hours?: number
+          mobile_schema_version?: number
+          updated_at?: string
+          web_enabled?: boolean
+          web_refresh_hours?: number
+          web_schema_version?: number
+        }
+        Update: {
+          env?: string
+          mobile_enabled?: boolean
+          mobile_refresh_hours?: number
+          mobile_schema_version?: number
+          updated_at?: string
+          web_enabled?: boolean
+          web_refresh_hours?: number
+          web_schema_version?: number
+        }
+        Relationships: []
+      }
       home_section_seeds: {
         Row: {
           created_at: string | null

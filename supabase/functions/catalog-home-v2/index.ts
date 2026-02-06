@@ -39,17 +39,20 @@ interface DetectionResult {
 
 /**
  * Detect if client is mobile (React Native / Expo) or web
- * DETERMINISTIC: Query param > x-device-id header > platform > UA
- * ROBUST: Treat as mobile if ANY mobile indicator is present
+ * AGGRESSIVE: If it doesn't look like a browser, assume mobile
+ * This ensures mobile app NEVER gets web response format
  */
 function detectClientType(req: Request): DetectionResult {
   const h = req.headers;
   const url = new URL(req.url);
   
-  // PRIORITY 0: Explicit ?client=mobile query param (most reliable)
+  // PRIORITY 0: Explicit ?client=mobile or ?client=web query param
   const clientParam = url.searchParams.get("client")?.toLowerCase() || "";
   if (clientParam === "mobile") {
     return { clientType: "mobile", detectedBy: "query-param" };
+  }
+  if (clientParam === "web") {
+    return { clientType: "web", detectedBy: "query-param-web" };
   }
   
   // PRIORITY 1: x-device-id header (mobile app should send this)
@@ -64,7 +67,7 @@ function detectClientType(req: Request): DetectionResult {
     return { clientType: "mobile", detectedBy: "platform" };
   }
   
-  // PRIORITY 3: User-Agent patterns
+  // PRIORITY 3: User-Agent - check for mobile patterns
   const userAgent = (h.get("user-agent") || "").toLowerCase();
   if (userAgent.includes("okhttp")) {
     return { clientType: "mobile", detectedBy: "ua-okhttp" };
@@ -97,8 +100,26 @@ function detectClientType(req: Request): DetectionResult {
     return { clientType: "mobile", detectedBy: "afrishop-client" };
   }
   
-  // Default: Web
-  return { clientType: "web", detectedBy: "none" };
+  // PRIORITY 6: AGGRESSIVE - If User-Agent doesn't contain typical browser signatures, assume mobile
+  const isBrowserUA = userAgent.includes("mozilla") || 
+                      userAgent.includes("chrome") || 
+                      userAgent.includes("safari") || 
+                      userAgent.includes("firefox") || 
+                      userAgent.includes("edge") ||
+                      userAgent.includes("opera") ||
+                      userAgent.includes("webkit");
+  
+  if (!isBrowserUA && userAgent.length > 0) {
+    return { clientType: "mobile", detectedBy: "non-browser-ua" };
+  }
+  
+  // PRIORITY 7: Check for mobile device in UA (Android/iOS browsers)
+  if (userAgent.includes("android") || userAgent.includes("iphone") || userAgent.includes("ipad")) {
+    return { clientType: "mobile", detectedBy: "mobile-browser" };
+  }
+  
+  // Default: Web (only if it's clearly a desktop browser)
+  return { clientType: "web", detectedBy: "browser" };
 }
 
 // Mobile section definitions

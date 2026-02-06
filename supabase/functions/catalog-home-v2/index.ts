@@ -208,8 +208,20 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
   return { envRequested, envUsed };
 }
 
+// Segment-to-section mapping: cache segments → mobile section keys
+const SEGMENT_TO_SECTION: Record<string, string> = {
+  phones: "phones",
+  accessories: "electronics",
+  cars: "vehicles",
+  gaming: "video_games",
+  home: "home_garden",
+};
+
 /**
  * Build mobile sections from a pool of items
+ * Phase 1: Match by segment tag (fast, accurate)
+ * Phase 2: Keyword fallback for unmatched items only
+ * NO blind redistribution — empty sections are better than wrong items
  */
 function buildMobileSectionsFromPool(
   items: CatalogItem[], 
@@ -217,7 +229,6 @@ function buildMobileSectionsFromPool(
 ): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
   const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
   
-  // Always return 8 sections structure
   if (!items || items.length === 0) {
     for (const def of MOBILE_SECTION_DEFS) {
       sections.push({
@@ -232,51 +243,49 @@ function buildMobileSectionsFromPool(
   }
   
   const usedItems = new Set<string>();
-  
+  const sectionBuckets: Record<string, CatalogItem[]> = {};
   for (const def of MOBILE_SECTION_DEFS) {
-    const sectionItems: CatalogItem[] = [];
-    
-    for (const item of items) {
-      if (usedItems.has(item.id)) continue;
-      if (sectionItems.length >= def.target) break;
-      
-      const titleLower = (item.title || "").toLowerCase();
-      const matchesKeyword = def.keywords.some(kw => titleLower.includes(kw));
-      
-      if (matchesKeyword) {
-        sectionItems.push(item);
+    sectionBuckets[def.key] = [];
+  }
+  
+  // PHASE 1: Assign items by segment tag (primary, accurate)
+  for (const item of items) {
+    if (!item.segment) continue;
+    const targetSection = SEGMENT_TO_SECTION[item.segment];
+    if (targetSection && sectionBuckets[targetSection]) {
+      const def = MOBILE_SECTION_DEFS.find(d => d.key === targetSection);
+      if (def && sectionBuckets[targetSection].length < def.target) {
+        sectionBuckets[targetSection].push(item);
         usedItems.add(item.id);
       }
     }
+  }
+  
+  // PHASE 2: Keyword fallback for items WITHOUT a segment tag
+  for (const item of items) {
+    if (usedItems.has(item.id)) continue;
+    if (item.segment) continue;
     
+    const titleLower = (item.title || "").toLowerCase();
+    for (const def of MOBILE_SECTION_DEFS) {
+      if (sectionBuckets[def.key].length >= def.target) continue;
+      const matchesKeyword = def.keywords.some(kw => titleLower.includes(kw));
+      if (matchesKeyword) {
+        sectionBuckets[def.key].push(item);
+        usedItems.add(item.id);
+        break;
+      }
+    }
+  }
+  
+  for (const def of MOBILE_SECTION_DEFS) {
     sections.push({
       key: def.key,
       title: lang === "fr" ? def.title_fr : def.title_en,
       title_fr: def.title_fr,
       title_en: def.title_en,
-      items: sectionItems,
+      items: sectionBuckets[def.key],
     });
-  }
-  
-  // Redistribute if most sections empty
-  const sectionsWithItems = sections.filter(s => s.items.length > 0);
-  if (sectionsWithItems.length < 3 && items.length > 0) {
-    sections.length = 0;
-    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTION_DEFS.length);
-    let offset = 0;
-    
-    for (const def of MOBILE_SECTION_DEFS) {
-      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, def.target));
-      offset += itemsPerSection;
-      
-      sections.push({
-        key: def.key,
-        title: lang === "fr" ? def.title_fr : def.title_en,
-        title_fr: def.title_fr,
-        title_en: def.title_en,
-        items: sectionItems,
-      });
-    }
   }
   
   return sections;

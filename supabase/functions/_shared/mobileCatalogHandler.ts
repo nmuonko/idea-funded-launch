@@ -143,6 +143,12 @@ export function isMobileClient(req: Request): boolean {
   const platform = (req.headers.get("x-supabase-client-platform") || "").toLowerCase();
   const afrishopClient = (req.headers.get("x-afrishop-client") || "").toLowerCase();
   
+  // PRIORITY 0: x-device-id header - mobile app ALWAYS sends this
+  const deviceId = req.headers.get("x-device-id") || req.headers.get("X-Device-Id") || "";
+  if (deviceId && deviceId.trim().length > 0) {
+    return true;
+  }
+  
   return (
     // User-Agent patterns
     userAgent.includes("okhttp") ||

@@ -70,19 +70,27 @@ export default function ProductDetailsPage() {
           cleanProductId = productIdDecoded.slice(11);
         }
         
-        // Build the full product ID in format "provider:productId"
-        const fullId = `${provider}:${cleanProductId}`;
+        // Normalize provider: rainforest -> amazon for the API call
+        // The backend accepts amazon/ebay only (rainforest is internal)
+        const normalizedProvider = lowerProvider === 'rainforest' ? 'amazon' : lowerProvider;
         
-        // Use GET request with query params (catalog-product expects this)
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product?id=${encodeURIComponent(fullId)}`,
-          {
-            headers: {
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
+        // Build URL with separate provider and id params (recommended format)
+        const apiUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
+        apiUrl.searchParams.set('provider', normalizedProvider);
+        apiUrl.searchParams.set('id', cleanProductId);
+        
+        // Add amazon_domain for amazon products
+        if (normalizedProvider === 'amazon') {
+          apiUrl.searchParams.set('amazon_domain', 'amazon.com');
+        }
+        
+        // Use GET request with query params
+        const response = await fetch(apiUrl.toString(), {
+          headers: {
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'Content-Type': 'application/json',
+          },
+        });
         
         const data = await response.json();
         

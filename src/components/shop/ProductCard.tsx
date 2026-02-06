@@ -96,7 +96,6 @@ export function ProductCard({ product, className, compact = false }: ProductCard
   // e.g., "amazon_B0XYZ..." -> "B0XYZ...", "ebay_v1|123|456" -> "v1|123|456"
   const getProductIdForUrl = (): string => {
     const id = product.id;
-    const provider = product.provider.toLowerCase();
     
     // Strip prefix if present
     if (id.toLowerCase().startsWith('amazon_')) {
@@ -113,13 +112,19 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     return id;
   };
 
-  // Normalize provider for URL (amazon/rainforest -> rainforest for API compatibility)
+  // Get provider for URL - MUST be "amazon" or "ebay" only (never "rainforest")
   const getProviderForUrl = (): string => {
     const provider = product.provider.toLowerCase();
-    if (provider === 'amazon' || provider === 'rainforest') {
-      return 'rainforest';
+    // Normalize rainforest -> amazon for frontend routing
+    if (provider === 'rainforest') {
+      return 'amazon';
     }
-    return provider;
+    // Only allow amazon or ebay
+    if (provider === 'amazon' || provider === 'ebay') {
+      return provider;
+    }
+    // Default to amazon for unknown
+    return 'amazon';
   };
 
   return (

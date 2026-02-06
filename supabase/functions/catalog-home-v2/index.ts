@@ -332,14 +332,14 @@ async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache
     if (freshRes.ok && freshRes.status !== 406) {
       const data = await freshRes.json();
       if (data && data.items && data.items.length > 0) {
-        // Check schema version - treat old schema as cache miss
-        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
-        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
-          console.log(`[CATALOG_HOME_V2] cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
-          // Continue to try stale or return null - don't use mismatched schema
-        } else {
+        // Forward-compatible schema check: accept null/0/older/current, reject only future
+        const schemaVersion = data.meta?.schemaVersion ?? data.schema_version ?? 0;
+        const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
+        console.log(`[CATALOG_HOME_V2] cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
+        if (isCompatible) {
           return { cache: data as CacheEntry, isStale: false };
         }
+        console.log(`[CATALOG_HOME_V2] cache_schema_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
       }
     }
 
@@ -358,14 +358,14 @@ async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache
     if (staleRes.ok && staleRes.status !== 406) {
       const data = await staleRes.json();
       if (data && data.items && data.items.length > 0) {
-        // Check schema version for stale cache too
-        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
-        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
-          console.log(`[CATALOG_HOME_V2] stale_cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
-          return { cache: null, isStale: false };
+        // Forward-compatible: accept null/0/older/current, reject only future
+        const schemaVersion = data.meta?.schemaVersion ?? data.schema_version ?? 0;
+        const isCompatible = schemaVersion <= CACHE_SCHEMA_VERSION;
+        console.log(`[CATALOG_HOME_V2] stale_cacheHit key=${cacheKey} schemaVersion=${schemaVersion} items=${data.items.length} compatible=${isCompatible}`);
+        if (isCompatible) {
+          return { cache: data as CacheEntry, isStale: true };
         }
-        console.log(`[CATALOG_HOME_V2] stale_cache_available key=${cacheKey} items=${data.items.length}`);
-        return { cache: data as CacheEntry, isStale: true };
+        console.log(`[CATALOG_HOME_V2] stale_cache_future_incompatible key=${cacheKey} cacheVersion=${schemaVersion} current=${CACHE_SCHEMA_VERSION}`);
       }
     }
 
@@ -402,9 +402,12 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     );
 
     if (!res.ok) {
-      console.error(`[CATALOG_HOME_V2][BOOTSTRAP] DB fetch failed: ${res.status}`);
+      const body = await res.text().catch(() => "");
+      console.error(`[CATALOG_HOME_V2][ERROR] bootstrap status=${res.status} body=${body.substring(0, 200)} correlationId=${correlationId}`);
       return [];
     }
+    
+    console.log(`[CATALOG_HOME_V2] bootstrap ok correlationId=${correlationId}`);
 
     const rows = await res.json() as Array<Record<string, unknown>>;
     

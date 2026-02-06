@@ -1,85 +1,86 @@
 
-# Fix Mobile Homepage Categories - Backend Hotfix
 
-## Problem Identified
-Mobile app shows "En vedette" (single section) instead of the 8 category sections (Téléphones, Véhicules, etc.) due to two critical backend issues:
+# Fix Mobile "Catalogue Indisponible" - Root Cause Analysis Complete
 
-### Issue 1: Bootstrap DB Query Failure (400 Error)
-The `bootstrapFromDatabase()` function in both `catalog-home` and `catalog-home-v2` edge functions uses this query:
+## Current Status: Backend is WORKING
+
+The backend edge functions are correctly returning the 8-section mobile response:
+
+### Evidence from Server Logs
 ```
-order=updated_at.desc.nullslast,created_at.desc
-```
-**Problem**: The `catalog_items` table does NOT have a `created_at` column, causing a 400 Bad Request.
-
-### Issue 2: Cache Schema Version Mismatch
-- Current cached rows have `schemaVersion = null` (or missing)
-- Code requires `CACHE_SCHEMA_VERSION = 4`
-- All cache is rejected → triggers bootstrap → bootstrap fails → empty sections
-
-## Solution
-
-### Step 1: Fix Bootstrap Query
-**Files to modify:**
-- `supabase/functions/catalog-home/index.ts` (line ~494)
-- `supabase/functions/catalog-home-v2/index.ts` (line ~395)
-
-Change from:
-```typescript
-order=updated_at.desc.nullslast,created_at.desc
+[CATALOG_HOME] mobile_response sections=8 totalItems=117
 ```
 
-To:
-```typescript
-order=updated_at.desc.nullslast
+### Evidence from Direct API Test
+Testing with mobile User-Agent returns:
+```json
+{
+  "ok": true,
+  "sections": [
+    { "key": "phones", "title": "Téléphones", "items": [...] },
+    { "key": "electronics", "title": "Électronique", "items": [...] },
+    { "key": "vehicles", "title": "Véhicules", "items": [...] },
+    { "key": "video_games", "title": "Jeux Vidéo", "items": [...] },
+    { "key": "clothing_fashion", "title": "Vêtements et Mode", "items": [...] },
+    { "key": "home_garden", "title": "Maison et Jardin", "items": [...] },
+    { "key": "toys", "title": "Jouets", "items": [...] },
+    { "key": "sporting_goods", "title": "Articles de Sport", "items": [...] }
+  ]
+}
 ```
 
-### Step 2: Regenerate Valid Cache
-After fixing the bootstrap query:
-1. The bootstrap will successfully fetch ~300 items from `catalog_items`
-2. These will be used to build mobile sections (Phones, Electronics, Vehicles, etc.)
-3. The cache will be saved with correct `schemaVersion: 4`
+## Root Cause: NOT Backend
 
-### Step 3: Deploy Edge Functions
-Redeploy both functions:
-- `catalog-home`
-- `catalog-home-v2`
+The backend is correctly:
+1. Detecting mobile clients (via okhttp/expo User-Agent)
+2. Building 8 sections with proper titles
+3. Returning `ok: true` with non-empty sections
 
-## Technical Details
+## Possible Mobile App Issues
 
-### Current Bootstrap Query (Broken)
-```
-supabaseUrl/rest/v1/catalog_items?
-  provider=in.(amazon,ebay)&
-  price_usd=gt.0&
-  image_url=neq.null&
-  is_disallowed=eq.false&
-  order=updated_at.desc.nullslast,created_at.desc&  ← FAILS: created_at doesn't exist
-  limit=300
-```
+### 1. Cached Error Response
+The mobile app may have cached the previous failed response. This is common in React Native/Expo apps that use local storage or AsyncStorage.
 
-### Fixed Bootstrap Query
-```
-supabaseUrl/rest/v1/catalog_items?
-  provider=in.(amazon,ebay)&
-  price_usd=gt.0&
-  image_url=neq.null&
-  is_disallowed=eq.false&
-  order=updated_at.desc.nullslast&  ← WORKS: only updated_at
-  limit=300
-```
+**Action Required**: Clear app cache/data and restart the app completely (force quit and reopen).
 
-### Database Verification
-- `catalog_items` has 2,501 items available
-- 2,500 have images, 2,501 have prices
-- Query without `created_at` works correctly
+### 2. Wrong Endpoint URL
+The app might be calling a different path that doesn't exist:
+- Wrong: `/catalog/home` (old path)
+- Correct: `/functions/v1/catalog-home`
 
-## Files to Modify
-1. `supabase/functions/catalog-home/index.ts` - Line 494
-2. `supabase/functions/catalog-home-v2/index.ts` - Line 395
+### 3. Mobile-Side Parse Error
+The app may be expecting a different response shape. Check if the app's parser expects:
+- `sections` array with specific field names
+- Different casing (`title` vs `Title`)
+- Different field order
 
-## Expected Outcome
-After deployment:
-1. Bootstrap query succeeds (no more 400 error)
-2. Mobile gets 8 sections with proper titles (Téléphones, Véhicules, etc.)
-3. Cache is regenerated with correct schema version
-4. Web remains unchanged (single-feed behavior preserved)
+### 4. Network/CORS Blocking
+The request may be failing silently due to:
+- Network connectivity issues
+- SSL certificate problems
+- CORS blocking (though our headers should handle this)
+
+## Recommended Next Steps
+
+Since the backend is confirmed working, the fix needs to happen on the mobile app side:
+
+1. **Force quit and restart the mobile app** - This clears any in-memory cache
+2. **Clear app data/cache** - In device settings > Apps > AfriShop > Clear Cache
+3. **Check the app's network tab** (if using Expo/React Native debugger) to see:
+   - What URL is being called
+   - What response is being received
+   - Any network errors
+
+4. **If using Expo Go**: Shake device > Network Inspector > Check requests
+
+## No Backend Changes Required
+
+The current backend implementation includes:
+- Forward-compatible cache schema (accepts null/0/older versions)
+- Fixed bootstrap query (removed `created_at`)
+- Proper 8-section mobile response with French titles
+- Aggressive mobile detection (okhttp, expo, reactnative patterns)
+- Failsafe empty-sections fallback
+
+All these changes are deployed and working as verified by direct curl testing.
+

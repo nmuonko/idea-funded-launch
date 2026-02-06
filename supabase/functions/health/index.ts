@@ -1,177 +1,152 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
 /**
- * Health Check Endpoint
+ * Health Check Endpoint (SDK-Free)
  * 
  * Validates:
  * - Database connectivity
  * - Settings table has valid data
- * - MaishaPay API reachability (optional)
+ * - Environment variables
+ * - MaishaPay API config (optional)
  * 
  * GET /health
  * Returns: { status: "healthy" | "degraded" | "unhealthy", checks: {...} }
+ * 
+ * SDK-FREE: Uses lightweight PostgREST client to avoid bundler timeouts.
  */
+
+import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
 
 interface HealthCheck {
   name: string;
-  status: 'pass' | 'fail' | 'warn';
+  status: "pass" | "fail" | "warn";
   latencyMs?: number;
   message?: string;
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   const startTime = Date.now();
   const checks: HealthCheck[] = [];
-  
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-  );
 
   // Check 1: Database connectivity
   const dbStart = Date.now();
   try {
-    const { data, error } = await supabase
-      .from('settings')
-      .select('id, exchange_rate_usd_to_cdf')
+    const db = createAdminPostgrestClient();
+    const { data, error } = await db
+      .from("settings")
+      .select("id, exchange_rate_usd_to_cdf")
       .limit(1)
       .maybeSingle();
-    
+
     const dbLatency = Date.now() - dbStart;
-    
+
     if (error) {
       checks.push({
-        name: 'database',
-        status: 'fail',
+        name: "database",
+        status: "fail",
         latencyMs: dbLatency,
         message: error.message,
       });
     } else if (!data) {
       checks.push({
-        name: 'database',
-        status: 'warn',
+        name: "database",
+        status: "warn",
         latencyMs: dbLatency,
-        message: 'Settings table is empty',
+        message: "Settings table is empty",
       });
     } else {
       checks.push({
-        name: 'database',
-        status: 'pass',
+        name: "database",
+        status: "pass",
         latencyMs: dbLatency,
         message: `Exchange rate: ${data.exchange_rate_usd_to_cdf}`,
       });
     }
   } catch (err: any) {
     checks.push({
-      name: 'database',
-      status: 'fail',
+      name: "database",
+      status: "fail",
       latencyMs: Date.now() - dbStart,
       message: err.message,
     });
   }
 
-  // Check 2: Auth service
-  const authStart = Date.now();
-  try {
-    // Simple auth check - just verify the client can be created
-    const { data: { users }, error } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 1,
-    });
-    
-    const authLatency = Date.now() - authStart;
-    
-    if (error) {
-      checks.push({
-        name: 'auth',
-        status: 'warn',
-        latencyMs: authLatency,
-        message: error.message,
-      });
-    } else {
-      checks.push({
-        name: 'auth',
-        status: 'pass',
-        latencyMs: authLatency,
-      });
-    }
-  } catch (err: any) {
-    checks.push({
-      name: 'auth',
-      status: 'warn',
-      latencyMs: Date.now() - authStart,
-      message: err.message,
-    });
-  }
-
-  // Check 3: Environment variables
+  // Check 2: Environment variables
   const requiredEnvVars = [
-    'SUPABASE_URL',
-    'SUPABASE_SERVICE_ROLE_KEY',
-    'SUPABASE_ANON_KEY',
-    'RESEND_API_KEY',
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
   ];
-  
-  const missingEnvVars = requiredEnvVars.filter(v => !Deno.env.get(v));
-  
+
+  const missingEnvVars = requiredEnvVars.filter((v) => !Deno.env.get(v));
+
   if (missingEnvVars.length > 0) {
     checks.push({
-      name: 'environment',
-      status: 'fail',
-      message: `Missing: ${missingEnvVars.join(', ')}`,
+      name: "environment",
+      status: "fail",
+      message: `Missing: ${missingEnvVars.join(", ")}`,
     });
   } else {
     checks.push({
-      name: 'environment',
-      status: 'pass',
+      name: "environment",
+      status: "pass",
     });
   }
 
-  // Check 4: MaishaPay config (optional)
-  const maishapayVars = ['MAISHAPAY_PUBLIC_API_KEY', 'MAISHAPAY_SECRET_API_KEY'];
-  const hasMaishapay = maishapayVars.every(v => Deno.env.get(v));
-  
-  checks.push({
-    name: 'maishapay',
-    status: hasMaishapay ? 'pass' : 'warn',
-    message: hasMaishapay ? 'Configured' : 'Not configured (payments may not work)',
-  });
+  // Check 3: Optional API keys
+  const optionalVars = ["RESEND_API_KEY", "MAISHAPAY_PUBLIC_API_KEY", "MAISHAPAY_SECRET_API_KEY"];
+  const missingOptional = optionalVars.filter((v) => !Deno.env.get(v));
+
+  if (missingOptional.length > 0) {
+    checks.push({
+      name: "optional_services",
+      status: "warn",
+      message: `Not configured: ${missingOptional.join(", ")}`,
+    });
+  } else {
+    checks.push({
+      name: "optional_services",
+      status: "pass",
+      message: "All optional services configured",
+    });
+  }
 
   // Determine overall status
-  const hasFailure = checks.some(c => c.status === 'fail');
-  const hasWarning = checks.some(c => c.status === 'warn');
-  
-  let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
+  const hasFailure = checks.some((c) => c.status === "fail");
+  const hasWarning = checks.some((c) => c.status === "warn");
+
+  let overallStatus: "healthy" | "degraded" | "unhealthy";
   if (hasFailure) {
-    overallStatus = 'unhealthy';
+    overallStatus = "unhealthy";
   } else if (hasWarning) {
-    overallStatus = 'degraded';
+    overallStatus = "degraded";
   } else {
-    overallStatus = 'healthy';
+    overallStatus = "healthy";
   }
 
   const totalLatency = Date.now() - startTime;
 
+  console.log(`[HEALTH] status=${overallStatus} checks=${checks.length} ms=${totalLatency}`);
+
   return new Response(
     JSON.stringify({
+      ok: overallStatus !== "unhealthy",
       status: overallStatus,
       timestamp: new Date().toISOString(),
       totalLatencyMs: totalLatency,
       checks,
     }),
     {
-      status: overallStatus === 'unhealthy' ? 503 : 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: overallStatus === "unhealthy" ? 503 : 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     }
   );
 });

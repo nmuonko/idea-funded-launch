@@ -1,21 +1,24 @@
 /**
- * Catalog Product Details Endpoint - DB-First with Live Fallback
+ * Catalog Product Details Endpoint - DB-First with Live Fallback (SDK-Free)
  * 
  * GET /catalog-product?id=rainforest:B0GCRKG9N1
  * GET /catalog-product?asin=B0GCRKG9N1
+ * POST /catalog-product { provider, id }
  * 
  * DB-First Strategy:
  * - First check catalog_items table (preloaded data)
- * - If not found, fetch from Rainforest and cache
+ * - If not found, fetch from Rainforest/eBay and cache
  * 
  * IMPORTANT: This endpoint MUST always return 200 with stable JSON shape.
  * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
+ * 
+ * SDK-FREE: Uses lightweight PostgREST client to avoid bundler timeouts.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getEnvironmentFromRequest, getEnvironmentConfig, isCatalogEnabled } from "../_shared/environmentResolver.ts";
-import { fetchProductDetails, formatCatalogItem } from "../_shared/rainforestAdapter.ts";
-import { getEbayItem, CatalogItem as EbayCatalogItem } from "../_shared/ebayAdapter.ts";
+import { createAdminPostgrestClient, PostgrestClient } from "../_shared/postgrest.ts";
+import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
+import { fetchProductDetails } from "../_shared/rainforestAdapter.ts";
+import { getEbayItem } from "../_shared/ebayAdapter.ts";
 import { getDeviceId } from "../_shared/catalogCache.ts";
 import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
 import { 
@@ -39,49 +42,29 @@ const corsHeaders = {
 
 /**
  * Upgrade ALL gallery images to high-resolution for product detail view
- * Applies provider-specific resolution upgrades and deduplicates
  */
 function upgradeGalleryImages(images: string[], provider: string): string[] {
   if (!images || !Array.isArray(images)) return [];
   
   const seen = new Set<string>();
   const upgraded: string[] = [];
-  let logCount = 0;
-  const maxLogs = 5;
   
   for (const url of images) {
     if (!url || typeof url !== "string") continue;
     
     let upgradedUrl: string;
-    let wasUpgraded = false;
-    let wasThumbnail = false;
     
     if (provider === "ebay" || url.includes("ebayimg.com") || url.includes("i.ebayimg")) {
-      wasThumbnail = isEbayThumbnail(url);
       upgradedUrl = upgradeEbayImageToHighRes(url);
-      wasUpgraded = upgradedUrl !== url;
     } else if (provider === "rainforest" || url.includes("amazon") || url.includes("media-amazon") || url.includes("ssl-images-amazon")) {
-      wasThumbnail = isAmazonThumbnail(url);
       upgradedUrl = upgradeAmazonImageToHighRes(url);
-      wasUpgraded = upgradedUrl !== url;
     } else {
       upgradedUrl = url;
     }
     
-    // Deduplicate after upgrade (some URLs become identical)
     if (!seen.has(upgradedUrl)) {
       seen.add(upgradedUrl);
       upgraded.push(upgradedUrl);
-      
-      // Dev logging (limit to 5 per request)
-      if (IS_DEV && wasUpgraded && logCount < maxLogs) {
-        console.log(`[IMG_UPGRADE_DETAIL] provider=${provider} old=${url.substring(0, 60)} new=${upgradedUrl.substring(0, 60)}`);
-        logCount++;
-      }
-      
-      if (IS_DEV && wasThumbnail && logCount < maxLogs) {
-        console.log(`[THUMBNAIL_DETECTED] provider=${provider} url=${url.substring(0, 60)}`);
-      }
     }
   }
   
@@ -90,19 +73,16 @@ function upgradeGalleryImages(images: string[], provider: string): string[] {
 
 function validateAsin(asin: string): string | null {
   if (!asin || asin.length === 0) return "ASIN is required";
-  // ASINs are exactly 10 alphanumeric characters
   if (asin.length !== 10) return `ASIN must be 10 characters (got ${asin.length})`;
   if (!/^[A-Z0-9]+$/i.test(asin)) return "ASIN must be alphanumeric (A-Z, 0-9)";
   return null;
 }
 
 function isLikelyEbayId(id: string): boolean {
-  // eBay item IDs start with v1| or are numeric 12+ digits or contain |
   return id.startsWith("v1|") || id.includes("|") || /^\d{12,}$/.test(id);
 }
 
 function isLikelyAsin(id: string): boolean {
-  // ASINs are exactly 10 alphanumeric characters, often starting with B
   return /^[A-Z0-9]{10}$/i.test(id);
 }
 
@@ -111,61 +91,59 @@ function parseProductId(url: URL): { provider: string | null; productId: string 
   let productId: string | null = null;
 
   const id = (url.searchParams.get("id") || "").trim();
-  const lowerCaseId = id.toLowerCase();
+  
+  // Decode URL-encoded characters (e.g., %7C -> |)
+  const decodedId = decodeURIComponent(id);
+  const decodedLower = decodedId.toLowerCase();
   
   // Handle colon separator: "ebay:v1|..." or "rainforest:B0XYZ123"
-  if (id && id.includes(":")) {
-    const parts = id.split(":", 2);
+  if (decodedId && decodedId.includes(":")) {
+    const parts = decodedId.split(":", 2);
     provider = (parts[0] || "").trim().toLowerCase() || null;
     productId = (parts[1] || "").trim() || null;
   }
-  // Handle underscore separator: "ebay_v1|..." or "EBAY_V1|..."
-  else if (lowerCaseId.startsWith("ebay_")) {
+  // Handle underscore separator
+  else if (decodedLower.startsWith("ebay_")) {
     provider = "ebay";
-    productId = id.slice(5); // Keep original case for item ID
+    productId = decodedId.slice(5);
   }
-  else if (lowerCaseId.startsWith("rainforest_")) {
+  else if (decodedLower.startsWith("rainforest_")) {
     provider = "rainforest";
-    productId = id.slice(11);
+    productId = decodedId.slice(11);
   }
-  else if (lowerCaseId.startsWith("amazon_")) {
-    provider = "rainforest"; // Treat amazon as rainforest
-    productId = id.slice(7);
+  else if (decodedLower.startsWith("amazon_")) {
+    provider = "rainforest";
+    productId = decodedId.slice(7);
   }
-  // Fallback to query params or default
+  // Fallback to query params
   else {
     provider = (url.searchParams.get("provider") || "").trim().toLowerCase() || null;
     productId = (url.searchParams.get("asin") || url.searchParams.get("itemId") || "").trim() || null;
-    if (!productId && id) {
-      productId = id;
-      // Auto-detect provider based on ID format
-      if (isLikelyEbayId(id)) {
+    if (!productId && decodedId) {
+      productId = decodedId;
+      if (isLikelyEbayId(decodedId)) {
         provider = "ebay";
-      } else if (isLikelyAsin(id)) {
+      } else if (isLikelyAsin(decodedId)) {
         provider = "rainforest";
-        productId = id.toUpperCase();
+        productId = decodedId.toUpperCase();
       } else {
-        // Unknown format - try eBay first as it's more flexible
         provider = "ebay";
       }
     }
   }
 
-  // Normalize for rainforest - ASINs must be uppercase
   if (provider === "rainforest" && productId) {
     productId = productId.toUpperCase();
   }
 
   const rawId = provider && productId ? `${provider}:${productId}` : productId || id || "";
   
-  // Validate based on provider
   let idError: string | null = null;
   if (!productId) {
     idError = "Product ID is required";
   } else if (provider === "rainforest") {
     idError = validateAsin(productId);
   }
-  // For eBay, IDs are more flexible - no strict validation
 
   return { provider, productId, rawId, idError };
 }
@@ -176,10 +154,10 @@ interface CatalogItem {
   providerProductId: string;
   title: string;
   priceUsd: number | null;
-  mainImageUrl: string | null;    // Best single image for display
-  imageUrl: string | null;        // Backward compat
-  imageUrls: string[];            // ALL images for product detail gallery (HIGH-RES)
-  images: string[];               // Backward compat
+  mainImageUrl: string | null;
+  imageUrl: string | null;
+  imageUrls: string[];
+  images: string[];
   productUrl: string | null;
   inStock: boolean | null;
   rating: number | null;
@@ -194,20 +172,16 @@ interface CatalogItem {
 function mapDbItemToResponse(item: any): CatalogItem {
   const provider = item.provider || "rainforest";
   
-  // Get all images from DB, preferring full list
   let allImages: string[] = [];
   if (item.images && Array.isArray(item.images)) {
     allImages = item.images.filter((img: any): img is string => typeof img === "string" && img.length > 0);
   }
   
-  // Ensure image_url is first if not already in list
   if (item.image_url && !allImages.includes(item.image_url)) {
     allImages.unshift(item.image_url);
   }
   
-  // Upgrade ALL gallery images to high-res and deduplicate
   allImages = upgradeGalleryImages(allImages, provider);
-  
   const mainImage = allImages[0] || null;
   
   return {
@@ -217,9 +191,9 @@ function mapDbItemToResponse(item: any): CatalogItem {
     title: item.title || "",
     priceUsd: item.price_usd,
     mainImageUrl: mainImage,
-    imageUrl: mainImage,  // Backward compat
-    imageUrls: allImages, // ALL images for gallery (HIGH-RES)
-    images: allImages,    // Backward compat
+    imageUrl: mainImage,
+    imageUrls: allImages,
+    images: allImages,
     productUrl: item.product_url,
     inStock: item.in_stock,
     rating: item.rating,
@@ -231,25 +205,57 @@ function mapDbItemToResponse(item: any): CatalogItem {
 }
 
 Deno.serve(async (req: Request) => {
+  // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
+  const correlationId = crypto.randomUUID().slice(0, 8);
   const startTime = Date.now();
   const url = new URL(req.url);
   const envName = getEnvironmentFromRequest(req);
   const amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
-  const deviceId = getDeviceId(req);
 
-  const { provider, productId, rawId, idError } = parseProductId(url);
+  // Parse product ID from GET params or POST body
+  let provider: string | null = null;
+  let productId: string | null = null;
+  let rawId: string = "";
+  let idError: string | null = null;
+  
+  // Try POST body first
+  if (req.method === "POST") {
+    try {
+      const body = await req.json();
+      if (body.provider) provider = String(body.provider).toLowerCase();
+      if (body.id) {
+        productId = decodeURIComponent(String(body.id));
+        rawId = provider && productId ? `${provider}:${productId}` : productId;
+      }
+      console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=POST provider=${provider} idRaw=${productId?.substring(0, 40)}`);
+    } catch {
+      // Fall through to GET params
+    }
+  }
+  
+  // Fall back to GET params
+  if (!productId) {
+    const parsed = parseProductId(url);
+    provider = parsed.provider;
+    productId = parsed.productId;
+    rawId = parsed.rawId;
+    idError = parsed.idError;
+    console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} method=GET provider=${provider} idRaw=${productId?.substring(0, 40)}`);
+  }
 
   const errorResponse = (code: string, message: string) => {
-    console.log(`[CATALOG_PRODUCT] id=${productId || "MISSING"} provider=${provider || "unknown"} error=${code} durationMs=${Date.now() - startTime}`);
+    console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} code=${code} error=${message} ms=${Date.now() - startTime}`);
     return new Response(JSON.stringify({
+      ok: false,
       status: "error",
       env: envName,
       id: rawId || null,
       item: null,
+      product: null,
       source: "error",
       error: { code, message },
     }), {
@@ -259,8 +265,8 @@ Deno.serve(async (req: Request) => {
   };
 
   if (idError) return errorResponse("INVALID_ID", idError);
+  if (!productId) return errorResponse("MISSING_ID", "Product ID is required");
   
-  // Supported providers
   const SUPPORTED_PROVIDERS = ["rainforest", "ebay"];
   if (provider && !SUPPORTED_PROVIDERS.includes(provider)) {
     return errorResponse("PROVIDER_NOT_SUPPORTED", `Provider '${provider}' not supported`);
@@ -270,27 +276,13 @@ Deno.serve(async (req: Request) => {
   const fullProductId = `${effectiveProvider}:${productId}`;
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
-    if (!supabaseUrl || !supabaseKey) return errorResponse("CONFIG_ERROR", "Service unavailable");
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Check if this is an internal service role call (from mediaCache)
-    const authHeader = req.headers.get("authorization") || "";
-    const isServiceRoleCall = authHeader.includes(supabaseKey);
-
-    // Skip catalog enabled check for internal service calls (allows media enrichment to work)
-    if (!isServiceRoleCall) {
-      const envConfig = await getEnvironmentConfig(supabase, envName);
-      if (!isCatalogEnabled(envConfig)) return errorResponse("CATALOG_DISABLED", "Catalog not enabled");
-    }
+    // Create SDK-free DB client
+    const db = createAdminPostgrestClient();
 
     // ========== DB-FIRST: Check catalog_items ==========
-    console.log(`[DETAIL_DB] id=${fullProductId} provider=${effectiveProvider} checking...`);
+    console.log(`[DETAIL_DB] correlationId=${correlationId} id=${fullProductId} checking...`);
     
-    const { data: dbItem } = await supabase
+    const { data: dbItem } = await db
       .from("catalog_items")
       .select("*")
       .eq("id", fullProductId)
@@ -299,7 +291,6 @@ Deno.serve(async (req: Request) => {
     if (dbItem) {
       const item = mapDbItemToResponse(dbItem);
       
-      // HARD BLOCK: Check if item is disallowed
       const blockCheck = isDisallowedItem({
         title: item.title,
         productUrl: item.productUrl,
@@ -307,17 +298,19 @@ Deno.serve(async (req: Request) => {
       });
       
       if (blockCheck.isDisallowed) {
-        console.log(`[DETAIL_DB] id=${fullProductId} hit=false reason=BLOCKED`);
+        console.log(`[DETAIL_DB] correlationId=${correlationId} BLOCKED`);
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      console.log(`[DETAIL_DB] id=${fullProductId} hit=true provider=${effectiveProvider} durationMs=${Date.now() - startTime}`);
+      console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db ms=${Date.now() - startTime}`);
       
       return new Response(JSON.stringify({
+        ok: true,
         status: "success",
         env: envName,
         id: fullProductId,
         item,
+        product: item,
         source: "db",
         cached: true,
         error: null,
@@ -327,11 +320,11 @@ Deno.serve(async (req: Request) => {
       });
     }
     
-    console.log(`[DETAIL_DB] id=${fullProductId} hit=false provider=${effectiveProvider} fetching_live...`);
+    console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);
 
-    // ========== FALLBACK: Check legacy catalog_products (Rainforest only) ==========
+    // ========== FALLBACK: Legacy catalog_products (Rainforest only) ==========
     if (effectiveProvider === "rainforest") {
-      const { data: legacyItem } = await supabase
+      const { data: legacyItem } = await db
         .from("catalog_products")
         .select("*")
         .eq("provider_product_id", productId)
@@ -354,7 +347,6 @@ Deno.serve(async (req: Request) => {
           rawImages.unshift(legacyItem.image_url);
         }
         
-        // Upgrade ALL gallery images to high-res and deduplicate
         const images = upgradeGalleryImages(rawImages, "rainforest");
         const mainImage = images[0] || null;
 
@@ -366,8 +358,8 @@ Deno.serve(async (req: Request) => {
           priceUsd: legacyItem.price_usd > 0 ? legacyItem.price_usd : null,
           mainImageUrl: mainImage,
           imageUrl: mainImage,
-          imageUrls: images,  // ALL images for gallery (HIGH-RES)
-          images,             // Backward compat
+          imageUrls: images,
+          images,
           productUrl: legacyItem.product_url || null,
           inStock: legacyItem.in_stock ?? null,
           rating: legacyItem.rating || null,
@@ -375,13 +367,15 @@ Deno.serve(async (req: Request) => {
           brand: legacyItem.brand || null,
         };
 
-        console.log(`[CATALOG_PRODUCT] Legacy DB hit: id=${productId} imageCount=${images.length} durationMs=${Date.now() - startTime}`);
+        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db-legacy ms=${Date.now() - startTime}`);
 
         return new Response(JSON.stringify({
+          ok: true,
           status: "success",
           env: envName,
           id: fullProductId,
           item,
+          product: item,
           source: "db-legacy",
           cached: true,
           error: null,
@@ -392,27 +386,25 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ========== LIVE FETCH: Provider-specific API ==========
+    // ========== LIVE FETCH: eBay ==========
     if (effectiveProvider === "ebay") {
-      // eBay product detail
       try {
-        const ebayResult = await getEbayItem(supabase, productId!);
+        // Pass db client (has .from() compatible interface)
+        const ebayResult = await getEbayItem(db, productId!);
         
         if (!ebayResult.item) {
-          console.log(`[CATALOG_PRODUCT] eBay item not found: id=${productId} debug=`, JSON.stringify(ebayResult.debug));
+          console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} ebay NOT_FOUND`);
           return errorResponse("NOT_FOUND", "Product not found on eBay");
         }
         
         const ebayItem = ebayResult.item;
         
-        // HARD BLOCK: Check if item is disallowed
         const blockCheck = isDisallowedItem({
           title: ebayItem.title,
           productUrl: ebayItem.productUrl,
         });
         
         if (blockCheck.isDisallowed) {
-          console.log(`[CATALOG_PRODUCT] Blocked eBay item: id=${productId} reason=${blockCheck.reason}`);
           return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
         }
         
@@ -433,9 +425,8 @@ Deno.serve(async (req: Request) => {
           updated_at: new Date().toISOString(),
         };
         
-        await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
+        await db.from("catalog_items").upsert(toCache, { onConflict: "id" });
         
-        // Upgrade ALL eBay gallery images to high-res and deduplicate
         const rawImages = ebayItem.images || [];
         if (ebayItem.imageUrl && !rawImages.includes(ebayItem.imageUrl)) {
           rawImages.unshift(ebayItem.imageUrl);
@@ -451,8 +442,8 @@ Deno.serve(async (req: Request) => {
           priceUsd: ebayItem.priceUsd,
           mainImageUrl: mainImage,
           imageUrl: mainImage,
-          imageUrls: allImages,  // ALL images for gallery (HIGH-RES)
-          images: allImages,     // Backward compat
+          imageUrls: allImages,
+          images: allImages,
           productUrl: ebayItem.productUrl || null,
           inStock: ebayItem.inStock ?? null,
           rating: null,
@@ -461,16 +452,17 @@ Deno.serve(async (req: Request) => {
           attributes: ebayItem.attributes,
         };
         
-        console.log(`[CATALOG_PRODUCT] eBay live fetch: id=${productId} imageCount=${allImages.length} durationMs=${Date.now() - startTime}`);
+        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-ebay ms=${Date.now() - startTime}`);
         
         return new Response(JSON.stringify({
+          ok: true,
           status: "success",
           env: envName,
           id: fullProductId,
           item,
+          product: item,
           source: "live",
           cached: false,
-          providerDebug: { ebay: ebayResult.debug },
           error: null,
         }), {
           status: 200,
@@ -478,19 +470,19 @@ Deno.serve(async (req: Request) => {
         });
         
       } catch (err) {
-        console.error(`[CATALOG_PRODUCT] eBay error: ${err}`);
+        console.error(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} ebay error=${err}`);
         return errorResponse("PROVIDER_ERROR", "eBay service error");
       }
     }
     
-    // ========== LIVE FETCH: Rainforest API (default) ==========
+    // ========== LIVE FETCH: Rainforest (default) ==========
     const { product, error: rainforestError } = await fetchProductDetails(productId!, amazonDomain);
 
     if (rainforestError || !product) {
+      console.log(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} rainforest error=${rainforestError || "NOT_FOUND"}`);
       return errorResponse(rainforestError || "NOT_FOUND", `Product not found on ${amazonDomain}`);
     }
 
-    // HARD BLOCK: Check if live product is disallowed
     const liveBlockCheck = isDisallowedItem({
       title: product.title,
       productUrl: product.productUrl,
@@ -498,7 +490,6 @@ Deno.serve(async (req: Request) => {
     });
     
     if (liveBlockCheck.isDisallowed) {
-      console.log(`[CATALOG_PRODUCT] Blocked live: id=${productId} reason=${liveBlockCheck.reason}`);
       return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
     }
 
@@ -522,9 +513,8 @@ Deno.serve(async (req: Request) => {
       updated_at: new Date().toISOString(),
     };
 
-    await supabase.from("catalog_items").upsert(toCache, { onConflict: "id" });
+    await db.from("catalog_items").upsert(toCache, { onConflict: "id" });
 
-    // Upgrade ALL Rainforest gallery images to high-res and deduplicate
     const rawImages = product.images || [];
     if (product.imageUrl && !rawImages.includes(product.imageUrl)) {
       rawImages.unshift(product.imageUrl);
@@ -540,8 +530,8 @@ Deno.serve(async (req: Request) => {
       priceUsd: product.priceUsd,
       mainImageUrl: mainImage,
       imageUrl: mainImage,
-      imageUrls: allImages,  // ALL images for gallery (HIGH-RES)
-      images: allImages,     // Backward compat
+      imageUrls: allImages,
+      images: allImages,
       productUrl: product.productUrl || null,
       inStock: product.inStock ?? null,
       rating: product.rating ?? null,
@@ -549,13 +539,15 @@ Deno.serve(async (req: Request) => {
       brand: product.brand || null,
     };
 
-    console.log(`[CATALOG_PRODUCT] Live fetch: id=${productId} imageCount=${allImages.length} durationMs=${Date.now() - startTime}`);
+    console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-rainforest ms=${Date.now() - startTime}`);
 
     return new Response(JSON.stringify({
+      ok: true,
       status: "success",
       env: envName,
       id: fullProductId,
       item,
+      product: item,
       source: "live",
       cached: false,
       error: null,
@@ -566,7 +558,7 @@ Deno.serve(async (req: Request) => {
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    console.error(`[CATALOG_PRODUCT] Error: ${errorMessage} durationMs=${Date.now() - startTime}`);
+    console.error(`[CATALOG_PRODUCT][ERROR] correlationId=${correlationId} error=${errorMessage} ms=${Date.now() - startTime}`);
     return errorResponse("INTERNAL_ERROR", "Product service error");
   }
 });

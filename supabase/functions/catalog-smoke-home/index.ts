@@ -1,18 +1,20 @@
 /**
- * catalog-smoke-home - Smoke test for home feed to prevent regressions
+ * catalog-smoke-home - Guaranteed valid payload for mobile testing
  * 
- * Validates:
- * 1. Cache exists and has items
- * 2. Every item.id starts with amazon_ or ebay_ (canonical format)
- * 3. Returns sample IDs for verification
+ * Returns a hardcoded valid response with 1 fake item to test
+ * if mobile can fetch and parse correctly - independent of actual data.
  * 
  * GET /catalog-smoke-home
+ * 
+ * No auth required.
  */
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
+  "Access-Control-Expose-Headers": "content-type",
+  "Content-Type": "application/json; charset=utf-8",
 };
 
 function generateCorrelationId(): string {
@@ -20,141 +22,57 @@ function generateCorrelationId(): string {
 }
 
 Deno.serve(async (req) => {
+  // Handle OPTIONS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
+    return new Response(null, { 
+      status: 204, 
+      headers: corsHeaders 
+    });
   }
 
   const correlationId = generateCorrelationId();
-  const startTime = Date.now();
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
   console.log(`[SMOKE_HOME] start correlationId=${correlationId}`);
 
-  try {
-    if (!supabaseUrl || !serviceRoleKey) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
-        correlationId,
-        ts: Date.now(),
-      }), { 
-        status: 200, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    // Load cached feed from production
-    const cacheRes = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.production:all`,
+  // Always return a guaranteed valid payload with 1 fake item
+  const response = {
+    ok: true,
+    sections: [
       {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-          Accept: "application/vnd.pgrst.object+json",
-        },
-      }
-    );
-
-    if (!cacheRes.ok || cacheRes.status === 406) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "No cache found for production:all",
-        correlationId,
-        ts: Date.now(),
-      }), { 
-        status: 200, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    const cache = await cacheRes.json();
-    const items = cache?.items || [];
-
-    if (items.length === 0) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: "Cache exists but has 0 items",
-        correlationId,
-        ts: Date.now(),
-      }), { 
-        status: 200, 
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
-      });
-    }
-
-    // Validate canonical IDs
-    const invalidIds: string[] = [];
-    const sampleIds: string[] = [];
-    const amazonCount = { valid: 0, invalid: 0 };
-    const ebayCount = { valid: 0, invalid: 0 };
-
-    for (const item of items) {
-      const id = item.id || "";
-      
-      if (id.startsWith("amazon_")) {
-        // Validate ASIN format: amazon_<10 alphanumeric chars>
-        const asin = id.slice(7);
-        if (/^[A-Z0-9]{10}$/i.test(asin)) {
-          amazonCount.valid++;
-          if (sampleIds.length < 5) sampleIds.push(id);
-        } else {
-          amazonCount.invalid++;
-          if (invalidIds.length < 5) invalidIds.push(id);
-        }
-      } else if (id.startsWith("ebay_")) {
-        // Validate eBay format: ebay_<v1|...|... or 12+ digit numeric>
-        const ebayId = id.slice(5);
-        if (ebayId.startsWith("v1|") || /^\d{12,}$/.test(ebayId)) {
-          ebayCount.valid++;
-          if (sampleIds.length < 5) sampleIds.push(id);
-        } else {
-          ebayCount.invalid++;
-          if (invalidIds.length < 5) invalidIds.push(id);
-        }
-      } else {
-        invalidIds.push(id);
-      }
-    }
-
-    const totalValid = amazonCount.valid + ebayCount.valid;
-    const totalInvalid = amazonCount.invalid + ebayCount.invalid + invalidIds.length;
-    const isHealthy = totalInvalid === 0 && totalValid > 0;
-
-    const ms = Date.now() - startTime;
-    console.log(`[SMOKE_HOME] done correlationId=${correlationId} ok=${isHealthy} totalItems=${items.length} valid=${totalValid} invalid=${totalInvalid} ms=${ms}`);
-
-    return new Response(JSON.stringify({
-      ok: isHealthy,
-      totalItems: items.length,
-      valid: totalValid,
-      invalid: totalInvalid,
-      amazonCount,
-      ebayCount,
-      sampleIds,
-      invalidIds: invalidIds.slice(0, 5),
-      cacheExpiresAt: cache.expires_at,
+        key: "featured",
+        title: "",
+        title_en: "",
+        title_fr: "",
+        hideTitle: true,
+        items: [
+          {
+            id: "amazon_B0TESTTEST0",
+            provider: "amazon",
+            provider_product_id: "B0TESTTEST0",
+            title: "Smoke Test Item - If you see this, fetch/parse works!",
+            price_usd: 1.00,
+            priceUsd: 1.00,
+            currency: "USD",
+            image_url: "https://via.placeholder.com/300x300?text=Smoke+Test",
+            imageUrl: "https://via.placeholder.com/300x300?text=Smoke+Test",
+            product_url: "https://amazon.com/dp/B0TESTTEST0",
+            productUrl: "https://amazon.com/dp/B0TESTTEST0",
+            in_stock: true,
+          },
+        ],
+      },
+    ],
+    meta: {
+      source: "smoke_test",
+      isStale: false,
       correlationId,
-      ms,
       ts: Date.now(),
-    }), { 
-      status: 200, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
+    },
+  };
 
-  } catch (err) {
-    const ms = Date.now() - startTime;
-    console.error(`[SMOKE_HOME] error correlationId=${correlationId} error=${err} ms=${ms}`);
-    
-    return new Response(JSON.stringify({
-      ok: false,
-      error: String(err),
-      correlationId,
-      ms,
-      ts: Date.now(),
-    }), { 
-      status: 200, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
-    });
-  }
+  console.log(`[SMOKE_HOME] done correlationId=${correlationId} ok=true items=1`);
+
+  return new Response(JSON.stringify(response), {
+    status: 200,
+    headers: corsHeaders,
+  });
 });

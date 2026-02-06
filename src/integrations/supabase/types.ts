@@ -973,6 +973,36 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_filter_profiles: {
+        Row: {
+          exclude_hard: string[]
+          exclude_soft: string[]
+          include_keywords: string[]
+          key: string
+          min_price_usd: number | null
+          mode: string
+          updated_at: string | null
+        }
+        Insert: {
+          exclude_hard?: string[]
+          exclude_soft?: string[]
+          include_keywords?: string[]
+          key: string
+          min_price_usd?: number | null
+          mode?: string
+          updated_at?: string | null
+        }
+        Update: {
+          exclude_hard?: string[]
+          exclude_soft?: string[]
+          include_keywords?: string[]
+          key?: string
+          min_price_usd?: number | null
+          mode?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       catalog_item_media: {
         Row: {
           expires_at: string

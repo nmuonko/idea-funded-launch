@@ -2,25 +2,15 @@
  * catalog-categories
  * Returns the navigation tabs and subtabs from database (single source of truth)
  * 
+ * SDK-FREE: Uses lightweight PostgREST client to avoid bundler timeouts
+ * 
  * ALWAYS returns HTTP 200 with stable JSON shape:
  * { status: "success", env, tabs: [...], error: null }
  * 
  * Each tab includes its subtabs for easy frontend consumption.
- * 
- * TOP-LEVEL TABS:
- * - electronics
- * - vehicles
- * - home_garden
- * - clothing_shoes_accessories
- * - toys
- * - sporting_goods
- * - business_industrial
- * - jewelry_watches
- * - refurbished
- * - parts_accessories
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest, EnvironmentName } from "../_shared/environmentResolver.ts";
 import { 
   CANONICAL_TABS, 
@@ -34,7 +24,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment",
+    "authorization, apikey, content-type, x-client-info, x-device-id, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Max-Age": "86400",
   "Cache-Control": "public, max-age=300",
 };
@@ -142,26 +132,11 @@ Deno.serve(async (req) => {
   console.log(`[NAV] requestId=${requestId} env=${envName} method=${req.method}`);
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-    if (!supabaseUrl || !supabaseKey) {
-      console.warn(`[NAV] requestId=${requestId} No Supabase config, using fallback`);
-      return new Response(
-        JSON.stringify({
-          status: "success",
-          env: envName,
-          tabs: FALLBACK_TABS,
-          error: null,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Use SDK-free PostgREST client
+    const db = createAdminPostgrestClient();
 
     // Fetch tabs from database
-    const { data: tabsData, error: tabsError } = await supabase
+    const { data: tabsData, error: tabsError } = await db
       .from("catalog_nav_tabs")
       .select("*")
       .eq("enabled", true)
@@ -182,7 +157,7 @@ Deno.serve(async (req) => {
     }
 
     // Fetch subtabs from database
-    const { data: subtabsData, error: subtabsError } = await supabase
+    const { data: subtabsData, error: subtabsError } = await db
       .from("catalog_nav_subtabs")
       .select("*")
       .eq("enabled", true)
@@ -194,33 +169,34 @@ Deno.serve(async (req) => {
 
     // Group subtabs by parent
     const subtabsByParent: Record<string, SubtabResponse[]> = {};
-    if (subtabsData) {
-      for (const sub of subtabsData) {
-        if (!subtabsByParent[sub.parent_key]) {
-          subtabsByParent[sub.parent_key] = [];
+    if (subtabsData && Array.isArray(subtabsData)) {
+      for (const sub of subtabsData as Record<string, unknown>[]) {
+        const parentKey = sub.parent_key as string;
+        if (!subtabsByParent[parentKey]) {
+          subtabsByParent[parentKey] = [];
         }
-        subtabsByParent[sub.parent_key].push({
-          key: sub.key,
-          title_en: sub.title_en,
-          title_fr: sub.title_fr,
-          order: sub.order_index,
-          enabled: sub.enabled,
-          is_vehicle: sub.is_vehicle || false,
-          is_parts: sub.is_parts || false,
-          min_price_usd: sub.min_price_usd,
+        subtabsByParent[parentKey].push({
+          key: sub.key as string,
+          title_en: sub.title_en as string,
+          title_fr: sub.title_fr as string,
+          order: sub.order_index as number,
+          enabled: sub.enabled as boolean,
+          is_vehicle: (sub.is_vehicle as boolean) || false,
+          is_parts: (sub.is_parts as boolean) || false,
+          min_price_usd: sub.min_price_usd as number | null,
         });
       }
     }
 
     // Build response
-    const tabs: TabResponse[] = (tabsData || []).map(tab => ({
-      key: tab.key,
-      title_en: tab.title_en,
-      title_fr: tab.title_fr,
-      icon: tab.icon,
-      order: tab.order_index,
-      enabled: tab.enabled,
-      subtabs: subtabsByParent[tab.key] || [],
+    const tabs: TabResponse[] = ((tabsData || []) as Record<string, unknown>[]).map(tab => ({
+      key: tab.key as string,
+      title_en: tab.title_en as string,
+      title_fr: tab.title_fr as string,
+      icon: tab.icon as string | null,
+      order: tab.order_index as number,
+      enabled: tab.enabled as boolean,
+      subtabs: subtabsByParent[tab.key as string] || [],
     }));
 
     // If no tabs found, use fallback

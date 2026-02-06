@@ -2,6 +2,8 @@
  * Catalog Offers Endpoint with Smart Caching
  * Returns multiple sellers/offers for a product ASIN from Rainforest API
  * 
+ * SDK-FREE: Uses lightweight PostgREST client to avoid bundler timeouts
+ * 
  * Cache strategy: stale=1hour, expire=6hours (prices change frequently)
  * 
  * GET /functions/v1/catalog-offers?env=staging&asin=B0XXX
@@ -10,7 +12,7 @@
  * HARD BLOCK: Books, subscriptions, Prime Video are NEVER shown.
  */
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
 import { getEnvironmentFromRequest } from "../_shared/environmentResolver.ts";
 import { 
   buildCacheKey, 
@@ -20,11 +22,10 @@ import {
   rateLimitResponse, 
   getDeviceId 
 } from "../_shared/catalogCache.ts";
-import { isDisallowedItem, getBlockedSearchMessage } from "../_shared/contentBlocker.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-device-id, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
@@ -66,50 +67,58 @@ interface OffersResponse {
   error: { code: string; message: string } | null;
 }
 
-function extractPrice(priceObj: any): number | null {
+function extractPrice(priceObj: unknown): number | null {
   if (!priceObj) return null;
-  const value = priceObj.value ?? priceObj.raw?.replace(/[^0-9.]/g, '');
+  const obj = priceObj as Record<string, unknown>;
+  const value = obj.value ?? (obj.raw as string)?.replace(/[^0-9.]/g, '');
   if (value !== undefined && value !== null && value !== '') {
-    const parsed = typeof value === 'number' ? value : parseFloat(value);
+    const parsed = typeof value === 'number' ? value : parseFloat(value as string);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return null;
 }
 
-function normalizeOffer(rawOffer: any): Offer {
+function normalizeOffer(rawOffer: Record<string, unknown>): Offer {
   const priceUsd = extractPrice(rawOffer.price);
   const shippingUsd = extractPrice(rawOffer.delivery_price) ?? extractPrice(rawOffer.shipping);
   let totalUsd: number | null = null;
   if (priceUsd !== null) totalUsd = priceUsd + (shippingUsd ?? 0);
 
-  const deliveryRaw = rawOffer.delivery ?? {};
+  const deliveryRaw = (rawOffer.delivery ?? {}) as Record<string, unknown>;
+  const sellerObj = rawOffer.seller as Record<string, unknown> | undefined;
+  const conditionObj = rawOffer.condition as Record<string, unknown> | undefined;
+  
   return {
-    sellerName: rawOffer.seller?.name ?? rawOffer.seller_name ?? null,
+    sellerName: sellerObj?.name as string ?? rawOffer.seller_name as string ?? null,
     priceUsd,
     shippingUsd,
     totalUsd,
-    condition: rawOffer.condition?.is_new === false 
-      ? (rawOffer.condition?.title ?? 'used') 
-      : (rawOffer.condition?.is_new === true ? 'new' : (rawOffer.condition?.title ?? null)),
-    isPrime: rawOffer.is_prime ?? null,
-    isFba: rawOffer.is_fba ?? rawOffer.fulfilled_by_amazon ?? null,
-    sellerRating: rawOffer.seller?.rating ?? null,
-    sellerRatingsCount: rawOffer.seller?.ratings_total ?? rawOffer.seller?.num_ratings ?? null,
+    condition: conditionObj?.is_new === false 
+      ? (conditionObj?.title as string ?? 'used') 
+      : (conditionObj?.is_new === true ? 'new' : (conditionObj?.title as string ?? null)),
+    isPrime: rawOffer.is_prime as boolean ?? null,
+    isFba: rawOffer.is_fba as boolean ?? rawOffer.fulfilled_by_amazon as boolean ?? null,
+    sellerRating: sellerObj?.rating as number ?? null,
+    sellerRatingsCount: sellerObj?.ratings_total as number ?? sellerObj?.num_ratings as number ?? null,
     delivery: {
-      minDays: deliveryRaw.min_days ?? null,
-      maxDays: deliveryRaw.max_days ?? null,
-      text: deliveryRaw.raw ?? deliveryRaw.tagline ?? null,
+      minDays: deliveryRaw.min_days as number ?? null,
+      maxDays: deliveryRaw.max_days as number ?? null,
+      text: deliveryRaw.raw as string ?? deliveryRaw.tagline as string ?? null,
     },
   };
 }
 
-function normalizeBuyBox(buyboxData: any): BuyBox | null {
+function normalizeBuyBox(buyboxData: unknown): BuyBox | null {
   if (!buyboxData) return null;
+  const data = buyboxData as Record<string, unknown>;
+  const sellerObj = data.seller as Record<string, unknown> | undefined;
+  const conditionObj = data.condition as Record<string, unknown> | undefined;
+  
   return {
-    priceUsd: extractPrice(buyboxData.price) ?? extractPrice(buyboxData),
-    seller: buyboxData.seller?.name ?? buyboxData.seller_name ?? null,
-    shippingUsd: extractPrice(buyboxData.shipping) ?? extractPrice(buyboxData.delivery_price),
-    condition: buyboxData.condition?.is_new === false ? 'used' : 'new',
+    priceUsd: extractPrice(data.price) ?? extractPrice(data),
+    seller: sellerObj?.name as string ?? data.seller_name as string ?? null,
+    shippingUsd: extractPrice(data.shipping) ?? extractPrice(data.delivery_price),
+    condition: conditionObj?.is_new === false ? 'used' : 'new',
   };
 }
 
@@ -164,20 +173,11 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
-    if (!supabaseUrl || !supabaseKey) {
-      return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "CONFIG_ERROR", message: "Service unavailable" })), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Use SDK-free PostgREST client
+    const db = createAdminPostgrestClient();
 
     // Rate limiting
-    const rateLimit = await checkRateLimit(supabase, deviceId, "offers");
+    const rateLimit = await checkRateLimit(db, deviceId, "offers");
     if (!rateLimit.allowed) {
       console.log(`[CATALOG_OFFERS] Rate limited device=${deviceId} count=${rateLimit.count}`);
       return new Response(JSON.stringify(rateLimitResponse(rateLimit.resetAt)), {
@@ -195,7 +195,7 @@ Deno.serve(async (req: Request) => {
     });
 
     // Check cache first
-    const cacheResult = await getCache(supabase, cacheKey);
+    const cacheResult = await getCache(db, cacheKey);
     
     if (cacheResult.hit && cacheResult.data) {
       console.log(`[CATALOG_OFFERS] Cache hit: asin=${asin} stale=${cacheResult.stale} age=${cacheResult.cacheAgeSec}s`);
@@ -243,8 +243,8 @@ Deno.serve(async (req: Request) => {
       const errorText = await response.text();
       console.error(`[CATALOG_OFFERS] Rainforest error: ${response.status} - ${errorText.substring(0, 200)}`);
       
-      // UPGRADE A: Negative cache with short TTL (setCache auto-detects)
-      await setCache(supabase, "offers", cacheKey, { buyBox: null, offers: [], error: "API_ERROR" }, { amazonDomain });
+      // Negative cache with short TTL
+      await setCache(db, "offers", cacheKey, { buyBox: null, offers: [], error: "API_ERROR" }, { amazonDomain });
       
       return new Response(JSON.stringify(buildResponse("error", null, [], false, false, 0, { code: "RAINFOREST_ERROR", message: "Offers temporarily unavailable" })), {
         status: 200,
@@ -254,12 +254,9 @@ Deno.serve(async (req: Request) => {
 
     const data = await response.json();
     const buyBox = normalizeBuyBox(data.buybox_winner ?? data.buybox);
-    const offers: Offer[] = (data.offers ?? []).map((o: any) => normalizeOffer(o));
+    const offers: Offer[] = ((data.offers ?? []) as Record<string, unknown>[]).map(normalizeOffer);
 
-    // UPGRADE A & B: setCache handles both:
-    // - Negative results (empty offers) get short TTL (1min stale, 5min expire)
-    // - Positive results get normal TTL and normalized payload
-    await setCache(supabase, "offers", cacheKey, { buyBox, offers }, { amazonDomain });
+    await setCache(db, "offers", cacheKey, { buyBox, offers }, { amazonDomain });
 
     console.info(`[CATALOG_OFFERS] Rainforest fetch: asin=${asin} offerCount=${offers.length} durationMs=${Date.now() - startTime}`);
 

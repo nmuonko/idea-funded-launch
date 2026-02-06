@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 /**
- * catalog-home - Homepage sections from Admin Portal configuration
+ * catalog-home - Single unified homepage feed with cache-first loading
  * 
- * Uses 2-pass filtering: strict first, then relaxed fallback to ensure
- * each section returns 10-20 items without starving results.
+ * Returns ONE feed (no multiple titled sections) with:
+ * - First 100 items: Amazon popular electronics
+ * - Last 100 items: Mixed Amazon+eBay deals/refurbished
+ * 
+ * Cache TTL is admin-controlled via admin_settings table.
  */
 
 const corsHeaders = {
@@ -13,107 +16,43 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-// ===== FILTERING CONSTANTS =====
-const TARGET_ITEMS = 12;
-const MIN_ITEMS_RATIO = 0.66;
-const STRICT_FETCH_MULTIPLIER = 4;
-const RELAX_FETCH_MULTIPLIER = 6;
+// Default settings (overridden by admin_settings)
+const DEFAULT_TTL_SECONDS = 172800; // 2 days
+const DEFAULT_LIMIT = 200;
+const DEFAULT_AMAZON_FIRST = 100;
+const DEFAULT_DEALS_COUNT = 100;
 
-function getMinItems(target: number): number {
-  return Math.max(8, Math.floor(target * MIN_ITEMS_RATIO));
+interface FeedSettings {
+  ttlSeconds: number;
+  limit: number;
+  amazonFirstCount: number;
+  dealsCount: number;
+  enabled: boolean;
 }
 
-// ===== TIERED EXCLUDE KEYWORDS =====
-interface ExcludeConfig {
-  hard: string[];
-  soft: string[];
+interface CatalogItem {
+  id: string;
+  provider: string;
+  provider_product_id: string;
+  title: string;
+  price_usd: number | null;
+  priceUsd: number | null;
+  currency: string;
+  image_url: string | null;
+  imageUrl: string | null;
+  product_url: string | null;
+  productUrl: string | null;
+  in_stock: boolean;
 }
 
-const SECTION_EXCLUDES: Record<string, ExcludeConfig> = {
-  phones: {
-    hard: ["case", "cover", "screen protector", "tempered glass", "digitizer", "lcd", "housing", "frame", "back glass", "repair kit", "replacement part", "charger only", "lot of", "bulk"],
-    soft: ["holder", "stand", "mount", "cable", "adapter"]
-  },
-  gaming: {
-    hard: ["repair", "screwdriver", "tool kit", "replacement part", "shell", "housing", "mod chip", "flex cable", "ribbon cable"],
-    soft: ["controller skin", "thumb grip", "charging dock"]
-  },
-  computers: {
-    hard: ["sleeve", "sticker", "decal", "skin", "keyboard cover", "trackpad protector", "vinyl", "screen protector"],
-    soft: ["stand", "bag", "mousepad", "hub", "dock"]
-  },
-  vehicles: {
-    hard: ["seat cover", "floor mat", "steering wheel cover", "sticker", "decal", "hook", "organizer", "trim", "emblem", "badge", "keychain", "air freshener", "tissue box", "phone holder", "cup holder", "visor", "sunshade", "cargo liner", "dash cover", "headrest", "cushion", "protector", "accessory kit", "parts only"],
-    soft: []
-  },
-  clothing: {
-    hard: ["laces only", "insole", "cleaner", "protector spray", "brush", "polish", "shoe tree"],
-    soft: ["storage", "organizer"]
-  },
-  home_garden: {
-    hard: ["replacement part", "repair kit", "cover only"],
-    soft: ["cleaner", "polish", "spray"]
-  },
-  refurbished: {
-    hard: ["for parts", "as is", "broken", "not working", "parts only"],
-    soft: []
-  },
-  parts_accessories: {
-    hard: [],
-    soft: []
-  }
-};
-
-const FALLBACK_SECTIONS: SectionConfig[] = [
-  { 
-    key: "phones", title_fr: "Téléphones", title_en: "Phones", 
-    ebay_category: "9355", min_price: 50, is_vehicle: false,
-    include_keywords: ["iphone","samsung","galaxy","pixel","smartphone","unlocked","android","5g"],
-    strict: true, seed_queries: ["iphone pro max", "samsung galaxy", "google pixel unlocked"]
-  },
-  { 
-    key: "gaming", title_fr: "Gaming", title_en: "Gaming", 
-    ebay_category: "1249", min_price: 20, is_vehicle: false,
-    include_keywords: ["ps5","playstation","xbox","nintendo","switch","console","game","controller"],
-    strict: true, seed_queries: ["ps5 console", "xbox series x", "nintendo switch oled"]
-  },
-  { 
-    key: "computers", title_fr: "Ordinateurs", title_en: "Computers", 
-    ebay_category: "58058", min_price: 100, is_vehicle: false,
-    include_keywords: ["laptop","macbook","thinkpad","dell","hp","lenovo","surface","notebook","desktop","pc","computer"],
-    strict: true, seed_queries: ["macbook pro", "dell xps laptop", "hp notebook"]
-  },
-  { 
-    key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", 
-    ebay_category: "6000", min_price: 1000, is_vehicle: true,
-    include_keywords: ["toyota","honda","ford","bmw","mercedes","chevy","nissan","truck","suv","sedan","car","vehicle"],
-    strict: true, seed_queries: ["toyota camry", "honda accord", "ford f150 truck"]
-  },
-  { 
-    key: "clothing", title_fr: "Vêtements & Chaussures", title_en: "Clothing & Shoes", 
-    ebay_category: "63889", min_price: 15, is_vehicle: false,
-    include_keywords: ["shoes","sneakers","nike","adidas","jordan","dress","shirt","jacket","pants","jeans","boots"],
-    strict: true, seed_queries: ["nike air max", "adidas ultraboost", "jordan retro"]
-  },
-  { 
-    key: "home_garden", title_fr: "Maison & Jardin", title_en: "Home & Garden", 
-    ebay_category: "11700", min_price: 10, is_vehicle: false,
-    include_keywords: ["furniture","sofa","table","chair","lamp","decor","garden","patio","outdoor"],
-    strict: true, seed_queries: ["patio furniture set", "home decor", "garden tools"]
-  },
-  { 
-    key: "refurbished", title_fr: "Reconditionné", title_en: "Refurbished", 
-    ebay_category: "11800", min_price: 50, is_vehicle: false,
-    include_keywords: ["refurbished","renewed","certified","like new"],
-    strict: true, seed_queries: ["refurbished iphone", "renewed macbook", "certified refurbished"]
-  },
-  { 
-    key: "parts_accessories", title_fr: "Pièces & Accessoires", title_en: "Parts & Accessories", 
-    ebay_category: "6028", min_price: 5, is_vehicle: false,
-    include_keywords: ["parts","accessories","replacement","oem","aftermarket"],
-    strict: false, seed_queries: ["car parts", "phone accessories", "laptop parts"]
-  },
-];
+interface CacheEntry {
+  id: string;
+  env: string;
+  items: CatalogItem[];
+  created_at: string;
+  expires_at: string;
+  meta: Record<string, unknown>;
+}
 
 let ebayTokenCache: { token: string; expiresAt: number } | null = null;
 
@@ -126,6 +65,144 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function loadFeedSettings(): Promise<FeedSettings> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.warn("[CATALOG_HOME] Missing env vars, using defaults");
+    return {
+      ttlSeconds: DEFAULT_TTL_SECONDS,
+      limit: DEFAULT_LIMIT,
+      amazonFirstCount: DEFAULT_AMAZON_FIRST,
+      dealsCount: DEFAULT_DEALS_COUNT,
+      enabled: true,
+    };
+  }
+
+  try {
+    const keys = [
+      "home_feed_ttl_seconds",
+      "home_feed_limit", 
+      "home_feed_amazon_first_count",
+      "home_feed_deals_count",
+      "home_feed_enabled"
+    ];
+    
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/admin_settings?key=in.(${keys.map(k => `"${k}"`).join(",")})`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+      }
+    );
+
+    if (!res.ok) {
+      console.warn(`[CATALOG_HOME] Failed to load settings: ${res.status}`);
+      return {
+        ttlSeconds: DEFAULT_TTL_SECONDS,
+        limit: DEFAULT_LIMIT,
+        amazonFirstCount: DEFAULT_AMAZON_FIRST,
+        dealsCount: DEFAULT_DEALS_COUNT,
+        enabled: true,
+      };
+    }
+
+    const rows = await res.json() as Array<{ key: string; value: string }>;
+    const settingsMap = new Map(rows.map(r => [r.key, r.value]));
+
+    return {
+      ttlSeconds: parseInt(settingsMap.get("home_feed_ttl_seconds") || "") || DEFAULT_TTL_SECONDS,
+      limit: parseInt(settingsMap.get("home_feed_limit") || "") || DEFAULT_LIMIT,
+      amazonFirstCount: parseInt(settingsMap.get("home_feed_amazon_first_count") || "") || DEFAULT_AMAZON_FIRST,
+      dealsCount: parseInt(settingsMap.get("home_feed_deals_count") || "") || DEFAULT_DEALS_COUNT,
+      enabled: settingsMap.get("home_feed_enabled") !== "false",
+    };
+  } catch (err) {
+    console.warn(`[CATALOG_HOME] Settings load error: ${err}`);
+    return {
+      ttlSeconds: DEFAULT_TTL_SECONDS,
+      limit: DEFAULT_LIMIT,
+      amazonFirstCount: DEFAULT_AMAZON_FIRST,
+      dealsCount: DEFAULT_DEALS_COUNT,
+      enabled: true,
+    };
+  }
+}
+
+async function getCachedFeed(env: string, category: string): Promise<CacheEntry | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) return null;
+
+  const cacheKey = `${env}:${category || "all"}`;
+
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/catalog_home_cache?id=eq.${encodeURIComponent(cacheKey)}&expires_at=gt.${new Date().toISOString()}`,
+      {
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          Accept: "application/vnd.pgrst.object+json",
+        },
+      }
+    );
+
+    if (res.status === 406 || !res.ok) {
+      // No cache found
+      return null;
+    }
+
+    const data = await res.json();
+    return data as CacheEntry;
+  } catch (err) {
+    console.warn(`[CATALOG_HOME] Cache read error: ${err}`);
+    return null;
+  }
+}
+
+async function saveCachedFeed(
+  env: string, 
+  category: string, 
+  items: CatalogItem[], 
+  ttlSeconds: number,
+  meta: Record<string, unknown>
+): Promise<void> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) return;
+
+  const cacheKey = `${env}:${category || "all"}`;
+  const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+
+  try {
+    await fetch(`${supabaseUrl}/rest/v1/catalog_home_cache`, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({
+        id: cacheKey,
+        env,
+        items,
+        expires_at: expiresAt,
+        meta,
+      }),
+    });
+    console.log(`[CATALOG_HOME] Cache saved key=${cacheKey} items=${items.length} expiresAt=${expiresAt}`);
+  } catch (err) {
+    console.warn(`[CATALOG_HOME] Cache save error: ${err}`);
+  }
 }
 
 async function getEbayToken(): Promise<string | null> {
@@ -170,202 +247,22 @@ async function getEbayToken(): Promise<string | null> {
   }
 }
 
-interface SectionConfig {
-  key: string;
-  title_fr: string;
-  title_en: string;
-  ebay_category?: string;
-  min_price?: number;
-  is_vehicle?: boolean;
-  include_keywords?: string[];
-  strict?: boolean;
-  seed_queries: string[];
-  see_all_query?: string;
-}
-
-interface CatalogItem {
-  id: string;
-  provider: string;
-  provider_product_id: string;
-  title: string;
-  price_usd: number | null;
-  priceUsd: number | null;
-  currency: string;
-  image_url: string | null;
-  imageUrl: string | null;
-  product_url: string | null;
-  productUrl: string | null;
-  in_stock: boolean;
-}
-
-function getExcludeConfig(sectionKey: string): ExcludeConfig {
-  return SECTION_EXCLUDES[sectionKey] || { hard: [], soft: [] };
-}
-
-function buildEnhancedQuery(seedQuery: string, excludeKeywords: string[], maxNegatives = 6): string {
-  if (!excludeKeywords || excludeKeywords.length === 0) {
-    return seedQuery;
-  }
-  const negatives = excludeKeywords.slice(0, maxNegatives).map(kw => `-${kw.replace(/\s+/g, '')}`);
-  return `${seedQuery} ${negatives.join(' ')}`;
-}
-
-function hasIncludeKeyword(title: string, includeKeywords: string[]): boolean {
-  if (!includeKeywords || includeKeywords.length === 0) return true;
-  const lowerTitle = title.toLowerCase();
-  return includeKeywords.some(kw => lowerTitle.includes(kw.toLowerCase()));
-}
-
-interface FilterResult {
-  kept: CatalogItem[];
-  droppedHard: number;
-  droppedSoft: number;
-  droppedPrice: number;
-  topDropped: string[];
-}
-
-function filterStrict(
-  items: CatalogItem[],
-  config: SectionConfig,
-  excludeConfig: ExcludeConfig
-): FilterResult {
-  const { min_price, include_keywords = [], is_vehicle } = config;
-  const { hard, soft } = excludeConfig;
-  
-  const hardPatterns = hard.map(kw => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
-  const softPatterns = soft.map(kw => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
-  
-  const accessoryRegex = /(case|cover|sleeve|skin|sticker|decal|protector|replacement|repair|tool|kit|parts|holder|mount|stand|bag|pouch|wallet|strap|hook|organizer|mat|trim)/i;
-  const vehiclePartsRegex = /(seat cover|floor mat|steering wheel|dash|bumper|fender|mirror|hood|door panel|trunk|cargo|headlight|taillight|wheel cover|hub cap|antenna|emblem|badge|decal|sticker|air freshener|tissue|cup holder|phone holder|sun visor|key|remote|fob|charger|mount|stand|hook|organizer|liner|cushion|mat|cover|protector|parts only|accessory)/i;
-  
-  let droppedHard = 0;
-  let droppedSoft = 0;
-  let droppedPrice = 0;
-  const topDropped: string[] = [];
-  
-  const kept = items.filter(item => {
-    const title = (item.title || '').toLowerCase();
-    const price = item.price_usd ?? item.priceUsd ?? 0;
-    
-    if (!item.title || (!item.image_url && !item.imageUrl)) {
-      return false;
-    }
-    
-    if (min_price && price > 0 && price < min_price) {
-      droppedPrice++;
-      if (topDropped.length < 5) topDropped.push(`price<${min_price}: ${title.substring(0,35)}`);
-      return false;
-    }
-    
-    for (const pattern of hardPatterns) {
-      if (pattern.test(title)) {
-        droppedHard++;
-        if (topDropped.length < 5) topDropped.push(`hard: ${title.substring(0,35)}`);
-        return false;
-      }
-    }
-    
-    for (const pattern of softPatterns) {
-      if (pattern.test(title)) {
-        droppedSoft++;
-        if (topDropped.length < 5) topDropped.push(`soft: ${title.substring(0,35)}`);
-        return false;
-      }
-    }
-    
-    if (is_vehicle && vehiclePartsRegex.test(title)) {
-      droppedHard++;
-      if (topDropped.length < 5) topDropped.push(`vehicle_part: ${title.substring(0,35)}`);
-      return false;
-    }
-    
-    if (!is_vehicle && accessoryRegex.test(title)) {
-      if (!hasIncludeKeyword(title, include_keywords)) {
-        droppedSoft++;
-        if (topDropped.length < 5) topDropped.push(`accessory_no_kw: ${title.substring(0,35)}`);
-        return false;
-      }
-    }
-    
-    return true;
-  });
-  
-  return { kept, droppedHard, droppedSoft, droppedPrice, topDropped };
-}
-
-function filterRelaxed(
-  items: CatalogItem[],
-  config: SectionConfig,
-  excludeConfig: ExcludeConfig
-): FilterResult {
-  const { min_price, is_vehicle } = config;
-  const { hard } = excludeConfig;
-  
-  const hardPatterns = hard.map(kw => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
-  const vehiclePartsRegex = /(seat cover|floor mat|steering wheel|dash|bumper|fender|mirror|hood|door panel|headlight|taillight|emblem|badge|decal|sticker|air freshener|tissue|cup holder|phone holder|sun visor|parts only|accessory kit)/i;
-  
-  let droppedHard = 0;
-  let droppedPrice = 0;
-  const topDropped: string[] = [];
-  
-  const kept = items.filter(item => {
-    const title = (item.title || '').toLowerCase();
-    const price = item.price_usd ?? item.priceUsd ?? 0;
-    
-    if (!item.title || (!item.image_url && !item.imageUrl)) {
-      return false;
-    }
-    
-    const relaxedMinPrice = min_price ? min_price * 0.8 : 0;
-    if (relaxedMinPrice && price > 0 && price < relaxedMinPrice) {
-      droppedPrice++;
-      return false;
-    }
-    
-    for (const pattern of hardPatterns) {
-      if (pattern.test(title)) {
-        droppedHard++;
-        if (topDropped.length < 5) topDropped.push(`hard: ${title.substring(0,35)}`);
-        return false;
-      }
-    }
-    
-    if (is_vehicle && vehiclePartsRegex.test(title)) {
-      droppedHard++;
-      return false;
-    }
-    
-    return true;
-  });
-  
-  return { kept, droppedHard, droppedSoft: 0, droppedPrice, topDropped };
-}
-
-function extractPriceFromItem(item: Record<string, unknown>): number | null {
+function extractPriceFromEbay(item: Record<string, unknown>): number | null {
   const priceObj = item.price as Record<string, unknown> | undefined;
   if (priceObj?.value !== undefined) {
     const val = typeof priceObj.value === "string" ? parseFloat(priceObj.value) : priceObj.value;
     if (typeof val === "number" && !isNaN(val) && val > 0) return val;
   }
-  
   const currentPrice = item.currentPrice as Record<string, unknown> | undefined;
   if (currentPrice?.value !== undefined) {
     const val = typeof currentPrice.value === "string" ? parseFloat(currentPrice.value) : currentPrice.value;
     if (typeof val === "number" && !isNaN(val) && val > 0) return val;
   }
-  
-  const pricingSummary = item.pricingSummary as Record<string, unknown> | undefined;
-  const summaryPrice = pricingSummary?.price as Record<string, unknown> | undefined;
-  if (summaryPrice?.value !== undefined) {
-    const val = typeof summaryPrice.value === "string" ? parseFloat(summaryPrice.value) : summaryPrice.value;
-    if (typeof val === "number" && !isNaN(val) && val > 0) return val;
-  }
-  
   return null;
 }
 
 function mapEbayItem(item: Record<string, unknown>): CatalogItem {
-  const priceUsd = extractPriceFromItem(item);
+  const priceUsd = extractPriceFromEbay(item);
   const imageUrl = (item.image as Record<string, unknown>)?.imageUrl as string || null;
   const productUrl = (item.itemWebUrl as string) || null;
   const priceObj = item.price as Record<string, unknown> | undefined;
@@ -386,231 +283,241 @@ function mapEbayItem(item: Record<string, unknown>): CatalogItem {
   };
 }
 
+function mapRainforestItem(item: Record<string, unknown>): CatalogItem {
+  const asin = item.asin as string || "";
+  const price = item.price as Record<string, unknown> | undefined;
+  const priceValue = price?.value as number || null;
+  const imageUrl = item.image as string || (item.main_image as Record<string, unknown>)?.link as string || null;
+  
+  return {
+    id: `amazon_${asin}`,
+    provider: "amazon",
+    provider_product_id: asin,
+    title: (item.title as string) || "Unknown",
+    price_usd: priceValue,
+    priceUsd: priceValue,
+    currency: "USD",
+    image_url: imageUrl,
+    imageUrl: imageUrl,
+    product_url: item.link as string || `https://www.amazon.com/dp/${asin}`,
+    productUrl: item.link as string || `https://www.amazon.com/dp/${asin}`,
+    in_stock: true,
+  };
+}
+
 async function fetchEbayItems(
   query: string,
-  category: string | undefined,
   limit: number,
   ebayToken: string,
-  _correlationId: string
+  correlationId: string
 ): Promise<CatalogItem[]> {
+  const startMs = Date.now();
   const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
   searchUrl.searchParams.set("q", query);
   searchUrl.searchParams.set("limit", String(Math.min(limit, 50)));
-  
-  if (category) {
-    searchUrl.searchParams.set("category_ids", category);
+
+  try {
+    const response = await fetch(searchUrl.toString(), {
+      headers: {
+        Authorization: `Bearer ${ebayToken}`,
+        "Content-Type": "application/json",
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query}" error=${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const rawItems = data.itemSummaries || [];
+    const items = rawItems.map(mapEbayItem).filter((i: CatalogItem) => i.title && i.image_url);
+    
+    console.log(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
+    return items;
+  } catch (err) {
+    console.error(`[CATALOG_HOME][EBAY] correlationId=${correlationId} query="${query}" exception=${err}`);
+    return [];
   }
+}
 
-  const response = await fetch(searchUrl.toString(), {
-    headers: {
-      Authorization: `Bearer ${ebayToken}`,
-      "Content-Type": "application/json",
-      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-    },
-  });
-
-  if (!response.ok) {
-    console.error(`[CATALOG_HOME] eBay fetch error: ${response.status}`);
+async function fetchRainforestItems(
+  query: string,
+  limit: number,
+  amazonDomain: string,
+  correlationId: string
+): Promise<CatalogItem[]> {
+  const startMs = Date.now();
+  const apiKey = Deno.env.get("RAINFOREST_API_KEY");
+  
+  if (!apiKey) {
+    console.warn("[CATALOG_HOME][RAINFOREST] Missing RAINFOREST_API_KEY");
     return [];
   }
 
-  const data = await response.json();
-  const rawItems = data.itemSummaries || [];
-  return rawItems.map(mapEbayItem);
+  const url = new URL("https://api.rainforestapi.com/request");
+  url.searchParams.set("api_key", apiKey);
+  url.searchParams.set("type", "search");
+  url.searchParams.set("amazon_domain", amazonDomain);
+  url.searchParams.set("search_term", query);
+
+  try {
+    const response = await fetch(url.toString());
+    
+    if (!response.ok) {
+      console.error(`[CATALOG_HOME][RAINFOREST] correlationId=${correlationId} query="${query}" error=${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const rawItems = data.search_results || [];
+    const items = rawItems.slice(0, limit).map(mapRainforestItem).filter((i: CatalogItem) => i.title && i.image_url && i.price_usd);
+    
+    console.log(`[CATALOG_HOME][RAINFOREST] correlationId=${correlationId} query="${query.substring(0,30)}" fetched=${rawItems.length} kept=${items.length} ms=${Date.now()-startMs}`);
+    return items;
+  } catch (err) {
+    console.error(`[CATALOG_HOME][RAINFOREST] correlationId=${correlationId} query="${query}" exception=${err}`);
+    return [];
+  }
 }
 
-async function fetchSectionItems(
-  sectionConfig: SectionConfig,
-  targetLimit: number,
+// Light filtering - only remove obvious accessories
+const EXCLUDE_PATTERNS = [
+  /\bcase\b/i, /\bcover\b/i, /\bscreen protector\b/i, /\btempered glass\b/i,
+  /\bdigitizer\b/i, /\blcd only\b/i, /\bhousing\b/i, /\bframe only\b/i,
+  /\brepair kit\b/i, /\breplacement part\b/i, /\bfor parts\b/i
+];
+
+function lightFilter(items: CatalogItem[]): CatalogItem[] {
+  return items.filter(item => {
+    if (!item.title || !item.image_url) return false;
+    const title = item.title.toLowerCase();
+    return !EXCLUDE_PATTERNS.some(pattern => pattern.test(title));
+  });
+}
+
+function deduplicateItems(items: CatalogItem[]): CatalogItem[] {
+  const seen = new Set<string>();
+  return items.filter(item => {
+    const key = `${item.provider}:${item.provider_product_id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Stable shuffle using correlationId as seed
+function stableShuffle<T>(items: T[], seed: string): T[] {
+  const arr = [...items];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = ((h << 5) - h + seed.charCodeAt(i)) | 0;
+  }
+  
+  for (let i = arr.length - 1; i > 0; i--) {
+    h = ((h << 5) - h + i) | 0;
+    const j = Math.abs(h) % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+async function buildFeed(
+  settings: FeedSettings,
   correlationId: string,
+  amazonDomain: string,
   ebayToken: string | null
-): Promise<{ items: CatalogItem[]; error?: string; ms: number }> {
+): Promise<{ items: CatalogItem[]; amazonCount: number; dealsCount: number; ms: number }> {
   const startMs = Date.now();
-  const { key, seed_queries, ebay_category, is_vehicle, include_keywords = [] } = sectionConfig;
+  
+  // ===== BLOCK 1: Amazon Popular Electronics (first 100) =====
+  const amazonSeeds = [
+    "iphone unlocked",
+    "samsung galaxy unlocked", 
+    "airpods pro",
+    "ipad",
+    "ps5 console",
+    "macbook laptop",
+    "nintendo switch",
+    "gaming laptop"
+  ];
+  
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} building amazon block seeds=${amazonSeeds.length}`);
+  
+  const amazonPromises = amazonSeeds.map(seed => 
+    fetchRainforestItems(seed, 25, amazonDomain, correlationId)
+  );
+  
+  const amazonResults = await Promise.all(amazonPromises);
+  let amazonItems = amazonResults.flat();
+  amazonItems = lightFilter(amazonItems);
+  amazonItems = deduplicateItems(amazonItems);
+  amazonItems = stableShuffle(amazonItems, correlationId + "_amazon");
+  amazonItems = amazonItems.slice(0, settings.amazonFirstCount);
+  
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} amazonBlock=${amazonItems.length}`);
 
-  if (!ebayToken) {
-    console.error(`[CATALOG_HOME][SECTION_ERROR] correlationId=${correlationId} key=${key} error=NO_EBAY_TOKEN`);
-    return { items: [], error: "eBay OAuth token not available", ms: Date.now() - startMs };
-  }
-
-  const excludeConfig = getExcludeConfig(key);
-  const minItems = getMinItems(targetLimit);
-  const strictFetchLimit = targetLimit * STRICT_FETCH_MULTIPLIER;
-  const relaxFetchLimit = targetLimit * RELAX_FETCH_MULTIPLIER;
-
-  try {
-    const randomSeed = seed_queries[Math.floor(Math.random() * seed_queries.length)] || seed_queries[0] || key;
+  // ===== BLOCK 2: Mixed Deals/Refurbished (last 100) =====
+  const dealsSeeds = [
+    "refurbished iphone",
+    "renewed iphone unlocked",
+    "android phone unlocked",
+    "refurbished laptop",
+    "used ps4 console",
+    "certified refurbished"
+  ];
+  
+  let dealsItems: CatalogItem[] = [];
+  
+  // Amazon deals
+  const amazonDealsPromises = dealsSeeds.slice(0, 3).map(seed =>
+    fetchRainforestItems(seed, 30, amazonDomain, correlationId)
+  );
+  const amazonDealsResults = await Promise.all(amazonDealsPromises);
+  dealsItems.push(...amazonDealsResults.flat());
+  
+  // eBay deals if token available
+  if (ebayToken) {
+    const ebayDealsSeeds = [
+      "refurbished iphone",
+      "gaming console used",
+      "laptop refurbished",
+      "airpods renewed"
+    ];
     
-    // ===== PASS 1: STRICT =====
-    const allExcludes = [...excludeConfig.hard, ...excludeConfig.soft.slice(0, 3)];
-    const strictQuery = buildEnhancedQuery(randomSeed, allExcludes, 6);
-    
-    console.log(`[SECTION_PASS] key=${key} pass=strict query="${strictQuery.substring(0, 60)}..." fetchLimit=${strictFetchLimit}`);
-    
-    const strictRaw = await fetchEbayItems(
-      strictQuery,
-      ebay_category || (is_vehicle ? "6000" : undefined),
-      strictFetchLimit,
-      ebayToken,
-      correlationId
+    const ebayPromises = ebayDealsSeeds.map(seed =>
+      fetchEbayItems(seed, 25, ebayToken, correlationId)
     );
-    
-    const strictResult = filterStrict(strictRaw, sectionConfig, excludeConfig);
-    
-    console.log(`[SECTION_PASS] key=${key} pass=strict fetched=${strictRaw.length} kept=${strictResult.kept.length} droppedHard=${strictResult.droppedHard} droppedSoft=${strictResult.droppedSoft}`);
-    
-    if (strictResult.kept.length >= minItems) {
-      const items = strictResult.kept.slice(0, targetLimit);
-      const ms = Date.now() - startMs;
-      console.log(`[SECTION_DONE] key=${key} returned=${items.length} source=strict ms=${ms}`);
-      return { items, ms };
-    }
-    
-    // ===== VEHICLES: NO FALLBACK =====
-    if (is_vehicle) {
-      const extraVehicleQueries = ["rav4", "camry", "corolla", "civic", "accord", "f150", "silverado", "tacoma"];
-      const extraQuery = extraVehicleQueries[Math.floor(Math.random() * extraVehicleQueries.length)];
-      const vehicleQuery = buildEnhancedQuery(extraQuery, excludeConfig.hard, 8);
-      
-      console.log(`[SECTION_PASS] key=${key} pass=vehicle_expand query="${vehicleQuery}"`);
-      
-      const extraRaw = await fetchEbayItems(vehicleQuery, "6000", relaxFetchLimit, ebayToken, correlationId);
-      const extraResult = filterStrict(extraRaw, sectionConfig, excludeConfig);
-      
-      const seenIds = new Set(strictResult.kept.map(i => i.id));
-      const combined = [...strictResult.kept];
-      for (const item of extraResult.kept) {
-        if (!seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          combined.push(item);
-        }
-      }
-      
-      const items = combined.slice(0, targetLimit);
-      const ms = Date.now() - startMs;
-      console.log(`[SECTION_DONE] key=${key} returned=${items.length} source=vehicle_expand ms=${ms}`);
-      return { items, ms };
-    }
-    
-    // ===== PASS 2: RELAXED =====
-    const relaxQuery = buildEnhancedQuery(randomSeed, excludeConfig.hard, 4);
-    
-    console.log(`[SECTION_PASS] key=${key} pass=relax query="${relaxQuery.substring(0, 60)}..." fetchLimit=${relaxFetchLimit}`);
-    
-    const relaxRaw = await fetchEbayItems(
-      relaxQuery,
-      ebay_category,
-      relaxFetchLimit,
-      ebayToken,
-      correlationId
-    );
-    
-    const relaxResult = filterRelaxed(relaxRaw, sectionConfig, excludeConfig);
-    
-    console.log(`[SECTION_PASS] key=${key} pass=relax fetched=${relaxRaw.length} kept=${relaxResult.kept.length} droppedHard=${relaxResult.droppedHard}`);
-    
-    const seenIds = new Set(strictResult.kept.map(i => i.id));
-    const combined = [...strictResult.kept];
-    
-    for (const item of relaxResult.kept) {
-      if (!seenIds.has(item.id)) {
-        seenIds.add(item.id);
-        combined.push(item);
-      }
-    }
-    
-    const items = combined.slice(0, targetLimit);
-    const ms = Date.now() - startMs;
-    
-    console.log(`[SECTION_DONE] key=${key} returned=${items.length} source=combined strictKept=${strictResult.kept.length} relaxKept=${relaxResult.kept.length} ms=${ms}`);
-    
-    return { items, ms };
-  } catch (err) {
-    const ms = Date.now() - startMs;
-    console.error(`[CATALOG_HOME][SECTION_ERROR] correlationId=${correlationId} key=${key} error=${err}`);
-    return { items: [], error: String(err), ms };
+    const ebayResults = await Promise.all(ebayPromises);
+    dealsItems.push(...ebayResults.flat());
   }
-}
+  
+  dealsItems = lightFilter(dealsItems);
+  dealsItems = deduplicateItems(dealsItems);
+  dealsItems = stableShuffle(dealsItems, correlationId + "_deals");
+  dealsItems = dealsItems.slice(0, settings.dealsCount);
+  
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} dealsBlock=${dealsItems.length}`);
 
-async function loadHomeSectionsAndSeeds(): Promise<{ sections: SectionConfig[] | null; error?: string }> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return { sections: null, error: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" };
-  }
-
-  try {
-    const sectionsRes = await fetch(
-      `${supabaseUrl}/rest/v1/home_sections?enabled=eq.true&order=sort_order.asc&select=key,title_fr,title_en,ebay_category,min_price,is_vehicle,see_all_query,include_keywords,exclude_keywords,strict`,
-      {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-      }
-    );
-
-    if (!sectionsRes.ok) {
-      const errorText = await sectionsRes.text();
-      return { sections: null, error: `home_sections error: ${sectionsRes.status} ${errorText.substring(0, 100)}` };
-    }
-
-    const sectionsData = await sectionsRes.json();
-    if (!Array.isArray(sectionsData) || sectionsData.length === 0) {
-      return { sections: null, error: "No enabled sections found in home_sections" };
-    }
-
-    const seedsRes = await fetch(
-      `${supabaseUrl}/rest/v1/home_section_seeds?enabled=eq.true&select=section_key,query`,
-      {
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-      }
-    );
-
-    let seedsData: Array<{ section_key: string; query: string }> = [];
-    if (seedsRes.ok) {
-      seedsData = await seedsRes.json();
-    }
-
-    const seedsMap = new Map<string, string[]>();
-    for (const seed of seedsData) {
-      if (!seedsMap.has(seed.section_key)) {
-        seedsMap.set(seed.section_key, []);
-      }
-      seedsMap.get(seed.section_key)!.push(seed.query);
-    }
-
-    const sections: SectionConfig[] = sectionsData.map((section: Record<string, unknown>) => {
-      const key = section.key as string;
-      const seeds = seedsMap.get(key) || [];
-      
-      const seedQueries = seeds.length > 0 
-        ? seeds 
-        : (section.see_all_query ? [section.see_all_query as string] : [key]);
-      
-      return {
-        key,
-        title_fr: section.title_fr as string,
-        title_en: section.title_en as string,
-        ebay_category: section.ebay_category as string | undefined,
-        min_price: section.min_price as number | undefined,
-        is_vehicle: section.is_vehicle as boolean | undefined,
-        include_keywords: section.include_keywords as string[] || [],
-        strict: section.strict !== false,
-        seed_queries: seedQueries,
-        see_all_query: section.see_all_query as string | undefined,
-      };
-    });
-
-    console.log(`[CATALOG_HOME] Loaded ${sections.length} sections from home_sections with ${seedsData.length} total seeds`);
-    return { sections };
-  } catch (err) {
-    return { sections: null, error: err instanceof Error ? err.message : String(err) };
-  }
+  // ===== COMBINE =====
+  let allItems = [...amazonItems, ...dealsItems];
+  
+  // Final de-dup across boundary
+  allItems = deduplicateItems(allItems);
+  
+  // If we lost items in de-dup, we already have what we have
+  const finalItems = allItems.slice(0, settings.limit);
+  
+  const ms = Date.now() - startMs;
+  console.log(`[CATALOG_HOME] correlationId=${correlationId} built amazonCount=${amazonItems.length} dealsCount=${dealsItems.length} total=${finalItems.length} ms=${ms}`);
+  
+  return { 
+    items: finalItems, 
+    amazonCount: amazonItems.length, 
+    dealsCount: dealsItems.length, 
+    ms 
+  };
 }
 
 serve(async (req) => {
@@ -623,84 +530,137 @@ serve(async (req) => {
   const startTime = Date.now();
 
   try {
-    let locale = "fr";
-    let currency = "USD";
-    let limitPerSection = TARGET_ITEMS;
+    // Parse parameters
+    const url = new URL(req.url);
+    let page = 1;
+    let pageSize = 20;
+    let category = "";
+    let amazonDomain = "amazon.com";
+    let env = "prod";
 
     if (req.method === "POST") {
       try {
         const body = await req.json();
-        locale = body.locale || "fr";
-        currency = body.currency || "USD";
-        limitPerSection = Math.min(Math.max(body.limitPerSection || TARGET_ITEMS, 1), 50);
+        page = parseInt(body.page) || 1;
+        pageSize = Math.min(Math.max(parseInt(body.pageSize) || 20, 1), 200);
+        category = body.category || "";
+        amazonDomain = body.amazon_domain || "amazon.com";
+        env = body.env || "prod";
       } catch {
         // Use defaults
       }
     } else {
-      const url = new URL(req.url);
-      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
-      currency = url.searchParams.get("currency") || "USD";
-      const limitParam = url.searchParams.get("limitPerSection") || url.searchParams.get("limit");
-      if (limitParam) {
-        limitPerSection = Math.min(Math.max(parseInt(limitParam, 10) || TARGET_ITEMS, 1), 50);
-      }
+      page = parseInt(url.searchParams.get("page") || "1") || 1;
+      pageSize = Math.min(Math.max(parseInt(url.searchParams.get("pageSize") || "20"), 1), 200);
+      category = url.searchParams.get("category") || "";
+      amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
+      env = url.searchParams.get("env") || req.headers.get("X-Afrishop-Environment") || "prod";
     }
 
-    console.log(`[CATALOG_HOME] correlationId=${correlationId} locale=${locale} limitPerSection=${limitPerSection}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category}`);
 
-    const { sections: dbSections, error: dbError } = await loadHomeSectionsAndSeeds();
+    // Load settings
+    const settings = await loadFeedSettings();
     
-    if (dbError) {
-      console.warn(`[CATALOG_HOME] DB load warning: ${dbError}, using fallback sections`);
+    if (!settings.enabled) {
+      console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
+      return jsonResponse({
+        ok: true,
+        sections: [{ key: "featured", title: "", title_en: "", title_fr: "", items: [] }],
+        page,
+        pageSize,
+        correlationId,
+        _meta: { cache: "disabled" }
+      });
     }
 
-    const sections = dbSections || FALLBACK_SECTIONS;
+    // ===== CACHE-FIRST: Check for valid cache =====
+    const cached = await getCachedFeed(env, category);
     
-    const ebayToken = await getEbayToken();
-    if (!ebayToken) {
-      console.error(`[CATALOG_HOME] correlationId=${correlationId} error=NO_EBAY_TOKEN`);
-      return jsonResponse({ ok: false, error: "eBay authentication failed", sections: [] }, 500);
-    }
-
-    const sectionPromises = sections.map(async (section) => {
-      const { items, error, ms } = await fetchSectionItems(section, limitPerSection, correlationId, ebayToken);
+    if (cached && cached.items && cached.items.length > 0) {
+      const offset = (page - 1) * pageSize;
+      const pageItems = cached.items.slice(offset, offset + pageSize);
       
-      return {
-        key: section.key,
-        title: locale === "fr" ? section.title_fr : section.title_en,
-        title_fr: section.title_fr,
-        title_en: section.title_en,
-        items,
-        see_all: {
-          q: section.see_all_query || section.key,
-          category_key: section.key,
-        },
-        error,
-        ms,
-      };
-    });
+      const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
+      
+      console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s count=${cached.items.length} returning=${pageItems.length}`);
+      
+      return jsonResponse({
+        ok: true,
+        sections: [{
+          key: "featured",
+          title: "",
+          title_en: "",
+          title_fr: "",
+          items: pageItems,
+        }],
+        page,
+        pageSize,
+        totalItems: cached.items.length,
+        ttlSeconds: settings.ttlSeconds,
+        correlationId,
+        _meta: {
+          cache: "hit",
+          expiresAt: cached.expires_at,
+          ttlSeconds: settings.ttlSeconds,
+          ...cached.meta
+        }
+      });
+    }
 
-    const results = await Promise.all(sectionPromises);
+    console.log(`[CATALOG_HOME] cache_miss correlationId=${correlationId} building_feed...`);
+
+    // ===== CACHE MISS: Build fresh feed =====
+    const ebayToken = await getEbayToken();
     
-    const nonEmptySections = results.filter(r => {
-      if (r.items.length === 0) {
-        console.warn(`[CATALOG_HOME] Section ${r.key} returned 0 items`);
-        return false;
-      }
-      return true;
-    });
+    const { items, amazonCount, dealsCount, ms: buildMs } = await buildFeed(
+      settings,
+      correlationId,
+      amazonDomain,
+      ebayToken
+    );
+
+    // Save to cache (async, don't wait)
+    saveCachedFeed(env, category, items, settings.ttlSeconds, { amazonCount, dealsCount });
+
+    // Paginate response
+    const offset = (page - 1) * pageSize;
+    const pageItems = items.slice(offset, offset + pageSize);
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME] correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs}`);
+    console.log(`[CATALOG_HOME] success correlationId=${correlationId} returned=${pageItems.length} one_feed=true sections=1 totalMs=${totalMs}`);
 
     return jsonResponse({
       ok: true,
-      sections: nonEmptySections,
-      ttlSeconds: 1800,
+      sections: [{
+        key: "featured",
+        title: "",
+        title_en: "",
+        title_fr: "",
+        items: pageItems,
+      }],
+      page,
+      pageSize,
+      totalItems: items.length,
+      ttlSeconds: settings.ttlSeconds,
       correlationId,
+      _meta: {
+        cache: "miss",
+        building_feed_ms: buildMs,
+        amazonCount,
+        dealsCount,
+        total: items.length
+      }
     });
   } catch (err) {
-    console.error(`[CATALOG_HOME] correlationId=${correlationId} error=${err}`);
-    return jsonResponse({ ok: false, error: String(err), sections: [] }, 500);
+    const totalMs = Date.now() - startTime;
+    console.error(`[CATALOG_HOME][ERROR] correlationId=${correlationId} error=${err} ms=${totalMs}`);
+    
+    return jsonResponse({
+      ok: false,
+      error: String(err),
+      sections: [],
+      correlationId
+    }, 200); // Always return 200 with error in body
   }
 });

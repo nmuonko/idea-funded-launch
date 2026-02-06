@@ -1,4 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { 
+  normalizeSectionTitles, 
+  getResponseLanguage, 
+  calculateTotalItems,
+  CACHE_SCHEMA_VERSION,
+  TITLE_MAP,
+  nonEmpty
+} from "../_shared/titleNormalizer.ts";
 
 /**
  * catalog-home-v2 - Single unified homepage feed with cache-first loading
@@ -7,6 +15,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
  * - Always returns HTTP 200 with proper CORS
  * - Uses 3-tier fallback: Cache → Stale Cache → DB Bootstrap
  * - Mobile ALWAYS gets ok:true with 8 sections to prevent "Catalogue Indisponible"
+ * - Title normalization runs RIGHT BEFORE returning to guarantee no empty titles
  * 
  * Web: Single "featured" section (paged at 100)
  * Mobile: 8 sections with localized titles
@@ -17,7 +26,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-afrishop-client, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
-  "Access-Control-Expose-Headers": "content-type, x-correlation-id",
+  "Access-Control-Expose-Headers": "content-type, x-correlation-id, x-env-used",
 };
 
 // ===== CLIENT DETECTION =====
@@ -28,7 +37,6 @@ type ClientType = "mobile" | "web";
  * ROBUST: Treat as mobile if ANY mobile indicator is present
  */
 function detectClientType(req: Request): ClientType {
-  // Gather all relevant headers (case-insensitive)
   const clientInfo = (
     req.headers.get("x-supabase-client-info") || 
     req.headers.get("X-Supabase-Client-Info") || 
@@ -53,24 +61,20 @@ function detectClientType(req: Request): ClientType {
   
   // ROBUST MOBILE DETECTION: ANY of these = mobile
   const isMobile = (
-    // User-Agent patterns
     userAgent.includes("okhttp") ||
     userAgent.includes("expo") ||
     userAgent.includes("reactnative") ||
     userAgent.includes("react-native") ||
     userAgent.includes("dart") ||
     userAgent.includes("flutter") ||
-    // Client info patterns
     clientInfo.includes("expo") ||
     clientInfo.includes("react-native") ||
     clientInfo.includes("reactnative") ||
     clientInfo.includes("supabase-flutter") ||
-    // Platform header (explicit mobile platform)
     platform === "android" ||
     platform === "ios" ||
     platform.includes("android") ||
     platform.includes("ios") ||
-    // AfriShop client header
     afrishopClient.includes("mobile")
   );
   
@@ -82,78 +86,20 @@ interface MobileSectionDef {
   key: string;
   title_fr: string;
   title_en: string;
-  title: string;
   keywords: string[];
   target: number;
 }
 
-// EXACT SECTIONS EXPECTED BY MOBILE APP - DO NOT CHANGE KEYS/TITLES
-// CRITICAL: title field must NEVER be empty string to prevent "Section" fallback
+// EXACT SECTIONS EXPECTED BY MOBILE APP
 const MOBILE_SECTION_DEFS: MobileSectionDef[] = [
-  { 
-    key: "phones", 
-    title_fr: "Téléphones", 
-    title_en: "Phones", 
-    title: "Téléphones",  // Default to French (primary market)
-    keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile", "unlocked"],
-    target: 20 
-  },
-  { 
-    key: "electronics", 
-    title_fr: "Électronique", 
-    title_en: "Electronics", 
-    title: "Électronique",
-    keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth", "charger", "monitor"],
-    target: 20 
-  },
-  { 
-    key: "vehicles", 
-    title_fr: "Véhicules", 
-    title_en: "Vehicles", 
-    title: "Véhicules",
-    keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"],
-    target: 20 
-  },
-  { 
-    key: "video_games", 
-    title_fr: "Jeux Vidéo", 
-    title_en: "Video Games", 
-    title: "Jeux Vidéo",
-    keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"],
-    target: 20 
-  },
-  { 
-    key: "clothing_fashion", 
-    title_fr: "Vêtements et Mode", 
-    title_en: "Clothing & Fashion", 
-    title: "Vêtements et Mode",
-    keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"],
-    target: 20 
-  },
-  { 
-    key: "home_garden", 
-    title_fr: "Maison et Jardin", 
-    title_en: "Home & Garden", 
-    title: "Maison et Jardin",
-    keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"],
-    target: 20 
-  },
-  { 
-    key: "toys", 
-    title_fr: "Jouets", 
-    title_en: "Toys", 
-    title: "Jouets",
-    keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"],
-    target: 20 
-  },
-  { 
-    key: "sporting_goods", 
-    title_fr: "Articles de Sport", 
-    title_en: "Sporting Goods", 
-    title: "Articles de Sport",
-    keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"],
-    target: 20 
-  },
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", keywords: ["iphone", "samsung", "galaxy", "pixel", "phone", "smartphone", "android", "mobile", "unlocked"], target: 20 },
+  { key: "electronics", title_fr: "Électronique", title_en: "Electronics", keywords: ["airpods", "headphones", "earbuds", "speaker", "tv", "camera", "tablet", "laptop", "audio", "bluetooth", "charger", "monitor"], target: 20 },
+  { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"], target: 20 },
+  { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"], target: 20 },
+  { key: "clothing_fashion", title_fr: "Vêtements et Mode", title_en: "Clothing & Fashion", keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"], target: 20 },
+  { key: "home_garden", title_fr: "Maison et Jardin", title_en: "Home & Garden", keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"], target: 20 },
+  { key: "toys", title_fr: "Jouets", title_en: "Toys", keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"], target: 20 },
+  { key: "sporting_goods", title_fr: "Articles de Sport", title_en: "Sporting Goods", keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"], target: 20 },
 ];
 
 // ===== CONSTANTS =====
@@ -183,6 +129,7 @@ interface CacheEntry {
   created_at: string;
   expires_at: string;
   meta: Record<string, unknown>;
+  schema_version?: number;
 }
 
 let ebayTokenCache: { token: string; expiresAt: number } | null = null;
@@ -207,7 +154,6 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
     || "production";
   
   envRequested = envRequested.toLowerCase().trim();
-  
   let envUsed = envRequested;
   
   if (envUsed === "prod") {
@@ -222,25 +168,105 @@ function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
 }
 
 /**
- * Build GUARANTEED mobile sections response
+ * Build mobile sections from a pool of items
+ */
+function buildMobileSectionsFromPool(
+  items: CatalogItem[], 
+  lang: "fr" | "en"
+): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
+  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
+  
+  // Always return 8 sections structure
+  if (!items || items.length === 0) {
+    for (const def of MOBILE_SECTION_DEFS) {
+      sections.push({
+        key: def.key,
+        title: lang === "fr" ? def.title_fr : def.title_en,
+        title_fr: def.title_fr,
+        title_en: def.title_en,
+        items: [],
+      });
+    }
+    return sections;
+  }
+  
+  const usedItems = new Set<string>();
+  
+  for (const def of MOBILE_SECTION_DEFS) {
+    const sectionItems: CatalogItem[] = [];
+    
+    for (const item of items) {
+      if (usedItems.has(item.id)) continue;
+      if (sectionItems.length >= def.target) break;
+      
+      const titleLower = (item.title || "").toLowerCase();
+      const matchesKeyword = def.keywords.some(kw => titleLower.includes(kw));
+      
+      if (matchesKeyword) {
+        sectionItems.push(item);
+        usedItems.add(item.id);
+      }
+    }
+    
+    sections.push({
+      key: def.key,
+      title: lang === "fr" ? def.title_fr : def.title_en,
+      title_fr: def.title_fr,
+      title_en: def.title_en,
+      items: sectionItems,
+    });
+  }
+  
+  // Redistribute if most sections empty
+  const sectionsWithItems = sections.filter(s => s.items.length > 0);
+  if (sectionsWithItems.length < 3 && items.length > 0) {
+    sections.length = 0;
+    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTION_DEFS.length);
+    let offset = 0;
+    
+    for (const def of MOBILE_SECTION_DEFS) {
+      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, def.target));
+      offset += itemsPerSection;
+      
+      sections.push({
+        key: def.key,
+        title: lang === "fr" ? def.title_fr : def.title_en,
+        title_fr: def.title_fr,
+        title_en: def.title_en,
+        items: sectionItems,
+      });
+    }
+  }
+  
+  return sections;
+}
+
+/**
+ * Build GUARANTEED mobile sections response with title normalization
  * ALWAYS returns ok:true with 8 sections to prevent "Catalogue Indisponible"
  */
 function buildMobileSectionsResponse(
   items: CatalogItem[],
-  locale: string,
+  lang: "fr" | "en",
   correlationId: string,
   source: string,
   isStale: boolean,
   envUsed: string,
   envRequested: string
 ): Response {
-  const sections = buildMobileSectionsFromPool(items, locale);
-  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
+  let sections = buildMobileSectionsFromPool(items, lang);
+  
+  // CRITICAL: Normalize titles RIGHT BEFORE returning
+  // This ensures section.title is NEVER "" (empty string)
+  sections = normalizeSectionTitles(sections, lang) as typeof sections;
+  
+  const totalItems = calculateTotalItems(sections);
   
   console.log(`[CATALOG_HOME_V2] mobile_response correlationId=${correlationId} source=${source} sections=${sections.length} totalItems=${totalItems}`);
   
+  // ALWAYS ok:true for mobile to prevent "Catalogue Indisponible"
   return jsonResponse({
-    ok: true, // ALWAYS TRUE FOR MOBILE
+    ok: true,
     sections,
     page: 1,
     pageSize: 20,
@@ -258,84 +284,14 @@ function buildMobileSectionsResponse(
       isStale,
       correlationId,
       ts: Date.now(),
+      schemaVersion: CACHE_SCHEMA_VERSION,
     }
   });
 }
 
-function buildMobileSectionsFromPool(
-  items: CatalogItem[], 
-  locale: string
-): Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> {
-  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
-  
-  // Always return 8 sections structure (mobile expects this)
-  if (!items || items.length === 0) {
-    for (const mobileSec of MOBILE_SECTION_DEFS) {
-      sections.push({
-        key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: [],
-      });
-    }
-    return sections;
-  }
-  
-  // Match items to sections by keywords
-  const usedItems = new Set<string>();
-  
-  for (const mobileSec of MOBILE_SECTION_DEFS) {
-    const sectionItems: CatalogItem[] = [];
-    
-    for (const item of items) {
-      if (usedItems.has(item.id)) continue;
-      if (sectionItems.length >= mobileSec.target) break;
-      
-      const titleLower = (item.title || "").toLowerCase();
-      const matchesKeyword = mobileSec.keywords.some(kw => titleLower.includes(kw));
-      
-      if (matchesKeyword) {
-        sectionItems.push(item);
-        usedItems.add(item.id);
-      }
-    }
-    
-    sections.push({
-      key: mobileSec.key,
-      title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-      title_fr: mobileSec.title_fr,
-      title_en: mobileSec.title_en,
-      items: sectionItems,
-    });
-  }
-  
-  // If most sections are empty, redistribute evenly
-  const sectionsWithItems = sections.filter(s => s.items.length > 0);
-  if (sectionsWithItems.length < 3 && items.length > 0) {
-    sections.length = 0;
-    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTION_DEFS.length);
-    let offset = 0;
-    
-    for (const mobileSec of MOBILE_SECTION_DEFS) {
-      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
-      offset += itemsPerSection;
-      
-      sections.push({
-        key: mobileSec.key,
-        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
-        title_fr: mobileSec.title_fr,
-        title_en: mobileSec.title_en,
-        items: sectionItems,
-      });
-    }
-  }
-  
-  return sections;
-}
-
 /**
  * TIER 1 & 2: Get cached feed with stale fallback
+ * Now includes schema version validation
  */
 async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache: CacheEntry | null; isStale: boolean }> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -361,7 +317,14 @@ async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache
     if (freshRes.ok && freshRes.status !== 406) {
       const data = await freshRes.json();
       if (data && data.items && data.items.length > 0) {
-        return { cache: data as CacheEntry, isStale: false };
+        // Check schema version - treat old schema as cache miss
+        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
+        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
+          console.log(`[CATALOG_HOME_V2] cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
+          // Continue to try stale or return null - don't use mismatched schema
+        } else {
+          return { cache: data as CacheEntry, isStale: false };
+        }
       }
     }
 
@@ -380,6 +343,12 @@ async function getCachedFeedWithStale(env: string, key = "all"): Promise<{ cache
     if (staleRes.ok && staleRes.status !== 406) {
       const data = await staleRes.json();
       if (data && data.items && data.items.length > 0) {
+        // Check schema version for stale cache too
+        const schemaVersion = data.meta?.schemaVersion || data.schema_version || 1;
+        if (schemaVersion !== CACHE_SCHEMA_VERSION) {
+          console.log(`[CATALOG_HOME_V2] stale_cache_schema_mismatch key=${cacheKey} cacheVersion=${schemaVersion} required=${CACHE_SCHEMA_VERSION}`);
+          return { cache: null, isStale: false };
+        }
         console.log(`[CATALOG_HOME_V2] stale_cache_available key=${cacheKey} items=${data.items.length}`);
         return { cache: data as CacheEntry, isStale: true };
       }
@@ -591,13 +560,14 @@ serve(async (req) => {
   const startTime = Date.now();
   const clientType = detectClientType(req);
   const { envRequested, envUsed } = normalizeEnv(req);
+  const lang = getResponseLanguage(req);
   let env = envUsed;
   
-  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env}`);
+  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId} client=${clientType} lang=${lang} envRequested=${envRequested} envUsed=${env}`);
 
   // Wrap EVERYTHING in try/catch
   try {
-    let locale = "fr";
+    let locale = lang;
     let pageSize = clientType === "mobile" ? 20 : DEFAULT_PAGE_SIZE;
     let page = 1;
     let forceLive = false;
@@ -605,7 +575,7 @@ serve(async (req) => {
     if (req.method === "POST") {
       try {
         const body = await req.json();
-        locale = body.locale || "fr";
+        locale = body.locale || lang;
         page = Math.max(1, parseInt(body.page, 10) || 1);
         forceLive = body.live === true || body.live === "1";
         
@@ -618,7 +588,7 @@ serve(async (req) => {
       }
     } else {
       const url = new URL(req.url);
-      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
+      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || lang;
       page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("live") === "true";
     }
@@ -664,19 +634,23 @@ serve(async (req) => {
         console.log(`[CATALOG_HOME_V2] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} poolSize=${poolSize} page=${page}/${actualTotalPages} cacheEnvUsed=${cacheEnvUsed} ms=${totalMs}`);
         
         if (clientType === "mobile") {
-          return buildMobileSectionsResponse(cached.items, locale, correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested);
+          return buildMobileSectionsResponse(cached.items, locale as "fr" | "en", correlationId, isStale ? "stale-cache" : "cache", isStale, cacheEnvUsed, envRequested);
         }
+        
+        // WEB: Single feed with normalized title (even if hideTitle=true)
+        let sections = [{
+          key: "featured",
+          title: locale === "fr" ? "En vedette" : "Featured",
+          title_en: "Featured",
+          title_fr: "En vedette",
+          hideTitle: true,
+          items: pageItems,
+        }];
+        sections = normalizeSectionTitles(sections, locale as "fr" | "en") as typeof sections;
         
         return jsonResponse({
           ok: true,
-          sections: [{
-            key: "featured",
-            title: "",
-            title_en: "",
-            title_fr: "",
-            hideTitle: true,
-            items: pageItems,
-          }],
+          sections,
           page,
           pageSize,
           totalPages: actualTotalPages,
@@ -696,6 +670,7 @@ serve(async (req) => {
             correlationId,
             ts: Date.now(),
             totalMs,
+            schemaVersion: CACHE_SCHEMA_VERSION,
           }
         });
       }
@@ -708,12 +683,12 @@ serve(async (req) => {
       const bootstrapItems = await bootstrapFromDatabase(correlationId);
       
       if (bootstrapItems.length > 0) {
-        return buildMobileSectionsResponse(bootstrapItems, locale, correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested);
+        return buildMobileSectionsResponse(bootstrapItems, locale as "fr" | "en", correlationId, "bootstrap_db", true, cacheEnvUsed, envRequested);
       }
       
       // Even if empty, return ok:true for mobile
       console.log(`[CATALOG_HOME_V2] bootstrap_empty correlationId=${correlationId} returning_empty_sections_with_ok_true`);
-      return buildMobileSectionsResponse([], locale, correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested);
+      return buildMobileSectionsResponse([], locale as "fr" | "en", correlationId, "bootstrap_empty", true, cacheEnvUsed, envRequested);
     }
 
     // Live mode - try eBay direct
@@ -735,19 +710,23 @@ serve(async (req) => {
     console.log(`[CATALOG_HOME_V2] live_result correlationId=${correlationId} items=${liveItems.length} ms=${totalMs}`);
 
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse(liveItems, locale, correlationId, "live", false, env, envRequested);
+      return buildMobileSectionsResponse(liveItems, locale as "fr" | "en", correlationId, "live", false, env, envRequested);
     }
+
+    // WEB: Normalized sections
+    let sections = [{
+      key: "featured",
+      title: locale === "fr" ? "En vedette" : "Featured",
+      title_en: "Featured",
+      title_fr: "En vedette",
+      hideTitle: true,
+      items: liveItems,
+    }];
+    sections = normalizeSectionTitles(sections, locale as "fr" | "en") as typeof sections;
 
     return jsonResponse({
       ok: liveItems.length > 0,
-      sections: [{
-        key: "featured",
-        title: "",
-        title_en: "",
-        title_fr: "",
-        hideTitle: true,
-        items: liveItems,
-      }],
+      sections,
       page,
       pageSize,
       totalPages: 1,
@@ -765,6 +744,7 @@ serve(async (req) => {
         correlationId,
         totalMs,
         ts: Date.now(),
+        schemaVersion: CACHE_SCHEMA_VERSION,
       }
     });
   } catch (err) {
@@ -772,22 +752,25 @@ serve(async (req) => {
     const totalMs = Date.now() - startTime;
     console.error(`[CATALOG_HOME_V2][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
     
-    // Mobile: ALWAYS ok:true
+    // Mobile: ALWAYS ok:true with normalized sections
     if (clientType === "mobile") {
-      return buildMobileSectionsResponse([], "fr", correlationId, "error_fallback", true, env, envRequested);
+      return buildMobileSectionsResponse([], lang, correlationId, "error_fallback", true, env, envRequested);
     }
     
-    // Web: ok:false but HTTP 200
+    // Web: ok:false but HTTP 200 with normalized sections
+    let sections = [{
+      key: "featured",
+      title: lang === "fr" ? "En vedette" : "Featured",
+      title_en: "Featured",
+      title_fr: "En vedette",
+      hideTitle: true,
+      items: [],
+    }];
+    sections = normalizeSectionTitles(sections, lang) as typeof sections;
+    
     return jsonResponse({
       ok: false,
-      sections: [{
-        key: "featured",
-        title: "",
-        title_en: "",
-        title_fr: "",
-        hideTitle: true,
-        items: [],
-      }],
+      sections,
       page: 1,
       pageSize: DEFAULT_PAGE_SIZE,
       totalPages: 0,
@@ -796,6 +779,7 @@ serve(async (req) => {
       meta: {
         source: "error",
         totalMs,
+        schemaVersion: CACHE_SCHEMA_VERSION,
       }
     });
   }

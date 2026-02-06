@@ -280,6 +280,17 @@ serve(async (req) => {
 
     if (inviteError) throw inviteError;
 
+    // Store SHA-256 hash of token for secure lookups
+    if (invitation.token) {
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(invitation.token));
+      const tokenHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+      await serviceSupabase
+        .from('admin_invitations')
+        .update({ token_hash: tokenHash })
+        .eq('id', invitation.id);
+    }
+
     // If setPassword is provided, create the user with that password
     if (setPassword) {
       const { data: newUser, error: createError } = await serviceSupabase.auth.admin.createUser({

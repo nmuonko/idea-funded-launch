@@ -115,30 +115,35 @@ export default function ProductDetailsPage() {
           brand: item.brand,
         });
 
-        // Fetch similar products
+        // Fetch similar products (in separate try/catch so it doesn't affect main product display)
         if (item.title) {
-          const keywords = item.title.split(' ').slice(0, 3).join(' ');
-          // Use cached fetch for similar products search
-          const similarData = await cachedCatalogFetch<any>('catalog-search', {
-            q: keywords.trim().toLowerCase(),
-            limit: 5,
-          });
-          
-          if (similarData?.items) {
-            setSimilarProducts(
-              similarData.items
-                .filter((i: any) => (i.provider_product_id || i.id) !== (item.provider_product_id || item.id))
-                .slice(0, 4)
-                .map((i: any) => ({
-                  id: i.provider_product_id || i.id,
-                  provider: i.provider || 'amazon',
-                  title: i.title || 'Product',
-                  imageUrl: i.image_url || '',
-                  priceUsd: i.price_usd || 0,
-                  rating: i.rating,
-                  productUrl: i.product_url,
-                }))
-            );
+          try {
+            const keywords = item.title.split(' ').slice(0, 3).join(' ');
+            // Use cached fetch for similar products search
+            const similarData = await cachedCatalogFetch<any>('catalog-search', {
+              q: keywords.trim().toLowerCase(),
+              limit: 5,
+            });
+            
+            if (similarData?.items) {
+              setSimilarProducts(
+                similarData.items
+                  .filter((i: any) => (i.provider_product_id || i.id) !== (item.provider_product_id || item.id))
+                  .slice(0, 4)
+                  .map((i: any) => ({
+                    id: i.provider_product_id || i.id,
+                    provider: i.provider || 'amazon',
+                    title: i.title || 'Product',
+                    imageUrl: i.image_url || '',
+                    priceUsd: i.price_usd || 0,
+                    rating: i.rating,
+                    productUrl: i.product_url,
+                  }))
+              );
+            }
+          } catch (similarErr) {
+            // Don't fail the main product display if similar products fail
+            console.warn('Failed to fetch similar products:', similarErr);
           }
         }
       } catch (err: any) {

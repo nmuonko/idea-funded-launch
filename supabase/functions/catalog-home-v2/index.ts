@@ -9,7 +9,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 // ===== FILTERING CONSTANTS =====
@@ -131,6 +132,34 @@ function jsonResponse(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+/**
+ * Return a safe empty feed response - used when everything fails
+ * ALWAYS returns HTTP 200 with proper structure so frontend/mobile doesn't crash
+ */
+function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<string, unknown>): Response {
+  return jsonResponse({
+    ok: false,
+    sections: [{
+      key: "feed",
+      title: "",
+      title_en: "",
+      title_fr: "",
+      hideTitle: true,
+      items: [],
+    }],
+    ttlSeconds: 300,
+    correlationId,
+    error: error || "Unknown error",
+    meta: {
+      source: "error",
+      message: error || "Unknown error",
+      correlationId,
+      ts: Date.now(),
+      ...meta,
+    }
+  }, 200); // ALWAYS 200
 }
 
 async function getEbayToken(): Promise<string | null> {
@@ -660,13 +689,18 @@ async function loadHomeSectionsAndSeeds(): Promise<{ sections: SectionConfig[] |
 }
 
 serve(async (req) => {
+  const correlationId = generateCorrelationId();
+  
+  // CORS preflight - ALWAYS handle first, return 204
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
-  const correlationId = generateCorrelationId();
   const startTime = Date.now();
+  
+  console.log(`[CATALOG_HOME_V2] start correlationId=${correlationId}`);
 
+  // Wrap EVERYTHING in try/catch to guarantee no throws
   try {
     let locale = "fr";
     let currency = "USD";
@@ -702,11 +736,17 @@ serve(async (req) => {
 
     const sections = dbSections || FALLBACK_SECTIONS;
     
-    // Get eBay token
-    const ebayToken = await getEbayToken();
+    // Get eBay token - if fails, return empty feed (not 500)
+    let ebayToken: string | null = null;
+    try {
+      ebayToken = await getEbayToken();
+    } catch (tokenErr) {
+      console.error(`[CATALOG_HOME_V2] correlationId=${correlationId} token_error=${tokenErr}`);
+    }
+    
     if (!ebayToken) {
-      console.error(`[CATALOG_HOME_V2] correlationId=${correlationId} error=NO_EBAY_TOKEN`);
-      return jsonResponse({ ok: false, error: "eBay authentication failed", sections: [] }, 500);
+      console.error(`[CATALOG_HOME_V2] correlationId=${correlationId} error=NO_EBAY_TOKEN returning empty feed`);
+      return emptyFeedResponse(correlationId, "eBay authentication failed", { reason: "no_token" });
     }
 
     // Fetch all sections in parallel
@@ -740,16 +780,29 @@ serve(async (req) => {
     });
 
     const totalMs = Date.now() - startTime;
-    console.log(`[CATALOG_HOME_V2] correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs}`);
+    console.log(`[CATALOG_HOME_V2] success correlationId=${correlationId} totalSections=${nonEmptySections.length} totalMs=${totalMs}`);
 
     return jsonResponse({
       ok: true,
       sections: nonEmptySections,
       ttlSeconds: 1800,
       correlationId,
+      meta: {
+        source: "live",
+        totalSections: nonEmptySections.length,
+        totalMs,
+        ts: Date.now(),
+      }
     });
   } catch (err) {
-    console.error(`[CATALOG_HOME_V2] correlationId=${correlationId} error=${err}`);
-    return jsonResponse({ ok: false, error: String(err), sections: [] }, 500);
+    // CRITICAL: This catch block ensures we NEVER throw - ALWAYS return HTTP 200
+    const totalMs = Date.now() - startTime;
+    console.error(`[CATALOG_HOME_V2][ERROR] correlationId=${correlationId} error=${err} stack=${(err as Error).stack} ms=${totalMs}`);
+    
+    // Return proper empty feed structure with HTTP 200
+    return emptyFeedResponse(correlationId, String(err), { 
+      totalMs,
+      stack: (err as Error).stack,
+    });
   }
 });

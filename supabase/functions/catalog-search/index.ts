@@ -589,11 +589,13 @@ Deno.serve(async (req: Request) => {
     // ═══════════════════════════════════════════════════════════════════════════
     const DB_MIN_RESULTS = 8;
     
+    let dbFallbackItems: any[] | null = null;
+    
     if (!cursor && !hasBuyingIntent) {
       // Only on first page, non-vehicle searches (vehicles need special provider logic)
       try {
         const dbStartMs = Date.now();
-        const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2);
+        const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
         // Take the 3 longest tokens (most distinctive)
         const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
         
@@ -681,6 +683,25 @@ Deno.serve(async (req: Request) => {
               status: 200,
               headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+          } else if (dbItems && dbCount > 0) {
+            // Partial results — save as fallback in case providers fail
+            dbFallbackItems = dbItems.map((item: Record<string, unknown>) => ({
+              id: item.external_id || item.id,
+              title: item.title,
+              priceUsd: item.price_usd,
+              price_usd: item.price_usd,
+              currency: item.currency || "USD",
+              imageUrl: item.image_url,
+              image_url: item.image_url,
+              productUrl: item.product_url,
+              product_url: item.product_url,
+              provider: item.provider,
+              rating: item.rating,
+              imageCount: item.image_count || 1,
+              category: item.unified_category || categoryKey,
+              store: item.provider === "ebay" ? "ebay" : "amazon",
+            }));
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_partial dbCount=${dbCount} saved as fallback`);
           }
         }
       } catch (dbErr) {
@@ -1004,10 +1025,31 @@ Deno.serve(async (req: Request) => {
       meta: { source: "live", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
     };
 
+    // ─── DB FALLBACK: If providers returned 0 but we had partial DB results ───
+    if (finalItems.length === 0 && dbFallbackItems && dbFallbackItems.length > 0) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} using db_fallback items=${dbFallbackItems.length}`);
+      const dbFallbackResponse: SearchResponse = {
+        status: "success",
+        env: envName,
+        query: qOriginal,
+        items: dbFallbackItems as unknown as CatalogItem[],
+        nextCursor: null,
+        hasMore: false,
+        total: dbFallbackItems.length,
+        providerStats,
+        searchMeta,
+        durationMs: Date.now() - startTime,
+        ttlSeconds: 3600,
+        error: null,
+        meta: { source: "db_fallback", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+      };
+      return new Response(JSON.stringify(dbFallbackResponse), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ─── CACHE FINAL RESPONSE ──────────────────────────────────────────────────
-    // Store for instant retrieval by subsequent users (async, don't wait)
-    // Only cache if we have results (positive cache)
-    // v4: Include _meta signature for mismatch detection on read
     const cacheMeta = {
       qNorm,
       provider: providerParam || "mixed",

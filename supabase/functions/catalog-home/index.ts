@@ -491,7 +491,7 @@ async function bootstrapFromDatabase(correlationId: string): Promise<CatalogItem
     // Fetch recent items from catalog_items table
     // Order by updated_at desc to get freshest items
     const res = await fetch(
-      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast,created_at.desc&limit=300`,
+      `${supabaseUrl}/rest/v1/catalog_items?provider=in.(amazon,ebay)&price_usd=gt.0&image_url=neq.null&is_disallowed=eq.false&order=updated_at.desc.nullslast&limit=300`,
       {
         headers: {
           apikey: serviceRoleKey,

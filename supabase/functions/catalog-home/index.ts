@@ -26,6 +26,102 @@ const corsHeaders = {
   "Access-Control-Expose-Headers": "content-type",
 };
 
+// ===== CLIENT DETECTION =====
+type ClientType = "mobile" | "web";
+
+/**
+ * Detect if client is mobile (React Native / Expo) or web
+ * Mobile clients send specific headers that identify them
+ */
+function detectClientType(req: Request): ClientType {
+  // Check x-supabase-client-info header (case-insensitive)
+  const clientInfo = req.headers.get("x-supabase-client-info") 
+    || req.headers.get("X-Supabase-Client-Info") 
+    || "";
+  
+  // Check user-agent
+  const userAgent = req.headers.get("user-agent") || "";
+  
+  const clientInfoLower = clientInfo.toLowerCase();
+  const userAgentLower = userAgent.toLowerCase();
+  
+  // Mobile indicators
+  const isMobile = 
+    clientInfoLower.includes("expo") ||
+    clientInfoLower.includes("react-native") ||
+    clientInfoLower.includes("reactnative") ||
+    userAgentLower.includes("okhttp") ||
+    userAgentLower.includes("reactnative") ||
+    userAgentLower.includes("expo");
+  
+  return isMobile ? "mobile" : "web";
+}
+
+// Mobile section definitions for sectioned experience
+interface MobileSection {
+  key: string;
+  title_fr: string;
+  title_en: string;
+  title: string;
+  seeds: string[];
+  category?: string;
+  minPrice?: number;
+  target: number;
+}
+
+const MOBILE_SECTIONS: MobileSection[] = [
+  { 
+    key: "phones", 
+    title_fr: "Téléphones", 
+    title_en: "Phones", 
+    title: "Phones",
+    seeds: ["iphone 15", "samsung galaxy s24", "pixel 8"],
+    target: 20 
+  },
+  { 
+    key: "video_games", 
+    title_fr: "Jeux Vidéo", 
+    title_en: "Video Games", 
+    title: "Video Games",
+    seeds: ["ps5 console", "nintendo switch", "xbox series x"],
+    target: 20 
+  },
+  { 
+    key: "computers", 
+    title_fr: "Ordinateurs", 
+    title_en: "Computers", 
+    title: "Computers",
+    seeds: ["macbook pro", "dell laptop", "gaming laptop"],
+    target: 20 
+  },
+  { 
+    key: "vehicles", 
+    title_fr: "Véhicules", 
+    title_en: "Vehicles", 
+    title: "Vehicles",
+    seeds: ["toyota camry", "honda civic", "bmw 3 series"],
+    category: "6000",
+    minPrice: 5000,
+    target: 20 
+  },
+  { 
+    key: "clothing", 
+    title_fr: "Vêtements", 
+    title_en: "Clothing", 
+    title: "Clothing",
+    seeds: ["nike jordan", "adidas originals", "levi jeans"],
+    target: 20 
+  },
+  { 
+    key: "electronics", 
+    title_fr: "Électronique", 
+    title_en: "Electronics", 
+    title: "Electronics",
+    seeds: ["airpods pro", "sony headphones", "samsung tv"],
+    target: 20 
+  },
+];
+
 // Default settings (overridden by admin_settings)
 const DEFAULT_POOL_SIZE = 1000;
 const DEFAULT_PAGE_SIZE = 100; // 100 items per page = 10 pages for 1000 pool
@@ -782,6 +878,100 @@ async function fetchLiveItems(
   return items.slice(0, pageSize);
 }
 
+/**
+ * Build mobile sectioned response from cached pool
+ * Groups items by segment property or distributes evenly across sections
+ */
+function buildMobileSectionsFromPool(
+  items: CatalogItem[], 
+  locale: string,
+  page: number,
+  pageSize: number
+): { sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }>; totalItems: number } {
+  const sections: Array<{ key: string; title: string; title_fr: string; title_en: string; items: CatalogItem[] }> = [];
+  
+  // Group items by segment if available, otherwise distribute evenly
+  const segmentMap = new Map<string, CatalogItem[]>();
+  
+  for (const item of items) {
+    const segment = item.segment || "electronics"; // Default segment
+    if (!segmentMap.has(segment)) {
+      segmentMap.set(segment, []);
+    }
+    segmentMap.get(segment)!.push(item);
+  }
+  
+  // Map segments to mobile sections
+  const segmentToSection: Record<string, MobileSection> = {};
+  for (const sec of MOBILE_SECTIONS) {
+    segmentToSection[sec.key] = sec;
+  }
+  
+  // Build sections with proper titles
+  for (const mobileSec of MOBILE_SECTIONS) {
+    const sectionItems: CatalogItem[] = [];
+    
+    // Try to get items from matching segment
+    if (segmentMap.has(mobileSec.key)) {
+      sectionItems.push(...segmentMap.get(mobileSec.key)!);
+    }
+    
+    // Also check for related segment names
+    const relatedSegments: Record<string, string[]> = {
+      phones: ["phones", "phone", "mobile"],
+      video_games: ["gaming", "games", "video_games"],
+      computers: ["computers", "laptops", "computer"],
+      vehicles: ["vehicles", "cars", "automotive"],
+      clothing: ["clothing", "fashion", "accessories"],
+      electronics: ["electronics", "accessories", "home"],
+    };
+    
+    for (const related of (relatedSegments[mobileSec.key] || [])) {
+      if (related !== mobileSec.key && segmentMap.has(related)) {
+        sectionItems.push(...segmentMap.get(related)!);
+      }
+    }
+    
+    // Only add section if it has items
+    if (sectionItems.length > 0) {
+      // Limit to target items per section (20 default for mobile)
+      const sectionItemsLimited = sectionItems.slice(0, mobileSec.target);
+      
+      sections.push({
+        key: mobileSec.key,
+        title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+        title_fr: mobileSec.title_fr,
+        title_en: mobileSec.title_en,
+        items: sectionItemsLimited,
+      });
+    }
+  }
+  
+  // If no segment-based sections, distribute items evenly
+  if (sections.length === 0 && items.length > 0) {
+    const itemsPerSection = Math.ceil(items.length / MOBILE_SECTIONS.length);
+    let offset = 0;
+    
+    for (const mobileSec of MOBILE_SECTIONS) {
+      const sectionItems = items.slice(offset, offset + Math.min(itemsPerSection, mobileSec.target));
+      offset += itemsPerSection;
+      
+      if (sectionItems.length > 0) {
+        sections.push({
+          key: mobileSec.key,
+          title: locale === "fr" ? mobileSec.title_fr : mobileSec.title_en,
+          title_fr: mobileSec.title_fr,
+          title_en: mobileSec.title_en,
+          items: sectionItems,
+        });
+      }
+    }
+  }
+  
+  const totalItems = sections.reduce((sum, s) => sum + s.items.length, 0);
+  return { sections, totalItems };
+}
+
 serve(async (req) => {
   const correlationId = generateCorrelationId();
   
@@ -791,6 +981,9 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
+  
+  // ===== CLIENT DETECTION =====
+  const clientType = detectClientType(req);
 
   // Wrap EVERYTHING in try/catch to guarantee no throws
   try {
@@ -801,6 +994,7 @@ serve(async (req) => {
     let category = "";
     let amazonDomain = "amazon.com";
     let forceLive = false;
+    let locale = "fr"; // Default locale for mobile section titles
 
     // CRITICAL: Normalize environment with proper fallback
     const { envRequested, envUsed } = normalizeEnv(req);
@@ -813,6 +1007,7 @@ serve(async (req) => {
         pageSize = parseInt(body.pageSize) || 0;
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
+        locale = body.locale || body.lang || "fr";
         // Override env from body if provided (but still normalize)
         if (body.env) {
           const bodyEnv = body.env.toLowerCase().trim();
@@ -827,8 +1022,13 @@ serve(async (req) => {
       pageSize = parseInt(url.searchParams.get("pageSize") || "0") || 0;
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
+      locale = url.searchParams.get("locale") || url.searchParams.get("lang") || "fr";
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
+
+    // For MOBILE: use smaller page size (20 items per section)
+    // For WEB: use standard 100 items per page
+    const mobilePageSize = 20;
 
     // Load settings (with fallback to defaults)
     let settings: FeedSettings;
@@ -844,14 +1044,30 @@ serve(async (req) => {
       };
     }
     
-    // MOBILE CONTRACT: Fixed pageSize at 100 for stable paging UX
-    // Override any client-specified pageSize to ensure consistent feed behavior
-    pageSize = DEFAULT_PAGE_SIZE; // Always 100
+    // PAGE SIZE: Web uses 100, Mobile uses 20 per section
+    pageSize = clientType === "mobile" ? mobilePageSize : DEFAULT_PAGE_SIZE;
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} client=${clientType} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive} locale=${locale}`);
 
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
+      // Return appropriate format based on client
+      if (clientType === "mobile") {
+        return jsonResponse({
+          ok: true,
+          sections: MOBILE_SECTIONS.map(s => ({
+            key: s.key,
+            title: locale === "fr" ? s.title_fr : s.title_en,
+            title_fr: s.title_fr,
+            title_en: s.title_en,
+            items: [],
+          })),
+          page,
+          pageSize,
+          correlationId,
+          meta: { client: clientType, source: "disabled" }
+        });
+      }
       return jsonResponse({
         ok: true,
         sections: [{ key: "featured", title: "", title_en: "", title_fr: "", hideTitle: true, items: [] }],
@@ -859,7 +1075,7 @@ serve(async (req) => {
         pageSize,
         totalPages: 0,
         correlationId,
-        _meta: { cache: "disabled" }
+        meta: { client: clientType, source: "disabled" }
       });
     }
 
@@ -899,10 +1115,41 @@ serve(async (req) => {
         
         const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
         
-        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached} cacheEnvUsed=${cacheEnvUsed}`);
+        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} client=${clientType} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached} cacheEnvUsed=${cacheEnvUsed}`);
         
+        // ===== DUAL-MODE RESPONSE =====
+        if (clientType === "mobile") {
+          // MOBILE: Return multiple sections with real titles
+          const { sections, totalItems } = buildMobileSectionsFromPool(cached.items, locale, page, pageSize);
+          
+          console.log(`[CATALOG_HOME] mobile_sections correlationId=${correlationId} sectionsCount=${sections.length} totalItems=${totalItems}`);
+          
+          return jsonResponse({
+            ok: true,
+            sections,
+            page,
+            pageSize,
+            totalPages: 1, // Mobile uses sections, not pages
+            totalItems,
+            hasMore: false, // Mobile gets all sections at once
+            hasMoreCached: false,
+            ttlSeconds: settings.ttlSeconds,
+            correlationId,
+            meta: {
+              client: "mobile",
+              envUsed: cacheEnvUsed,
+              envRequested,
+              source: "cache",
+              isStale,
+              correlationId,
+              ts: Date.now(),
+            }
+          });
+        }
+        
+        // WEB: Return single "featured" section (current working behavior)
         return jsonResponse({
-          ok: true, // CRITICAL: Always ok:true when we have items
+          ok: true,
           sections: [{
             key: "featured",
             title: "",
@@ -915,11 +1162,12 @@ serve(async (req) => {
           pageSize,
           totalPages: actualTotalPages,
           totalItems: cached.items.length,
-          hasMore: true, // Always true - can continue with live after cache
-          hasMoreCached, // True if more cached pages available
+          hasMore: true,
+          hasMoreCached,
           ttlSeconds: settings.ttlSeconds,
           correlationId,
           meta: {
+            client: "web",
             envUsed: cacheEnvUsed,
             envRequested,
             source: "cache",

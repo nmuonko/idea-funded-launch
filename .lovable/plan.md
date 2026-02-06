@@ -1,126 +1,100 @@
 
-# Fix: Deploy catalog-product Edge Function
+# Backend Verification and Mobile Compatibility Fix
 
-## Root Cause
+## Summary
+After thorough investigation, the **backend edge functions are working correctly**. All tests with mobile headers return `ok: true` with 8 sections and products. The "Catalogue Indisponible" error on mobile is likely caused by one of the following:
 
-The `catalog-product` edge function returns **404 "Requested function was not found"** because:
+1. The mobile app is NOT sending headers that identify it as mobile
+2. The mobile app is calling a different endpoint than `catalog-home`
+3. The mobile app has client-side caching that's showing old errors
+4. The mobile app expects a different response structure than what's being returned
 
-1. **Bundler timeout during deployment** - The function imports `@supabase/supabase-js` SDK directly (line 15) which is a heavy dependency that can cause the bundler to time out
-2. **No logs exist** for this function, confirming it was never successfully deployed
+## Technical Investigation Results
 
-The function code exists in `supabase/functions/catalog-product/index.ts` (572 lines) and is registered in `config.toml`, but failed to deploy.
+### Backend Status (Confirmed Working)
 
----
+| Test Scenario | Result | Items | Sections |
+|--------------|--------|-------|----------|
+| Mobile headers (`okhttp`) | `ok: true` | 132 | 8 |
+| Mobile + staging env | `ok: true` | 133 | 8 |
+| Web (no mobile headers) | `ok: true` | 100 | 1 (featured) |
+| All environments | HTTP 200 | Has data | Correct format |
 
-## Solution
-
-### 1. Replace Heavy SDK Import with Lightweight REST Client
-
-**Current (causes bundler timeout):**
-```typescript
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+### Edge Function Logs
+```
+[CATALOG_HOME] client=mobile sections=8 totalItems=132 source=cache
+[CATALOG_HOME] client=mobile sections=8 totalItems=133 source=cache
 ```
 
-**Fixed (SDK-free approach):**
+No errors logged. Functions are responding correctly.
+
+## Root Cause Analysis
+
+The mobile app is showing "Catalogue Indisponible" despite the backend returning valid data. This indicates one of:
+
+1. **Client Detection Mismatch**: Mobile app may not be sending expected headers
+2. **Endpoint Mismatch**: Mobile may be calling `catalog-home-v2` which has no recent logs
+3. **Response Parsing Issue**: Mobile may expect different field names or structure
+4. **Network/Cache Issue**: Mobile app may have cached a previous failed response
+
+## Implementation Plan
+
+### Phase 1: Deploy and Test Debug Endpoint (Already Done)
+The `catalog-debug` endpoint is now deployed and can be called by the mobile app to verify what headers it's actually sending.
+
+### Phase 2: Ensure catalog-home-v2 Has Same Behavior
+Verify that `catalog-home-v2` is fully deployed and matches `catalog-home` behavior since mobile might be calling either endpoint.
+
+### Phase 3: Additional Hardening (Backend Only)
+
+**File: `supabase/functions/catalog-home/index.ts`**
+- Add additional mobile detection patterns for any Supabase React Native SDK variants
+- Ensure `ok: true` is returned even with zero items by returning empty sections structure
+
+**File: `supabase/functions/catalog-home-v2/index.ts`**  
+- Sync all changes from `catalog-home` to ensure both endpoints behave identically
+
+**File: `supabase/functions/catalog-smoke-home/index.ts`**
+- Update to return 8 sections (matching mobile expectation) instead of single "featured" section
+- This allows mobile to test the exact response format it expects
+
+### Phase 4: Update Smoke Test for Mobile Format
+
+The smoke test currently returns a single `featured` section (web format). Update it to return the 8-section mobile format so it can be used to verify mobile parsing.
+
 ```typescript
-import { createAdminPostgrestClient, PostgrestClient } from "../_shared/postgrest.ts";
+// Return 8 sections matching mobile expectation
+sections: [
+  { key: "phones", title_fr: "Téléphones", title_en: "Phones", items: [...] },
+  { key: "electronics", title_fr: "Électronique", title_en: "Electronics", items: [] },
+  // ... etc
+]
 ```
 
-Then update all `supabase.from()` calls to use the lightweight PostgREST client pattern.
+## Files to Modify (Backend Only)
 
-### 2. Add POST Method Support
+1. `supabase/functions/catalog-smoke-home/index.ts`
+   - Update to return 8-section mobile format for testing
 
-The current implementation only supports GET. Add POST method handling to match `product-resolver`:
+2. Redeploy edge functions:
+   - `catalog-home`
+   - `catalog-home-v2`
+   - `catalog-smoke-home`
+   - `catalog-debug`
 
-```typescript
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+## Acceptance Criteria
 
-  const correlationId = crypto.randomUUID();
-  const startTime = Date.now();
-  
-  let provider: string | null = null;
-  let productId: string | null = null;
-  
-  if (req.method === "POST") {
-    try {
-      const body = await req.json();
-      provider = body.provider;
-      productId = body.id;
-    } catch {
-      // Fall through to GET params
-    }
-  }
-  
-  const url = new URL(req.url);
-  // Parse from query params if not in body
-  if (!productId) {
-    const { provider: parsedProvider, productId: parsedId } = parseProductId(url);
-    provider = parsedProvider;
-    productId = parsedId;
-  }
-  
-  console.log(`[CATALOG_PRODUCT] start correlationId=${correlationId} provider=${provider} idRaw=${productId}`);
-  // ... rest of logic
-});
-```
+1. `/catalog-home` with mobile headers returns 8 sections with `ok: true`
+2. `/catalog-home-v2` with mobile headers returns 8 sections with `ok: true`
+3. `/catalog-smoke-home` returns 8 sections with test data for mobile parsing verification
+4. `/catalog-debug` returns the exact headers/params mobile is sending
+5. No 4xx/5xx responses from any catalog endpoint
+6. Web homepage remains unchanged (single-feed behavior preserved)
 
-### 3. Add Structured Correlation ID Logging
+## Next Steps for Mobile Team
 
-Add consistent logging pattern:
-- `[CATALOG_PRODUCT] start correlationId=... provider=... idRaw=... idDecoded=...`
-- `[CATALOG_PRODUCT] success correlationId=... ms=...`
-- `[CATALOG_PRODUCT][ERROR] correlationId=... status=... error=... stack=...`
-
-### 4. Deploy Both Functions
-
-Deploy:
-- `catalog-product` - Main product details endpoint
-- `health` - Health check endpoint (also returning 404)
-
----
-
-## Files to Modify
-
-### `supabase/functions/catalog-product/index.ts`
-
-Key changes:
-- Replace `@supabase/supabase-js` import with lightweight `_shared/postgrest.ts`
-- Add POST method support alongside GET
-- Add correlationId logging throughout
-- Ensure URL-encoded IDs are properly decoded (`v1%7C` becomes `v1|`)
-
-### Database Calls Refactoring
-
-**Before (SDK):**
-```typescript
-const supabase = createClient(supabaseUrl, supabaseKey);
-const { data: dbItem } = await supabase
-  .from("catalog_items")
-  .select("*")
-  .eq("id", fullProductId)
-  .maybeSingle();
-```
-
-**After (SDK-free):**
-```typescript
-const db = createAdminPostgrestClient();
-const { data: dbItem, error } = await db
-  .from("catalog_items")
-  .select("*")
-  .eq("id", fullProductId)
-  .single();
-```
-
----
-
-## Expected Results After Implementation
-
-- `/functions/v1/catalog-product` returns **200 JSON** with CORS headers
-- Clicking any product on homepage **opens product detail page successfully**
-- eBay IDs like `v1|127568923109|428695839251` (and URL-encoded `v1%7C127568923109%7C428695839251`) work correctly
-- Structured logging with correlationId for debugging
-- No bundler timeout during deployment
-- Both GET and POST methods supported
+Since the backend is verified working, the mobile team should:
+1. Call `/catalog-debug` and check what headers are being sent
+2. Verify the mobile app is calling `/catalog-home` (not a different URL)
+3. Clear any client-side cache and retry
+4. Check if the mobile app properly parses the response structure

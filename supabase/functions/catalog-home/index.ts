@@ -84,6 +84,36 @@ function jsonResponse(data: unknown, status = 200): Response {
 }
 
 /**
+ * Normalize environment from request - handles mobile header casing variants
+ * Falls back to "production" if env is invalid or unrecognized
+ */
+function normalizeEnv(req: Request): { envRequested: string; envUsed: string } {
+  const url = new URL(req.url);
+  
+  // Read from query param OR headers (multiple casing variants)
+  let envRequested = url.searchParams.get("env") 
+    || req.headers.get("X-Afrishop-Environment") 
+    || req.headers.get("x-afrishop-environment")
+    || "production";
+  
+  envRequested = envRequested.toLowerCase().trim();
+  
+  let envUsed = envRequested;
+  
+  // Normalize "prod" -> "production"
+  if (envUsed === "prod") {
+    envUsed = "production";
+  }
+  
+  // Validate environment - default to production if invalid
+  if (envUsed !== "production" && envUsed !== "staging" && envUsed !== "dev") {
+    envUsed = "production";
+  }
+  
+  return { envRequested, envUsed };
+}
+
+/**
  * Return a safe empty feed response - used when everything fails
  * ALWAYS returns HTTP 200 with proper structure so frontend doesn't crash
  */
@@ -106,6 +136,15 @@ function emptyFeedResponse(correlationId: string, error?: string, meta?: Record<
     hasMoreCached: false,
     correlationId,
     error: error || "Unknown error",
+    meta: {
+      envUsed: "production",
+      envRequested: "unknown",
+      source: "error",
+      isStale: false,
+      correlationId,
+      ts: Date.now(),
+      message: error || "Unknown error",
+    },
     _meta: {
       source: "error",
       error: error || "Unknown error",
@@ -759,8 +798,11 @@ serve(async (req) => {
     let pageSize = 0; // 0 means use default from settings
     let category = "";
     let amazonDomain = "amazon.com";
-    let env = "prod";
     let forceLive = false;
+
+    // CRITICAL: Normalize environment with proper fallback
+    const { envRequested, envUsed } = normalizeEnv(req);
+    let env = envUsed;
 
     if (req.method === "POST") {
       try {
@@ -769,7 +811,11 @@ serve(async (req) => {
         pageSize = parseInt(body.pageSize) || 0;
         category = body.category || "";
         amazonDomain = body.amazon_domain || "amazon.com";
-        env = body.env || "prod";
+        // Override env from body if provided (but still normalize)
+        if (body.env) {
+          const bodyEnv = body.env.toLowerCase().trim();
+          env = bodyEnv === "prod" ? "production" : (["production", "staging", "dev"].includes(bodyEnv) ? bodyEnv : "production");
+        }
         forceLive = body.live === true || body.live === "1" || body.source === "live";
       } catch {
         // Use defaults - don't throw
@@ -779,7 +825,6 @@ serve(async (req) => {
       pageSize = parseInt(url.searchParams.get("pageSize") || "0") || 0;
       category = url.searchParams.get("category") || "";
       amazonDomain = url.searchParams.get("amazon_domain") || "amazon.com";
-      env = url.searchParams.get("env") || req.headers.get("X-Afrishop-Environment") || "prod";
       forceLive = url.searchParams.get("live") === "1" || url.searchParams.get("source") === "live";
     }
 
@@ -804,7 +849,7 @@ serve(async (req) => {
     // Cap page size at 200, default to 100
     pageSize = Math.min(Math.max(pageSize, 1), 200);
 
-    console.log(`[CATALOG_HOME] start correlationId=${correlationId} env=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive}`);
+    console.log(`[CATALOG_HOME] start correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} page=${page} pageSize=${pageSize} category=${category} forceLive=${forceLive}`);
 
     if (!settings.enabled) {
       console.log(`[CATALOG_HOME] correlationId=${correlationId} feed_disabled`);
@@ -822,11 +867,24 @@ serve(async (req) => {
     // ===== CACHE-FIRST: Check for valid cache (includes stale fallback) =====
     let cached: CacheEntry | null = null;
     let isStale = false;
+    let cacheEnvUsed = env; // Track which env cache was actually used
     
     try {
       const cacheResult = await getCachedFeedWithStale(env, category);
       cached = cacheResult.cache;
       isStale = cacheResult.isStale;
+      
+      // CRITICAL: If requested env (e.g., staging) has no cache, fall back to production
+      if ((!cached || !cached.items || cached.items.length === 0) && env !== "production") {
+        console.log(`[CATALOG_HOME] cache_fallback_to_production correlationId=${correlationId} envRequested=${envRequested} envUsed=${env} reason=no_cache_for_env`);
+        const prodCacheResult = await getCachedFeedWithStale("production", category);
+        if (prodCacheResult.cache && prodCacheResult.cache.items && prodCacheResult.cache.items.length > 0) {
+          cached = prodCacheResult.cache;
+          isStale = prodCacheResult.isStale;
+          cacheEnvUsed = "production";
+          console.log(`[CATALOG_HOME] cache_fallback_success correlationId=${correlationId} prodItems=${cached.items.length}`);
+        }
+      }
     } catch (cacheErr) {
       console.warn(`[CATALOG_HOME] Cache read failed: ${cacheErr}`);
     }
@@ -842,10 +900,10 @@ serve(async (req) => {
         
         const expiresIn = Math.round((new Date(cached.expires_at).getTime() - Date.now()) / 1000);
         
-        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached}`);
+        console.log(`[CATALOG_HOME] cache_hit correlationId=${correlationId} isStale=${isStale} expiresAt=${cached.expires_at} expiresIn=${expiresIn}s poolSize=${cached.items.length} page=${page}/${actualTotalPages} returning=${pageItems.length} hasMoreCached=${hasMoreCached} cacheEnvUsed=${cacheEnvUsed}`);
         
         return jsonResponse({
-          ok: true,
+          ok: true, // CRITICAL: Always ok:true when we have items
           sections: [{
             key: "feed",
             title: "",
@@ -862,10 +920,20 @@ serve(async (req) => {
           hasMoreCached, // True if more cached pages available
           ttlSeconds: settings.ttlSeconds,
           correlationId,
+          meta: {
+            envUsed: cacheEnvUsed,
+            envRequested,
+            source: "cache",
+            isStale,
+            correlationId,
+            ts: Date.now(),
+          },
           _meta: {
             source: "cache",
             cache: isStale ? "stale" : "hit",
             isStale,
+            envUsed: cacheEnvUsed,
+            envRequested,
             expiresAt: cached.expires_at,
             ttlSeconds: settings.ttlSeconds,
             poolSize: cached.items.length,

@@ -265,7 +265,14 @@ export function isAmbiguousQuery(query: string): boolean {
  */
 export function isVehicleQuery(query: string): boolean {
   const lower = query.toLowerCase();
-  return VEHICLE_QUERY_KEYWORDS.some(kw => lower.includes(kw));
+  return VEHICLE_QUERY_KEYWORDS.some(kw => {
+    // Short keywords (≤3 chars like "gle", "amg", "rs", "x3", "vw", "rv") need
+    // word-boundary matching to avoid false positives ("google" contains "gle")
+    if (kw.length <= 3) {
+      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
+    }
+    return lower.includes(kw);
+  });
 }
 
 /**
@@ -436,7 +443,12 @@ const VEHICLE_LISTING_MODELS = [
 
 function hasAny(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
-  return keywords.some(kw => lower.includes(kw));
+  return keywords.some(kw => {
+    if (kw.length <= 3) {
+      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
+    }
+    return lower.includes(kw);
+  });
 }
 
 function isLikelyVehicleMakeModelQuery(qNorm: string): boolean {
@@ -484,8 +496,22 @@ export function classifySearchIntent(qNorm: string): SearchIntent {
     return { intentKey: "gaming", vehicleListingIntent: false, vehiclePartsIntent: false, phoneDeviceIntent: false, phoneAccessoryIntent: false, isHeavyEquipment: false };
   }
 
+  // ── PHONE BRAND PRIORITY GATE ─────────────────────────────────────────────
+  // If query contains a known phone brand, skip vehicle classification unless
+  // there's a strong vehicle signal (year, mileage, explicit make+model).
+  // This prevents "google pixel" from being classified as vehicle (due to "gle").
+  const PHONE_ONLY_BRANDS = ["pixel", "iphone", "galaxy", "xiaomi", "tecno", "infinix",
+    "oneplus", "oppo", "vivo", "realme", "redmi", "poco", "nothing phone", "google pixel",
+    "samsung", "motorola", "moto", "huawei", "honor", "nokia", "xperia", "zenfone"];
+  const hasPhoneBrand = PHONE_ONLY_BRANDS.some(b => lower.includes(b));
+  const strongVehicleSignal = hasYearToken(lower) || hasMileageToken(lower);
+
   const isHeavyEquip = isHeavyEquipmentQuery(lower);
-  const vehicleIntent = isLikelyVehicleMakeModelQuery(lower) || isVehicleQuery(lower);
+
+  // If phone brand detected and no strong vehicle signal, suppress vehicle intent
+  const vehicleIntent = hasPhoneBrand && !strongVehicleSignal
+    ? false
+    : (isLikelyVehicleMakeModelQuery(lower) || isVehicleQuery(lower));
   const vehiclePartsIntent = vehicleIntent && hasAny(lower, VEHICLE_PARTS_KEYWORDS) && !isHeavyEquip;
   const vehicleListingIntent = vehicleIntent && !vehiclePartsIntent && !isHeavyEquip;
 

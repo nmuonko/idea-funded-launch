@@ -154,6 +154,13 @@ function scoreOne(
       break;
     }
     case "gaming": {
+      // ── STEP 0: Drop furniture/storage/non-console items ──
+      const GAMING_NOT_CONSOLE = [
+        "storage","stand","shelf","rack","organizer","furniture","desk","table",
+        "chair","cabinet","tower","wall mount","tv mount","display case",
+        "special edition","metal case","steelbook","game case",
+      ];
+      if (hasAny(title, GAMING_NOT_CONSOLE)) return null;
       // ── STEP 1: Hard-drop accessories (EN + FR) ──
       const GAMING_ACCESSORY_DROP = [
         "headset","headphones","earphones","mic","microphone",
@@ -171,7 +178,7 @@ function scoreOne(
       ];
       if (hasAny(title, GAMING_ACCESSORY_DROP)) return null;
 
-      // ── STEP 2: Drop "for X" / "compatible with" patterns (accessories referencing consoles) ──
+      // ── STEP 2: Drop "for X" / "compatible with" patterns ──
       const FOR_PATTERNS = [
         "for ps5","for ps4","for ps3","for xbox","for nintendo",
         "for switch","for playstation","compatible with","fits","works with",
@@ -179,9 +186,35 @@ function scoreOne(
       ];
       if (hasAny(title, FOR_PATTERNS)) return null;
 
-      // ── STEP 3: Must match a specific console model ──
+      // ── STEP 3: Drop lots / bundles / multi-item listings ──
+      const LOT_BUNDLE_DROP = [
+        "lot","bundle","job lot","bulk","mixed","assorted","collection",
+        "set of","pack","power tested mixed","w/ games lot","games lot",
+      ];
+      if (hasAny(title, LOT_BUNDLE_DROP)) return null;
+      // Regex: "lot of <number>" or "<number>x" near console terms
+      if (/lot\s+of\s+\d+/i.test(title)) return null;
+      if (/\b\d+\s*x\b/i.test(title)) return null;
+
+      // ── STEP 4: Drop broken / for-parts / as-is ──
+      const BROKEN_DROP = [
+        "for parts","parts only","not working","broken","as-is","as is",
+        "untested","read description","faulty","doesn't work","no power",
+        "defective","damaged","cracked","dead","won't turn on",
+      ];
+      if (hasAny(title, BROKEN_DROP)) return null;
+
+      // ── STEP 5: Drop used condition (via metadata or top-level condition field) ──
+      const conditionName = ((item.condition ?? item.conditionName ?? (item.metadata as any)?.condition) || "").toString().toLowerCase();
+      if (conditionName.includes("for parts") || conditionName.includes("not working")) return null;
+      // Allow: new, manufacturer refurbished, seller refurbished, certified refurbished, open box
+      // Drop: used, acceptable, good (we only want new/refurb)
+      if (conditionName === "used" || conditionName === "good" || conditionName === "acceptable") return null;
+      if (conditionName === "open box") return null; // Open box is not new/refurb
+
+      // ── STEP 6: Must match a specific console model ──
       const CONSOLE_MODEL_SIGNALS = [
-        "playstation 5 slim","playstation 5","ps5 slim","ps5 console",
+        "playstation 5 slim","playstation 5","ps5 slim","ps5 console","ps5 digital",
         "playstation 4","ps4 console","ps4 slim","ps4 pro",
         "xbox series s","xbox series x",
         "xbox one x","xbox one s","xbox one console","xbox one",
@@ -190,7 +223,6 @@ function scoreOne(
         "wii u console","wii console",
         "steam deck","rog ally",
       ];
-      // Also accept: title has "console" + a brand name
       const hasBrandAndConsole = title.includes("console") && 
         hasAny(title, ["playstation","xbox","nintendo","sony","microsoft"]);
       
@@ -198,10 +230,18 @@ function scoreOne(
 
       // Price sanity
       if (priceUsd > 3000) return null;
+      if (priceUsd < 30) return null; // Too cheap to be a real console
+
+      // ── STEP 7: Ranking — prefer New > Refurbished ──
+      if (conditionName.includes("new") || conditionName === "" || title.includes("brand new") || title.includes("sealed")) score += 20;
+      else if (conditionName.includes("refurbished") || title.includes("refurbished") || title.includes("renewed") || title.includes("certified")) score += 10;
 
       // Boost exact console model matches
       if (hasAny(title, CONSOLE_MODEL_SIGNALS)) score += 15;
       if (hasBrandAndConsole) score += 10;
+      
+      // Boost single-console listings (title has "console" + exactly one model)
+      if (title.includes("console")) score += 5;
       break;
     }
     case "general":

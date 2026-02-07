@@ -1,53 +1,60 @@
 
-# Fix Gaming Tab Returning Shoes
+# Fix Gaming Tab Returning Irrelevant Items
 
 ## Root Cause
 
-The Gaming tab sends `q=xbox console ps5 console nintendo switch video games -case -cover...` to the backend. The intent classifier in `vehicleDetection.ts` doesn't recognize gaming queries -- it classifies them as `general`. The scorer only hard-drops shoes/clothing for `phone_device`, `phone_accessory`, and `vehicle_listing` intents. So shoes with "court" or "basketball" in the title pass through.
+The gaming scorer at line 137-143 of `searchIntentScorer.ts` has two problems:
 
-Additionally, eBay's API ignores the `-` negative keyword syntax, so those terms are treated as regular search words, polluting results.
+1. **Too-broad boost keyword**: `"gaming"` in the boost list matches anything with "gaming" in the title (e.g., "Gaming Device Scripts Mods"), so accessories score high instead of being dropped.
+2. **No relevance gate**: Items like "Premium Fort for Sale" and "MINECRAFT MCDONALDS NETHER SAUCE" ($49,000) pass through because they don't match any drop keyword. There is no requirement that an item must contain at least one console/game signal to survive.
+3. **No price sanity check**: Real consoles cost $200-$800. Items at $2,000-$49,000 are clearly not consoles or games.
 
-## Plan (3 files)
+## Changes (1 file)
 
-### 1. Add `gaming` intent classification
-**File**: `supabase/functions/_shared/vehicleDetection.ts`
+### `supabase/functions/_shared/searchIntentScorer.ts` (lines 137-143)
 
-- Add gaming keywords: `["xbox","ps5","ps4","playstation","nintendo","switch","console","gaming console","video game"]`
-- Add `gaming` to the `SearchIntent["intentKey"]` type
-- Insert classification before `general` fallback:
-  ```
-  else if (hasAny(lower, GAMING_KW)) intentKey = "gaming";
-  ```
+Replace the gaming case with stricter logic:
 
-### 2. Add `gaming` hard-drop and scoring
-**File**: `supabase/functions/_shared/searchIntentScorer.ts`
+```typescript
+case "gaming": {
+  // Drop accessories, merch, and cheat devices
+  if (hasAny(title, [
+    "case","cover","skin","sticker","decal","poster","shirt","shoes",
+    "bag","backpack","hat","cap","mug","cup","keychain","wallet","socks",
+    "figurine","mod","script","adapter","converter","device scripts",
+    "sauce","fort for sale","mcdonalds","premium fort",
+  ])) return null;
 
-- Extend the WRONG_CATEGORY_KW hard-drop to include `gaming`:
-  ```
-  if (
-    (intent.intentKey === "phone_device" || intent.intentKey === "phone_accessory" || intent.intentKey === "gaming") &&
-    hasAny(title, WRONG_CATEGORY_KW)
-  ) { return null; }
-  ```
-- Add a `gaming` scoring case that boosts console signals and drops accessories:
-  ```
-  case "gaming": {
-    if (hasAny(title, WRONG_CATEGORY_KW)) return null;
-    if (hasAny(title, ["console","xbox","playstation","ps5","ps4","nintendo","switch","controller","gamepad"])) score += 15;
-    if (hasAny(title, ["case","cover","skin","sticker","decal","poster","shirt","shoes"])) return null;
-    break;
-  }
-  ```
+  // Must contain at least one actual gaming signal to survive
+  const GAMING_SIGNALS = [
+    "console","xbox","playstation","ps5","ps4","ps3","nintendo","switch",
+    "gamepad","controller","video game","xbox series","series x","series s",
+    "wii","gamecube","sega","atari","game boy","3ds","steam deck","rog ally",
+    "game disc","game lot","game collection","game bundle",
+  ];
+  if (!hasAny(title, GAMING_SIGNALS)) return null;
 
-### 3. Fix frontend gaming query (remove broken negative keywords)
-**File**: `src/pages/shop/SearchResults.tsx`
+  // Price sanity: real consoles/games cost under $2000
+  if (priceUsd > 2000) return null;
 
-- Change the gaming fallback query from the long string with `-` prefixes to just `"video game console xbox ps5 nintendo switch"` -- clean terms that eBay actually understands. The backend scorer will handle filtering.
+  // Boost known console terms
+  if (hasAny(title, ["console","xbox","playstation","ps5","nintendo","switch","steam deck"])) score += 15;
+  break;
+}
+```
 
-## Summary
+Key improvements:
+- **Relevance gate**: Items MUST contain at least one gaming signal (console name, "video game", etc.) or they are dropped. This kills "Premium Fort for Sale" and "NETHER SAUCE".
+- **Expanded drop list**: Adds "mod", "script", "device scripts", "adapter", "converter" to catch cheat devices like "Titan Two".
+- **Price cap at $2,000**: Drops absurdly priced non-gaming items.
+- **Removed "gaming" from boost list**: Too generic -- matches accessories. Only specific console names boost score.
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/vehicleDetection.ts` | Add `gaming` intent detection with console keywords |
-| `supabase/functions/_shared/searchIntentScorer.ts` | Hard-drop shoes/clothing/accessories for gaming intent; boost console signals |
-| `src/pages/shop/SearchResults.tsx` | Clean up gaming query to remove broken negative keywords |
+| `supabase/functions/_shared/searchIntentScorer.ts` | Strict gaming relevance gate, price cap, expanded drop list |
+
+## Expected Result
+- Gaming tab shows only actual consoles (Xbox, PS5, Nintendo Switch) and video games
+- Items like cheat devices, sauces, forts, and $49K junk are dropped

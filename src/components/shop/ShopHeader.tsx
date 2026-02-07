@@ -70,7 +70,7 @@ export function ShopHeader() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/10">
-      <div className="container mx-auto px-4 py-3">
+      <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - First (Far Left) */}
           <Link to="/browse" className="flex-shrink-0">
@@ -80,11 +80,11 @@ export function ShopHeader() {
           {/* Hamburger Menu - After Logo */}
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white/70 hover:text-white hover:bg-white/10 rounded-full p-2"
-              >
+               <Button
+                 variant="ghost"
+                 size="sm"
+                 className="text-white/70 hover:text-white hover:bg-white/10 rounded-full min-h-[44px] min-w-[44px] p-2"
+               >
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>

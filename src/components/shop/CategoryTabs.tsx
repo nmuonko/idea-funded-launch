@@ -143,13 +143,13 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
 
   return (
     <ScrollArea className={cn("w-full whitespace-nowrap", className)}>
-      <div className="flex gap-2 py-2">
+      <div className="flex gap-2 py-2 snap-x snap-mandatory">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => handleTabClick(tab.key)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap",
+              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[44px] snap-start",
               currentCategory === tab.key
                 ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
                 : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/10"

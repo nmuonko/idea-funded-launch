@@ -162,7 +162,7 @@ export default function SearchResults() {
       <ShopHeader />
 
       {/* Category Tabs */}
-      <div className="pt-20 pb-4 px-4 border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-16 z-40">
+      <div className="pt-16 md:pt-20 pb-4 px-3 md:px-4 border-b border-white/10 bg-black/50 backdrop-blur-xl sticky top-14 md:top-16 z-40">
         <div className="container mx-auto">
           <CategoryTabs 
             activeCategory={category || 'all'} 
@@ -181,10 +181,10 @@ export default function SearchResults() {
       <main className="px-4 py-6">
         <div className="container mx-auto">
           {/* Results Header */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
               {query && (
-                <h1 className="text-xl font-bold text-white">
+                <h1 className="text-lg md:text-xl font-bold text-white">
                   {shop.resultsFor || 'Results for'} "{query}"
                 </h1>
               )}
@@ -268,7 +268,7 @@ export default function SearchResults() {
                 onClick={handleLoadMore}
                 disabled={loadingMore}
                 variant="outline"
-                className="border-white/20 text-white hover:bg-white/10 rounded-full px-8"
+                className="w-full sm:w-auto border-white/20 text-white hover:bg-white/10 rounded-full px-8"
               >
                 {loadingMore ? (
                   <>

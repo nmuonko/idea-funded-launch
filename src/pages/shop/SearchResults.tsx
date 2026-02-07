@@ -52,7 +52,10 @@ export default function SearchResults() {
   ];
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
-    const searchQuery = query || (category ? category.replace(/_/g, ' ') : 'popular');
+    const searchQuery = query || (
+      category === 'gaming' ? 'xbox ps5 nintendo switch console' :
+      (category ? category.replace(/_/g, ' ') : 'popular')
+    );
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
       limit: 100,

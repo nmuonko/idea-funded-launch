@@ -10,7 +10,7 @@ type SupabaseClient = any;
 // eBay Browse API constants
 const EBAY_BROWSE_API = "https://api.ebay.com/buy/browse/v1/item_summary/search";
 const EBAY_MAX_OFFSET = 10000; // eBay API limit
-const EBAY_MAX_LIMIT = 50; // eBay API max per request
+const EBAY_MAX_LIMIT = 100; // eBay API max per request
 const DEFAULT_LIMIT = 20;
 
 // Parts keywords to exclude from vehicle searches

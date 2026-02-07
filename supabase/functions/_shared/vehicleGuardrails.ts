@@ -29,8 +29,10 @@ const VEHICLE_TOKENS = [
 
 const MOTO_TOKENS = [
   "moto","motorcycle","motorbike","scooter","quad","atv",
-  "125cc","150cc","200cc","250cc","300cc","450cc","600cc","650cc","750cc","1000cc",
+  "dirt bike","dual sport",
 ];
+
+const CC_PATTERN = /\b\d{2,4}cc\b/i;
 
 const MULTI_WORD_VEHICLE = [
   "model 3","model y","model s","model x","land cruiser","range rover",
@@ -44,7 +46,7 @@ const MULTI_WORD_VEHICLE = [
 export function isVehicleLikeQuery(qRefinedLower: string): boolean {
   const q = qRefinedLower.toLowerCase();
 
-  // Multi-word patterns first (exact substring is safe for long phrases)
+  // Multi-word patterns first
   if (MULTI_WORD_VEHICLE.some(p => q.includes(p))) return true;
 
   // Standalone vehicle-type tokens
@@ -53,12 +55,25 @@ export function isVehicleLikeQuery(qRefinedLower: string): boolean {
   // Motorcycle tokens
   if (MOTO_TOKENS.some(t => wordBoundaryMatch(q, t))) return true;
 
+  // CC pattern (125cc, 150cc, etc.)
+  if (CC_PATTERN.test(q)) return true;
+
   // Year pattern (19xx/20xx) — only if combined with at least one other word
   if (/\b(19|20)\d{2}\b/.test(q) && q.split(/\s+/).length >= 2) return true;
 
   // VIN keyword
   if (wordBoundaryMatch(q, "vin")) return true;
 
+  return false;
+}
+
+/**
+ * Detect if query is motorcycle/scooter-focused (relaxes signal requirements).
+ */
+export function isMotorcycleLikeQuery(q: string): boolean {
+  const ql = q.toLowerCase();
+  if (MOTO_TOKENS.some(t => wordBoundaryMatch(ql, t))) return true;
+  if (CC_PATTERN.test(ql)) return true;
   return false;
 }
 
@@ -88,7 +103,6 @@ const VEHICLE_PARTS_DROP: string[] = [
   "untested","read description","salvage title","non-running",
 ];
 
-// Pre-compile to lowercase for fast lookup
 const PARTS_DROP_LOWER = VEHICLE_PARTS_DROP.map(k => k.toLowerCase());
 
 function isPartAccessory(title: string): boolean {
@@ -104,7 +118,12 @@ const BODY_TERMS = [
   "4d","2d","4dr","2dr","awd","fwd","rwd","4x4","4wd",
 ];
 
-function hasVehicleListingSignal(title: string): boolean {
+const MOTO_SIGNAL_TERMS = [
+  "motorcycle","scooter","dirt bike","dual sport","motorbike","moto",
+  "cruiser","sportbike","touring","chopper","bobber","enduro",
+];
+
+function hasVehicleListingSignal(title: string, isMotoQuery: boolean): boolean {
   const t = title.toLowerCase();
   // Year (19xx or 20xx)
   if (/\b(19|20)\d{2}\b/.test(t)) return true;
@@ -112,8 +131,49 @@ function hasVehicleListingSignal(title: string): boolean {
   if (/\b[\d,]+\s*(miles|mi|km|k\s*miles)\b/i.test(t)) return true;
   // VIN
   if (/\bvin\b/i.test(t)) return true;
-  // Body type or drivetrain terms
+  // Body type or drivetrain terms (cars)
   if (BODY_TERMS.some(bt => wordBoundaryMatch(t, bt))) return true;
+
+  // Motorcycle-specific signals (only checked when query is moto-like)
+  if (isMotoQuery) {
+    if (CC_PATTERN.test(t)) return true;
+    if (MOTO_SIGNAL_TERMS.some(mt => wordBoundaryMatch(t, mt))) return true;
+  }
+
+  return false;
+}
+
+// ─── VEHICLE CATEGORY IDs (eBay) ──────────────────────────────────────────────
+
+const VEHICLE_LISTING_CATEGORIES = new Set([
+  "6000",  // eBay Motors (root)
+  "6001",  // Cars & Trucks
+  "6024",  // Motorcycles
+  "6723",  // Powersports
+  "15062", // Boats
+  "10063", // RVs & Campers
+  "63732", // Trailers & Other Vehicles
+]);
+
+function isVehicleListingCategory(item: unknown): boolean {
+  const rec = item as Record<string, unknown>;
+  // Check categoryId field
+  const catId = String(rec.categoryId || rec.category_id || "");
+  if (catId && VEHICLE_LISTING_CATEGORIES.has(catId)) return true;
+  // Check categoryPath array
+  const catPath = rec.categoryPath || rec.category_path;
+  if (Array.isArray(catPath)) {
+    return catPath.some((c: unknown) => {
+      const id = String((c as Record<string, unknown>)?.categoryId || (c as Record<string, unknown>)?.id || c || "");
+      return VEHICLE_LISTING_CATEGORIES.has(id);
+    });
+  }
+  // Check metadata.categoryId
+  const meta = rec.metadata as Record<string, unknown> | undefined;
+  if (meta) {
+    const metaCatId = String(meta.categoryId || meta.category_id || "");
+    if (metaCatId && VEHICLE_LISTING_CATEGORIES.has(metaCatId)) return true;
+  }
   return false;
 }
 
@@ -143,13 +203,14 @@ export function applyVehicleGuardrails(
     return { items, mode: "skipped", dropped: 0, reason: "empty_input" };
   }
 
+  const isMoto = isMotorcycleLikeQuery(query);
   const getTitle = (item: unknown): string =>
     ((item as Record<string, unknown>)?.title as string) || "";
 
   // Tier 1: Strict — drop parts AND require vehicle signal
   const strict = items.filter(item => {
     const title = getTitle(item);
-    return !isPartAccessory(title) && hasVehicleListingSignal(title);
+    return !isPartAccessory(title) && hasVehicleListingSignal(title, isMoto);
   });
 
   if (strict.length >= MIN_FILTERED) {
@@ -161,15 +222,25 @@ export function applyVehicleGuardrails(
     };
   }
 
-  // Tier 2: Relaxed — drop parts only, no signal requirement
-  const relaxed = items.filter(item => !isPartAccessory(getTitle(item)));
+  // Tier 2: Relaxed — drop parts, keep only items in vehicle listing categories
+  const relaxed = items.filter(item => {
+    if (isPartAccessory(getTitle(item))) return false;
+    // If item has category info, it must be a vehicle listing category
+    if (isVehicleListingCategory(item)) return true;
+    // If no category info, accept it (don't drop blindly)
+    const rec = item as Record<string, unknown>;
+    const hasCatInfo = !!(rec.categoryId || rec.category_id ||
+      rec.categoryPath || rec.category_path ||
+      (rec.metadata as Record<string, unknown>)?.categoryId);
+    return !hasCatInfo;
+  });
 
   if (relaxed.length >= MIN_FILTERED) {
     return {
       items: relaxed,
       mode: "relaxed",
       dropped: items.length - relaxed.length,
-      reason: `relaxed_ok(${relaxed.length}/${items.length})`,
+      reason: `relaxed_cat_ok(${relaxed.length}/${items.length})`,
     };
   }
 

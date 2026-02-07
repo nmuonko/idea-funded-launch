@@ -149,11 +149,13 @@ function scoreOne(
         "gamepad","controller","video game","xbox series","series x","series s",
         "wii","gamecube","sega","atari","game boy","3ds","steam deck","rog ally",
         "game disc","game lot","game collection","game bundle",
+        "playstation 5 slim","playstation 5","xbox one x","xbox one s","xbox one",
+        "nintendo switch 2","xbox series s","xbox 360",
       ];
       if (!hasAny(title, GAMING_SIGNALS)) return null;
 
-      // Price sanity: real consoles/games cost under $2000
-      if (priceUsd > 2000) return null;
+      // Price sanity: real consoles/games cost under $3000
+      if (priceUsd > 3000) return null;
 
       // Boost known console terms
       if (hasAny(title, ["console","xbox","playstation","ps5","nintendo","switch","steam deck"])) score += 15;

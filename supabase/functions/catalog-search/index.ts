@@ -32,12 +32,13 @@ import {
 } from "../_shared/vehicleDetection.ts";
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
 import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
-import { CatalogItem } from "../_shared/catalogItemMapper.ts";
+import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
+import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { searchDbFirst } from "../_shared/searchDbFirst.ts";
 import { validateCacheHit, filterCachedItems } from "../_shared/searchCacheGuard.ts";
 import {
@@ -45,7 +46,7 @@ import {
   SearchResponse, SearchMeta,
 } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 36;
+const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 100;
 
 function generateRequestId(): string {
@@ -396,8 +397,8 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ─── AI EXPANSION (non-blocking) ──────────────────────────────────────────
-    const aiExpandPromise = expandQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
+    // ─── AI QUERY REFINER (blocking, replaces old non-blocking expansion) ────
+    const aiRefinePromise = refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
 
     // ─── EFFECTIVE MODE ───────────────────────────────────────────────────────
     const baseEffectiveMode = getEffectiveMode(settings, providerParam || undefined);
@@ -494,18 +495,19 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
-    // ─── RESOLVE AI EXPANSION ─────────────────────────────────────────────────
-    const aiExpandedTerms = await aiExpandPromise;
-    // For heavy equipment AND vehicle_listing intent: SKIP AI expansion
-    // AI expansion adds "accessories" to vehicle queries, poisoning results
-    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming" || effectiveIntent.intentKey === "phone_device";
-    if (!skipAiExpand && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${aiExpandedTerms[0]}"`);
-      qNorm = aiExpandedTerms[0];
-      searchMeta.rewrittenQuery = aiExpandedTerms[0];
+    // ─── RESOLVE AI REFINER ─────────────────────────────────────────────────
+    const aiRefineResult = await aiRefinePromise;
+    const aiExpandedTerms = aiRefineResult?.expandedTerms || null;
+    
+    // Use AI refined query as primary (unless it's a vehicle listing where refinement may hurt)
+    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "gaming";
+    if (!skipAiExpand && aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
+      qNorm = aiRefineResult.refined;
+      searchMeta.rewrittenQuery = aiRefineResult.refined;
       searchMeta.rewriteApplied = true;
-    } else if (skipAiExpand && aiExpandedTerms?.length > 0) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_SKIPPED (${effectiveIntent.intentKey}): would have been "${aiExpandedTerms[0]}"`);
+    } else if (skipAiExpand && aiRefineResult?.refined) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_SKIPPED (${effectiveIntent.intentKey}): would have been "${aiRefineResult.refined}"`);
     }
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
@@ -591,15 +593,13 @@ Deno.serve(async (req: Request) => {
 
     // ─── PARALLEL PROVIDER FETCH — uses providerQuery (English) ───────────────
     // Intent-based provider routing:
-    // - vehicle_listing: eBay only (Amazon returns accessories for make/model queries)
-    // - All others: both providers
-    const skipAmazon = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming";
+    // - gaming: eBay only (Amazon returns wrong results for console queries)
+    // - All others (including vehicle_listing): both providers
+    const skipAmazon = effectiveIntent.intentKey === "gaming";
     if (skipAmazon) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: ${effectiveIntent.intentKey} intent — Amazon returns irrelevant items`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: ${effectiveIntent.intentKey} intent`);
     }
     
-    // Also skip AI expansion for phone_device to prevent accessory terms
-    const skipAiExpandForPhone = effectiveIntent.intentKey === "phone_device";
 
     const providerStartMs = Date.now();
     // Dynamic timeout: vehicle queries need more time on eBay Motors
@@ -682,34 +682,77 @@ Deno.serve(async (req: Request) => {
     const providerItemCount = amazonItems.length + ebayItems.length;
     console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok providerQuery="${providerQuery}"`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
 
-    // ─── SECONDARY PROVIDER ATTEMPT with qCanonicalized (pre-rewrite) ────────
-    // If providers returned 0 and we used a rewrite, retry with canonical query
-    if (providerItemCount === 0 && providerQuery !== qCanonicalized && !providerTimedOut) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${qCanonicalized}"`);
-      try {
-        const secondaryTimeout = 3000;
-        const secondaryPromise = Promise.allSettled([
-          skipAmazon
-            ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
-            : fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
-          fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
-        ]);
-        const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
-        const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
-        if (!skipAmazon && secondarySettled[0].status === "fulfilled") {
-          const r = secondarySettled[0].value;
-          amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
-          amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
-          amazonDebug.ok = true; amazonDebug.count = r.items.length;
+    // ─── SECONDARY ATTEMPT: alt queries from AI refiner OR canonical fallback ──
+    // If providers returned < 60 items and we have alt queries, try them to fill the page
+    const totalProviderItems = amazonItems.length + ebayItems.length;
+    const altQueries = aiRefineResult?.alt || [];
+    
+    if (totalProviderItems < 60 && !providerTimedOut) {
+      // Try alt queries from AI refiner first
+      for (const altQ of altQueries) {
+        if (amazonItems.length + ebayItems.length >= limit) break;
+        if (altQ === providerQuery || altQ === qCanonicalized) continue;
+        
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_attempt q="${altQ}"`);
+        try {
+          const altTimeout = 3000;
+          const altPromise = Promise.allSettled([
+            skipAmazon
+              ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+              : fetchAmazonItems({ supabase, query: altQ, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-alt" }),
+            fetchEbayItems({ supabase, query: altQ, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-alt" }),
+          ]);
+          const altTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("ALT_TIMEOUT")), altTimeout));
+          const altSettled = await Promise.race([altPromise, altTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+          
+          // Merge alt results (deduplicate by id)
+          const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
+          if (!skipAmazon && altSettled[0].status === "fulfilled") {
+            const newItems = altSettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
+            amazonItems = [...amazonItems, ...newItems];
+            amazonDebug.count = amazonItems.length;
+          }
+          if (altSettled[1].status === "fulfilled") {
+            const newItems = altSettled[1].value.items.filter((i: any) => !existingIds.has(i.id));
+            ebayItems = [...ebayItems, ...newItems];
+            ebayDebug.count = ebayItems.length;
+          }
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_results: amazon=${amazonItems.length} ebay=${ebayItems.length}`);
+        } catch {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} alt_query_timeout`);
         }
-        if (secondarySettled[1].status === "fulfilled") {
-          const r = secondarySettled[1].value;
-          ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
-          ebayDebug.ok = true; ebayDebug.count = r.items.length;
+      }
+      
+      // Fallback: try canonical query if different from provider query
+      if (amazonItems.length + ebayItems.length < 60 && providerQuery !== qCanonicalized) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${qCanonicalized}"`);
+        try {
+          const secondaryTimeout = 3000;
+          const secondaryPromise = Promise.allSettled([
+            skipAmazon
+              ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+              : fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
+            fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          ]);
+          const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
+          const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+          const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
+          if (!skipAmazon && secondarySettled[0].status === "fulfilled") {
+            const newItems = secondarySettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
+            amazonItems = [...amazonItems, ...newItems];
+            if (secondarySettled[0].value.items.length > 0) { amazonHasMore = secondarySettled[0].value.hasMore; amazonCacheHit = secondarySettled[0].value.cacheHit; amazonStatus = secondarySettled[0].value.status; }
+            amazonDebug.ok = true; amazonDebug.count = amazonItems.length;
+          }
+          if (secondarySettled[1].status === "fulfilled") {
+            const newItems = secondarySettled[1].value.items.filter((i: any) => !existingIds.has(i.id));
+            ebayItems = [...ebayItems, ...newItems];
+            if (secondarySettled[1].value.items.length > 0) { ebayHasMore = secondarySettled[1].value.hasMore; ebayTotal = secondarySettled[1].value.total; }
+            ebayDebug.ok = true; ebayDebug.count = ebayItems.length;
+          }
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_results amazon=${amazonItems.length} ebay=${ebayItems.length}`);
+        } catch {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_timeout`);
         }
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_results amazon=${amazonItems.length} ebay=${ebayItems.length}`);
-      } catch {
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_timeout`);
       }
     }
 

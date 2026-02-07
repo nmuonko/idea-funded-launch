@@ -5,6 +5,28 @@
  * and to reduce bundle size of individual functions.
  */
 
+// ─── TOKEN-AWARE MATCHING HELPERS ─────────────────────────────────────────────
+// Uses alphanumeric boundaries instead of \b to correctly handle tokens like
+// "x5", "c300", "gle" without false-matching inside words like "google".
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Match keyword only when surrounded by non-alphanumeric boundaries.
+ * Works for "gle" inside "google" (won't match) and for "x5", "c300" (will match as token).
+ */
+function wordishMatch(text: string, kw: string): boolean {
+  const k = kw.toLowerCase().trim();
+  if (!k) return false;
+  // Multi-word keywords (e.g. "grand cherokee", "land rover") use includes since
+  // they're long enough to avoid substring collisions.
+  if (k.includes(' ') && k.length > 6) return text.toLowerCase().includes(k);
+  const re = new RegExp(`(^|[^a-z0-9])${escapeRegExp(k)}([^a-z0-9]|$)`, 'i');
+  return re.test(text);
+}
+
 // Vehicle types and common terms
 export const VEHICLE_QUERY_KEYWORDS = [
   // Vehicle types
@@ -265,14 +287,7 @@ export function isAmbiguousQuery(query: string): boolean {
  */
 export function isVehicleQuery(query: string): boolean {
   const lower = query.toLowerCase();
-  return VEHICLE_QUERY_KEYWORDS.some(kw => {
-    // Short keywords (≤3 chars like "gle", "amg", "rs", "x3", "vw", "rv") need
-    // word-boundary matching to avoid false positives ("google" contains "gle")
-    if (kw.length <= 3) {
-      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
-    }
-    return lower.includes(kw);
-  });
+  return VEHICLE_QUERY_KEYWORDS.some(kw => wordishMatch(lower, kw));
 }
 
 /**
@@ -443,12 +458,7 @@ const VEHICLE_LISTING_MODELS = [
 
 function hasAny(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
-  return keywords.some(kw => {
-    if (kw.length <= 3) {
-      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
-    }
-    return lower.includes(kw);
-  });
+  return keywords.some(kw => wordishMatch(lower, kw));
 }
 
 function isLikelyVehicleMakeModelQuery(qNorm: string): boolean {
@@ -498,24 +508,30 @@ export function classifySearchIntent(qNorm: string): SearchIntent {
 
   // ── PHONE BRAND PRIORITY GATE ─────────────────────────────────────────────
   // If query contains a known phone brand, skip vehicle classification unless
-  // there's a strong vehicle signal (year, mileage, explicit make+model).
-  // This prevents "google pixel" from being classified as vehicle (due to "gle").
+  // there's a strong vehicle signal (year, mileage, explicit vehicle words, make+model).
   const PHONE_ONLY_BRANDS = ["pixel", "iphone", "galaxy", "xiaomi", "tecno", "infinix",
     "oneplus", "oppo", "vivo", "realme", "redmi", "poco", "nothing phone", "google pixel",
     "samsung", "motorola", "moto", "huawei", "honor", "nokia", "xperia", "zenfone"];
   const hasPhoneBrand = PHONE_ONLY_BRANDS.some(b => lower.includes(b));
-  const strongVehicleSignal = hasYearToken(lower) || hasMileageToken(lower);
+
+  // Strong vehicle signals that override phone brand detection
+  const STRONG_VEHICLE_WORDS = ["car", "suv", "truck", "pickup", "moto", "motorcycle",
+    "scooter", "voiture", "camion", "sedan", "coupe", "van", "minivan", "convertible"];
+  const hasStrongVehicleWord = STRONG_VEHICLE_WORDS.some(w => wordishMatch(lower, w));
+  const strongVehicleSignal = hasYearToken(lower) || hasMileageToken(lower) || hasStrongVehicleWord;
+
+  console.log(`[INTENT] q="${qNorm}" hasPhoneBrand=${hasPhoneBrand} hasStrongVehicleSignal=${strongVehicleSignal}`);
 
   const isHeavyEquip = isHeavyEquipmentQuery(lower);
 
-  // If phone brand detected and no strong vehicle signal, suppress vehicle intent
+  // If phone brand detected and no strong vehicle signal, suppress vehicle intent entirely
   const vehicleIntent = hasPhoneBrand && !strongVehicleSignal
     ? false
     : (isLikelyVehicleMakeModelQuery(lower) || isVehicleQuery(lower));
   const vehiclePartsIntent = vehicleIntent && hasAny(lower, VEHICLE_PARTS_KEYWORDS) && !isHeavyEquip;
   const vehicleListingIntent = vehicleIntent && !vehiclePartsIntent && !isHeavyEquip;
 
-  const phoneIntent = hasAny(lower, PHONE_BRAND_PATTERNS) || PHONE_MODEL_RE.test(lower);
+  const phoneIntent = hasPhoneBrand || hasAny(lower, PHONE_BRAND_PATTERNS) || PHONE_MODEL_RE.test(lower);
   const phoneAccessoryIntent = phoneIntent && hasAny(lower, PHONE_ACCESSORY_KEYWORDS);
   const phoneDeviceIntent = phoneIntent && !phoneAccessoryIntent;
 
@@ -526,6 +542,8 @@ export function classifySearchIntent(qNorm: string): SearchIntent {
   else if (phoneDeviceIntent) intentKey = "phone_device";
   else if (phoneAccessoryIntent) intentKey = "phone_accessory";
   else intentKey = "general";
+
+  console.log(`[INTENT] q="${qNorm}" => intent=${intentKey}`);
 
   return { intentKey, vehicleListingIntent, vehiclePartsIntent, phoneDeviceIntent, phoneAccessoryIntent, isHeavyEquipment: isHeavyEquip };
 }

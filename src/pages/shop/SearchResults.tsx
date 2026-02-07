@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -14,6 +14,16 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
+/** Deduplicate products by id+provider */
+function dedupeProducts(list: Product[]): Product[] {
+  const seen = new Set<string>();
+  return list.filter(p => {
+    const key = (p.id || '') + ':' + (p.provider || '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -29,7 +39,7 @@ export default function SearchResults() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const nextCursorRef = useRef<string | null>(null);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
@@ -42,26 +52,20 @@ export default function SearchResults() {
   ];
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
-    // Build normalized query parameters for consistent cache keys
-    // Use query if provided, otherwise use category name, otherwise 'popular'
     const searchQuery = query || (category ? category.replace(/_/g, ' ') : 'popular');
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
       limit: 24,
     };
 
-    // IMPORTANT: Pass category to backend for proper filtering
-    // This ensures "View All" for Phones shows phones, not phone cases
     if (category) {
       params.category_key = category;
     }
 
-    // Add sort only if not default
     if (sort && sort !== 'relevance') {
       params.sort = sort;
     }
 
-    // Add price filters if set
     const filters: Record<string, number> = {};
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
     if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
@@ -69,22 +73,23 @@ export default function SearchResults() {
       params.filters = JSON.stringify(filters);
     }
 
-    // For pagination, pass the cursor from the previous response
-    if (pageNum > 1 && nextCursor) {
-      params.cursor = nextCursor;
+    // Pagination: prefer cursor, fall back to page number
+    if (pageNum > 1 && nextCursorRef.current) {
+      params.cursor = nextCursorRef.current;
+    } else if (pageNum > 1) {
+      params.page = pageNum;
     }
 
-    // For first page, show loading state only if no products yet
-    // This makes cached results appear instantly
-    if (pageNum === 1 && products.length === 0) {
+    console.log('[SEARCH] fetch page=', pageNum, 'q=', params.q,
+      'cursor=', params.cursor || 'none', 'pageFallback=', params.page || 'none', 'append=', append);
+
+    if (pageNum === 1 && !append) {
       setLoading(true);
     } else if (pageNum > 1) {
       setLoadingMore(true);
     }
 
     try {
-      // Use cached fetch for search (shared across users)
-      // Skip cache for pagination beyond first page
       const data = await cachedCatalogFetch<any>('catalog-search', params, { 
         skipCache: pageNum > 1 
       });
@@ -101,26 +106,31 @@ export default function SearchResults() {
       }));
 
       if (append) {
-        setProducts((prev) => [...prev, ...mappedProducts]);
+        setProducts(prev => dedupeProducts([...prev, ...mappedProducts]));
       } else {
         setProducts(mappedProducts);
       }
 
-      setNextCursor(data?.nextCursor || null);
-      setHasMore(!!data?.nextCursor || (data?.hasMore ?? mappedProducts.length === 24));
+      const newCursor = data?.nextCursor || null;
+      nextCursorRef.current = newCursor;
+      // hasMore only when we have a cursor or backend explicitly says so
+      setHasMore(!!newCursor || data?.hasMore === true);
       setTotalResults(data?.total || mappedProducts.length);
+
+      console.log('[SEARCH] got items=', mappedProducts.length,
+        'nextCursor=', !!newCursor, 'hasMore=', !!newCursor || data?.hasMore === true);
     } catch (err: any) {
       console.error('Search error:', err);
     } finally {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [query, category, sort, priceRange, products.length, nextCursor]);
+  }, [query, category, sort, priceRange]);
 
   // Initial search
   useEffect(() => {
     setPage(1);
-    setNextCursor(null);
+    nextCursorRef.current = null;
     fetchProducts(1, false);
   }, [query, category, sort]);
 

@@ -30,6 +30,10 @@ export interface EbayFetchResult {
   items: CatalogItem[];
   hasMore: boolean;
   total: number;
+  rawCount?: number;
+  mappedCount?: number;
+  filteredCount?: number;
+  failOpenUsed?: boolean;
 }
 
 const CATEGORY_MAPPING: Record<string, string> = {
@@ -88,6 +92,7 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
         pageSize: limit,
         minPrice,
         isVehicle,
+        isHeavyEquipment,
         categoryId: ebayCategory,
         marketplaceId: "EBAY_US",
         filters: catalogFilters,
@@ -95,22 +100,48 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       requestId
     );
 
-    if (ebayResult.items.length > 0) {
+    const rawCount = ebayResult.items.length;
+
+    if (rawCount > 0) {
       let filteredItems = ebayResult.items;
 
-      // Filter vehicles
-      if (isVehicle) {
+      // Filter vehicles — SKIP strict motorsFilter for heavy equipment
+      // Heavy equipment (tractors, excavators) legitimately has "engine", "transmission" etc. in titles
+      if (isVehicle && !isHeavyEquipment) {
         filteredItems = filteredItems.filter(item => {
           const result = isAllowedMotorListing({ title: item.title, priceUsd: item.price_usd });
           return result.isAllowed;
         });
+      } else if (isHeavyEquipment) {
+        // For heavy equipment: only require title + price + image (light filter)
+        filteredItems = filteredItems.filter(item => {
+          if (!item.title || item.title.length < 5) return false;
+          if (!item.price_usd || item.price_usd <= 0) return false;
+          // Use any available image
+          if (!item.image_url && (!item.images || item.images.length === 0)) return false;
+          return true;
+        });
+        console.log(`[EBAY_FETCH] requestId=${requestId} HEAVY_EQUIPMENT light filter: ${rawCount} → ${filteredItems.length}`);
+      }
+
+      const mappedCount = filteredItems.length;
+
+      // FAIL-OPEN: if filtering removed ALL items but raw had items, return unfiltered (with basic quality gate)
+      let failOpenUsed = false;
+      if (mappedCount === 0 && rawCount > 0) {
+        console.log(`[EBAY_FETCH] requestId=${requestId} FAIL_OPEN: filtering removed all ${rawCount} items, returning with basic quality gate`);
+        filteredItems = ebayResult.items.filter(item =>
+          item.title && item.title.length > 3 &&
+          item.price_usd !== null && item.price_usd > 0
+        );
+        failOpenUsed = true;
       }
 
       items = filteredItems.map(mapEbayItemToResponse);
       total = ebayResult.total;
       hasMore = ebayResult.hasMore;
 
-      console.log(`[EBAY_FETCH] requestId=${requestId} returned ${items.length} items, total=${total}`);
+      console.log(`[EBAY_FETCH] requestId=${requestId} raw=${rawCount} filtered=${mappedCount} final=${items.length} failOpen=${failOpenUsed} total=${total}`);
 
       // Upsert to DB (async, don't wait)
       const toUpsert = filteredItems.map(item => {
@@ -132,6 +163,8 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       });
 
       supabase.from("catalog_items").upsert(toUpsert, { onConflict: "id" });
+
+      return { items, hasMore, total, rawCount, mappedCount, filteredCount: items.length, failOpenUsed };
     }
   } catch (err) {
     console.error(`[EBAY_FETCH] requestId=${requestId} error:`, err);

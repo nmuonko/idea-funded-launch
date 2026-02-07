@@ -385,11 +385,15 @@ Deno.serve(async (req: Request) => {
 
     // ─── RESOLVE AI EXPANSION ─────────────────────────────────────────────────
     const aiExpandedTerms = await aiExpandPromise;
-    if (aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
+    // For heavy equipment: SKIP AI expansion override — it often suggests toy/ride-on versions
+    // The rewrite table already gives good English queries for heavy equipment
+    if (!isHeavyEquipment && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${aiExpandedTerms[0]}"`);
       qNorm = aiExpandedTerms[0];
       searchMeta.rewrittenQuery = aiExpandedTerms[0];
       searchMeta.rewriteApplied = true;
+    } else if (isHeavyEquipment && aiExpandedTerms?.length > 0) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_SKIPPED_heavy_equipment: would have been "${aiExpandedTerms[0]}"`);
     }
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
@@ -496,8 +500,12 @@ Deno.serve(async (req: Request) => {
     } catch {
       providerTimedOut = true;
       console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms`);
-      amazonSettled = { status: "rejected", reason: new Error("PROVIDER_TIMEOUT") };
-      ebaySettled = { status: "rejected", reason: new Error("PROVIDER_TIMEOUT") };
+      // CRITICAL FIX: Even on timeout, check if providers already settled
+      // eBay may have returned in 3s but Amazon is still pending at 4s
+      const partialSettled = await providerPromise; // allSettled never rejects
+      amazonSettled = partialSettled[0];
+      ebaySettled = partialSettled[1];
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} post_timeout_recovery: amazon=${amazonSettled.status} ebay=${ebaySettled.status}`);
     }
 
     const providerMs = Date.now() - providerStartMs;
@@ -532,6 +540,10 @@ Deno.serve(async (req: Request) => {
       const r = ebaySettled.value;
       ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
       ebayDebug.ok = true; ebayDebug.count = r.items.length; ebayDebug.ms = providerMs;
+      (ebayDebug as any).rawCount = r.rawCount ?? r.items.length;
+      (ebayDebug as any).mappedCount = r.mappedCount ?? r.items.length;
+      (ebayDebug as any).filteredCount = r.filteredCount ?? r.items.length;
+      (ebayDebug as any).failOpenUsed = r.failOpenUsed ?? false;
     } else {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebaySettled.reason);
       ebayDebug.error = String((ebaySettled as PromiseRejectedResult).reason?.message || "unknown").slice(0, 100);

@@ -18,6 +18,7 @@ export interface EbayFetchParams {
   effectiveMode: { ebayActive: boolean; mode: string };
   isVehicle: boolean;
   hasBuyingIntent: boolean;
+  isHeavyEquipment?: boolean;
   categoryKey: string | undefined;
   page: number;
   limit: number;
@@ -45,7 +46,7 @@ const CATEGORY_MAPPING: Record<string, string> = {
 };
 
 export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
-  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, categoryKey, page, limit, catalogFilters, requestId } = params;
+  const { supabase, query, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey, page, limit, catalogFilters, requestId } = params;
 
   let items: CatalogItem[] = [];
   let hasMore = false;
@@ -56,9 +57,9 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
   }
 
   try {
-    // VEHICLE MODE LOGIC: Enforce minPrice ONLY when user has buying intent
-    const minPrice = hasBuyingIntent ? 1000 : undefined;
-    console.log(`[EBAY_FETCH] requestId=${requestId} minPrice=${minPrice} (hasBuyingIntent=${hasBuyingIntent})`);
+    // VEHICLE MODE LOGIC: Enforce minPrice ONLY when user has buying intent AND not heavy equipment
+    const minPrice = (hasBuyingIntent && !isHeavyEquipment) ? 1000 : undefined;
+    console.log(`[EBAY_FETCH] requestId=${requestId} minPrice=${minPrice} (hasBuyingIntent=${hasBuyingIntent} isHeavyEquipment=${!!isHeavyEquipment})`);
     
     // Map category_key to eBay category ID
     let ebayCategory: string | undefined;
@@ -66,11 +67,13 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       ebayCategory = CATEGORY_MAPPING[categoryKey];
     }
 
-    // Force eBay Motors category for vehicle buying intent
+    // Force eBay Motors category for vehicle buying intent, but NOT for heavy equipment
     const enhancedQuery = query;
-    if (hasBuyingIntent && !ebayCategory) {
+    if (hasBuyingIntent && !ebayCategory && !isHeavyEquipment) {
       ebayCategory = "6001"; // Cars & Trucks
       console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
+    } else if (isHeavyEquipment) {
+      console.log(`[EBAY_FETCH] requestId=${requestId} Heavy equipment query - searching all categories (no category restriction)`);
     } else if (isVehicle && !hasBuyingIntent) {
       console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle brand but no buying intent - all categories`);
     }

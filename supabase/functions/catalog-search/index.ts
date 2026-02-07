@@ -28,6 +28,7 @@ import { getClientIp } from "../_shared/rateLimiter.ts";
 import {
   VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS, isVehicleQuery, isVehicleMakeModelQuery,
   hasVehicleBuyingIntent, isAmbiguousQuery, VehicleProbeResult,
+  isHeavyEquipmentQuery,
 } from "../_shared/vehicleDetection.ts";
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
@@ -85,13 +86,18 @@ Deno.serve(async (req: Request) => {
   const qCanonicalized = canonicalizeQuery(qOriginal);
   const qNormEarly = qCanonicalized.toLowerCase().replace(/\s+/g, " ");
   const isVehicleEarly = isVehicleQuery(qNormEarly);
+  const isHeavyEquipment = isHeavyEquipmentQuery(qNormEarly);
 
   if (qCanonicalized !== qOriginal) {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_canonicalized: "${qOriginal}" → "${qCanonicalized}"`);
   }
 
+  if (isHeavyEquipment) {
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} HEAVY_EQUIPMENT detected — skipping vehicle category/price restrictions`);
+  }
+
   const VEHICLE_REASONABLE_MIN_MAX_PRICE = 5000;
-  if (isVehicleEarly && catalogFilters.maxPrice !== undefined && catalogFilters.maxPrice < VEHICLE_REASONABLE_MIN_MAX_PRICE) {
+  if (isVehicleEarly && !isHeavyEquipment && catalogFilters.maxPrice !== undefined && catalogFilters.maxPrice < VEHICLE_REASONABLE_MIN_MAX_PRICE) {
     console.log(`[SEARCH] requestId=${requestId} Vehicle search: removing restrictive maxPrice=${catalogFilters.maxPrice}`);
     delete catalogFilters.maxPrice;
   }
@@ -104,7 +110,8 @@ Deno.serve(async (req: Request) => {
     qCanonicalized.toLowerCase().includes(kw)
   );
 
-  if (!hasBuyingIntent && !hasAccessoryInQuery && isAmbiguousQuery(qCanonicalized)) {
+  // Skip vehicle probe for heavy equipment — they should NOT be forced into Cars & Trucks
+  if (!hasBuyingIntent && !hasAccessoryInQuery && !isHeavyEquipment && isAmbiguousQuery(qCanonicalized)) {
     try {
       const supabaseForProbe = createAdminPostgrestClient();
       vehicleProbeResult = await probeEbayVehicleCategory(supabaseForProbe, qCanonicalized, requestId);
@@ -116,7 +123,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  if (hasBuyingIntent) {
+  // Apply vehicle buying intent restrictions ONLY for passenger vehicles, NOT heavy equipment
+  if (hasBuyingIntent && !isHeavyEquipment) {
     if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1000) {
       catalogFilters.minPrice = 1000;
     }
@@ -347,8 +355,8 @@ Deno.serve(async (req: Request) => {
           const { fetchEbayItems } = await import("../_shared/ebayFetcher.ts");
           const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
           const [bgAmazon, bgEbay] = await Promise.allSettled([
-            fetchAmazonItems({ supabase, query: qNorm, settings, effectiveMode, mixerCursor, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: bgId }),
-            fetchEbayItems({ supabase, query: qNorm, effectiveMode, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: bgId }),
+            fetchAmazonItems({ supabase, query: qNorm, settings, effectiveMode, mixerCursor, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: bgId }),
+            fetchEbayItems({ supabase, query: qNorm, effectiveMode, isVehicle: isVehicleQuery(qNorm), hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: bgId }),
           ]);
           const bgAmazonItems = bgAmazon.status === "fulfilled" ? bgAmazon.value.items : [];
           const bgEbayItems = bgEbay.status === "fulfilled" ? bgEbay.value.items : [];
@@ -471,8 +479,8 @@ Deno.serve(async (req: Request) => {
     const PROVIDER_TIMEOUT_MS = 4000;
 
     const providerPromise = Promise.allSettled([
-      fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
-      fetchEbayItems({ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId }),
+      fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
+      fetchEbayItems({ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId }),
     ]);
 
     let amazonSettled: PromiseSettledResult<any>;
@@ -540,8 +548,8 @@ Deno.serve(async (req: Request) => {
       try {
         const secondaryTimeout = 3000;
         const secondaryPromise = Promise.allSettled([
-          fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
-          fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
         ]);
         const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
         const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
@@ -572,8 +580,8 @@ Deno.serve(async (req: Request) => {
         try {
           const tTimeout = 3000;
           const tPromise = Promise.allSettled([
-            fetchAmazonItems({ supabase, query: tractorQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-trc" }),
-            fetchEbayItems({ supabase, query: tractorQuery, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-trc" }),
+            fetchAmazonItems({ supabase, query: tractorQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment: true, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-trc" }),
+            fetchEbayItems({ supabase, query: tractorQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment: true, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-trc" }),
           ]);
           const tTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TRACTOR_TIMEOUT")), tTimeout));
           const tSettled = await Promise.race([tPromise, tTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
@@ -631,8 +639,8 @@ Deno.serve(async (req: Request) => {
       console.log(`[SEARCH] requestId=${requestId} PostFilter: ${before} → ${finalItems.length}`);
     }
 
-    // Vehicle post-filter
-    if (hasBuyingIntent && finalItems.length > 0) {
+    // Vehicle post-filter (skip for heavy equipment — tractors etc. should keep all results)
+    if (hasBuyingIntent && !isHeavyEquipment && finalItems.length > 0) {
       finalItems = finalItems.filter((item: any) => (item.priceUsd ?? item.price_usd ?? 0) >= 1000);
       finalItems = finalItems.filter((item: any) => {
         const title = ((item.title || "") as string).toLowerCase();
@@ -685,6 +693,7 @@ Deno.serve(async (req: Request) => {
       usedQueryForProviders: providerQuery,
       dbCount, ebay: ebayDebug, amazon: amazonDebug,
       finalCount, source: searchSource,
+      isVehicle, isHeavyEquipment, hasBuyingIntent,
     };
 
     const response: SearchResponse = {
@@ -740,8 +749,8 @@ Deno.serve(async (req: Request) => {
           .or(orFilter)
           .in("provider", ["rainforest", "amazon", "ebay"])
           .gt("price_usd", 0)
-          .not("image_url", "is", null)
-          .neq("is_disallowed", true)
+          .filter("image_url", "not.is", "null")
+          .eq("is_disallowed", false)
           .order("updated_at", { ascending: false })
           .limit(40);
         if (relData && relData.length > 0) {
@@ -767,8 +776,8 @@ Deno.serve(async (req: Request) => {
           .select("*")
           .in("provider", ["rainforest", "amazon", "ebay"])
           .gt("price_usd", 0)
-          .not("image_url", "is", null)
-          .neq("is_disallowed", true)
+          .filter("image_url", "not.is", "null")
+          .eq("is_disallowed", false)
           .order("updated_at", { ascending: false })
           .limit(40);
         if (popData && popData.length > 0) {

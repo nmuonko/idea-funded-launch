@@ -357,3 +357,30 @@ export interface VehicleProbeResult {
   probeSource: "cache" | "live";
   reason: string;
 }
+
+// ─── HEAVY EQUIPMENT DETECTION ────────────────────────────────────────────────
+// These queries match isVehicleQuery but should NOT be treated as passenger
+// vehicles (no Cars & Trucks category, no Autos category, no $1000 minPrice)
+
+const HEAVY_EQUIPMENT_KEYWORDS = [
+  "tractor", "tractors", "tracteur", "tracteurs",
+  "bulldozer", "bulldozers", "excavator", "excavators",
+  "loader", "loaders", "backhoe", "backhoes",
+  "skid steer", "forklift", "forklifts",
+  "crane", "cranes", "grader", "graders",
+  "combine", "harvester", "harvesters",
+  "plow", "plough", "mower", "mowers",
+  "john deere", "kubota", "massey ferguson", "case ih", "new holland",
+  "caterpillar", "cat ", "komatsu", "bobcat", "hitachi",
+  "agricole", "agricultural", "farm equipment", "farm tractor",
+  "tondeuse", // French for lawn mower
+];
+
+/**
+ * Check if query is about heavy/agricultural equipment (NOT passenger vehicles)
+ * These should NOT get Cars & Trucks category or Autos category or $1000 minPrice
+ */
+export function isHeavyEquipmentQuery(query: string): boolean {
+  const lower = query.toLowerCase().trim();
+  return HEAVY_EQUIPMENT_KEYWORDS.some(kw => lower.includes(kw));
+}

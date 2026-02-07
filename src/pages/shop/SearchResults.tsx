@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -27,6 +27,7 @@ function dedupeProducts(list: Product[]): Product[] {
 
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const query = searchParams.get('q') || '';
   const category = searchParams.get('category') || '';
   const initialSort = searchParams.get('sort') || 'relevance';
@@ -53,8 +54,9 @@ export default function SearchResults() {
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
     const searchQuery = query || (
-      category === 'gaming' ? 'xbox ps5 nintendo switch console' :
-      (category ? category.replace(/_/g, ' ') : 'popular')
+      (category === 'gaming' || category === 'electronics')
+        ? 'xbox console ps5 console nintendo switch video games -case -cover -charger -skin -controller -protector'
+        : (category ? category.replace(/_/g, ' ') : 'popular')
     );
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
@@ -117,7 +119,7 @@ export default function SearchResults() {
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
       // hasMore only when we have a cursor or backend explicitly says so
-      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3);
+      setHasMore((!!newCursor || data?.hasMore === true || mappedProducts.length >= 100) && pageNum < 3);
       setTotalResults(data?.total || mappedProducts.length);
 
       console.log('[SEARCH] got items=', mappedProducts.length,
@@ -171,7 +173,8 @@ export default function SearchResults() {
             activeCategory={category || 'all'} 
             onCategoryChange={(cat) => {
               if (cat === 'all') {
-                setSearchParams({ q: query, sort });
+                navigate('/');
+                return;
               } else {
                 setSearchParams({ q: query, category: cat, sort });
               }

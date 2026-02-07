@@ -38,7 +38,8 @@ export interface EbayFetchResult {
 
 const CATEGORY_MAPPING: Record<string, string> = {
   electronics_phones: "9355",
-  electronics_gaming: "1249",
+  electronics_gaming: "139971",   // "Video Game Consoles" leaf (not broad 1249)
+  gaming: "139971",               // Console-only category
   electronics_computers: "58058",
   electronics_cameras: "625",
   electronics_audio: "3253",

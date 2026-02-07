@@ -135,30 +135,56 @@ function scoreOne(
       break;
     }
     case "gaming": {
-      // Drop accessories, merch, and cheat devices
-      if (hasAny(title, [
-        "case","cover","skin","sticker","decal","poster","shirt","shoes",
-        "bag","backpack","hat","cap","mug","cup","keychain","wallet","socks",
-        "figurine","mod","script","adapter","converter","device scripts",
-        "sauce","fort for sale","mcdonalds","premium fort",
-      ])) return null;
-
-      // Must contain at least one actual gaming signal to survive
-      const GAMING_SIGNALS = [
-        "console","xbox","playstation","ps5","ps4","ps3","nintendo","switch",
-        "gamepad","controller","video game","xbox series","series x","series s",
-        "wii","gamecube","sega","atari","game boy","3ds","steam deck","rog ally",
+      // ── STEP 1: Hard-drop accessories (EN + FR) ──
+      const GAMING_ACCESSORY_DROP = [
+        "headset","headphones","earphones","mic","microphone",
+        "controller","manette","joystick","gamepad",
+        "dock","station","charging","charger","chargeur",
+        "cable","câble","usb","hdmi","adapter","adaptateur",
+        "skin","sticker","decal","grip","cover","case","coque",
+        "protection","stand","support","cooling fan","ventilateur",
+        "kit","repair","replacement","spare","parts","pièce",
+        "sac","bag","backpack",
+        "poster","shirt","shoes","figurine","mod","script",
+        "sauce","mcdonalds","mug","cup","keychain","wallet","socks",
+        "hat","cap","band","strap","mount","holder",
+        "accessory","accessoires","bundle accessory",
         "game disc","game lot","game collection","game bundle",
-        "playstation 5 slim","playstation 5","xbox one x","xbox one s","xbox one",
-        "nintendo switch 2","xbox series s","xbox 360",
+        "video game","game cartridge","game card",
       ];
-      if (!hasAny(title, GAMING_SIGNALS)) return null;
+      if (hasAny(title, GAMING_ACCESSORY_DROP)) return null;
 
-      // Price sanity: real consoles/games cost under $3000
+      // ── STEP 2: Drop "for X" / "compatible with" patterns (accessories referencing consoles) ──
+      const FOR_PATTERNS = [
+        "for ps5","for ps4","for ps3","for xbox","for nintendo",
+        "for switch","for playstation","compatible with","fits","works with",
+        "designed for","made for",
+      ];
+      if (hasAny(title, FOR_PATTERNS)) return null;
+
+      // ── STEP 3: Must match a specific console model ──
+      const CONSOLE_MODEL_SIGNALS = [
+        "playstation 5 slim","playstation 5","ps5 slim","ps5 console",
+        "playstation 4","ps4 console","ps4 slim","ps4 pro",
+        "xbox series s","xbox series x",
+        "xbox one x","xbox one s","xbox one console","xbox one",
+        "xbox 360","xbox 360 console",
+        "nintendo switch 2","nintendo switch console","nintendo switch",
+        "wii u console","wii console",
+        "steam deck","rog ally",
+      ];
+      // Also accept: title has "console" + a brand name
+      const hasBrandAndConsole = title.includes("console") && 
+        hasAny(title, ["playstation","xbox","nintendo","sony","microsoft"]);
+      
+      if (!hasAny(title, CONSOLE_MODEL_SIGNALS) && !hasBrandAndConsole) return null;
+
+      // Price sanity
       if (priceUsd > 3000) return null;
 
-      // Boost known console terms
-      if (hasAny(title, ["console","xbox","playstation","ps5","nintendo","switch","steam deck"])) score += 15;
+      // Boost exact console model matches
+      if (hasAny(title, CONSOLE_MODEL_SIGNALS)) score += 15;
+      if (hasBrandAndConsole) score += 10;
       break;
     }
     case "general":

@@ -461,7 +461,7 @@ function hasMileageToken(text: string): boolean {
 }
 
 export interface SearchIntent {
-  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "general";
+  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "gaming" | "general";
   vehicleListingIntent: boolean;
   vehiclePartsIntent: boolean;
   phoneDeviceIntent: boolean;
@@ -485,12 +485,16 @@ export function classifySearchIntent(qNorm: string): SearchIntent {
   const phoneAccessoryIntent = phoneIntent && hasAny(lower, PHONE_ACCESSORY_KEYWORDS);
   const phoneDeviceIntent = phoneIntent && !phoneAccessoryIntent;
 
+  const GAMING_KW = ["xbox","ps5","ps4","playstation","nintendo","switch","console","gaming console","video game","video games"];
+  const gamingIntent = !vehicleIntent && !phoneIntent && hasAny(lower, GAMING_KW);
+
   let intentKey: SearchIntent["intentKey"];
   if (isHeavyEquip) intentKey = "heavy_equipment";
   else if (vehicleListingIntent) intentKey = "vehicle_listing";
   else if (vehiclePartsIntent) intentKey = "vehicle_parts";
   else if (phoneDeviceIntent) intentKey = "phone_device";
   else if (phoneAccessoryIntent) intentKey = "phone_accessory";
+  else if (gamingIntent) intentKey = "gaming";
   else intentKey = "general";
 
   return { intentKey, vehicleListingIntent, vehiclePartsIntent, phoneDeviceIntent, phoneAccessoryIntent, isHeavyEquipment: isHeavyEquip };

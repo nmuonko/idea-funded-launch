@@ -73,12 +73,12 @@ function scoreOne(
   if (priceUsd <= 0) return null;               // Never return $0 items
   if (!title || title.length < 3) return null;   // Junk
 
-  // ── WRONG-CATEGORY HARD DROP (for phone/accessory intents) ──────────
+  // ── WRONG-CATEGORY HARD DROP (for phone/accessory/gaming intents) ──
   if (
-    (intent.intentKey === "phone_device" || intent.intentKey === "phone_accessory") &&
+    (intent.intentKey === "phone_device" || intent.intentKey === "phone_accessory" || intent.intentKey === "gaming") &&
     hasAny(title, WRONG_CATEGORY_KW)
   ) {
-    return null; // Drop shoes, clothing, jewelry etc. from phone searches
+    return null; // Drop shoes, clothing, jewelry etc. from phone/gaming searches
   }
 
   // ── BASE SCORE: query-token match ───────────────────────────────────
@@ -131,8 +131,15 @@ function scoreOne(
       break;
     }
     case "heavy_equipment": {
-      // Keep everything, light boost for relevant terms
       if (hasAny(title, ["tractor","excavator","loader","bulldozer","backhoe","john deere","kubota","caterpillar","massey","case ih"])) score += 10;
+      break;
+    }
+    case "gaming": {
+      // Hard-drop wrong category already handled above
+      // Drop accessories/merch
+      if (hasAny(title, ["case","cover","skin","sticker","decal","poster","shirt","shoes","bag","backpack","hat","cap","mug","cup","keychain","wallet","socks","figurine"])) return null;
+      // Boost console/game signals
+      if (hasAny(title, ["console","xbox","playstation","ps5","ps4","nintendo","switch","controller","gamepad","video game","gaming"])) score += 15;
       break;
     }
     case "general":

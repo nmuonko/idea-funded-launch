@@ -3897,6 +3897,39 @@ export type Database = {
         }
         Relationships: []
       }
+      search_query_expansions: {
+        Row: {
+          category_hint: string | null
+          confidence: number | null
+          created_at: string
+          expanded_terms: string[]
+          expires_at: string
+          id: string
+          query_normalized: string
+          source_lang: string
+        }
+        Insert: {
+          category_hint?: string | null
+          confidence?: number | null
+          created_at?: string
+          expanded_terms?: string[]
+          expires_at?: string
+          id?: string
+          query_normalized: string
+          source_lang?: string
+        }
+        Update: {
+          category_hint?: string | null
+          confidence?: number | null
+          created_at?: string
+          expanded_terms?: string[]
+          expires_at?: string
+          id?: string
+          query_normalized?: string
+          source_lang?: string
+        }
+        Relationships: []
+      }
       search_rewrites: {
         Row: {
           category_key: string | null

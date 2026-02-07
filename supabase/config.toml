@@ -452,3 +452,6 @@ verify_jwt = false
 
 [functions.search-expand-query]
 verify_jwt = false
+
+[functions.admin-search-relevancy-run]
+verify_jwt = false

@@ -85,11 +85,10 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
   }
 
   try {
-    // VEHICLE MODE LOGIC: Enforce minPrice ONLY when user has buying intent AND not heavy equipment
-    // Use lower minPrice to avoid zero results for cheaper used vehicles
-    const minPrice = (hasBuyingIntent && !isHeavyEquipment) ? 500 : undefined;
+    // Post-fetch vehicle guardrails handle parts filtering — no pre-fetch price gating
+    const minPrice = undefined;
     console.log(`[EBAY_FETCH] requestId=${requestId} minPrice=${minPrice} (hasBuyingIntent=${hasBuyingIntent} isHeavyEquipment=${!!isHeavyEquipment})`);
-    
+
     // Map category_key to eBay category ID
     let ebayCategory: string | undefined;
     if (categoryKey) {

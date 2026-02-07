@@ -35,6 +35,7 @@ import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
+import { applyVehicleGuardrails } from "../_shared/vehicleGuardrails.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -834,6 +835,13 @@ Deno.serve(async (req: Request) => {
     finalItems = scoreResult.items as typeof finalItems;
     console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
+    // ─── VEHICLE GUARDRAILS (post-fetch, 3-tier safe fallback) ────────────────
+    if (effectiveIntent.intentKey === "vehicle_listing") {
+      const preGuardrail = finalItems.length;
+      const guardrailResult = applyVehicleGuardrails(finalItems, providerQuery, filteredFinalItems);
+      finalItems = guardrailResult.items as typeof finalItems;
+      console.log(`[CATALOG_SEARCH][VEHICLE_GUARDRAIL] requestId=${requestId} mode=${guardrailResult.mode} before=${preGuardrail} after=${finalItems.length} dropped=${guardrailResult.dropped} reason=${guardrailResult.reason}`);
+    }
     // ─── UNIVERSAL WRONG-CATEGORY HARD-DROP GATE ──────────────────────────────
     // Applies to ALL intents: drop items whose titles contain shoe/clothing keywords
     // that don't belong in the current intent's results

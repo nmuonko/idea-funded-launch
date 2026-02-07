@@ -295,11 +295,67 @@ Deno.serve(async (req: Request) => {
     perfLog.rewrite_ms = Date.now() - rewriteStart;
     perfLog.settings_ms = perfLog.rewrite_ms; // Ran in parallel
     
-    const qNorm = searchMeta.rewrittenQuery; // Use rewritten query for searches
+    let qNorm = searchMeta.rewrittenQuery; // Use rewritten query for searches
     
     if (searchMeta.rewriteApplied) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
+
+    // ─── AI QUERY EXPANSION (non-blocking, 1s timeout) ────────────────────────────
+    // Check expansion cache first (fast DB lookup), then fire AI if cache miss
+    let aiExpandedTerms: string[] | null = null;
+    const AI_EXPAND_TIMEOUT_MS = 1000;
+    
+    const aiExpandPromise = (async (): Promise<string[] | null> => {
+      try {
+        // 1. Check expansion cache first (fast, ~5ms)
+        const { data: cached } = await supabase
+          .from("search_query_expansions")
+          .select("expanded_terms")
+          .eq("query_normalized", qNorm)
+          .gt("expires_at", new Date().toISOString())
+          .maybeSingle();
+        
+        if (cached?.expanded_terms?.length) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_cache_hit: ${JSON.stringify(cached.expanded_terms)}`);
+          return cached.expanded_terms;
+        }
+        
+        // 2. Cache miss — call AI expansion function with timeout
+        const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+        const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+        if (!SUPABASE_URL || !SERVICE_KEY) return null;
+        
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), AI_EXPAND_TIMEOUT_MS);
+        
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/search-expand-query`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SERVICE_KEY}`,
+          },
+          body: JSON.stringify({ query: qOriginal, lang }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        
+        if (!resp.ok) return null;
+        
+        const result = await resp.json();
+        if (result.ok && Array.isArray(result.expandedTerms) && result.expandedTerms.length > 0) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expanded: ${JSON.stringify(result.expandedTerms)} cached=${result.cached}`);
+          return result.expandedTerms;
+        }
+        return null;
+      } catch (err) {
+        const errName = (err as Error).name;
+        if (errName === "AbortError") {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_timeout`);
+        }
+        return null;
+      }
+    })();
 
     // ─── EFFECTIVE MODE (Merge settings + feature flags) ─────────────────────────
     // Use feature_flags to override provider availability (platform-specific gating)
@@ -596,6 +652,22 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
+    // ─── RESOLVE AI EXPANSION (await with timeout already built-in) ───────────
+    // Use expanded terms to enhance search if available
+    aiExpandedTerms = await aiExpandPromise;
+    
+    // If AI provided expanded terms different from qNorm, use the first one as primary search query
+    // This handles French→English translation, creative queries, niche products, etc.
+    if (aiExpandedTerms && aiExpandedTerms.length > 0) {
+      const primaryExpanded = aiExpandedTerms[0];
+      if (primaryExpanded !== qNorm) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${primaryExpanded}" (all: ${JSON.stringify(aiExpandedTerms)})`);
+        qNorm = primaryExpanded;
+        searchMeta.rewrittenQuery = primaryExpanded;
+        searchMeta.rewriteApplied = true;
+      }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // DB-FIRST SEARCH: Query catalog_items before hitting live providers
     // This returns results instantly when DB has data, even if APIs are down
@@ -608,6 +680,13 @@ Deno.serve(async (req: Request) => {
       // Only on first page, non-vehicle searches (vehicles need special provider logic)
       try {
         const dbStartMs = Date.now();
+        
+        // Use AI expanded terms for broader DB search when available
+        const allSearchQueries = aiExpandedTerms && aiExpandedTerms.length > 1 
+          ? aiExpandedTerms 
+          : [qNorm];
+        
+        // Build tokens from primary query (first expanded term or qNorm)
         const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
         // Take the 3 longest tokens (most distinctive)
         const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);

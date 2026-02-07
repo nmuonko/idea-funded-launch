@@ -449,3 +449,6 @@ verify_jwt = false
 
 [functions.home-auto-refresh]
 verify_jwt = false
+
+[functions.search-expand-query]
+verify_jwt = false

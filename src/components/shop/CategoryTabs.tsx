@@ -16,13 +16,10 @@ const getLocalizedFallback = (key: string, shop: Record<string, string>): string
     clothing_shoes_accessories: 'clothingFashion',
     toys: 'toys',
     sporting_goods: 'sportingGoods',
-    business_industrial: 'electronics',
     jewelry_watches: 'jewelryWatches',
-    refurbished: 'electronics',
-    parts_accessories: 'electronics',
+    refurbished: 'refurbished',
+    parts_accessories: 'partsAccessories',
     phones: 'phones',
-    gaming: 'gaming',
-    computers: 'computers',
     fashion: 'fashion',
     home: 'home',
     beauty: 'beauty',
@@ -65,8 +62,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
     { key: 'toys', title: shop.toys || shop.toysGames, icon: <Gamepad2 className="h-4 w-4" /> },
     { key: 'sporting_goods', title: shop.sportingGoods || shop.sportsOutdoors, icon: <Dumbbell className="h-4 w-4" /> },
     { key: 'watches', title: shop.jewelryWatches || shop.watches, icon: <Watch className="h-4 w-4" /> },
-    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
-    { key: 'computers', title: shop.computers || shop.electronics, icon: <Cpu className="h-4 w-4" /> },
+    { key: 'refurbished', title: shop.refurbished || 'Refurbished', icon: <Sparkles className="h-4 w-4" /> },
   ];
 
   // Update tabs when language changes
@@ -99,17 +95,28 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
           };
           
           // Get localized title based on language
+          // Filter out business_industrial (not relevant for consumers)
+          const filteredTabs = data.tabs.filter((tab: any) => tab.key !== 'business_industrial');
+          
+          const seen = new Set<string>();
+          seen.add('all');
           const mappedTabs: CategoryTab[] = [
             { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
-            ...data.tabs.map((tab: any) => ({
-              key: tab.key,
-              title: language === 'fr' && tab.title_fr ? tab.title_fr 
-                   : language === 'sw' && tab.title_sw ? tab.title_sw
-                   : language === 'ln' && tab.title_ln ? tab.title_ln
-                   : language === 'en' && tab.title_en ? tab.title_en
-                   : getLocalizedFallback(tab.key, shop) || tab.title_en || tab.title,
-              icon: iconMap[tab.key] || <Package className="h-4 w-4" />,
-            })),
+            ...filteredTabs
+              .filter((tab: any) => {
+                if (seen.has(tab.key)) return false;
+                seen.add(tab.key);
+                return true;
+              })
+              .map((tab: any) => ({
+                key: tab.key,
+                title: language === 'fr' && tab.title_fr ? tab.title_fr 
+                     : language === 'sw' && tab.title_sw ? tab.title_sw
+                     : language === 'ln' && tab.title_ln ? tab.title_ln
+                     : language === 'en' && tab.title_en ? tab.title_en
+                     : getLocalizedFallback(tab.key, shop) || tab.title_en || tab.title,
+                icon: iconMap[tab.key] || <Package className="h-4 w-4" />,
+              })),
           ];
           setTabs(mappedTabs);
         }

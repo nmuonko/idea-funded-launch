@@ -1,68 +1,75 @@
 
-# Fix Category Filters Returning Irrelevant Items
 
-## Problem
-When clicking category tabs like "Vehicles", "Home & Garden", "Clothing & Fashion", etc., the search returns irrelevant items from other categories. Two root causes:
+# Fix Duplicate Electronics Tabs + Add Refurbished Cheap Phones
 
-1. **Frontend sends short alias keys** (e.g., `fashion`, `home`, `watches`, `sportingGoods`) but the backend expects canonical keys (e.g., `clothing_shoes_accessories`, `home_garden`, `jewelry_watches`, `sporting_goods`). The backend has a `resolveCategory()` function that maps aliases to canonical keys, but it is never called in the search orchestrator.
+## What's Wrong
 
-2. **Database search ignores category entirely** -- when searching the local `catalog_items` table, no category filter is applied, so items from any category that match the query text are returned.
+The backend returns 10 category tabs. Three of them (`business_industrial`, `refurbished`, `parts_accessories`) are incorrectly mapped to the label "Electronics" in the frontend's `keyMap` (lines 19-22 of `CategoryTabs.tsx`). Combined with the actual "Electronics" tab, this creates 4 tabs all showing "Electronics".
 
-## Changes
+Additionally, `gaming` and `computers` in the default tabs are sub-categories of Electronics that add clutter without much value.
 
-### File 1: `supabase/functions/catalog-search/index.ts`
-**Add category resolution right after extracting categoryKey (around line 70)**
+## What Changes
 
-- Import `resolveCategory` from `categoryRegistry.ts`
-- After line 70 where `categoryKey` is extracted, call `resolveCategory(categoryKey)` to normalize it
-- Replace the raw `categoryKey` with the resolved canonical key for all downstream usage
-- Log the resolution for debugging: `category_resolved: "fashion" -> "clothing_shoes_accessories" (alias)`
-- This single change fixes eBay category mapping, search rewriter rules, and cache key consistency
+### File 1: `src/components/shop/CategoryTabs.tsx`
 
-### File 2: `supabase/functions/_shared/searchDbFirst.ts`
-**Add category filter to database query**
+**Fix the `keyMap`** so each backend key maps to its own translation:
+- `business_industrial` mapped to `'electronics'` -- remove this entry (hide this tab)
+- `refurbished` mapped to `'electronics'` -- change to `'refurbished'` (its own label)
+- `parts_accessories` mapped to `'electronics'` -- change to `'partsAccessories'`
 
-- When `categoryKey` is provided and non-null, add `.eq("unified_category", categoryKey)` to the database query
-- This ensures DB-first results only return items from the selected category
-- For broad parent categories (e.g., `electronics`), also match subtab categories using `.or()` filter (e.g., `unified_category.eq.electronics,unified_category.like.electronics_%`)
+**Clean up default tabs** to remove sub-category clutter:
+- Remove `gaming` and `computers` (sub-categories of electronics)
+- Add a `refurbished` tab with a dedicated icon for cheap/renewed items
+
+**Deduplicate backend tabs**: When the backend response arrives with tabs, deduplicate by the *resolved display label* so even if the backend sends overlapping keys, only one tab per unique label appears.
+
+### File 2: `supabase/functions/_shared/categoryMapper.ts`
+
+**Remove `business_industrial` from the TABS array** -- it's not relevant for the AfriShop consumer audience and only adds noise. This stops the backend from sending it to the frontend at all.
 
 ### File 3: `supabase/functions/_shared/categoryRegistry.ts`
-**Add missing frontend aliases**
 
-- Add `sportinggoods` (camelCase lowered) to `FALLBACK_ALIAS_MAP` pointing to `sporting_goods`
-- Add `computers` alias pointing to `electronics_computers`
-- Add `gaming` alias pointing to `electronics_gaming`
-- These are the keys sent by the frontend `CategoryTabs` component that currently have no alias mapping
+**Add `refurbished` alias** so the search backend properly handles the refurbished category tab, mapping it to eBay's refurbished category.
 
-### File 4: `src/components/shop/CategoryTabs.tsx` (minor)
-**Align frontend keys with canonical keys where possible**
+## Result
 
-- Change `sportingGoods` to `sporting_goods` (matches canonical directly)
-- This reduces reliance on alias resolution for common tabs
+The final tab bar will be:
+All | Electronics | Vehicles | Home | Fashion | Toys | Sporting Goods | Watches | Refurbished | Parts
+
+- "Electronics" appears exactly once and returns real electronics (phones, laptops, gadgets)
+- "Refurbished" is its own tab returning cheap refurbished phones and electronics
+- No duplicate labels
 
 ## Technical Details
 
-### Category Resolution Flow (after fix)
+### CategoryTabs.tsx changes
 
-```text
-Frontend sends: category_key=fashion
-                    |
-                    v
-catalog-search extracts: categoryKey = "fashion"
-                    |
-                    v
-resolveCategory("fashion") -> { resolved: "clothing_shoes_accessories", method: "alias" }
-                    |
-                    v
-All downstream uses canonical key:
-  - eBay fetcher: CATEGORY_MAPPING["clothing_shoes_accessories"] -> "11450" (correct!)
-  - DB search: .eq("unified_category", "clothing_shoes_accessories")
-  - Cache key: includes canonical category
-  - Search rewriter: matches category-specific rules
+Default tabs (replacing current list):
+```
+all, electronics, vehicles, home, fashion, toys, sporting_goods, watches, refurbished
 ```
 
-### Why this fixes the screenshots
-The user's screenshots show duplicate "Electronics" tabs and categories like "Sporting Goods" returning wrong items. The duplicate tabs are from the `catalog-tabs` backend returning raw keys that the frontend does not deduplicate (separate issue), but the irrelevant results are fixed by this plan because:
-- Each category tab click now resolves to the correct canonical key
-- eBay searches are constrained to the right category ID
-- Database results are filtered by `unified_category`
+Updated `keyMap`:
+```
+refurbished -> 'refurbished'     (was 'electronics')
+parts_accessories -> 'partsAccessories'  (was 'electronics')
+business_industrial -> removed   (tab hidden entirely)
+```
+
+Add deduplication when processing backend tabs:
+```
+const seen = new Set<string>();
+const dedupedTabs = mappedTabs.filter(tab => {
+  if (seen.has(tab.key)) return false;
+  seen.add(tab.key);
+  return true;
+});
+```
+
+### categoryMapper.ts changes
+
+Remove the `business_industrial` entry from the `TABS` array (lines 134-140).
+
+### categoryRegistry.ts changes
+
+Add alias: `refurbished` -> `refurbished` (identity mapping to mark it as a known category so it doesn't get dropped during resolution).

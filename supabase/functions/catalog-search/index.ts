@@ -660,6 +660,97 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // ─── FINAL RELATED DB FALLBACK — NEVER return 0 results ─────────────────
+    let fallbackReason: string | null = null;
+
+    if (finalItems.length === 0) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} all_sources_empty, attempting related_db fallback`);
+
+      // Detect broad intent categories from qNorm and qOriginal
+      const qBoth = `${qNorm} ${qOriginal}`.toLowerCase();
+      const TRACTOR_TERMS = ["tracteur","tractor","farm tractor","agricole","agricultural","john deere","kubota","massey","case ih","excavator","loader","backhoe"];
+      const isTractorIntent = TRACTOR_TERMS.some(t => qBoth.includes(t));
+
+      // Build related OR-based search
+      let relatedItems: CatalogItem[] = [];
+
+      if (isTractorIntent) {
+        // Related heavy equipment search with OR logic
+        const orTerms = ["%tractor%","%farm%","%agricultural%","%john deere%","%kubota%","%massey%","%excavator%","%loader%","%backhoe%","%skid steer%"];
+        const orFilter = orTerms.map(t => `title.ilike.${t}`).join(",");
+        const { data: relData } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .or(orFilter)
+          .in("provider", ["rainforest", "amazon", "ebay"])
+          .gt("price_usd", 0)
+          .not("image_url", "is", null)
+          .neq("is_disallowed", true)
+          .order("updated_at", { ascending: false })
+          .limit(40);
+        if (relData && relData.length > 0) {
+          relatedItems = relData.map((item: any) => ({
+            id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
+            title: item.title, priceUsd: item.price_usd, currency: "USD",
+            mainImageUrl: item.image_url, imageUrl: item.image_url,
+            images: item.images || (item.image_url ? [item.image_url] : []),
+            imageUrls: item.images || (item.image_url ? [item.image_url] : []),
+            imageCount: item.images?.length || 1,
+            productUrl: item.product_url, inStock: item.in_stock ?? true,
+            rating: item.rating, category: item.unified_category || categoryKey || undefined,
+          }));
+          fallbackReason = "related_db";
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} related_db fallback: ${relatedItems.length} tractor/equipment items`);
+        }
+      }
+
+      // Universal fallback: popular fresh items
+      if (relatedItems.length === 0) {
+        const { data: popData } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .in("provider", ["rainforest", "amazon", "ebay"])
+          .gt("price_usd", 0)
+          .not("image_url", "is", null)
+          .neq("is_disallowed", true)
+          .order("updated_at", { ascending: false })
+          .limit(40);
+        if (popData && popData.length > 0) {
+          relatedItems = popData.map((item: any) => ({
+            id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
+            title: item.title, priceUsd: item.price_usd, currency: "USD",
+            mainImageUrl: item.image_url, imageUrl: item.image_url,
+            images: item.images || (item.image_url ? [item.image_url] : []),
+            imageUrls: item.images || (item.image_url ? [item.image_url] : []),
+            imageCount: item.images?.length || 1,
+            productUrl: item.product_url, inStock: item.in_stock ?? true,
+            rating: item.rating, category: item.unified_category || undefined,
+          }));
+          fallbackReason = "popular_db";
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} popular_db fallback: ${relatedItems.length} items`);
+        }
+      }
+
+      if (relatedItems.length > 0) {
+        // Apply limit slicing
+        const slicedItems = relatedItems.slice(0, limit);
+        const fbResponse: SearchResponse = {
+          status: "success", env: envName, query: qOriginal,
+          items: slicedItems,
+          nextCursor: null, hasMore: relatedItems.length > limit, total: relatedItems.length,
+          providerStats, searchMeta, durationMs: Date.now() - startTime,
+          ttlSeconds: 300, error: null,
+          meta: { source: fallbackReason as string, isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), fallbackReason } as any,
+        };
+        const fbHeaders = buildResponseHeaders(slicedItems.length, 300);
+        const truncate2 = (s: string, n = 40) => s.length > n ? s.slice(0, n) : s;
+        fbHeaders["x-afrishop-search-debug"] = `env=${envUsed};q=${truncate2(qOriginal)};q2=${truncate2(qNorm)};db=0;prov=0;source=${fallbackReason}`;
+        fbHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
+        console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=0 providers=0 cache=miss source=${fallbackReason} correlationId=${requestId}`);
+        return new Response(JSON.stringify(fbResponse), { status: 200, headers: fbHeaders });
+      }
+    }
+
     // ─── CACHE WRITE ──────────────────────────────────────────────────────────
     const cacheMeta = {
       qNorm, provider: providerParam || "mixed",
@@ -674,7 +765,7 @@ Deno.serve(async (req: Request) => {
         page: cacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
     } else {
-      // FIX #5: Negative cache ≤ 120s only
+      // Negative cache ≤ 120s only
       setCache(supabase, "search", globalCacheKey, {
         ...response, _meta: { ...cacheMeta, cachedAt: new Date().toISOString(), isNegative: true }, _negativeTtlSeconds: 120,
       }, {
@@ -683,18 +774,17 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // FIX #6: Summary log with envUsed and q2
-    const searchSource = finalItems.length > 0 ? "provider" : (dbFallbackItems?.length ? "fallback" : "empty");
+    // Summary log
+    const searchSource = finalItems.length > 0 ? "provider" : "empty";
     console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=${dbFallbackItems?.length ?? 0} providers=${finalItems.length} cache=miss source=${searchSource} correlationId=${requestId}`);
 
-    // ─── FIX F: DEBUG HEADER ──────────────────────────────────────────────────
+    // Debug header
     const truncate = (s: string, n = 40) => s.length > n ? s.slice(0, n) : s;
     const debugHeader = `env=${truncate(envUsed)};q=${truncate(qOriginal)};q2=${truncate(qNorm)};db=${dbFallbackItems?.length ?? 0};prov=${finalItems.length};source=${searchSource}`;
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds);
     responseHeaders["x-afrishop-search-debug"] = debugHeader;
     responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
 
-    // FIX #4: Empty responses use no-store headers via buildResponseHeaders
     return new Response(JSON.stringify(response), {
       status: 200,
       headers: responseHeaders,

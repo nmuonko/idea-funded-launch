@@ -17,7 +17,12 @@ export interface CartItem {
   priceUsd: number;
   quantity: number;
   productUrl?: string;
+  isVehicle?: boolean;
+  requiresManualQuote?: boolean;
+  vehicleQuoteApplied?: boolean;
 }
+
+export type VehicleQuoteStatus = 'none' | 'pending' | 'quoted';
 
 export interface PendingCheckoutSnapshot {
   items: CartItem[];
@@ -53,6 +58,11 @@ interface ShopCartContextType {
   exchangeRate: number;
   // Fee settings from admin
   feeSettings: FeeSettings;
+  // Vehicle quote workflow
+  hasVehicleItems: boolean;
+  vehicleQuoteStatus: VehicleQuoteStatus;
+  canProceedToPayment: boolean;
+  serverTotalUsd: number | null;
 }
 
 const ShopCartContext = createContext<ShopCartContextType | undefined>(undefined);
@@ -74,6 +84,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     shippingBaseFeeUsd: 20,
     shippingPercent: 10,
   });
+  const [hasVehicleItems, setHasVehicleItems] = useState(false);
+  const [vehicleQuoteStatus, setVehicleQuoteStatus] = useState<VehicleQuoteStatus>('none');
+  const [canProceedToPayment, setCanProceedToPayment] = useState(true);
+  const [serverTotalUsd, setServerTotalUsd] = useState<number | null>(null);
 
   // Load cart from localStorage on init (for guests) or as fallback
   useEffect(() => {
@@ -220,9 +234,22 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           priceUsd: item.base_price_usd || 0,
           quantity: item.quantity || 1,
           productUrl: item.product_url,
+          isVehicle: item.is_vehicle || false,
+          requiresManualQuote: item.requires_manual_quote || false,
+          vehicleQuoteApplied: item.vehicle_quote_applied || false,
         }));
         setItems(mappedItems);
         console.log('[CART] init source=server items=', mappedItems.length);
+        
+        // Update vehicle flags from summary
+        const summary = data.summary || data;
+        setHasVehicleItems(!!summary.hasVehicleItems);
+        setVehicleQuoteStatus(summary.vehicleQuoteStatus || 'none');
+        setCanProceedToPayment(summary.canProceedToPayment !== false);
+        if (summary.serverTotalUsd != null || summary.total_usd != null) {
+          setServerTotalUsd(summary.serverTotalUsd ?? summary.total_usd);
+        }
+        console.log('[CART] vehicle flags:', { hasVehicle: summary.hasVehicleItems, quoteStatus: summary.vehicleQuoteStatus, canProceed: summary.canProceedToPayment });
       }
     } catch (error) {
       console.error('[CART] Failed to sync cart:', error);
@@ -416,6 +443,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         isItemSaved,
         exchangeRate,
         feeSettings,
+        hasVehicleItems,
+        vehicleQuoteStatus,
+        canProceedToPayment,
+        serverTotalUsd,
       }}
     >
       {children}

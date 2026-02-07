@@ -166,10 +166,9 @@ function scoreOne(
         "headset","headphones","earphones","mic","microphone",
         "controller","manette","joystick","gamepad",
         "dock","charging","charger","chargeur",
-        "cable","câble","usb","hdmi","adapter","adaptateur",
         "skin","sticker","decal","grip","cover","coque",
         "protection","cooling fan","ventilateur",
-        "repair","replacement","spare","parts","pièce",
+        "repair","replacement","spare",
         "sac","bag","backpack",
         "poster","shirt","shoes","figurine","mod","script",
         "sauce","mcdonalds","mug","cup","keychain","wallet","socks",
@@ -190,11 +189,9 @@ function scoreOne(
       const LOT_BUNDLE_DROP = [
         "lot","bundle","job lot","bulk","mixed","assorted","collection",
         "set of","pack","power tested mixed","w/ games lot","games lot",
-        "w/ cables","with cables","avec cables","avec câbles",
-        "w/ games","with games","avec jeux","w games","consoles & games","mega",
+        "avec jeux","consoles & games","mega",
       ];
       if (hasAny(title, LOT_BUNDLE_DROP)) return null;
-      // Regex: "lot of <number>" or "<number>x" near console terms
       if (/lot\s+of\s+\d+/i.test(title)) return null;
       if (/\b\d+\s*x\b/i.test(title)) return null;
 
@@ -209,10 +206,10 @@ function scoreOne(
       // ── STEP 5: Drop used condition (via metadata or top-level condition field) ──
       const conditionName = ((item.condition ?? item.conditionName ?? (item.metadata as any)?.condition) || "").toString().toLowerCase();
       if (conditionName.includes("for parts") || conditionName.includes("not working")) return null;
-      // Allow: new, manufacturer refurbished, seller refurbished, certified refurbished, open box
+      // Allow: new, manufacturer refurbished, seller refurbished, certified refurbished
       // Drop: used, acceptable, good (we only want new/refurb)
       if (conditionName === "used" || conditionName === "good" || conditionName === "acceptable") return null;
-      if (conditionName === "open box") return null; // Open box is not new/refurb
+      if (conditionName === "open box") return null;
 
       // ── STEP 6: Must match a specific console model ──
       const CONSOLE_MODEL_SIGNALS = [
@@ -220,10 +217,11 @@ function scoreOne(
         "playstation 4","ps4 console","ps4 slim","ps4 pro",
         "xbox series s","xbox series x",
         "xbox one x","xbox one s","xbox one console","xbox one",
-        "xbox 360","xbox 360 console",
+        "xbox 360","xbox 360 console","xbox 360 video game",
         "nintendo switch 2","nintendo switch console","nintendo switch",
         "wii u console","wii console",
         "steam deck","rog ally",
+        "video game console",
       ];
       const hasBrandAndConsole = title.includes("console") && 
         hasAny(title, ["playstation","xbox","nintendo","sony","microsoft"]);

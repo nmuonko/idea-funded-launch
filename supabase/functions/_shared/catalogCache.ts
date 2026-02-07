@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v8"; // v8: Relax gaming scorer + apply scorer to cache path
+export const AMAZON_CACHE_VERSION = "v9"; // v9: Merge DB+provider results, increase result density
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {

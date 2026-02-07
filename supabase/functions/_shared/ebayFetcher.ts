@@ -44,9 +44,30 @@ const CATEGORY_MAPPING: Record<string, string> = {
   electronics_audio: "3253",
   clothing_shoes_accessories: "63889",
   home_garden: "11700",
+  vehicles: "6000",          // eBay Motors (all vehicle types)
   vehicles_cars_trucks: "6001",
   refurbished: "11800",
   parts_accessories: "6028",
+  sporting_goods: "888",
+  toys: "220",
+  jewelry_watches: "281",
+};
+
+// Vehicle model normalization — standalone model names → brand + model
+const VEHICLE_MODEL_NORMALIZE: Record<string, string> = {
+  "land cruiser": "Toyota Land Cruiser",
+  "landcruiser": "Toyota Land Cruiser",
+  "prado": "Toyota Prado",
+  "hilux": "Toyota Hilux",
+  "rav4": "Toyota RAV4",
+  "corolla": "Toyota Corolla",
+  "camry": "Toyota Camry",
+  "highlander": "Toyota Highlander",
+  "civic": "Honda Civic",
+  "accord": "Honda Accord",
+  "cr-v": "Honda CR-V",
+  "crv": "Honda CR-V",
+  "pilot": "Honda Pilot",
 };
 
 export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetchResult> {
@@ -71,11 +92,23 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       ebayCategory = CATEGORY_MAPPING[categoryKey];
     }
 
+    // Normalize standalone model names to brand + model for better eBay results
+    let enhancedQuery = query;
+    const qLow = query.toLowerCase().trim();
+    for (const [model, fullName] of Object.entries(VEHICLE_MODEL_NORMALIZE)) {
+      // Only normalize if the query doesn't already contain the brand
+      const brand = fullName.split(" ")[0].toLowerCase();
+      if (qLow.includes(model) && !qLow.includes(brand)) {
+        enhancedQuery = query.replace(new RegExp(model, "i"), fullName);
+        console.log(`[EBAY_FETCH] requestId=${requestId} vehicle_model_normalize: "${query}" → "${enhancedQuery}"`);
+        break;
+      }
+    }
+
     // Force eBay Motors category for vehicle buying intent, but NOT for heavy equipment
-    const enhancedQuery = query;
     if (hasBuyingIntent && !ebayCategory && !isHeavyEquipment) {
-      ebayCategory = "6001"; // Cars & Trucks
-      console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001`);
+      ebayCategory = "6000"; // eBay Motors (broader — includes cars, trucks, motorcycles, powersports)
+      console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6000 (eBay Motors)`);
     } else if (isHeavyEquipment) {
       console.log(`[EBAY_FETCH] requestId=${requestId} Heavy equipment query - searching all categories (no category restriction)`);
     } else if (isVehicle && !hasBuyingIntent) {

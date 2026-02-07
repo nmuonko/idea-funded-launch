@@ -95,13 +95,16 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
           };
           
           // Get localized title based on language
-          // Filter out business_industrial (not relevant for consumers)
-          const filteredTabs = data.tabs.filter((tab: any) => tab.key !== 'business_industrial');
+          // Filter out business_industrial and electronics (replaced by gaming)
+          const filteredTabs = data.tabs
+            .filter((tab: any) => tab.key !== 'business_industrial' && tab.key !== 'electronics');
           
           const seen = new Set<string>();
           seen.add('all');
+          seen.add('gaming'); // reserve slot for gaming tab
           const mappedTabs: CategoryTab[] = [
-            { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
+            { key: 'all', title: shop.all, icon: <Home className="h-4 w-4" /> },
+            { key: 'gaming', title: shop.gaming || 'Gaming', icon: <Gamepad2 className="h-4 w-4" /> },
             ...filteredTabs
               .filter((tab: any) => {
                 if (seen.has(tab.key)) return false;

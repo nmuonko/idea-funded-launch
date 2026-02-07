@@ -5,6 +5,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// ── CONFIG ──
+const PER_QUERY_TIMEOUT_MS = 10_000; // 10s max per search call
+const WALL_CLOCK_LIMIT_MS = 140_000; // Stop at 140s to leave room for final DB writes
+const DELAY_BETWEEN_MS = 200;
+
 // ── TEST QUERIES ──
 const TEST_QUERIES: { category: string; query: string }[] = [
   // Phones & accessories
@@ -166,11 +171,6 @@ function hasYearToken(text: string): boolean {
   return /\b(19|20)\d{2}\b/.test(text);
 }
 
-function countMatches(text: string, words: string[]): number {
-  const t = text.toLowerCase();
-  return words.filter(w => t.includes(w.toLowerCase())).length;
-}
-
 // ── RELEVANCY EVALUATOR ──
 interface EvalResult {
   top3Relevant: number;
@@ -205,7 +205,7 @@ function evaluateResults(
   const top12 = items.slice(0, 12);
   const top3 = items.slice(0, 3);
 
-  const zeroPriceCount = items.filter(i => !i.priceUsd || i.priceUsd <= 0).length;
+  const zeroPriceCount = items.filter(i => !i.priceUsd && !i.price_usd || (i.priceUsd || i.price_usd || 0) <= 0).length;
   const missingImageCount = items.filter(i => !i.imageUrl && !i.image_url).length;
   const providerAmazonCount = items.filter(i => (i.provider || "").toLowerCase() === "amazon").length;
   const providerEbayCount = items.filter(i => (i.provider || "").toLowerCase() === "ebay").length;
@@ -214,13 +214,11 @@ function evaluateResults(
   if (missingImageCount > 0) failReasons.push("MISSING_IMAGE_ITEMS_PRESENT");
   if (latencyMs > 4500) failReasons.push("SLOW_QUERY");
 
-  // Check for provider errors in debug
   const debugStr = JSON.stringify(debugHeaders || {}).toLowerCase();
   if (debugStr.includes("timeout") || debugStr.includes("error")) {
     failReasons.push("PROVIDER_TIMEOUT_OR_ERROR");
   }
 
-  // Category-specific relevancy
   let top3Relevant = 0;
   let top12Relevant = 0;
   let partsBleedRate = 0;
@@ -229,7 +227,6 @@ function evaluateResults(
     const tLower = (title || "").toLowerCase();
     switch (category) {
       case "phones": {
-        // Device query: relevant if contains brand/model tokens AND not accessory-dominated
         const qTokens = qLower.split(/\s+/);
         const hasModelToken = qTokens.some(t => tLower.includes(t) && t.length > 1);
         const isAccessory = hasAny(tLower, ACCESSORY_WORDS) && !hasAny(tLower, ["smartphone","unlocked","5g","128gb","256gb","512gb","phone"]);
@@ -240,9 +237,6 @@ function evaluateResults(
       }
       case "vehicles": {
         const isPart = hasAny(tLower, VEHICLE_PARTS_WORDS);
-        const price = 0; // We don't have price in title eval, so rely on keyword
-        const hasYear = hasYearToken(tLower);
-        const hasVehicleSignal = hasAny(tLower, ["miles","mi","km","odometer","vin","awd","4wd","4x4","suv","truck","sedan","fwd","rwd","clean title","salvage","rebuilt"]);
         const qTokens = qLower.split(/\s+/);
         const hasModelToken = qTokens.some(t => tLower.includes(t) && t.length > 2);
         return hasModelToken && !isPart;
@@ -266,7 +260,6 @@ function evaluateResults(
         return hasAny(tLower, BABY_HOME_WORDS);
       }
       case "typos": {
-        // For typos, just check if we get ANY non-empty results
         return tLower.length > 5;
       }
       default:
@@ -277,20 +270,17 @@ function evaluateResults(
   top3Relevant = top3.filter(i => isRelevant(i.title)).length;
   top12Relevant = top12.filter(i => isRelevant(i.title)).length;
 
-  // Vehicle-specific: parts bleed rate
   if (category === "vehicles") {
     const partsInTop12 = top12.filter(i => hasAny((i.title || "").toLowerCase(), VEHICLE_PARTS_WORDS)).length;
     partsBleedRate = top12.length > 0 ? partsInTop12 / top12.length : 0;
     if (partsBleedRate > 0.25) failReasons.push("HIGH_PARTS_BLEED");
   }
 
-  // Phone device: accessory domination
   if (category === "phones") {
     const accessoryInTop12 = top12.filter(i => hasAny((i.title || "").toLowerCase(), ACCESSORY_WORDS)).length;
     if (top12.length > 0 && accessoryInTop12 / top12.length > 0.5) failReasons.push("ACCESSORY_DOMINATION");
   }
 
-  // Pass thresholds (typos are lenient)
   if (category !== "typos") {
     if (top3Relevant < 2) failReasons.push("LOW_RELEVANCY_TOP3");
     if (top12Relevant < 7) failReasons.push("LOW_RELEVANCY_TOP12");
@@ -303,6 +293,52 @@ function evaluateResults(
   };
 }
 
+// ── DB HELPERS ──
+async function insertRows(rows: any[], supabaseUrl: string, serviceRoleKey: string) {
+  if (rows.length === 0) return;
+  await fetch(`${supabaseUrl}/rest/v1/search_relevancy_report_rows`, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(rows),
+  });
+}
+
+async function updateReportSummary(
+  reportId: string, passCount: number, failCount: number, avgLatency: number, slowCount: number, totalCompleted: number,
+  supabaseUrl: string, serviceRoleKey: string,
+) {
+  await fetch(`${supabaseUrl}/rest/v1/search_relevancy_reports?id=eq.${reportId}`, {
+    method: "PATCH",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      total_queries: totalCompleted,
+      pass_count: passCount,
+      fail_count: failCount,
+      avg_latency_ms: avgLatency,
+      slow_count: slowCount,
+    }),
+  });
+}
+
+// ── Fetch with timeout ──
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ── MAIN ──
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -310,7 +346,6 @@ serve(async (req) => {
   }
 
   try {
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -331,7 +366,6 @@ serve(async (req) => {
     const userData = await userRes.json();
     const userId = userData.id;
 
-    // Check admin role
     const roleRes = await fetch(
       `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${userId}&role=eq.admin&select=id&limit=1`,
       { headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` } },
@@ -341,7 +375,6 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Admin access required" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Parse body
     let env = "production";
     try {
       const body = await req.json();
@@ -362,18 +395,26 @@ serve(async (req) => {
     const [report] = await createRes.json();
     const reportId = report.id;
 
-    // Run queries sequentially
+    const wallClockStart = Date.now();
     const rows: any[] = [];
+    const pendingRows: any[] = [];
     let totalLatency = 0;
     let passCount = 0;
     let failCount = 0;
     let slowCount = 0;
+    let completed = 0;
+    let stoppedEarly = false;
 
     for (let i = 0; i < TEST_QUERIES.length; i++) {
-      const tq = TEST_QUERIES[i];
+      // Wall-clock guard: stop before timeout
+      if (Date.now() - wallClockStart > WALL_CLOCK_LIMIT_MS) {
+        console.log(`[RELEVANCY] Wall-clock limit reached at ${i}/${TEST_QUERIES.length}, saving partial results`);
+        stoppedEarly = true;
+        break;
+      }
 
-      // Delay between queries
-      if (i > 0) await new Promise(r => setTimeout(r, 200));
+      const tq = TEST_QUERIES[i];
+      if (i > 0) await new Promise(r => setTimeout(r, DELAY_BETWEEN_MS));
 
       const searchUrl = `${SUPABASE_URL}/functions/v1/catalog-search?q=${encodeURIComponent(tq.query)}&provider=mixed&limit=20`;
       const start = Date.now();
@@ -382,15 +423,15 @@ serve(async (req) => {
       let searchError = false;
 
       try {
-        const res = await fetch(searchUrl, {
+        const res = await fetchWithTimeout(searchUrl, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
             Authorization: authHeader,
           },
-        });
+        }, PER_QUERY_TIMEOUT_MS);
+
         const latency = Date.now() - start;
 
-        // Capture headers
         for (const h of ["x-afrishop-search-debug", "x-afrishop-search-intent", "x-correlation-id", "cache-control"]) {
           const v = res.headers.get(h);
           if (v) debugHeaders[h] = v;
@@ -405,15 +446,13 @@ serve(async (req) => {
         }
 
         const evalResult = evaluateResults(items, tq.category, tq.query, latency, debugHeaders);
-
-        if (searchError) {
-          evalResult.failReasons.push("PROVIDER_TIMEOUT_OR_ERROR");
-        }
+        if (searchError) evalResult.failReasons.push("PROVIDER_TIMEOUT_OR_ERROR");
 
         const passed = evalResult.failReasons.length === 0;
         if (passed) passCount++; else failCount++;
         if (latency > 4500) slowCount++;
         totalLatency += latency;
+        completed++;
 
         const row = {
           report_id: reportId,
@@ -434,14 +473,16 @@ serve(async (req) => {
         };
 
         rows.push(row);
+        pendingRows.push(row);
 
         console.log(`[RELEVANCY] ${i + 1}/${TEST_QUERIES.length} q="${tq.query}" cat=${tq.category} returned=${items.length} pass=${passed} latency=${latency}ms`);
       } catch (err) {
         const latency = Date.now() - start;
         totalLatency += latency;
         failCount++;
+        completed++;
 
-        rows.push({
+        const row = {
           report_id: reportId,
           category: tq.category,
           query: tq.query,
@@ -452,52 +493,39 @@ serve(async (req) => {
           provider_amazon_count: 0, provider_ebay_count: 0,
           fail_reasons: ["PROVIDER_TIMEOUT_OR_ERROR"],
           sample_top3_titles: [],
-          debug: { error: String(err) },
-        });
+          debug: { error: String(err).substring(0, 200) },
+        };
+        rows.push(row);
+        pendingRows.push(row);
+
+        console.log(`[RELEVANCY] ${i + 1}/${TEST_QUERIES.length} q="${tq.query}" TIMEOUT/ERROR latency=${latency}ms`);
+      }
+
+      // Flush pending rows every 10 queries
+      if (pendingRows.length >= 10) {
+        await insertRows([...pendingRows], SUPABASE_URL, SERVICE_ROLE_KEY);
+        pendingRows.length = 0;
       }
     }
 
-    // Batch insert rows (in chunks of 20)
-    for (let i = 0; i < rows.length; i += 20) {
-      const chunk = rows.slice(i, i + 20);
-      const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/search_relevancy_report_rows`, {
-        method: "POST",
-        headers: {
-          apikey: SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(chunk),
-      });
-      await insertRes.text();
+    // Flush remaining rows
+    if (pendingRows.length > 0) {
+      await insertRows(pendingRows, SUPABASE_URL, SERVICE_ROLE_KEY);
     }
 
     // Update report summary
-    const avgLatency = TEST_QUERIES.length > 0 ? Math.round(totalLatency / TEST_QUERIES.length) : 0;
-    await fetch(`${SUPABASE_URL}/rest/v1/search_relevancy_reports?id=eq.${reportId}`, {
-      method: "PATCH",
-      headers: {
-        apikey: SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        pass_count: passCount,
-        fail_count: failCount,
-        avg_latency_ms: avgLatency,
-        slow_count: slowCount,
-      }),
-    });
+    const avgLatency = completed > 0 ? Math.round(totalLatency / completed) : 0;
+    await updateReportSummary(reportId, passCount, failCount, avgLatency, slowCount, completed, SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    // Return full report
     const result = {
       id: reportId,
       env,
-      total_queries: TEST_QUERIES.length,
+      total_queries: completed,
       pass_count: passCount,
       fail_count: failCount,
       avg_latency_ms: avgLatency,
       slow_count: slowCount,
+      stopped_early: stoppedEarly,
       rows,
     };
 

@@ -560,41 +560,22 @@ Deno.serve(async (req: Request) => {
             const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
             dbItems = dbScoreResult.items as any[];
             console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
-            // If scorer removed everything, don't return DB-first — fall through to live providers
             if (dbItems.length === 0) {
               console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
               dbFallbackItems = null;
-              // Continue to live provider fetch below
             }
           }
           
+          // Instead of returning early, save DB items to merge with provider results
           if (dbItems.length > 0) {
-            const dbDurationMs = Date.now() - startTime;
-            const dbResponse: SearchResponse = {
-              status: "success", env: envName, query: qOriginal,
-              items: dbItems as unknown as CatalogItem[],
-              nextCursor: null, hasMore: dbItems.length >= limit,
-              total: dbItems.length,
-              providerStats: buildProviderStats({ mode: effectiveMode.mode, amazonEnabled: effectiveMode.amazonActive, ebayEnabled: effectiveMode.ebayActive, amazonCacheHit: false, amazonBudgetRemaining: null, amazonReturned: 0, amazonCap: 0, amazonStatus: "disabled", ebayReturned: dbItems.length, mixingPhase: "db_first", amazonFirstCount: 0, blendRatio: { amazon: 0, ebay: 1 } }),
-              searchMeta, durationMs: dbDurationMs, ttlSeconds: 3600, error: null,
-              meta: {
-                source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(),
-                searchDebug: { qOriginal, qCanon: qCanonicalized, qRewrite, providerQuery, usedQueryForProviders: null, dbCount: dbItems.length, ebay: null, amazon: null, finalCount: dbItems.length, source: "db" },
-              } as any,
-            };
-
-            setCache(supabase, "search", globalCacheKey, { ...dbResponse, _meta: { qNorm, provider: providerParam || "mixed", page: 1, pageSize: limit, sort, cachedAt: new Date().toISOString() } }, {
-              provider: "mixed", query: qNorm, category: categoryKey || undefined, page: 1, pageSize: limit, amazonDomain: "amazon.com",
-            }).catch(() => {});
-
-            return new Response(JSON.stringify(dbResponse), {
-              status: 200,
-              headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=3600, s-maxage=3600" },
-            });
+            dbFallbackItems = dbItems;
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_merge: ${dbItems.length} DB items will be merged with provider results`);
           }
         }
 
-        dbFallbackItems = dbResult.fallbackItems;
+        if (!dbFallbackItems) {
+          dbFallbackItems = dbResult.fallbackItems;
+        }
       } catch (dbErr) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_error:`, (dbErr as Error).message);
       }
@@ -773,13 +754,26 @@ Deno.serve(async (req: Request) => {
 
     if (!cursor) logMixerDebug(mixResult, requestId, categoryKey || "search");
 
+    // ─── MERGE DB-FIRST ITEMS WITH PROVIDER RESULTS ──────────────────────────
+    // Deduplicate by provider:id to combine DB + live results
+    let mergedItems = [...mixResult.items] as CatalogItem[];
+    if (dbFallbackItems && dbFallbackItems.length > 0) {
+      const existingKeys = new Set(mergedItems.map(i => `${(i as any).provider}:${i.id}`));
+      const newDbItems = dbFallbackItems.filter((item: any) => !existingKeys.has(`${item.provider}:${item.id}`));
+      if (newDbItems.length > 0) {
+        mergedItems = [...mergedItems, ...newDbItems as CatalogItem[]];
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} db_merge: added ${newDbItems.length} unique DB items (total=${mergedItems.length})`);
+      }
+      dbFallbackItems = null; // consumed, prevent double-use in fallback below
+    }
+
     // Filter disallowed content
     const { allowed: filteredItems } = filterDisallowedItems(
-      mixResult.items.map(item => ({ ...item, title: (item as CatalogItem).title, productUrl: (item as CatalogItem).productUrl, category: (item as CatalogItem).category })),
+      mergedItems.map(item => ({ ...item, title: (item as CatalogItem).title, productUrl: (item as CatalogItem).productUrl, category: (item as CatalogItem).category })),
       `[SEARCH] requestId=${requestId}`
     );
     const allowedIds = new Set(filteredItems.map(i => i.id));
-    const filteredFinalItems = mixResult.items.filter(item => allowedIds.has(item.id)) as CatalogItem[];
+    const filteredFinalItems = mergedItems.filter(item => allowedIds.has(item.id)) as CatalogItem[];
 
     // Enrich with media counts
     const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(

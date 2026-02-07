@@ -498,7 +498,7 @@ Deno.serve(async (req: Request) => {
     const aiExpandedTerms = await aiExpandPromise;
     // For heavy equipment AND vehicle_listing intent: SKIP AI expansion
     // AI expansion adds "accessories" to vehicle queries, poisoning results
-    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing";
+    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming";
     if (!skipAiExpand && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${aiExpandedTerms[0]}"`);
       qNorm = aiExpandedTerms[0];

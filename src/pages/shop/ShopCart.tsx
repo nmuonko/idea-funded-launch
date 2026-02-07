@@ -1,22 +1,27 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ShopCart() {
-  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout } = useShopCart();
+  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, hasVehicleItems, vehicleQuoteStatus, canProceedToPayment, syncCart } = useShopCart();
   const { user } = useAuth();
   const { language } = useLanguage();
+  const { toast } = useToast();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
+  const [requestingQuote, setRequestingQuote] = useState(false);
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -29,6 +34,30 @@ export default function ShopCart() {
       }
     }
   }, []);
+
+  const requestVehicleQuote = async () => {
+    setRequestingQuote(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('mobile-request-quote');
+      if (error) throw error;
+      toast({
+        title: language === 'fr' ? 'Devis demandé !' : 'Quote Requested!',
+        description: language === 'fr' 
+          ? 'Nous vous notifierons par email quand votre devis sera prêt.'
+          : "We'll notify you by email when your shipping quote is ready.",
+      });
+      await syncCart();
+    } catch (err: any) {
+      console.error('[CART] Quote request failed:', err);
+      toast({
+        title: language === 'fr' ? 'Erreur' : 'Error',
+        description: err.message || 'Failed to request quote',
+        variant: 'destructive',
+      });
+    } finally {
+      setRequestingQuote(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-black">
@@ -121,6 +150,12 @@ export default function ShopCart() {
                       <p className="text-sm text-white/60 capitalize mb-2">
                         from {item.provider}
                       </p>
+                      {item.isVehicle && (
+                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 mb-2">
+                          <Car className="h-3 w-3 mr-1" />
+                          {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
+                        </Badge>
+                      )}
                       <p className="text-lg font-bold text-white">
                         ${item.priceUsd.toFixed(2)}
                       </p>
@@ -174,7 +209,35 @@ export default function ShopCart() {
                   />
 
                   <div className="mt-6 space-y-3">
-                    {user ? (
+                    {/* Vehicle quote pending - show request quote button */}
+                    {hasVehicleItems && vehicleQuoteStatus !== 'quoted' && user ? (
+                      vehicleQuoteStatus === 'pending' ? (
+                        <div className="text-center space-y-2">
+                          <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
+                            <FileText className="h-4 w-4" />
+                            {language === 'fr' ? 'Devis en attente — Vous serez notifié par email' : 'Quote pending — You\'ll be notified by email'}
+                          </div>
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={requestVehicleQuote}
+                          disabled={requestingQuote}
+                          className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full"
+                        >
+                          {requestingQuote ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              {language === 'fr' ? 'Envoi...' : 'Requesting...'}
+                            </>
+                          ) : (
+                            <>
+                              <Car className="h-4 w-4 mr-2" />
+                              {language === 'fr' ? 'Demander un devis' : 'Request Shipping Quote'}
+                            </>
+                          )}
+                        </Button>
+                      )
+                    ) : user ? (
                       <Link to="/checkout" className="block">
                         <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
                           {shop.proceedToCheckout || 'Proceed to Checkout'}

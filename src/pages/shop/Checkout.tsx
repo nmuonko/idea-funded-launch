@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3 } from 'lucide-react';
+import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3, Car } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
@@ -30,7 +30,7 @@ interface ShippingAddress {
 export default function Checkout() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { items, totalUsd, savePendingCheckout, restoreFromPendingCheckout } = useShopCart();
+  const { items, totalUsd, savePendingCheckout, restoreFromPendingCheckout, canProceedToPayment, vehicleQuoteStatus, hasVehicleItems, serverTotalUsd } = useShopCart();
   const { user } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
@@ -41,6 +41,7 @@ export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
+  const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
   const [address, setAddress] = useState<ShippingAddress>({
     fullName: '',
     phone: '',
@@ -175,7 +176,12 @@ export default function Checkout() {
         throw new Error('Failed to create order. Please ensure your cart has items.');
       }
 
-      console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length);
+      // Store the server-calculated total for display
+      const srvTotal = orderData?.total_usd || orderData?.totalUsd;
+      if (srvTotal) setOrderServerTotal(srvTotal);
+      const effectiveTotal = srvTotal || totalUsd;
+
+      console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length, 'serverTotal:', srvTotal);
 
       // Step 2: Proceed to checkout with order item IDs
       console.log('[WEB_CHECKOUT] Step 2: Starting checkout...');
@@ -279,7 +285,7 @@ export default function Checkout() {
           savePendingCheckout({ 
             orderId: providerData.order_id, 
             paymentMethod: 'mobile_money',
-            totalUsd 
+            totalUsd: effectiveTotal 
           });
           navigate(`/payment-pending?order_id=${providerData.order_id}&provider=pawapay`);
           return;
@@ -293,7 +299,7 @@ export default function Checkout() {
           savePendingCheckout({ 
             orderId: providerData.order_id, 
             paymentMethod: 'card',
-            totalUsd 
+            totalUsd: effectiveTotal 
           });
           const cardPaymentUrl = `/card-payment?order_id=${providerData.order_id}&client_secret=${encodeURIComponent(providerData.clientSecret)}&amount=${providerData.amount || data.amount}&currency=${providerData.currency || 'USD'}`;
           navigate(cardPaymentUrl);
@@ -305,7 +311,7 @@ export default function Checkout() {
           savePendingCheckout({ 
             orderId: providerData.order_id, 
             paymentMethod: 'bank_transfer',
-            totalUsd 
+            totalUsd: effectiveTotal 
           });
           navigate(`/bank-transfer-info?order_id=${providerData.order_id}`);
           return;
@@ -313,7 +319,7 @@ export default function Checkout() {
         
         // Fallback - redirect to order
         if (providerData?.order_id) {
-          savePendingCheckout({ orderId: providerData.order_id, totalUsd });
+          savePendingCheckout({ orderId: providerData.order_id, totalUsd: effectiveTotal });
           navigate(`/orders/${providerData.order_id}`);
           return;
         }
@@ -321,16 +327,16 @@ export default function Checkout() {
       // Legacy flows (direct responses without select-payment-provider)
       else if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
         // Redirect to Stripe checkout
-        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'card', totalUsd });
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'card', totalUsd: effectiveTotal });
         navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
       } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
-        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'mobile_money', totalUsd });
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'mobile_money', totalUsd: effectiveTotal });
         window.location.href = data.redirectUrl;
       } else if (data?.payment_flow === 'BANK_TRANSFER') {
-        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'bank_transfer', totalUsd });
+        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'bank_transfer', totalUsd: effectiveTotal });
         navigate(`/bank-transfer-info?order_id=${data.order_id}`);
       } else if (data?.order_id) {
-        savePendingCheckout({ orderId: data.order_id, totalUsd });
+        savePendingCheckout({ orderId: data.order_id, totalUsd: effectiveTotal });
         navigate(`/orders/${data.order_id}`);
       }
     } catch (error: any) {
@@ -367,9 +373,34 @@ export default function Checkout() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-white/60 mb-4">Your cart is empty</p>
-          <Link to="/browse">
+          <Link to="/">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
               Continue Shopping
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Block checkout if vehicle quote is pending
+  if (!canProceedToPayment || (hasVehicleItems && vehicleQuoteStatus !== 'quoted')) {
+    return (
+      <div className="min-h-screen bg-black">
+        <ShopHeader />
+        <div className="pt-24 px-4 text-center max-w-md mx-auto">
+          <Car className="h-16 w-16 text-amber-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-white mb-2">
+            {language === 'fr' ? 'Devis requis' : 'Shipping Quote Required'}
+          </h2>
+          <p className="text-white/60 mb-6">
+            {language === 'fr' 
+              ? 'Votre panier contient un véhicule. Veuillez demander un devis depuis votre panier avant de procéder au paiement.'
+              : 'Your cart contains a vehicle. Please request a shipping quote from your cart before proceeding to payment.'}
+          </p>
+          <Link to="/cart">
+            <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-full px-8">
+              {language === 'fr' ? 'Retour au panier' : 'Back to Cart'}
             </Button>
           </Link>
         </div>
@@ -641,7 +672,7 @@ export default function Checkout() {
                     )}
                   </div>
                   
-                  <PriceBreakdown itemPriceUsd={totalUsd} />
+                  <PriceBreakdown itemPriceUsd={totalUsd} serverTotal={orderServerTotal ?? serverTotalUsd} />
 
                   <Button
                     type="submit"

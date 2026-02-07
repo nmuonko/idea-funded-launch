@@ -11,6 +11,7 @@ interface PriceBreakdownProps {
   quantity?: number;
   className?: string;
   showDetails?: boolean;
+  serverTotal?: number | null;
 }
 
 export function PriceBreakdown({
@@ -18,6 +19,7 @@ export function PriceBreakdown({
   quantity = 1,
   className,
   showDetails = true,
+  serverTotal,
 }: PriceBreakdownProps) {
   const { feeSettings } = useShopCart();
   const { language } = useLanguage();
@@ -87,13 +89,19 @@ export function PriceBreakdown({
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-white font-medium">{shop.estimatedTotal || 'Estimated Total'}</span>
-        <span className="text-xl font-bold text-white">${total.toFixed(2)}</span>
+        <span className="text-white font-medium">
+          {serverTotal != null ? (shop.total || 'Total') : (shop.estimatedTotal || 'Estimated Total')}
+        </span>
+        <span className="text-xl font-bold text-white">
+          ${(serverTotal != null ? serverTotal : total).toFixed(2)}
+        </span>
       </div>
 
-      <p className="text-xs text-white/40">
-        {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
-      </p>
+      {serverTotal == null && (
+        <p className="text-xs text-white/40">
+          {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
+        </p>
+      )}
     </div>
   );
 }

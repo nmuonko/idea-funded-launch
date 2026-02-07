@@ -7,12 +7,12 @@ import { getAdminTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { useAdminTheme } from '@/contexts/AdminThemeContext';
-import { 
+import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store
+  ChevronDown, Database, Store, Search
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -98,6 +98,7 @@ export function AdminLayout() {
         { to: '/admin/cache-settings', icon: Database, label: language === 'fr' ? 'Cache' : 'Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
+        { to: '/admin/search-relevancy', icon: Search, label: language === 'fr' ? 'Pertinence Recherche' : 'Search Relevancy', exact: false, permission: 'can_view_dashboard' as const },
       ]
     }] : []),
   ], [t, language, isSuperAdmin]);

@@ -59,6 +59,7 @@ import CatalogSourcesSettings from "./pages/admin/CatalogSourcesSettings";
 import CarsSettings from "./pages/admin/CarsSettings";
 import HomeCuration from "./pages/admin/HomeCuration";
 import HomeRecipes from "./pages/admin/HomeRecipes";
+import SearchRelevancy from "./pages/admin/SearchRelevancy";
 import Cars from "./pages/Cars";
 
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
@@ -384,6 +385,11 @@ const App = () => {
               <Route path="home-recipes" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <HomeRecipes />
+                </AdminRouteGuard>
+              } />
+              <Route path="search-relevancy" element={
+                <AdminRouteGuard requiredPermission="can_view_dashboard">
+                  <SearchRelevancy />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

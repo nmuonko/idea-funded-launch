@@ -3930,6 +3930,107 @@ export type Database = {
         }
         Relationships: []
       }
+      search_relevancy_report_rows: {
+        Row: {
+          category: string | null
+          created_at: string
+          debug: Json | null
+          fail_reasons: string[] | null
+          id: string
+          latency_ms: number
+          missing_image_count: number
+          parts_bleed_rate: number | null
+          provider_amazon_count: number
+          provider_ebay_count: number
+          query: string
+          report_id: string
+          returned_count: number
+          sample_top3_titles: string[] | null
+          top12_relevant: number
+          top3_relevant: number
+          zero_price_count: number
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          debug?: Json | null
+          fail_reasons?: string[] | null
+          id?: string
+          latency_ms?: number
+          missing_image_count?: number
+          parts_bleed_rate?: number | null
+          provider_amazon_count?: number
+          provider_ebay_count?: number
+          query: string
+          report_id: string
+          returned_count?: number
+          sample_top3_titles?: string[] | null
+          top12_relevant?: number
+          top3_relevant?: number
+          zero_price_count?: number
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          debug?: Json | null
+          fail_reasons?: string[] | null
+          id?: string
+          latency_ms?: number
+          missing_image_count?: number
+          parts_bleed_rate?: number | null
+          provider_amazon_count?: number
+          provider_ebay_count?: number
+          query?: string
+          report_id?: string
+          returned_count?: number
+          sample_top3_titles?: string[] | null
+          top12_relevant?: number
+          top3_relevant?: number
+          zero_price_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "search_relevancy_report_rows_report_id_fkey"
+            columns: ["report_id"]
+            isOneToOne: false
+            referencedRelation: "search_relevancy_reports"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      search_relevancy_reports: {
+        Row: {
+          avg_latency_ms: number
+          created_at: string
+          env: string
+          fail_count: number
+          id: string
+          pass_count: number
+          slow_count: number
+          total_queries: number
+        }
+        Insert: {
+          avg_latency_ms?: number
+          created_at?: string
+          env?: string
+          fail_count?: number
+          id?: string
+          pass_count?: number
+          slow_count?: number
+          total_queries?: number
+        }
+        Update: {
+          avg_latency_ms?: number
+          created_at?: string
+          env?: string
+          fail_count?: number
+          id?: string
+          pass_count?: number
+          slow_count?: number
+          total_queries?: number
+        }
+        Relationships: []
+      }
       search_rewrites: {
         Row: {
           category_key: string | null

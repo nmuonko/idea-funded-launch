@@ -150,6 +150,8 @@ export function buildCacheKey(
     sort?: string;
     // Vehicle mode flag - CRITICAL for vehicle vs accessory results
     vehicleMode?: boolean;
+    // Intent key - separates cache for listings vs parts vs devices vs accessories
+    intentKey?: string;
     // Country/currency for regional variations
     country?: string;
     currency?: string;
@@ -205,6 +207,7 @@ export function buildCacheKey(
         `sz=${params.pageSize || 20}`,
         `vm=${vehicleModeMarker}`,      // Explicit vehicle mode flag
         `mp=${minPriceUsed}`,           // Explicit minPrice used
+        `in=${params.intentKey || "general"}`, // Intent key for cache separation
         `ex=${expand}`,
       ];
       

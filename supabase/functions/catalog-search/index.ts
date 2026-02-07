@@ -384,14 +384,48 @@ Deno.serve(async (req: Request) => {
       searchMeta.rewriteApplied = true;
     }
 
+    // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
+    // Priority: FR_EN_FALLBACK rewrite > AI expansion > canonicalized > original
+    // Ensure we never send French to providers when we have an English rewrite
+    const qRewrite = searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : null;
+    let providerQuery = qRewrite || qCanonicalized || qOriginal;
+
+    // Safety: if providerQuery still contains known French trigger tokens, force English
+    const FR_FORCE_MAP: Record<string, string> = {
+      "tracteur": "tractor", "tracteurs": "tractor", "agricole": "farm equipment",
+      "voiture": "car", "voitures": "cars", "camion": "truck", "camions": "trucks",
+      "téléphone": "phone", "telephone": "phone", "frigo": "refrigerator",
+      "réfrigérateur": "refrigerator", "refrigerateur": "refrigerator",
+      "ordinateur": "laptop computer", "écouteurs": "earbuds", "ecouteurs": "earbuds",
+      "chargeur": "charger", "aspirateur": "vacuum cleaner", "climatiseur": "air conditioner",
+      "imprimante": "printer", "ventilateur": "fan", "casque": "headphones",
+      "clavier": "keyboard", "souris": "mouse", "tablette": "tablet", "enceinte": "speaker",
+      "montre": "watch", "vélo": "bicycle", "velo": "bicycle", "matelas": "mattress",
+      "canapé": "sofa", "canape": "sofa", "bureau": "desk",
+    };
+    const pqTokens = providerQuery.toLowerCase().split(/\s+/);
+    for (const token of pqTokens) {
+      const stripped = token.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (FR_FORCE_MAP[token] || FR_FORCE_MAP[stripped]) {
+        const enWord = FR_FORCE_MAP[token] || FR_FORCE_MAP[stripped];
+        providerQuery = providerQuery.toLowerCase().replace(token, enWord);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} providerQuery_force_en: "${token}" → "${enWord}" => providerQuery="${providerQuery}"`);
+      }
+    }
+    providerQuery = providerQuery.trim().replace(/\s+/g, " ");
+
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} query_pipeline: qOriginal="${qOriginal}" qCanon="${qCanonicalized}" qRewrite="${qRewrite}" providerQuery="${providerQuery}"`);
+
     // ─── DB-FIRST SEARCH ──────────────────────────────────────────────────────
     let dbFallbackItems: any[] | null = null;
+    let dbCount = 0;
 
     if (!cursor && !hasBuyingIntent) {
       try {
         const dbResult = await searchDbFirst({
           supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId,
         });
+        dbCount = dbResult.dbCount;
 
         if (dbResult.items) {
           const dbDurationMs = Date.now() - startTime;
@@ -402,10 +436,12 @@ Deno.serve(async (req: Request) => {
             total: dbResult.dbCount,
             providerStats: buildProviderStats({ mode: effectiveMode.mode, amazonEnabled: effectiveMode.amazonActive, ebayEnabled: effectiveMode.ebayActive, amazonCacheHit: false, amazonBudgetRemaining: null, amazonReturned: 0, amazonCap: 0, amazonStatus: "disabled", ebayReturned: dbResult.dbCount, mixingPhase: "db_first", amazonFirstCount: 0, blendRatio: { amazon: 0, ebay: 1 } }),
             searchMeta, durationMs: dbDurationMs, ttlSeconds: 3600, error: null,
-            meta: { source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+            meta: {
+              source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(),
+              searchDebug: { qOriginal, qCanon: qCanonicalized, qRewrite, providerQuery, usedQueryForProviders: null, dbCount: dbResult.dbCount, ebay: null, amazon: null, finalCount: dbResult.dbCount, source: "db" },
+            } as any,
           };
 
-          // Cache in background
           setCache(supabase, "search", globalCacheKey, { ...dbResponse, _meta: { qNorm, provider: providerParam || "mixed", page: 1, pageSize: limit, sort, cachedAt: new Date().toISOString() } }, {
             provider: "mixed", query: qNorm, category: categoryKey || undefined, page: 1, pageSize: limit, amazonDomain: "amazon.com",
           }).catch(() => {});
@@ -426,13 +462,17 @@ Deno.serve(async (req: Request) => {
     const { fetchAmazonItems } = await import("../_shared/amazonFetcher.ts");
     const { fetchEbayItems } = await import("../_shared/ebayFetcher.ts");
 
-    // ─── FIX #3: PARALLEL PROVIDER FETCH (always when DB < MIN_RESULTS) ──────
+    // ─── PROVIDER DEBUG TRACKING ──────────────────────────────────────────────
+    const ebayDebug = { ok: false, status: null as number | null, count: 0, ms: 0, error: null as string | null };
+    const amazonDebug = { ok: false, status: null as number | null, count: 0, ms: 0, error: null as string | null };
+
+    // ─── PARALLEL PROVIDER FETCH — uses providerQuery (English) ───────────────
     const providerStartMs = Date.now();
     const PROVIDER_TIMEOUT_MS = 4000;
 
     const providerPromise = Promise.allSettled([
-      fetchAmazonItems({ supabase, query: qNorm, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
-      fetchEbayItems({ supabase, query: qNorm, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId }),
+      fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
+      fetchEbayItems({ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId }),
     ]);
 
     let amazonSettled: PromiseSettledResult<any>;
@@ -468,9 +508,12 @@ Deno.serve(async (req: Request) => {
       amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
       amazonBudgetRemaining = r.budgetRemaining; amazonStatus = r.status;
       amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
+      amazonDebug.ok = true; amazonDebug.count = r.items.length; amazonDebug.ms = providerMs;
     } else {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} amazon_err:`, amazonSettled.reason);
       amazonStatus = "error";
+      amazonDebug.error = String((amazonSettled as PromiseRejectedResult).reason?.message || "unknown").slice(0, 100);
+      amazonDebug.ms = providerMs;
     }
 
     let ebayItems: CatalogItem[] = [];
@@ -480,22 +523,25 @@ Deno.serve(async (req: Request) => {
     if (ebaySettled.status === "fulfilled") {
       const r = ebaySettled.value;
       ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
+      ebayDebug.ok = true; ebayDebug.count = r.items.length; ebayDebug.ms = providerMs;
     } else {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebaySettled.reason);
+      ebayDebug.error = String((ebaySettled as PromiseRejectedResult).reason?.message || "unknown").slice(0, 100);
+      ebayDebug.ms = providerMs;
     }
 
     const providerItemCount = amazonItems.length + ebayItems.length;
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok providerQuery="${providerQuery}"`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
 
-    // ─── FIX #3b: SECONDARY PROVIDER ATTEMPT with original query ─────────────
-    // If providers returned 0 and we had a rewrite, retry with original query
-    if (providerItemCount === 0 && searchMeta.rewriteApplied && originalQNormBeforeFrFallback !== qNorm && !providerTimedOut) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${originalQNormBeforeFrFallback}"`);
+    // ─── SECONDARY PROVIDER ATTEMPT with qCanonicalized (pre-rewrite) ────────
+    // If providers returned 0 and we used a rewrite, retry with canonical query
+    if (providerItemCount === 0 && providerQuery !== qCanonicalized && !providerTimedOut) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${qCanonicalized}"`);
       try {
         const secondaryTimeout = 3000;
         const secondaryPromise = Promise.allSettled([
-          fetchAmazonItems({ supabase, query: originalQNormBeforeFrFallback, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
-          fetchEbayItems({ supabase, query: originalQNormBeforeFrFallback, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
         ]);
         const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
         const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
@@ -503,10 +549,12 @@ Deno.serve(async (req: Request) => {
           const r = secondarySettled[0].value;
           amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
           amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
+          amazonDebug.ok = true; amazonDebug.count = r.items.length;
         }
         if (secondarySettled[1].status === "fulfilled") {
           const r = secondarySettled[1].value;
           ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
+          ebayDebug.ok = true; ebayDebug.count = r.items.length;
         }
         console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_results amazon=${amazonItems.length} ebay=${ebayItems.length}`);
       } catch {
@@ -629,6 +677,16 @@ Deno.serve(async (req: Request) => {
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";
 
+    // Build searchDebug for meta
+    const finalCount = finalItems.length;
+    const searchSource = finalCount > 0 ? "providers" : (dbFallbackItems?.length ? "fallback" : "empty");
+    const searchDebug = {
+      qOriginal, qCanon: qCanonicalized, qRewrite: qRewrite || null, providerQuery,
+      usedQueryForProviders: providerQuery,
+      dbCount, ebay: ebayDebug, amazon: amazonDebug,
+      finalCount, source: searchSource,
+    };
+
     const response: SearchResponse = {
       status: "success", env: envName, query: qOriginal, items: finalItems,
       nextCursor, hasMore: mixResult.hasMore,
@@ -637,10 +695,10 @@ Deno.serve(async (req: Request) => {
       providerStats, searchMeta,
       mediaStats: DEV ? mediaStats : undefined,
       durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
-      meta: { source: "live", isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
+      meta: { source: searchSource, isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined, searchDebug } as any,
     };
 
-    // ─── FIX #2b: DB FALLBACK — never return empty if DB had anything ─────────
+    // ─── DB FALLBACK — never return empty if DB had anything ──────────────────
     if (finalItems.length === 0 && dbFallbackItems && dbFallbackItems.length > 0) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} using db_fallback items=${dbFallbackItems.length}`);
       const dbFallbackResponse: SearchResponse = {
@@ -649,15 +707,13 @@ Deno.serve(async (req: Request) => {
         nextCursor: null, hasMore: false, total: dbFallbackItems.length,
         providerStats, searchMeta, durationMs: Date.now() - startTime,
         ttlSeconds: 1800, error: null,
-        meta: { source: "db_fallback", isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+        meta: { source: "db_fallback", isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), searchDebug: { ...searchDebug, source: "fallback", finalCount: dbFallbackItems.length } } as any,
       };
-      console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=${dbFallbackItems.length} providers=0 cache=miss source=fallback correlationId=${requestId}`);
+      const fbDebugObj = { providerQuery, dbCount: dbFallbackItems.length, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount: dbFallbackItems.length, source: "fallback" };
       const fbHeaders = buildResponseHeaders(dbFallbackItems.length, 1800);
-      fbHeaders["x-afrishop-search-debug"] = `env=${envUsed};q=${qOriginal.slice(0,40)};q2=${qNorm.slice(0,40)};db=${dbFallbackItems.length};prov=0;source=fallback`;
+      fbHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(fbDebugObj)).slice(0, 200);
       fbHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
-      return new Response(JSON.stringify(dbFallbackResponse), {
-        status: 200, headers: fbHeaders,
-      });
+      return new Response(JSON.stringify(dbFallbackResponse), { status: 200, headers: fbHeaders });
     }
 
     // ─── FINAL RELATED DB FALLBACK — NEVER return 0 results ─────────────────
@@ -765,7 +821,6 @@ Deno.serve(async (req: Request) => {
         page: cacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
     } else {
-      // Negative cache ≤ 120s only
       setCache(supabase, "search", globalCacheKey, {
         ...response, _meta: { ...cacheMeta, cachedAt: new Date().toISOString(), isNegative: true }, _negativeTtlSeconds: 120,
       }, {
@@ -775,14 +830,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // Summary log
-    const searchSource = finalItems.length > 0 ? "provider" : "empty";
-    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=${dbFallbackItems?.length ?? 0} providers=${finalItems.length} cache=miss source=${searchSource} correlationId=${requestId}`);
+    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" pq="${providerQuery}" envUsed=${envUsed} db=${dbCount} providers=${finalCount} cache=miss source=${searchSource} correlationId=${requestId}`);
 
-    // Debug header
-    const truncate = (s: string, n = 40) => s.length > n ? s.slice(0, n) : s;
-    const debugHeader = `env=${truncate(envUsed)};q=${truncate(qOriginal)};q2=${truncate(qNorm)};db=${dbFallbackItems?.length ?? 0};prov=${finalItems.length};source=${searchSource}`;
+    // Debug header (base64 JSON for structured parsing in Network tab)
+    const debugObj = { providerQuery, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource };
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds);
-    responseHeaders["x-afrishop-search-debug"] = debugHeader;
+    responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
     responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
 
     return new Response(JSON.stringify(response), {

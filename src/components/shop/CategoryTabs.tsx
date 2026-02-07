@@ -54,8 +54,8 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
 
   // Build default tabs with i18n
   const getDefaultTabs = (): CategoryTab[] => [
-    { key: 'all', title: shop.all, icon: <Package className="h-4 w-4" /> },
-    { key: 'electronics', title: shop.electronics, icon: <Cpu className="h-4 w-4" /> },
+    { key: 'all', title: shop.all, icon: <Home className="h-4 w-4" /> },
+    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
     { key: 'vehicles', title: shop.vehicles, icon: <Car className="h-4 w-4" /> },
     { key: 'home', title: shop.homeGarden || shop.home, icon: <Home className="h-4 w-4" /> },
     { key: 'fashion', title: shop.clothingFashion || shop.fashion, icon: <Shirt className="h-4 w-4" /> },
@@ -134,7 +134,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
       onCategoryChange(category);
     } else {
       if (category === 'all') {
-        navigate('/browse');
+        navigate('/');
       } else {
         navigate(`/search?category=${category}`);
       }

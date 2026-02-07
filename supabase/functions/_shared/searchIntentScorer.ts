@@ -190,6 +190,8 @@ function scoreOne(
       const LOT_BUNDLE_DROP = [
         "lot","bundle","job lot","bulk","mixed","assorted","collection",
         "set of","pack","power tested mixed","w/ games lot","games lot",
+        "w/ cables","with cables","avec cables","avec câbles",
+        "w/ games","with games","avec jeux","w games","consoles & games","mega",
       ];
       if (hasAny(title, LOT_BUNDLE_DROP)) return null;
       // Regex: "lot of <number>" or "<number>x" near console terms

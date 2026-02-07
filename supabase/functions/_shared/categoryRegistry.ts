@@ -176,7 +176,9 @@ const FALLBACK_ALIAS_MAP: Record<string, string> = {
   vehicle_parts: "vehicles_parts_accessories",
   auto_parts: "vehicles_parts_accessories",
   
-  // Tab aliases
+  // Tab aliases (including camelCase frontend keys)
+  sportinggoods: "sporting_goods",
+  sporting_goods: "sporting_goods",
   home: "home_garden",
   garden: "home_garden",
   clothing: "clothing_shoes_accessories",

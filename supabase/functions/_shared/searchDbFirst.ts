@@ -48,6 +48,13 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     .filter("image_url", "not.is", "null")
     .gt("price_usd", 0);
 
+  // Category filter: constrain DB results to selected category
+  if (categoryKey) {
+    // For top-level tabs, also match subtab categories (e.g. electronics matches electronics_phones)
+    dbQuery = dbQuery.or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first category_filter="${categoryKey}"`);
+  }
+
   for (const token of topTokens) {
     dbQuery = dbQuery.ilike("title", `%${token}%`);
   }

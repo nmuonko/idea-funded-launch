@@ -34,6 +34,7 @@ import type { SearchIntent } from "../_shared/vehicleDetection.ts";
 import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
+import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -67,9 +68,24 @@ Deno.serve(async (req: Request) => {
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
   const providerParam = url.searchParams.get("provider") || null;
-  const categoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
+  const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
+
+  // ─── CATEGORY RESOLUTION ────────────────────────────────────────────────────
+  let categoryKey = rawCategoryKey;
+  if (rawCategoryKey) {
+    const catClient = createAdminPostgrestClient();
+    const catRes = await resolveCategoryWithDb(catClient, rawCategoryKey, requestId);
+    if (catRes.resolved) {
+      categoryKey = catRes.resolved;
+      if (categoryKey !== rawCategoryKey) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} category_resolved: "${rawCategoryKey}" → "${categoryKey}" (${catRes.method})`);
+      }
+    } else {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} category_unresolved: "${rawCategoryKey}" — passing raw`);
+    }
+  }
 
   // ─── FIX A: ENV FALLBACK — public clients auto-use production ───────────
   const authHeader = req.headers.get("authorization") || "";

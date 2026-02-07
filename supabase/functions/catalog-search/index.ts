@@ -28,8 +28,10 @@ import { getClientIp } from "../_shared/rateLimiter.ts";
 import {
   VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS, isVehicleQuery, isVehicleMakeModelQuery,
   hasVehicleBuyingIntent, isAmbiguousQuery, VehicleProbeResult,
-  isHeavyEquipmentQuery,
+  isHeavyEquipmentQuery, classifySearchIntent,
 } from "../_shared/vehicleDetection.ts";
+import type { SearchIntent } from "../_shared/vehicleDetection.ts";
+import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 
@@ -82,11 +84,15 @@ Deno.serve(async (req: Request) => {
   const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
 
-  // ─── VEHICLE DETECTION ──────────────────────────────────────────────────────
+  // ─── VEHICLE + INTENT DETECTION ──────────────────────────────────────────────
   const qCanonicalized = canonicalizeQuery(qOriginal);
   const qNormEarly = qCanonicalized.toLowerCase().replace(/\s+/g, " ");
   const isVehicleEarly = isVehicleQuery(qNormEarly);
   const isHeavyEquipment = isHeavyEquipmentQuery(qNormEarly);
+
+  // Early intent classification (uses pre-rewrite query for correct detection)
+  const earlyIntent = classifySearchIntent(qNormEarly);
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} early_intent=${earlyIntent.intentKey}`);
 
   if (qCanonicalized !== qOriginal) {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_canonicalized: "${qOriginal}" → "${qCanonicalized}"`);
@@ -106,12 +112,18 @@ Deno.serve(async (req: Request) => {
   const hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
   let vehicleProbeResult: VehicleProbeResult | null = null;
 
+  // Force buying intent for vehicle_listing detected by intent classifier
+  if (earlyIntent.vehicleListingIntent && !hasBuyingIntent) {
+    hasBuyingIntent = true;
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED hasBuyingIntent=true via vehicle_listing intent`);
+  }
+
   const hasAccessoryInQuery = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw =>
     qCanonicalized.toLowerCase().includes(kw)
   );
 
-  // Skip vehicle probe for heavy equipment — they should NOT be forced into Cars & Trucks
-  if (!hasBuyingIntent && !hasAccessoryInQuery && !isHeavyEquipment && isAmbiguousQuery(qCanonicalized)) {
+  // Skip vehicle probe for heavy equipment and vehicle_listing intent (already classified)
+  if (!hasBuyingIntent && !hasAccessoryInQuery && !isHeavyEquipment && !earlyIntent.vehicleListingIntent && isAmbiguousQuery(qCanonicalized)) {
     try {
       const supabaseForProbe = createAdminPostgrestClient();
       vehicleProbeResult = await probeEbayVehicleCategory(supabaseForProbe, qCanonicalized, requestId);
@@ -309,6 +321,11 @@ Deno.serve(async (req: Request) => {
       if (decoded) mixerCursor = decoded;
     }
 
+    // ─── INTENT CLASSIFICATION (re-classify after rewrite for final intent) ──
+    const searchIntent = classifySearchIntent(qNorm);
+    // Use early intent for vehicle routing (pre-rewrite is more accurate for make/model)
+    const effectiveIntent = earlyIntent.intentKey !== "general" ? earlyIntent : searchIntent;
+
     // ─── CACHE CHECK ──────────────────────────────────────────────────────────
     const cacheStart = Date.now();
     const globalCacheKey = buildCacheKey("search", {
@@ -318,6 +335,7 @@ Deno.serve(async (req: Request) => {
       minPrice: catalogFilters.minPrice, maxPrice: catalogFilters.maxPrice,
       brand: catalogFilters.brand?.join(","), rating: catalogFilters.rating,
       condition: catalogFilters.condition, sort, vehicleMode: hasBuyingIntent,
+      intentKey: effectiveIntent.intentKey,
     });
 
     let cacheResult = await getCache(supabase, globalCacheKey);
@@ -385,15 +403,16 @@ Deno.serve(async (req: Request) => {
 
     // ─── RESOLVE AI EXPANSION ─────────────────────────────────────────────────
     const aiExpandedTerms = await aiExpandPromise;
-    // For heavy equipment: SKIP AI expansion override — it often suggests toy/ride-on versions
-    // The rewrite table already gives good English queries for heavy equipment
-    if (!isHeavyEquipment && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
+    // For heavy equipment AND vehicle_listing intent: SKIP AI expansion
+    // AI expansion adds "accessories" to vehicle queries, poisoning results
+    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing";
+    if (!skipAiExpand && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${aiExpandedTerms[0]}"`);
       qNorm = aiExpandedTerms[0];
       searchMeta.rewrittenQuery = aiExpandedTerms[0];
       searchMeta.rewriteApplied = true;
-    } else if (isHeavyEquipment && aiExpandedTerms?.length > 0) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_SKIPPED_heavy_equipment: would have been "${aiExpandedTerms[0]}"`);
+    } else if (skipAiExpand && aiExpandedTerms?.length > 0) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_SKIPPED (${effectiveIntent.intentKey}): would have been "${aiExpandedTerms[0]}"`);
     }
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────
@@ -479,12 +498,25 @@ Deno.serve(async (req: Request) => {
     const amazonDebug = { ok: false, status: null as number | null, count: 0, ms: 0, error: null as string | null };
 
     // ─── PARALLEL PROVIDER FETCH — uses providerQuery (English) ───────────────
+    // Intent-based provider routing:
+    // - vehicle_listing: eBay only (Amazon returns accessories for make/model queries)
+    // - All others: both providers
+    const skipAmazon = effectiveIntent.intentKey === "vehicle_listing";
+    if (skipAmazon) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: vehicle_listing intent — Amazon returns accessories for make/model`);
+    }
+
     const providerStartMs = Date.now();
     const PROVIDER_TIMEOUT_MS = 4000;
 
+    // For vehicle_listing intent, force eBay Motors category
+    const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };
+
     const providerPromise = Promise.allSettled([
-      fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
-      fetchEbayItems({ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId }),
+      skipAmazon
+        ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+        : fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
+      fetchEbayItems(ebayParamsForIntent),
     ]);
 
     let amazonSettled: PromiseSettledResult<any>;
@@ -651,16 +683,15 @@ Deno.serve(async (req: Request) => {
       console.log(`[SEARCH] requestId=${requestId} PostFilter: ${before} → ${finalItems.length}`);
     }
 
-    // Vehicle post-filter (skip for heavy equipment — tractors etc. should keep all results)
-    if (hasBuyingIntent && !isHeavyEquipment && finalItems.length > 0) {
-      finalItems = finalItems.filter((item: any) => (item.priceUsd ?? item.price_usd ?? 0) >= 1000);
-      finalItems = finalItems.filter((item: any) => {
-        const title = ((item.title || "") as string).toLowerCase();
-        return !VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => title.includes(kw));
-      });
-    }
+    // ─── INTENT-BASED SCORING + RANKING ───────────────────────────────────────
+    // Replaces old vehicle post-filter with unified scoring that handles all intents
+    const queryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+    const beforeScoring = finalItems.length;
+    const scoreResult = scoreAndRankItems(finalItems as unknown as Record<string, unknown>[], effectiveIntent, queryTokens, limit);
+    finalItems = scoreResult.items as typeof finalItems;
+    console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
-    // Sort
+    // Sort (only if explicit sort requested — scoring already ranks by relevance)
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;
     }
@@ -702,10 +733,11 @@ Deno.serve(async (req: Request) => {
     const searchSource = finalCount > 0 ? "providers" : (dbFallbackItems?.length ? "fallback" : "empty");
     const searchDebug = {
       qOriginal, qCanon: qCanonicalized, qRewrite: qRewrite || null, providerQuery,
-      usedQueryForProviders: providerQuery,
+      usedQueryForProviders: providerQuery, intentKey: effectiveIntent.intentKey,
       dbCount, ebay: ebayDebug, amazon: amazonDebug,
       finalCount, source: searchSource,
       isVehicle, isHeavyEquipment, hasBuyingIntent,
+      scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },
     };
 
     const response: SearchResponse = {
@@ -850,14 +882,16 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // Summary log
-    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" pq="${providerQuery}" envUsed=${envUsed} db=${dbCount} providers=${finalCount} cache=miss source=${searchSource} correlationId=${requestId}`);
+    // Summary log with intent
+    const topTitles = finalItems.slice(0, 3).map((i: any) => ((i.title || "") as string).slice(0, 60));
+    console.log(`[CATALOG_SEARCH][INTENT] q="${qOriginal}" intentKey=${effectiveIntent.intentKey} providers=${finalCount} db=${dbCount} returned=${finalItems.length} topTitles=${JSON.stringify(topTitles)}`);
 
     // Debug header (base64 JSON for structured parsing in Network tab)
-    const debugObj = { providerQuery, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource };
+    const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped };
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds);
     responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
-    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
+    responseHeaders["x-afrishop-search-intent"] = effectiveIntent.intentKey;
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent";
 
     return new Response(JSON.stringify(response), {
       status: 200,

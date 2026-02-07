@@ -384,3 +384,111 @@ export function isHeavyEquipmentQuery(query: string): boolean {
   const lower = query.toLowerCase().trim();
   return HEAVY_EQUIPMENT_KEYWORDS.some(kw => lower.includes(kw));
 }
+
+// ─── INTENT CLASSIFICATION ────────────────────────────────────────────────────
+
+export const VEHICLE_PARTS_KEYWORDS = [
+  "brake","rotor","pad","bumper","headlight","tail light","mirror","sensor","filter",
+  "oil","spark","alternator","starter","radiator","injector","strut","shock","caliper",
+  "wheel","rim","tire","tyre","hub","bearing","axle","cv","control arm","suspension",
+  "gasket","oem","aftermarket","floor mat","mats","carplay","stereo","radio","dash",
+  "camera","backup camera","mount","holder","charger","case","cover","accessory",
+  "accessories","led","bulb","light bar","wiper","antenna","fuse","relay","hose",
+  "belt","clutch","muffler","exhaust","catalytic","converter","transmission fluid",
+];
+
+export const PHONE_ACCESSORY_KEYWORDS = [
+  "case","cover","screen protector","protector","charger","cable","usb","adapter",
+  "headphones","earbuds","airpods","magsafe","mount","holder","ring","pop socket",
+  "lens","tempered glass","battery pack","power bank","wireless charger","stand",
+  "strap","band","dock","cradle","skin","decal","folio","wallet case","otterbox",
+  "spigen","armband",
+];
+
+const PHONE_BRAND_PATTERNS = [
+  "iphone","samsung","galaxy","pixel","xiaomi","tecno","infinix","itel",
+  "oneplus","oppo","vivo","nokia","motorola","moto","huawei","honor","realme",
+  "redmi","poco","nothing phone","zenfone","rog phone","xperia",
+];
+
+const PHONE_MODEL_RE = /\b(a\d{2,3}|s\d{2,3}(\s?ultra|\s?plus|\s?fe)?|pixel\s?\d+a?|iphone\s?\d+(\s?pro(\s?max)?|\s?plus|\s?mini)?|galaxy\s?(z\s?fold|z\s?flip)\s?\d*|note\s?\d+|redmi\s?note\s?\d+)\b/i;
+
+const VEHICLE_LISTING_MODELS = [
+  "rav4","crv","cr-v","civic","corolla","camry","highlander","yukon","tahoe",
+  "santa fe","sportage","cx-5","cx5","rx 350","rx350","gle 350","gle350",
+  "x5","q5","accord","pilot","4runner","prado","land cruiser","landcruiser",
+  "f-150","f150","silverado","wrangler","grand cherokee","mustang","challenger",
+  "charger","model 3","model s","model y","model x","cybertruck","bronco",
+  "tacoma","tundra","frontier","titan","sierra","colorado","equinox","rogue",
+  "pathfinder","altima","sentra","elantra","sonata","tucson","palisade",
+  "forte","optima","k5","telluride","sorento","outback","forester","crosstrek",
+  "wrx","impreza","jetta","tiguan","atlas","golf","xc90","xc60","escalade",
+  "navigator","aviator","g80","g70","gv80","defender","discovery","evoque",
+  "cayenne","macan","panamera","taycan","911","durango","ram 1500","ram 2500",
+];
+
+function hasAny(text: string, keywords: string[]): boolean {
+  const lower = text.toLowerCase();
+  return keywords.some(kw => lower.includes(kw));
+}
+
+function isLikelyVehicleMakeModelQuery(qNorm: string): boolean {
+  // Check brand + model combos
+  for (const { brand, models } of VEHICLE_MODEL_PATTERNS) {
+    if (qNorm.includes(brand)) {
+      for (const model of models) {
+        if (qNorm.includes(model)) return true;
+      }
+    }
+  }
+  // Check standalone listing models
+  return VEHICLE_LISTING_MODELS.some(m => qNorm.includes(m));
+}
+
+function hasYearToken(text: string): boolean {
+  return /\b(19|20)\d{2}\b/.test(text);
+}
+
+function hasMileageToken(text: string): boolean {
+  return /\b(miles|mi|km|kilometers|kilometres|odometer|mileage)\b/i.test(text);
+}
+
+export interface SearchIntent {
+  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "general";
+  vehicleListingIntent: boolean;
+  vehiclePartsIntent: boolean;
+  phoneDeviceIntent: boolean;
+  phoneAccessoryIntent: boolean;
+  isHeavyEquipment: boolean;
+}
+
+/**
+ * Classify search intent from a normalized query.
+ * Returns an intent key that drives provider routing, scoring, and cache separation.
+ */
+export function classifySearchIntent(qNorm: string): SearchIntent {
+  const lower = qNorm.toLowerCase().trim();
+
+  const isHeavyEquip = isHeavyEquipmentQuery(lower);
+  const vehicleIntent = isLikelyVehicleMakeModelQuery(lower) || isVehicleQuery(lower);
+  const vehiclePartsIntent = vehicleIntent && hasAny(lower, VEHICLE_PARTS_KEYWORDS) && !isHeavyEquip;
+  const vehicleListingIntent = vehicleIntent && !vehiclePartsIntent && !isHeavyEquip;
+
+  const phoneIntent = hasAny(lower, PHONE_BRAND_PATTERNS) || PHONE_MODEL_RE.test(lower);
+  const phoneAccessoryIntent = phoneIntent && hasAny(lower, PHONE_ACCESSORY_KEYWORDS);
+  const phoneDeviceIntent = phoneIntent && !phoneAccessoryIntent;
+
+  let intentKey: SearchIntent["intentKey"];
+  if (isHeavyEquip) intentKey = "heavy_equipment";
+  else if (vehicleListingIntent) intentKey = "vehicle_listing";
+  else if (vehiclePartsIntent) intentKey = "vehicle_parts";
+  else if (phoneDeviceIntent) intentKey = "phone_device";
+  else if (phoneAccessoryIntent) intentKey = "phone_accessory";
+  else intentKey = "general";
+
+  return { intentKey, vehicleListingIntent, vehiclePartsIntent, phoneDeviceIntent, phoneAccessoryIntent, isHeavyEquipment: isHeavyEquip };
+}
+
+// Re-export helpers for scoring module (use aliases to avoid duplicate export errors)
+export { hasAny, hasYearToken, hasMileageToken, VEHICLE_PARTS_KEYWORDS as VEHICLE_PARTS_KW };
+export { PHONE_ACCESSORY_KEYWORDS as PHONE_ACCESSORY_KW };

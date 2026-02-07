@@ -395,6 +395,9 @@ export const VEHICLE_PARTS_KEYWORDS = [
   "camera","backup camera","mount","holder","charger","case","cover","accessory",
   "accessories","led","bulb","light bar","wiper","antenna","fuse","relay","hose",
   "belt","clutch","muffler","exhaust","catalytic","converter","transmission fluid",
+  // French vehicle parts keywords
+  "pneus","jante","plaquette","huile","alternateur","demarreur","démarreur",
+  "filtre","amortisseur","bougies","courroie","embrayage","pot d'echappement",
 ];
 
 export const PHONE_ACCESSORY_KEYWORDS = [
@@ -403,6 +406,8 @@ export const PHONE_ACCESSORY_KEYWORDS = [
   "lens","tempered glass","battery pack","power bank","wireless charger","stand",
   "strap","band","dock","cradle","skin","decal","folio","wallet case","otterbox",
   "spigen","armband",
+  // French phone accessory keywords
+  "coque","protection ecran","protection écran","batterie externe","chargeur sans fil",
 ];
 
 const PHONE_BRAND_PATTERNS = [
@@ -417,6 +422,7 @@ const VEHICLE_LISTING_MODELS = [
   "rav4","crv","cr-v","civic","corolla","camry","highlander","yukon","tahoe",
   "santa fe","sportage","cx-5","cx5","rx 350","rx350","gle 350","gle350",
   "x5","q5","accord","pilot","4runner","prado","land cruiser","landcruiser",
+  "hilux","sequoia","venza","supra","gr86",
   "f-150","f150","silverado","wrangler","grand cherokee","mustang","challenger",
   "charger","model 3","model s","model y","model x","cybertruck","bronco",
   "tacoma","tundra","frontier","titan","sierra","colorado","equinox","rogue",
@@ -425,6 +431,7 @@ const VEHICLE_LISTING_MODELS = [
   "wrx","impreza","jetta","tiguan","atlas","golf","xc90","xc60","escalade",
   "navigator","aviator","g80","g70","gv80","defender","discovery","evoque",
   "cayenne","macan","panamera","taycan","911","durango","ram 1500","ram 2500",
+  "c300","e350","s550","g550","g63","cla","cls",
 ];
 
 function hasAny(text: string, keywords: string[]): boolean {

@@ -273,12 +273,19 @@ function evaluateResults(
   if (category === "vehicles") {
     const partsInTop12 = top12.filter(i => hasAny((i.title || "").toLowerCase(), VEHICLE_PARTS_WORDS)).length;
     partsBleedRate = top12.length > 0 ? partsInTop12 / top12.length : 0;
-    if (partsBleedRate > 0.25) failReasons.push("HIGH_PARTS_BLEED");
+    if (partsBleedRate > 0.20) failReasons.push("HIGH_PARTS_BLEED");
   }
 
   if (category === "phones") {
     const accessoryInTop12 = top12.filter(i => hasAny((i.title || "").toLowerCase(), ACCESSORY_WORDS)).length;
-    if (top12.length > 0 && accessoryInTop12 / top12.length > 0.5) failReasons.push("ACCESSORY_DOMINATION");
+    if (top12.length > 0 && accessoryInTop12 / top12.length > 0.30) failReasons.push("ACCESSORY_DOMINATION");
+  }
+
+  // Also check phone_accessories for wrong-category contamination (e.g. shoes)
+  if (category === "phone_accessories") {
+    const wrongCatWords = ["shoes","sneakers","basketball","dress","pants","jewelry","necklace"];
+    const wrongCatInTop12 = top12.filter(i => hasAny((i.title || "").toLowerCase(), wrongCatWords)).length;
+    if (top12.length > 0 && wrongCatInTop12 / top12.length > 0.30) failReasons.push("WRONG_CATEGORY_CONTAMINATION");
   }
 
   if (category !== "typos") {

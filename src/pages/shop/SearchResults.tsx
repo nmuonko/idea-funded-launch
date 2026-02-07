@@ -55,7 +55,7 @@ export default function SearchResults() {
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
     const searchQuery = query || (
       (category === 'gaming' || category === 'electronics')
-        ? 'PlayStation 5 console OR Xbox One console OR Nintendo Switch 2 OR Xbox Series S OR Xbox 360 console'
+        ? 'video game console'
         : (category ? category.replace(/_/g, ' ') : 'popular')
     );
     const params: Record<string, any> = {

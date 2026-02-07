@@ -476,6 +476,14 @@ export interface SearchIntent {
 export function classifySearchIntent(qNorm: string): SearchIntent {
   const lower = qNorm.toLowerCase().trim();
 
+  // ── GAMING FIRST — must be checked before vehicles because canonicalization
+  // can corrupt "game" into vehicle model tokens (e.g., "gle" = Mercedes GLE)
+  const GAMING_KW = ["xbox","ps5","ps4","playstation","nintendo","switch","console","gaming console","video game","video games"];
+  const gamingIntent = hasAny(lower, GAMING_KW);
+  if (gamingIntent) {
+    return { intentKey: "gaming", vehicleListingIntent: false, vehiclePartsIntent: false, phoneDeviceIntent: false, phoneAccessoryIntent: false, isHeavyEquipment: false };
+  }
+
   const isHeavyEquip = isHeavyEquipmentQuery(lower);
   const vehicleIntent = isLikelyVehicleMakeModelQuery(lower) || isVehicleQuery(lower);
   const vehiclePartsIntent = vehicleIntent && hasAny(lower, VEHICLE_PARTS_KEYWORDS) && !isHeavyEquip;
@@ -485,16 +493,12 @@ export function classifySearchIntent(qNorm: string): SearchIntent {
   const phoneAccessoryIntent = phoneIntent && hasAny(lower, PHONE_ACCESSORY_KEYWORDS);
   const phoneDeviceIntent = phoneIntent && !phoneAccessoryIntent;
 
-  const GAMING_KW = ["xbox","ps5","ps4","playstation","nintendo","switch","console","gaming console","video game","video games"];
-  const gamingIntent = !vehicleIntent && !phoneIntent && hasAny(lower, GAMING_KW);
-
   let intentKey: SearchIntent["intentKey"];
   if (isHeavyEquip) intentKey = "heavy_equipment";
   else if (vehicleListingIntent) intentKey = "vehicle_listing";
   else if (vehiclePartsIntent) intentKey = "vehicle_parts";
   else if (phoneDeviceIntent) intentKey = "phone_device";
   else if (phoneAccessoryIntent) intentKey = "phone_accessory";
-  else if (gamingIntent) intentKey = "gaming";
   else intentKey = "general";
 
   return { intentKey, vehicleListingIntent, vehiclePartsIntent, phoneDeviceIntent, phoneAccessoryIntent, isHeavyEquipment: isHeavyEquip };

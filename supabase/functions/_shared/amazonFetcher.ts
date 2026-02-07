@@ -33,6 +33,7 @@ export interface AmazonFetchParams {
   mixerCursor: MixerCursor;
   isVehicle: boolean;
   hasBuyingIntent: boolean;
+  isHeavyEquipment?: boolean;
   categoryKey: string | undefined;
   limit: number;
   catalogFilters: CatalogFilters;
@@ -52,7 +53,7 @@ export interface AmazonFetchResult {
 const AMAZON_AUTOS_CATEGORY_ID = "10677469011";
 
 export async function fetchAmazonItems(params: AmazonFetchParams): Promise<AmazonFetchResult> {
-  const { supabase, query, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey, limit, catalogFilters, requestId } = params;
+  const { supabase, query, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey, limit, catalogFilters, requestId } = params;
   
   let items: CatalogItem[] = [];
   let hasMore = false;
@@ -89,7 +90,8 @@ export async function fetchAmazonItems(params: AmazonFetchParams): Promise<Amazo
       liveReason = liveDecision.reason;
 
       if (liveDecision.useLive) {
-        const vehicleCategoryId = isVehicle ? AMAZON_AUTOS_CATEGORY_ID : undefined;
+        // DON'T force Autos category for heavy equipment (tractor, excavator, etc.)
+        const vehicleCategoryId = (isVehicle && !isHeavyEquipment) ? AMAZON_AUTOS_CATEGORY_ID : undefined;
         const minPriceFilter = hasBuyingIntent && catalogFilters.minPrice ? catalogFilters.minPrice : undefined;
         
         console.log(`[AMAZON_FETCH] requestId=${requestId} LIVE search: "${query}" page=${mixerCursor.amazonPage}${vehicleCategoryId ? ` category=${vehicleCategoryId}` : ""}${minPriceFilter ? ` minPrice=${minPriceFilter}` : ""}`);

@@ -29,6 +29,7 @@ export default function SearchResults() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
@@ -68,6 +69,11 @@ export default function SearchResults() {
       params.filters = JSON.stringify(filters);
     }
 
+    // For pagination, pass the cursor from the previous response
+    if (pageNum > 1 && nextCursor) {
+      params.cursor = nextCursor;
+    }
+
     // For first page, show loading state only if no products yet
     // This makes cached results appear instantly
     if (pageNum === 1 && products.length === 0) {
@@ -100,7 +106,8 @@ export default function SearchResults() {
         setProducts(mappedProducts);
       }
 
-      setHasMore(data?.hasMore ?? mappedProducts.length === 24);
+      setNextCursor(data?.nextCursor || null);
+      setHasMore(!!data?.nextCursor || (data?.hasMore ?? mappedProducts.length === 24));
       setTotalResults(data?.total || mappedProducts.length);
     } catch (err: any) {
       console.error('Search error:', err);
@@ -108,11 +115,12 @@ export default function SearchResults() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [query, category, sort, priceRange, products.length]);
+  }, [query, category, sort, priceRange, products.length, nextCursor]);
 
   // Initial search
   useEffect(() => {
     setPage(1);
+    setNextCursor(null);
     fetchProducts(1, false);
   }, [query, category, sort]);
 

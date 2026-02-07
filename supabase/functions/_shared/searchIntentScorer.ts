@@ -139,18 +139,16 @@ function scoreOne(
       const GAMING_ACCESSORY_DROP = [
         "headset","headphones","earphones","mic","microphone",
         "controller","manette","joystick","gamepad",
-        "dock","station","charging","charger","chargeur",
+        "dock","charging","charger","chargeur",
         "cable","câble","usb","hdmi","adapter","adaptateur",
-        "skin","sticker","decal","grip","cover","case","coque",
-        "protection","stand","support","cooling fan","ventilateur",
-        "kit","repair","replacement","spare","parts","pièce",
+        "skin","sticker","decal","grip","cover","coque",
+        "protection","cooling fan","ventilateur",
+        "repair","replacement","spare","parts","pièce",
         "sac","bag","backpack",
         "poster","shirt","shoes","figurine","mod","script",
         "sauce","mcdonalds","mug","cup","keychain","wallet","socks",
         "hat","cap","band","strap","mount","holder",
-        "accessory","accessoires","bundle accessory",
-        "game disc","game lot","game collection","game bundle",
-        "video game","game cartridge","game card",
+        "accessory","accessoires",
       ];
       if (hasAny(title, GAMING_ACCESSORY_DROP)) return null;
 

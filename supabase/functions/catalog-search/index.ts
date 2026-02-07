@@ -552,28 +552,45 @@ Deno.serve(async (req: Request) => {
         dbCount = dbResult.dbCount;
 
         if (dbResult.items) {
-          const dbDurationMs = Date.now() - startTime;
-          const dbResponse: SearchResponse = {
-            status: "success", env: envName, query: qOriginal,
-            items: dbResult.items as unknown as CatalogItem[],
-            nextCursor: null, hasMore: dbResult.dbCount >= limit,
-            total: dbResult.dbCount,
-            providerStats: buildProviderStats({ mode: effectiveMode.mode, amazonEnabled: effectiveMode.amazonActive, ebayEnabled: effectiveMode.ebayActive, amazonCacheHit: false, amazonBudgetRemaining: null, amazonReturned: 0, amazonCap: 0, amazonStatus: "disabled", ebayReturned: dbResult.dbCount, mixingPhase: "db_first", amazonFirstCount: 0, blendRatio: { amazon: 0, ebay: 1 } }),
-            searchMeta, durationMs: dbDurationMs, ttlSeconds: 3600, error: null,
-            meta: {
-              source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(),
-              searchDebug: { qOriginal, qCanon: qCanonicalized, qRewrite, providerQuery, usedQueryForProviders: null, dbCount: dbResult.dbCount, ebay: null, amazon: null, finalCount: dbResult.dbCount, source: "db" },
-            } as any,
-          };
+          // ── GAMING GUARD: Apply intent scorer to DB-first results too ──
+          let dbItems = dbResult.items;
+          if (effectiveIntent.intentKey === "gaming") {
+            const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
+            dbItems = dbScoreResult.items as any[];
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_gaming_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
+            // If scorer removed everything, don't return DB-first — fall through to live providers
+            if (dbItems.length === 0) {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_gaming_empty_after_scoring — skipping DB-first`);
+              dbFallbackItems = null;
+              // Continue to live provider fetch below
+            }
+          }
+          
+          if (dbItems.length > 0) {
+            const dbDurationMs = Date.now() - startTime;
+            const dbResponse: SearchResponse = {
+              status: "success", env: envName, query: qOriginal,
+              items: dbItems as unknown as CatalogItem[],
+              nextCursor: null, hasMore: dbItems.length >= limit,
+              total: dbItems.length,
+              providerStats: buildProviderStats({ mode: effectiveMode.mode, amazonEnabled: effectiveMode.amazonActive, ebayEnabled: effectiveMode.ebayActive, amazonCacheHit: false, amazonBudgetRemaining: null, amazonReturned: 0, amazonCap: 0, amazonStatus: "disabled", ebayReturned: dbItems.length, mixingPhase: "db_first", amazonFirstCount: 0, blendRatio: { amazon: 0, ebay: 1 } }),
+              searchMeta, durationMs: dbDurationMs, ttlSeconds: 3600, error: null,
+              meta: {
+                source: "db", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(),
+                searchDebug: { qOriginal, qCanon: qCanonicalized, qRewrite, providerQuery, usedQueryForProviders: null, dbCount: dbItems.length, ebay: null, amazon: null, finalCount: dbItems.length, source: "db" },
+              } as any,
+            };
 
-          setCache(supabase, "search", globalCacheKey, { ...dbResponse, _meta: { qNorm, provider: providerParam || "mixed", page: 1, pageSize: limit, sort, cachedAt: new Date().toISOString() } }, {
-            provider: "mixed", query: qNorm, category: categoryKey || undefined, page: 1, pageSize: limit, amazonDomain: "amazon.com",
-          }).catch(() => {});
+            setCache(supabase, "search", globalCacheKey, { ...dbResponse, _meta: { qNorm, provider: providerParam || "mixed", page: 1, pageSize: limit, sort, cachedAt: new Date().toISOString() } }, {
+              provider: "mixed", query: qNorm, category: categoryKey || undefined, page: 1, pageSize: limit, amazonDomain: "amazon.com",
+            }).catch(() => {});
 
-          return new Response(JSON.stringify(dbResponse), {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=3600, s-maxage=3600" },
-          });
+            return new Response(JSON.stringify(dbResponse), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=3600, s-maxage=3600" },
+            });
+          }
         }
 
         dbFallbackItems = dbResult.fallbackItems;
@@ -594,9 +611,9 @@ Deno.serve(async (req: Request) => {
     // Intent-based provider routing:
     // - vehicle_listing: eBay only (Amazon returns accessories for make/model queries)
     // - All others: both providers
-    const skipAmazon = effectiveIntent.intentKey === "vehicle_listing";
+    const skipAmazon = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming";
     if (skipAmazon) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: vehicle_listing intent — Amazon returns accessories for make/model`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: ${effectiveIntent.intentKey} intent — Amazon returns irrelevant items`);
     }
 
     const providerStartMs = Date.now();
@@ -687,12 +704,14 @@ Deno.serve(async (req: Request) => {
       try {
         const secondaryTimeout = 3000;
         const secondaryPromise = Promise.allSettled([
-          fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          skipAmazon
+            ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+            : fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
           fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
         ]);
         const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
         const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
-        if (secondarySettled[0].status === "fulfilled") {
+        if (!skipAmazon && secondarySettled[0].status === "fulfilled") {
           const r = secondarySettled[0].value;
           amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
           amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
@@ -786,6 +805,27 @@ Deno.serve(async (req: Request) => {
     finalItems = scoreResult.items as typeof finalItems;
     console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
+    // ─── FINAL CATEGORY GUARD (gaming) ────────────────────────────────────────
+    // Absolute safety: drop any item with wrong-category keywords that slipped through
+    if (effectiveIntent.intentKey === "gaming" && finalItems.length > 0) {
+      const WRONG_CAT_KW = [
+        "shoe","shoes","sneaker","sneakers","nike","puma","adidas","jordan",
+        "hoodie","shirt","pantalon","vêtement","chaussure","baskets",
+        "dress","pants","shorts","jeans","jacket","coat",
+        "necklace","bracelet","earring","pendant","ring",
+        "poster","wall art","canvas","blanket","towel","pillow","rug",
+        "perfume","makeup","lipstick","mascara",
+      ];
+      const beforeGuard = finalItems.length;
+      finalItems = finalItems.filter(item => {
+        const t = ((item as any).title || "").toLowerCase();
+        return !WRONG_CAT_KW.some(kw => t.includes(kw));
+      });
+      const guardDropped = beforeGuard - finalItems.length;
+      if (guardDropped > 0) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} GAMING_CATEGORY_GUARD: dropped ${guardDropped} wrong-category items`);
+      }
+    }
     // Sort (only if explicit sort requested — scoring already ranks by relevance)
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;

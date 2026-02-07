@@ -1,89 +1,100 @@
 
-# Vehicle Quote Workflow for Web + Price Conflict Fix
 
-## Problem Summary
-Two issues need fixing:
+# Fix "Load More" Repeating Results in Search
 
-1. **Missing Vehicle Quote Flow on Web**: When a user adds a car/vehicle to their cart on the web app, they can proceed directly to checkout and payment -- but the backend will reject the payment because vehicles require a manual shipping quote from the admin first. The mobile app already handles this correctly (shows "Request Quote" instead of "Checkout"), but the web app has no such logic.
+## Root Cause
 
-2. **Price Conflict on Payment Page**: The cart/checkout page shows an "Estimated Total" calculated locally by the frontend (using `PriceBreakdown.tsx` with client-side fee settings), but when the user reaches the payment page (Card or Mobile Money), it shows a different amount calculated by the backend. These amounts diverge because the backend may use different markup rates (especially for vehicles with `vehicleMarkupPercent`) or the quoted price from the admin.
+The frontend sends `cursor` only when `nextCursor` is non-null (line 73). However, the fallback on line 110 sets `hasMore = true` even when `nextCursor` is null (via `data?.hasMore` or `items.length === 24`). This means "Load More" stays visible, but the next request has no cursor, so the backend returns page 1 again.
 
-## Solution
+Additionally, there is no deduplication -- if any items overlap between responses, they appear twice in the grid.
 
-### Part 1: Expose Vehicle Flags from Backend to Web Cart
+## Changes (1 file)
 
-**File: `src/contexts/ShopCartContext.tsx`**
+**File: `src/pages/shop/SearchResults.tsx`**
 
-- Add new fields to `CartItem` interface: `isVehicle?: boolean`, `requiresManualQuote?: boolean`, `vehicleQuoteApplied?: boolean`
-- Add new state variables: `hasVehicleItems`, `vehicleQuoteStatus` (`'none' | 'pending' | 'quoted'`), `canProceedToPayment`
-- In `syncCart()`, when mapping items from `mobile-get-cart` response, include the vehicle flags from each item
-- Store and expose the summary-level flags (`hasVehicleItems`, `vehicleQuoteStatus`, `canProceedToPayment`) from the `mobile-get-cart` response's `summary` object
-- Also store `serverTotalUsd` from the backend response (the authoritative total) for use in checkout
+### 1. Add page-based fallback when cursor is unavailable
 
-### Part 2: Cart Page -- Show "Request Quote" for Vehicle Items
+When the backend does not return a `nextCursor`, fall back to offset-based pagination by sending `page` as a query parameter. This covers edge cases where the mixer cursor is null but more results exist.
 
-**File: `src/pages/shop/ShopCart.tsx`**
+```text
+// In fetchProducts, before the fetch call:
+if (pageNum > 1 && nextCursor) {
+  params.cursor = nextCursor;
+} else if (pageNum > 1) {
+  params.page = pageNum;          // <-- fallback
+}
+```
 
-- Import vehicle detection flags from `useShopCart()`
-- For each cart item, if `item.isVehicle` is true, show a badge like "Vehicle -- Quote Required"
-- Replace the "Proceed to Checkout" button logic:
-  - If `hasVehicleItems && vehicleQuoteStatus === 'pending'`: Show a "Request Shipping Quote" button that calls the `request-vehicle-quote` edge function
-  - If `hasVehicleItems && vehicleQuoteStatus === 'quoted'`: Show normal "Proceed to Checkout"
-  - If no vehicles: Show normal "Proceed to Checkout"
-- After requesting a quote, show a success message: "Quote requested! We'll notify you by email when your shipping quote is ready."
+### 2. Fix hasMore logic -- only true when pagination is possible
 
-### Part 3: Checkout Page -- Block Checkout for Pending Vehicles
+```text
+// After response:
+const newCursor = data?.nextCursor || null;
+setNextCursor(newCursor);
 
-**File: `src/pages/shop/Checkout.tsx`**
+// hasMore only if we have a cursor OR backend explicitly says hasMore
+setHasMore(!!newCursor || (data?.hasMore === true));
+```
 
-- Read `canProceedToPayment` and `vehicleQuoteStatus` from cart context
-- If `canProceedToPayment === false`, show a blocking message instead of the checkout form, directing the user to request a quote from the cart page
-- This is a safety guard in case the user navigates directly to `/checkout`
+Remove the `mappedProducts.length === 24` fallback -- it's the root cause of the ghost "Load More" that refetches page 1.
 
-### Part 4: Fix Price Conflict -- Use Server-Calculated Total
+### 3. Deduplicate appended results
 
-**File: `src/components/shop/PriceBreakdown.tsx`**
+Add a helper and use it when appending:
 
-- Add an optional prop `serverTotal?: number` to `PriceBreakdown`
-- When `serverTotal` is provided, display it as the final total instead of the locally calculated estimate
-- Still show the item subtotal, but label the total as "Total" (not "Estimated Total") when server-provided
+```text
+function dedupeProducts(list: Product[]): Product[] {
+  const seen = new Set<string>();
+  return list.filter(p => {
+    const key = p.id + ':' + p.provider;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
-**File: `src/pages/shop/Checkout.tsx`**
+// In the append branch:
+setProducts(prev => dedupeProducts([...prev, ...mappedProducts]));
+```
 
-- After calling `mobile-create-order-from-cart` (Step 1), the backend returns the authoritative order total
-- Store this server total in state
-- Pass it to `PriceBreakdown` via the new `serverTotal` prop
-- When redirecting to card payment or payment-pending, use the server-provided amount (already done for card via `providerData.amount`, but ensure consistency)
-- The `savePendingCheckout` call should use the server total, not the client `totalUsd`
+### 4. Add debug logging
 
-**File: `src/pages/shop/CardPayment.tsx`**
+```text
+console.log('[SEARCH] fetch page=', pageNum, 'q=', params.q,
+  'cursor=', params.cursor || 'none', 'append=', append);
 
-- No changes needed -- it already reads `amount` from URL params which comes from the backend
+// After response:
+console.log('[SEARCH] got items=', mappedProducts.length,
+  'nextCursor=', !!newCursor, 'hasMore=', hasMore);
+```
 
-### Part 5: Vehicle Quote Request Function Call
+### 5. Remove `products.length` and `nextCursor` from useCallback deps
 
-**File: `src/pages/shop/ShopCart.tsx`** (continued)
+These cause `fetchProducts` to be recreated on every render/response, which is unnecessary and can lead to stale closure issues. Use a ref for `nextCursor` instead, or simply read it via the state setter pattern. The simplest approach: move `nextCursor` to a ref so the callback is stable.
 
-- Add a `requestVehicleQuote` async function that:
-  1. Calls `supabase.functions.invoke('request-vehicle-quote')` (or `mobile-request-quote`)
-  2. On success, shows a toast notification
-  3. Re-syncs the cart to update `vehicleQuoteStatus`
-- The button should show a loading state while the request is in progress
+```text
+const nextCursorRef = useRef<string | null>(null);
 
-## Files to Modify
+// In fetchProducts:
+if (pageNum > 1 && nextCursorRef.current) {
+  params.cursor = nextCursorRef.current;
+} else if (pageNum > 1) {
+  params.page = pageNum;
+}
 
-1. **`src/contexts/ShopCartContext.tsx`** -- Add vehicle flags, server total, and `canProceedToPayment` to context
-2. **`src/pages/shop/ShopCart.tsx`** -- Vehicle badge, conditional "Request Quote" button
-3. **`src/pages/shop/Checkout.tsx`** -- Block checkout for pending vehicles, use server total for price display
-4. **`src/components/shop/PriceBreakdown.tsx`** -- Accept optional `serverTotal` prop to eliminate price conflicts
+// After response:
+nextCursorRef.current = data?.nextCursor || null;
+```
 
-## No Backend Changes Required
+This eliminates the stale closure problem entirely and keeps the `useCallback` deps minimal: `[query, category, sort, priceRange]`.
 
-The backend already:
-- Detects vehicles in `mobile-add-cart-item` and sets `is_vehicle = true`
-- Returns vehicle flags in `mobile-get-cart` response (`hasVehicleItems`, `vehicleQuoteStatus`, `canProceedToPayment`)
-- Has `request-vehicle-quote` / `mobile-request-quote` edge functions ready
-- Blocks checkout for unquoted vehicles in `mobile-checkout` via `vehiclePaymentGuard`
-- Returns the authoritative total in `mobile-create-order-from-cart` and `mobile-checkout` responses
+## Summary of changes
 
-All changes are frontend-only, wiring the existing backend capabilities to the web UI.
+All changes are in `src/pages/shop/SearchResults.tsx`:
+- Replace `nextCursor` state with a ref for stable callback
+- Add `page` fallback param when cursor is absent
+- Fix `hasMore` to not use item-count heuristic
+- Deduplicate on append
+- Add console logs for debugging
+
+No backend changes needed -- the backend already supports both cursor and page-based pagination.

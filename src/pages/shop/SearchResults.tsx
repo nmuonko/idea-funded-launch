@@ -55,7 +55,7 @@ export default function SearchResults() {
     const searchQuery = query || (category ? category.replace(/_/g, ' ') : 'popular');
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
-      limit: 24,
+      limit: 100,
     };
 
     if (category) {
@@ -114,7 +114,7 @@ export default function SearchResults() {
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
       // hasMore only when we have a cursor or backend explicitly says so
-      setHasMore(!!newCursor || data?.hasMore === true);
+      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3);
       setTotalResults(data?.total || mappedProducts.length);
 
       console.log('[SEARCH] got items=', mappedProducts.length,

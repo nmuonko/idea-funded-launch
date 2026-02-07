@@ -1,145 +1,108 @@
 
 
-# AI-Powered Search Query Expansion
+# Search Relevancy Test Suite and Report
 
-## Current Limitation
+## Overview
+Build an automated search relevancy testing system that runs 100+ queries against the live `catalog-search` edge function, evaluates result quality using intent-specific heuristics, stores reports in the database, and displays results in an admin-only UI page.
 
-The search pipeline uses a hand-coded dictionary (~200 terms) for typo correction and a `search_rewrites` table for French-English translation. This fails for:
-- Creative queries: "outfit for beach wedding" (no rewrite rule exists)
-- Niche products: "solar panel kit for camping" (too specific for dictionary)
-- Slang or regional terms: "frigo americain" (not in rewrite table)
-- Descriptive queries: "gift for 10 year old boy who likes robots"
+## Components
 
-## Proposed Solution: AI Query Expansion Layer
+### 1. Database Migration (2 new tables)
 
-Add a fast, non-blocking AI step between query normalization and DB search. The AI receives the user's query and returns 2-3 optimized English search terms suitable for eBay/Amazon product search.
+**`search_relevancy_reports`** - One row per test run:
+- `id` (uuid, PK)
+- `created_at` (timestamptz)
+- `env` (text) - "production" or "staging"
+- `total_queries` (int)
+- `pass_count` (int)
+- `fail_count` (int)
+- `avg_latency_ms` (int)
+- `slow_count` (int) - queries exceeding 4500ms
 
-```text
-User query
-    |
-    v
-[Existing] Normalize + Canonicalize (typo fix)
-    |
-    v
-[NEW] AI Query Expansion (Lovable AI, ~500ms)
-    |  Input: original query + canonicalized query
-    |  Output: 2-3 English search keywords
-    |
-    v
-[Existing] DB-first search (using expanded terms)
-    |
-    v
-[Existing] Live provider fallback (eBay + Amazon)
-```
+**`search_relevancy_report_rows`** - One row per query tested:
+- `id` (uuid, PK)
+- `report_id` (uuid, FK to reports with cascade delete)
+- `created_at` (timestamptz)
+- `category` (text) - e.g., "phones", "vehicles", "appliances"
+- `query` (text)
+- `returned_count` (int)
+- `top3_relevant` (int)
+- `top12_relevant` (int)
+- `parts_bleed_rate` (numeric)
+- `zero_price_count` (int)
+- `missing_image_count` (int)
+- `latency_ms` (int)
+- `provider_amazon_count` (int)
+- `provider_ebay_count` (int)
+- `fail_reasons` (text[])
+- `sample_top3_titles` (text[])
+- `debug` (jsonb) - stores headers (intent, debug, correlation-id, cache-control)
 
-## Architecture
+RLS: Enable RLS. Admin-only read policy using `is_admin_role()`. Service role writes (edge function uses service role key).
 
-### New edge function: `search-expand-query`
+### 2. Edge Function: `admin-search-relevancy-run`
 
-A small, dedicated function that calls Lovable AI (google/gemini-3-flash-preview) with a tight prompt:
+**Auth**: Uses `verifyAndGetUser` + admin role check (same pattern as `admin-cache-clear`).
 
-- Input: `{ query: "frigo americain double porte", lang: "fr" }`
-- Output: `{ expandedTerms: ["american fridge freezer", "double door refrigerator"], category: "appliances", confidence: 0.9 }`
+**Flow**:
+1. Accept POST with optional `{ env: "production" | "staging" }` (default: "production")
+2. Create a report row in `search_relevancy_reports`
+3. Loop through the 100+ test queries sequentially with 200ms delay between each
+4. For each query:
+   - Call `catalog-search` via internal fetch (same URL pattern the app uses)
+   - Measure latency
+   - Capture response headers (`x-afrishop-search-debug`, `x-afrishop-search-intent`, `x-correlation-id`, `cache-control`)
+   - Extract items, count providers, count $0 prices, count missing images
+   - Run relevancy evaluation against the top 12 items using the keyword lists and category-specific rules
+   - Assign fail reasons
+   - Insert row into `search_relevancy_report_rows`
+5. Update the report summary (pass/fail counts, avg latency, slow count)
+6. Return the full report JSON
 
-**Why a separate function?** So catalog-search can call it with a 1-second timeout. If AI is slow or fails, search falls back to the existing canonicalizer (zero regression risk).
+**Query List**: All 100+ queries from the prompt, organized by category (phones, appliances, vehicles, agriculture, gaming, fashion, baby/home, typos).
 
-### Caching AI expansions
+**Relevancy Evaluation Logic** (embedded in the edge function):
+- Category-specific keyword lists (ACCESSORY_WORDS, VEHICLE_PARTS_WORDS, PHONE_BRANDS, APPLIANCE_WORDS, GAMING_WORDS, FASHION_WORDS, BABY_HOME_WORDS)
+- Intent detection per query to determine which evaluation rules apply
+- Pass thresholds: top3 >= 2 relevant AND top12 >= 7 relevant
+- Fail reasons: ZERO_RESULTS, LOW_RELEVANCY_TOP3, LOW_RELEVANCY_TOP12, HIGH_PARTS_BLEED, ACCESSORY_DOMINATION, ZERO_PRICE_ITEMS_PRESENT, MISSING_IMAGE_ITEMS_PRESENT, PROVIDER_TIMEOUT_OR_ERROR, SLOW_QUERY
 
-AI expansions are deterministic for the same input, so we cache them aggressively:
-- Store in `search_query_expansions` table (query_normalized -> expanded_terms, TTL 7 days)
-- Before calling AI, check cache first (sub-5ms)
-- This means AI is only called once per unique query, then all subsequent searches for that query use the cached expansion
+**Config**: `verify_jwt = true` in `config.toml`.
 
-### Integration in catalog-search/index.ts
+### 3. Admin UI Page: `/admin/search-relevancy`
 
-After the existing canonicalization step, add:
+**Route**: Add to `App.tsx` under admin routes, guarded by `can_view_dashboard` permission (super admin only).
 
-```text
-1. Check search_query_expansions cache for this query
-2. If cache hit: use cached expanded terms
-3. If cache miss: call search-expand-query with 1s timeout
-   - If AI responds: cache result, use expanded terms
-   - If AI times out: fall back to canonicalized query (no regression)
-4. Use expanded terms for DB ILIKE search + provider queries
-```
+**Nav**: Add "Search Relevancy" item to the System section in `AdminLayout.tsx` sidebar.
 
-The expanded terms are used alongside (not instead of) the original query to maximize results.
+**Page Layout**:
+- **Header**: Title + "Run Tests" button (with loading spinner during execution)
+- **Summary Cards**: Total queries, Pass count (green), Fail count (red), Avg latency, Slow queries
+- **Filters**: Toggle buttons for "All", "Failures Only", "Slow Only"
+- **Results Table**: Columns: Category, Query, Returned, Top3Rel, Top12Rel, PartsBleed, $0, NoImage, Latency(ms), FailReasons, SampleTop3
+  - Color-coded rows: green for pass, red for fail
+  - Fail reasons shown as badges
+  - Sample titles truncated with tooltip for full text
+- **History**: Dropdown to select previous reports by date
 
-## Database Changes
+### 4. Files to Create/Modify
 
-New table: `search_query_expansions`
+**New files**:
+- `supabase/functions/admin-search-relevancy-run/index.ts` - Edge function
+- `src/pages/admin/SearchRelevancy.tsx` - Admin page
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | uuid | Primary key |
-| query_normalized | text | Lowercase trimmed input (unique index) |
-| source_lang | text | Detected language (fr/en) |
-| expanded_terms | text[] | AI-generated search terms |
-| category_hint | text | Optional category suggestion |
-| confidence | numeric | AI confidence score |
-| created_at | timestamptz | When cached |
-| expires_at | timestamptz | TTL (7 days from creation) |
+**Modified files**:
+- `src/App.tsx` - Add route for `/admin/search-relevancy`
+- `src/components/layout/AdminLayout.tsx` - Add nav item to System section
+- `supabase/config.toml` - Add `[functions.admin-search-relevancy-run]` with `verify_jwt = true`
 
-RLS: Public read (search is unauthenticated), service-role write only.
+**Database migration**: Create both tables with RLS policies.
 
-## AI Prompt Design
+### Technical Notes
 
-The prompt will be minimal and focused to keep latency low (~300-500ms):
-
-```text
-You are a product search optimizer for an African e-commerce site.
-Given a user search query (possibly in French), return 2-3 English
-product search terms that would find relevant results on Amazon/eBay.
-
-Rules:
-- Return specific, shoppable product terms (not categories)
-- Preserve brand names and model numbers exactly
-- If the query is already a good English product search, return it as-is
-- Never return more than 3 terms
-
-Query: "{user_query}"
-Language: "{detected_lang}"
-```
-
-Response via tool calling (structured output) to guarantee JSON format.
-
-## Timeout and Failure Strategy
-
-| Scenario | Behavior |
-|----------|----------|
-| AI responds in < 1s | Use expanded terms for search |
-| AI responds in 1-2s | Already timed out, search used fallback; cache result for next time |
-| AI fails or errors | Use existing canonicalizer output (zero regression) |
-| Cache hit | Skip AI entirely, use cached terms (~2ms) |
-
-## Performance Impact
-
-- First search for a new query: +300-500ms (AI call, runs concurrently with other setup)
-- Repeat searches: +0ms (cached)
-- Failure case: +0ms (falls back to current behavior)
-
-## Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `supabase/functions/search-expand-query/index.ts` | Create | New edge function calling Lovable AI |
-| `supabase/functions/catalog-search/index.ts` | Modify | Add AI expansion step after canonicalization |
-| Database migration | Create | `search_query_expansions` table |
-
-## What Does NOT Change
-
-- Response JSON shape (same keys, same structure)
-- Homepage endpoints (catalog-home)
-- Cart, checkout, payments
-- Existing canonicalizer and rewriter (still used as fallback)
-- Cache-Control headers (recent fix preserved)
-- Provider timeout logic (4s for eBay/Amazon unchanged)
-
-## Expected Results
-
-- "frigo americain" -> AI expands to ["american fridge freezer", "double door refrigerator"] -> finds appliances
-- "cadeau garcon 10 ans robot" -> AI expands to ["robot toy for boys", "kids robot kit"] -> finds toys
-- "tracteur agricole" -> AI expands to ["farm tractor", "agricultural tractor"] -> finds tractors
-- "google pixel 11" -> AI returns ["google pixel phone"] -> works with existing number-token fix
-- Unknown/niche query -> AI tries, but if it fails, existing search still runs (no regression)
+- The edge function calls `catalog-search` internally via `fetch()` to the Supabase functions URL, passing the admin's auth token and apikey
+- Sequential execution with 200ms delays prevents overwhelming the search endpoint
+- The function may take 30-60 seconds for 100+ queries; the admin UI should handle long-running requests with a loading state
+- Reports are persisted so historical comparisons are possible
+- No changes to `catalog-search` itself - this is purely observational testing
 

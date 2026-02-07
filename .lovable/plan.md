@@ -1,46 +1,53 @@
 
-# Fix Homepage, Gaming & Load More on Search Page
+# Fix Gaming Tab Returning Shoes
 
-## Problem Summary
+## Root Cause
 
-1. **Accueil tab shows books**: Clicking "Accueil" on the search page stays on `/search` and searches for "popular" (returning random books). It should navigate to the homepage `/`.
-2. **Gaming tab shows accessories**: The default query "xbox ps5 nintendo switch console" matches accessories. Needs negative keywords to exclude them.
-3. **Load More disappears**: The button vanishes because `hasMore` only checks for a `nextCursor` flag. If the backend returns 100 items without a cursor, the button hides prematurely.
+The Gaming tab sends `q=xbox console ps5 console nintendo switch video games -case -cover...` to the backend. The intent classifier in `vehicleDetection.ts` doesn't recognize gaming queries -- it classifies them as `general`. The scorer only hard-drops shoes/clothing for `phone_device`, `phone_accessory`, and `vehicle_listing` intents. So shoes with "court" or "basketball" in the title pass through.
 
-## Changes (single file)
+Additionally, eBay's API ignores the `-` negative keyword syntax, so those terms are treated as regular search words, polluting results.
 
-### `src/pages/shop/SearchResults.tsx`
+## Plan (3 files)
 
-**Fix 1 -- Homepage navigation (lines 172-177)**
+### 1. Add `gaming` intent classification
+**File**: `supabase/functions/_shared/vehicleDetection.ts`
 
-When user clicks "Accueil/Homepage" (`all`), navigate to `/` instead of staying on search page.
+- Add gaming keywords: `["xbox","ps5","ps4","playstation","nintendo","switch","console","gaming console","video game"]`
+- Add `gaming` to the `SearchIntent["intentKey"]` type
+- Insert classification before `general` fallback:
+  ```
+  else if (hasAny(lower, GAMING_KW)) intentKey = "gaming";
+  ```
 
-```text
-Before: setSearchParams({ q: query, sort })
-After:  navigate('/')
-```
+### 2. Add `gaming` hard-drop and scoring
+**File**: `supabase/functions/_shared/searchIntentScorer.ts`
 
-**Fix 2 -- Gaming query (lines 55-58)**
+- Extend the WRONG_CATEGORY_KW hard-drop to include `gaming`:
+  ```
+  if (
+    (intent.intentKey === "phone_device" || intent.intentKey === "phone_accessory" || intent.intentKey === "gaming") &&
+    hasAny(title, WRONG_CATEGORY_KW)
+  ) { return null; }
+  ```
+- Add a `gaming` scoring case that boosts console signals and drops accessories:
+  ```
+  case "gaming": {
+    if (hasAny(title, WRONG_CATEGORY_KW)) return null;
+    if (hasAny(title, ["console","xbox","playstation","ps5","ps4","nintendo","switch","controller","gamepad"])) score += 15;
+    if (hasAny(title, ["case","cover","skin","sticker","decal","poster","shirt","shoes"])) return null;
+    break;
+  }
+  ```
 
-Add negative keywords to exclude accessories and also handle legacy `electronics` key:
+### 3. Fix frontend gaming query (remove broken negative keywords)
+**File**: `src/pages/shop/SearchResults.tsx`
 
-```text
-Before: category === 'gaming' ? 'xbox ps5 nintendo switch console'
-After:  (category === 'gaming' || category === 'electronics')
-          ? 'xbox console ps5 console nintendo switch video games -case -cover -charger -skin -controller -protector'
-```
+- Change the gaming fallback query from the long string with `-` prefixes to just `"video game console xbox ps5 nintendo switch"` -- clean terms that eBay actually understands. The backend scorer will handle filtering.
 
-**Fix 3 -- Load More persistence (line 120)**
-
-Consider items count alongside cursor. If a full page of 100 items was returned, assume more may exist:
-
-```text
-Before: setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3)
-After:  setHasMore((!!newCursor || data?.hasMore === true || mappedProducts.length >= 100) && pageNum < 3)
-```
-
-## Files Modified
+## Summary
 
 | File | Change |
 |------|--------|
-| `src/pages/shop/SearchResults.tsx` | Navigate to `/` for homepage tab; gaming query with negative keywords; resilient Load More logic |
+| `supabase/functions/_shared/vehicleDetection.ts` | Add `gaming` intent detection with console keywords |
+| `supabase/functions/_shared/searchIntentScorer.ts` | Hard-drop shoes/clothing/accessories for gaming intent; boost console signals |
+| `src/pages/shop/SearchResults.tsx` | Clean up gaming query to remove broken negative keywords |

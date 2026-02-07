@@ -111,16 +111,19 @@ export default function SearchResults() {
       }));
 
       if (append) {
-        setProducts(prev => dedupeProducts([...prev, ...mappedProducts]));
+        setProducts(prev => {
+          const deduped = dedupeProducts([...prev, ...mappedProducts]);
+          setTotalResults(deduped.length);
+          return deduped;
+        });
       } else {
         setProducts(mappedProducts);
+        setTotalResults(mappedProducts.length);
       }
 
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
-      // hasMore only when we have a cursor or backend explicitly says so
-      setHasMore((!!newCursor || data?.hasMore === true || mappedProducts.length >= 100) && pageNum < 3);
-      setTotalResults(data?.total || mappedProducts.length);
+      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3);
 
       console.log('[SEARCH] got items=', mappedProducts.length,
         'nextCursor=', !!newCursor, 'hasMore=', !!newCursor || data?.hasMore === true);
@@ -151,11 +154,23 @@ export default function SearchResults() {
     });
   };
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     const nextPage = page + 1;
     setPage(nextPage);
     fetchProducts(nextPage, true);
-  };
+  }, [page, fetchProducts]);
+
+  // Infinite scroll: auto-load next page when sentinel is visible
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) handleLoadMore(); },
+      { rootMargin: '400px' }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, handleLoadMore]);
 
   const handleApplyFilters = () => {
     setPage(1);
@@ -267,23 +282,27 @@ export default function SearchResults() {
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
-          {/* Load More */}
+          {/* Infinite scroll sentinel */}
           {!loading && hasMore && products.length > 0 && (
-            <div className="text-center mt-8">
+            <div ref={sentinelRef} className="h-4" />
+          )}
+
+          {/* Loading more indicator */}
+          {loadingMore && (
+            <div className="flex justify-center mt-8">
+              <Loader2 className="h-6 w-6 animate-spin text-white/60" />
+            </div>
+          )}
+
+          {/* Load More fallback button */}
+          {!loading && hasMore && products.length > 0 && !loadingMore && (
+            <div className="text-center mt-4">
               <Button
                 onClick={handleLoadMore}
-                disabled={loadingMore}
                 variant="outline"
                 className="w-full sm:w-auto border-white/20 text-white hover:bg-white/10 rounded-full px-8"
               >
-                {loadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {t.common?.loading || 'Loading...'}
-                  </>
-                ) : (
-                  shop.loadMore || 'Load More'
-                )}
+                {shop.loadMore || 'Load More'}
               </Button>
             </div>
           )}

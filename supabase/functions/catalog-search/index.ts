@@ -184,6 +184,89 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
 
+    // ─── FIX #1: FAST BILINGUAL REWRITE FALLBACK ─────────────────────────────
+    // If rewrite table didn't match, apply a small built-in FR→EN map
+    const FR_EN_FALLBACK: Record<string, string> = {
+      "tracteur": "tractor",
+      "frigo": "refrigerator",
+      "refrigerateur": "refrigerator",
+      "réfrigérateur": "refrigerator",
+      "machine a laver": "washing machine",
+      "machine à laver": "washing machine",
+      "chargeur": "charger",
+      "ecouteurs": "earbuds",
+      "écouteurs": "earbuds",
+      "ordinateur": "laptop computer",
+      "ordinateur portable": "laptop",
+      "imprimante": "printer",
+      "aspirateur": "vacuum cleaner",
+      "ventilateur": "fan",
+      "climatiseur": "air conditioner",
+      "televiseur": "television",
+      "téléviseur": "television",
+      "montre": "watch",
+      "casque": "headphones",
+      "clavier": "keyboard",
+      "souris": "mouse",
+      "tablette": "tablet",
+      "enceinte": "speaker",
+      "seche cheveux": "hair dryer",
+      "sèche cheveux": "hair dryer",
+      "fer a repasser": "iron",
+      "fer à repasser": "iron",
+      "micro ondes": "microwave",
+      "four": "oven",
+      "cafetiere": "coffee maker",
+      "cafetière": "coffee maker",
+      "mixeur": "blender",
+      "tondeuse": "lawn mower",
+      "perceuse": "drill",
+      "velo": "bicycle",
+      "vélo": "bicycle",
+      "trottinette": "scooter",
+      "poussette": "stroller",
+      "matelas": "mattress",
+      "canape": "sofa",
+      "canapé": "sofa",
+      "bureau": "desk",
+      "etagere": "shelf",
+      "étagère": "shelf",
+    };
+
+    // Detect if query might be French: accented chars, lang=fr, or matches FR terms
+    const qNormLower = qNorm.toLowerCase().replace(/\s+/g, " ").trim();
+    const removeAccentsFn = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const qNoAccents = removeAccentsFn(qNormLower);
+    const hasAccents = qNormLower !== qNoAccents;
+    const isFrenchLikely = lang === "fr" || hasAccents;
+
+    let frFallbackApplied = false;
+    const originalQNormBeforeFrFallback = qNorm;
+
+    if (!searchMeta.rewriteApplied || qNorm === qNormLower) {
+      // Try exact match first, then accent-stripped match
+      const directMatch = FR_EN_FALLBACK[qNormLower] || FR_EN_FALLBACK[qNoAccents];
+      if (directMatch) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback: "${qNorm}" → "${directMatch}"`);
+        qNorm = directMatch;
+        searchMeta.rewrittenQuery = directMatch;
+        searchMeta.rewriteApplied = true;
+        frFallbackApplied = true;
+      } else if (isFrenchLikely) {
+        // Try matching individual words for multi-word queries
+        for (const [frTerm, enTerm] of Object.entries(FR_EN_FALLBACK)) {
+          if (qNormLower.includes(frTerm) || qNoAccents.includes(removeAccentsFn(frTerm))) {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_partial: "${qNorm}" contains "${frTerm}" → "${enTerm}"`);
+            qNorm = qNormLower.replace(frTerm, enTerm).replace(removeAccentsFn(frTerm), enTerm);
+            searchMeta.rewrittenQuery = qNorm;
+            searchMeta.rewriteApplied = true;
+            frFallbackApplied = true;
+            break;
+          }
+        }
+      }
+    }
+
     // ─── AI EXPANSION (non-blocking) ──────────────────────────────────────────
     const aiExpandPromise = expandQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
 
@@ -247,7 +330,7 @@ Deno.serve(async (req: Request) => {
         query: qOriginal, env: envName, durationMs: Date.now() - startTime,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }), { status: 200, headers: buildResponseHeaders(cachedItems.length, 3600) });
     }
 
     // ─── STALE-WHILE-REVALIDATE ───────────────────────────────────────────────
@@ -288,7 +371,7 @@ Deno.serve(async (req: Request) => {
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }), { status: 200, headers: buildResponseHeaders(staleItems.length, 300) });
     }
 
     const isVehicle = isVehicleQuery(qNorm);
@@ -345,7 +428,7 @@ Deno.serve(async (req: Request) => {
     const { fetchAmazonItems } = await import("../_shared/amazonFetcher.ts");
     const { fetchEbayItems } = await import("../_shared/ebayFetcher.ts");
 
-    // ─── PARALLEL PROVIDER FETCH ──────────────────────────────────────────────
+    // ─── FIX #3: PARALLEL PROVIDER FETCH (always when DB < MIN_RESULTS) ──────
     const providerStartMs = Date.now();
     const PROVIDER_TIMEOUT_MS = 4000;
 
@@ -403,7 +486,35 @@ Deno.serve(async (req: Request) => {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebaySettled.reason);
     }
 
+    const providerItemCount = amazonItems.length + ebayItems.length;
     console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
+
+    // ─── FIX #3b: SECONDARY PROVIDER ATTEMPT with original query ─────────────
+    // If providers returned 0 and we had a rewrite, retry with original query
+    if (providerItemCount === 0 && searchMeta.rewriteApplied && originalQNormBeforeFrFallback !== qNorm && !providerTimedOut) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${originalQNormBeforeFrFallback}"`);
+      try {
+        const secondaryTimeout = 3000;
+        const secondaryPromise = Promise.allSettled([
+          fetchAmazonItems({ supabase, query: originalQNormBeforeFrFallback, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
+          fetchEbayItems({ supabase, query: originalQNormBeforeFrFallback, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
+        ]);
+        const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
+        const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+        if (secondarySettled[0].status === "fulfilled") {
+          const r = secondarySettled[0].value;
+          amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
+          amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
+        }
+        if (secondarySettled[1].status === "fulfilled") {
+          const r = secondarySettled[1].value;
+          ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
+        }
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_results amazon=${amazonItems.length} ebay=${ebayItems.length}`);
+      } catch {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_timeout`);
+      }
+    }
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     const mixResult = mixProviderItems({
@@ -496,11 +607,11 @@ Deno.serve(async (req: Request) => {
       appliedFilters: buildAppliedSortFilter(sort, catalogFilters, sort !== "relevance"),
       providerStats, searchMeta,
       mediaStats: DEV ? mediaStats : undefined,
-      durationMs, ttlSeconds: cacheTtlSeconds, error: null,
+      durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
       meta: { source: "live", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
     };
 
-    // ─── DB FALLBACK ──────────────────────────────────────────────────────────
+    // ─── FIX #2b: DB FALLBACK — never return empty if DB had anything ─────────
     if (finalItems.length === 0 && dbFallbackItems && dbFallbackItems.length > 0) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} using db_fallback items=${dbFallbackItems.length}`);
       const dbFallbackResponse: SearchResponse = {
@@ -511,8 +622,10 @@ Deno.serve(async (req: Request) => {
         ttlSeconds: 1800, error: null,
         meta: { source: "db_fallback", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
       };
+      // FIX #6: Summary log
+      console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" db=${dbFallbackItems.length} providers=0 cache=miss emptyCacheBypass=false correlationId=${requestId}`);
       return new Response(JSON.stringify(dbFallbackResponse), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=1800, s-maxage=1800" },
+        status: 200, headers: buildResponseHeaders(dbFallbackItems.length, 1800),
       });
     }
 
@@ -530,7 +643,7 @@ Deno.serve(async (req: Request) => {
         page: cacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
       }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Cache write failed:`, err));
     } else {
-      // Negative cache (120s)
+      // FIX #5: Negative cache ≤ 120s only
       setCache(supabase, "search", globalCacheKey, {
         ...response, _meta: { ...cacheMeta, cachedAt: new Date().toISOString(), isNegative: true }, _negativeTtlSeconds: 120,
       }, {
@@ -539,9 +652,10 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // Safety net for empty responses
-    if (finalItems.length === 0) response.ttlSeconds = 0;
+    // FIX #6: Summary log
+    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" db=${dbFallbackItems?.length ?? 0} providers=${finalItems.length} cache=miss emptyCacheBypass=false correlationId=${requestId}`);
 
+    // FIX #4: Empty responses use no-store headers via buildResponseHeaders
     return new Response(JSON.stringify(response), {
       status: 200,
       headers: buildResponseHeaders(finalItems.length, cacheTtlSeconds),
@@ -551,7 +665,7 @@ Deno.serve(async (req: Request) => {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     console.error(`[CATALOG_SEARCH] requestId=${requestId} error:`, errorMessage);
     return new Response(JSON.stringify(buildEmptyResponse(qOriginal, envName, searchMeta, startTime, { code: "INTERNAL_ERROR", message: "Search service error" })), {
-      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 200, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store, max-age=0" },
     });
   }
 });

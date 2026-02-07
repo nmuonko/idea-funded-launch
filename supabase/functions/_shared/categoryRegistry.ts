@@ -197,6 +197,7 @@ const FALLBACK_ALIAS_MAP: Record<string, string> = {
   refurb: "refurbished",
   renewed: "refurbished",
   certified: "refurbished",
+  refurbished: "refurbished",
 };
 
 // ─── RESOLUTION TYPES ───────────────────────────────────────────────────────────

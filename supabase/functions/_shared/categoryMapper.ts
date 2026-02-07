@@ -132,13 +132,6 @@ export const TABS: CategoryTab[] = [
     allowLive: true,
   },
   { 
-    key: "business_industrial", 
-    title: "Business & Industrial", 
-    icon: "factory",
-    providerPriority: ["ebay"],
-    allowLive: true,
-  },
-  { 
     key: "jewelry_watches", 
     title: "Jewelry & Watches", 
     icon: "watch",

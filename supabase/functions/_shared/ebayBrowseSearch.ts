@@ -80,6 +80,7 @@ export interface EbaySearchParams {
   minPrice?: number;
   maxPrice?: number;
   isVehicle?: boolean;
+  isHeavyEquipment?: boolean;
   isParts?: boolean;
   marketplaceId?: string;
   sort?: SortOption;
@@ -461,12 +462,14 @@ export async function searchEbay(
     
     // Determine if this is a vehicle search (for full image galleries)
     const isVehicle = params.isVehicle && !params.isParts;
+    const isHeavyEquipment = !!params.isHeavyEquipment;
     
     // Filter and normalize items with vehicle flag for full image galleries
     let items = rawItems.map(item => normalizeEbayItem(item, params.categoryId || null, { isVehicle }));
     
-    // Apply vehicle-specific filtering
-    if (isVehicle) {
+    // Apply vehicle-specific filtering — SKIP for heavy equipment (tractors, excavators, etc.)
+    // Heavy equipment listings legitimately contain words like "engine", "transmission", "loader"
+    if (isVehicle && !isHeavyEquipment) {
       const beforeCount = items.length;
       items = items.filter(item => {
         // Exclude items with parts keywords
@@ -479,6 +482,8 @@ export async function searchEbay(
       if (blockedCount > 0) {
         console.log(`[EBAY_BROWSE] requestId=${requestId} VEHICLE_BLOCK blocked=${blockedCount} items with parts keywords`);
       }
+    } else if (isHeavyEquipment) {
+      console.log(`[EBAY_BROWSE] requestId=${requestId} HEAVY_EQUIPMENT: skipping parts keyword filter (${items.length} items kept)`);
     }
     
     // Apply post-sort for sorts eBay doesn't support (e.g., rating)

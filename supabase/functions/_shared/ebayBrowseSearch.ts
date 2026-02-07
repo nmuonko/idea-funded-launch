@@ -360,6 +360,12 @@ function buildSearchUrl(params: EbaySearchParams, offset: number): string {
   
   // US items preferred
   filters.push("itemLocationCountry:US");
+
+  // ── GAMING CONDITION FILTER: New + Refurbished only ──
+  // eBay conditionIds: 1000=New, 1500=Open Box, 2000=Certified Refurbished, 2010=Excellent Refurbished, 2020=Very Good Refurbished, 2500=Seller Refurbished
+  if (params.categoryId === "139971") {
+    filters.push("conditionIds:{1000|2000|2010|2020|2500}");
+  }
   
   // Apply additional filters from CatalogFilters
   if (params.filters) {

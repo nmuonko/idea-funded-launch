@@ -1,113 +1,135 @@
 
-# Fix: "Google Pixel" and Similar Queries Return Empty Results
 
-## Root Cause
+# Backend-Only: True Search Proxy with AI Refine + 100/Page + Unified Feed
 
-The intent classifier uses **substring matching** (`string.includes(keyword)`) instead of word-boundary matching. This means:
+## Overview
 
-- "**goo**gle pixel" contains "**gle**" (Mercedes GLE model) as a substring
-- `isVehicleQuery("google pixel")` returns `true` because "gle" is in `VEHICLE_QUERY_KEYWORDS`
-- The system then classifies "google pixel" as `vehicle_listing` intent
+Transform the search backend into a true proxy that always calls both Amazon and eBay for every query, uses AI only for query cleanup (no intent-based provider gating), and supports page-based pagination up to 300 items. No frontend changes.
 
-This causes a cascade of failures:
-1. Amazon is completely skipped (vehicle_listing skips Amazon)
-2. Minimum price is set to $500 (vehicle buying intent)
-3. eBay searches in "Cars and Trucks" category 6001
-4. Zero phones returned
+## Changes
 
-This same bug could affect ANY query containing a vehicle keyword as a substring (e.g., "eagle" contains "gle", "universal" contains "rs").
+### 1. Add explicit `page` query param support
 
-## Fix
+**File: `supabase/functions/catalog-search/index.ts`**
 
-### 1. Add word-boundary matching to vehicle detection (`vehicleDetection.ts`)
+Currently, pagination uses cursor-based logic (`cursor` param decoded via `decodeMixerCursor`). Add explicit `page` param parsing:
 
-Replace the `isVehicleQuery` function's `.includes()` check with word-boundary regex matching. This ensures "gle" only matches when it appears as a standalone word, not as part of "google".
-
-Also fix the `hasAny` helper function used by `classifySearchIntent` -- it has the same substring problem. Keywords like "gle", "amg", "rs", "x3", "x5" must match as whole words only.
-
-Short keywords (3 characters or less) will use `\b` word-boundary regex. Longer keywords can safely use `.includes()` since false substring matches are unlikely.
-
-### 2. Add phone brand exclusion to vehicle detection (`vehicleDetection.ts`)
-
-Add a fast check: if query contains a known phone brand (iphone, samsung, pixel, google pixel, xiaomi, etc.), skip vehicle classification entirely unless a strong vehicle signal is also present (year, make+model, etc.). "Google Pixel" should immediately be recognized as a phone query.
-
-### 3. Bump cache version to invalidate wrong results (`catalogCache.ts`)
-
-Bump `AMAZON_CACHE_VERSION` to `v10` to flush cached empty results for "google pixel" and similar queries that were incorrectly classified.
-
-## Technical Details
-
-### The substring matching bug
-
-```text
-VEHICLE_QUERY_KEYWORDS includes "gle" (Mercedes GLE)
-
-isVehicleQuery("google pixel"):
-  "google pixel".includes("gle")  -->  TRUE  (bug!)
-  
-  "google".includes("gle") at position 3: "goo[gle]"
-  
-Result: "google pixel" is classified as a vehicle query
+```
+const pageParam = Math.min(3, Math.max(1, parseInt(url.searchParams.get("page") || "1", 10)));
 ```
 
-### The fix -- word-boundary matching for short keywords
+If `page > 3`, return empty items with `hasMore: false` immediately (enforce 300-item cap).
+
+Use `pageParam` to compute the eBay offset and Amazon page directly, replacing the cursor-derived page. Keep cursor support for backward compatibility (if cursor is provided, derive page from it as today; otherwise use `pageParam`).
+
+### 2. Remove intent-based Amazon skip
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Currently at line 598: `const skipAmazon = effectiveIntent.intentKey === "gaming";`
+
+Change to: `const skipAmazon = false;`
+
+This ensures both providers are always called for every search, including gaming queries. The AI refiner + provider native relevance will handle returning appropriate results.
+
+### 3. Remove vehicle-intent minPrice gating
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Currently at lines 156-161, vehicle buying intent forces `catalogFilters.minPrice = 500`. Remove this block entirely so searches are not artificially price-filtered based on intent classification.
+
+Also remove the vehicle maxPrice removal logic at lines 122-126.
+
+Keep intent classification running for cache key separation and scoring (it still helps rank results), but it must NOT gate providers or force price filters.
+
+### 4. Ensure AI refiner is always used (already working)
+
+**File: `supabase/functions/_shared/searchAiExpand.ts`** and **`supabase/functions/search-expand-query/index.ts`**
+
+These already work correctly:
+- `refineQueryWithAi()` checks DB cache, then calls Lovable AI with 2s timeout
+- `search-expand-query` uses Gemini to fix typos, translate FR to EN, normalize brands
+- Returns `refined` + `alt` queries
+- Falls back to original on any failure
+
+No changes needed here.
+
+### 5. Remove intent-based AI refine skip
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Currently at line 503: `const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "gaming";`
+
+Change to: `const skipAiExpand = false;`
+
+AI refinement should always run -- it only cleans queries, it does not classify intent.
+
+### 6. Bump cache version + simplify cache key
+
+**File: `supabase/functions/_shared/catalogCache.ts`**
+
+- Bump `AMAZON_CACHE_VERSION` from `v12` to `v14`
+- This invalidates all old cache entries that may contain intent-gated or price-filtered results
+
+### 7. Ensure page is in cache key (already done)
+
+The cache key builder at line 224 already includes `pg=${params.page || 1}` and `sz=${params.pageSize || 20}`. Since we now pass `pageParam` correctly, different pages will get separate cache entries automatically.
+
+### 8. Add `page`, `qRefined`, `sourcesUsed`, `partial` to response
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+Add these optional fields to the response JSON (non-breaking additions):
 
 ```typescript
-// Before (broken):
-function hasAny(text: string, keywords: string[]): boolean {
-  const lower = text.toLowerCase();
-  return keywords.some(kw => lower.includes(kw));
-}
-
-// After (fixed):
-function hasAny(text: string, keywords: string[]): boolean {
-  const lower = text.toLowerCase();
-  return keywords.some(kw => {
-    if (kw.length <= 3) {
-      // Short keywords need word-boundary matching
-      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
-    }
-    return lower.includes(kw);
-  });
+{
+  ...existingFields,
+  page: pageParam,
+  qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
+  sourcesUsed: sourceServed,  // already computed
+  partial: providerTimedOut,
 }
 ```
 
-Same fix applied to `isVehicleQuery`:
-```typescript
-export function isVehicleQuery(query: string): boolean {
-  const lower = query.toLowerCase();
-  return VEHICLE_QUERY_KEYWORDS.some(kw => {
-    if (kw.length <= 3) {
-      return new RegExp(`\\b${kw}\\b`, 'i').test(lower);
-    }
-    return lower.includes(kw);
-  });
-}
-```
+The frontend already ignores unknown fields, so this is safe.
 
-### Phone brand priority gate in `classifySearchIntent`
+### 9. Alt-query fallback threshold
 
-Add a check before vehicle classification:
-```typescript
-// If query matches a phone brand, check for phone intent FIRST
-const PHONE_ONLY_BRANDS = ["pixel", "iphone", "galaxy", "xiaomi", "tecno", "infinix", "oneplus", "oppo", "vivo", "realme", "redmi", "poco", "nothing phone"];
-const hasPhoneBrand = PHONE_ONLY_BRANDS.some(b => lower.includes(b));
+The existing fallback logic (lines 686-757) triggers when `totalProviderItems < 60`. This stays as-is -- it searches alt queries from the AI refiner and the canonical form to fill the page. No changes needed.
 
-if (hasPhoneBrand && !hasVehicleSignal) {
-  // Skip vehicle classification -- this is a phone query
-}
-```
+### 10. "No products found" rule
 
-### Files Modified
+The existing logic already handles this correctly:
+- DB fallback at line 934 returns DB items if providers returned 0
+- Related-DB fallback at line 956 for tractor-specific queries
+- Line 997-1003: no generic "popular" fallback (prevents contamination)
+
+No changes needed here.
+
+## Summary of Changes
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/vehicleDetection.ts` | Fix `isVehicleQuery` and `hasAny` to use word-boundary matching for short keywords. Add phone brand priority gate in `classifySearchIntent`. |
-| `supabase/functions/_shared/catalogCache.ts` | Bump cache version to v10 |
+| `supabase/functions/catalog-search/index.ts` | Add `page` query param (default 1, max 3). Remove `skipAmazon` (set to `false`). Remove vehicle minPrice/maxPrice gating. Remove `skipAiExpand` (set to `false`). Add `page`/`qRefined`/`sourcesUsed`/`partial` to response. |
+| `supabase/functions/_shared/catalogCache.ts` | Bump `AMAZON_CACHE_VERSION` to `v14` |
 
-### Expected Result
-- "google pixel" classified as `phone_device` (not `vehicle_listing`)
-- Amazon and eBay both searched for phones
-- No $500 minimum price filter
-- Returns 50-100 Google Pixel phone results
-- No regression for actual vehicle queries ("gle 350", "bmw x5", etc.)
+## What is NOT changed
+
+- No frontend files touched
+- Intent classification still runs (for cache separation and scoring/ranking)
+- AI refiner (search-expand-query) stays as-is
+- Provider mixer stays as-is (interleave Amazon+eBay)
+- Response shape is backward-compatible (new fields are additive)
+- DB-first search stays as-is
+- Content blocker stays as-is
+- Rate limiting stays as-is
+
+## Expected Results
+
+- "google pixel" -- both Amazon+eBay searched, returns phone results (no vehicle misclassification gating)
+- "toyota camry" -- both providers searched, no $500 minPrice filter, returns vehicles AND accessories naturally
+- "ps5" -- both providers searched (Amazon no longer skipped for gaming), returns consoles from both
+- "ecouteurs bluetooth" -- AI refines to "bluetooth earbuds", both providers return results
+- "toytoa" -- AI refines to "toyota", both providers return results
+- Page 1 returns first 100 items, page 2 next 100, page 3 next 100
+- Cached queries load instantly, no cross-page cache collisions

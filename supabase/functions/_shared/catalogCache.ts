@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v12"; // v12: AI query refiner, 100/page default, remove intent-based Amazon skip
+export const AMAZON_CACHE_VERSION = "v14"; // v14: True proxy mode — no intent-based gating, always both providers, page-based pagination
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {

@@ -119,11 +119,7 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH] requestId=${requestId} HEAVY_EQUIPMENT detected — skipping vehicle category/price restrictions`);
   }
 
-  const VEHICLE_REASONABLE_MIN_MAX_PRICE = 5000;
-  if (isVehicleEarly && !isHeavyEquipment && catalogFilters.maxPrice !== undefined && catalogFilters.maxPrice < VEHICLE_REASONABLE_MIN_MAX_PRICE) {
-    console.log(`[SEARCH] requestId=${requestId} Vehicle search: removing restrictive maxPrice=${catalogFilters.maxPrice}`);
-    delete catalogFilters.maxPrice;
-  }
+  // NOTE: Vehicle maxPrice gating removed — true proxy mode (no intent-based price filters)
 
   let hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
   const hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
@@ -152,13 +148,8 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Apply vehicle buying intent restrictions ONLY for passenger vehicles, NOT heavy equipment
-  if (hasBuyingIntent && !isHeavyEquipment) {
-    if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 500) {
-      catalogFilters.minPrice = 500;
-    }
-    console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: minPrice=${catalogFilters.minPrice}`);
-  }
+  // NOTE: Vehicle minPrice gating removed — true proxy mode (no intent-based price filters)
+  // hasBuyingIntent is still tracked for cache key separation and scoring
 
   let searchMeta: SearchMeta = {
     originalQuery: qOriginal,
@@ -500,7 +491,7 @@ Deno.serve(async (req: Request) => {
     const aiExpandedTerms = aiRefineResult?.expandedTerms || null;
     
     // Use AI refined query as primary (unless it's a vehicle listing where refinement may hurt)
-    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "gaming";
+    const skipAiExpand = false; // True proxy mode: always run AI refine for cleanup
     if (!skipAiExpand && aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
       qNorm = aiRefineResult.refined;
@@ -595,10 +586,7 @@ Deno.serve(async (req: Request) => {
     // Intent-based provider routing:
     // - gaming: eBay only (Amazon returns wrong results for console queries)
     // - All others (including vehicle_listing): both providers
-    const skipAmazon = effectiveIntent.intentKey === "gaming";
-    if (skipAmazon) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: ${effectiveIntent.intentKey} intent`);
-    }
+    const skipAmazon = false; // True proxy mode: always call both providers
     
 
     const providerStartMs = Date.now();
@@ -919,6 +907,9 @@ Deno.serve(async (req: Request) => {
       scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },
     };
 
+    // Compute explicit page from cursor for response
+    const pageForResponse = Math.floor(mixerCursor.ebayOffset / limit) + 1;
+
     const response: SearchResponse = {
       status: "success", env: envName, query: qOriginal, items: finalItems,
       nextCursor, hasMore: mixResult.hasMore,
@@ -927,6 +918,11 @@ Deno.serve(async (req: Request) => {
       providerStats, searchMeta,
       mediaStats: DEV ? mediaStats : undefined,
       durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
+      // New additive fields for true proxy mode
+      page: pageForResponse,
+      qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
+      sourcesUsed: sourceServed,
+      partial: providerTimedOut || undefined,
       meta: { source: searchSource, isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined, searchDebug } as any,
     };
 

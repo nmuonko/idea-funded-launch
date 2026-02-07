@@ -35,7 +35,7 @@ import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
-import { applyVehicleGuardrails } from "../_shared/vehicleGuardrails.ts";
+import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -836,7 +836,9 @@ Deno.serve(async (req: Request) => {
     console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
     // ─── VEHICLE GUARDRAILS (post-fetch, 3-tier safe fallback) ────────────────
-    if (effectiveIntent.intentKey === "vehicle_listing") {
+    // Triggered by token-aware query detection, NOT intent classification alone
+    const vehicleGuardrailActive = isVehicleLikeQueryGuardrail(providerQuery);
+    if (vehicleGuardrailActive) {
       const preGuardrail = finalItems.length;
       const guardrailResult = applyVehicleGuardrails(finalItems, providerQuery, filteredFinalItems);
       finalItems = guardrailResult.items as typeof finalItems;

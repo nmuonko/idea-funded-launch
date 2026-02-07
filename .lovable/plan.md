@@ -1,40 +1,46 @@
 
-# Fix Load More + Gaming Tab Results
+# Fix Homepage, Gaming & Load More on Search Page
 
-## Problem Analysis
+## Problem Summary
 
-1. **Load More not loading enough items**: The eBay Browse API fetcher caps requests at 50 items (`EBAY_MAX_LIMIT = 50` in `ebayBrowseSearch.ts`). Even though the frontend requests 100, the backend only fetches 50 from eBay + ~20 from Amazon = ~70 max per page. This makes "Load More" feel broken because pages are underfilled.
+1. **Accueil tab shows books**: Clicking "Accueil" on the search page stays on `/search` and searches for "popular" (returning random books). It should navigate to the homepage `/`.
+2. **Gaming tab shows accessories**: The default query "xbox ps5 nintendo switch console" matches accessories. Needs negative keywords to exclude them.
+3. **Load More disappears**: The button vanishes because `hasMore` only checks for a `nextCursor` flag. If the backend returns 100 items without a cursor, the button hides prematurely.
 
-2. **Gaming tab not showing Xbox/PS5**: When clicking the Gaming tab with no search query, the code falls back to `category.replace(/_/g, ' ')` which sends "gaming" as the search term. This returns gaming accessories instead of consoles. It needs to send console-specific terms.
+## Changes (single file)
 
-## Changes
+### `src/pages/shop/SearchResults.tsx`
 
-### File 1: `supabase/functions/_shared/ebayBrowseSearch.ts` (line 13)
-Increase `EBAY_MAX_LIMIT` from `50` to `100` so that when the frontend requests 100 items, eBay can return up to 100 per page.
+**Fix 1 -- Homepage navigation (lines 172-177)**
 
-### File 2: `src/pages/shop/SearchResults.tsx` (line 55)
-Update the fallback query for the gaming category so it searches for "xbox ps5 nintendo switch console" instead of just "gaming".
+When user clicks "Accueil/Homepage" (`all`), navigate to `/` instead of staying on search page.
 
-**Before:**
-```
-const searchQuery = query || (category ? category.replace(/_/g, ' ') : 'popular');
-```
-
-**After:**
-```
-const searchQuery = query || (
-  category === 'gaming' ? 'xbox ps5 nintendo switch console' :
-  (category ? category.replace(/_/g, ' ') : 'popular')
-);
+```text
+Before: setSearchParams({ q: query, sort })
+After:  navigate('/')
 ```
 
-## Summary
+**Fix 2 -- Gaming query (lines 55-58)**
+
+Add negative keywords to exclude accessories and also handle legacy `electronics` key:
+
+```text
+Before: category === 'gaming' ? 'xbox ps5 nintendo switch console'
+After:  (category === 'gaming' || category === 'electronics')
+          ? 'xbox console ps5 console nintendo switch video games -case -cover -charger -skin -controller -protector'
+```
+
+**Fix 3 -- Load More persistence (line 120)**
+
+Consider items count alongside cursor. If a full page of 100 items was returned, assume more may exist:
+
+```text
+Before: setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3)
+After:  setHasMore((!!newCursor || data?.hasMore === true || mappedProducts.length >= 100) && pageNum < 3)
+```
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/ebayBrowseSearch.ts` | Increase EBAY_MAX_LIMIT from 50 to 100 |
-| `src/pages/shop/SearchResults.tsx` | Gaming category default query = "xbox ps5 nintendo switch console" |
-
-## Expected Results
-- Load More will fetch up to 100 items per page (3 pages max = 300 items)
-- Gaming tab will show Xbox, PS5, Nintendo Switch consoles prominently
+| `src/pages/shop/SearchResults.tsx` | Navigate to `/` for homepage tab; gaming query with negative keywords; resilient Load More logic |

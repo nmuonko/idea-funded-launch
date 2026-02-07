@@ -8,7 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/contexts/LanguageContext';
 import {
   Loader2, Play, CheckCircle2, XCircle, Clock, Filter, AlertTriangle,
-  BarChart3, Zap
+  BarChart3, Zap, Download
 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -114,6 +114,34 @@ export default function SearchRelevancy() {
 
   const selectedReport = reports.find(r => r.id === selectedReportId);
 
+  const downloadCsv = () => {
+    const headers = ['Category','Query','Returned','Top3','Top12','Parts%','$0','NoImg','Latency(ms)','Pass','Fail Reasons','Sample Top 3'];
+    const csvRows = [headers.join(',')];
+    for (const row of filteredRows) {
+      csvRows.push([
+        row.category,
+        `"${row.query.replace(/"/g, '""')}"`,
+        row.returned_count,
+        row.top3_relevant,
+        row.top12_relevant,
+        Math.round(row.parts_bleed_rate * 100) + '%',
+        row.zero_price_count,
+        row.missing_image_count,
+        row.latency_ms,
+        row.fail_reasons.length === 0 ? 'PASS' : 'FAIL',
+        `"${(row.fail_reasons || []).join('; ').replace(/"/g, '""')}"`,
+        `"${(row.sample_top3_titles || []).join(' | ').replace(/"/g, '""')}"`,
+      ].join(','));
+    }
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `search-relevancy-${selectedReport ? new Date(selectedReport.created_at).toISOString().slice(0,10) : 'report'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filteredRows = rows.filter(row => {
     if (filterMode === 'failures') return row.fail_reasons.length > 0;
     if (filterMode === 'slow') return row.latency_ms > 4500;
@@ -138,13 +166,20 @@ export default function SearchRelevancy() {
           <h1 className="text-3xl font-bold">Search Relevancy</h1>
           <p className="text-muted-foreground mt-1">Automated search quality testing</p>
         </div>
-        <Button onClick={runTests} disabled={running} size="lg">
-          {running ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Running ({rows.length > 0 ? '~30s' : '~60s'})...</>
-          ) : (
-            <><Play className="h-4 w-4 mr-2" />Run Tests</>
+        <div className="flex items-center gap-2">
+          {filteredRows.length > 0 && (
+            <Button variant="outline" onClick={downloadCsv}>
+              <Download className="h-4 w-4 mr-2" />Download CSV
+            </Button>
           )}
-        </Button>
+          <Button onClick={runTests} disabled={running} size="lg">
+            {running ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Running ({rows.length > 0 ? '~30s' : '~60s'})...</>
+            ) : (
+              <><Play className="h-4 w-4 mr-2" />Run Tests</>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Report Selector */}

@@ -47,6 +47,8 @@ const CATEGORY_MAPPING: Record<string, string> = {
   home_garden: "11700",
   vehicles: "6000",          // eBay Motors (all vehicle types)
   vehicles_cars_trucks: "6001",
+  vehicles_motorcycles: "6024",   // Motorcycles category
+  vehicles_powersports: "6024",   // Same as motorcycles
   refurbished: "11800",
   parts_accessories: "6028",
   sporting_goods: "888",
@@ -84,7 +86,8 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
 
   try {
     // VEHICLE MODE LOGIC: Enforce minPrice ONLY when user has buying intent AND not heavy equipment
-    const minPrice = (hasBuyingIntent && !isHeavyEquipment) ? 1000 : undefined;
+    // Use lower minPrice to avoid zero results for cheaper used vehicles
+    const minPrice = (hasBuyingIntent && !isHeavyEquipment) ? 500 : undefined;
     console.log(`[EBAY_FETCH] requestId=${requestId} minPrice=${minPrice} (hasBuyingIntent=${hasBuyingIntent} isHeavyEquipment=${!!isHeavyEquipment})`);
     
     // Map category_key to eBay category ID
@@ -106,10 +109,18 @@ export async function fetchEbayItems(params: EbayFetchParams): Promise<EbayFetch
       }
     }
 
+    // Detect motorcycle/scooter queries and force Motorcycles category
+    const qLower = enhancedQuery.toLowerCase();
+    const MOTO_TERMS = ["motorcycle","moto ","motorbike","scooter","125cc","150cc","250cc","cg 125","cg125","dirt bike"];
+    const isMotorcycleQuery = MOTO_TERMS.some(t => qLower.includes(t));
+    
     // Force eBay Motors category for vehicle buying intent, but NOT for heavy equipment
-    if (hasBuyingIntent && !ebayCategory && !isHeavyEquipment) {
-      ebayCategory = "6000"; // eBay Motors (broader — includes cars, trucks, motorcycles, powersports)
-      console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6000 (eBay Motors)`);
+    if (isMotorcycleQuery && !ebayCategory) {
+      ebayCategory = "6024"; // Motorcycles
+      console.log(`[EBAY_FETCH] requestId=${requestId} Motorcycle query, forcing category=6024`);
+    } else if (hasBuyingIntent && !ebayCategory && !isHeavyEquipment) {
+      ebayCategory = "6001"; // Cars & Trucks (more specific than 6000 for better results)
+      console.log(`[EBAY_FETCH] requestId=${requestId} Vehicle BUYING intent, forcing category=6001 (Cars & Trucks)`);
     } else if (isHeavyEquipment) {
       console.log(`[EBAY_FETCH] requestId=${requestId} Heavy equipment query - searching all categories (no category restriction)`);
     } else if (isVehicle && !hasBuyingIntent) {

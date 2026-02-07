@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v4"; // v4: Added _meta payload signature for mismatch detection
+export const AMAZON_CACHE_VERSION = "v5"; // v5: Fixed normalizeQuery + cache poisoning guard + no popular_db fallback
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {
@@ -110,9 +110,26 @@ export function removeAccents(str: string): string {
 
 /**
  * Normalize query string for cache key
+ * Uses NFKD, removes diacritics, keeps letters + digits,
+ * replaces non-alphanumerics with spaces, trims, collapses spaces.
+ * NEVER returns empty — falls back to original trimmed query.
  */
 export function normalizeQuery(q: string): string {
-  return removeAccents(q.trim().toLowerCase()).replace(/\s+/g, " ");
+  const trimmed = q.trim();
+  if (!trimmed) return "";
+  // NFKD decomposition + strip diacritics
+  let norm = trimmed.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  // Lowercase
+  norm = norm.toLowerCase();
+  // Keep letters + digits + spaces, replace everything else with space
+  norm = norm.replace(/[^a-z0-9\s]/g, " ");
+  // Collapse whitespace
+  norm = norm.replace(/\s+/g, " ").trim();
+  // Safety: if normalized to empty or <2 chars, fallback to original trimmed lowercase
+  if (norm.length < 2) {
+    norm = trimmed.toLowerCase().replace(/\s+/g, " ").trim();
+  }
+  return norm;
 }
 
 /**

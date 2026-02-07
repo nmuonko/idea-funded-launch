@@ -153,8 +153,8 @@ Deno.serve(async (req: Request) => {
 
   // Apply vehicle buying intent restrictions ONLY for passenger vehicles, NOT heavy equipment
   if (hasBuyingIntent && !isHeavyEquipment) {
-    if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 1000) {
-      catalogFilters.minPrice = 1000;
+    if (catalogFilters.minPrice === undefined || catalogFilters.minPrice < 500) {
+      catalogFilters.minPrice = 500;
     }
     console.log(`[SEARCH] requestId=${requestId} Vehicle MODE ACTIVE: minPrice=${catalogFilters.minPrice}`);
   }
@@ -498,7 +498,7 @@ Deno.serve(async (req: Request) => {
     const aiExpandedTerms = await aiExpandPromise;
     // For heavy equipment AND vehicle_listing intent: SKIP AI expansion
     // AI expansion adds "accessories" to vehicle queries, poisoning results
-    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming";
+    const skipAiExpand = isHeavyEquipment || effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming" || effectiveIntent.intentKey === "phone_device";
     if (!skipAiExpand && aiExpandedTerms && aiExpandedTerms.length > 0 && aiExpandedTerms[0] !== qNorm) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_expand_override: "${qNorm}" → "${aiExpandedTerms[0]}"`);
       qNorm = aiExpandedTerms[0];
@@ -552,16 +552,17 @@ Deno.serve(async (req: Request) => {
         dbCount = dbResult.dbCount;
 
         if (dbResult.items) {
-          // ── GAMING GUARD: Apply intent scorer to DB-first results too ──
+          // ── INTENT SCORING on DB-first results (gaming, phone_device, vehicle_listing) ──
           let dbItems = dbResult.items;
-          if (effectiveIntent.intentKey === "gaming") {
+          const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory"];
+          if (SCORED_INTENTS.includes(effectiveIntent.intentKey)) {
             const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
             const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
             dbItems = dbScoreResult.items as any[];
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_gaming_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
             // If scorer removed everything, don't return DB-first — fall through to live providers
             if (dbItems.length === 0) {
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_gaming_empty_after_scoring — skipping DB-first`);
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
               dbFallbackItems = null;
               // Continue to live provider fetch below
             }
@@ -615,6 +616,9 @@ Deno.serve(async (req: Request) => {
     if (skipAmazon) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIP_AMAZON: ${effectiveIntent.intentKey} intent — Amazon returns irrelevant items`);
     }
+    
+    // Also skip AI expansion for phone_device to prevent accessory terms
+    const skipAiExpandForPhone = effectiveIntent.intentKey === "phone_device";
 
     const providerStartMs = Date.now();
     // Dynamic timeout: vehicle queries need more time on eBay Motors
@@ -805,25 +809,28 @@ Deno.serve(async (req: Request) => {
     finalItems = scoreResult.items as typeof finalItems;
     console.log(`[CATALOG_SEARCH][INTENT] requestId=${requestId} q="${qOriginal}" intentKey=${effectiveIntent.intentKey} beforeScoring=${beforeScoring} afterScoring=${finalItems.length} dropped=${scoreResult.dropped} topScores=${JSON.stringify(scoreResult.topScores)}`);
 
-    // ─── FINAL CATEGORY GUARD (gaming) ────────────────────────────────────────
-    // Absolute safety: drop any item with wrong-category keywords that slipped through
-    if (effectiveIntent.intentKey === "gaming" && finalItems.length > 0) {
-      const WRONG_CAT_KW = [
-        "shoe","shoes","sneaker","sneakers","nike","puma","adidas","jordan",
-        "hoodie","shirt","pantalon","vêtement","chaussure","baskets",
-        "dress","pants","shorts","jeans","jacket","coat",
-        "necklace","bracelet","earring","pendant","ring",
-        "poster","wall art","canvas","blanket","towel","pillow","rug",
-        "perfume","makeup","lipstick","mascara",
-      ];
+    // ─── UNIVERSAL WRONG-CATEGORY HARD-DROP GATE ──────────────────────────────
+    // Applies to ALL intents: drop items whose titles contain shoe/clothing keywords
+    // that don't belong in the current intent's results
+    const UNIVERSAL_WRONG_CAT_KW = [
+      "shoe","shoes","sneaker","sneakers","nike","puma","adidas","jordan",
+      "hoodie","shirt","pantalon","vêtement","chaussure","baskets",
+      "dress","pants","shorts","jeans","jacket","coat",
+      "necklace","bracelet","earring","pendant",
+      "poster","wall art","canvas","blanket","towel","pillow","rug",
+      "perfume","makeup","lipstick","mascara",
+    ];
+    // Only apply the guard for intents that should NEVER return clothing/shoes
+    const GUARDED_INTENTS = ["gaming", "phone_device", "phone_accessory", "vehicle_listing", "vehicle_parts", "heavy_equipment"];
+    if (GUARDED_INTENTS.includes(effectiveIntent.intentKey) && finalItems.length > 0) {
       const beforeGuard = finalItems.length;
       finalItems = finalItems.filter(item => {
         const t = ((item as any).title || "").toLowerCase();
-        return !WRONG_CAT_KW.some(kw => t.includes(kw));
+        return !UNIVERSAL_WRONG_CAT_KW.some(kw => t.includes(kw));
       });
       const guardDropped = beforeGuard - finalItems.length;
       if (guardDropped > 0) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} GAMING_CATEGORY_GUARD: dropped ${guardDropped} wrong-category items`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} CATEGORY_GUARD(${effectiveIntent.intentKey}): dropped ${guardDropped} wrong-category items`);
       }
     }
     // Sort (only if explicit sort requested — scoring already ranks by relevance)
@@ -904,7 +911,9 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify(dbFallbackResponse), { status: 200, headers: fbHeaders });
     }
 
-    // ─── FINAL RELATED DB FALLBACK — NEVER return 0 results ─────────────────
+    // ─── FINAL RELATED DB FALLBACK — intent-specific only ──────────────────
+    // CRITICAL: Do NOT use a generic "popular_db" fallback that returns random
+    // unrelated items (shoes for phone searches). Only use intent-specific fallbacks.
     let fallbackReason: string | null = null;
 
     if (finalItems.length === 0) {
@@ -948,31 +957,12 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Universal fallback: popular fresh items
+      // ─── NO UNIVERSAL "popular_db" FALLBACK ──────────────────────────────────
+      // Previously we returned random popular items here. This caused shoe contamination
+      // in phone/vehicle/gaming searches. Instead, return empty with proper status.
       if (relatedItems.length === 0) {
-        const { data: popData } = await supabase
-          .from("catalog_items")
-          .select("*")
-          .in("provider", ["rainforest", "amazon", "ebay"])
-          .gt("price_usd", 0)
-          .filter("image_url", "not.is", "null")
-          .eq("is_disallowed", false)
-          .order("updated_at", { ascending: false })
-          .limit(40);
-        if (popData && popData.length > 0) {
-          relatedItems = popData.map((item: any) => ({
-            id: item.id, provider: item.provider, providerProductId: item.provider_product_id,
-            title: item.title, priceUsd: item.price_usd, currency: "USD",
-            mainImageUrl: item.image_url, imageUrl: item.image_url,
-            images: item.images || (item.image_url ? [item.image_url] : []),
-            imageUrls: item.images || (item.image_url ? [item.image_url] : []),
-            imageCount: item.images?.length || 1,
-            productUrl: item.product_url, inStock: item.in_stock ?? true,
-            rating: item.rating, category: item.unified_category || undefined,
-          }));
-          fallbackReason = "popular_db";
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} popular_db fallback: ${relatedItems.length} items`);
-        }
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} NO_FALLBACK: returning empty results (no popular_db contamination)`);
+        fallbackReason = null;
       }
 
       if (relatedItems.length > 0) {

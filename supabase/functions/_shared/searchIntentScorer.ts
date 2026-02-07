@@ -98,8 +98,8 @@ function scoreOne(
       if (hasYearToken(title)) score += 20;
       if (hasMileageToken(title)) score += 15;
       if (hasAny(title, VEHICLE_LISTING_SIGNALS)) score += 8;
-      if (priceUsd >= 1500) score += 5;
-      if (priceUsd < 500) score -= 30;  // Likely accessory priced
+      if (priceUsd >= 1000) score += 5;
+      if (priceUsd < 300) score -= 30;  // Likely accessory priced
       break;
     }
     case "vehicle_parts": {
@@ -112,11 +112,30 @@ function scoreOne(
       const isAccessory = hasAny(title, HARD_ACCESSORY_KW);
       const hasDeviceSignal = hasAny(title, PHONE_DEVICE_SIGNALS);
 
-      // HARD DROP accessories that lack any device signal
+      // HARD DROP: accessories without device signal — always drop
       if (isAccessory && !hasDeviceSignal) return null;
 
+      // HARD DROP: known accessory-only patterns ("for iphone", "compatible with", etc.)
+      const PHONE_FOR_PATTERNS = [
+        "for iphone","for samsung","for galaxy","for pixel","for xiaomi",
+        "for tecno","for infinix","for redmi","for oneplus","for motorola",
+        "compatible with","fits","designed for","made for",
+      ];
+      if (hasAny(title, PHONE_FOR_PATTERNS) && !hasDeviceSignal) return null;
+
+      // HARD DROP: charger/cable/case-dominated titles without any phone model signal
+      const STRONG_ACCESSORY = [
+        "charger","cable","adapter","wall charger","car charger","fast charger",
+        "charging block","power block","usb c","lightning","magsafe",
+        "screen protector","tempered glass","case for","clear case","phone case",
+      ];
+      if (hasAny(title, STRONG_ACCESSORY) && !hasDeviceSignal) return null;
+
       // Boost items with device signals
-      if (hasDeviceSignal) score += 12;
+      if (hasDeviceSignal) score += 15;
+
+      // Penalize accessories that have device signal (e.g., "Samsung Galaxy S24 case" with "Galaxy" signal)
+      if (isAccessory && hasDeviceSignal) score -= 20;
 
       // Boost exact model match from query tokens (e.g. "iphone 13 pro max")
       const fullQuery = qTokens.join(" ");

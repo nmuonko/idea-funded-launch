@@ -68,6 +68,14 @@ Deno.serve(async (req: Request) => {
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
 
+  // ─── FIX A: ENV FALLBACK — public clients auto-use production ───────────
+  const authHeader = req.headers.get("authorization") || "";
+  const isAdminJwt = authHeader.startsWith("Bearer ") && authHeader.length > 200; // service/admin JWTs are long
+  const effectiveEnv = (envName !== "production" && !isAdminJwt) ? "production" : envName;
+  if (effectiveEnv !== envName) {
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} env_auto_fallback: ${envName} → ${effectiveEnv}`);
+  }
+
   const sortParam = url.searchParams.get("sort") || "relevance";
   const sort = validateSort(sortParam);
   const filtersParam = url.searchParams.get("filters") || null;
@@ -188,9 +196,17 @@ Deno.serve(async (req: Request) => {
     // If rewrite table didn't match, apply a small built-in FR→EN map
     const FR_EN_FALLBACK: Record<string, string> = {
       "tracteur": "tractor",
+      "tracteurs": "tractor",
+      "agricole": "farm",
       "frigo": "refrigerator",
       "refrigerateur": "refrigerator",
       "réfrigérateur": "refrigerator",
+      "telephone": "phone",
+      "téléphone": "phone",
+      "voiture": "car",
+      "voitures": "car",
+      "camion": "truck",
+      "camions": "truck",
       "machine a laver": "washing machine",
       "machine à laver": "washing machine",
       "chargeur": "charger",
@@ -288,7 +304,7 @@ Deno.serve(async (req: Request) => {
     // ─── CACHE CHECK ──────────────────────────────────────────────────────────
     const cacheStart = Date.now();
     const globalCacheKey = buildCacheKey("search", {
-      env: envName, query: qNorm, provider: providerParam || "all",
+      env: effectiveEnv, query: qNorm, provider: providerParam || "all",
       category: categoryKey || undefined,
       page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit,
       minPrice: catalogFilters.minPrice, maxPrice: catalogFilters.maxPrice,
@@ -297,25 +313,7 @@ Deno.serve(async (req: Request) => {
     });
 
     let cacheResult = await getCache(supabase, globalCacheKey);
-    let envUsed = envName;
-
-    // Env fallback: staging → production
-    if (!cacheResult.hit && envName !== "production") {
-      const prodCacheKey = buildCacheKey("search", {
-        env: "production", query: qNorm, provider: providerParam || "all",
-        category: categoryKey || undefined,
-        page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit,
-        minPrice: catalogFilters.minPrice, maxPrice: catalogFilters.maxPrice,
-        brand: catalogFilters.brand?.join(","), rating: catalogFilters.rating,
-        condition: catalogFilters.condition, sort, vehicleMode: hasBuyingIntent,
-      });
-      const prodCache = await getCache(supabase, prodCacheKey);
-      if (prodCache.hit) {
-        cacheResult = prodCache;
-        envUsed = "production";
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} env_fallback ${envName}->production`);
-      }
-    }
+    const envUsed = effectiveEnv;
     perfLog.cache_ms = Date.now() - cacheStart;
 
     // Validate cache
@@ -516,6 +514,37 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // ─── FIX D: TRACTOR-SPECIFIC 3RD PROVIDER ATTEMPT ─────────────────────────
+    if (amazonItems.length + ebayItems.length === 0 && !providerTimedOut) {
+      const qLow = qNorm.toLowerCase();
+      const isTractorIntent = qLow.includes("tractor") || qLow.includes("tracteur");
+      if (isTractorIntent) {
+        const tractorQuery = "farm tractor";
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback_attempt q="${tractorQuery}"`);
+        try {
+          const tTimeout = 3000;
+          const tPromise = Promise.allSettled([
+            fetchAmazonItems({ supabase, query: tractorQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-trc" }),
+            fetchEbayItems({ supabase, query: tractorQuery, effectiveMode, isVehicle, hasBuyingIntent, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-trc" }),
+          ]);
+          const tTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TRACTOR_TIMEOUT")), tTimeout));
+          const tSettled = await Promise.race([tPromise, tTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+          if (tSettled[0].status === "fulfilled") {
+            const r = tSettled[0].value;
+            amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
+            amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
+          }
+          if (tSettled[1].status === "fulfilled") {
+            const r = tSettled[1].value;
+            ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
+          }
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback amazon=${amazonItems.length} ebay=${ebayItems.length}`);
+        } catch {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback_timeout`);
+        }
+      }
+    }
+
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     const mixResult = mixProviderItems({
       amazonItems: amazonItems as ProviderItem[], ebayItems: ebayItems as ProviderItem[],
@@ -608,7 +637,7 @@ Deno.serve(async (req: Request) => {
       providerStats, searchMeta,
       mediaStats: DEV ? mediaStats : undefined,
       durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
-      meta: { source: "live", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
+      meta: { source: "live", isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined },
     };
 
     // ─── FIX #2b: DB FALLBACK — never return empty if DB had anything ─────────
@@ -620,12 +649,14 @@ Deno.serve(async (req: Request) => {
         nextCursor: null, hasMore: false, total: dbFallbackItems.length,
         providerStats, searchMeta, durationMs: Date.now() - startTime,
         ttlSeconds: 1800, error: null,
-        meta: { source: "db_fallback", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
+        meta: { source: "db_fallback", isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
       };
-      // FIX #6: Summary log
-      console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" db=${dbFallbackItems.length} providers=0 cache=miss emptyCacheBypass=false correlationId=${requestId}`);
+      console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=${dbFallbackItems.length} providers=0 cache=miss source=fallback correlationId=${requestId}`);
+      const fbHeaders = buildResponseHeaders(dbFallbackItems.length, 1800);
+      fbHeaders["x-afrishop-search-debug"] = `env=${envUsed};q=${qOriginal.slice(0,40)};q2=${qNorm.slice(0,40)};db=${dbFallbackItems.length};prov=0;source=fallback`;
+      fbHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
       return new Response(JSON.stringify(dbFallbackResponse), {
-        status: 200, headers: buildResponseHeaders(dbFallbackItems.length, 1800),
+        status: 200, headers: fbHeaders,
       });
     }
 
@@ -652,13 +683,21 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // FIX #6: Summary log
-    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" db=${dbFallbackItems?.length ?? 0} providers=${finalItems.length} cache=miss emptyCacheBypass=false correlationId=${requestId}`);
+    // FIX #6: Summary log with envUsed and q2
+    const searchSource = finalItems.length > 0 ? "provider" : (dbFallbackItems?.length ? "fallback" : "empty");
+    console.log(`[CATALOG_SEARCH] q="${qOriginal}" q2="${qNorm}" envUsed=${envUsed} db=${dbFallbackItems?.length ?? 0} providers=${finalItems.length} cache=miss source=${searchSource} correlationId=${requestId}`);
+
+    // ─── FIX F: DEBUG HEADER ──────────────────────────────────────────────────
+    const truncate = (s: string, n = 40) => s.length > n ? s.slice(0, n) : s;
+    const debugHeader = `env=${truncate(envUsed)};q=${truncate(qOriginal)};q2=${truncate(qNorm)};db=${dbFallbackItems?.length ?? 0};prov=${finalItems.length};source=${searchSource}`;
+    const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds);
+    responseHeaders["x-afrishop-search-debug"] = debugHeader;
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug";
 
     // FIX #4: Empty responses use no-store headers via buildResponseHeaders
     return new Response(JSON.stringify(response), {
       status: 200,
-      headers: buildResponseHeaders(finalItems.length, cacheTtlSeconds),
+      headers: responseHeaders,
     });
 
   } catch (err) {

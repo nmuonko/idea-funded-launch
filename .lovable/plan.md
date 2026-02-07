@@ -1,60 +1,41 @@
 
-# Fix Gaming Tab Returning Irrelevant Items
+# Show Specific Console Models in Gaming Tab
 
-## Root Cause
+## Problem
+The current gaming query `"video game console xbox ps5 nintendo switch"` is too generic and returns irrelevant results. The user wants the Gaming tab to show exactly these consoles:
+- PlayStation 5 Slim
+- Xbox One X
+- Xbox One S
+- PlayStation 5
+- Xbox One
+- Nintendo Switch 2
+- Xbox Series S
+- Xbox 360
 
-The gaming scorer at line 137-143 of `searchIntentScorer.ts` has two problems:
+## Change (1 file)
 
-1. **Too-broad boost keyword**: `"gaming"` in the boost list matches anything with "gaming" in the title (e.g., "Gaming Device Scripts Mods"), so accessories score high instead of being dropped.
-2. **No relevance gate**: Items like "Premium Fort for Sale" and "MINECRAFT MCDONALDS NETHER SAUCE" ($49,000) pass through because they don't match any drop keyword. There is no requirement that an item must contain at least one console/game signal to survive.
-3. **No price sanity check**: Real consoles cost $200-$800. Items at $2,000-$49,000 are clearly not consoles or games.
+### `src/pages/shop/SearchResults.tsx` (line 58)
 
-## Changes (1 file)
+Replace the generic gaming query with a specific console-focused query:
 
-### `supabase/functions/_shared/searchIntentScorer.ts` (lines 137-143)
-
-Replace the gaming case with stricter logic:
-
-```typescript
-case "gaming": {
-  // Drop accessories, merch, and cheat devices
-  if (hasAny(title, [
-    "case","cover","skin","sticker","decal","poster","shirt","shoes",
-    "bag","backpack","hat","cap","mug","cup","keychain","wallet","socks",
-    "figurine","mod","script","adapter","converter","device scripts",
-    "sauce","fort for sale","mcdonalds","premium fort",
-  ])) return null;
-
-  // Must contain at least one actual gaming signal to survive
-  const GAMING_SIGNALS = [
-    "console","xbox","playstation","ps5","ps4","ps3","nintendo","switch",
-    "gamepad","controller","video game","xbox series","series x","series s",
-    "wii","gamecube","sega","atari","game boy","3ds","steam deck","rog ally",
-    "game disc","game lot","game collection","game bundle",
-  ];
-  if (!hasAny(title, GAMING_SIGNALS)) return null;
-
-  // Price sanity: real consoles/games cost under $2000
-  if (priceUsd > 2000) return null;
-
-  // Boost known console terms
-  if (hasAny(title, ["console","xbox","playstation","ps5","nintendo","switch","steam deck"])) score += 15;
-  break;
-}
+```
+Before: 'video game console xbox ps5 nintendo switch'
+After:  'PlayStation 5 Xbox One Nintendo Switch Xbox Series S Xbox 360'
 ```
 
-Key improvements:
-- **Relevance gate**: Items MUST contain at least one gaming signal (console name, "video game", etc.) or they are dropped. This kills "Premium Fort for Sale" and "NETHER SAUCE".
-- **Expanded drop list**: Adds "mod", "script", "device scripts", "adapter", "converter" to catch cheat devices like "Titan Two".
-- **Price cap at $2,000**: Drops absurdly priced non-gaming items.
-- **Removed "gaming" from boost list**: Too generic -- matches accessories. Only specific console names boost score.
+This directly targets the exact console models the user wants. The backend gaming intent scorer will still filter out any accessories or junk that slip through.
+
+### `supabase/functions/_shared/searchIntentScorer.ts`
+
+Update the `GAMING_SIGNALS` list to include the specific model names so they pass the relevance gate:
+
+- Add: `"playstation 5 slim"`, `"xbox one x"`, `"xbox one s"`, `"xbox one"`, `"nintendo switch 2"`, `"xbox series s"`, `"xbox 360"`, `"playstation 5"`
+
+Also raise the price cap from $2,000 to $3,000 to accommodate premium console bundles.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/searchIntentScorer.ts` | Strict gaming relevance gate, price cap, expanded drop list |
-
-## Expected Result
-- Gaming tab shows only actual consoles (Xbox, PS5, Nintendo Switch) and video games
-- Items like cheat devices, sauces, forts, and $49K junk are dropped
+| `src/pages/shop/SearchResults.tsx` | Use specific console model names as the gaming query |
+| `supabase/functions/_shared/searchIntentScorer.ts` | Add specific model names to GAMING_SIGNALS list |

@@ -33,6 +33,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   const dbStartMs = Date.now();
 
   // Build tokens from primary query
+  // Fix #2: exclude pure-number tokens AND single numeric-like tokens
   const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
   const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
 
@@ -91,7 +92,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     return { items: filteredDbItems, fallbackItems: null, dbCount, durationMs: dbMs };
   }
 
-  // Partial results — save as fallback
+  // Fix #2: Partial results (1..DB_MIN_RESULTS-1) — ALWAYS save as fallback, never discard
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_partial dbCount=${dbCount} saved as fallback`);
   return { items: null, fallbackItems: mappedItems, dbCount, durationMs: dbMs };
 }

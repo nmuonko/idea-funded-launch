@@ -135,11 +135,28 @@ function scoreOne(
       break;
     }
     case "gaming": {
-      // Hard-drop wrong category already handled above
-      // Drop accessories/merch
-      if (hasAny(title, ["case","cover","skin","sticker","decal","poster","shirt","shoes","bag","backpack","hat","cap","mug","cup","keychain","wallet","socks","figurine"])) return null;
-      // Boost console/game signals
-      if (hasAny(title, ["console","xbox","playstation","ps5","ps4","nintendo","switch","controller","gamepad","video game","gaming"])) score += 15;
+      // Drop accessories, merch, and cheat devices
+      if (hasAny(title, [
+        "case","cover","skin","sticker","decal","poster","shirt","shoes",
+        "bag","backpack","hat","cap","mug","cup","keychain","wallet","socks",
+        "figurine","mod","script","adapter","converter","device scripts",
+        "sauce","fort for sale","mcdonalds","premium fort",
+      ])) return null;
+
+      // Must contain at least one actual gaming signal to survive
+      const GAMING_SIGNALS = [
+        "console","xbox","playstation","ps5","ps4","ps3","nintendo","switch",
+        "gamepad","controller","video game","xbox series","series x","series s",
+        "wii","gamecube","sega","atari","game boy","3ds","steam deck","rog ally",
+        "game disc","game lot","game collection","game bundle",
+      ];
+      if (!hasAny(title, GAMING_SIGNALS)) return null;
+
+      // Price sanity: real consoles/games cost under $2000
+      if (priceUsd > 2000) return null;
+
+      // Boost known console terms
+      if (hasAny(title, ["console","xbox","playstation","ps5","nintendo","switch","steam deck"])) score += 15;
       break;
     }
     case "general":

@@ -441,7 +441,7 @@ Deno.serve(async (req: Request) => {
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       const cachedResponse = cacheResult.data;
-      const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId);
+      const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
       return new Response(JSON.stringify({
         ...cachedResponse, items: cachedItems, total: cachedItems.length,
         query: qOriginal, env: envName, durationMs: Date.now() - startTime,
@@ -455,7 +455,7 @@ Deno.serve(async (req: Request) => {
     const staleItemCount = cacheResult.data?.items?.length ?? 0;
 
     if (isStaleCache && cacheResult.data && staleItemCount > 0) {
-      const staleItems = filterCachedItems(cacheResult.data.items || [], hasBuyingIntent, catalogFilters, requestId);
+      const staleItems = filterCachedItems(cacheResult.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
       const staleDuration = Date.now() - startTime;
 
       // Fire-and-forget background refresh

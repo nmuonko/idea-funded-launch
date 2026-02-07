@@ -5,6 +5,17 @@
 
 import { VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS } from "./vehicleDetection.ts";
 import { postFilterItems } from "./sortFilterNormalizer.ts";
+import { scoreAndRankItems } from "./searchIntentScorer.ts";
+import type { SearchIntent } from "./vehicleDetection.ts";
+
+// Wrong-category keywords to drop from cached results (shoes in tech searches etc.)
+const UNIVERSAL_WRONG_CAT_KW = [
+  "shoes","sneakers","basketball shoes","running shoes","boots","sandals","slippers",
+  "dress","pants","shorts","jeans","hoodie","jacket","shirt","t-shirt","polo",
+  "jewelry","necklace","bracelet","earring","pendant",
+  "poster","wall art","canvas","framed","artwork",
+  "blanket","towel","pillow","curtain","rug",
+];
 
 export interface CacheGuardParams {
   cacheResult: any;
@@ -62,15 +73,46 @@ export function validateCacheHit(params: CacheGuardParams): any {
 }
 
 /**
- * Apply vehicle safety filters + post-filters to cached items.
+ * Apply vehicle safety filters + post-filters + intent-based scoring to cached items.
  */
 export function filterCachedItems(
   items: any[],
   hasBuyingIntent: boolean,
   catalogFilters: any,
   requestId: string,
+  intentKey?: string,
 ): any[] {
   let result = items;
+
+  // ── Intent-based scoring (gaming, phone_device, vehicle_listing) ──
+  if (intentKey && intentKey !== "general" && result.length > 0) {
+    // Build a minimal SearchIntent object from the intentKey
+    const intent: SearchIntent = {
+      intentKey,
+      vehicleListingIntent: intentKey === "vehicle_listing",
+      vehiclePartsIntent: intentKey === "vehicle_parts",
+      phoneDeviceIntent: intentKey === "phone_device",
+    };
+    const queryTokens: string[] = []; // No query tokens needed — scorer uses title-based rules
+    const before = result.length;
+    const scored = scoreAndRankItems(result, intent, queryTokens, result.length);
+    result = scored.items;
+    if (before !== result.length) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_intent_filter(${intentKey}): ${before} → ${result.length} (dropped=${scored.dropped})`);
+    }
+  }
+
+  // ── Universal wrong-category drop (shoes/clothing in tech searches) ──
+  if (intentKey && ["gaming", "phone_device", "phone_accessory"].includes(intentKey) && result.length > 0) {
+    const before = result.length;
+    result = result.filter((item: any) => {
+      const title = ((item.title || "") as string).toLowerCase();
+      return !UNIVERSAL_WRONG_CAT_KW.some(kw => title.includes(kw));
+    });
+    if (before !== result.length) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} cache_wrong_cat_filter: ${before} → ${result.length}`);
+    }
+  }
 
   // Post-filter by price/brand/rating
   const hasFilters = catalogFilters.minPrice !== undefined ||

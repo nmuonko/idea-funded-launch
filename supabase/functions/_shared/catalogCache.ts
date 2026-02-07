@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v14"; // v14: True proxy mode — no intent-based gating, always both providers, page-based pagination
+export const AMAZON_CACHE_VERSION = "v15"; // v15: Post-fetch vehicle guardrails replace pre-fetch price gating
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {

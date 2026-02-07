@@ -166,7 +166,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         <button
           onClick={handleToggleSaved}
           className={cn(
-            "absolute top-2 right-2 p-1.5 rounded-full transition-colors",
+            "absolute top-2 right-2 p-2 rounded-full transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center",
             isSaved 
               ? "bg-red-500/20 text-red-400" 
               : "bg-black/40 text-white/60 hover:text-white"
@@ -212,13 +212,13 @@ export function ProductCard({ product, className, compact = false }: ProductCard
             </span>
           </div>
           
-          <Button
+            <Button
             size="sm"
             onClick={handleAddToCart}
             disabled={adding || product.inStock === false}
             className={cn(
               "rounded-full transition-all",
-              compact ? "h-7 w-7 p-0" : "",
+              compact ? "h-9 w-9 p-0" : "min-h-[44px] min-w-[44px]",
               added 
                 ? "bg-green-500 hover:bg-green-600" 
                 : "bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"

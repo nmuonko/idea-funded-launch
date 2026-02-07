@@ -226,8 +226,10 @@ All colors MUST be HSL.
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground antialiased;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
   }
 }
 

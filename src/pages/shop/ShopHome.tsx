@@ -208,7 +208,7 @@ export default function ShopHome() {
       <ShopHeader />
       
       {/* Spacer for fixed header */}
-      <div className="pt-20" />
+      <div className="pt-16 md:pt-20" />
 
       {/* Delivery Hero Banner */}
       <motion.section

@@ -1,100 +1,68 @@
 
+# Fix Category Filters Returning Irrelevant Items
 
-# Fix "Load More" Repeating Results in Search
+## Problem
+When clicking category tabs like "Vehicles", "Home & Garden", "Clothing & Fashion", etc., the search returns irrelevant items from other categories. Two root causes:
 
-## Root Cause
+1. **Frontend sends short alias keys** (e.g., `fashion`, `home`, `watches`, `sportingGoods`) but the backend expects canonical keys (e.g., `clothing_shoes_accessories`, `home_garden`, `jewelry_watches`, `sporting_goods`). The backend has a `resolveCategory()` function that maps aliases to canonical keys, but it is never called in the search orchestrator.
 
-The frontend sends `cursor` only when `nextCursor` is non-null (line 73). However, the fallback on line 110 sets `hasMore = true` even when `nextCursor` is null (via `data?.hasMore` or `items.length === 24`). This means "Load More" stays visible, but the next request has no cursor, so the backend returns page 1 again.
+2. **Database search ignores category entirely** -- when searching the local `catalog_items` table, no category filter is applied, so items from any category that match the query text are returned.
 
-Additionally, there is no deduplication -- if any items overlap between responses, they appear twice in the grid.
+## Changes
 
-## Changes (1 file)
+### File 1: `supabase/functions/catalog-search/index.ts`
+**Add category resolution right after extracting categoryKey (around line 70)**
 
-**File: `src/pages/shop/SearchResults.tsx`**
+- Import `resolveCategory` from `categoryRegistry.ts`
+- After line 70 where `categoryKey` is extracted, call `resolveCategory(categoryKey)` to normalize it
+- Replace the raw `categoryKey` with the resolved canonical key for all downstream usage
+- Log the resolution for debugging: `category_resolved: "fashion" -> "clothing_shoes_accessories" (alias)`
+- This single change fixes eBay category mapping, search rewriter rules, and cache key consistency
 
-### 1. Add page-based fallback when cursor is unavailable
+### File 2: `supabase/functions/_shared/searchDbFirst.ts`
+**Add category filter to database query**
 
-When the backend does not return a `nextCursor`, fall back to offset-based pagination by sending `page` as a query parameter. This covers edge cases where the mixer cursor is null but more results exist.
+- When `categoryKey` is provided and non-null, add `.eq("unified_category", categoryKey)` to the database query
+- This ensures DB-first results only return items from the selected category
+- For broad parent categories (e.g., `electronics`), also match subtab categories using `.or()` filter (e.g., `unified_category.eq.electronics,unified_category.like.electronics_%`)
 
-```text
-// In fetchProducts, before the fetch call:
-if (pageNum > 1 && nextCursor) {
-  params.cursor = nextCursor;
-} else if (pageNum > 1) {
-  params.page = pageNum;          // <-- fallback
-}
-```
+### File 3: `supabase/functions/_shared/categoryRegistry.ts`
+**Add missing frontend aliases**
 
-### 2. Fix hasMore logic -- only true when pagination is possible
+- Add `sportinggoods` (camelCase lowered) to `FALLBACK_ALIAS_MAP` pointing to `sporting_goods`
+- Add `computers` alias pointing to `electronics_computers`
+- Add `gaming` alias pointing to `electronics_gaming`
+- These are the keys sent by the frontend `CategoryTabs` component that currently have no alias mapping
 
-```text
-// After response:
-const newCursor = data?.nextCursor || null;
-setNextCursor(newCursor);
+### File 4: `src/components/shop/CategoryTabs.tsx` (minor)
+**Align frontend keys with canonical keys where possible**
 
-// hasMore only if we have a cursor OR backend explicitly says hasMore
-setHasMore(!!newCursor || (data?.hasMore === true));
-```
+- Change `sportingGoods` to `sporting_goods` (matches canonical directly)
+- This reduces reliance on alias resolution for common tabs
 
-Remove the `mappedProducts.length === 24` fallback -- it's the root cause of the ghost "Load More" that refetches page 1.
+## Technical Details
 
-### 3. Deduplicate appended results
-
-Add a helper and use it when appending:
-
-```text
-function dedupeProducts(list: Product[]): Product[] {
-  const seen = new Set<string>();
-  return list.filter(p => {
-    const key = p.id + ':' + p.provider;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-// In the append branch:
-setProducts(prev => dedupeProducts([...prev, ...mappedProducts]));
-```
-
-### 4. Add debug logging
+### Category Resolution Flow (after fix)
 
 ```text
-console.log('[SEARCH] fetch page=', pageNum, 'q=', params.q,
-  'cursor=', params.cursor || 'none', 'append=', append);
-
-// After response:
-console.log('[SEARCH] got items=', mappedProducts.length,
-  'nextCursor=', !!newCursor, 'hasMore=', hasMore);
+Frontend sends: category_key=fashion
+                    |
+                    v
+catalog-search extracts: categoryKey = "fashion"
+                    |
+                    v
+resolveCategory("fashion") -> { resolved: "clothing_shoes_accessories", method: "alias" }
+                    |
+                    v
+All downstream uses canonical key:
+  - eBay fetcher: CATEGORY_MAPPING["clothing_shoes_accessories"] -> "11450" (correct!)
+  - DB search: .eq("unified_category", "clothing_shoes_accessories")
+  - Cache key: includes canonical category
+  - Search rewriter: matches category-specific rules
 ```
 
-### 5. Remove `products.length` and `nextCursor` from useCallback deps
-
-These cause `fetchProducts` to be recreated on every render/response, which is unnecessary and can lead to stale closure issues. Use a ref for `nextCursor` instead, or simply read it via the state setter pattern. The simplest approach: move `nextCursor` to a ref so the callback is stable.
-
-```text
-const nextCursorRef = useRef<string | null>(null);
-
-// In fetchProducts:
-if (pageNum > 1 && nextCursorRef.current) {
-  params.cursor = nextCursorRef.current;
-} else if (pageNum > 1) {
-  params.page = pageNum;
-}
-
-// After response:
-nextCursorRef.current = data?.nextCursor || null;
-```
-
-This eliminates the stale closure problem entirely and keeps the `useCallback` deps minimal: `[query, category, sort, priceRange]`.
-
-## Summary of changes
-
-All changes are in `src/pages/shop/SearchResults.tsx`:
-- Replace `nextCursor` state with a ref for stable callback
-- Add `page` fallback param when cursor is absent
-- Fix `hasMore` to not use item-count heuristic
-- Deduplicate on append
-- Add console logs for debugging
-
-No backend changes needed -- the backend already supports both cursor and page-based pagination.
+### Why this fixes the screenshots
+The user's screenshots show duplicate "Electronics" tabs and categories like "Sporting Goods" returning wrong items. The duplicate tabs are from the `catalog-tabs` backend returning raw keys that the frontend does not deduplicate (separate issue), but the irrelevant results are fixed by this plan because:
+- Each category tab click now resolves to the correct canonical key
+- eBay searches are constrained to the right category ID
+- Database results are filtered by `unified_category`

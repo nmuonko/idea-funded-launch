@@ -1,12 +1,12 @@
 /**
- * Search Expand Query - AI-powered query expansion
+ * Search Query Refiner — AI-powered query refinement
  * 
- * Takes a user search query (possibly in French) and returns 2-3 optimized
- * English product search terms using Lovable AI (Gemini).
+ * Takes a user search query (possibly with typos, French, slang, mixed case)
+ * and returns a clean, provider-friendly search string plus alternatives.
  * 
  * POST /search-expand-query
  * Body: { query: string, lang?: string }
- * Response: { ok: true, expandedTerms: string[], categoryHint?: string, confidence: number }
+ * Response: { ok: true, refined: string, alt: string[], detectedLanguage: string, confidence: number }
  */
 
 import { createAdminPostgrestClient } from "../_shared/postgrest.ts";
@@ -47,11 +47,13 @@ Deno.serve(async (req: Request) => {
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
 
-    if (cached) {
-      console.log(`[EXPAND] cache_hit q="${qNorm}" terms=${JSON.stringify(cached.expanded_terms)} ms=${Date.now() - startMs}`);
+    if (cached && cached.expanded_terms?.length > 0) {
+      console.log(`[REFINER] cache_hit q="${qNorm}" refined="${cached.expanded_terms[0]}" ms=${Date.now() - startMs}`);
       return new Response(JSON.stringify({
         ok: true,
+        refined: cached.expanded_terms[0],
         expandedTerms: cached.expanded_terms,
+        alt: cached.expanded_terms.slice(1),
         categoryHint: cached.category_hint,
         confidence: cached.confidence,
         cached: true,
@@ -61,13 +63,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // 2. Call Lovable AI for expansion
+    // 2. Call Lovable AI for refinement
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
-      console.error("[EXPAND] LOVABLE_API_KEY not configured");
+      console.error("[REFINER] LOVABLE_API_KEY not configured");
       return new Response(JSON.stringify({
         ok: true,
+        refined: qNorm,
         expandedTerms: [qNorm],
+        alt: [],
         confidence: 0,
         fallback: true,
       }), {
@@ -87,62 +91,84 @@ Deno.serve(async (req: Request) => {
         messages: [
           {
             role: "system",
-            content: `You are a product search optimizer for an African e-commerce site that sources from Amazon and eBay. Given a user search query (possibly in French or with typos), return 2-3 optimized English product search terms that would find relevant results on Amazon/eBay.
+            content: `You are a product search query refiner for an African e-commerce site that sources from Amazon and eBay.
 
-Rules:
-- Return specific, shoppable product terms (not categories)
-- Preserve brand names and model numbers exactly
-- If the query is already a good English product search, return it as-is
-- Never return more than 3 terms
-- Terms should be concise (2-5 words each)
-- Focus on what a user would type into Amazon search bar`,
+Given a user search query (possibly with typos, in French, slang, or mixed case), return a refined English search query optimized for Amazon/eBay product search.
+
+RULES:
+- Fix typos: toytoa→toyota, iphne→iphone, samsun→samsung, ecouteur→earbuds
+- Normalize case: PS5, iPhone 15, BMW X5
+- Translate French→English ONLY when it helps search: écouteurs bluetooth→bluetooth earbuds, coque iphone→iphone case
+- Keep brand names and model numbers EXACT: iPhone 11, Galaxy S24, CG 125, BMW X5, 150cc
+- Do NOT invent products; only clean/rewrite the query
+- Keep refined query SHORT (2-6 words) for best provider results
+- For phone brands (pixel, iphone, samsung, galaxy, xiaomi, etc.), add "phone" if no other product type specified
+- For vehicle brands (toyota, bmw, mercedes, etc.), keep as-is unless clearly about accessories
+- Return 1-3 alternative queries that cover different search angles
+
+EXAMPLES:
+- "google pixel" → refined: "google pixel phone"
+- "toytoa" → refined: "toyota"
+- "toyoTA" → refined: "toyota"  
+- "iphne 15 pro" → refined: "iphone 15 pro"
+- "écouteurs bluetooth" → refined: "bluetooth earbuds"
+- "coque samsung s24" → refined: "samsung galaxy s24 phone case"
+- "ps5" → refined: "playstation 5 console"
+- "frigo" → refined: "refrigerator"
+- "tracteur agricole" → refined: "farm tractor"`,
           },
           {
             role: "user",
-            content: `Query: "${query}"\nLanguage: "${lang}"`,
+            content: `Query: "${query}"\nUser language: "${lang}"`,
           },
         ],
         tools: [
           {
             type: "function",
             function: {
-              name: "expand_search_query",
-              description: "Return optimized English product search terms for the given query.",
+              name: "refine_search_query",
+              description: "Return a refined product search query and alternatives.",
               parameters: {
                 type: "object",
                 properties: {
-                  terms: {
+                  refined: {
+                    type: "string",
+                    description: "The primary refined English search query (2-6 words, optimized for Amazon/eBay)",
+                  },
+                  alt: {
                     type: "array",
                     items: { type: "string" },
-                    description: "2-3 optimized English product search terms",
+                    description: "1-3 alternative search queries covering different angles",
                   },
-                  category: {
+                  detectedLanguage: {
                     type: "string",
-                    description: "Optional product category hint (e.g., electronics, clothing, appliances)",
+                    enum: ["en", "fr", "mixed"],
+                    description: "Detected language of the original query",
                   },
                   confidence: {
                     type: "number",
-                    description: "Confidence score 0-1 that the expansion is accurate",
+                    description: "Confidence score 0-1 that the refinement is accurate",
                   },
                 },
-                required: ["terms", "confidence"],
+                required: ["refined", "confidence"],
                 additionalProperties: false,
               },
             },
           },
         ],
-        tool_choice: { type: "function", function: { name: "expand_search_query" } },
+        tool_choice: { type: "function", function: { name: "refine_search_query" } },
       }),
     });
 
     if (!aiResponse.ok) {
       const status = aiResponse.status;
       const errText = await aiResponse.text();
-      console.error(`[EXPAND] AI error status=${status} body=${errText.substring(0, 200)}`);
-      // Graceful fallback
+      console.error(`[REFINER] AI error status=${status} body=${errText.substring(0, 200)}`);
       return new Response(JSON.stringify({
         ok: true,
+        refined: qNorm,
         expandedTerms: [qNorm],
+        alt: [],
         confidence: 0,
         fallback: true,
         aiError: status,
@@ -155,51 +181,59 @@ Rules:
     const aiData = await aiResponse.json();
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
 
-    let expandedTerms: string[] = [qNorm];
-    let categoryHint: string | null = null;
+    let refined: string = qNorm;
+    let alt: string[] = [];
+    let detectedLanguage: string = "en";
     let confidence = 0;
 
     if (toolCall?.function?.arguments) {
       try {
         const args = JSON.parse(toolCall.function.arguments);
-        if (Array.isArray(args.terms) && args.terms.length > 0) {
-          // Sanitize: trim, lowercase, remove empty, limit to 3
-          expandedTerms = args.terms
-            .map((t: string) => t.trim().toLowerCase())
-            .filter((t: string) => t.length >= 2)
-            .slice(0, 3);
-          if (expandedTerms.length === 0) expandedTerms = [qNorm];
+        if (args.refined && typeof args.refined === "string" && args.refined.trim().length >= 2) {
+          refined = args.refined.trim().toLowerCase();
         }
-        categoryHint = args.category || null;
+        if (Array.isArray(args.alt)) {
+          alt = args.alt
+            .map((t: string) => t.trim().toLowerCase())
+            .filter((t: string) => t.length >= 2 && t !== refined)
+            .slice(0, 3);
+        }
+        detectedLanguage = args.detectedLanguage || "en";
         confidence = typeof args.confidence === "number" ? args.confidence : 0.5;
       } catch (parseErr) {
-        console.warn("[EXPAND] Failed to parse AI tool call:", parseErr);
+        console.warn("[REFINER] Failed to parse AI tool call:", parseErr);
       }
     }
 
-    const aiMs = Date.now() - startMs;
-    console.log(`[EXPAND] ai_result q="${qNorm}" terms=${JSON.stringify(expandedTerms)} cat=${categoryHint} conf=${confidence} ms=${aiMs}`);
+    // Build expandedTerms for backward compatibility
+    const expandedTerms = [refined, ...alt].slice(0, 3);
 
-    // 3. Cache the expansion (fire and forget, use upsert)
+    const aiMs = Date.now() - startMs;
+    console.log(`[REFINER] q="${qNorm}" refined="${refined}" alt=${JSON.stringify(alt)} lang=${detectedLanguage} conf=${confidence} ms=${aiMs}`);
+
+    // 3. Cache the refinement (fire and forget)
     supabase
       .from("search_query_expansions")
       .upsert({
         query_normalized: qNorm,
         source_lang: lang,
         expanded_terms: expandedTerms,
-        category_hint: categoryHint,
+        category_hint: null,
         confidence,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       }, { onConflict: "query_normalized" })
-      .then(({ error }) => {
-        if (error) console.warn("[EXPAND] cache_write_error:", error.message);
-        else console.log(`[EXPAND] cached q="${qNorm}"`);
+      .then(({ error }: { error: any }) => {
+        if (error) console.warn("[REFINER] cache_write_error:", error.message);
+        else console.log(`[REFINER] cached q="${qNorm}"`);
       });
 
     return new Response(JSON.stringify({
       ok: true,
+      refined,
       expandedTerms,
-      categoryHint,
+      alt,
+      detectedLanguage,
+      categoryHint: null,
       confidence,
       cached: false,
       durationMs: aiMs,
@@ -209,11 +243,13 @@ Rules:
     });
 
   } catch (err) {
-    console.error("[EXPAND] error:", err);
+    console.error("[REFINER] error:", err);
     return new Response(JSON.stringify({
       ok: false,
       error: err instanceof Error ? err.message : "Unknown error",
+      refined: "",
       expandedTerms: [],
+      alt: [],
       confidence: 0,
     }), {
       status: 500,

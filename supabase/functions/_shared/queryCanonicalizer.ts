@@ -272,6 +272,10 @@ function fuzzyMatch(token: string, threshold: number = 2): string | null {
   let bestDistance = threshold + 1;
   
   for (const canonical of Object.keys(CANONICAL_TERMS)) {
+    // Skip short canonical terms (≤4 chars) — they cause false matches
+    // e.g., "eagle" fuzzy-matches to "gle" (distance 2), "rover" to "rogue", etc.
+    if (canonical.length <= 4) continue;
+    
     // Skip if lengths differ too much
     if (Math.abs(token.length - canonical.length) > threshold) continue;
     

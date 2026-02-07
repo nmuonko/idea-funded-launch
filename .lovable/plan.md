@@ -1,76 +1,86 @@
 
 
-# Fix Gaming Tab: Scorer Too Strict + Cache Bypass
+# Fix: Increase Search Results for "iPhone 11" and All Searches
 
-## Problem
+## Problem Analysis
 
-Testing the deployed edge function confirms the scorer works but is **too aggressive**: eBay returns 5 items from category 139971, and the scorer drops all 5. This means:
+The "iphone 11" search returns only 6 items because:
 
-- The Gaming tab shows **zero new results** from the live API
-- Users see stale cached results from before the scorer was added (lots, bundles, shoes)
-- The cache path (`filterCachedItems`) never applies the scorer or category guard, so old cached items pass through unfiltered
+1. **Amazon is skipped entirely** for `phone_device` intent (line 615 of `catalog-search/index.ts`). This was added to prevent accessory domination, but it cuts off 50%+ of results.
+2. **DB-first returns only partial results** (< 8 items in DB for "iphone 11"), so they become fallback items rather than primary results.
+3. **eBay returns limited results** for specific phone models when filtered to Cell Phones category.
 
-## Root Causes
+The frontend already requests `limit: 100` and supports 3 pages (max 300 items). The backend `MAX_LIMIT` is already 100. The issue is provider-level, not a limit cap.
 
-1. **Scorer model gate too strict**: Items from eBay's "Video Game Consoles" category (139971) may have titles like "Microsoft Xbox 360 Video Game Console" which should match but could fail due to word ordering or the "for X" pattern false-positive
-2. **Cache hit path skips scorer**: When cache returns results (lines 442-451), `filterCachedItems` only applies price/brand/vehicle filters -- NOT the gaming scorer or the universal category guard
-3. **Search rewriter corrupts query**: The rewriter transforms `"video game console"` to `"video game gaming console playstation xbox"`, and the canonicalizer turns `"game"` into `"gle"` (Mercedes GLE), though the intent classifier catches this correctly
+## Changes
 
-## Changes (3 files)
+### 1. Re-enable Amazon for `phone_device` intent (with post-filtering)
 
-### 1. `supabase/functions/_shared/searchCacheGuard.ts`
-Add gaming/phone/vehicle category guard to `filterCachedItems` so cached results also get filtered:
+**File: `supabase/functions/catalog-search/index.ts` (~line 615)**
 
-- Import `scoreAndRankItems` from `searchIntentScorer.ts`
-- Accept `intentKey` parameter
-- For `gaming`, `phone_device`, `vehicle_listing` intents: apply `scoreAndRankItems` to cached items
-- Also apply the `UNIVERSAL_WRONG_CAT_KW` shoe/clothing drop to cached items
-- This ensures old cached "Lot of 40" and shoe results are filtered even on cache hit
+Instead of skipping Amazon entirely for phone_device, allow Amazon but rely on the existing `scoreAndRankItems` scorer to drop accessories. This gives us Amazon's phone listings (which are actually good for "iphone 11").
 
-### 2. `supabase/functions/_shared/searchIntentScorer.ts`
-Relax the gaming scorer to allow legitimate console listings from eBay category 139971:
+Change:
+```
+const skipAmazon = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "gaming";
+```
+Remove `phone_device` was already not there -- but the scorer's `PHONE_FOR_PATTERNS` drops too aggressively. We need to check if Amazon results are being dropped by the scorer.
 
-- Add more model signals: `"xbox 360 console"`, `"xbox 360 video game"`, `"video game console"` (standalone as a signal when combined with a brand)
-- Relax the "w/ cables" drop -- items like "Xbox 360 Console W/ CABLES" from eBay consoles category are legitimate single-console listings, not bundles. Remove `"w/ cables"` and `"with cables"` from `LOT_BUNDLE_DROP` (they were just added). Instead, keep dropping `"w/ games lot"` and `"with games lot"`
-- Ensure "Lot of" + number still drops, but standalone listings mentioning cables are kept
-- Add `"video game console"` to `CONSOLE_MODEL_SIGNALS` so eBay items with generic "Video Game Console" in their title can pass when combined with a brand name
+### 2. Lower `DB_MIN_RESULTS` threshold for phone searches
 
-### 3. `supabase/functions/catalog-search/index.ts`
-Pass `effectiveIntent.intentKey` to all `filterCachedItems` calls (3 places: fresh cache hit, stale cache, and background refresh) so the cache path applies intent-based filtering.
+**File: `supabase/functions/_shared/searchDbFirst.ts` (line 29)**
 
-### 4. `supabase/functions/_shared/catalogCache.ts`
-Bump `AMAZON_CACHE_VERSION` to `v8` to flush server-side cached results that contain lots/bundles.
+Currently `DB_MIN_RESULTS = 8` means if DB has 6 items for "iphone 11", they become fallback instead of primary results. Lower to 4 so partial DB results are returned directly, supplemented by provider results.
+
+Change: `DB_MIN_RESULTS = 8` to `DB_MIN_RESULTS = 4`
+
+### 3. Combine DB-first results with provider results instead of returning early
+
+**File: `supabase/functions/catalog-search/index.ts` (~lines 554-594)**
+
+Currently when DB-first returns >= DB_MIN_RESULTS items, it returns immediately without querying providers. For searches that want 100 results, this is too aggressive. Instead:
+- If DB returns items but fewer than `limit`, continue to fetch from providers
+- Merge DB + provider results (deduplicated)
+- This ensures we always try to fill the requested limit
+
+### 4. Bump cache version to flush stale results
+
+**File: `supabase/functions/_shared/catalogCache.ts`**
+
+Bump `AMAZON_CACHE_VERSION` to `v9` so old cached 6-item results are invalidated.
 
 ## Technical Details
 
-### Why the scorer drops all 5 eBay items
-
-From the API test response:
-- `scoring.dropped: 5` -- all items dropped
-- eBay category 139971 returns items like "Microsoft Xbox 360 Video Game Console W/ CABLES" which gets dropped by the `"w/ cables"` rule added in the last change
-- Or items with condition "Used" which gets dropped by the condition gate (even though conditionIds filter was applied at API level, some items may have ambiguous condition metadata)
-
-### Cache path flow (current vs. fixed)
-
+### Current flow (broken for "iphone 11"):
 ```text
-Current:
-  Cache hit -> filterCachedItems (price/vehicle only) -> return (no gaming scorer!)
-  
-Fixed:
-  Cache hit -> filterCachedItems (price/vehicle + intent scorer + category guard) -> return
+Search "iphone 11" -> DB has 6 items (< 8 = DB_MIN_RESULTS)
+  -> 6 items saved as fallback only
+  -> Providers fetched: Amazon SKIPPED (phone_device), eBay returns ~5
+  -> Mixer produces ~5 items
+  -> Fallback 6 items not used (providers returned > 0)
+  -> Total: ~5-6 items
+```
+
+### Fixed flow:
+```text
+Search "iphone 11" -> DB has 6 items (>= 4 = new DB_MIN_RESULTS)
+  -> DB returns 6 items as primary
+  -> ALSO fetch providers: Amazon active + eBay
+  -> Merge DB + Amazon + eBay, deduplicate
+  -> Total: 50-100 items per page
 ```
 
 ### Files Modified
 
 | File | Change |
 |------|--------|
-| `supabase/functions/_shared/searchCacheGuard.ts` | Add intent-based scoring to cached items |
-| `supabase/functions/_shared/searchIntentScorer.ts` | Relax "w/ cables" rule, add more model signals |
-| `supabase/functions/catalog-search/index.ts` | Pass intentKey to filterCachedItems |
-| `supabase/functions/_shared/catalogCache.ts` | Bump to v8 |
+| `supabase/functions/_shared/searchDbFirst.ts` | Lower `DB_MIN_RESULTS` from 8 to 4 |
+| `supabase/functions/catalog-search/index.ts` | Don't return early on DB-first hit -- merge with provider results to fill `limit`. Also ensure Amazon is not skipped for phone_device. |
+| `supabase/functions/_shared/catalogCache.ts` | Bump `AMAZON_CACHE_VERSION` to `v9` |
 
-### Expected Result
-- Gaming tab returns actual consoles (PS5, Xbox, Switch) from eBay
-- Old cached lots/bundles/shoes are filtered out even on cache hit
-- "Xbox 360 Console W/ CABLES" is kept (single console + cables, not a lot)
-- "Lot of 40 Power Tested Mixed" is still dropped
+### Why this is safe
+- The `scoreAndRankItems` scorer already handles accessory filtering for phone_device intent
+- Deduplication by `id:provider` prevents duplicates from DB + providers
+- The `pageNum < 3` cap in SearchResults.tsx ensures max 3 pages (300 items)
+- Existing content blockers and category guards remain active
+

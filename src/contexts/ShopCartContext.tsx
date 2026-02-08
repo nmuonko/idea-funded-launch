@@ -224,19 +224,19 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       
       if (error) throw error;
       
-      if (data?.items) {
-        const mappedItems: CartItem[] = data.items.map((item: any) => ({
+      if (data?.activeItems) {
+        const mappedItems: CartItem[] = data.activeItems.map((item: any) => ({
           id: item.id,
-          productId: item.provider_product_id || item.product_url,
+          productId: item.productUrl || item.product_url,
           provider: item.store || 'unknown',
-          title: item.title || 'Product',
-          imageUrl: item.image_url || '',
-          priceUsd: item.base_price_usd || 0,
+          title: item.title || item.productTitle || 'Product',
+          imageUrl: item.image_url || item.mainImageUrl || '',
+          priceUsd: item.basePriceUsd || item.base_price_usd || 0,
           quantity: item.quantity || 1,
-          productUrl: item.product_url,
-          isVehicle: item.is_vehicle || false,
-          requiresManualQuote: item.requires_manual_quote || false,
-          vehicleQuoteApplied: item.vehicle_quote_applied || false,
+          productUrl: item.productUrl || item.product_url,
+          isVehicle: item.isVehicle || false,
+          requiresManualQuote: item.requiresManualQuote || false,
+          vehicleQuoteApplied: item.vehicleQuoteApplied || false,
         }));
         setItems(mappedItems);
         console.log('[CART] init source=server items=', mappedItems.length);

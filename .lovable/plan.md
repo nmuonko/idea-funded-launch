@@ -1,70 +1,64 @@
 
 
-# Fix: Slow Product Detail Loading + Broken Similar Products
+# Fix: Smooth Image Gallery Loading on Product Detail Page
 
-## Problem 1: Slow Product Detail Page
+## Problem
 
-When you click a search result, the detail page makes a **brand new API call** to `catalog-product` instead of using the data already loaded from search. The logs show these calls take **5-14 seconds** because:
-- The product is not in `catalog_items` DB (cache miss)
-- A live API call to Amazon/eBay is triggered
-- This happens every time, even though the search results already have the product info
+When you click a product from search results:
+1. The page loads instantly with 1 image (from router state) -- good
+2. A few seconds later, the background API returns full gallery (5-10 images)
+3. The entire product state is **replaced**, causing the image to flicker/reload and thumbnails to suddenly appear
 
-### Fix
+## Solution
 
-Pass the search result data to the product detail page via React Router navigation state. When the detail page loads:
-1. If navigation state has the product data, display it **instantly** (no loading spinner)
-2. Still fetch full details (description, gallery images) in the **background** to enrich the view
-3. If no navigation state (e.g. direct URL), fall back to the current API call behavior
+When the background API response arrives, **merge** the new data into the existing product state instead of replacing it. Specifically:
+- Keep the current main image in position 0 (no flicker)
+- Append additional gallery images after it
+- Only update fields that are missing (description, brand, reviewCount, etc.)
+- Do NOT reset `currentImageIndex` (user may have already scrolled)
 
-**Files to modify:**
-- `src/components/shop/ProductCard.tsx` -- pass product data via Link state
-- `src/pages/shop/ProductDetails.tsx` -- read navigation state for instant display, then enrich in background
+### File: `src/pages/shop/ProductDetails.tsx`
 
----
-
-## Problem 2: Similar Products Show $0.00 and No Images
-
-The similar products mapper in `ProductDetails.tsx` reads **snake_case** field names (`i.image_url`, `i.price_usd`), but the `catalog-search` API returns **camelCase** (`imageUrl`, `priceUsd`). This means every similar product gets:
-- `imageUrl: undefined || ''` (empty string, no image)
-- `priceUsd: undefined || 0` ($0.00)
-
-### Fix
-
-Update the similar products mapper to read both camelCase and snake_case variants:
-```
-imageUrl: i.imageUrl || i.image_url || i.mainImageUrl || ''
-priceUsd: i.priceUsd || i.price_usd || 0
-```
-
-**File to modify:**
-- `src/pages/shop/ProductDetails.tsx` (lines 133-141)
-
----
-
-## Technical Details
-
-### ProductCard.tsx changes
-
-Add product data to the Link's `state` prop so it's available on the detail page without an API call:
+**Change the `setProduct` call (lines 123-135)** to merge with existing state instead of replacing:
 
 ```typescript
-<Link
-  to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
-  state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
->
+setProduct(prev => {
+  const newImages = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
+  
+  // If we already have images from nav state, merge: keep existing first, add new unique ones
+  let mergedImages = newImages;
+  if (prev?.images?.length) {
+    const existingSet = new Set(prev.images);
+    const additional = newImages.filter((img: string) => !existingSet.has(img));
+    mergedImages = [...prev.images, ...additional];
+  }
+  if (mergedImages.length === 0) mergedImages = ['/placeholder.svg'];
+
+  return {
+    id: item.provider_product_id || item.id || prev?.id || '',
+    provider: item.provider || provider || prev?.provider || '',
+    title: item.title || prev?.title || 'Product',
+    description: item.description || prev?.description,
+    images: mergedImages,
+    priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+    rating: item.rating ?? prev?.rating,
+    reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
+    inStock: item.in_stock !== false,
+    productUrl: item.product_url || item.productUrl || prev?.productUrl,
+    brand: item.brand || prev?.brand,
+  };
+});
 ```
 
-### ProductDetails.tsx changes
+This single change ensures:
+- Main image never flickers (it stays in position 0)
+- Thumbnail strip appears smoothly as new images arrive
+- No `currentImageIndex` reset
+- Description, brand, and other enriched data fill in seamlessly
 
-1. Read `location.state?.product` on mount
-2. If present, immediately populate the product state (no loading spinner)
-3. Still call `catalog-product` in background for full data (description, all gallery images, brand, stock status)
-4. Fix the similar products field name mapping
+## Files Modified
 
-### Expected Results
-
-- Product detail pages load **instantly** when navigating from search/home (data is passed via router state)
-- Direct URL access still works (falls back to API call)
-- Similar products display correct images and prices
-- No changes to backend/edge functions needed
+| File | Change |
+|------|--------|
+| `src/pages/shop/ProductDetails.tsx` | Change `setProduct({...})` to `setProduct(prev => {...})` with image merging logic |
 

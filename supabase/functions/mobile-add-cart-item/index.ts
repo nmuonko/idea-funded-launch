@@ -293,6 +293,7 @@ serve(async (req) => {
         base_price_usd: productPrice,
         shipping_item_type_id: finalShippingTypeId,
         est_weight_kg: estWeightKg,
+        is_vehicle: isVehicle,
         requires_manual_quote: requiresManualQuote,
         is_saved_for_later: false,
         price_source: userEdited ? "manual_user" : "auto",

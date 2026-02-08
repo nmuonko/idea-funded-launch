@@ -3,6 +3,7 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
+import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { ProductGrid } from '@/components/shop/ProductGrid';
@@ -65,6 +66,7 @@ export default function ProductDetailsPage() {
   const [added, setAdded] = useState(false);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   useEffect(() => {
     const fetchProduct = async () => {
@@ -290,7 +292,10 @@ export default function ProductDetailsPage() {
           <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
             {/* Image Gallery */}
             <div className="space-y-4">
-              <div className="relative aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10">
+              <div
+                className="relative aspect-square bg-white/5 rounded-2xl overflow-hidden border border-white/10 cursor-pointer"
+                onClick={() => setLightboxOpen(true)}
+              >
                 <AnimatePresence mode="wait">
                   <motion.img
                     key={currentImageIndex}
@@ -485,6 +490,16 @@ export default function ProductDetailsPage() {
           )}
         </div>
       </main>
+
+      {lightboxOpen && (
+        <ProductImageViewer
+          images={product.images}
+          currentIndex={currentImageIndex}
+          onClose={() => setLightboxOpen(false)}
+          onIndexChange={setCurrentImageIndex}
+        />
+      )}
+
       <BottomNavigation />
     </div>
   );

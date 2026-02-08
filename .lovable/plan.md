@@ -1,63 +1,62 @@
 
 
-# Fix: Parallel Loading for Gallery Images and Similar Products
+# Fullscreen Image Viewer with Pinch-to-Zoom
 
-## Current Problem
+## What Changes
 
-The product detail page loads data **sequentially**:
+When the user taps on a product image in the gallery, a fullscreen overlay opens showing the image with pinch-to-zoom (mobile) and scroll-to-zoom (desktop) support, plus swipe/arrow navigation between gallery images.
 
-1. Show 1 image from nav state (instant)
-2. Wait 5-14 seconds for `catalog-product` API to return full gallery
-3. **Only then** start fetching similar products (another 2-5 seconds)
+## Approach
 
-Total wait: 7-19 seconds before everything is visible.
+Create a new `ProductImageViewer` component that opens as a fullscreen overlay (not a dialog -- for better mobile UX). It will use CSS transforms for zoom and pan, with touch gesture handling built in.
 
-## Solution: Parallelize Everything
+### New File: `src/components/shop/ProductImageViewer.tsx`
 
-### Change 1: Fetch similar products in PARALLEL with product details
+A fullscreen image viewer with:
+- **Pinch-to-zoom** on mobile (touch events)
+- **Scroll-to-zoom** on desktop (wheel events)
+- **Pan/drag** when zoomed in
+- **Swipe left/right** to navigate images (when not zoomed)
+- **Arrow buttons** for desktop navigation
+- **Double-tap to zoom** in/out
+- **Close button** (X) and tap-outside-image to close
+- Image counter indicator (e.g., "2 / 5")
+- Black fullscreen background
 
-Currently similar products are fetched **after** `catalog-product` returns (line 151). Instead, start the similar products search **immediately** using the title from navigation state -- we already have it.
+No external dependencies needed -- all built with React state + touch/pointer events + CSS transforms.
 
-### Change 2: Pass all available images from search results
+### Modified File: `src/pages/shop/ProductDetails.tsx`
 
-The search results from `catalog-search` sometimes include multiple images (via `images` or `imageUrls` arrays). Pass these through nav state so the gallery has more than 1 image instantly.
-
-### File: `src/pages/shop/ProductDetails.tsx`
-
-Split `fetchProduct` into two parallel operations:
-
-```text
-BEFORE (sequential):
-  [catalog-product: 5-14s] --> [catalog-search for similar: 2-5s]
-  Total: 7-19 seconds
-
-AFTER (parallel):
-  [catalog-product: 5-14s]     (enriches gallery + description)
-  [catalog-search for similar: 2-5s]  (starts immediately using nav title)
-  Total: max(5-14s, 2-5s) = 5-14 seconds, similar products visible in 2-5s
-```
-
-- Extract the similar products fetch into a separate `useEffect` that runs immediately using the title from nav state (or waits for product title if no nav state).
-- The `catalog-product` fetch continues independently to enrich gallery/description.
-
-### File: `src/components/shop/ProductCard.tsx`
-
-Pass additional image data if available in the product object (for future-proofing when search results include multiple images).
+- Add `lightboxOpen` state and `lightboxIndex` state
+- Make the main gallery image clickable (add `onClick` + `cursor-pointer`)
+- Make thumbnail images clickable to open viewer at that index
+- Render `ProductImageViewer` when open, passing `images`, `currentIndex`, and `onClose`
 
 ## Technical Details
 
-### ProductDetails.tsx changes
+### Zoom/Pan Implementation
 
-1. Create a new `useEffect` for similar products that uses `navProduct?.title` or `product?.title`
-2. Remove the similar products fetch from inside the `catalog-product` callback
-3. This means similar products appear in ~2-5 seconds (their own API time) instead of 7-19 seconds (product API + similar API)
+```text
+State: scale (1-4), translateX, translateY
+- Pinch: track two-finger distance changes, update scale
+- Double-tap: toggle between scale=1 and scale=2.5
+- Drag/pan: when scale > 1, track pointer movement to update translate
+- Wheel: increment/decrement scale by 0.3 per scroll tick
+- Reset on image change or close
+```
 
-### Expected Results
+### Touch Gesture Logic
 
-| What | Before | After |
-|------|--------|-------|
-| Main image | Instant | Instant (unchanged) |
-| Full gallery | 5-14 seconds | 5-14 seconds (unchanged, requires API) |
-| Similar products | 7-19 seconds | 2-5 seconds (starts immediately) |
+```text
+- 1 finger + not zoomed: swipe left/right to change image
+- 1 finger + zoomed: pan the image
+- 2 fingers: pinch to zoom
+- Double tap: toggle zoom
+```
 
-The full gallery still depends on the `catalog-product` API for additional images -- that cannot be eliminated without backend changes. But similar products will now appear **much faster** since they no longer wait for the product API to finish first.
+### Mobile-First Considerations
+
+- Fullscreen overlay uses `fixed inset-0 z-50` (covers everything including nav)
+- `touch-action: none` to prevent browser default zoom/scroll
+- Close button is 44x44px minimum tap target
+- Safe area padding for notch devices

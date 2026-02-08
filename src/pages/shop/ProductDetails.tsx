@@ -147,35 +147,6 @@ export default function ProductDetailsPage() {
           };
         });
 
-        // Fetch similar products
-        if (item.title) {
-          try {
-            const keywords = item.title.split(' ').slice(0, 3).join(' ');
-            const similarData = await cachedCatalogFetch<any>('catalog-search', {
-              q: keywords.trim().toLowerCase(),
-              limit: 5,
-            });
-            
-            if (similarData?.items) {
-              setSimilarProducts(
-                similarData.items
-                  .filter((i: any) => (i.provider_product_id || i.id) !== (item.provider_product_id || item.id))
-                  .slice(0, 4)
-                  .map((i: any) => ({
-                    id: i.provider_product_id || i.id,
-                    provider: i.provider || 'amazon',
-                    title: i.title || 'Product',
-                    imageUrl: i.imageUrl || i.image_url || i.mainImageUrl || '',
-                    priceUsd: i.priceUsd || i.price_usd || 0,
-                    rating: i.rating,
-                    productUrl: i.productUrl || i.product_url,
-                  }))
-              );
-            }
-          } catch (similarErr) {
-            console.warn('Failed to fetch similar products:', similarErr);
-          }
-        }
       } catch (err: any) {
         console.error('Failed to fetch product:', err);
         // Only set error if we don't already have nav state data displayed
@@ -188,6 +159,45 @@ export default function ProductDetailsPage() {
     };
 
     fetchProduct();
+  }, [provider, id]);
+
+  // Fetch similar products in PARALLEL - starts immediately using nav title
+  useEffect(() => {
+    const title = navProduct?.title || product?.title;
+    if (!title || !provider || !id) return;
+
+    const fetchSimilar = async () => {
+      try {
+        const keywords = title.split(' ').slice(0, 3).join(' ');
+        const similarData = await cachedCatalogFetch<any>('catalog-search', {
+          q: keywords.trim().toLowerCase(),
+          limit: 5,
+        });
+        
+        if (similarData?.items) {
+          const currentId = navProduct?.id || product?.id || id;
+          setSimilarProducts(
+            similarData.items
+              .filter((i: any) => (i.provider_product_id || i.id) !== currentId)
+              .slice(0, 4)
+              .map((i: any) => ({
+                id: i.provider_product_id || i.id,
+                provider: i.provider || 'amazon',
+                title: i.title || 'Product',
+                imageUrl: i.imageUrl || i.image_url || i.mainImageUrl || '',
+                priceUsd: i.priceUsd || i.price_usd || 0,
+                rating: i.rating,
+                productUrl: i.productUrl || i.product_url,
+              }))
+          );
+        }
+      } catch (err) {
+        console.warn('Failed to fetch similar products:', err);
+      }
+    };
+
+    fetchSimilar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, id]);
 
   const handleAddToCart = async () => {

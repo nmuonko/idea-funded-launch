@@ -227,9 +227,9 @@ function formatItem(
   }
   
   // REGULAR PRODUCT - calculate as normal
-  // CRITICAL FIX: Regular products NEVER require manual quote
-  // Only vehicles with is_vehicle === true require quotes (handled above)
-  const itemRequiresQuote = false; // Regular products never require quote
+  // Respect the database value for requires_manual_quote
+  // This ensures vehicles detected at add-time are properly flagged
+  const itemRequiresQuote = item.requires_manual_quote === true;
   
   // ALWAYS calculate from fresh settings - never use stored markup_fee_usd
   // This ensures admin markup changes reflect instantly in cart

@@ -1,50 +1,72 @@
 
 
-# Fix: Flush Remaining Poisoned Cache Entries
+# Fix: Vehicle Post-Filter in searchCacheGuard.ts Dropping All Results
 
 ## Root Cause
 
-The code fix (POISON_SUFFIXES safety check) is working correctly for **new** queries. However, **18 poisoned entries still exist** in `search_query_expansions` and at least 1 in `catalog_cache` from before the fix was deployed. The second account is hitting these stale cached entries.
+The "toyota prius" search returns 48 cached items. These pass through two separate filter pipelines:
 
-Specific examples found:
-- `"tesla model 3"` cached as `"tesla model 3 accessories"`
-- `"2017 toyota prius"` cached as `"2017 toyota prius parts"`
-- `"ford car"` cached as `"ford car accessories"`
-- `"toyota"` cached as `"toyota car accessories"`
-- A `catalog_cache` entry for `query: "toyota prius accessories"` still exists with a future expiry
+1. **Vehicle Guardrails** (`vehicleGuardrails.ts`) -- the new 3-tier system (strict/relaxed/fallback). This works correctly and has a safe fallback to never return empty.
 
-## Fix (Data Cleanup Only, No Code Changes)
+2. **searchCacheGuard.ts** (lines 139-149) -- an older, separate filter that runs AFTER the guardrails. It uses `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` which includes extremely common words like:
+   - `"light"`, `"lights"`, `"led"`, `"kit"`, `"belt"`, `"spring"`, `"sensor"`, `"mirror"`, `"radio"`, `"fits"`, `"bag"`, `"watch"`, `"cap"`, `"hose"`, `"speaker"`
 
-### Step 1: Delete all poisoned `search_query_expansions` entries
+   These words commonly appear in legitimate vehicle listing titles (e.g., "2018 Toyota Prius **LED** headlights, **leather** seats"). The filter drops ALL 47 items, resulting in 0 results.
 
-Delete all 18 rows where any expanded term contains "accessories", "parts", or "floor mat":
-
-```sql
-DELETE FROM search_query_expansions 
-WHERE expanded_terms::text ILIKE '%accessories%' 
-   OR expanded_terms::text ILIKE '%parts%'
-   OR expanded_terms::text ILIKE '%floor mat%';
+The logs confirm this:
+```
+vehicle_cache_filter: 48 -> 47     (price >= $1000, good)
+vehicle_post_filter:  47 -> 0      (VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS, BAD)
 ```
 
-### Step 2: Delete stale `catalog_cache` entries for vehicle queries
+This happens for ALL accounts/sessions because it is server-side cache filtering.
 
-Delete old catalog cache entries where the stored query contains poison suffixes:
+## Why One Account Works
 
-```sql
-DELETE FROM catalog_cache 
-WHERE query ILIKE '%accessories%' 
-   OR query ILIKE '%parts%'
-   OR query ILIKE '%floor mat%';
+The kadimisha@gmail.com account likely has a **client-side localStorage cache** (`afrishop_cache:v8:`) from a previous successful fetch (before the filter was added or from a different code path). Other accounts/guests get a cache miss, hit the server, and get 0 results from the `vehicle_post_filter`.
+
+## Fix
+
+**Remove the redundant `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter from `searchCacheGuard.ts`** (lines 139-149). The 3-tier guardrails in `vehicleGuardrails.ts` already handle parts/accessories filtering with a safe fallback. This secondary filter:
+- Duplicates the guardrails' work
+- Has no safe fallback (can go to 0)
+- Uses overly broad keywords that match real vehicle listings
+
+### File: `supabase/functions/_shared/searchCacheGuard.ts`
+
+Remove the `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter block (lines 139-149) from the `filterCachedItems` function. Keep the price filter (lines 129-137) which correctly enforces the $1000 minimum for vehicle queries.
+
+Also remove the now-unused import of `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` from line 6.
+
+### Redeploy
+
+Redeploy the `catalog-search` edge function (which imports `searchCacheGuard.ts`).
+
+## Technical Detail
+
+```text
+BEFORE (current broken flow):
+  48 cached items
+  -> price >= $1000 filter: 47 items
+  -> VEHICLE_TOY_ACCESSORY_FILTER: 0 items  <-- BUG
+  -> returned to client: empty
+
+AFTER (fixed flow):
+  48 cached items
+  -> price >= $1000 filter: 47 items
+  -> returned to client: 47 items
+  (vehicle guardrails already ran when items were first fetched and cached)
 ```
 
-### Step 3: Verify
+## Files Modified
 
-After flushing, both accounts should get fresh (non-poisoned) results on next search.
+| File | Change |
+|------|--------|
+| `supabase/functions/_shared/searchCacheGuard.ts` | Remove `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter block and its import |
 
-## Why This is Safe
+## Expected Results
 
-- The POISON_SUFFIXES safety check in `catalog-search/index.ts` prevents new poisoned entries from being created
-- The updated AI refiner prompt also instructs Gemini not to add suffixes to vehicle queries
-- Deleting these cache rows just forces a fresh fetch, which will now produce correct results
-- No code changes needed -- the fix is purely data cleanup
+- ALL accounts and guest browsers see Toyota Prius results
+- Vehicle parts/accessories are still filtered by the 3-tier guardrails (which run at fetch time, before caching)
+- No more "0 results" for valid vehicle searches
 

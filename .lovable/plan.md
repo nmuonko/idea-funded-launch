@@ -1,72 +1,70 @@
 
 
-# Fix: Vehicle Post-Filter in searchCacheGuard.ts Dropping All Results
+# Fix: Slow Product Detail Loading + Broken Similar Products
 
-## Root Cause
+## Problem 1: Slow Product Detail Page
 
-The "toyota prius" search returns 48 cached items. These pass through two separate filter pipelines:
+When you click a search result, the detail page makes a **brand new API call** to `catalog-product` instead of using the data already loaded from search. The logs show these calls take **5-14 seconds** because:
+- The product is not in `catalog_items` DB (cache miss)
+- A live API call to Amazon/eBay is triggered
+- This happens every time, even though the search results already have the product info
 
-1. **Vehicle Guardrails** (`vehicleGuardrails.ts`) -- the new 3-tier system (strict/relaxed/fallback). This works correctly and has a safe fallback to never return empty.
+### Fix
 
-2. **searchCacheGuard.ts** (lines 139-149) -- an older, separate filter that runs AFTER the guardrails. It uses `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` which includes extremely common words like:
-   - `"light"`, `"lights"`, `"led"`, `"kit"`, `"belt"`, `"spring"`, `"sensor"`, `"mirror"`, `"radio"`, `"fits"`, `"bag"`, `"watch"`, `"cap"`, `"hose"`, `"speaker"`
+Pass the search result data to the product detail page via React Router navigation state. When the detail page loads:
+1. If navigation state has the product data, display it **instantly** (no loading spinner)
+2. Still fetch full details (description, gallery images) in the **background** to enrich the view
+3. If no navigation state (e.g. direct URL), fall back to the current API call behavior
 
-   These words commonly appear in legitimate vehicle listing titles (e.g., "2018 Toyota Prius **LED** headlights, **leather** seats"). The filter drops ALL 47 items, resulting in 0 results.
+**Files to modify:**
+- `src/components/shop/ProductCard.tsx` -- pass product data via Link state
+- `src/pages/shop/ProductDetails.tsx` -- read navigation state for instant display, then enrich in background
 
-The logs confirm this:
+---
+
+## Problem 2: Similar Products Show $0.00 and No Images
+
+The similar products mapper in `ProductDetails.tsx` reads **snake_case** field names (`i.image_url`, `i.price_usd`), but the `catalog-search` API returns **camelCase** (`imageUrl`, `priceUsd`). This means every similar product gets:
+- `imageUrl: undefined || ''` (empty string, no image)
+- `priceUsd: undefined || 0` ($0.00)
+
+### Fix
+
+Update the similar products mapper to read both camelCase and snake_case variants:
 ```
-vehicle_cache_filter: 48 -> 47     (price >= $1000, good)
-vehicle_post_filter:  47 -> 0      (VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS, BAD)
-```
-
-This happens for ALL accounts/sessions because it is server-side cache filtering.
-
-## Why One Account Works
-
-The kadimisha@gmail.com account likely has a **client-side localStorage cache** (`afrishop_cache:v8:`) from a previous successful fetch (before the filter was added or from a different code path). Other accounts/guests get a cache miss, hit the server, and get 0 results from the `vehicle_post_filter`.
-
-## Fix
-
-**Remove the redundant `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter from `searchCacheGuard.ts`** (lines 139-149). The 3-tier guardrails in `vehicleGuardrails.ts` already handle parts/accessories filtering with a safe fallback. This secondary filter:
-- Duplicates the guardrails' work
-- Has no safe fallback (can go to 0)
-- Uses overly broad keywords that match real vehicle listings
-
-### File: `supabase/functions/_shared/searchCacheGuard.ts`
-
-Remove the `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter block (lines 139-149) from the `filterCachedItems` function. Keep the price filter (lines 129-137) which correctly enforces the $1000 minimum for vehicle queries.
-
-Also remove the now-unused import of `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` from line 6.
-
-### Redeploy
-
-Redeploy the `catalog-search` edge function (which imports `searchCacheGuard.ts`).
-
-## Technical Detail
-
-```text
-BEFORE (current broken flow):
-  48 cached items
-  -> price >= $1000 filter: 47 items
-  -> VEHICLE_TOY_ACCESSORY_FILTER: 0 items  <-- BUG
-  -> returned to client: empty
-
-AFTER (fixed flow):
-  48 cached items
-  -> price >= $1000 filter: 47 items
-  -> returned to client: 47 items
-  (vehicle guardrails already ran when items were first fetched and cached)
+imageUrl: i.imageUrl || i.image_url || i.mainImageUrl || ''
+priceUsd: i.priceUsd || i.price_usd || 0
 ```
 
-## Files Modified
+**File to modify:**
+- `src/pages/shop/ProductDetails.tsx` (lines 133-141)
 
-| File | Change |
-|------|--------|
-| `supabase/functions/_shared/searchCacheGuard.ts` | Remove `VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS` filter block and its import |
+---
 
-## Expected Results
+## Technical Details
 
-- ALL accounts and guest browsers see Toyota Prius results
-- Vehicle parts/accessories are still filtered by the 3-tier guardrails (which run at fetch time, before caching)
-- No more "0 results" for valid vehicle searches
+### ProductCard.tsx changes
+
+Add product data to the Link's `state` prop so it's available on the detail page without an API call:
+
+```typescript
+<Link
+  to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
+  state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
+>
+```
+
+### ProductDetails.tsx changes
+
+1. Read `location.state?.product` on mount
+2. If present, immediately populate the product state (no loading spinner)
+3. Still call `catalog-product` in background for full data (description, all gallery images, brand, stock status)
+4. Fix the similar products field name mapping
+
+### Expected Results
+
+- Product detail pages load **instantly** when navigating from search/home (data is passed via router state)
+- Direct URL access still works (falls back to API call)
+- Similar products display correct images and prices
+- No changes to backend/edge functions needed
 

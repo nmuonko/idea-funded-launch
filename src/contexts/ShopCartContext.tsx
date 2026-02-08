@@ -250,6 +250,23 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           setServerTotalUsd(summary.serverTotalUsd ?? summary.total_usd);
         }
         console.log('[CART] vehicle flags:', { hasVehicle: summary.hasVehicleItems, quoteStatus: summary.vehicleQuoteStatus, canProceed: summary.canProceedToPayment });
+        
+        // Auto-submit quote request for vehicles if not yet submitted
+        if (summary.hasVehicleItems && summary.vehicleQuoteStatus !== 'quoted') {
+          try {
+            console.log('[CART] Auto-requesting vehicle quote...');
+            const { error: quoteError } = await supabase.functions.invoke('mobile-request-quote', {
+              body: { locale: 'fr' }
+            });
+            if (quoteError) {
+              console.error('[CART] Auto-quote request failed:', quoteError);
+            } else {
+              console.log('[CART] Auto-quote request submitted successfully');
+            }
+          } catch (quoteErr) {
+            console.error('[CART] Auto-quote request error:', quoteErr);
+          }
+        }
       }
     } catch (error) {
       console.error('[CART] Failed to sync cart:', error);

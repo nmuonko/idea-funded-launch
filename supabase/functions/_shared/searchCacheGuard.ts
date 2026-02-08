@@ -3,7 +3,7 @@
  * and handles stale-while-revalidate / negative-cache logic.
  */
 
-import { VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS } from "./vehicleDetection.ts";
+
 import { postFilterItems } from "./sortFilterNormalizer.ts";
 import { scoreAndRankItems } from "./searchIntentScorer.ts";
 import type { SearchIntent } from "./vehicleDetection.ts";
@@ -136,17 +136,6 @@ export function filterCachedItems(
       console.log(`[CATALOG_SEARCH] requestId=${requestId} vehicle_cache_filter: ${before1} → ${result.length}`);
     }
 
-    const before2 = result.length;
-    result = result.filter((item: any) => {
-      const title = (item.title || "").toLowerCase();
-      return !VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw => title.includes(kw));
-    });
-    if (before2 !== result.length) {
-      console.log(JSON.stringify({
-        event: "[CATALOG_SEARCH] vehicle_post_filter",
-        before: before2, after: result.length, minPriceUsed: 1000, requestId,
-      }));
-    }
   }
 
   return result;

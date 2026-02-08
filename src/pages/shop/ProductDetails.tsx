@@ -120,18 +120,31 @@ export default function ProductDetailsPage() {
         if (!data?.item) throw new Error('Product not found');
 
         const item = data.item;
-        setProduct({
-          id: item.provider_product_id || item.id,
-          provider: item.provider || provider,
-          title: item.title || 'Product',
-          description: item.description,
-          images: item.images || item.imageUrls || (item.image_url ? [item.image_url] : ['/placeholder.svg']),
-          priceUsd: item.price_usd || item.priceUsd || 0,
-          rating: item.rating,
-          reviewCount: item.review_count || item.reviewCount,
-          inStock: item.in_stock !== false,
-          productUrl: item.product_url || item.productUrl,
-          brand: item.brand,
+        setProduct(prev => {
+          const newImages = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
+          
+          // Merge images: keep existing first, append new unique ones to avoid flicker
+          let mergedImages = newImages;
+          if (prev?.images?.length) {
+            const existingSet = new Set(prev.images);
+            const additional = newImages.filter((img: string) => !existingSet.has(img));
+            mergedImages = [...prev.images, ...additional];
+          }
+          if (mergedImages.length === 0) mergedImages = ['/placeholder.svg'];
+
+          return {
+            id: item.provider_product_id || item.id || prev?.id || '',
+            provider: item.provider || provider || prev?.provider || '',
+            title: item.title || prev?.title || 'Product',
+            description: item.description || prev?.description,
+            images: mergedImages,
+            priceUsd: item.price_usd || item.priceUsd || prev?.priceUsd || 0,
+            rating: item.rating ?? prev?.rating,
+            reviewCount: item.review_count || item.reviewCount || prev?.reviewCount,
+            inStock: item.in_stock !== false,
+            productUrl: item.product_url || item.productUrl || prev?.productUrl,
+            brand: item.brand || prev?.brand,
+          };
         });
 
         // Fetch similar products

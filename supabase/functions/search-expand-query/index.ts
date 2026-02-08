@@ -104,6 +104,7 @@ RULES:
 - Keep refined query SHORT (2-6 words) for best provider results
 - For phone brands (pixel, iphone, samsung, galaxy, xiaomi, etc.), add "phone" if no other product type specified
 - For vehicle brands (toyota, bmw, mercedes, etc.), keep as-is unless clearly about accessories
+- For vehicle brand+model queries (toyota prius, bmw x5, honda civic, ford f150, etc.), return the vehicle name as-is. Do NOT add "accessories", "parts", "case", "cover", "floor mats", or any product-type suffix. The user wants the vehicle itself.
 - Return 1-3 alternative queries that cover different search angles
 
 EXAMPLES:
@@ -115,7 +116,10 @@ EXAMPLES:
 - "coque samsung s24" → refined: "samsung galaxy s24 phone case"
 - "ps5" → refined: "playstation 5 console"
 - "frigo" → refined: "refrigerator"
-- "tracteur agricole" → refined: "farm tractor"`,
+- "tracteur agricole" → refined: "farm tractor"
+- "toyota prius" → refined: "toyota prius"
+- "2018 bmw x5" → refined: "2018 bmw x5"
+- "honda civic" → refined: "honda civic"`,
           },
           {
             role: "user",

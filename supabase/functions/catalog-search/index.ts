@@ -491,15 +491,27 @@ Deno.serve(async (req: Request) => {
     const aiRefineResult = await aiRefinePromise;
     const aiExpandedTerms = aiRefineResult?.expandedTerms || null;
     
-    // Use AI refined query as primary (unless it's a vehicle listing where refinement may hurt)
-    const skipAiExpand = false; // True proxy mode: always run AI refine for cleanup
-    if (!skipAiExpand && aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
-      qNorm = aiRefineResult.refined;
-      searchMeta.rewrittenQuery = aiRefineResult.refined;
-      searchMeta.rewriteApplied = true;
-    } else if (skipAiExpand && aiRefineResult?.refined) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_SKIPPED (${effectiveIntent.intentKey}): would have been "${aiRefineResult.refined}"`);
+    // Use AI refined query as primary, with vehicle poison safety check
+    const POISON_SUFFIXES = ["accessories", "parts", "floor mats", "car parts", "case", "cover", "phone", "charger", "floor mat"];
+    if (aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
+      // Safety: if original query is vehicle-like, block poisoned refinements
+      if (isVehicleLikeQueryGuardrail(qOriginal)) {
+        const addedWords = aiRefineResult.refined.toLowerCase().replace(qNorm.toLowerCase(), "").trim();
+        if (POISON_SUFFIXES.some(p => addedWords.includes(p))) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_BLOCKED_vehicle_poison: "${aiRefineResult.refined}" (added="${addedWords}")`);
+          // Do NOT apply the poisoned refinement — keep qNorm as-is
+        } else {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
+          qNorm = aiRefineResult.refined;
+          searchMeta.rewrittenQuery = aiRefineResult.refined;
+          searchMeta.rewriteApplied = true;
+        }
+      } else {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
+        qNorm = aiRefineResult.refined;
+        searchMeta.rewrittenQuery = aiRefineResult.refined;
+        searchMeta.rewriteApplied = true;
+      }
     }
 
     // ─── COMPUTE providerQuery — STRICT ENGLISH FOR PROVIDERS ─────────────────

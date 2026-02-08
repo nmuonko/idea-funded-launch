@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -31,13 +31,34 @@ interface ProductDetails {
 
 export default function ProductDetailsPage() {
   const { provider, id } = useParams<{ provider: string; id: string }>();
+  const location = useLocation();
   const { addItem } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
+
+  // Check for product data passed via navigation state (instant display)
+  const navProduct = (location.state as any)?.product;
   
-  const [product, setProduct] = useState<ProductDetails | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [product, setProduct] = useState<ProductDetails | null>(() => {
+    if (navProduct) {
+      return {
+        id: navProduct.id,
+        provider: navProduct.provider,
+        title: navProduct.title,
+        description: undefined,
+        images: navProduct.imageUrl ? [navProduct.imageUrl] : ['/placeholder.svg'],
+        priceUsd: navProduct.priceUsd || 0,
+        rating: navProduct.rating,
+        reviewCount: undefined,
+        inStock: true,
+        productUrl: navProduct.productUrl,
+        brand: undefined,
+      };
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(!navProduct);
   const [error, setError] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -50,7 +71,10 @@ export default function ProductDetailsPage() {
       if (!provider || !id) return;
       
       try {
-        setLoading(true);
+        // Only show loading spinner if we don't have nav state data
+        if (!navProduct) {
+          setLoading(true);
+        }
         setError(null);
 
         // Decode and normalize the product ID
@@ -70,21 +94,16 @@ export default function ProductDetailsPage() {
           cleanProductId = productIdDecoded.slice(11);
         }
         
-        // Normalize provider: rainforest -> amazon for the API call
-        // The backend accepts amazon/ebay only (rainforest is internal)
         const normalizedProvider = lowerProvider === 'rainforest' ? 'amazon' : lowerProvider;
         
-        // Build URL with separate provider and id params (recommended format)
         const apiUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
         apiUrl.searchParams.set('provider', normalizedProvider);
         apiUrl.searchParams.set('id', cleanProductId);
         
-        // Add amazon_domain for amazon products
         if (normalizedProvider === 'amazon') {
           apiUrl.searchParams.set('amazon_domain', 'amazon.com');
         }
         
-        // Use GET request with query params
         const response = await fetch(apiUrl.toString(), {
           headers: {
             'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -115,11 +134,10 @@ export default function ProductDetailsPage() {
           brand: item.brand,
         });
 
-        // Fetch similar products (in separate try/catch so it doesn't affect main product display)
+        // Fetch similar products
         if (item.title) {
           try {
             const keywords = item.title.split(' ').slice(0, 3).join(' ');
-            // Use cached fetch for similar products search
             const similarData = await cachedCatalogFetch<any>('catalog-search', {
               q: keywords.trim().toLowerCase(),
               limit: 5,
@@ -134,21 +152,23 @@ export default function ProductDetailsPage() {
                     id: i.provider_product_id || i.id,
                     provider: i.provider || 'amazon',
                     title: i.title || 'Product',
-                    imageUrl: i.image_url || '',
-                    priceUsd: i.price_usd || 0,
+                    imageUrl: i.imageUrl || i.image_url || i.mainImageUrl || '',
+                    priceUsd: i.priceUsd || i.price_usd || 0,
                     rating: i.rating,
-                    productUrl: i.product_url,
+                    productUrl: i.productUrl || i.product_url,
                   }))
               );
             }
           } catch (similarErr) {
-            // Don't fail the main product display if similar products fail
             console.warn('Failed to fetch similar products:', similarErr);
           }
         }
       } catch (err: any) {
         console.error('Failed to fetch product:', err);
-        setError(err.message || 'Failed to load product');
+        // Only set error if we don't already have nav state data displayed
+        if (!navProduct) {
+          setError(err.message || 'Failed to load product');
+        }
       } finally {
         setLoading(false);
       }

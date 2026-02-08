@@ -1,4 +1,4 @@
-import { Info } from 'lucide-react';
+import { Info, Car } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useShopCart } from '@/contexts/ShopCartContext';
@@ -21,12 +21,15 @@ export function PriceBreakdown({
   showDetails = true,
   serverTotal,
 }: PriceBreakdownProps) {
-  const { feeSettings } = useShopCart();
+  const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
   
   const subtotal = itemPriceUsd * quantity;
+  
+  // If cart has vehicles pending quote, mask shipping & markup
+  const vehiclePendingQuote = hasVehicleItems && vehicleQuoteStatus !== 'quoted';
   
   // Use canonical shipping formula: base + (subtotal * percent)
   const shippingFee = calculateShippingUsd(
@@ -54,53 +57,100 @@ export function PriceBreakdown({
             <span className="text-white/90">${subtotal.toFixed(2)}</span>
           </div>
 
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-white/60 flex items-center gap-1">
-              {shop.markupFee || 'Markup Fee'}
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3 w-3 text-white/40" />
-                </TooltipTrigger>
-                <TooltipContent className="bg-black/90 text-white border-white/10">
-                  <p>{shop.markupFeeTooltip || 'Personal shopping and procurement service'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </span>
-            <span className="text-white/90">${serviceFee.toFixed(2)}</span>
-          </div>
+          {vehiclePendingQuote ? (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-white/60 flex items-center gap-1">
+                  {shop.markupFee || 'Markup Fee'}
+                </span>
+                <span className="text-amber-400 text-xs italic">
+                  {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
+                </span>
+              </div>
 
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-white/60 flex items-center gap-1">
-              {shop.shippingFee || 'Shipping Fee'}
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3 w-3 text-white/40" />
-                </TooltipTrigger>
-                <TooltipContent className="bg-black/90 text-white border-white/10">
-                  <p>{shop.shippingFeeTooltip || 'International shipping and customs handling'}</p>
-                </TooltipContent>
-              </Tooltip>
-            </span>
-            <span className="text-white/90">${shippingFee.toFixed(2)}</span>
-          </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-white/60 flex items-center gap-1">
+                  {shop.shippingFee || 'Shipping Fee'}
+                </span>
+                <span className="text-amber-400 text-xs italic">
+                  {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-white/60 flex items-center gap-1">
+                  {shop.markupFee || 'Markup Fee'}
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 text-white/40" />
+                    </TooltipTrigger>
+                    <TooltipContent className="bg-black/90 text-white border-white/10">
+                      <p>{shop.markupFeeTooltip || 'Personal shopping and procurement service'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+                <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+              </div>
+
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-white/60 flex items-center gap-1">
+                  {shop.shippingFee || 'Shipping Fee'}
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 text-white/40" />
+                    </TooltipTrigger>
+                    <TooltipContent className="bg-black/90 text-white border-white/10">
+                      <p>{shop.shippingFeeTooltip || 'International shipping and customs handling'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </span>
+                <span className="text-white/90">${shippingFee.toFixed(2)}</span>
+              </div>
+            </>
+          )}
 
           <div className="border-t border-white/10 pt-3" />
         </>
       )}
 
-      <div className="flex items-center justify-between">
-        <span className="text-white font-medium">
-          {serverTotal != null ? (shop.total || 'Total') : (shop.estimatedTotal || 'Estimated Total')}
-        </span>
-        <span className="text-xl font-bold text-white">
-          ${(serverTotal != null ? serverTotal : total).toFixed(2)}
-        </span>
-      </div>
+      {vehiclePendingQuote ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-white font-medium">
+              {language === 'fr' ? 'Sous-total articles' : 'Item Subtotal'}
+            </span>
+            <span className="text-xl font-bold text-white">
+              ${subtotal.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-amber-400 text-xs">
+            <Car className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>
+              {language === 'fr' 
+                ? 'Le total final sera déterminé après le devis de livraison'
+                : 'Final total will be determined after shipping quote'}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <span className="text-white font-medium">
+              {serverTotal != null ? (shop.total || 'Total') : (shop.estimatedTotal || 'Estimated Total')}
+            </span>
+            <span className="text-xl font-bold text-white">
+              ${(serverTotal != null ? serverTotal : total).toFixed(2)}
+            </span>
+          </div>
 
-      {serverTotal == null && (
-        <p className="text-xs text-white/40">
-          {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
-        </p>
+          {serverTotal == null && (
+            <p className="text-xs text-white/40">
+              {shop.priceDisclaimer || 'Final price may vary based on item weight and destination'}
+            </p>
+          )}
+        </>
       )}
     </div>
   );

@@ -340,6 +340,8 @@ export default function HomeRecipes() {
                 fr={fr}
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
+                onRebuild={() => rebuild("mobile")}
+                rebuilding={rebuildingMobile}
               />
             ))}
           </div>
@@ -379,6 +381,8 @@ export default function HomeRecipes() {
                 highlight={i === 0}
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
+                onRebuild={() => rebuild("web")}
+                rebuilding={rebuildingWeb}
               />
             ))}
           </div>
@@ -460,12 +464,16 @@ function RecipeRow({
   highlight,
   onToggle,
   onEditSeeds,
+  onRebuild,
+  rebuilding,
 }: {
   recipe: Recipe;
   fr: boolean;
   highlight?: boolean;
   onToggle: () => void;
   onEditSeeds: () => void;
+  onRebuild?: () => void;
+  rebuilding?: boolean;
 }) {
   const title = (fr ? recipe.title_fr : recipe.title_en) || recipe.key;
 
@@ -485,6 +493,18 @@ function RecipeRow({
           </span>
         )}
       </div>
+      {onRebuild && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRebuild}
+          disabled={rebuilding}
+          className="gap-1"
+        >
+          {rebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          {fr ? "Reconstruire" : "Rebuild"}
+        </Button>
+      )}
       <Button variant="ghost" size="sm" onClick={onEditSeeds} className="gap-1">
         {fr ? "Requêtes" : "Seeds"}
         <ChevronRight className="h-4 w-4" />

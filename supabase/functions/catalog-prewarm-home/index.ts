@@ -25,12 +25,16 @@ const corsHeaders = {
 
 // Home sections to prewarm (aligned with catalog-home HOME_SECTIONS)
 const HOME_PREWARM_SECTIONS = [
+  { key: "homepage", categoryKey: "homepage" },
   { key: "phones", categoryKey: "electronics_phones" },
+  { key: "electronics", categoryKey: "electronics" },
   { key: "vehicles", categoryKey: "vehicles_cars_trucks" },
   { key: "gaming", categoryKey: "electronics_gaming" },
   { key: "computers", categoryKey: "electronics_computers" },
   { key: "clothing", categoryKey: "clothing_shoes_accessories" },
   { key: "home_garden", categoryKey: "home_garden" },
+  { key: "sporting_goods", categoryKey: "sporting_goods" },
+  { key: "toys", categoryKey: "toys" },
   { key: "refurbished", categoryKey: "refurbished" },
   { key: "parts_accessories", categoryKey: "parts_accessories" },
 ];

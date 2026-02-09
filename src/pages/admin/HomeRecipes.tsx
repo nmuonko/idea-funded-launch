@@ -247,20 +247,24 @@ export default function HomeRecipes() {
 
   // ─── REBUILD ────────────────────────────────────────────────────────────────
 
-  const rebuild = async (target: "mobile" | "web") => {
+  const rebuild = async (target: "mobile" | "web", recipeKey?: string) => {
     const setRebuilding = target === "mobile" ? setRebuildingMobile : setRebuildingWeb;
     setRebuilding(true);
     try {
+      const body: Record<string, unknown> = { target, env: "production" };
+      if (recipeKey) body.recipeKey = recipeKey;
       const res = await supabase.functions.invoke("admin-rebuild-home", {
         method: "POST",
-        body: { target, env: "production" },
+        body,
         headers: { Authorization: `Bearer ${session?.access_token}` },
       });
       if (res.error) throw res.error;
       const d = res.data;
       toast({
         title: fr ? "✓ Reconstruit!" : "✓ Rebuilt!",
-        description: `${d.itemCount} items, ${d.sectionCount} ${target === "mobile" ? "sections" : "pages"}, ${d.durationMs}ms`,
+        description: recipeKey 
+          ? `${d.itemCount} items for ${recipeKey}, ${d.durationMs}ms`
+          : `${d.itemCount} items, ${d.sectionCount} ${target === "mobile" ? "sections" : "pages"}, ${d.durationMs}ms`,
       });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || String(err), variant: "destructive" });
@@ -438,7 +442,7 @@ export default function HomeRecipes() {
                 fr={fr}
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
-                onRebuild={() => rebuild("mobile")}
+                onRebuild={() => rebuild("mobile", recipe.key)}
                 rebuilding={rebuildingMobile}
                 onPublish={() => handlePublishNow(recipe.key)}
                 publishingThis={publishingSection === recipe.key}
@@ -481,7 +485,7 @@ export default function HomeRecipes() {
                 highlight={i === 0}
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
-                onRebuild={() => rebuild("web")}
+                onRebuild={() => rebuild("web", recipe.key)}
                 rebuilding={rebuildingWeb}
                 onPublish={() => handlePublishNow(recipe.key)}
                 publishingThis={publishingSection === recipe.key}

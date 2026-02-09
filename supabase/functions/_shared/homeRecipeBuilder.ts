@@ -320,12 +320,20 @@ async function fetchItemsForRecipe(
 
 const MOBILE_ITEMS_PER_SECTION = 30; // cache up to 30, serve 20
 
-export async function buildMobileHomepage(env: string): Promise<BuildResult> {
+export async function buildMobileHomepage(env: string, recipeKey?: string | null): Promise<BuildResult> {
   const startMs = Date.now();
-  const recipes = await loadRecipes("mobile");
+  let recipes = await loadRecipes("mobile");
   const settings = await loadRefreshSettings(env);
   const ebayToken = await getEbayToken();
   const ttlSeconds = settings.mobile_refresh_hours * 3600;
+
+  // If recipeKey specified, we rebuild only that section but merge into existing cache
+  let existingPayload: Record<string, unknown> | null = null;
+  if (recipeKey) {
+    const cached = await readMobileCache(env);
+    existingPayload = cached.payload;
+    recipes = recipes.filter(r => r.key === recipeKey);
+  }
 
   const sections: Array<Record<string, unknown>> = [];
   let totalItems = 0;
@@ -348,9 +356,26 @@ export async function buildMobileHomepage(env: string): Promise<BuildResult> {
     totalItems += items.length;
   }
 
+  // Merge with existing cache if single-section rebuild
+  let finalSections = sections;
+  if (recipeKey && existingPayload) {
+    const existingSections = (existingPayload as Record<string, unknown>).sections as Array<Record<string, unknown>> || [];
+    finalSections = existingSections.map(s => {
+      const rebuilt = sections.find(ns => ns.key === s.key);
+      return rebuilt || s;
+    });
+    // Add if new section not in existing
+    for (const s of sections) {
+      if (!finalSections.find(es => es.key === s.key)) {
+        finalSections.push(s);
+      }
+    }
+    totalItems = finalSections.reduce((sum, s) => sum + ((s.items as unknown[])?.length || 0), 0);
+  }
+
   const payload = {
     ok: true,
-    sections,
+    sections: finalSections,
     page: 1,
     pageSize: 20,
     totalPages: 1,
@@ -364,14 +389,15 @@ export async function buildMobileHomepage(env: string): Promise<BuildResult> {
       envUsed: env,
       schemaVersion: settings.mobile_schema_version,
       ttlSeconds,
-      sectionCount: sections.length,
+      sectionCount: finalSections.length,
+      rebuiltSection: recipeKey || undefined,
     },
   };
 
   return {
     payload,
     itemCount: totalItems,
-    sectionCount: sections.length,
+    sectionCount: finalSections.length,
     durationMs: Date.now() - startMs,
   };
 }
@@ -380,15 +406,23 @@ export async function buildMobileHomepage(env: string): Promise<BuildResult> {
 
 const WEB_ITEMS_PER_PAGE = 100;
 
-export async function buildWebHomepage(env: string): Promise<BuildResult> {
+export async function buildWebHomepage(env: string, recipeKey?: string | null): Promise<BuildResult> {
   const startMs = Date.now();
-  const recipes = await loadRecipes("web");
+  let recipes = await loadRecipes("web");
   const settings = await loadRefreshSettings(env);
   const ebayToken = await getEbayToken();
   const ttlSeconds = settings.web_refresh_hours * 3600;
 
-  // Build all page items
-  const allItems: RecipeItem[] = [];
+  // If recipeKey specified, rebuild only that recipe's items then merge into existing cache
+  let existingPayload: Record<string, unknown> | null = null;
+  if (recipeKey) {
+    const cached = await readWebCache(env);
+    existingPayload = cached.payload;
+    recipes = recipes.filter(r => r.key === recipeKey);
+  }
+
+  // Build items from selected recipes
+  const newItems: RecipeItem[] = [];
   const usedIds = new Set<string>();
 
   for (const recipe of recipes) {
@@ -398,15 +432,35 @@ export async function buildWebHomepage(env: string): Promise<BuildResult> {
     for (const item of items) {
       if (!usedIds.has(item.id)) {
         usedIds.add(item.id);
-        allItems.push(item);
+        newItems.push(item);
       }
+    }
+  }
+
+  // Merge: if single-recipe rebuild, replace only that recipe's items in existing pool
+  let allItems = newItems;
+  if (recipeKey && existingPayload) {
+    const existingItems = ((existingPayload as Record<string, unknown>).items as RecipeItem[]) || [];
+    // Get all recipes for web to know which recipe each seed query belongs to
+    const allWebRecipes = await loadRecipes("web");
+    const targetRecipe = allWebRecipes.find(r => r.key === recipeKey);
+    
+    if (targetRecipe) {
+      const targetSeeds = await loadSeedsForRecipe(targetRecipe.id);
+      const targetQueries = new Set(targetSeeds.map(s => s.query.toLowerCase()));
+      
+      // Keep existing items that don't match the rebuilt recipe's seed queries
+      // Simple approach: remove items whose IDs are in the new set, then add new items
+      const newIdSet = new Set(newItems.map(i => i.id));
+      const kept = existingItems.filter(i => !newIdSet.has(i.id));
+      allItems = [...kept, ...newItems];
     }
   }
 
   const payload = {
     ok: true,
     totalPool: allItems.length,
-    items: allItems, // Full 1000-item pool
+    items: allItems,
     pageSize: WEB_ITEMS_PER_PAGE,
     totalPages: Math.ceil(allItems.length / WEB_ITEMS_PER_PAGE) || 1,
     ttlSeconds,
@@ -416,6 +470,7 @@ export async function buildWebHomepage(env: string): Promise<BuildResult> {
       envUsed: env,
       schemaVersion: settings.web_schema_version,
       ttlSeconds,
+      rebuiltSection: recipeKey || undefined,
     },
   };
 

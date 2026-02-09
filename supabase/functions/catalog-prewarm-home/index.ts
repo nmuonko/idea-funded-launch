@@ -190,9 +190,9 @@ Deno.serve(async (req: Request) => {
     const workerUrl = `${supabaseUrl}/functions/v1/catalog-prewarm-worker`;
     const workerBody: Record<string, unknown> = { jobId: job.id };
     
-    // For single-section jobs, pass sectionIndex and signal it's a single-section job
-    if (sectionIndex !== undefined) {
-      workerBody.sectionIndex = sectionIndex;
+    // For single-section jobs, pass sectionKey so worker finds it by key (not positional index)
+    if (sectionKey) {
+      workerBody.sectionKey = sectionKey;
       workerBody.singleSection = true;
     }
     

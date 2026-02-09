@@ -131,7 +131,7 @@ const AMAZON_DEFAULT_QUERIES: Record<string, string> = {
   vehicles_rvs_campers: "rv",
   vehicles_trailers_other: "trailer",
   vehicles_classic_cars: "classic car",
-  home_garden: "sofa",
+  home_garden: "living room furniture set dining room table kitchen appliances",
   clothing_shoes_accessories: "shoes",
   clothing_men: "men clothing",
   clothing_women: "women clothing",

@@ -38,28 +38,8 @@ export default function ProductDetailsPage() {
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
-  // Check for product data passed via navigation state (instant display)
-  const navProduct = (location.state as any)?.product;
-  
-  const [product, setProduct] = useState<ProductDetails | null>(() => {
-    if (navProduct) {
-      return {
-        id: navProduct.id,
-        provider: navProduct.provider,
-        title: navProduct.title,
-        description: undefined,
-        images: navProduct.imageUrl ? [navProduct.imageUrl] : ['/placeholder.svg'],
-        priceUsd: navProduct.priceUsd || 0,
-        rating: navProduct.rating,
-        reviewCount: undefined,
-        inStock: true,
-        productUrl: navProduct.productUrl,
-        brand: undefined,
-      };
-    }
-    return null;
-  });
-  const [loading, setLoading] = useState(!navProduct);
+  const [product, setProduct] = useState<ProductDetails | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -68,15 +48,36 @@ export default function ProductDetailsPage() {
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
+  // Reset ALL state when route params change (fixes similar product image merge bug)
+  useEffect(() => {
+    const nav = (location.state as any)?.product;
+    setProduct(nav ? {
+      id: nav.id,
+      provider: nav.provider,
+      title: nav.title,
+      description: undefined,
+      images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
+      priceUsd: nav.priceUsd || 0,
+      rating: nav.rating,
+      reviewCount: undefined,
+      inStock: true,
+      productUrl: nav.productUrl,
+      brand: undefined,
+    } : null);
+    setCurrentImageIndex(0);
+    setSimilarProducts([]);
+    setQuantity(1);
+    setAdded(false);
+    setLoading(!nav);
+    setError(null);
+    setLightboxOpen(false);
+  }, [provider, id]);
+
   useEffect(() => {
     const fetchProduct = async () => {
       if (!provider || !id) return;
       
       try {
-        // Only show loading spinner if we don't have nav state data
-        if (!navProduct) {
-          setLoading(true);
-        }
         setError(null);
 
         // Decode and normalize the product ID
@@ -125,9 +126,10 @@ export default function ProductDetailsPage() {
         setProduct(prev => {
           const newImages = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
           
-          // Merge images: keep existing first, append new unique ones to avoid flicker
+          // Only merge images if enriching the SAME product; otherwise fully replace
           let mergedImages = newImages;
-          if (prev?.images?.length) {
+          const fetchedId = item.provider_product_id || item.id;
+          if (prev?.id && (prev.id === fetchedId)) {
             const existingSet = new Set(prev.images);
             const additional = newImages.filter((img: string) => !existingSet.has(img));
             mergedImages = [...prev.images, ...additional];
@@ -151,8 +153,7 @@ export default function ProductDetailsPage() {
 
       } catch (err: any) {
         console.error('Failed to fetch product:', err);
-        // Only set error if we don't already have nav state data displayed
-        if (!navProduct) {
+        if (!product) {
           setError(err.message || 'Failed to load product');
         }
       } finally {
@@ -163,9 +164,9 @@ export default function ProductDetailsPage() {
     fetchProduct();
   }, [provider, id]);
 
-  // Fetch similar products in PARALLEL - starts immediately using nav title
+  // Fetch similar products in PARALLEL
   useEffect(() => {
-    const title = navProduct?.title || product?.title;
+    const title = product?.title;
     if (!title || !provider || !id) return;
 
     const fetchSimilar = async () => {
@@ -177,7 +178,7 @@ export default function ProductDetailsPage() {
         });
         
         if (similarData?.items) {
-          const currentId = navProduct?.id || product?.id || id;
+          const currentId = product?.id || id;
           setSimilarProducts(
             similarData.items
               .filter((i: any) => (i.provider_product_id || i.id) !== currentId)

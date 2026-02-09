@@ -350,8 +350,15 @@ function buildSearchUrl(params: EbaySearchParams, offset: number): string {
   // Build filter string
   let filters: string[] = [];
   
-  // Buy It Now only (FIXED_PRICE) - exclude auctions
-  filters.push("buyingOptions:{FIXED_PRICE}");
+  // Vehicle listing categories (6001, 6024, etc.) should NOT be restricted to FIXED_PRICE
+  // because most vehicle listings on eBay are auction or best-offer format
+  const VEHICLE_LISTING_CAT_IDS = new Set(["6001", "6024", "6723", "6000"]);
+  const isVehicleListingCategory = params.categoryId && VEHICLE_LISTING_CAT_IDS.has(params.categoryId);
+  
+  if (!isVehicleListingCategory) {
+    // Buy It Now only (FIXED_PRICE) - exclude auctions for non-vehicle categories
+    filters.push("buyingOptions:{FIXED_PRICE}");
+  }
   
   // Price filter from minPrice param (legacy support)
   if (params.minPrice !== undefined && params.minPrice > 0 && !params.filters?.minPrice) {

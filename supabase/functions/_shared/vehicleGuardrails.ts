@@ -97,9 +97,11 @@ const VEHICLE_PARTS_DROP: string[] = [
   "tie rod","ball joint","sway bar","stabilizer",
   // Accessories
   "charger","cable","phone mount","cup holder","sun shade","sunshade",
-  "cargo liner","trunk mat","mud flap","mud guard","antenna","roof rack",
+  "cargo liner","cargo mat","cargo tray","trunk mat","trunk liner",
+  "mud flap","mud guard","antenna","roof rack",
   "tow hitch","trailer hitch","bike rack","car cover",
   "radio","stereo","carplay","camera","backup camera",
+  "weather mat","all weather mat","floor tray","cargo net","trunk organizer",
   // Non-vehicle merchandise
   "jersey","pennant","flag","poster","sticker","decal","emblem","patch",
   "collectible","memorabilia","diecast","die cast","model car","toy car",

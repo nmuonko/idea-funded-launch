@@ -89,11 +89,21 @@ const VEHICLE_PARTS_DROP: string[] = [
   "radiator","thermostat","water pump","fuel pump","timing belt","timing chain",
   "catalytic converter","exhaust","muffler","starter","ignition","distributor",
   "throttle","carburetor","turbo","intercooler","compressor",
+  "washer bottle","washer tank","washer reservoir","washer pump",
+  "windshield washer","sun visor","visor","glove box","door panel",
+  "owners manual","owner manual","service manual","repair manual",
+  "fender","fender liner","splash guard","wheel well",
+  "door handle","window regulator","window motor","control arm",
+  "tie rod","ball joint","sway bar","stabilizer",
   // Accessories
   "charger","cable","phone mount","cup holder","sun shade","sunshade",
   "cargo liner","trunk mat","mud flap","mud guard","antenna","roof rack",
   "tow hitch","trailer hitch","bike rack","car cover",
   "radio","stereo","carplay","camera","backup camera",
+  // Non-vehicle merchandise
+  "jersey","pennant","flag","poster","sticker","decal","emblem","patch",
+  "collectible","memorabilia","diecast","die cast","model car","toy car",
+  "keychain","lanyard","license plate frame",
   // French
   "huile","pneu","pneus","jante","jantes","batterie","alternateur",
   "injecteur","pompe","joint","amortisseur","plaquette","filtre",

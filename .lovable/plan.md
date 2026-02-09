@@ -1,34 +1,72 @@
 
 
-# Fix: Keep "Rechercher" Button Visible + Strengthen Vehicle Filter
+# Fix: Vehicles Tab Must Return Only Real Vehicle Listings
 
-## Issue 1: "Rechercher" Button Disappears When Typing
+## Problem
+When users click the Vehicles tab (`category=vehicles`), the system still shows parts, owners manuals, emblems, and accessories. Three root causes:
 
-**Current behavior:** In `SearchBar.tsx` (lines 111-129), there's a conditional: if `query` has text, show an X (clear) button; otherwise show the "Rechercher" submit button. So the moment you type, the search button vanishes.
+1. **No intent override for category=vehicles**: The `effectiveIntent` is determined by query text analysis, not by the category tab. The default query `"used car truck sedan SUV"` may not trigger `vehicle_listing` intent consistently.
+2. **eBay fetches from category 6000 (eBay Motors root)** which includes Parts & Accessories subcategories.
+3. **Guardrails only trigger if `isVehicleLikeQueryGuardrail()` matches** the query -- and even then, Tier 3 fallback can reintroduce parts when filtered count is very low.
 
-**Fix:** Show BOTH the X clear button AND the "Rechercher" submit button when the user has typed text. Adjust padding so they don't overlap.
+## Changes (Backend Only)
 
-**File:** `src/components/shop/SearchBar.tsx`
-- Remove the either/or conditional (`query ? ... : ...`)
-- Always render the "Rechercher" submit button on the right
-- When `query` is non-empty, also render a small X button just left of it
-- Adjust input right padding from `pr-12` to `pr-28` to make room for both buttons
+### 1. Force vehicle_listing intent when category=vehicles
+**File:** `supabase/functions/catalog-search/index.ts` (~line 413)
 
-## Issue 2: Vehicle Filter Still Showing Parts/Accessories
+After `effectiveIntent` is computed, override it when `categoryKey === "vehicles"`:
+```typescript
+// Force vehicle_listing intent when Vehicles tab is active
+if (categoryKey === "vehicles" || categoryKey === "vehicles_cars_trucks" || categoryKey === "vehicles_motorcycles") {
+  effectiveIntent = { ...effectiveIntent, intentKey: "vehicle_listing", vehicleListingIntent: true };
+  hasBuyingIntent = true;
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED vehicle_listing intent via category=${categoryKey}`);
+}
+```
+This requires changing `effectiveIntent` from `const` to `let`.
 
-**Root cause:** The guardrails have 3 tiers, and **Tier 3 (fallback)** returns the completely unfiltered list -- including all parts. Even with `MIN_FILTERED = 5`, if fewer than 5 real vehicles are found by strict AND relaxed tiers, the fallback dumps everything back in.
+### 2. eBay fetcher: use listing-only categories for vehicles tab
+**File:** `supabase/functions/_shared/ebayFetcher.ts` (~line 48)
 
-**Fix:** Make Tier 3 (fallback) also filter out parts/accessories instead of returning the raw unfiltered list. This way even in fallback mode, parts like "floor mats", "window tint", "washer bottle" are still removed.
+Update `CATEGORY_MAPPING` to point `vehicles` at `6001` (Cars & Trucks) instead of `6000` (eBay Motors root which includes parts):
+```typescript
+vehicles: "6001",  // Cars & Trucks listings only (was 6000 which includes parts)
+```
 
+Also add dual-fetch logic: when `categoryKey === "vehicles"` and the query contains motorcycle signals, fetch both 6001 and 6024 in parallel, then merge.
+
+### 3. Add hardMode to vehicle guardrails
 **File:** `supabase/functions/_shared/vehicleGuardrails.ts`
-- In the Tier 3 fallback block (lines 247-254), filter `fallbackItems` through `isPartAccessory()` to drop obvious parts
-- If filtering leaves zero results, then return the original fallback (safety net)
-- This ensures the user never sees parts mixed in with vehicles
+
+Add a `hardMode` option parameter:
+- In `hardMode`, Tier 3 fallback NEVER returns unfiltered items -- it returns the best filtered set even if small
+- If absolutely 0 items remain after parts drop, relax signal requirements but KEEP parts drop active
+- Update `applyVehicleGuardrails` signature to accept `{ hardMode?: boolean }`
+
+### 4. Call guardrails in hardMode for vehicles tab
+**File:** `supabase/functions/catalog-search/index.ts` (~line 852)
+
+When `categoryKey === "vehicles"`, always run guardrails in hardMode regardless of query detection:
+```typescript
+const isVehiclesTab = categoryKey === "vehicles" || categoryKey === "vehicles_cars_trucks" || categoryKey === "vehicles_motorcycles";
+const vehicleGuardrailActive = isVehiclesTab || isVehicleLikeQueryGuardrail(providerQuery);
+if (vehicleGuardrailActive) {
+  const guardrailResult = applyVehicleGuardrails(finalItems, providerQuery, filteredFinalItems, { hardMode: isVehiclesTab });
+  finalItems = guardrailResult.items as typeof finalItems;
+}
+```
+
+### 5. Bump cache version
+**File:** `supabase/functions/_shared/catalogCache.ts` (line 15)
+
+Change `AMAZON_CACHE_VERSION` from `"v15"` to `"v16"` to flush old vehicle tab results that contain parts.
 
 ## Summary
 
 | File | Change |
 |------|--------|
-| `src/components/shop/SearchBar.tsx` | Show both X clear button and "Rechercher" submit button simultaneously when user has typed text |
-| `supabase/functions/_shared/vehicleGuardrails.ts` | Make Tier 3 fallback also drop parts/accessories instead of returning raw unfiltered results |
+| `catalog-search/index.ts` | Force `vehicle_listing` intent + `hasBuyingIntent` when `categoryKey=vehicles`; always run guardrails in `hardMode` for vehicles tab |
+| `_shared/ebayFetcher.ts` | Change vehicles mapping from `6000` to `6001`; add dual-fetch (6001+6024) for motorcycle queries |
+| `_shared/vehicleGuardrails.ts` | Add `hardMode` option: Tier 3 keeps parts drop active, never returns raw unfiltered list |
+| `_shared/catalogCache.ts` | Bump cache version to `v16` |
 

@@ -238,21 +238,45 @@ serve(async (req) => {
       },
     });
 
-    // Send verification email using magiclink type
-    if (authData?.user) {
-      const { data: linkData, error: emailError } = await supabaseAdmin.auth.admin.generateLink({
-        type: 'magiclink',
-        email: email.trim(),
-        options: {
-          redirectTo: `${frontendBaseUrl}/email-confirmed`,
-        },
-      });
+    if (authError) {
+      console.error('[auth-register] Auth error:', authError.message);
       
-      if (emailError) {
-        console.warn('[auth-register] Failed to generate verification link:', emailError.message);
-      } else if (linkData?.properties?.action_link) {
-        // Send the verification email via Resend
-        try {
+      // Handle specific error cases
+      if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+        return new Response(
+          JSON.stringify({ 
+            ok: false,
+            message: 'This email is already registered. Please sign in instead.',
+            code: 'USER_EXISTS',
+          }),
+          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.error('[auth-register] Unhandled auth error details:', authError);
+      return new Response(
+        JSON.stringify({ 
+          ok: false, 
+          message: 'We could not create your account. Please check your information and try again.',
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // User created successfully - now send verification email (non-blocking)
+    if (authData?.user) {
+      try {
+        const { data: linkData, error: emailError } = await supabaseAdmin.auth.admin.generateLink({
+          type: 'magiclink',
+          email: email.trim(),
+          options: {
+            redirectTo: `${frontendBaseUrl}/email-confirmed`,
+          },
+        });
+        
+        if (emailError) {
+          console.warn('[auth-register] Failed to generate verification link:', emailError.message);
+        } else if (linkData?.properties?.action_link) {
           const resend = new Resend(Deno.env.get('RESEND_API_KEY'));
           const verificationLink = linkData.properties.action_link;
           const isFrench = req.headers.get('Accept-Language')?.includes('fr');
@@ -309,36 +333,10 @@ serve(async (req) => {
           } else {
             console.log('[auth-register] Verification email sent to:', email);
           }
-        } catch (resendErr: any) {
-          console.error('[auth-register] Failed to send verification email:', resendErr.message);
         }
+      } catch (resendErr: any) {
+        console.error('[auth-register] Failed to send verification email (non-blocking):', resendErr.message);
       }
-    }
-
-    if (authError) {
-      console.error('[auth-register] Auth error:', authError.message);
-      
-      // Handle specific error cases
-      if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
-        return new Response(
-          JSON.stringify({ 
-            ok: false,
-            message: 'This email is already registered. Please sign in instead.',
-            code: 'USER_EXISTS',
-          }),
-          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
-      // For other auth errors, return a generic message but log the actual error
-      console.error('[auth-register] Unhandled auth error details:', authError);
-      return new Response(
-        JSON.stringify({ 
-          ok: false, 
-          message: 'We could not create your account. Please check your information and try again.',
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
     }
 
     const userId = authData.user.id;

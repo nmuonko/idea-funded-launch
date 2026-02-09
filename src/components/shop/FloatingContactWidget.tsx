@@ -1,4 +1,5 @@
  import { useState, useEffect, useRef } from 'react';
+ import { useLocation } from 'react-router-dom';
  import { motion, AnimatePresence } from 'framer-motion';
  import { MessageCircle, X, Send, Loader2, User, Headphones } from 'lucide-react';
  import { useSupportChat } from '@/contexts/SupportChatContext';
@@ -61,6 +62,7 @@
  };
  
  export function FloatingContactWidget() {
+   const location = useLocation();
    const { isOpen, toggleChat } = useSupportChat();
    const [messages, setMessages] = useState<Message[]>([]);
    const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -70,9 +72,11 @@
    const messagesEndRef = useRef<HTMLDivElement>(null);
    const { user } = useAuth();
    const { language } = useLanguage();
- 
+
    const t = translations[language as keyof typeof translations] || translations.en;
- 
+
+   const isAdminRoute = location.pathname.startsWith('/admin');
+
    const scrollToBottom = () => {
      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
    };
@@ -220,6 +224,8 @@
      }
    };
  
+   if (isAdminRoute) return null;
+
    return (
      <div className="fixed bottom-20 right-4 z-40 md:bottom-6 md:right-6">
        <AnimatePresence>

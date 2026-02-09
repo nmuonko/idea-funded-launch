@@ -9,9 +9,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertCircle, Mail, Lock, Globe } from 'lucide-react';
+import { Loader2, AlertCircle, Mail, Lock, Globe, MapPin } from 'lucide-react';
 import { LanguageDropdown } from '@/components/support/LanguageDropdown';
+
+const DRC_PROVINCES = [
+  'Kinshasa', 'Kongo-Central', 'Kwango', 'Kwilu', 'Mai-Ndombe',
+  'Équateur', 'Mongala', 'Nord-Ubangi', 'Sud-Ubangi', 'Tshuapa',
+  'Tshopo', 'Bas-Uélé', 'Haut-Uélé', 'Ituri', 'Nord-Kivu',
+  'Sud-Kivu', 'Maniema', 'Haut-Katanga', 'Haut-Lomami', 'Lualaba',
+  'Tanganika', 'Lomami', 'Kasaï-Oriental', 'Sankuru', 'Kasaï',
+  'Kasaï-Central',
+];
 
 export default function Profile() {
   const { user, profile, setProfile, loadProfile } = useAuth();
@@ -21,6 +31,11 @@ export default function Profile() {
   const [sendingVerification, setSendingVerification] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
+  const [city, setCity] = useState('');
+  const [stateProvince, setStateProvince] = useState('');
+  const [country, setCountry] = useState('DR Congo');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
@@ -35,6 +50,11 @@ export default function Profile() {
     if (profile) {
       setName(profile.full_name || profile.name || '');
       setPhone(profile.phone || '');
+      setAddressLine1((profile as any).address_line1 || '');
+      setAddressLine2((profile as any).address_line2 || '');
+      setCity((profile as any).city || '');
+      setStateProvince((profile as any).state_province || '');
+      setCountry((profile as any).country || 'DR Congo');
     } else {
       // Load profile if not in context
       loadProfile(user.id).then((loadedProfile) => {
@@ -139,6 +159,11 @@ export default function Profile() {
         name,
         full_name: name,
         phone,
+        address_line1: addressLine1 || null,
+        address_line2: addressLine2 || null,
+        city: city || null,
+        state_province: stateProvince || null,
+        country: country || 'DR Congo',
         updated_at: new Date().toISOString(),
       };
 
@@ -272,6 +297,71 @@ export default function Profile() {
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="Enter your phone number"
                 />
+              </div>
+
+              <Separator className="my-6" />
+
+              {/* Address Section */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-primary" />
+                  <h3 className="text-lg font-semibold">Shipping Address</h3>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="addressLine1">Address Line 1</Label>
+                  <Input
+                    id="addressLine1"
+                    value={addressLine1}
+                    onChange={(e) => setAddressLine1(e.target.value)}
+                    placeholder="Street address"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="addressLine2">Address Line 2 (Optional)</Label>
+                  <Input
+                    id="addressLine2"
+                    value={addressLine2}
+                    onChange={(e) => setAddressLine2(e.target.value)}
+                    placeholder="Apartment, suite, etc."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="City"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="stateProvince">Province</Label>
+                    <Select value={stateProvince} onValueChange={setStateProvince}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select province" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DRC_PROVINCES.map((prov) => (
+                          <SelectItem key={prov} value={prov}>{prov}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="country">Country</Label>
+                  <Input
+                    id="country"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    placeholder="Country"
+                  />
+                </div>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>

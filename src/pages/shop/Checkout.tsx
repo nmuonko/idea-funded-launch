@@ -101,7 +101,7 @@ export default function Checkout() {
 
   // Check if user has a saved address
   const hasSavedAddress = useMemo(() => {
-    return !!(address.fullName && address.addressLine1 && address.city && address.country);
+    return !!(address.fullName && address.country);
   }, [address]);
 
   const handleInputChange = (field: keyof ShippingAddress, value: string) => {

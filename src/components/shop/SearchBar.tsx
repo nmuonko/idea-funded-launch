@@ -106,19 +106,8 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
           onFocus={() => setShowRecent(true)}
           placeholder={shop.searchPlaceholder}
           autoFocus={autoFocus}
-          className="w-full pl-12 pr-28 h-11 md:h-12 bg-white/10 border-2 border-blue-500/30 text-white placeholder:text-white/50 rounded-full focus:bg-white/15 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all text-sm md:text-base font-medium"
+          className="w-full pl-12 pr-24 h-11 md:h-12 bg-white/10 border-2 border-blue-500/30 text-white placeholder:text-white/50 rounded-full focus:bg-white/15 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 transition-all text-sm md:text-base font-medium"
         />
-        {query && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setQuery('')}
-            className="absolute right-[4.5rem] md:right-[5.5rem] top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-white/40 hover:text-white hover:bg-white/10 rounded-full"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
         <Button
           type="submit"
           size="sm"

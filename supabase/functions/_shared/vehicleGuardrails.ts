@@ -186,7 +186,7 @@ export interface GuardrailResult {
   reason: string;
 }
 
-const MIN_FILTERED = 20;
+const MIN_FILTERED = 5;
 
 /**
  * Apply vehicle guardrails with 3-tier safe fallback.

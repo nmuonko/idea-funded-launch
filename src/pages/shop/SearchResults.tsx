@@ -55,7 +55,7 @@ export default function SearchResults() {
   const DEFAULT_CATEGORY_QUERIES: Record<string, string> = {
     gaming: 'video game console',
     electronics: 'iphone',
-    vehicles: 'cars trucks SUV',
+    vehicles: 'used car truck sedan SUV',
     home: 'sofa furniture',
     fashion: 'shoes clothing',
     toys: 'lego toys',
@@ -82,6 +82,12 @@ export default function SearchResults() {
     const filters: Record<string, number> = {};
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
     if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+
+    // Vehicles category: enforce $1,500 minimum price to filter out parts/accessories
+    if (category === 'vehicles') {
+      filters.minPrice = Math.max(filters.minPrice || 0, 1500);
+    }
+
     if (Object.keys(filters).length > 0) {
       params.filters = JSON.stringify(filters);
     }

@@ -208,6 +208,7 @@ export function applyVehicleGuardrails(
   items: unknown[],
   query: string,
   unfilteredItems?: unknown[],
+  options?: { hardMode?: boolean },
 ): GuardrailResult {
   if (items.length === 0) {
     return { items, mode: "skipped", dropped: 0, reason: "empty_input" };
@@ -254,9 +255,32 @@ export function applyVehicleGuardrails(
     };
   }
 
-  // Tier 3: Fallback — return list with parts/accessories still filtered out
+  // Tier 3: Fallback
+  const hardMode = options?.hardMode ?? false;
   const fallbackItems = unfilteredItems && unfilteredItems.length > 0 ? unfilteredItems : items;
   const cleanFallback = fallbackItems.filter(item => !isPartAccessory(getTitle(item)));
+
+  if (hardMode) {
+    // In hardMode: NEVER return unfiltered items. If cleanFallback is empty,
+    // relax signal requirement but KEEP parts drop active.
+    if (cleanFallback.length > 0) {
+      return {
+        items: cleanFallback,
+        mode: "fallback",
+        dropped: fallbackItems.length - cleanFallback.length,
+        reason: `hardMode_fallback_clean(strict=${strict.length},relaxed=${relaxed.length},clean=${cleanFallback.length},original=${fallbackItems.length})`,
+      };
+    }
+    // Absolutely 0 after parts drop — return empty rather than reintroduce parts
+    return {
+      items: [],
+      mode: "fallback",
+      dropped: fallbackItems.length,
+      reason: `hardMode_fallback_empty(strict=${strict.length},relaxed=${relaxed.length},clean=0,original=${fallbackItems.length})`,
+    };
+  }
+
+  // Normal mode: return clean fallback, or original if clean is empty
   const finalFallback = cleanFallback.length > 0 ? cleanFallback : fallbackItems;
   return {
     items: finalFallback,

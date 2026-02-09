@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle } from 'lucide-react';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
 import { CartDrawer } from './CartDrawer';
@@ -139,6 +139,14 @@ export function ShopHeader() {
                       >
                         <Package className="h-4 w-4" />
                         {shop.myOrders}
+                      </Link>
+                      <Link
+                        to="/saved"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                      >
+                        <Heart className="h-4 w-4" />
+                        {shop.savedTab || 'Favorites'}
                       </Link>
                       <Link
                         to="/support"

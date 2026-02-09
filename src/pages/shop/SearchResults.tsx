@@ -83,10 +83,8 @@ export default function SearchResults() {
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
     if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
 
-    // Vehicles category: enforce $1,500 minimum price to filter out parts/accessories
-    if (category === 'vehicles') {
-      filters.minPrice = Math.max(filters.minPrice || 0, 1500);
-    }
+
+
 
     if (Object.keys(filters).length > 0) {
       params.filters = JSON.stringify(filters);

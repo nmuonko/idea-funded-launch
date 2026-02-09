@@ -45,7 +45,7 @@ const CATEGORY_MAPPING: Record<string, string> = {
   electronics_audio: "3253",
   clothing_shoes_accessories: "63889",
   home_garden: "11700",
-  vehicles: "6000",          // eBay Motors (all vehicle types)
+  vehicles: "6001",          // Cars & Trucks listings only (was 6000 which includes parts)
   vehicles_cars_trucks: "6001",
   vehicles_motorcycles: "6024",   // Motorcycles category
   vehicles_powersports: "6024",   // Same as motorcycles

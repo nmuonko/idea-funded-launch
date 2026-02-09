@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "v15"; // v15: Post-fetch vehicle guardrails replace pre-fetch price gating
+export const AMAZON_CACHE_VERSION = "v16"; // v16: Force vehicle_listing intent + hardMode guardrails for Vehicles tab
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {

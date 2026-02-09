@@ -410,7 +410,15 @@ Deno.serve(async (req: Request) => {
     // ─── INTENT CLASSIFICATION (re-classify after rewrite for final intent) ──
     const searchIntent = classifySearchIntent(qNorm);
     // Use early intent for vehicle routing (pre-rewrite is more accurate for make/model)
-    const effectiveIntent = earlyIntent.intentKey !== "general" ? earlyIntent : searchIntent;
+    let effectiveIntent = earlyIntent.intentKey !== "general" ? earlyIntent : searchIntent;
+
+    // Force vehicle_listing intent when Vehicles tab is active
+    const isVehiclesTab = categoryKey === "vehicles" || categoryKey === "vehicles_cars_trucks" || categoryKey === "vehicles_motorcycles";
+    if (isVehiclesTab) {
+      effectiveIntent = { ...effectiveIntent, intentKey: "vehicle_listing", vehicleListingIntent: true };
+      hasBuyingIntent = true;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED vehicle_listing intent via category=${categoryKey}`);
+    }
 
     // ─── CACHE CHECK ──────────────────────────────────────────────────────────
     const cacheStart = Date.now();
@@ -849,12 +857,12 @@ Deno.serve(async (req: Request) => {
 
     // ─── VEHICLE GUARDRAILS (post-fetch, 3-tier safe fallback) ────────────────
     // Triggered by token-aware query detection, NOT intent classification alone
-    const vehicleGuardrailActive = isVehicleLikeQueryGuardrail(providerQuery);
+    const vehicleGuardrailActive = isVehiclesTab || isVehicleLikeQueryGuardrail(providerQuery);
     if (vehicleGuardrailActive) {
       const preGuardrail = finalItems.length;
-      const guardrailResult = applyVehicleGuardrails(finalItems, providerQuery, filteredFinalItems);
+      const guardrailResult = applyVehicleGuardrails(finalItems, providerQuery, filteredFinalItems, { hardMode: isVehiclesTab });
       finalItems = guardrailResult.items as typeof finalItems;
-      console.log(`[CATALOG_SEARCH][VEHICLE_GUARDRAIL] requestId=${requestId} mode=${guardrailResult.mode} before=${preGuardrail} after=${finalItems.length} dropped=${guardrailResult.dropped} reason=${guardrailResult.reason}`);
+      console.log(`[CATALOG_SEARCH][VEHICLE_GUARDRAIL] requestId=${requestId} mode=${guardrailResult.mode} hardMode=${isVehiclesTab} before=${preGuardrail} after=${finalItems.length} dropped=${guardrailResult.dropped} reason=${guardrailResult.reason}`);
     }
     // ─── UNIVERSAL WRONG-CATEGORY HARD-DROP GATE ──────────────────────────────
     // Applies to ALL intents: drop items whose titles contain shoe/clothing keywords

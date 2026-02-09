@@ -69,17 +69,20 @@ serve(async (req) => {
   try {
     let target = "mobile";
     let env = "production";
+    let recipeKey: string | null = null;
 
     if (req.method === "POST") {
       try {
         const body = await req.json();
         target = body.target || "mobile";
         env = body.env || "production";
+        recipeKey = body.recipeKey || null;
       } catch { /* defaults */ }
     } else {
       const url = new URL(req.url);
       target = url.searchParams.get("target") || "mobile";
       env = url.searchParams.get("env") || "production";
+      recipeKey = url.searchParams.get("recipeKey") || null;
     }
 
     if (target !== "mobile" && target !== "web") {
@@ -87,10 +90,10 @@ serve(async (req) => {
     }
 
     const settings = await loadRefreshSettings(env);
-    console.log(`[ADMIN_REBUILD_HOME] target=${target} env=${env} userId=${userId}`);
+    console.log(`[ADMIN_REBUILD_HOME] target=${target} env=${env} recipeKey=${recipeKey || "all"} userId=${userId}`);
 
     if (target === "mobile") {
-      const result = await buildMobileHomepage(env);
+      const result = await buildMobileHomepage(env, recipeKey);
       const ttl = settings.mobile_refresh_hours * 3600;
       await writeMobileCache(env, result.payload, ttl, settings.mobile_schema_version);
       
@@ -98,6 +101,7 @@ serve(async (req) => {
         ok: true,
         target: "mobile",
         env,
+        recipeKey: recipeKey || "all",
         itemCount: result.itemCount,
         sectionCount: result.sectionCount,
         durationMs: result.durationMs,
@@ -105,7 +109,7 @@ serve(async (req) => {
         schemaVersion: settings.mobile_schema_version,
       });
     } else {
-      const result = await buildWebHomepage(env);
+      const result = await buildWebHomepage(env, recipeKey);
       const ttl = settings.web_refresh_hours * 3600;
       await writeWebCache(env, result.payload, ttl, settings.web_schema_version);
       
@@ -113,6 +117,7 @@ serve(async (req) => {
         ok: true,
         target: "web",
         env,
+        recipeKey: recipeKey || "all",
         itemCount: result.itemCount,
         sectionCount: result.sectionCount,
         durationMs: result.durationMs,

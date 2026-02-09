@@ -155,7 +155,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
   { key: "vehicles", title_fr: "Véhicules", title_en: "Vehicles", keywords: ["toyota", "honda", "bmw", "ford", "mercedes", "car", "truck", "suv", "vehicle", "auto", "motorcycle"], target: 20 },
   { key: "video_games", title_fr: "Jeux Vidéo", title_en: "Video Games", keywords: ["ps5", "xbox", "nintendo", "switch", "playstation", "console", "controller", "gaming", "game"], target: 20 },
   { key: "clothing_fashion", title_fr: "Vêtements et Mode", title_en: "Clothing & Fashion", keywords: ["nike", "adidas", "jordan", "shoes", "sneakers", "jacket", "hoodie", "dress", "jeans", "shirt"], target: 20 },
-  { key: "home_garden", title_fr: "Maison et Jardin", title_en: "Home & Garden", keywords: ["sofa", "table", "chair", "furniture", "kitchen", "decor", "garden", "home", "bed", "lamp"], target: 20 },
+  { key: "home_garden", title_fr: "Maison et Jardin", title_en: "Home & Garden", keywords: ["sofa", "couch", "dining table", "living room", "sectional", "cabinet", "bookshelf", "dresser", "recliner", "furniture set"], target: 20 },
   { key: "toys", title_fr: "Jouets", title_en: "Toys", keywords: ["lego", "doll", "toy", "barbie", "figure", "puzzle", "kids", "children"], target: 20 },
   { key: "sporting_goods", title_fr: "Articles de Sport", title_en: "Sporting Goods", keywords: ["basketball", "football", "soccer", "yoga", "fitness", "gym", "running", "sports", "exercise", "tennis"], target: 20 },
 ];

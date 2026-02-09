@@ -645,10 +645,11 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Get jobId and sectionIndex from request body
+    // Get jobId, sectionIndex/sectionKey from request body
     const body = await req.json().catch(() => ({}));
     const jobId = body.jobId;
-    const sectionIndex = body.sectionIndex ?? 0;
+    let sectionIndex = body.sectionIndex ?? 0;
+    const sectionKey: string | null = body.sectionKey ?? null;
     const singleSection = body.singleSection ?? false;
 
     if (!jobId) {
@@ -702,6 +703,20 @@ Deno.serve(async (req: Request) => {
 
     const sections = await loadSectionConfig(supabase, seedMode, maxQueriesPerSection);
     const totalSections = sections.length;
+
+    // Resolve section: prefer sectionKey lookup over positional index
+    if (sectionKey) {
+      const keyIndex = sections.findIndex(s => s.key === sectionKey);
+      if (keyIndex === -1) {
+        console.error(`[WORKER] requestId=${requestId} Unknown sectionKey: ${sectionKey}`);
+        return new Response(JSON.stringify({ ok: false, error: `Unknown sectionKey: ${sectionKey}` }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      sectionIndex = keyIndex;
+      console.log(`[WORKER] requestId=${requestId} Resolved sectionKey="${sectionKey}" to index ${sectionIndex}`);
+    }
 
     // Validate section index
     if (sectionIndex < 0 || sectionIndex >= totalSections) {

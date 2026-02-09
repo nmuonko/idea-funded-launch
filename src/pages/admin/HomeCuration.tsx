@@ -69,6 +69,7 @@ interface PrewarmJob {
   started_at: string | null;
   completed_at: string | null;
   sections_completed: number;
+  sections_total?: number;
   amazon_fetched: number;
   ebay_fetched: number;
   mixed_total: number;
@@ -451,7 +452,7 @@ export default function HomeCuration() {
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <span>Rotation: <code className="bg-muted px-1 rounded">{lastPrewarmJob.rotation_key}</code></span>
-                <span>Sections: {lastPrewarmJob.sections_completed}/8</span>
+                <span>Sections: {lastPrewarmJob.sections_completed}/{lastPrewarmJob.sections_total ?? sections.length}</span>
                 <span>Items: {lastPrewarmJob.mixed_total}</span>
               </div>
             </div>

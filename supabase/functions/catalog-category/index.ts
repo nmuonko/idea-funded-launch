@@ -93,7 +93,7 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
   electronics_gaming: ["ps5 console", "xbox series x", "nintendo switch"],
   electronics_cameras: ["dslr camera", "gopro", "mirrorless camera"],
   electronics_audio: ["airpods", "bose headphones", "jbl speaker"],
-  home_garden: ["vacuum cleaner", "air fryer", "blender", "power tools"],
+  home_garden: ["living room sofa set", "dining table set chairs", "kitchen cabinet storage", "TV stand entertainment center"],
   clothing_shoes_accessories: ["sneakers", "hoodie", "jacket", "handbag", "shoes"],
   clothing_men: ["men hoodie", "men jacket", "men jeans", "men shirt"],
   clothing_women: ["women dress", "women jacket", "women blouse"],

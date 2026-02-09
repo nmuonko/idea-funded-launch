@@ -11,8 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertCircle, Mail, Lock, Globe, MapPin } from 'lucide-react';
-import { LanguageDropdown } from '@/components/support/LanguageDropdown';
+import { Loader2, AlertCircle, Mail, Lock, LogOut, MapPin } from 'lucide-react';
 
 const DRC_PROVINCES = [
   'Kinshasa', 'Kongo-Central', 'Kwango', 'Kwilu', 'Mai-Ndombe',
@@ -418,13 +417,23 @@ export default function Profile() {
 
             <Separator className="my-8" />
 
-            {/* Language Selection */}
+            {/* Disconnect */}
             <div className="space-y-4">
               <div className="flex items-center gap-2">
-                <Globe className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Langue / Language</h3>
+                <LogOut className="h-5 w-5 text-destructive" />
+                <h3 className="text-lg font-semibold">Déconnexion / Disconnect</h3>
               </div>
-              <LanguageDropdown />
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  navigate('/');
+                }}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Se déconnecter / Sign Out
+              </Button>
             </div>
           </CardContent>
         </Card>

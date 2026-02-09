@@ -649,6 +649,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({}));
     const jobId = body.jobId;
     const sectionIndex = body.sectionIndex ?? 0;
+    const singleSection = body.singleSection ?? false;
 
     if (!jobId) {
       console.error(`[WORKER] requestId=${requestId} Missing jobId`);
@@ -778,7 +779,7 @@ Deno.serve(async (req: Request) => {
     // Check if more sections remain
     const nextSectionIndex = sectionIndex + 1;
 
-    if (nextSectionIndex < totalSections) {
+    if (nextSectionIndex < totalSections && !singleSection) {
       // Chain to next section (fire-and-forget)
       await chainToNextSection(supabaseUrl, supabaseKey, jobId, nextSectionIndex, requestId);
 

@@ -88,6 +88,7 @@ export default function HomeRecipes() {
 
   // Prewarm states
   const [publishing, setPublishing] = useState(false);
+  const [publishingSection, setPublishingSection] = useState<string | null>(null);
   const [lastPrewarmJob, setLastPrewarmJob] = useState<{ status: string; completed_at: string | null; rotation_key: string; sections_completed: number; mixed_total: number } | null>(null);
 
   // Edit fields
@@ -137,12 +138,23 @@ export default function HomeRecipes() {
     }
   };
 
-  const handlePublishNow = async () => {
-    setPublishing(true);
+  const handlePublishNow = async (sectionKey?: string) => {
+    if (sectionKey) {
+      setPublishingSection(sectionKey);
+    } else {
+      setPublishing(true);
+    }
     try {
-      const response = await post("catalog-prewarm-home", {});
+      const body: Record<string, unknown> = {};
+      if (sectionKey) body.sectionKey = sectionKey;
+      const response = await post("catalog-prewarm-home", body);
       if (response.data?.ok) {
-        toast({ title: fr ? "Publication lancée" : "Publishing started", description: `Job: ${response.data.jobId}` });
+        toast({ 
+          title: fr ? "Publication lancée" : "Publishing started", 
+          description: sectionKey 
+            ? `Section: ${sectionKey}` 
+            : `Job: ${response.data.jobId}` 
+        });
         setTimeout(fetchLastPrewarmJob, 3000);
         setTimeout(fetchLastPrewarmJob, 8000);
         setTimeout(fetchLastPrewarmJob, 15000);
@@ -153,6 +165,7 @@ export default function HomeRecipes() {
       toast({ title: "Error", description: "Failed to start prewarm", variant: "destructive" });
     } finally {
       setPublishing(false);
+      setPublishingSection(null);
     }
   };
 
@@ -310,13 +323,13 @@ export default function HomeRecipes() {
           </p>
         </div>
         <Button
-          onClick={handlePublishNow}
+          onClick={() => handlePublishNow()}
           disabled={publishing}
           size="lg"
           className="gap-2"
         >
           {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          {fr ? "Publier Maintenant" : "Publish Now"}
+          {fr ? "Publier Tout" : "Publish All"}
         </Button>
       </div>
 
@@ -427,6 +440,8 @@ export default function HomeRecipes() {
                 onEditSeeds={() => openSeedModal(recipe)}
                 onRebuild={() => rebuild("mobile")}
                 rebuilding={rebuildingMobile}
+                onPublish={() => handlePublishNow(recipe.key)}
+                publishingThis={publishingSection === recipe.key}
               />
             ))}
           </div>
@@ -468,6 +483,8 @@ export default function HomeRecipes() {
                 onEditSeeds={() => openSeedModal(recipe)}
                 onRebuild={() => rebuild("web")}
                 rebuilding={rebuildingWeb}
+                onPublish={() => handlePublishNow(recipe.key)}
+                publishingThis={publishingSection === recipe.key}
               />
             ))}
           </div>
@@ -551,6 +568,8 @@ function RecipeRow({
   onEditSeeds,
   onRebuild,
   rebuilding,
+  onPublish,
+  publishingThis,
 }: {
   recipe: Recipe;
   fr: boolean;
@@ -559,6 +578,8 @@ function RecipeRow({
   onEditSeeds: () => void;
   onRebuild?: () => void;
   rebuilding?: boolean;
+  onPublish?: () => void;
+  publishingThis?: boolean;
 }) {
   const title = (fr ? recipe.title_fr : recipe.title_en) || recipe.key;
 
@@ -578,6 +599,18 @@ function RecipeRow({
           </span>
         )}
       </div>
+      {onPublish && (
+        <Button
+          variant="default"
+          size="sm"
+          onClick={onPublish}
+          disabled={publishingThis}
+          className="gap-1"
+        >
+          {publishingThis ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+          {fr ? "Publier" : "Publish"}
+        </Button>
+      )}
       {onRebuild && (
         <Button
           variant="outline"

@@ -117,11 +117,42 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // ─── PARSE OPTIONAL sectionKey FOR PER-SECTION PUBLISH ──────────────────────
+    let sectionKey: string | null = null;
+    if (req.method === "POST") {
+      try {
+        const body = await req.json();
+        sectionKey = body.sectionKey || null;
+      } catch {
+        // No body or invalid JSON - publish all
+      }
+    }
+
     // Load settings for rotation key calculation
     const catalogSettings = await getCatalogSettings(supabase);
     const rotationKey = getRotationKey(catalogSettings.homeRotationIntervalMinutes);
 
-    console.log(`[PREWARM] requestId=${requestId} rotationKey=${rotationKey}`);
+    // Determine sections to process
+    let sectionsTotal = HOME_PREWARM_SECTIONS.length;
+    let sectionIndex: number | undefined;
+
+    if (sectionKey) {
+      const idx = HOME_PREWARM_SECTIONS.findIndex(s => s.key === sectionKey);
+      if (idx === -1) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: `Unknown section: ${sectionKey}`,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      sectionIndex = idx;
+      sectionsTotal = 1;
+      console.log(`[PREWARM] requestId=${requestId} rotationKey=${rotationKey} singleSection=${sectionKey}`);
+    } else {
+      console.log(`[PREWARM] requestId=${requestId} rotationKey=${rotationKey} allSections`);
+    }
 
     // ─── CREATE PENDING JOB ─────────────────────────────────────────────────────
     const { data: job, error: jobError } = await supabase
@@ -129,7 +160,7 @@ Deno.serve(async (req: Request) => {
       .insert({
         status: "pending",
         rotation_key: rotationKey,
-        sections_total: HOME_PREWARM_SECTIONS.length,
+        sections_total: sectionsTotal,
         sections_completed: 0,
         amazon_fetched: 0,
         ebay_fetched: 0,
@@ -152,8 +183,14 @@ Deno.serve(async (req: Request) => {
     console.log(`[PREWARM] requestId=${requestId} Created job: ${job.id}`);
 
     // ─── TRIGGER BACKGROUND WORKER (FIRE-AND-FORGET) ────────────────────────────
-    // This call is non-blocking - we don't await the response
     const workerUrl = `${supabaseUrl}/functions/v1/catalog-prewarm-worker`;
+    const workerBody: Record<string, unknown> = { jobId: job.id };
+    
+    // For single-section jobs, pass sectionIndex and signal it's a single-section job
+    if (sectionIndex !== undefined) {
+      workerBody.sectionIndex = sectionIndex;
+      workerBody.singleSection = true;
+    }
     
     fetch(workerUrl, {
       method: "POST",
@@ -161,12 +198,11 @@ Deno.serve(async (req: Request) => {
         "Authorization": `Bearer ${supabaseKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ jobId: job.id }),
+      body: JSON.stringify(workerBody),
     }).then(response => {
       console.log(`[PREWARM] requestId=${requestId} Worker triggered, status=${response.status}`);
     }).catch(err => {
       console.error(`[PREWARM] requestId=${requestId} Worker trigger failed:`, err);
-      // Mark job as failed if we couldn't trigger worker
       supabase
         .from("prewarm_jobs")
         .update({ 
@@ -186,8 +222,11 @@ Deno.serve(async (req: Request) => {
       jobId: job.id,
       status: "queued",
       rotationKey,
-      sectionsTotal: HOME_PREWARM_SECTIONS.length,
-      message: "Home prewarm started in background",
+      sectionsTotal,
+      sectionKey: sectionKey || undefined,
+      message: sectionKey 
+        ? `Prewarm started for section: ${sectionKey}`
+        : "Home prewarm started in background",
       durationMs,
     }), {
       status: 200,

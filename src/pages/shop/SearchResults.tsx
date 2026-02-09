@@ -56,7 +56,7 @@ export default function SearchResults() {
     gaming: 'video game console',
     electronics: 'iphone',
     vehicles: 'used car',
-    home: 'living room furniture sofa dining table kitchen appliances',
+    home: 'living room sofa set dining table set kitchen cabinet',
     fashion: 'shoes clothing',
     toys: 'lego toys',
     sporting_goods: 'fitness equipment',

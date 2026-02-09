@@ -52,12 +52,20 @@ export default function SearchResults() {
     { value: 'rating', label: shop.topRated || 'Top Rated' },
   ];
 
+  const DEFAULT_CATEGORY_QUERIES: Record<string, string> = {
+    gaming: 'video game console',
+    electronics: 'iphone',
+    vehicles: 'cars trucks SUV',
+    home: 'sofa furniture',
+    fashion: 'shoes clothing',
+    toys: 'lego toys',
+    sporting_goods: 'fitness equipment',
+    watches: 'watch jewelry',
+    refurbished: 'refurbished phone laptop',
+  };
+
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
-    const searchQuery = query || (
-      (category === 'gaming' || category === 'electronics')
-        ? 'video game console'
-        : (category ? category.replace(/_/g, ' ') : 'popular')
-    );
+    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
       limit: 100,

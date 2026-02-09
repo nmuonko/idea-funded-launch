@@ -55,7 +55,7 @@ export default function SearchResults() {
   const DEFAULT_CATEGORY_QUERIES: Record<string, string> = {
     gaming: 'video game console',
     electronics: 'iphone',
-    vehicles: 'used car truck sedan SUV',
+    vehicles: 'used car',
     home: 'sofa furniture',
     fashion: 'shoes clothing',
     toys: 'lego toys',

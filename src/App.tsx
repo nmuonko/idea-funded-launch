@@ -57,7 +57,7 @@ import BankTransferSettings from "./pages/admin/BankTransferSettings";
 import CacheSettings from "./pages/admin/CacheSettings";
 import CatalogSourcesSettings from "./pages/admin/CatalogSourcesSettings";
 import CarsSettings from "./pages/admin/CarsSettings";
-import HomeCuration from "./pages/admin/HomeCuration";
+// HomeCuration removed - consolidated into HomeRecipes
 import HomeRecipes from "./pages/admin/HomeRecipes";
 import SearchRelevancy from "./pages/admin/SearchRelevancy";
 import Cars from "./pages/Cars";
@@ -377,11 +377,7 @@ const App = () => {
                   <CatalogSourcesSettings />
                 </AdminRouteGuard>
               } />
-              <Route path="home-curation" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <HomeCuration />
-                </AdminRouteGuard>
-              } />
+              {/* home-curation route removed - consolidated into home-recipes */}
               <Route path="home-recipes" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <HomeRecipes />

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuthenticatedApi } from "@/hooks/useAuthenticatedApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +22,9 @@ import {
 import { toast } from "@/hooks/use-toast";
 import {
   Home, RefreshCw, Plus, Trash2, Loader2, Clock, Smartphone, Globe,
-  ChevronRight, Settings2, Zap,
+  ChevronRight, Settings2, Zap, Sparkles, CheckCircle2, AlertCircle,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,7 @@ interface RefreshSettings {
 export default function HomeRecipes() {
   const { language } = useLanguage();
   const { session } = useAuth();
+  const { post, get } = useAuthenticatedApi();
   const fr = language === "fr";
 
   // Data
@@ -82,6 +85,10 @@ export default function HomeRecipes() {
   const [rebuildingMobile, setRebuildingMobile] = useState(false);
   const [rebuildingWeb, setRebuildingWeb] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Prewarm states
+  const [publishing, setPublishing] = useState(false);
+  const [lastPrewarmJob, setLastPrewarmJob] = useState<{ status: string; completed_at: string | null; rotation_key: string; sections_completed: number; mixed_total: number } | null>(null);
 
   // Edit fields
   const [mobileHours, setMobileHours] = useState(12);
@@ -115,7 +122,39 @@ export default function HomeRecipes() {
     }
   }, []);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => { fetchAll(); fetchLastPrewarmJob(); }, [fetchAll]);
+
+  // ─── PREWARM (Publish Now) ─────────────────────────────────────────────────
+
+  const fetchLastPrewarmJob = async () => {
+    try {
+      const response = await get("catalog-prewarm-home?action=status");
+      if (response.data?.lastJob) {
+        setLastPrewarmJob(response.data.lastJob);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePublishNow = async () => {
+    setPublishing(true);
+    try {
+      const response = await post("catalog-prewarm-home", {});
+      if (response.data?.ok) {
+        toast({ title: fr ? "Publication lancée" : "Publishing started", description: `Job: ${response.data.jobId}` });
+        setTimeout(fetchLastPrewarmJob, 3000);
+        setTimeout(fetchLastPrewarmJob, 8000);
+        setTimeout(fetchLastPrewarmJob, 15000);
+      } else {
+        toast({ title: "Error", description: response.data?.error || "Failed", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to start prewarm", variant: "destructive" });
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   // ─── SEEDS MODAL ────────────────────────────────────────────────────────────
 
@@ -258,17 +297,63 @@ export default function HomeRecipes() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Home className="h-6 w-6" />
-          {fr ? "Recettes Accueil" : "Home Recipes"}
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          {fr
-            ? "Gérez les produits affichés sur les pages d'accueil mobile et web."
-            : "Manage products shown on mobile and web homepages."}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Home className="h-6 w-6" />
+            {fr ? "Curation Accueil" : "Home Curation"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {fr
+              ? "Gérez les produits affichés sur les pages d'accueil mobile et web."
+              : "Manage products shown on mobile and web homepages."}
+          </p>
+        </div>
+        <Button
+          onClick={handlePublishNow}
+          disabled={publishing}
+          size="lg"
+          className="gap-2"
+        >
+          {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {fr ? "Publier Maintenant" : "Publish Now"}
+        </Button>
       </div>
+
+      {/* Prewarm Status Banner */}
+      {lastPrewarmJob && (
+        <Card className="bg-muted/50">
+          <CardContent className="py-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                {lastPrewarmJob.status === "completed" ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                ) : lastPrewarmJob.status === "processing" ? (
+                  <Loader2 className="h-5 w-5 text-primary animate-spin" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+                )}
+                <span className="font-medium text-sm">
+                  {fr ? "Dernière publication" : "Last Publish"}:
+                </span>
+                <Badge variant={lastPrewarmJob.status === "completed" ? "default" : "secondary"}>
+                  {lastPrewarmJob.status}
+                </Badge>
+                {lastPrewarmJob.completed_at && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {formatDistanceToNow(new Date(lastPrewarmJob.completed_at), { addSuffix: true })}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span>Sections: {lastPrewarmJob.sections_completed}</span>
+                <span>Items: {lastPrewarmJob.mixed_total}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Refresh Settings */}
       <Card>

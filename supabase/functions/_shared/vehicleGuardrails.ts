@@ -244,12 +244,14 @@ export function applyVehicleGuardrails(
     };
   }
 
-  // Tier 3: Fallback — return original unfiltered list
+  // Tier 3: Fallback — return list with parts/accessories still filtered out
   const fallbackItems = unfilteredItems && unfilteredItems.length > 0 ? unfilteredItems : items;
+  const cleanFallback = fallbackItems.filter(item => !isPartAccessory(getTitle(item)));
+  const finalFallback = cleanFallback.length > 0 ? cleanFallback : fallbackItems;
   return {
-    items: fallbackItems,
+    items: finalFallback,
     mode: "fallback",
-    dropped: 0,
-    reason: `fallback(strict=${strict.length},relaxed=${relaxed.length},original=${fallbackItems.length})`,
+    dropped: fallbackItems.length - finalFallback.length,
+    reason: `fallback(strict=${strict.length},relaxed=${relaxed.length},clean=${cleanFallback.length},original=${fallbackItems.length})`,
   };
 }

@@ -97,12 +97,21 @@ serve(async (req) => {
       const ttl = settings.mobile_refresh_hours * 3600;
       await writeMobileCache(env, result.payload, ttl, settings.mobile_schema_version);
       
+      // If single-section rebuild, count only rebuilt section items
+      let rebuiltItemCount = result.itemCount;
+      if (recipeKey && result.payload?.sections) {
+        const sections = result.payload.sections as Array<{ key: string; items: unknown[] }>;
+        const section = sections.find(s => s.key === recipeKey);
+        rebuiltItemCount = section?.items?.length || 0;
+      }
+      
       return json({
         ok: true,
         target: "mobile",
         env,
         recipeKey: recipeKey || "all",
-        itemCount: result.itemCount,
+        itemCount: recipeKey ? rebuiltItemCount : result.itemCount,
+        totalItemCount: result.itemCount,
         sectionCount: result.sectionCount,
         durationMs: result.durationMs,
         ttlSeconds: ttl,
@@ -113,12 +122,20 @@ serve(async (req) => {
       const ttl = settings.web_refresh_hours * 3600;
       await writeWebCache(env, result.payload, ttl, settings.web_schema_version);
       
+      // If single-section rebuild, count only new items for that recipe
+      let rebuiltItemCount = result.itemCount;
+      if (recipeKey && result.payload?.meta) {
+        const meta = result.payload.meta as Record<string, unknown>;
+        rebuiltItemCount = (meta.rebuiltSectionItemCount as number) || result.itemCount;
+      }
+      
       return json({
         ok: true,
         target: "web",
         env,
         recipeKey: recipeKey || "all",
-        itemCount: result.itemCount,
+        itemCount: recipeKey ? rebuiltItemCount : result.itemCount,
+        totalItemCount: result.itemCount,
         sectionCount: result.sectionCount,
         durationMs: result.durationMs,
         ttlSeconds: ttl,

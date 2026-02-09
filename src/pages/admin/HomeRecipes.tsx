@@ -81,9 +81,8 @@ export default function HomeRecipes() {
   const [newSeedQuery, setNewSeedQuery] = useState("");
   const [addingSeed, setAddingSeed] = useState(false);
 
-  // Rebuild states
-  const [rebuildingMobile, setRebuildingMobile] = useState(false);
-  const [rebuildingWeb, setRebuildingWeb] = useState(false);
+  // Rebuild states - track which specific key is rebuilding (or "all_mobile"/"all_web")
+  const [rebuildingKey, setRebuildingKey] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
 
   // Prewarm states
@@ -248,8 +247,8 @@ export default function HomeRecipes() {
   // ─── REBUILD ────────────────────────────────────────────────────────────────
 
   const rebuild = async (target: "mobile" | "web", recipeKey?: string) => {
-    const setRebuilding = target === "mobile" ? setRebuildingMobile : setRebuildingWeb;
-    setRebuilding(true);
+    const key = recipeKey || `all_${target}`;
+    setRebuildingKey(key);
     try {
       const body: Record<string, unknown> = { target, env: "production" };
       if (recipeKey) body.recipeKey = recipeKey;
@@ -269,7 +268,7 @@ export default function HomeRecipes() {
     } catch (err: any) {
       toast({ title: "Error", description: err.message || String(err), variant: "destructive" });
     } finally {
-      setRebuilding(false);
+      setRebuildingKey(null);
     }
   };
 
@@ -425,10 +424,10 @@ export default function HomeRecipes() {
             </div>
             <Button
               onClick={() => rebuild("mobile")}
-              disabled={rebuildingMobile}
+              disabled={rebuildingKey === "all_mobile"}
               className="gap-2"
             >
-              {rebuildingMobile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {rebuildingKey === "all_mobile" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
               {fr ? "Reconstruire Mobile" : "Rebuild Mobile Now"}
             </Button>
           </div>
@@ -443,7 +442,7 @@ export default function HomeRecipes() {
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
                 onRebuild={() => rebuild("mobile", recipe.key)}
-                rebuilding={rebuildingMobile}
+                rebuilding={rebuildingKey === recipe.key}
                 onPublish={() => handlePublishNow(recipe.key)}
                 publishingThis={publishingSection === recipe.key}
               />
@@ -467,10 +466,10 @@ export default function HomeRecipes() {
             </div>
             <Button
               onClick={() => rebuild("web")}
-              disabled={rebuildingWeb}
+              disabled={rebuildingKey === "all_web"}
               className="gap-2"
             >
-              {rebuildingWeb ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {rebuildingKey === "all_web" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
               {fr ? "Reconstruire Web" : "Rebuild Web Now"}
             </Button>
           </div>
@@ -486,7 +485,7 @@ export default function HomeRecipes() {
                 onToggle={() => toggleRecipe(recipe)}
                 onEditSeeds={() => openSeedModal(recipe)}
                 onRebuild={() => rebuild("web", recipe.key)}
-                rebuilding={rebuildingWeb}
+                rebuilding={rebuildingKey === recipe.key}
                 onPublish={() => handlePublishNow(recipe.key)}
                 publishingThis={publishingSection === recipe.key}
               />

@@ -35,6 +35,7 @@ const HOME_PREWARM_SECTIONS = [
   { key: "home_garden", categoryKey: "home_garden" },
   { key: "sporting_goods", categoryKey: "sporting_goods" },
   { key: "toys", categoryKey: "toys" },
+  { key: "jewelry_watches", categoryKey: "jewelry_watches" },
   { key: "refurbished", categoryKey: "refurbished" },
   { key: "parts_accessories", categoryKey: "parts_accessories" },
 ];

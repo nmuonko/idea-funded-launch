@@ -342,7 +342,7 @@ export default function ProductDetailsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={prevImage}
+                      onClick={(e) => { e.stopPropagation(); prevImage(); }}
                       className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70"
                     >
                       <ChevronLeft className="h-5 w-5" />
@@ -350,7 +350,7 @@ export default function ProductDetailsPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={nextImage}
+                      onClick={(e) => { e.stopPropagation(); nextImage(); }}
                       className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70"
                     >
                       <ChevronRight className="h-5 w-5" />

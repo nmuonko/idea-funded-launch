@@ -1,46 +1,38 @@
 
 
-# Fix: Verification Email Not Being Sent
+# Fix: Force Correct Supabase JS Version in auth-register
 
-## Root Cause
+## Problem
 
-The edge function logs show:
-```
-Failed to send verification email (non-blocking): supabaseAdmin.auth.admin.generateLink is not a function
-```
-
-The `@supabase/supabase-js@2` import via `esm.sh` is resolving to a version that does not expose `auth.admin.generateLink()`. This method was added in later v2 releases. The fix is to pin the import to a recent version that includes this method.
+Despite pinning the import to `@2.49.1`, the `auth-register` edge function still fails with `supabaseAdmin.auth.admin.generateLink is not a function`. The `esm.sh` CDN is serving a cached/incorrect version. The `auth-resend-verification` function works fine with the same import, which confirms this is a caching issue specific to the `auth-register` function's deployment.
 
 ## Fix
 
 ### File: `supabase/functions/auth-register/index.ts`
 
-Update the Supabase JS import from:
+Add a cache-busting query parameter to the `esm.sh` import URL to force a fresh resolution:
+
 ```typescript
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-```
-to a pinned version that supports `generateLink`:
-```typescript
+// Change from:
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+// Change to:
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1?pin=v135";
 ```
 
-### File: `supabase/functions/auth-resend-verification/index.ts`
+The `?pin=v135` parameter forces `esm.sh` to use a specific build version of its CDN, bypassing any stale cache.
 
-Same import version pin if it also uses an unpinned `@2` import.
+### Redeploy
 
-## Why This Fixes It
+Redeploy the `auth-register` edge function after the change.
 
-- `auth.admin.generateLink()` was introduced in a specific minor version of `@supabase/supabase-js` v2
-- Using the bare `@2` tag may resolve to an older cached version on `esm.sh` that predates this method
-- Pinning to `@2.49.1` (or similar recent version) guarantees the method exists
+## Expected Result
+
+- `auth.admin.generateLink()` will be available
+- Verification emails will be sent immediately upon registration (not just on resend)
+- Users registering on `afrishop-usa.com` will receive their verification email right away
 
 ## Files Modified
 
-- `supabase/functions/auth-register/index.ts` -- pin supabase-js version
-- `supabase/functions/auth-resend-verification/index.ts` -- pin supabase-js version (if needed)
-
-## After Fix
-
-- Redeploy both edge functions
-- Test registration with a new email to confirm the verification email is sent
+- `supabase/functions/auth-register/index.ts` -- cache-bust esm.sh import
 

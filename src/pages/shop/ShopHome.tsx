@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Loader2, ChevronDown } from 'lucide-react';
+import { Search, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -273,34 +273,36 @@ export default function ShopHome() {
                     {language === 'fr' ? "Rechercher des produits" : "Search products"}
                   </Button>
                   
-                  {/* Secondary: Load More (auto-switches to live after cache exhausted) */}
+                  {/* Secondary: Load More */}
                   {hasMore && (
-                    <Button
-                      onClick={handleLoadMore}
-                      variant="outline"
-                      className="border-white/20 text-white hover:bg-white/10 rounded-full px-8"
-                      size="lg"
-                      disabled={loadingMore}
+                    <motion.div
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
                     >
-                      {loadingMore ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          {language === 'fr' ? "Chargement..." : "Loading..."}
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="h-4 w-4 mr-2" />
-                          {isLiveMode 
-                            ? (language === 'fr' ? 'Charger plus (live)' : 'Load more (live)')
-                            : totalPages > 0
-                              ? (language === 'fr' 
-                                  ? `Charger plus (page ${currentPage}/${totalPages})`
-                                  : `Load more (page ${currentPage}/${totalPages})`)
-                              : (language === 'fr' ? 'Charger plus' : 'Load more')
-                          }
-                        </>
-                      )}
-                    </Button>
+                      <Button
+                        onClick={handleLoadMore}
+                        variant="outline"
+                        className="border-white/30 bg-white/5 backdrop-blur-sm text-white hover:bg-white/15 hover:border-white/50 rounded-full px-10 py-3 text-base font-medium transition-all duration-300 shadow-lg shadow-black/10"
+                        size="lg"
+                        disabled={loadingMore}
+                      >
+                        {loadingMore ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            {language === 'fr' ? "Chargement..." : "Loading..."}
+                          </>
+                        ) : (
+                          <span className="flex items-center gap-3">
+                            <span>{language === 'fr' ? 'Voir plus de produits' : 'Show More Products'}</span>
+                            {totalPages > 0 && (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/15 text-white/80">
+                                {currentPage} / {Math.min(totalPages, 3)}
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </Button>
+                    </motion.div>
                   )}
                 </div>
               </div>

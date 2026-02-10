@@ -162,7 +162,7 @@ const MOBILE_SECTIONS: MobileSection[] = [
 ];
 
 // Default settings (overridden by admin_settings)
-const DEFAULT_POOL_SIZE = 1000;
+const DEFAULT_POOL_SIZE = 300;
 const DEFAULT_PAGE_SIZE = 100;
 const DEFAULT_TTL_SECONDS = 172800; // 2 days
 

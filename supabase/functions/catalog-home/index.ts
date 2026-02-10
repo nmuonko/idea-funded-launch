@@ -1156,9 +1156,31 @@ serve(async (req) => {
             console.log(`[CATALOG_HOME] recipe_web_cache_fallback_to_production env=${env} correlationId=${correlationId}`);
             webCache = await readWebCache("production");
           }
-          if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
+        // Map tab keys to recipe keys
+        const TAB_TO_RECIPE: Record<string, string> = {
+          all: "homepage",
+          "": "homepage",
+          gaming: "gaming",
+          vehicles: "vehicles",
+          home: "home_garden",
+          fashion: "clothing",
+          toys: "toys",
+          sporting_goods: "sporting_goods",
+          watches: "jewelry_watches",
+          refurbished: "refurbished",
+        };
+        const recipeKeyFilter = TAB_TO_RECIPE[category] || category || "homepage";
+
+        if (webCache.hit && webCache.payload && webCache.schemaVersion === recipeSettings.web_schema_version) {
             const payload = webCache.payload as Record<string, unknown>;
-            const allItems = payload.items as Array<Record<string, unknown>> || [];
+            const rawItems = payload.items as Array<Record<string, unknown>> || [];
+            
+            // Filter items by _recipeKey
+            const allItems = rawItems.filter((item: Record<string, unknown>) => {
+              const rk = item._recipeKey as string;
+              if (!rk) return recipeKeyFilter === "homepage"; // untagged items default to homepage
+              return rk === recipeKeyFilter;
+            });
             
             if (allItems.length > 0) {
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
@@ -1209,7 +1231,12 @@ serve(async (req) => {
           // Stale web cache fallback
           if (!webCache.hit && webCache.payload) {
             const payload = webCache.payload as Record<string, unknown>;
-            const allItems = payload.items as Array<Record<string, unknown>> || [];
+            const rawStaleItems = payload.items as Array<Record<string, unknown>> || [];
+            const allItems = rawStaleItems.filter((item: Record<string, unknown>) => {
+              const rk = item._recipeKey as string;
+              if (!rk) return recipeKeyFilter === "homepage";
+              return rk === recipeKeyFilter;
+            });
             if (allItems.length > 0) {
               console.log(`[CATALOG_HOME] recipe_web_cache_stale correlationId=${correlationId} serving_stale poolSize=${allItems.length}`);
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;

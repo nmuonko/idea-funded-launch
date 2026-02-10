@@ -1,145 +1,130 @@
 
 
-# Admin Portal Cleanup and Feature Improvements (9 Items)
+# Fix Vehicle Detection and Shipping Visibility
 
-This plan covers all 9 requests in a single implementation pass.
+## Problems Found
 
----
+### Problem 1: Shipping fee shows on vehicle product pages
+The `ProductDetails` page only detects vehicles from `location.state` data passed during navigation. If the state doesn't include `isVehicle: true`, the product shows normal pricing with shipping visible. Additionally, PriceBreakdown checks `vehicleQuoteStatus` which is a cart-level status -- it's `'none'` when just browsing a product page (not yet in cart), so the "awaiting quote" logic never triggers.
 
-## 1. Print Label -- Always Visible on Orders
+### Problem 2: Cheap vehicles ($3,900) don't trigger quote requirement
+The vehicle detection in `shippingCategory.ts` requires BOTH `confidence >= 0.7` AND `bestScore >= 3.0` for eBay items to require a quote. A $3,900 car with a short title may only score 1.6-3.0, failing the threshold. The system should require a quote for ALL detected vehicles regardless of price or score -- only vehicle *parts/accessories* (exclusion keywords) should be exempt.
 
-**Current**: The "Print Label" button only shows when `status === 'PENDING_PAYMENT' || status === 'DRAFT'` AND `!payment_verified_at`.
+## Solution
 
-**Change**: Remove the conditional wrapper so the Print Label button always appears in the orders table actions, regardless of order status or payment verification.
+### 1. Fix vehicle quote threshold (backend)
 
-**File**: `src/pages/admin/Orders.tsx` (line 1056) -- remove the condition wrapping the Print Label button.
+**File: `supabase/functions/_shared/shippingCategory.ts`** (line 516-517)
 
----
+Change `requiresQuote` to trigger for ALL detected vehicles (not just car marketplaces or high-confidence ones). The exclusion keyword filter already prevents parts/accessories from being flagged.
 
-## 2. Remove AI Actions Panel from Dashboard
+Current:
+```
+const requiresQuote = isVehicle && !hasVehicleExclusion && 
+  (isCarMarketplace || (confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD && bestScore >= 3.0));
+```
 
-**Current**: `AIActionsPanel` component is rendered on the Dashboard sidebar.
+New:
+```
+const requiresQuote = isVehicle && !hasVehicleExclusion;
+```
 
-**Change**: Remove the `<AIActionsPanel />` from the Dashboard and remove its import.
+This means: if the category detection picks "vehicle" as the best category AND no exclusion keywords (charger, brake pad, toy car, etc.) were found, it always requires a quote -- regardless of price, confidence score, or store.
 
-**File**: `src/pages/admin/Dashboard.tsx` -- remove import (line 6) and usage (line 203).
+### 2. Detect vehicles from product title on ProductDetails page (frontend)
 
----
+**File: `src/pages/shop/ProductDetails.tsx`** (lines 52-57)
 
-## 3. Hide Bank Transfer Option
+Enhance vehicle detection to also check the product title using the same keyword patterns used in the backend. Instead of relying solely on `location.state`, also check if the loaded product title matches vehicle keywords (car brands, body types like sedan/SUV/truck, etc.).
 
-**Current**: Bank Transfer settings page exists in admin sidebar, and `PendingBankTransfersWidget` shows on Dashboard.
+Add a helper function that checks if a title looks like a vehicle listing (not a part). This runs after the product loads and updates the `isVehicle` flag dynamically.
 
-**Changes**:
-- Remove "Bank Transfer" nav item from admin sidebar (`AdminLayout.tsx` line 85)
-- Remove the `PendingBankTransfersWidget` from Dashboard (`Dashboard.tsx` lines 193-194)
-- Remove the route from `App.tsx` (the bank-transfer-settings route)
-- Keep the files themselves intact (just hidden, not deleted) in case needed later
+### 3. Fix PriceBreakdown to handle per-product vehicle status (frontend)
 
----
+**File: `src/components/shop/PriceBreakdown.tsx`** (lines 34-36)
 
-## 4. Show User Initials Instead of Account Name on Web App
+When `isVehicle` is passed as `true`, ALWAYS treat shipping as pending -- don't check `vehicleQuoteStatus` from the cart context, because on a product details page the cart context has no knowledge of this specific product's quote status.
 
-**Current**: The Account page (`src/pages/shop/Account.tsx` line 69-71) shows a generic `User` icon inside a gradient circle.
+Current:
+```typescript
+const vehiclePendingQuote = isVehicle
+  ? vehicleQuoteStatus !== 'quoted'
+  : hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+```
 
-**Change**: Replace the `User` icon with the user's initials (first letters of first and last name) derived from `profile?.full_name` or `user.email`.
+New:
+```typescript
+const vehiclePendingQuote = isVehicle
+  ? true  // Vehicle products ALWAYS show pending quote on product page
+  : hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+```
 
-**File**: `src/pages/shop/Account.tsx` -- replace the icon with a text element showing initials.
+This ensures that on the product page, a vehicle always shows "Awaiting quote" for shipping and "Estimated Subtotal" instead of a full total.
 
----
+### 4. Use admin-set vehicle markup percentage (already working)
 
-## 5. Active Carts & Saved Items: Platform Column + Reminder Buttons
+The `vehicleMarkupPercent` is already fetched from `mobile-public-config` API (`data.markup.vehicleValue`) and stored in `feeSettings`. The PriceBreakdown already uses `feeSettings.vehicleMarkupPercent` when `isVehicle` is true. No change needed here -- this part is working correctly.
 
-### 5a. Platform Column in Active Carts
-**Current**: Active carts table has no "Platform" column.
+## Technical Details
 
-**Change**:
-- In `admin-get-carts` edge function, join `profiles.signup_platform` to the query
-- Pass it through as `platform` in the response
-- Add a "Platform" column to the table in `ActiveCartsContent.tsx` showing Mobile/Web badge (same icon pattern as Customers page)
-- Add `platform` to the `Cart` interface
+### Vehicle Title Detection Helper (ProductDetails.tsx)
 
-### 5b. Web Saved Items Linked to Admin Saved Items
-**Current**: `SavedCartsContent.tsx` fetches from `saved_items` table. Web app saved items (from `useShopCart`) use the same `saved_items` table, so they are already linked.
+```typescript
+function looksLikeVehicleListing(title: string): boolean {
+  const lower = title.toLowerCase();
+  // Exclusion: parts, accessories, toys
+  const exclusions = ['charger', 'mount', 'holder', 'brake pad', 'oil filter', 
+    'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
+    'floor mat', 'seat cover', 'car wash', 'phone holder'];
+  if (exclusions.some(e => lower.includes(e))) return false;
+  
+  // Vehicle body types
+  const bodyTypes = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'convertible', 
+    'minivan', 'wagon', 'pickup', 'crossover', '4x4', 'motorcycle'];
+  // Year pattern (e.g., "2022 Toyota")
+  const hasYear = /\b(19|20)\d{2}\b/.test(title);
+  // Car brands
+  const brands = ['toyota', 'honda', 'ford', 'chevrolet', 'chevy', 'nissan', 
+    'bmw', 'mercedes', 'audi', 'tesla', 'jeep', 'hyundai', 'kia', 'subaru',
+    'mazda', 'volkswagen', 'lexus', 'porsche', 'dodge', 'ram', 'gmc',
+    'land rover', 'range rover', 'volvo', 'buick', 'cadillac', 'lincoln'];
+  
+  const hasBrand = brands.some(b => lower.includes(b));
+  const hasBodyType = bodyTypes.some(b => lower.includes(b));
+  
+  // A vehicle listing typically has: year + brand, or brand + body type
+  return (hasYear && hasBrand) || (hasBrand && hasBodyType);
+}
+```
 
-**Change**: No data linkage change needed -- they already share the same table.
+This will be used alongside the existing `location.state` check, so `isVehicle` becomes:
+```typescript
+const isVehicle = !!(
+  (location.state as any)?.product?.isVehicle ||
+  (location.state as any)?.isVehicle ||
+  (location.state as any)?.categoryKey?.includes('vehicle') ||
+  (location.state as any)?.subtabKey?.includes('vehicle') ||
+  (product && looksLikeVehicleListing(product.title))
+);
+```
 
-### 5c. Manual + Auto Reminder Buttons
-**Current**: `SavedCartsContent.tsx` has a "Send Reminders" bulk button. No individual reminder button per user. Active carts has no reminder button.
+### Edge Function Redeployment
 
-**Changes**:
-- **Saved Items**: Add a "Send Reminder" button per user row (calls `saved-cart-reminders` with a specific user ID filter)
-- **Active Carts**: Add a "Send Reminder" button per cart row (invokes `saved-cart-reminders` or a new targeted reminder for that user)
-- Both pages already have the bulk reminder capability; we add per-row manual send
+The `catalog-home` and `mobile-add-cart-item` functions use `determineShippingCategory` from the shared module. Changing the threshold in `shippingCategory.ts` will affect all functions that import it. The following functions will be redeployed:
+- Any function importing from `_shared/shippingCategory.ts`
 
----
+## Files Modified
 
-## 6. Remove Price Review Option
-
-**Current**: "Price Reviews" / `PriceConfirmations` appears in the Finance nav section and has a route.
-
-**Changes**:
-- Remove from admin sidebar (`AdminLayout.tsx` line 63)
-- Remove the route from `App.tsx` (price-confirmations route)
-- Keep the file intact (hidden, not deleted)
-
----
-
-## 7. Replace Ticket Analytics with Chat Routing / Assignment Control
-
-**Current**: "Ticket Analytics" tab shows stats about support tickets.
-
-**Change**: Replace with a **Chat Assignment Manager** that allows the master admin to:
-- See all admin users authorized to receive chats
-- Toggle each admin's chat availability (on/off)
-- Set a round-robin order (Admin 1, Admin 2, etc.)
-- View current assignment queue and who gets the next chat
-- Auto-routing: when a new chat arrives at `waiting_agent`, the system assigns it to the next available admin in the rotation
-
-**Implementation**:
-- **New page**: `src/pages/admin/ChatRouting.tsx` -- UI for managing chat assignment
-- **Database**: New table `chat_routing_config` with columns: `id`, `admin_user_id`, `is_available`, `priority_order`, `chats_assigned_count`, `last_assigned_at`
-- **Edge function update**: Modify the support conversation assignment logic to check `chat_routing_config` and assign round-robin
-- **Sidebar**: Replace the ticket-analytics nav item with the new Chat Routing page
-- **Route**: Replace the ticket-analytics route in `App.tsx`
-
----
-
-## 8. Remove Transfer Proofs
-
-**Current**: "Transfer Proofs" page appears in the Finance nav section.
-
-**Changes**:
-- Remove from admin sidebar (`AdminLayout.tsx` line 61)
-- Remove the route from `App.tsx` (transfer-proofs route)
-- Keep the file intact (hidden, not deleted)
-
----
-
-## 9. Move Support Contact Settings to Live Support Tab
-
-**Current**: `SupportContactSettings` is a tab inside `PaymentsSettings` (the "Support" tab).
-
-**Change**:
-- Remove the "Support" tab from `PaymentsSettings.tsx` (change from 3-col grid to 2-col)
-- Move `SupportContactSettings` into the Support Inbox / Live Chat area. Add it as a settings section within the `SupportInbox.tsx` page (e.g., a collapsible settings panel or a tab alongside Active/Closed conversations).
-
----
-
-## Summary of Files Modified
-
-| File | Changes |
+| File | Change |
 |---|---|
-| `src/pages/admin/Orders.tsx` | Remove Print Label condition |
-| `src/pages/admin/Dashboard.tsx` | Remove AIActionsPanel + PendingBankTransfersWidget |
-| `src/components/layout/AdminLayout.tsx` | Remove bank-transfer, transfer-proofs, price-confirmations nav items; replace ticket-analytics with chat-routing |
-| `src/App.tsx` | Remove routes for bank-transfer-settings, transfer-proofs, price-confirmations; replace ticket-analytics route with chat-routing |
-| `src/pages/shop/Account.tsx` | Show user initials instead of User icon |
-| `src/pages/admin/ActiveCartsContent.tsx` | Add Platform column + per-row reminder button |
-| `supabase/functions/admin-get-carts/index.ts` | Include `signup_platform` in query |
-| `src/pages/admin/SavedCartsContent.tsx` | Add per-row manual reminder button |
-| `src/pages/admin/PaymentsSettings.tsx` | Remove Support tab (now 2 tabs) |
-| `src/pages/admin/SupportInbox.tsx` | Add SupportContactSettings section |
-| **NEW**: `src/pages/admin/ChatRouting.tsx` | Chat assignment manager page |
-| **DB Migration** | Create `chat_routing_config` table |
+| `supabase/functions/_shared/shippingCategory.ts` | Remove score/confidence threshold for vehicle quote requirement |
+| `src/pages/shop/ProductDetails.tsx` | Add title-based vehicle detection helper |
+| `src/components/shop/PriceBreakdown.tsx` | Always show pending quote for vehicle products |
 
+## No Regressions
+
+- Vehicle parts/accessories still excluded by the extensive exclusion keyword list
+- Non-vehicle products unchanged (different category wins the scoring)
+- Mobile app unaffected (uses backend `requiresManualQuote` flag from DB)
+- Admin vehicle markup percentage continues to flow from admin portal through the config API
+- Cart-level vehicle quote status still works correctly for the cart/checkout pages

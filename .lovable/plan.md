@@ -1,75 +1,52 @@
 
 
-# Fix: Homepage and Category Tabs to Use Admin Seeds
+# Add Signup Platform Tracking to Customers
 
-## Problem
+## Overview
 
-The products displayed on the homepage and category tabs don't match the seeds configured in the admin "Home Recipes" panel. This happens because:
+Track whether each customer signed up via the **web app** or the **mobile app**, and display this as a filterable column in the admin Customers page. This helps you understand which platform your ads are driving users to.
 
-1. **Homepage ("all" tab):** Shows a flat mix of products from ALL 12 recipe categories combined, instead of showing only the "Homepage (Featured Mix)" seeds you configured.
-2. **Category tabs (Gaming, Vehicles, etc.):** Navigate to a search page that uses hardcoded search queries (e.g., `gaming -> "video game console"`), completely ignoring the admin seeds you've set for each category.
+## How It Works
 
-## Solution
-
-Tag each product in the web cache with its recipe key, then filter by recipe key when serving content.
+- A new `signup_platform` column is added to the `profiles` table
+- During signup, the frontend detects whether the user is on the web app or mobile app and sends that info along with the registration
+- The admin Customers page gets a new "Platform" column and filter dropdown
 
 ## Changes
 
-### 1. Backend: Tag items with recipe key (`homeRecipeBuilder.ts`)
+### 1. Database: Add `signup_platform` column to `profiles`
 
-In `buildWebHomepage`, add a `_recipeKey` field to each item so the cache knows which recipe each product belongs to.
+Add a text column `signup_platform` with a default of `'web'`. Existing users will get `'web'` as default.
 
-```text
-Before: items stored as flat pool, no recipe association
-After:  each item tagged with _recipeKey (e.g., "homepage", "gaming", "vehicles")
+```sql
+ALTER TABLE public.profiles ADD COLUMN signup_platform text DEFAULT 'web';
 ```
 
-### 2. Backend: Filter by category in `catalog-home/index.ts`
+### 2. Backend: Accept platform in `auth-register` edge function
 
-When the web client sends a `category` parameter:
-- `category = ""` or `"all"` or absent: serve only items tagged with `_recipeKey = "homepage"`
-- `category = "gaming"`: serve only items tagged with `_recipeKey = "gaming"`
-- Map tab keys to recipe keys (e.g., `home -> home_garden`, `fashion -> clothing`, `watches -> jewelry_watches`)
+Update the `auth-register` edge function to accept a `platform` field in the request body and save it to the profile when creating it.
 
-### 3. Frontend: Keep category tabs on homepage (`ShopHome.tsx`)
+### 3. Frontend: Send platform during signup
 
-Instead of navigating away to `/search?category=X`, the category tabs will stay on the homepage and re-fetch from `catalog-home` with the selected category parameter. This uses the admin seeds.
+In `AuthContext.tsx`, pass `signup_platform: 'web'` in the `auth-register` call body. The mobile app will send `'mobile'` from its side.
 
-- Add `category` state to ShopHome
-- Pass category to the `catalog-home` fetch URL
-- Reset pagination when category changes
+### 4. Admin Customers page: Show platform column and filter
 
-### 4. Frontend: Update CategoryTabs behavior (`CategoryTabs.tsx`)
-
-When used on the homepage, category changes will call `onCategoryChange` instead of navigating to `/search`. The search page remains unchanged for direct text searches.
-
-## Key Mapping (Tab key -> Recipe key)
-
-```text
-all         -> homepage
-gaming      -> gaming
-vehicles    -> vehicles
-home        -> home_garden
-fashion     -> clothing
-toys        -> toys
-sporting_goods -> sporting_goods
-watches     -> jewelry_watches
-refurbished -> refurbished
-```
+- Add `signup_platform` to the `CustomerProfile` interface
+- Add a "Platform" column to the table (with a phone/monitor icon badge)
+- Add a Platform filter dropdown (All / Web / Mobile)
+- Include platform in CSV export
 
 ## Files Modified
 
-- `supabase/functions/_shared/homeRecipeBuilder.ts` -- tag items with `_recipeKey`
-- `supabase/functions/catalog-home/index.ts` -- filter cached items by recipe key
-- `src/pages/shop/ShopHome.tsx` -- add category state, pass to fetch, handle tab changes
-- `src/components/shop/CategoryTabs.tsx` -- no navigation change needed (already supports `onCategoryChange` prop)
+- **Database migration** -- add `signup_platform` column to `profiles`
+- `supabase/functions/auth-register/index.ts` -- accept and store `platform` field
+- `src/contexts/AuthContext.tsx` -- send `signup_platform: 'web'` in registration body
+- `src/pages/admin/Customers.tsx` -- add Platform column, filter, and CSV export field
 
-## What Stays the Same (No Regressions)
+## No Regressions
 
-- Mobile homepage flow is untouched (already uses sections per recipe)
-- Direct search (typing in search bar) still uses `catalog-search`
-- Admin Publish/Rebuild buttons keep working as before
-- Cache structure remains backward-compatible (items just gain one new field)
-- `catalog-home-v2` for mobile is unaffected
-- SearchResults page remains fully functional for text searches
-
+- Existing profiles get `'web'` as default (safe assumption for current users)
+- Mobile app signup flow is unaffected (it can be updated separately to send `'mobile'`)
+- No changes to login, session, or other auth flows
+- All existing filters and features on the Customers page remain intact

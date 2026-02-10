@@ -25,6 +25,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations, languages } from '@/lib/i18n/translations';
+import { InviteEarn } from '@/components/shop/InviteEarn';
+
 
 export default function Account() {
   const { user, profile, signOut } = useAuth();
@@ -146,6 +148,15 @@ export default function Account() {
             </div>
           </motion.section>
 
+          {/* Invite & Earn */}
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mb-4"
+          >
+            <InviteEarn language={language} />
+          </motion.section>
           {/* Help & Legal Section */}
           <motion.section
             initial={{ opacity: 0, y: 20 }}

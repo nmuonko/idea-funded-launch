@@ -53,6 +53,23 @@ serve(async (req) => {
     const isVerified = !!user.email_confirmed_at;
     console.log('[auth-check-verified] Verification status for', email, ':', isVerified);
 
+    // If verified, trigger referral reward (non-blocking, idempotent)
+    if (isVerified) {
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+        const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+        fetch(`${supabaseUrl}/functions/v1/referral-on-verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'apikey': anonKey,
+          },
+          body: JSON.stringify({ userId: user.id }),
+        }).catch(err => console.warn('[auth-check-verified] Referral reward trigger failed:', err));
+      } catch { /* non-blocking */ }
+    }
+
     if (!isVerified) {
       return new Response(
         JSON.stringify({ 

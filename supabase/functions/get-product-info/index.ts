@@ -1,6 +1,5 @@
-import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createAdminClient } from "../_shared/auth.ts";
-import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { z } from "https://esm.sh/zod@3.22.4";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 
 const corsHeaders = {
@@ -1531,7 +1530,7 @@ function formatDisplayPrice(price: number, currency: string): string {
   return `${symbol}${price.toFixed(2)}`;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const requestStart = Date.now();
   
   if (req.method === 'OPTIONS') {

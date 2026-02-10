@@ -48,6 +48,14 @@ export default function ProductDetailsPage() {
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
+  // Detect if this product is a vehicle
+  const isVehicle = !!(
+    (location.state as any)?.product?.isVehicle ||
+    (location.state as any)?.isVehicle ||
+    (location.state as any)?.categoryKey?.includes('vehicle') ||
+    (location.state as any)?.subtabKey?.includes('vehicle')
+  );
+
   // Reset ALL state when route params change (fixes similar product image merge bug)
   useEffect(() => {
     const nav = (location.state as any)?.product;
@@ -407,6 +415,7 @@ export default function ProductDetailsPage() {
                 <PriceBreakdown 
                   itemPriceUsd={product.priceUsd} 
                   quantity={quantity}
+                  isVehicle={isVehicle}
                 />
               </div>
 

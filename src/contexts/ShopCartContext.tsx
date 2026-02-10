@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export interface FeeSettings {
   markupPercent: number;
+  vehicleMarkupPercent: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
 }
@@ -81,6 +82,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [initialized, setInitialized] = useState(false);
   const [feeSettings, setFeeSettings] = useState<FeeSettings>({
     markupPercent: 15,
+    vehicleMarkupPercent: 15,
     shippingBaseFeeUsd: 20,
     shippingPercent: 10,
   });
@@ -149,11 +151,13 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             setFeeSettings({
               // API returns nested structure: markup.value, shipping.flatUsd, shipping.percentValue
               markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
+              vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markup?.value ?? 15,
               shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
               shippingPercent: data.shipping?.percentValue ?? data.shippingPercent ?? 10,
             });
             console.log('[CART] Fee settings loaded:', {
               markupPercent: data.markup?.value,
+              vehicleMarkupPercent: data.markup?.vehicleValue,
               shippingBaseFeeUsd: data.shipping?.flatUsd,
               shippingPercent: data.shipping?.percentValue,
             });

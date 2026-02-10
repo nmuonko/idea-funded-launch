@@ -342,8 +342,8 @@ export default function Checkout() {
     } catch (error: any) {
       console.error('[WEB_CHECKOUT] Error:', error);
       toast({
-        title: 'Checkout Failed',
-        description: error.message || 'Failed to process your order',
+        title: shop.checkoutFailed || 'Checkout Failed',
+        description: error.message || shop.failedToProcess || 'Failed to process your order',
         variant: 'destructive',
       });
     } finally {
@@ -356,10 +356,10 @@ export default function Checkout() {
       <div className="min-h-screen bg-black">
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
-          <p className="text-white/60 mb-4">Please sign in to checkout</p>
+          <p className="text-white/60 mb-4">{shop.pleaseSignIn || 'Please sign in to checkout'}</p>
           <Link to="/shop-auth?redirect=/checkout">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
-              Sign In
+              {shop.signIn || 'Sign In'}
             </Button>
           </Link>
         </div>
@@ -372,10 +372,10 @@ export default function Checkout() {
       <div className="min-h-screen bg-black">
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
-          <p className="text-white/60 mb-4">Your cart is empty</p>
+          <p className="text-white/60 mb-4">{shop.cartEmpty || 'Your cart is empty'}</p>
           <Link to="/">
             <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
-              Continue Shopping
+              {shop.continueShopping || 'Continue Shopping'}
             </Button>
           </Link>
         </div>
@@ -420,10 +420,10 @@ export default function Checkout() {
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Cart
+            {shop.backToCart || 'Back to Cart'}
           </Link>
           
-          <h1 className="text-2xl font-bold text-white mb-8">Checkout</h1>
+          <h1 className="text-2xl font-bold text-white mb-8">{shop.checkoutTitle || 'Checkout'}</h1>
 
           <form onSubmit={handleSubmit}>
             <div className="grid lg:grid-cols-3 gap-8">
@@ -435,7 +435,7 @@ export default function Checkout() {
                   animate={{ opacity: 1, y: 0 }}
                   className="bg-white/5 rounded-2xl border border-white/10 p-6"
                 >
-                  <h2 className="text-lg font-semibold text-white mb-4">Shipping Address</h2>
+                  <h2 className="text-lg font-semibold text-white mb-4">{shop.shippingAddress || 'Shipping Address'}</h2>
                   
                   {loadingProfile ? (
                     <div className="flex items-center justify-center py-8">
@@ -473,13 +473,13 @@ export default function Checkout() {
                           className="flex items-center gap-2 px-4 py-2 text-sm text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors"
                         >
                           <Edit3 className="h-4 w-4" />
-                          Edit Address
+                          {shop.editAddress || 'Edit Address'}
                         </button>
                       </div>
                       
                       <p className="text-xs text-green-400 flex items-center gap-1">
                         <CheckCircle2 className="h-3 w-3" />
-                        Using your saved shipping address
+                        {shop.usingSavedAddress || 'Using your saved shipping address'}
                       </p>
                     </div>
                   ) : (
@@ -490,12 +490,12 @@ export default function Checkout() {
                           onClick={() => setEditingAddress(false)}
                           className="text-sm text-white/60 hover:text-white mb-2 flex items-center gap-1"
                         >
-                          ← Back to saved address
+                          {shop.backToSavedAddress || '← Back to saved address'}
                         </button>
                       )}
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="fullName" className="text-white/70">Full Name</Label>
+                          <Label htmlFor="fullName" className="text-white/70">{shop.fullName || 'Full Name'}</Label>
                           <Input
                             id="fullName"
                             value={address.fullName}
@@ -505,7 +505,7 @@ export default function Checkout() {
                           />
                         </div>
                         <div>
-                          <Label htmlFor="phone" className="text-white/70">Phone Number</Label>
+                          <Label htmlFor="phone" className="text-white/70">{shop.phoneNumber || 'Phone Number'}</Label>
                           <Input
                             id="phone"
                             type="tel"
@@ -518,7 +518,7 @@ export default function Checkout() {
                       </div>
 
                       <div>
-                        <Label htmlFor="addressLine1" className="text-white/70">Address Line 1</Label>
+                        <Label htmlFor="addressLine1" className="text-white/70">{shop.addressLine1 || 'Address Line 1'}</Label>
                         <Input
                           id="addressLine1"
                           value={address.addressLine1}
@@ -529,7 +529,7 @@ export default function Checkout() {
                       </div>
 
                       <div>
-                        <Label htmlFor="addressLine2" className="text-white/70">Address Line 2 (Optional)</Label>
+                        <Label htmlFor="addressLine2" className="text-white/70">{shop.addressLine2Optional || 'Address Line 2 (Optional)'}</Label>
                         <Input
                           id="addressLine2"
                           value={address.addressLine2}
@@ -540,7 +540,7 @@ export default function Checkout() {
 
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="city" className="text-white/70">City</Label>
+                          <Label htmlFor="city" className="text-white/70">{shop.city || 'City'}</Label>
                           <Input
                             id="city"
                             value={address.city}
@@ -550,7 +550,7 @@ export default function Checkout() {
                           />
                         </div>
                         <div>
-                          <Label htmlFor="stateProvince" className="text-white/70">State/Province</Label>
+                          <Label htmlFor="stateProvince" className="text-white/70">{shop.stateProvince || 'State/Province'}</Label>
                           <Input
                             id="stateProvince"
                             value={address.stateProvince}
@@ -562,7 +562,7 @@ export default function Checkout() {
 
                       <div className="grid sm:grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="country" className="text-white/70">Country</Label>
+                          <Label htmlFor="country" className="text-white/70">{shop.country || 'Country'}</Label>
                           <Input
                             id="country"
                             value={address.country}
@@ -572,7 +572,7 @@ export default function Checkout() {
                           />
                         </div>
                         <div>
-                          <Label htmlFor="postalCode" className="text-white/70">Postal Code (Optional)</Label>
+                          <Label htmlFor="postalCode" className="text-white/70">{shop.postalCodeOptional || 'Postal Code (Optional)'}</Label>
                           <Input
                             id="postalCode"
                             value={address.postalCode}
@@ -592,7 +592,7 @@ export default function Checkout() {
                   transition={{ delay: 0.1 }}
                   className="bg-white/5 rounded-2xl border border-white/10 p-6"
                 >
-                  <h2 className="text-lg font-semibold text-white mb-4">Payment Method</h2>
+                  <h2 className="text-lg font-semibold text-white mb-4">{shop.paymentMethod || 'Payment Method'}</h2>
                   
                   <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
                     <div className="space-y-3">
@@ -600,7 +600,7 @@ export default function Checkout() {
                         <RadioGroupItem value="mobile_money" id="mobile_money" className="border-white/40" />
                         <Smartphone className="h-5 w-5 text-white/70" />
                         <div className="flex-1">
-                          <p className="text-white font-medium">Mobile Money</p>
+                          <p className="text-white font-medium">{shop.mobileMoney || 'Mobile Money'}</p>
                           <p className="text-sm text-white/50">M-Pesa, Airtel Money, Orange Money</p>
                         </div>
                       </label>
@@ -609,7 +609,7 @@ export default function Checkout() {
                         <RadioGroupItem value="card" id="card" className="border-white/40" />
                         <CreditCard className="h-5 w-5 text-white/70" />
                         <div className="flex-1">
-                          <p className="text-white font-medium">Credit/Debit Card</p>
+                          <p className="text-white font-medium">{shop.creditDebitCard || 'Credit/Debit Card'}</p>
                           <p className="text-sm text-white/50">Visa, Mastercard, AMEX</p>
                         </div>
                       </label>
@@ -632,10 +632,10 @@ export default function Checkout() {
                     className="mt-1 border-white/40"
                   />
                   <label htmlFor="terms" className="text-sm text-white/70 cursor-pointer">
-                    I agree to the{' '}
-                    <Link to="/terms" className="text-blue-400 hover:underline">Terms of Service</Link>
-                    {' '}and{' '}
-                    <Link to="/privacy" className="text-blue-400 hover:underline">Privacy Policy</Link>
+                    {shop.agreeTerms || 'I agree to the'}{' '}
+                    <Link to="/terms" className="text-blue-400 hover:underline">{shop.termsOfService || 'Terms of Service'}</Link>
+                    {' '}{shop.and || 'and'}{' '}
+                    <Link to="/privacy" className="text-blue-400 hover:underline">{shop.privacyPolicy || 'Privacy Policy'}</Link>
                   </label>
                 </motion.div>
               </div>
@@ -682,12 +682,12 @@ export default function Checkout() {
                     {loading ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Processing...
+                        {shop.processing || 'Processing...'}
                       </>
                     ) : (
                       <>
                         <CheckCircle2 className="h-4 w-4 mr-2" />
-                        Place Order
+                        {shop.placeOrder || 'Place Order'}
                       </>
                     )}
                   </Button>

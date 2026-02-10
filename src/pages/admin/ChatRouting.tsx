@@ -79,21 +79,48 @@ export default function ChatRouting() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [routingRes, adminsRes] = await Promise.all([
-        supabase
-          .from('chat_routing_config')
-          .select('*')
-          .order('priority_order', { ascending: true }),
-        supabase
-          .from('admin_users')
-          .select('id, email'),
-      ]);
+      // Load routing config
+      const routingRes = await supabase
+        .from('chat_routing_config')
+        .select('*')
+        .order('priority_order', { ascending: true });
 
       if (routingRes.error) throw routingRes.error;
-      if (adminsRes.error) throw adminsRes.error;
-
       setEntries(routingRes.data || []);
-      setAdminUsers(adminsRes.data || []);
+
+      // Load all admins from user_roles + profiles for the dropdown
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('user_id, role')
+        .eq('role', 'admin');
+
+      if (rolesError) throw rolesError;
+
+      // Get profiles for these admin user_ids
+      const adminUserIds = (rolesData || []).map(r => r.user_id);
+      let profilesMap: Record<string, { email?: string; full_name?: string; name?: string }> = {};
+      
+      if (adminUserIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, email, full_name, name')
+          .in('user_id', adminUserIds);
+        
+        (profiles || []).forEach(p => {
+          profilesMap[p.user_id] = p;
+        });
+      }
+
+      // Build admin users list
+      const admins: AdminUser[] = adminUserIds.map(uid => {
+        const profile = profilesMap[uid];
+        return {
+          id: uid,
+          email: profile?.email || profile?.full_name || profile?.name || uid.slice(0, 8) + '...',
+        };
+      });
+
+      setAdminUsers(admins);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     } finally {

@@ -356,7 +356,7 @@ export default function AdminPayments() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Payment Transactions</CardTitle>
-              <CardDescription>View and manage MaishaPay payment records</CardDescription>
+              <CardDescription>{language === 'fr' ? 'Consultez et gérez les paiements Stripe & PawaPay' : 'View and manage Stripe & PawaPay payment records'}</CardDescription>
             </div>
             <div className="flex gap-2">
               <Button 
@@ -417,7 +417,7 @@ export default function AdminPayments() {
                       <TableHead>Customer</TableHead>
                       <TableHead>Amount (USD)</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>MaishaPay Ref</TableHead>
+                      <TableHead>{language === 'fr' ? 'Référence' : 'Reference'}</TableHead>
                       <TableHead>Mode</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -519,7 +519,7 @@ export default function AdminPayments() {
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Payment Details</DialogTitle>
+            <DialogTitle>{language === 'fr' ? 'Détails du Paiement' : 'Payment Details'}</DialogTitle>
             <DialogDescription>
               Full transaction information
             </DialogDescription>
@@ -582,9 +582,9 @@ export default function AdminPayments() {
                   </a>
                 </div>
 
-                {/* MaishaPay Details */}
+                {/* Provider Details */}
                 <div>
-                  <p className="text-sm text-muted-foreground mb-2">MaishaPay Details</p>
+                  <p className="text-sm text-muted-foreground mb-2">{language === 'fr' ? 'Détails Fournisseur' : 'Provider Details'}</p>
                   <div className="bg-muted p-3 rounded-lg space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Reference:</span>
@@ -604,7 +604,7 @@ export default function AdminPayments() {
                     )}
                     {selectedPayment.maishapay_status && (
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">MaishaPay Status:</span>
+                        <span className="text-muted-foreground">{language === 'fr' ? 'Statut Fournisseur:' : 'Provider Status:'}</span>
                         <span>{selectedPayment.maishapay_status}</span>
                       </div>
                     )}

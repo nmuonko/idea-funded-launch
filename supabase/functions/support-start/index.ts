@@ -38,11 +38,13 @@ serve(async (req) => {
       }
     }
 
-    // Parse request body for guest_device_id
+    // Parse request body for guest_device_id and language
     let guestDeviceId: string | null = null;
+    let language: string = 'en';
     try {
       const body = await req.json();
       guestDeviceId = body.guest_device_id || null;
+      language = body.language || 'en';
     } catch {
       // No body or invalid JSON - that's fine
     }
@@ -101,13 +103,22 @@ serve(async (req) => {
         conversationId = newConvo.id;
         console.log('SUPPORT_START: Created new conversation:', conversationId);
 
+        // Language-aware welcome message
+        const welcomeMessages: Record<string, string> = {
+          en: 'Leave us a message describing your need and an agent will respond as soon as possible.',
+          fr: 'Laissez-nous un message décrivant votre besoin et un agent vous répondra dans les plus brefs délais.',
+          sw: 'Tuachie ujumbe kuhusu hitaji lako na wakala atajibu haraka iwezekanavyo.',
+          ln: 'Tika biso message mpo na mposa na yo mpe agent akozongisela yo noki.',
+        };
+        const welcomeMsg = welcomeMessages[language] || welcomeMessages.en;
+
         // Insert system welcome message
         const { error: msgError } = await supabaseAdmin
           .from('support_messages')
           .insert({
             conversation_id: conversationId,
             sender_type: 'bot',
-            content: 'Chat démarré. Comment puis-je vous aider?'
+            content: welcomeMsg
           });
 
         if (msgError) {
@@ -138,13 +149,22 @@ serve(async (req) => {
       conversationId = newConvo.id;
       console.log('SUPPORT_START: Created guest conversation:', conversationId);
 
+      // Language-aware welcome message for guests
+      const guestWelcomeMessages: Record<string, string> = {
+        en: 'Leave us a message describing your need and an agent will respond as soon as possible.',
+        fr: 'Laissez-nous un message décrivant votre besoin et un agent vous répondra dans les plus brefs délais.',
+        sw: 'Tuachie ujumbe kuhusu hitaji lako na wakala atajibu haraka iwezekanavyo.',
+        ln: 'Tika biso message mpo na mposa na yo mpe agent akozongisela yo noki.',
+      };
+      const guestWelcomeMsg = guestWelcomeMessages[language] || guestWelcomeMessages.en;
+
       // Insert system welcome message
       await supabaseAdmin
         .from('support_messages')
         .insert({
           conversation_id: conversationId,
           sender_type: 'bot',
-          content: 'Chat démarré. Comment puis-je vous aider?'
+          content: guestWelcomeMsg
         });
     }
 

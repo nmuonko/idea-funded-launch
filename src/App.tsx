@@ -41,6 +41,7 @@ import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportInbox from "./pages/admin/SupportInbox";
+import SupportContactSettings from "./pages/admin/SupportContactSettings";
 import ChatRouting from "./pages/admin/ChatRouting";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
@@ -280,6 +281,11 @@ const App = () => {
               <Route path="chat-routing" element={
                 <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
                   <ChatRouting />
+                </AdminRouteGuard>
+              } />
+              <Route path="support-contact" element={
+                <AdminRouteGuard requiredPermission="can_view_tickets">
+                  <SupportContactSettings />
                 </AdminRouteGuard>
               } />
               <Route path="knowledge-base" element={

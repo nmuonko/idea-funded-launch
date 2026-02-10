@@ -1,73 +1,103 @@
 
-# Smart Download Landing Page (`/get`)
+# Fix Cart Reliability + Add Item Selection for Checkout
 
-## Overview
-Create a new lightweight, fully localized landing page at `/get` with Android auto-redirect, reusing the existing dark theme and i18n system. Add `/download` as a redirect alias to `/get` (replacing the current heavy Download page import at that route).
+## Problems Identified
 
-## New File: `src/pages/GetApp.tsx`
+1. **Deleted items reappear**: When you add a new item, the code calls `syncCart()` which fetches ALL server-side cart items. If the delete hasn't fully completed on the server, or if there's a timing overlap, the deleted item comes back from the server response and overwrites your local state.
 
-A single-page component with:
+2. **Vehicle quotes block everything**: If your cart has a vehicle needing a quote, the entire checkout is blocked -- you can't pay for your non-vehicle items separately.
 
-- **Dark theme** matching existing AfriShop style (black bg, gradient accents)
-- **Centered card** with:
-  - AfriShop logo (`/favicon.png`)
-  - Localized title and subtitle
-  - Primary button: Android Play Store link (same tab)
-  - Secondary button: Open website link (same tab)
-  - Helper text below buttons
-  - WhatsApp support button (using `SUPPORT_WHATSAPP_E164` from `supportConfig.ts`)
-- **Android auto-redirect**: Detects Android via `navigator.userAgent`, starts 2-second countdown, shows cancel link. If cancelled, stops. If not Android, no countdown.
-- **SEO**: Sets `document.title` and meta description via `useEffect`, both localized.
-- Uses `useLanguage()` hook -- updates instantly when user changes language from the global selector.
-- No header/footer needed (minimal QR landing page), but the global `LanguageSwitcher` should be accessible. We'll add a small floating language selector in the top-right corner of the page itself (reusing the existing `LanguageSwitcher` component).
+3. **No item selection**: Unlike the mobile app, the web cart doesn't let you select which items to pay for.
 
-## Translations: `src/lib/i18n/translations.ts`
+---
 
-Add a `download` section to all 4 languages (en, fr, sw, ln):
+## Solution
 
-| Key | FR (default) | EN |
-|---|---|---|
-| `download.pageTitle` | Telecharger AfriShop | Download AfriShop |
-| `download.metaDescription` | Telechargez l'application AfriShop... | Download the AfriShop app... |
-| `download.title` | Obtenez AfriShop | Get AfriShop |
-| `download.subtitle` | Achetez depuis les USA, livrez en Afrique | Shop from the USA, deliver to Africa |
-| `download.androidButton` | Telecharger l'app Android | Download Android App |
-| `download.webButton` | Ouvrir le site web | Open the Website |
-| `download.helper` | Vous pouvez choisir l'app ou le site. | You can choose the app or the website. |
-| `download.redirecting` | Redirection vers Google Play dans {seconds}s... | Redirecting to Google Play in {seconds}s... |
-| `download.cancelRedirect` | Annuler la redirection | Cancel redirect |
-| `download.supportTitle` | Aide / Support | Help / Support |
-| `download.whatsapp` | Contacter sur WhatsApp | Contact on WhatsApp |
+### 1. Fix the "deleted items reappear" race condition
 
-Same pattern for Swahili and Lingala translations.
+**File: `src/contexts/ShopCartContext.tsx`**
 
-## Routes: `src/App.tsx`
+- Add a `deletedItemIds` set (React ref) that tracks IDs of items currently being deleted.
+- In `removeItem`: add the item ID to this set BEFORE calling the server delete. Remove it from the set only after `syncCart` completes.
+- In `syncCart`: after receiving server items, filter OUT any item whose ID is in the `deletedItemIds` set before calling `setItems`.
+- In `addItem`: do NOT call `syncCart()` immediately after adding. Instead, just add locally and call the server add endpoint. Only sync after the server confirms (and still respect the deleted set).
+- Remove the localStorage-to-state restore on init when user is logged in (server is the source of truth -- localStorage backup should only apply to guests).
 
-- Add route: `/get` rendering `GetApp`
-- Change `/download` from rendering `DownloadPage` to `<Navigate to="/get" replace />`
-- Add `/get` to the `publicPaths` array so the splash screen is skipped
+### 2. Add item selection (checkboxes) to the cart page
+
+**File: `src/pages/shop/ShopCart.tsx`**
+
+- Add a `selectedItemIds` state (Set of item IDs), defaulting to all items selected.
+- Each cart item row gets a checkbox.
+- "Select All / Deselect All" toggle at the top.
+- The Order Summary sidebar recalculates based on selected items only.
+- The "Proceed to Checkout" button passes selected item IDs to the checkout page (via navigation state or context).
+- Vehicle items can be deselected, allowing non-vehicle items to proceed to payment independently.
+
+### 3. Update checkout to handle partial item selection
+
+**Files: `src/contexts/ShopCartContext.tsx`, `src/pages/shop/Checkout.tsx`**
+
+- Add `selectedItemIds` state to the cart context so it persists across navigation.
+- Checkout page uses only the selected items for order creation and price display.
+- The `mobile-create-order-from-cart` call will use the selected subset.
+- Vehicle quote check applies only to selected items -- if no vehicle is selected, checkout proceeds normally.
+
+### 4. Prevent localStorage from resurrecting items for logged-in users
+
+**File: `src/contexts/ShopCartContext.tsx`**
+
+- On init, if a user is logged in, skip loading from localStorage and wait for `syncCart` to provide the authoritative server state.
+- Only persist to localStorage for guest users.
+
+---
 
 ## Technical Details
 
-### Android Detection
-```typescript
-const isAndroid = /android/i.test(navigator.userAgent);
+### ShopCartContext changes
+
+```text
+New state/refs:
+- deletedItemIdsRef = useRef<Set<string>>()
+- selectedItemIds: Set<string> (exposed in context)
+- toggleItemSelection(id): void
+- selectAllItems(): void
+- deselectAllItems(): void
+- selectedItems: CartItem[] (computed)
+- selectedTotalUsd: number (computed)
+
+Modified functions:
+- syncCart: filter out deletedItemIdsRef entries
+- addItem: don't call syncCart inline; add server-side then merge ID
+- removeItem: track in deletedItemIdsRef before server call
+- init useEffect: skip localStorage load when user is logged in
 ```
 
-### Countdown Logic
-- `useState` for `countdown` (starts at 2) and `cancelled` flag
-- `useEffect` with `setInterval` decrementing every second
-- When countdown reaches 0 and not cancelled: `window.location.href = playStoreUrl`
-- Cancel button sets `cancelled = true`
+### ShopCart.tsx (Cart Page) changes
 
-### Play Store URL
-```
-https://play.google.com/store/apps/details?id=com.afrishop.usadrc
+```text
+- Add Checkbox import
+- Render checkbox per item row
+- "Select All" / "Deselect All" button in header
+- Order Summary uses selectedItems and selectedTotalUsd
+- Vehicle quote warning only shows if a vehicle item is SELECTED
+- "Proceed to Checkout" disabled if nothing selected
 ```
 
-### Files Changed
+### Checkout.tsx changes
+
+```text
+- Read selectedItems from context instead of all items
+- Vehicle blocking logic checks only selected items
+- Order creation uses selected item IDs only
+```
+
+---
+
+## Files to Modify
+
 | File | Change |
-|---|---|
-| `src/pages/GetApp.tsx` | New file -- the landing page |
-| `src/lib/i18n/translations.ts` | Add `download` section to all 4 languages |
-| `src/App.tsx` | Add `/get` route, redirect `/download` to `/get`, update publicPaths |
+|------|--------|
+| `src/contexts/ShopCartContext.tsx` | Race condition fix, item selection state, skip localStorage for logged-in users |
+| `src/pages/shop/ShopCart.tsx` | Add checkboxes, select all/none, recalculate summary from selection |
+| `src/pages/shop/Checkout.tsx` | Use selected items only, partial vehicle blocking |

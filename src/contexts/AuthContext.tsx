@@ -435,6 +435,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       console.log('[Auth] Registering user via auth-register edge function');
       
+      // Check for stored referral code
+      let referredByCode: string | null = null;
+      try {
+        const refData = localStorage.getItem('afrishop_ref_code');
+        if (refData) {
+          const parsed = JSON.parse(refData);
+          if (parsed.code && parsed.expires > Date.now()) {
+            referredByCode = parsed.code;
+          }
+        }
+      } catch { /* ignore parse errors */ }
+      
       // Call the auth-register edge function which handles:
       // 1. User creation with email_confirm: false
       // 2. Verification email via Resend
@@ -453,6 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           country: profileData?.country || 'Not provided',
           signup_platform: 'web',
           redirectBaseUrl: window.location.origin,
+          referred_by_code: referredByCode,
         },
       });
 

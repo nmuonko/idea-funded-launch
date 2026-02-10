@@ -3606,6 +3606,7 @@ export type Database = {
           phone: string | null
           postal_code: string | null
           province: string | null
+          referred_by_code: string | null
           signup_platform: string | null
           state_province: string | null
           updated_at: string
@@ -3626,6 +3627,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           province?: string | null
+          referred_by_code?: string | null
           signup_platform?: string | null
           state_province?: string | null
           updated_at?: string
@@ -3646,6 +3648,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           province?: string | null
+          referred_by_code?: string | null
           signup_platform?: string | null
           state_province?: string | null
           updated_at?: string
@@ -3881,6 +3884,99 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      referral_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          metadata: Json | null
+          ref_code: string
+          referred_user_id: string | null
+          session_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          metadata?: Json | null
+          ref_code: string
+          referred_user_id?: string | null
+          session_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          metadata?: Json | null
+          ref_code?: string
+          referred_user_id?: string | null
+          session_id?: string | null
+        }
+        Relationships: []
+      }
+      referral_rewards: {
+        Row: {
+          amount_usd: number | null
+          created_at: string
+          id: string
+          paid_at: string | null
+          paid_by: string | null
+          ref_code: string
+          referred_user_id: string
+          referrer_user_id: string
+          reward_type: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount_usd?: number | null
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          paid_by?: string | null
+          ref_code: string
+          referred_user_id: string
+          referrer_user_id: string
+          reward_type?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_usd?: number | null
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          paid_by?: string | null
+          ref_code?: string
+          referred_user_id?: string
+          referrer_user_id?: string
+          reward_type?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       scrape_retry_queue: {
         Row: {

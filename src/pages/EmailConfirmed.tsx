@@ -18,6 +18,17 @@ const EmailConfirmed = () => {
   const [hasSession, setHasSession] = useState(false);
 
   useEffect(() => {
+    const triggerReferralReward = async (userId: string) => {
+      try {
+        await supabase.functions.invoke('referral-on-verify', {
+          body: { userId },
+        });
+        console.log('[EmailConfirmed] Referral reward check triggered for:', userId);
+      } catch (err) {
+        console.warn('[EmailConfirmed] Referral reward check failed (non-blocking):', err);
+      }
+    };
+
     // Listen for auth state changes — when verification link is clicked,
     // Supabase sets the session automatically via the URL hash/tokens
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -25,6 +36,7 @@ const EmailConfirmed = () => {
         if (session?.user?.email_confirmed_at) {
           setHasSession(true);
           setShowPopup(true);
+          triggerReferralReward(session.user.id);
         }
       }
     );
@@ -34,6 +46,7 @@ const EmailConfirmed = () => {
       if (session?.user?.email_confirmed_at) {
         setHasSession(true);
         setShowPopup(true);
+        triggerReferralReward(session.user.id);
       }
     });
 

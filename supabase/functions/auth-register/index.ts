@@ -132,6 +132,7 @@ serve(async (req) => {
     const postalCode = body.postalCode || body.postal_code;
     const country = body.country;
     const signupPlatform = body.signup_platform || body.signupPlatform || 'web';
+    const referredByCode = body.referred_by_code || body.referredByCode || null;
     
     // Also capture nationalPhoneNumber if mobile sends it separately
     const nationalPhoneNumber = body.nationalPhoneNumber || body.national_phone_number || body.localPhoneNumber;
@@ -380,6 +381,7 @@ serve(async (req) => {
       postal_code: postalCode?.trim() || null,
       country: country.trim(),
       signup_platform: signupPlatform,
+      referred_by_code: referredByCode || null,
     };
 
     // Use UPSERT to handle both new profiles and updates (prevents duplicates)
@@ -392,6 +394,19 @@ serve(async (req) => {
       // Don't fail registration - user can update profile later
     } else {
       console.log('[auth-register] Profile upserted successfully');
+    }
+
+    // Log referral signup event (non-blocking)
+    if (referredByCode) {
+      supabaseAdmin.from('referral_events').insert({
+        ref_code: referredByCode,
+        event_type: 'signup',
+        referred_user_id: userId,
+        metadata: { email: email.trim(), signup_platform: signupPlatform },
+      }).then(({ error: refErr }) => {
+        if (refErr) console.warn('[auth-register] Referral event insert error:', refErr);
+        else console.log('[auth-register] Referral signup event logged for code:', referredByCode);
+      });
     }
 
     // Verify the profile was saved correctly - use maybeSingle to avoid errors

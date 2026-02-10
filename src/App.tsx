@@ -62,6 +62,7 @@ import CarsSettings from "./pages/admin/CarsSettings";
 import HomeRecipes from "./pages/admin/HomeRecipes";
 import SearchRelevancy from "./pages/admin/SearchRelevancy";
 import Cars from "./pages/Cars";
+import AdminReferrals from "./pages/admin/Referrals";
 
 import PaymentsSettings from "./pages/admin/PaymentsSettings";
 import ServiceZones from "./pages/admin/ServiceZones";
@@ -381,6 +382,11 @@ const App = () => {
               <Route path="search-relevancy" element={
                 <AdminRouteGuard requiredPermission="can_view_dashboard">
                   <SearchRelevancy />
+                </AdminRouteGuard>
+              } />
+              <Route path="referrals" element={
+                <AdminRouteGuard requiredPermission="can_view_payments">
+                  <AdminReferrals />
                 </AdminRouteGuard>
               } />
               <Route path="access-denied" element={<AdminAccessDenied />} />

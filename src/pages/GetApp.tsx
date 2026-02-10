@@ -1,21 +1,68 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getTranslation } from '@/lib/i18n/translations';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 import { SUPPORT_WHATSAPP_E164 } from '@/lib/supportConfig';
-import { Download, Globe, MessageCircle, Smartphone } from 'lucide-react';
+import { Download, Globe, MessageCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.afrishop.usadrc';
 const WEBSITE_URL = 'https://afrishop-usa.com';
+const REF_STORAGE_KEY = 'afrishop_ref_code';
+const REF_CLICK_SESSION_KEY = 'afrishop_ref_click_sent';
+
+function getQueryParams(): URLSearchParams {
+  return new URLSearchParams(window.location.search);
+}
+
+function buildUrlWithParams(baseUrl: string, params: URLSearchParams): string {
+  const relevantKeys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'ref'];
+  const filtered = new URLSearchParams();
+  relevantKeys.forEach(key => {
+    const val = params.get(key);
+    if (val) filtered.set(key, val);
+  });
+  const qs = filtered.toString();
+  return qs ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${qs}` : baseUrl;
+}
 
 export default function GetApp() {
   const { language } = useLanguage();
   const t = getTranslation(language);
   const dl = (t as any).download;
+  const params = useMemo(() => getQueryParams(), []);
+  const refCode = params.get('ref');
 
-  const isAndroid = /android/i.test(navigator.userAgent);
-  const [countdown, setCountdown] = useState(isAndroid ? 2 : -1);
-  const [cancelled, setCancelled] = useState(false);
+  // Store ref code in localStorage for 30 days
+  useEffect(() => {
+    if (refCode) {
+      const data = { code: refCode, expires: Date.now() + 30 * 24 * 60 * 60 * 1000 };
+      localStorage.setItem(REF_STORAGE_KEY, JSON.stringify(data));
+    }
+  }, [refCode]);
+
+  // Track referral click (dedupe per session)
+  useEffect(() => {
+    if (!refCode) return;
+    const sessionKey = `${REF_CLICK_SESSION_KEY}_${refCode}`;
+    if (sessionStorage.getItem(sessionKey)) return;
+    
+    // Fire-and-forget click event
+    supabase.from('referral_events').insert({
+      ref_code: refCode,
+      event_type: 'click',
+      session_id: crypto.randomUUID(),
+      metadata: {
+        user_agent: navigator.userAgent,
+        referrer: document.referrer || null,
+        utm_source: params.get('utm_source'),
+        utm_medium: params.get('utm_medium'),
+        utm_campaign: params.get('utm_campaign'),
+      },
+    }).then(() => {
+      sessionStorage.setItem(sessionKey, '1');
+    });
+  }, [refCode, params]);
 
   // SEO: update title and meta description
   useEffect(() => {
@@ -31,27 +78,8 @@ export default function GetApp() {
     }
   }, [dl]);
 
-  // Android auto-redirect countdown
-  useEffect(() => {
-    if (!isAndroid || cancelled || countdown <= 0) return;
-    const timer = setInterval(() => {
-      setCountdown(prev => prev - 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [isAndroid, cancelled, countdown]);
-
-  useEffect(() => {
-    if (isAndroid && !cancelled && countdown === 0) {
-      window.location.href = PLAY_STORE_URL;
-    }
-  }, [countdown, cancelled, isAndroid]);
-
-  const handleCancel = useCallback(() => {
-    setCancelled(true);
-    setCountdown(-1);
-  }, []);
-
   const whatsappUrl = `https://wa.me/${SUPPORT_WHATSAPP_E164}`;
+  const webUrlWithParams = buildUrlWithParams(WEBSITE_URL, params);
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center px-4 py-8 relative">
@@ -80,22 +108,6 @@ export default function GetApp() {
           </p>
         </div>
 
-        {/* Android auto-redirect notice */}
-        {isAndroid && !cancelled && countdown > 0 && (
-          <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 space-y-2">
-            <p className="text-orange-300 text-sm font-medium">
-              <Smartphone className="inline w-4 h-4 mr-1 -mt-0.5" />
-              {(dl?.redirecting || 'Redirecting to Google Play in {seconds}s...').replace('{seconds}', String(countdown))}
-            </p>
-            <button
-              onClick={handleCancel}
-              className="text-orange-400 underline text-sm hover:text-orange-300 transition-colors"
-            >
-              {dl?.cancelRedirect || 'Cancel redirect'}
-            </button>
-          </div>
-        )}
-
         {/* Action Buttons */}
         <div className="space-y-3">
           <a
@@ -107,7 +119,7 @@ export default function GetApp() {
           </a>
 
           <a
-            href={WEBSITE_URL}
+            href={webUrlWithParams}
             className="flex items-center justify-center gap-2 w-full py-3.5 px-6 border border-gray-600 text-gray-200 font-medium rounded-xl hover:bg-white/5 transition-all"
           >
             <Globe className="w-5 h-5" />

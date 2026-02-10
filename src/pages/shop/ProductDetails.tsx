@@ -16,6 +16,25 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
+function looksLikeVehicleListing(title: string): boolean {
+  const lower = title.toLowerCase();
+  const exclusions = ['charger', 'mount', 'holder', 'brake pad', 'oil filter',
+    'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
+    'floor mat', 'seat cover', 'car wash', 'phone holder', 'emblem', 'badge',
+    'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap'];
+  if (exclusions.some(e => lower.includes(e))) return false;
+  const bodyTypes = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'convertible',
+    'minivan', 'wagon', 'pickup', 'crossover', '4x4', 'motorcycle'];
+  const hasYear = /\b(19|20)\d{2}\b/.test(title);
+  const brands = ['toyota', 'honda', 'ford', 'chevrolet', 'chevy', 'nissan',
+    'bmw', 'mercedes', 'audi', 'tesla', 'jeep', 'hyundai', 'kia', 'subaru',
+    'mazda', 'volkswagen', 'lexus', 'porsche', 'dodge', 'ram', 'gmc',
+    'land rover', 'range rover', 'volvo', 'buick', 'cadillac', 'lincoln'];
+  const hasBrand = brands.some(b => lower.includes(b));
+  const hasBodyType = bodyTypes.some(b => lower.includes(b));
+  return (hasYear && hasBrand) || (hasBrand && hasBodyType);
+}
+
 interface ProductDetails {
   id: string;
   provider: string;
@@ -48,13 +67,14 @@ export default function ProductDetailsPage() {
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
-  // Detect if this product is a vehicle
-  const isVehicle = !!(
+  // Detect if this product is a vehicle (from navigation state OR title analysis)
+  const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
     (location.state as any)?.isVehicle ||
     (location.state as any)?.categoryKey?.includes('vehicle') ||
     (location.state as any)?.subtabKey?.includes('vehicle')
   );
+  const isVehicle = isVehicleFromState || (product ? looksLikeVehicleListing(product.title) : false);
 
   // Reset ALL state when route params change (fixes similar product image merge bug)
   useEffect(() => {

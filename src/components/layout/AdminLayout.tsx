@@ -11,7 +11,7 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe, Target,
+  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
   ChevronDown, Database, Store, Search, Gift
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -62,7 +62,6 @@ export function AdminLayout() {
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
         { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
         { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_payments' as const },
-        { to: '/admin/marketers', icon: Target, label: language === 'fr' ? 'Marketeurs' : 'Marketers', permission: 'can_view_payments' as const },
       ]
     },
     {

@@ -1,23 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1?pin=v135";
+import { sendEmail } from "../_shared/email.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-/**
- * Referral reward on email verification.
- * Called by the auth-check-verified or email-confirmed flow after a user's email is confirmed.
- * 
- * Body: { userId: string }
- * 
- * Logic:
- * 1. Look up profiles.referred_by_code for this user
- * 2. If exists, resolve referrer via referral_codes table
- * 3. Create referral_rewards row (idempotent via unique referred_user_id)
- * 4. Log referral_event type='email_verified'
- */
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -53,45 +41,33 @@ serve(async (req) => {
 
     const refCode = profile.referred_by_code;
 
-    // 2. Resolve referrer
-    const { data: codeRow } = await supabaseAdmin
-      .from('referral_codes')
-      .select('user_id')
-      .eq('code', refCode)
+    // 2. Resolve referrer from referrers table
+    const { data: referrer } = await supabaseAdmin
+      .from('referrers')
+      .select('id, full_name, email, status')
+      .eq('ref_code', refCode)
       .maybeSingle();
 
-    if (!codeRow) {
-      console.log('[referral-on-verify] Referral code not found:', refCode);
-      return new Response(JSON.stringify({ ok: true, rewarded: false, reason: 'code_not_found' }), {
+    if (!referrer || referrer.status !== 'active') {
+      console.log('[referral-on-verify] Referrer not found or inactive:', refCode);
+      return new Response(JSON.stringify({ ok: true, rewarded: false, reason: 'referrer_not_found' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const referrerUserId = codeRow.user_id;
-
-    // 3. Anti-abuse: self-referral check
-    if (referrerUserId === userId) {
-      console.log('[referral-on-verify] Self-referral blocked:', userId);
-      return new Response(JSON.stringify({ ok: true, rewarded: false, reason: 'self_referral' }), {
-        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // 4. Create reward (idempotent - unique constraint on referred_user_id)
+    // 3. Create reward (idempotent via unique referred_user_id)
     const { error: rewardError } = await supabaseAdmin
       .from('referral_rewards')
       .insert({
-        referrer_user_id: referrerUserId,
+        referrer_id: referrer.id,
         referred_user_id: userId,
         ref_code: refCode,
-        amount_usd: 0, // admin sets actual amount later
-        reward_type: 'credit',
         status: 'pending',
       });
 
     if (rewardError) {
-      if (rewardError.code === '23505') { // unique violation = already rewarded
-        console.log('[referral-on-verify] Reward already exists for referred user:', userId);
+      if (rewardError.code === '23505') {
+        console.log('[referral-on-verify] Reward already exists for:', userId);
         return new Response(JSON.stringify({ ok: true, rewarded: false, reason: 'already_rewarded' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -100,18 +76,106 @@ serve(async (req) => {
       throw rewardError;
     }
 
-    // 5. Log event
+    // 4. Log verified event
     await supabaseAdmin.from('referral_events').insert({
       ref_code: refCode,
-      event_type: 'email_verified',
-      referred_user_id: userId,
-      metadata: { referrer_user_id: referrerUserId },
+      event_type: 'verified',
+      user_id: userId,
+      meta: { referrer_id: referrer.id },
     });
 
-    console.log('[referral-on-verify] Reward created for referrer:', referrerUserId, 'from referred:', userId);
+    console.log('[referral-on-verify] Reward created for referrer:', referrer.id, 'from:', userId);
 
-    // 6. Check marketer threshold alerts
+    // 5. Check payout thresholds
     try {
+      // Count verified rewards for this ref_code
+      const { count: verifiedCount } = await supabaseAdmin
+        .from('referral_rewards')
+        .select('*', { count: 'exact', head: true })
+        .eq('ref_code', refCode);
+
+      const currentCount = verifiedCount || 0;
+
+      // Get all enabled rules
+      const { data: rules } = await supabaseAdmin
+        .from('referral_payout_rules')
+        .select('*')
+        .eq('is_enabled', true);
+
+      if (rules && rules.length > 0) {
+        for (const rule of rules) {
+          if (currentCount >= rule.threshold_verified_count) {
+            // Check if claim already exists
+            const { data: existingClaim } = await supabaseAdmin
+              .from('referral_payout_claims')
+              .select('id')
+              .eq('referrer_id', referrer.id)
+              .eq('rule_id', rule.id)
+              .maybeSingle();
+
+            if (!existingClaim) {
+              // Create payout claim
+              await supabaseAdmin.from('referral_payout_claims').insert({
+                referrer_id: referrer.id,
+                ref_code: refCode,
+                rule_id: rule.id,
+                verified_count_at_trigger: currentCount,
+                payout_amount_usd: rule.payout_amount_usd,
+                status: 'pending',
+              });
+
+              // Create admin in-app notification
+              const notifBody = `${referrer.full_name} (${refCode}) reached ${currentCount} verified signups. Payout $${rule.payout_amount_usd}.`;
+              await supabaseAdmin.from('admin_notifications').insert({
+                type: 'REFERRER_THRESHOLD_REACHED',
+                title: 'Referrer reached payout threshold',
+                body: notifBody,
+                payload: {
+                  referrer_id: referrer.id,
+                  ref_code: refCode,
+                  verified_count: currentCount,
+                  threshold: rule.threshold_verified_count,
+                  payout_amount_usd: rule.payout_amount_usd,
+                },
+              });
+
+              // Send admin email alert
+              try {
+                const { data: alertSetting } = await supabaseAdmin
+                  .from('admin_settings')
+                  .select('value')
+                  .eq('key', 'ADMIN_ALERT_EMAIL')
+                  .maybeSingle();
+
+                if (alertSetting?.value) {
+                  await sendEmail({
+                    to: alertSetting.value,
+                    subject: `AfriShop referral payout reached: ${refCode}`,
+                    html: `
+                      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #f97316;">Referral Payout Threshold Reached</h2>
+                        <p><strong>${referrer.full_name}</strong> (${refCode}) has reached <strong>${currentCount}</strong> verified signups.</p>
+                        <p>Payout amount: <strong>$${rule.payout_amount_usd}</strong></p>
+                        <p>Threshold: ${rule.threshold_verified_count} verified signups</p>
+                        <p>Please process the payout in the admin dashboard.</p>
+                        <a href="https://afrishop-usa.com/admin/referrals" style="display:inline-block;background:#f97316;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;margin-top:10px;">View Referrals Dashboard</a>
+                      </div>
+                    `,
+                    category: 'admin_notification',
+                  });
+                  console.log('[referral-on-verify] Admin email sent to:', alertSetting.value);
+                }
+              } catch (emailErr: any) {
+                console.warn('[referral-on-verify] Admin email failed (non-fatal):', emailErr.message);
+              }
+
+              console.log('[referral-on-verify] Payout claim created for rule:', rule.id, 'referrer:', referrer.id);
+            }
+          }
+        }
+      }
+
+      // Also check legacy marketer_thresholds
       const { data: threshold } = await supabaseAdmin
         .from('marketer_thresholds')
         .select('*')
@@ -120,40 +184,22 @@ serve(async (req) => {
         .maybeSingle();
 
       if (threshold) {
-        // Count verified signups for this ref_code
-        const { count: verifiedCount } = await supabaseAdmin
-          .from('referral_rewards')
-          .select('*', { count: 'exact', head: true })
-          .eq('ref_code', refCode);
-
-        const currentCount = verifiedCount || 0;
         const alreadyNotified = (threshold.last_notified_count || 0) >= threshold.threshold_count;
-
         if (currentCount >= threshold.threshold_count && !alreadyNotified) {
-          // Create admin notification
           await supabaseAdmin.from('admin_notifications').insert({
             type: 'MARKETER_THRESHOLD_REACHED',
             title: 'Marketer target reached',
-            body: `${threshold.marketer_name} (${refCode}) reached ${currentCount} verified signups (target ${threshold.threshold_count}). Please process payment.`,
-            payload: {
-              ref_code: refCode,
-              marketer_name: threshold.marketer_name,
-              threshold_count: threshold.threshold_count,
-              verified_count: currentCount,
-            },
+            body: `${threshold.marketer_name} (${refCode}) reached ${currentCount} verified signups (target ${threshold.threshold_count}).`,
+            payload: { ref_code: refCode, marketer_name: threshold.marketer_name, threshold_count: threshold.threshold_count, verified_count: currentCount },
           });
-
-          // Update threshold to avoid duplicate notifications
           await supabaseAdmin
             .from('marketer_thresholds')
             .update({ last_notified_count: currentCount, notified_at: new Date().toISOString() })
             .eq('id', threshold.id);
-
-          console.log('[referral-on-verify] Marketer threshold alert sent for:', refCode, currentCount);
         }
       }
     } catch (threshErr: any) {
-      console.error('[referral-on-verify] Threshold check error (non-fatal):', threshErr.message);
+      console.error('[referral-on-verify] Threshold/payout check error (non-fatal):', threshErr.message);
     }
 
     return new Response(JSON.stringify({ ok: true, rewarded: true }), {

@@ -41,27 +41,38 @@ export default function GetApp() {
     }
   }, [refCode]);
 
-  // Track referral click (dedupe per session)
+  // Track referral click (dedupe per session, validate ref_code exists in referrers)
   useEffect(() => {
     if (!refCode) return;
     const sessionKey = `${REF_CLICK_SESSION_KEY}_${refCode}`;
     if (sessionStorage.getItem(sessionKey)) return;
+
+    const anonSessionId = crypto.randomUUID();
     
-    // Fire-and-forget click event
-    supabase.from('referral_events').insert({
-      ref_code: refCode,
-      event_type: 'click',
-      session_id: crypto.randomUUID(),
-      metadata: {
-        user_agent: navigator.userAgent,
-        referrer: document.referrer || null,
-        utm_source: params.get('utm_source'),
-        utm_medium: params.get('utm_medium'),
-        utm_campaign: params.get('utm_campaign'),
-      },
-    }).then(() => {
-      sessionStorage.setItem(sessionKey, '1');
-    });
+    // Validate code exists in referrers and is active, then log click
+    supabase.from('referrers')
+      .select('id, status')
+      .eq('ref_code', refCode)
+      .eq('status', 'active')
+      .maybeSingle()
+      .then(({ data: referrer }) => {
+        if (!referrer) return; // Invalid or inactive code
+        
+        supabase.from('referral_events').insert({
+          ref_code: refCode,
+          event_type: 'click',
+          anon_session_id: anonSessionId,
+          meta: {
+            user_agent: navigator.userAgent,
+            referrer: document.referrer || null,
+            utm_source: params.get('utm_source'),
+            utm_medium: params.get('utm_medium'),
+            utm_campaign: params.get('utm_campaign'),
+          },
+        }).then(() => {
+          sessionStorage.setItem(sessionKey, '1');
+        });
+      });
   }, [refCode, params]);
 
   // SEO: update title and meta description

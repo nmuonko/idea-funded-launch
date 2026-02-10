@@ -50,6 +50,7 @@ export default function ShopHome() {
   const [poolSize, setPoolSize] = useState(0); // Track actual pool size for debugging
   const [hasMore, setHasMore] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(false); // Track if we're in live mode
+  const [activeCategory, setActiveCategory] = useState('all');
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -84,7 +85,10 @@ export default function ShopHome() {
       const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home`);
       url.searchParams.set('page', String(page));
       url.searchParams.set('pageSize', String(PAGE_SIZE));
-      url.searchParams.set('client', 'web'); // Explicitly identify as web client
+      url.searchParams.set('client', 'web');
+      if (activeCategory && activeCategory !== 'all') {
+        url.searchParams.set('category', activeCategory);
+      }
       if (shouldUseLive) {
         url.searchParams.set('live', '1');
       }
@@ -191,7 +195,15 @@ export default function ShopHome() {
 
   useEffect(() => {
     fetchFeed(1);
-  }, [language]);
+  }, [language, activeCategory]);
+
+  const handleCategoryChange = (category: string) => {
+    setActiveCategory(category);
+    setCurrentPage(1);
+    setTotalPages(0);
+    setProducts([]);
+    setHasMore(true);
+  };
 
   const focusSearchBar = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -223,7 +235,7 @@ export default function ShopHome() {
       {/* Category Tabs */}
       <section className="mb-6">
         <div className="container mx-auto px-4">
-          <CategoryTabs />
+          <CategoryTabs activeCategory={activeCategory} onCategoryChange={handleCategoryChange} />
         </div>
       </section>
 

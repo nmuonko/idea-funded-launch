@@ -421,8 +421,8 @@ export async function buildWebHomepage(env: string, recipeKey?: string | null): 
     recipes = recipes.filter(r => r.key === recipeKey);
   }
 
-  // Build items from selected recipes
-  const newItems: RecipeItem[] = [];
+  // Build items from selected recipes, tagging each with _recipeKey
+  const newItems: Array<RecipeItem & { _recipeKey?: string }> = [];
   const usedIds = new Set<string>();
 
   for (const recipe of recipes) {
@@ -432,7 +432,7 @@ export async function buildWebHomepage(env: string, recipeKey?: string | null): 
     for (const item of items) {
       if (!usedIds.has(item.id)) {
         usedIds.add(item.id);
-        newItems.push(item);
+        newItems.push({ ...item, _recipeKey: recipe.key });
       }
     }
   }

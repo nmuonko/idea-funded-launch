@@ -93,9 +93,9 @@
        setLoading(true);
        try {
          console.log('[CONTACT] Starting support conversation with auto-escalation...');
-         const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
-           body: {}
-         });
+          const { data: startData, error: startError } = await supabase.functions.invoke('support-start', {
+            body: { language }
+          });
  
          if (startError) {
            console.error('[CONTACT] support-start error:', startError);
@@ -227,7 +227,7 @@
    if (isAdminRoute) return null;
 
    return (
-     <div className="fixed bottom-20 right-4 z-40 md:bottom-6 md:right-6">
+     <div className="fixed bottom-28 right-4 z-40 md:bottom-6 md:right-6">
        <AnimatePresence>
          {isOpen && (
            <motion.div

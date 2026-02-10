@@ -1,53 +1,65 @@
 
 
-# Fix: Web Recipe Seeds Mismatch
+# Fix: Web Homepage Per-Category Curation + Missing Jewelry & Watches Recipe
 
-## Problem
+## Problem Summary
 
-The **web** `home_recipe_seeds` are completely scrambled -- each category's web seeds belong to a different category. This means when you "Rebuild" a web section from the admin portal, it fetches products using the wrong search queries. The mobile seeds are correct.
+The web app has category tabs (Homepage, Gaming, Vehicles, Living Room, Clothing, Toys, Sporting Goods, **Jewelry & Watches**, Refurbished, Parts & Accessories), but:
 
-### Current Web Seed Assignments (WRONG)
+1. **No `jewelry_watches` recipe exists** in the admin portal — so this category has no curated seeds at all
+2. **No `jewelry_watches` section exists** in `home_sections` — so Publish cannot target it
+3. **The web homepage feed is a single mixed pool** — clicking a category tab navigates to `/search?category=X` which performs a live search instead of using the curated/prewarmed data from admin seeds
 
-| Recipe Key | Currently Has Seeds For | Should Have |
-|---|---|---|
-| clothing | Gaming (VR headset, Xbox games, PS5 controller...) | Clothing (sneakers, hoodie, jacket...) |
-| gaming | Clothing (sneakers, handbag, jacket, boots...) | Gaming (PS5, Xbox, Nintendo...) |
-| vehicles | Home items (sofa, vacuum, mattress, bookshelf...) | Vehicles (BMW, Toyota, Ford...) |
-| phones | Mixed (MacBook, PS5, smart TV...) | Phones (iPhone, Samsung, Pixel...) |
-| parts_accessories | Household (air fryer, skin care, robot vacuum...) | Parts (car charger, phone case, dashcam...) |
+## What Changes
 
-The mobile seeds AND the `home_section_seeds` (used by Publish) are both correct -- only the web `home_recipe_seeds` are affected.
+### 1. Add `jewelry_watches` recipe + seeds (Database)
 
-## Root Cause
+- Insert `jewelry_watches` rows into `home_recipes` for both `mobile` and `web` targets (sort_order 8, between sporting_goods and refurbished)
+- Insert curated seed queries: diamond ring, gold necklace, silver bracelet, luxury watch men, Casio G-Shock, Rolex watch, Seiko automatic, Apple Watch, pendant necklace, earrings gold
+- Insert `jewelry_watches` row into `home_sections` table with appropriate eBay category and keywords
 
-The web recipe seeds were likely inserted with mismatched `recipe_id` values, causing each category to pull from another category's seed list.
+### 2. Add `jewelry_watches` to prewarm registry (Edge Function)
 
-## Fix Plan
+- Add `{ key: "jewelry_watches", categoryKey: "jewelry_watches" }` to `HOME_PREWARM_SECTIONS` in `catalog-prewarm-home/index.ts`
+- This enables the admin "Publish" button to work for Jewelry & Watches
 
-### Step 1: Delete all incorrect web recipe seeds
+### 3. Add `jewelry_watches` to mobile section definitions (Edge Function)
 
-Remove all `home_recipe_seeds` rows linked to web recipes for the affected categories: `clothing`, `gaming`, `vehicles`, `phones`, and `parts_accessories`.
+- Add a `jewelry_watches` entry to the `MOBILE_SECTIONS` array in `catalog-home/index.ts` with keywords like: ring, necklace, bracelet, watch, jewelry, gold, silver, diamond, pendant, earring
+- This ensures the mobile app can display a Jewelry & Watches section
 
-### Step 2: Re-insert correct web seeds
+### 4. No changes to frontend rendering code
 
-Insert properly matched seeds for each web recipe, aligned with the correct `recipe_id`. The correct seeds will mirror the `home_section_seeds` table (which is already correct):
+Per the project constraint, no modifications to the web or mobile frontend rendering. The existing `CategoryTabs.tsx` already handles `watches`/`jewelry_watches` keys with proper icon mapping and localization. The search results page already handles category browsing via `catalog-search`.
 
-- **phones (web)**: iPhone unlocked, Samsung Galaxy, Google Pixel, iPhone 15, Samsung S24 Ultra, etc.
-- **vehicles (web)**: BMW X5, Toyota Camry, Ford Explorer, Honda CR-V, Tesla Model Y, etc.
-- **gaming (web)**: PS5 console, Xbox Series X, Nintendo Switch, gaming laptop, Steam Deck, gaming monitor, etc.
-- **clothing (web)**: Nike sneakers, hoodie, jacket winter, men sneakers, women boots, sunglasses, etc.
-- **parts_accessories (web)**: car phone mount, dashcam, phone case, screen protector, car charger, etc.
+## Technical Details
 
-### Step 3: Verify homepage and other correct seeds
+### Database Migrations
 
-Confirm that `homepage`, `electronics`, `home_garden`, `toys`, `sporting_goods`, and `refurbished` web seeds are correctly mapped (they appear fine from the data).
+```text
+-- home_recipes: 2 new rows (mobile + web) for jewelry_watches
+-- home_recipe_seeds: ~10 seed queries per target
+-- home_sections: 1 new row for jewelry_watches with eBay category, keywords
+-- home_section_seeds: ~10 seed queries for prewarm
+```
+
+### Edge Function Changes
+
+**`catalog-prewarm-home/index.ts`**: Add jewelry_watches to HOME_PREWARM_SECTIONS array
+
+**`catalog-home/index.ts`**: Add jewelry_watches to MOBILE_SECTIONS array with appropriate keywords
+
+### Files Modified
+
+- `supabase/functions/catalog-prewarm-home/index.ts` (add registry entry)
+- `supabase/functions/catalog-home/index.ts` (add mobile section definition)
 
 ### No-Regression Safeguards
 
-- No edge function code changes required.
-- No frontend code changes.
-- Only database seed data is corrected.
-- Mobile seeds remain untouched.
-- The `home_section_seeds` table (used by Publish) is not modified.
-- After fixing, a "Rebuild" from admin will produce correct results matching each category.
+- No frontend code changes (web or mobile)
+- Existing recipes and sections are untouched
+- Mobile 8-section logic continues to work (now 9 sections with jewelry)
+- Web homepage mixed feed continues to work (jewelry seeds contribute to the pool)
+- Category tab click behavior unchanged (still routes to /search?category=X)
+- All existing prewarm and rebuild flows remain intact
 

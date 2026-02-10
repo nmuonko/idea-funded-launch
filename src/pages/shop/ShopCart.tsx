@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText, CheckSquare, Square } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -15,7 +16,12 @@ import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 export default function ShopCart() {
-  const { items, totalUsd, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, hasVehicleItems, vehicleQuoteStatus, canProceedToPayment, syncCart } = useShopCart();
+  const { 
+    items, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, 
+    hasVehicleItems, vehicleQuoteStatus, syncCart,
+    selectedItemIds, toggleItemSelection, selectAllItems, deselectAllItems,
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+  } = useShopCart();
   const { user } = useAuth();
   const { language } = useLanguage();
   const { toast } = useToast();
@@ -24,6 +30,8 @@ export default function ShopCart() {
   const [requestingQuote, setRequestingQuote] = useState(false);
 
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+  const allSelected = items.length > 0 && selectedItemIds.size === items.length;
+  const noneSelected = selectedItemIds.size === 0;
 
   // Try to restore cart from pending checkout if empty on mount
   useEffect(() => {
@@ -117,133 +125,197 @@ export default function ShopCart() {
             <div className="grid lg:grid-cols-3 gap-8">
               {/* Cart Items */}
               <div className="lg:col-span-2 space-y-4">
-                {items.map((item, index) => (
-                  <motion.div
-                    key={item.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="flex gap-4 p-4 bg-white/5 rounded-2xl border border-white/10"
+                {/* Select All / Deselect All */}
+                <div className="flex items-center justify-between px-2">
+                  <button
+                    onClick={allSelected ? deselectAllItems : selectAllItems}
+                    className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors"
                   >
-                    {/* Image */}
-                    <Link 
-                      to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
-                      state={{ product: { isVehicle: item.isVehicle } }}
-                      className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
-                    >
-                      <img
-                        src={item.imageUrl || '/placeholder.svg'}
-                        alt={item.title}
-                        className="w-full h-full object-contain p-2"
-                      />
-                    </Link>
+                    {allSelected ? (
+                      <CheckSquare className="h-4 w-4 text-blue-400" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
+                    {allSelected 
+                      ? (language === 'fr' ? 'Tout désélectionner' : 'Deselect All')
+                      : (language === 'fr' ? 'Tout sélectionner' : 'Select All')
+                    }
+                  </button>
+                  <p className="text-xs text-white/40">
+                    {selectedItemIds.size} / {items.length} {language === 'fr' ? 'sélectionné(s)' : 'selected'}
+                  </p>
+                </div>
 
-                    {/* Details */}
-                    <div className="flex-1 min-w-0">
+                {items.map((item, index) => {
+                  const isSelected = selectedItemIds.has(item.id);
+                  return (
+                    <motion.div
+                      key={item.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`flex gap-4 p-4 rounded-2xl border transition-colors ${
+                        isSelected 
+                          ? 'bg-white/5 border-blue-500/30' 
+                          : 'bg-white/[0.02] border-white/5 opacity-60'
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <div className="flex items-center pt-1">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleItemSelection(item.id)}
+                          className="border-white/40 data-[state=checked]:bg-blue-500 data-[state=checked]:border-blue-500"
+                        />
+                      </div>
+
+                      {/* Image */}
                       <Link 
                         to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                         state={{ product: { isVehicle: item.isVehicle } }}
-                        className="text-white hover:text-blue-400 transition-colors"
+                        className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                       >
-                        <h3 className="font-medium line-clamp-2 mb-1">
-                          {item.title}
-                        </h3>
+                        <img
+                          src={item.imageUrl || '/placeholder.svg'}
+                          alt={item.title}
+                          className="w-full h-full object-contain p-2"
+                        />
                       </Link>
-                      <p className="text-sm text-white/60 capitalize mb-2">
-                        from {item.provider}
-                      </p>
-                      {item.isVehicle && (
-                        <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 mb-2">
-                          <Car className="h-3 w-3 mr-1" />
-                          {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
-                        </Badge>
-                      )}
-                      <p className="text-lg font-bold text-white">
-                        ${item.priceUsd.toFixed(2)}
-                      </p>
-                    </div>
 
-                    {/* Quantity & Remove */}
-                    <div className="flex flex-col items-end justify-between">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeItem(item.id)}
-                        className="h-8 w-8 p-0 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-full"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-
-                      <div className="flex items-center gap-2 bg-white/5 rounded-full p-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                          className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <Link 
+                          to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                          state={{ product: { isVehicle: item.isVehicle } }}
+                          className="text-white hover:text-blue-400 transition-colors"
                         >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="text-white w-6 text-center text-sm">
-                          {item.quantity}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                          className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
+                          <h3 className="font-medium line-clamp-2 mb-1">
+                            {item.title}
+                          </h3>
+                        </Link>
+                        <p className="text-sm text-white/60 capitalize mb-2">
+                          from {item.provider}
+                        </p>
+                        {item.isVehicle && (
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 mb-2">
+                            <Car className="h-3 w-3 mr-1" />
+                            {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
+                          </Badge>
+                        )}
+                        <p className="text-lg font-bold text-white">
+                          ${item.priceUsd.toFixed(2)}
+                        </p>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+
+                      {/* Quantity & Remove */}
+                      <div className="flex flex-col items-end justify-between">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeItem(item.id)}
+                          className="h-8 w-8 p-0 text-white/40 hover:text-red-400 hover:bg-red-500/10 rounded-full"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+
+                        <div className="flex items-center gap-2 bg-white/5 rounded-full p-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="text-white w-6 text-center text-sm">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            className="h-7 w-7 p-0 text-white/60 hover:text-white hover:bg-white/10 rounded-full"
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
 
-              {/* Order Summary */}
+              {/* Order Summary — based on SELECTED items only */}
               <div className="lg:col-span-1">
                 <div className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6">
                   <h2 className="text-lg font-semibold text-white mb-4">{shop.orderSummary || 'Order Summary'}</h2>
-                  
-                  <PriceBreakdown 
-                    itemPriceUsd={totalUsd} 
-                    showDetails={true}
-                    isVehicle={items.length > 0 && items.every(i => i.isVehicle)}
-                  />
+
+                  {noneSelected ? (
+                    <p className="text-white/50 text-sm mb-4">
+                      {language === 'fr' ? 'Sélectionnez des articles pour voir le résumé' : 'Select items to see summary'}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-white/40 mb-3">
+                        {selectedItemIds.size} {selectedItemIds.size !== 1 ? (shop.items || 'items') : (shop.item || 'item')} {language === 'fr' ? 'sélectionné(s)' : 'selected'}
+                      </p>
+                      <PriceBreakdown 
+                        itemPriceUsd={selectedTotalUsd} 
+                        showDetails={true}
+                        isVehicle={selectedItems.length > 0 && selectedItems.every(i => i.isVehicle)}
+                      />
+                    </>
+                  )}
 
                   <div className="mt-6 space-y-3">
-                    {/* Vehicle quote pending - show request quote button */}
-                    {hasVehicleItems && vehicleQuoteStatus !== 'quoted' && user ? (
+                    {/* Vehicle quote warning — only if a vehicle is SELECTED */}
+                    {selectedHasVehicleItems && vehicleQuoteStatus !== 'quoted' && user ? (
                       vehicleQuoteStatus === 'pending' ? (
                         <div className="text-center space-y-2">
                           <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
                             <FileText className="h-4 w-4" />
                             {language === 'fr' ? 'Devis en attente — Vous serez notifié par email' : 'Quote pending — You\'ll be notified by email'}
                           </div>
+                          <p className="text-xs text-white/40">
+                            {language === 'fr' 
+                              ? 'Désélectionnez le véhicule pour payer les autres articles maintenant' 
+                              : 'Deselect the vehicle to pay for other items now'}
+                          </p>
                         </div>
                       ) : (
-                        <Button
-                          onClick={requestVehicleQuote}
-                          disabled={requestingQuote}
-                          className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full"
-                        >
-                          {requestingQuote ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              {language === 'fr' ? 'Envoi...' : 'Requesting...'}
-                            </>
-                          ) : (
-                            <>
-                              <Car className="h-4 w-4 mr-2" />
-                              {language === 'fr' ? 'Demander un devis' : 'Request Shipping Quote'}
-                            </>
-                          )}
-                        </Button>
+                        <>
+                          <Button
+                            onClick={requestVehicleQuote}
+                            disabled={requestingQuote}
+                            className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full"
+                          >
+                            {requestingQuote ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                {language === 'fr' ? 'Envoi...' : 'Requesting...'}
+                              </>
+                            ) : (
+                              <>
+                                <Car className="h-4 w-4 mr-2" />
+                                {language === 'fr' ? 'Demander un devis' : 'Request Shipping Quote'}
+                              </>
+                            )}
+                          </Button>
+                          <p className="text-xs text-white/40 text-center">
+                            {language === 'fr' 
+                              ? 'Ou désélectionnez le véhicule pour payer les autres articles' 
+                              : 'Or deselect the vehicle to pay for other items'}
+                          </p>
+                        </>
                       )
                     ) : user ? (
                       <Link to="/checkout" className="block">
-                        <Button className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full">
+                        <Button 
+                          disabled={noneSelected || !selectedCanProceedToPayment}
+                          className="w-full h-12 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full disabled:opacity-40"
+                        >
                           {shop.proceedToCheckout || 'Proceed to Checkout'}
+                          {!noneSelected && ` (${selectedItemIds.size})`}
                         </Button>
                       </Link>
                     ) : (

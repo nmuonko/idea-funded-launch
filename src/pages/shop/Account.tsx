@@ -67,7 +67,13 @@ export default function Account() {
             {user ? (
               <div className="flex items-center gap-4">
                 <div className="h-14 w-14 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center">
-                  <User className="h-7 w-7 text-white" />
+                  <span className="text-lg font-bold text-white">
+                    {(() => {
+                      const name = profile?.full_name || user.email?.split('@')[0] || '';
+                      const parts = name.trim().split(/\s+/);
+                      return parts.map(p => p[0]).join('').toUpperCase().slice(0, 2) || 'U';
+                    })()}
+                  </span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-semibold text-white truncate">

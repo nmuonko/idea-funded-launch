@@ -58,16 +58,14 @@ export function AdminLayout() {
       title: language === 'fr' ? 'Finance' : 'Finance',
       items: [
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
-        { to: '/admin/transfer-proofs', icon: FileCheck, label: t.sidebar.transferProofs || 'Transfer Proofs', permission: 'can_view_payments' as const },
         { to: '/admin/quote-requests', icon: Car, label: t.sidebar.quoteRequests || 'Vehicle Quotes', permission: 'can_view_orders' as const },
-        { to: '/admin/price-confirmations', icon: DollarSign, label: language === 'fr' ? 'Prix à confirmer' : 'Price Reviews', permission: 'can_view_orders' as const },
       ]
     },
     {
       title: 'Support',
       items: [
         { to: '/admin/support-inbox', icon: Headphones, label: t.sidebar.supportInbox || 'Live Chat', permission: 'can_view_tickets' as const },
-        { to: '/admin/ticket-analytics', icon: BarChart3, label: t.sidebar.ticketAnalytics, permission: 'can_view_ticket_analytics' as const },
+        { to: '/admin/chat-routing', icon: BarChart3, label: language === 'fr' ? 'Routage Chat' : 'Chat Routing', permission: 'can_view_ticket_analytics' as const },
       ]
     },
     {
@@ -82,7 +80,6 @@ export function AdminLayout() {
       items: [
         { to: '/admin/settings', icon: Settings, label: language === 'fr' ? 'Frais & Marges' : 'Fees & Markup', permission: 'can_view_settings' as const },
         { to: '/admin/payments-settings', icon: CreditCard, label: language === 'fr' ? 'Paiements' : 'Payments', permission: 'can_view_payments' as const },
-        { to: '/admin/bank-transfer-settings', icon: Building2, label: language === 'fr' ? 'Virement' : 'Bank Transfer', permission: 'can_view_settings' as const },
         { to: '/admin/service-zones', icon: Globe, label: language === 'fr' ? 'Zones' : 'Zones', permission: 'can_view_settings' as const },
         { to: '/admin/users', icon: Users, label: t.sidebar.staffManagement || 'Staff', permission: 'can_manage_users' as const },
         { to: '/admin/theme-settings', icon: Palette, label: language === 'fr' ? 'Thème' : 'Theme', permission: 'can_view_theme_settings' as const },

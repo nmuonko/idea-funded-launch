@@ -41,7 +41,7 @@ import AdminShippingTypes from "./pages/admin/ShippingTypes";
 import AdminAnalytics from "./pages/admin/Analytics";
 import AdminPayments from "./pages/admin/Payments";
 import AdminSupportInbox from "./pages/admin/SupportInbox";
-import TicketAnalytics from "./pages/admin/TicketAnalytics";
+import ChatRouting from "./pages/admin/ChatRouting";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
 import CartsManagement from "./pages/admin/CartsManagement";
@@ -277,9 +277,9 @@ const App = () => {
                   <AdminSupportInbox />
                 </AdminRouteGuard>
               } />
-              <Route path="ticket-analytics" element={
+              <Route path="chat-routing" element={
                 <AdminRouteGuard requiredPermission="can_view_ticket_analytics">
-                  <TicketAnalytics />
+                  <ChatRouting />
                 </AdminRouteGuard>
               } />
               <Route path="knowledge-base" element={
@@ -332,26 +332,13 @@ const App = () => {
                   <QuoteRequests />
                 </AdminRouteGuard>
               } />
-              <Route path="price-confirmations" element={
-                <AdminRouteGuard requiredPermission="can_view_orders">
-                  <PriceConfirmations />
-                </AdminRouteGuard>
-              } />
-              <Route path="transfer-proofs" element={
-                <AdminRouteGuard requiredPermission="can_view_payments">
-                  <TransferProofs />
-                </AdminRouteGuard>
-              } />
+              {/* transfer-proofs and price-confirmations routes removed */}
               <Route path="health" element={
                 <AdminRouteGuard requiredPermission="can_view_dashboard">
                   <AdminHealth />
                 </AdminRouteGuard>
               } />
-              <Route path="bank-transfer-settings" element={
-                <AdminRouteGuard requiredPermission="can_view_settings">
-                  <BankTransferSettings />
-                </AdminRouteGuard>
-              } />
+              {/* bank-transfer-settings route removed */}
               <Route path="payments-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_payments">
                   <PaymentsSettings />

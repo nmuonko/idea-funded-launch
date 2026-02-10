@@ -100,7 +100,8 @@ serve(async (req) => {
         profiles!orders_user_id_fkey (
           name,
           full_name,
-          phone
+          phone,
+          signup_platform
         )
       `)
       .in('status', statusList);
@@ -227,6 +228,7 @@ serve(async (req) => {
           userId: cart.user_id,
           userName: cartUserName,
           userPhone: profile?.phone || '',
+          platform: profile?.signup_platform || 'unknown',
           status: cart.status,
           itemCount: formattedItems.length,
           subtotalUsd: round2(finalSubtotal),

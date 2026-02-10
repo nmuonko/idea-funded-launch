@@ -43,6 +43,7 @@ export default function SavedCartsContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState<SavedCartUser | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState<string | null>(null);
   const { toast } = useToast();
   const { permissions } = useAdminPermissions();
   const { language } = useLanguage();
@@ -338,14 +339,42 @@ export default function SavedCartsContent() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedUser(cart)}
-                      >
-                        <ShoppingBag className="h-4 w-4 mr-1" />
-                        {t.savedCarts.viewItems}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedUser(cart)}
+                        >
+                          <ShoppingBag className="h-4 w-4 mr-1" />
+                          {t.savedCarts.viewItems}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={sendingReminder === cart.userId}
+                          onClick={async () => {
+                            setSendingReminder(cart.userId);
+                            try {
+                              const { data, error } = await supabase.functions.invoke('saved-cart-reminders', {
+                                body: { targetUserId: cart.userId },
+                              });
+                              if (error) throw error;
+                              toast({ title: language === 'fr' ? 'Rappel envoyé' : 'Reminder sent' });
+                            } catch (e: any) {
+                              toast({ title: 'Error', description: e.message, variant: 'destructive' });
+                            } finally {
+                              setSendingReminder(null);
+                            }
+                          }}
+                        >
+                          {sendingReminder === cart.userId ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Bell className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

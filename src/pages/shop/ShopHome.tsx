@@ -264,25 +264,24 @@ export default function ShopHome() {
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
                   {/* Primary CTA: Search */}
-                  <Button 
-                    onClick={focusSearchBar}
-                    className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8"
-                    size="lg"
-                  >
-                    <Search className="h-4 w-4 mr-2" />
-                    {language === 'fr' ? "Rechercher des produits" : "Search products"}
-                  </Button>
+                  <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="w-64">
+                    <Button 
+                      onClick={focusSearchBar}
+                      className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8 py-3 text-base font-medium"
+                      size="lg"
+                    >
+                      <Search className="h-4 w-4 mr-2" />
+                      {language === 'fr' ? "Rechercher des produits" : "Search Products"}
+                    </Button>
+                  </motion.div>
                   
                   {/* Secondary: Load More */}
                   {hasMore && (
-                    <motion.div
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
-                    >
+                    <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="w-64">
                       <Button
                         onClick={handleLoadMore}
                         variant="outline"
-                        className="border-white/30 bg-white/5 backdrop-blur-sm text-white hover:bg-white/15 hover:border-white/50 rounded-full px-10 py-3 text-base font-medium transition-all duration-300 shadow-lg shadow-black/10"
+                        className="w-full border-white/30 bg-white/5 backdrop-blur-sm text-white hover:bg-white/15 hover:border-white/50 rounded-full px-8 py-3 text-base font-medium transition-all duration-300 shadow-lg shadow-black/10"
                         size="lg"
                         disabled={loadingMore}
                       >
@@ -293,7 +292,7 @@ export default function ShopHome() {
                           </>
                         ) : (
                           <span className="flex items-center gap-3">
-                            <span>{language === 'fr' ? 'Voir plus de produits' : 'Show More Products'}</span>
+                            <span>{language === 'fr' ? 'Voir plus' : 'Show More'}</span>
                             {totalPages > 0 && (
                               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/15 text-white/80">
                                 {currentPage} / {Math.min(totalPages, 3)}

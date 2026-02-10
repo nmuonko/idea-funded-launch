@@ -50,6 +50,8 @@ function resolveRedirectBase(requestedUrl: string | undefined, fallback: string)
     const origin = url.origin;
     // Whitelist: published web app, Lovable preview URLs, and fallback
     if (
+      origin === 'https://afrishop-usa.com' ||
+      origin === 'https://www.afrishop-usa.com' ||
       origin === 'https://idea-funded-launch.lovable.app' ||
       /^https:\/\/id-preview--[a-z0-9-]+\.lovable\.app$/.test(origin) ||
       origin === fallback

@@ -1,50 +1,86 @@
 
-# Fix: Show Friendly Error Messages from Registration Edge Function
 
-## Problem
+# Fix: Allow Unverified Users to Resend Verification from Sign-In
 
-When a user tries to register with an email that already exists, the edge function correctly returns a 409 status with a friendly message ("This email is already registered. Please sign in instead."). However, `supabase.functions.invoke()` treats any non-2xx response as an error, setting `response.error` with the generic message "Edge Function returned a non-2xx status code" while still placing the actual response body in `response.data`.
+## The Problem
 
-The frontend code checks `response.error` first (line 455) and shows the generic error toast, never reaching the `response.data` check that contains the friendly message.
+Users who registered but never received a verification email (due to the earlier bug) are stuck:
+- They **can't sign in** because their email isn't confirmed
+- They **can't re-register** because the email already exists
+- They have **no way to reach** the "Resend Verification" button
 
-## Fix
+Currently, when they try to sign in, they just see a toast message saying "Please check your email" -- but there's no email to check.
 
-### File: `src/contexts/AuthContext.tsx`
+## The Fix
 
-Update the error handling block (lines 455-463) to check if `response.data` contains a structured error message before falling back to the generic `response.error.message`.
+### 1. `src/pages/shop/ShopAuth.tsx` - Detect "Email not confirmed" and show verification screen
+
+Update `handleSignIn` to detect the "Email not confirmed" error from the auth system. When this happens, instead of just showing a toast, switch the UI to the verification screen (`mode = 'verify'`) where the user can click "Resend Verification."
 
 ```typescript
-// Before:
-if (response.error) {
-  console.error('[Auth] Registration edge function error:', response.error);
-  toast({
-    title: 'Error',
-    description: response.error.message || 'Registration failed. Please try again.',
-    variant: 'destructive',
-  });
-  return { error: response.error };
-}
+// In handleSignIn, after calling signIn():
+const { error, userId } = await signIn(email, password, rememberMe);
 
-// After:
-if (response.error) {
-  console.error('[Auth] Registration edge function error:', response.error);
-  // Check if the response body has a friendly message (non-2xx responses still include data)
-  const errorMessage = response.data?.message || response.error.message || 'Registration failed. Please try again.';
-  toast({
-    title: 'Error',
-    description: errorMessage,
-    variant: 'destructive',
-  });
-  return { error: new Error(errorMessage) };
+if (error) {
+  // Check if this is an unverified email error
+  if (error.message?.includes('Email not confirmed')) {
+    // Switch to verification screen so user can resend
+    setMode('verify');
+    return;
+  }
+  // Other errors are already handled by AuthContext toast
+  return;
 }
 ```
 
-## Result
+### 2. `src/contexts/AuthContext.tsx` - Return the error so the caller can react to it
 
-- "Email already registered" will show: "This email is already registered. Please sign in instead."
-- Other edge function errors with structured responses will also show their friendly messages
-- Generic fallback remains for truly unexpected errors
+The current `signIn` function already returns `{ error, userId }` when sign-in fails (line 359), so the error object is available. However, the `ShopAuth` sign-in handler doesn't currently check the returned error object. The `signIn` function will still show a helpful toast, but now `ShopAuth` will also redirect to the verify screen.
+
+Update the "Email not confirmed" toast message to be more actionable:
+
+```typescript
+// Change from:
+userMessage = 'Please check your email and confirm your account before signing in.';
+
+// Change to:
+userMessage = 'Your email is not yet verified. Please verify your email to sign in.';
+```
+
+### 3. Verification screen already works
+
+The verification screen at `mode === 'verify'` (lines 757-796 in ShopAuth.tsx) already has:
+- A "Resend Verification" button that calls `auth-resend-verification`
+- The email variable is already populated from the sign-in form
+- A "Back to Sign In" link
+
+No changes needed to the verification screen itself.
+
+## Flow After Fix
+
+```text
+User tries to sign in
+       |
+       v
+   Email not confirmed?
+      / \
+    Yes   No
+     |     |
+     v     v
+  Show     Normal
+  verify   sign-in
+  screen   flow
+     |
+     v
+  User clicks
+  "Resend Verification"
+     |
+     v
+  Verification email
+  sent successfully
+```
 
 ## Files Modified
 
-- `src/contexts/AuthContext.tsx` -- improve error handling to extract friendly messages from edge function responses
+- `src/pages/shop/ShopAuth.tsx` -- detect "Email not confirmed" error in sign-in handler, redirect to verify screen
+- `src/contexts/AuthContext.tsx` -- improve the toast message for unverified email error

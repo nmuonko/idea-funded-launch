@@ -1,56 +1,75 @@
 
 
-# Fix: Auto-Login After Email Verification
+# Fix: Homepage and Category Tabs to Use Admin Seeds
 
-## Root Cause
+## Problem
 
-When a user clicks the verification link in their email, it opens in a **new browser tab**. In this new tab:
+The products displayed on the homepage and category tabs don't match the seeds configured in the admin "Home Recipes" panel. This happens because:
 
-1. There is no `rememberMe` in localStorage (user hasn't signed in yet in this tab)
-2. There is no `sessionActive` in sessionStorage (it's a fresh tab)
-3. AuthContext sees this and **immediately signs the user out** (line 227 in AuthContext.tsx)
-4. This destroys the session that the verification link was about to establish
-5. So even though `EmailConfirmed.tsx` detects a session briefly via `supabase.auth.onAuthStateChange`, the AuthContext kills it
+1. **Homepage ("all" tab):** Shows a flat mix of products from ALL 12 recipe categories combined, instead of showing only the "Homepage (Featured Mix)" seeds you configured.
+2. **Category tabs (Gaming, Vehicles, etc.):** Navigate to a search page that uses hardcoded search queries (e.g., `gaming -> "video game console"`), completely ignoring the admin seeds you've set for each category.
 
-The popup shows because the `EmailConfirmed` page's own listener catches the session before AuthContext wipes it. But by the time the user navigates to the homepage, the session is gone.
+## Solution
 
-## The Fix
+Tag each product in the web cache with its recipe key, then filter by recipe key when serving content.
 
-### 1. `src/contexts/AuthContext.tsx` - Skip session clearing on email confirmation page
+## Changes
 
-Add the `/email-confirmed` path to the list of exceptions (alongside recovery flow and reset password page). When the user lands on `/email-confirmed`, we must NOT clear the session -- we need it to auto-log them in.
+### 1. Backend: Tag items with recipe key (`homeRecipeBuilder.ts`)
 
-Also set `sessionActive` in sessionStorage when a session is detected on the email-confirmed page, so the session persists after navigation.
+In `buildWebHomepage`, add a `_recipeKey` field to each item so the cache knows which recipe each product belongs to.
 
-```typescript
-const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
-
-if (!rememberMe && !sessionActive && !isRecoveryFlow && !isResetPasswordPage && !isEmailConfirmPage) {
-  // Clear session...
-}
+```text
+Before: items stored as flat pool, no recipe association
+After:  each item tagged with _recipeKey (e.g., "homepage", "gaming", "vehicles")
 ```
 
-### 2. `src/pages/EmailConfirmed.tsx` - Set sessionActive flag before navigating
+### 2. Backend: Filter by category in `catalog-home/index.ts`
 
-When the user clicks "OK" on the popup, set `sessionActive` in sessionStorage so that when they land on the homepage, AuthContext doesn't clear the session.
+When the web client sends a `category` parameter:
+- `category = ""` or `"all"` or absent: serve only items tagged with `_recipeKey = "homepage"`
+- `category = "gaming"`: serve only items tagged with `_recipeKey = "gaming"`
+- Map tab keys to recipe keys (e.g., `home -> home_garden`, `fashion -> clothing`, `watches -> jewelry_watches`)
 
-```typescript
-const handleDismiss = () => {
-  sessionStorage.setItem('sessionActive', 'true');
-  setShowPopup(false);
-  navigate("/", { replace: true });
-};
+### 3. Frontend: Keep category tabs on homepage (`ShopHome.tsx`)
+
+Instead of navigating away to `/search?category=X`, the category tabs will stay on the homepage and re-fetch from `catalog-home` with the selected category parameter. This uses the admin seeds.
+
+- Add `category` state to ShopHome
+- Pass category to the `catalog-home` fetch URL
+- Reset pagination when category changes
+
+### 4. Frontend: Update CategoryTabs behavior (`CategoryTabs.tsx`)
+
+When used on the homepage, category changes will call `onCategoryChange` instead of navigating to `/search`. The search page remains unchanged for direct text searches.
+
+## Key Mapping (Tab key -> Recipe key)
+
+```text
+all         -> homepage
+gaming      -> gaming
+vehicles    -> vehicles
+home        -> home_garden
+fashion     -> clothing
+toys        -> toys
+sporting_goods -> sporting_goods
+watches     -> jewelry_watches
+refurbished -> refurbished
 ```
 
 ## Files Modified
 
-- `src/contexts/AuthContext.tsx` -- add `/email-confirmed` to the session-clearing exceptions
-- `src/pages/EmailConfirmed.tsx` -- set `sessionActive` flag before navigating to homepage
+- `supabase/functions/_shared/homeRecipeBuilder.ts` -- tag items with `_recipeKey`
+- `supabase/functions/catalog-home/index.ts` -- filter cached items by recipe key
+- `src/pages/shop/ShopHome.tsx` -- add category state, pass to fetch, handle tab changes
+- `src/components/shop/CategoryTabs.tsx` -- no navigation change needed (already supports `onCategoryChange` prop)
 
-## Why This Is Safe
+## What Stays the Same (No Regressions)
 
-- The verification link is a one-time token; it can't be reused
-- We only skip session clearing on the specific `/email-confirmed` route
-- The `sessionActive` flag is in sessionStorage, so it expires when the browser tab/window closes
-- No changes to the sign-in, sign-out, or remember-me logic
+- Mobile homepage flow is untouched (already uses sections per recipe)
+- Direct search (typing in search bar) still uses `catalog-search`
+- Admin Publish/Rebuild buttons keep working as before
+- Cache structure remains backward-compatible (items just gain one new field)
+- `catalog-home-v2` for mobile is unaffected
+- SearchResults page remains fully functional for text searches
 

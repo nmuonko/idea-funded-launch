@@ -1617,6 +1617,45 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_routing_config: {
+        Row: {
+          admin_email: string | null
+          admin_name: string | null
+          admin_user_id: string
+          chats_assigned_count: number
+          created_at: string
+          id: string
+          is_available: boolean
+          last_assigned_at: string | null
+          priority_order: number
+          updated_at: string
+        }
+        Insert: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id: string
+          chats_assigned_count?: number
+          created_at?: string
+          id?: string
+          is_available?: boolean
+          last_assigned_at?: string | null
+          priority_order?: number
+          updated_at?: string
+        }
+        Update: {
+          admin_email?: string | null
+          admin_name?: string | null
+          admin_user_id?: string
+          chats_assigned_count?: number
+          created_at?: string
+          id?: string
+          is_available?: boolean
+          last_assigned_at?: string | null
+          priority_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       checkout_sessions: {
         Row: {
           cart_snapshot: Json

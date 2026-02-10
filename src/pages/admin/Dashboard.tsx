@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Package, TrendingUp, DollarSign, Clock } from 'lucide-react';
 import { RealtimeNotifications } from '@/components/admin/RealtimeNotifications';
 import { AIAdminAssistant } from '@/components/admin/AIAdminAssistant';
-import { AIActionsPanel } from '@/components/admin/AIActionsPanel';
+
 import { formatUSD } from '@/lib/formatCurrency';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { getAdminTranslation } from '@/lib/i18n/translations';
@@ -15,7 +15,7 @@ import { PendingActionsSidebar } from '@/components/admin/dashboard/PendingActio
 import { OperationalInsightsTabs } from '@/components/admin/dashboard/OperationalInsightsTabs';
 import { DateRangeFilter, type DateRange, getDateRangeFromPreset } from '@/components/admin/dashboard/DateRangeFilter';
 import { CustomerOverviewWidget } from '@/components/admin/dashboard/CustomerOverviewWidget';
-import { PendingBankTransfersWidget } from '@/components/admin/dashboard/PendingBankTransfersWidget';
+
 
 interface DashboardStats {
   totalOrders: number;
@@ -190,17 +190,13 @@ export default function AdminDashboard() {
           {/* B. Primary Chart with Tabs (Orders Overview + Conversion) */}
           <ChartTabs dateRange={dateRange} />
 
-          {/* C. Pending Bank Transfers Widget */}
-          <PendingBankTransfersWidget />
-
-          {/* D. Operational Insights - Tabbed (Shipping, Payments, Saved Carts) */}
+          {/* C. Operational Insights - Tabbed (Shipping, Payments, Saved Carts) */}
           <OperationalInsightsTabs dateRange={dateRange} />
         </div>
 
         {/* E. Right Side Panel - Slim Sticky Sidebar */}
         <div className="lg:sticky lg:top-4 lg:self-start space-y-6">
           <PendingActionsSidebar />
-          <AIActionsPanel />
           <CustomerOverviewWidget />
         </div>
       </div>

@@ -21,9 +21,16 @@ import {
   Hand,
   Archive,
   Info,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import SupportContactSettings from './SupportContactSettings';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface Message {
   id: string;
@@ -46,7 +53,7 @@ interface Conversation {
   agent_name?: string;
 }
 
-type TabValue = 'active' | 'closed';
+type TabValue = 'active' | 'closed' | 'settings';
 
 export default function SupportInbox() {
   const { user } = useAuth();
@@ -369,10 +376,19 @@ export default function SupportInbox() {
                 <Archive className="h-3 w-3" />
                 Closed
               </TabsTrigger>
+              <TabsTrigger value="settings" className="flex-1 gap-1">
+                <Settings className="h-3 w-3" />
+                Contact
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
+        {activeTab === 'settings' ? (
+          <div className="p-4 overflow-y-auto flex-1">
+            <SupportContactSettings />
+          </div>
+        ) : (
         <ScrollArea className="flex-1">
           {loading ? (
             <div className="flex items-center justify-center p-8">
@@ -419,6 +435,7 @@ export default function SupportInbox() {
             </div>
           )}
         </ScrollArea>
+        )}
       </div>
 
       {/* Chat Area */}

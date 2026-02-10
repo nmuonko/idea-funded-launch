@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ExternalLink, ShoppingCart, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import { ExternalLink, ShoppingCart, Trash2, ArrowUpDown, ArrowUp, ArrowDown, Search, Bell, Smartphone, Monitor } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -38,6 +38,7 @@ interface Cart {
   userId: string;
   userName: string;
   userPhone: string;
+  platform: string;
   status: string;
   itemCount: number;
   subtotalUsd: number;
@@ -58,6 +59,7 @@ export default function ActiveCartsContent() {
   const [loading, setLoading] = useState(true);
   const [selectedCart, setSelectedCart] = useState<Cart | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState<string | null>(null);
   const { permissions } = useAdminPermissions();
   const { language } = useLanguage();
 
@@ -205,6 +207,8 @@ export default function ActiveCartsContent() {
     allStatuses: language === 'fr' ? 'Tous les statuts' : 'All Statuses',
     draft: language === 'fr' ? 'Brouillon' : 'Draft',
     pendingPayment: language === 'fr' ? 'Paiement en attente' : 'Pending Payment',
+    platform: language === 'fr' ? 'Plateforme' : 'Platform',
+    sendReminder: language === 'fr' ? 'Rappel' : 'Remind',
   };
 
   return (
@@ -265,6 +269,7 @@ export default function ActiveCartsContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead>{cartsText.user}</TableHead>
+                  <TableHead>{cartsText.platform}</TableHead>
                   <TableHead>{cartsText.status}</TableHead>
                   <TableHead>
                     <button 
@@ -306,19 +311,51 @@ export default function ActiveCartsContent() {
                         <div className="text-sm text-muted-foreground">{cart.userPhone}</div>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="gap-1">
+                        {cart.platform === 'mobile' ? (
+                          <><Smartphone className="h-3 w-3" /> Mobile</>
+                        ) : cart.platform === 'web' ? (
+                          <><Monitor className="h-3 w-3" /> Web</>
+                        ) : (
+                          cart.platform || '—'
+                        )}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{getStatusBadge(cart.status)}</TableCell>
                     <TableCell>{cart.itemCount}</TableCell>
                     <TableCell>${cart.totalUsd.toFixed(2)}</TableCell>
                     <TableCell>{cart.totalCdf.toFixed(0)} FC</TableCell>
                     <TableCell>{format(new Date(cart.updatedAt), 'MMM dd, yyyy HH:mm')}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedCart(cart)}
-                      >
-                        {cartsText.viewDetails}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedCart(cart)}
+                        >
+                          {cartsText.viewDetails}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={sendingReminder === cart.userId}
+                          onClick={async () => {
+                            setSendingReminder(cart.userId);
+                            try {
+                              await supabase.functions.invoke('saved-cart-reminders', {
+                                body: { targetUserId: cart.userId },
+                              });
+                            } catch (e) {
+                              console.error(e);
+                            } finally {
+                              setSendingReminder(null);
+                            }
+                          }}
+                        >
+                          <Bell className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

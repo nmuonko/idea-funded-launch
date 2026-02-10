@@ -1053,17 +1053,15 @@ export default function AdminOrders() {
                         <Eye className="h-4 w-4 mr-2" />
                         Details
                       </Button>
-                      {(order.status === 'PENDING_PAYMENT' || order.status === 'DRAFT') && !order.payment_verified_at && (
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => handlePrintLabel(order)}
-                          className="bg-purple-600 hover:bg-purple-700"
-                        >
-                          <Printer className="h-4 w-4 mr-2" />
-                          Print Label
-                        </Button>
-                      )}
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => handlePrintLabel(order)}
+                        className="bg-purple-600 hover:bg-purple-700"
+                      >
+                        <Printer className="h-4 w-4 mr-2" />
+                        Print Label
+                      </Button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="sm" className="h-8 w-8 p-0">

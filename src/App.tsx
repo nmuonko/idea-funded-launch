@@ -86,6 +86,7 @@ import Payouts from "./pages/Payouts";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import DownloadPage from "./pages/Download";
+import GetApp from "./pages/GetApp";
 import Coverage from "./pages/Coverage";
 import DeleteAccount from "./pages/DeleteAccount";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -113,8 +114,8 @@ const App = () => {
   // Skip splash for public pages - only show for admin routes
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
-    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
-    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop'));
+    const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
+    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get'));
   });
 
   return (
@@ -144,7 +145,8 @@ const App = () => {
             <Route path="/payouts" element={<Payouts />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/delete-account" element={<DeleteAccount />} />
-            <Route path="/download" element={<DownloadPage />} />
+            <Route path="/get" element={<GetApp />} />
+            <Route path="/download" element={<Navigate to="/get" replace />} />
             <Route path="/cars" element={<Cars />} />
             
             {/* Legacy /browse redirect */}

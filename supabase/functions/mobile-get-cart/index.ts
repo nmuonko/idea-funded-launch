@@ -452,8 +452,19 @@ serve(async (req) => {
     // SAFEGUARD: Normalize shippingPercent (if > 1, treat as percent and divide by 100)
     const normalizedShippingPercent = shippingPercent > 1 ? shippingPercent / 100 : shippingPercent;
     let regularShippingTotal = 0;
+    const activeRegularCount = activeItems.filter(i => !i.isVehicle).length;
     if (!regularRequiresQuote && regularItemsBaseTotal > 0) {
       regularShippingTotal = round2(shippingBaseFeeUsd + (regularItemsBaseTotal * normalizedShippingPercent));
+      
+      // Calculate per-item shipping contribution so mobile can recalculate for selected items
+      // Each item gets: (baseFee / itemCount) + (itemBaseTotal * shippingPercent)
+      const perItemBaseFee = activeRegularCount > 0 ? round2(shippingBaseFeeUsd / activeRegularCount) : 0;
+      activeItems.forEach(item => {
+        if (!item.isVehicle) {
+          item.itemShippingUsd = round2(perItemBaseFee + (item.itemBaseTotalUsd * normalizedShippingPercent));
+          item.shippingCost = item.itemShippingUsd;
+        }
+      });
     }
 
     // GRAND TOTALS - consistent with updateOrderTotals in cartHelpers.ts

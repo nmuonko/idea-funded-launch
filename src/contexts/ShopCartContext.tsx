@@ -392,9 +392,13 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
     if (user && session && !id.startsWith('local_')) {
       try {
+        // CRITICAL: Await the server delete to prevent race conditions
+        // If addItem calls syncCart before this completes, deleted items reappear
         await supabase.functions.invoke('mobile-delete-cart-item', {
           body: { cart_item_id: id },
         });
+        // Re-sync after confirmed server deletion
+        await syncCart();
       } catch (error) {
         console.error('[CART] Failed to remove item:', error);
       }

@@ -1,105 +1,145 @@
 
-# Vehicle Pricing: Correct Markup, Hidden Shipping, and Web Payment Link
 
-## What's Wrong Now
+# Admin Portal Cleanup and Feature Improvements (9 Items)
 
-Looking at the screenshot, when a user views a vehicle (2022 Toyota RAV4 XLE at $23,950):
-- **Markup Fee shows $7,185** -- this uses the general 30% markup instead of the vehicle-specific percentage set by admin (e.g., 18%)
-- **Shipping Fee shows $2,435** -- this should be hidden until admin sets the quote
-- **Estimated Total shows $33,570** -- this is misleading since the real total depends on admin's custom quote
+This plan covers all 9 requests in a single implementation pass.
 
-## What Changes
+---
 
-### 1. Store vehicle markup in fee settings
+## 1. Print Label -- Always Visible on Orders
 
-**File: `src/contexts/ShopCartContext.tsx`**
-- Add `vehicleMarkupPercent` to the `FeeSettings` interface
-- When loading config from `mobile-public-config`, also extract `markup.vehicleValue` (already returned by the API)
+**Current**: The "Print Label" button only shows when `status === 'PENDING_PAYMENT' || status === 'DRAFT'` AND `!payment_verified_at`.
 
-### 2. Use vehicle markup for vehicle products on ProductDetails page
+**Change**: Remove the conditional wrapper so the Print Label button always appears in the orders table actions, regardless of order status or payment verification.
 
-**File: `src/components/shop/PriceBreakdown.tsx`**
-- Accept a new optional prop `isVehicle?: boolean`
-- When `isVehicle` is true AND no quote exists yet:
-  - Show the item price with vehicle markup (using `vehicleMarkupPercent`)
-  - **Hide shipping fee** entirely -- show "Pending quote" instead
-  - Show "Estimated Subtotal" (item + markup only) instead of "Estimated Total"
-  - Display a message: "Shipping will be determined after admin quote"
-- When `isVehicle` is true AND quote is approved (vehicleQuoteStatus = 'quoted'):
-  - Show the server-provided total with all fees visible
+**File**: `src/pages/admin/Orders.tsx` (line 1056) -- remove the condition wrapping the Print Label button.
 
-### 3. Pass `isVehicle` flag from ProductDetails page
+---
 
-**File: `src/pages/shop/ProductDetails.tsx`**
-- Detect if a product is a vehicle based on its provider category or the route/location state
-- Pass `isVehicle={true}` to `PriceBreakdown` for vehicle products
-- The detection uses the same logic already in the codebase (checking if provider is from vehicle categories)
+## 2. Remove AI Actions Panel from Dashboard
 
-### 4. Update quote email to link to web payment page
+**Current**: `AIActionsPanel` component is rendered on the Dashboard sidebar.
 
-**File: `supabase/functions/send-quote-email/index.ts`**
-- Change the CTA button from "Pay by Bank Transfer" (bank-only) to a generic "View Quote and Pay" linking to `/cart` on the web app
-- The cart page already handles vehicle quote status and shows appropriate payment options (Mobile Money or Card -- bank transfer was removed from web)
-- Remove the bank transfer reference section since web users use PawaPay or Stripe
+**Change**: Remove the `<AIActionsPanel />` from the Dashboard and remove its import.
 
-## Technical Details
+**File**: `src/pages/admin/Dashboard.tsx` -- remove import (line 6) and usage (line 203).
 
-### FeeSettings Update (`ShopCartContext.tsx`)
+---
 
-```typescript
-export interface FeeSettings {
-  markupPercent: number;
-  vehicleMarkupPercent: number;  // NEW
-  shippingBaseFeeUsd: number;
-  shippingPercent: number;
-}
-```
+## 3. Hide Bank Transfer Option
 
-Config loading adds:
-```typescript
-vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markup?.value ?? 15,
-```
+**Current**: Bank Transfer settings page exists in admin sidebar, and `PendingBankTransfersWidget` shows on Dashboard.
 
-### PriceBreakdown Vehicle Logic
+**Changes**:
+- Remove "Bank Transfer" nav item from admin sidebar (`AdminLayout.tsx` line 85)
+- Remove the `PendingBankTransfersWidget` from Dashboard (`Dashboard.tsx` lines 193-194)
+- Remove the route from `App.tsx` (the bank-transfer-settings route)
+- Keep the files themselves intact (just hidden, not deleted) in case needed later
 
-For a vehicle **before quote**:
-- Item price: shown
-- Markup Fee: calculated with `vehicleMarkupPercent` (e.g., 18%)
-- Shipping Fee: "Awaiting quote" (amber text, hidden value)
-- Total: replaced with "Item + Markup Subtotal" and a note about pending shipping
+---
 
-For a vehicle **after quote** (in cart with `vehicleQuoteStatus = 'quoted'`):
-- All fees shown using server-provided values
-- Total shows the authoritative server total
+## 4. Show User Initials Instead of Account Name on Web App
 
-### Vehicle Detection in ProductDetails
+**Current**: The Account page (`src/pages/shop/Account.tsx` line 69-71) shows a generic `User` icon inside a gradient circle.
 
-The product's provider and category information from the URL params and location state will be used. Vehicle products come through eBay Motors categories (6001, 6024) or are flagged `isVehicle` in the cart item data. On the product details page, we'll check:
-- `location.state?.product?.isVehicle`
-- Provider category patterns (vehicles category in the catalog)
+**Change**: Replace the `User` icon with the user's initials (first letters of first and last name) derived from `profile?.full_name` or `user.email`.
 
-### Email Update (`send-quote-email/index.ts`)
+**File**: `src/pages/shop/Account.tsx` -- replace the icon with a text element showing initials.
 
-Change CTA URL from bank transfer session to web cart page:
-```
-${frontendBaseUrl}/cart
-```
-Change button text:
-- EN: "View Quote & Pay"
-- FR: "Voir le devis et payer"
+---
 
-Remove bank transfer reference section (not applicable for web).
+## 5. Active Carts & Saved Items: Platform Column + Reminder Buttons
 
-## Files Modified
+### 5a. Platform Column in Active Carts
+**Current**: Active carts table has no "Platform" column.
 
-- `src/contexts/ShopCartContext.tsx` -- add `vehicleMarkupPercent` to FeeSettings
-- `src/components/shop/PriceBreakdown.tsx` -- vehicle-aware pricing display
-- `src/pages/shop/ProductDetails.tsx` -- pass `isVehicle` prop to PriceBreakdown
-- `supabase/functions/send-quote-email/index.ts` -- web payment link instead of bank transfer
+**Change**:
+- In `admin-get-carts` edge function, join `profiles.signup_platform` to the query
+- Pass it through as `platform` in the response
+- Add a "Platform" column to the table in `ActiveCartsContent.tsx` showing Mobile/Web badge (same icon pattern as Customers page)
+- Add `platform` to the `Cart` interface
 
-## No Regressions
+### 5b. Web Saved Items Linked to Admin Saved Items
+**Current**: `SavedCartsContent.tsx` fetches from `saved_items` table. Web app saved items (from `useShopCart`) use the same `saved_items` table, so they are already linked.
 
-- Non-vehicle products continue showing all fees normally (general markup)
-- Mobile app is unaffected (uses its own cart summary from backend)
-- Cart page vehicle quote flow unchanged (already masks fees for pending quotes)
-- Admin quote submission flow unchanged (admin-apply-vehicle-quote still works the same)
+**Change**: No data linkage change needed -- they already share the same table.
+
+### 5c. Manual + Auto Reminder Buttons
+**Current**: `SavedCartsContent.tsx` has a "Send Reminders" bulk button. No individual reminder button per user. Active carts has no reminder button.
+
+**Changes**:
+- **Saved Items**: Add a "Send Reminder" button per user row (calls `saved-cart-reminders` with a specific user ID filter)
+- **Active Carts**: Add a "Send Reminder" button per cart row (invokes `saved-cart-reminders` or a new targeted reminder for that user)
+- Both pages already have the bulk reminder capability; we add per-row manual send
+
+---
+
+## 6. Remove Price Review Option
+
+**Current**: "Price Reviews" / `PriceConfirmations` appears in the Finance nav section and has a route.
+
+**Changes**:
+- Remove from admin sidebar (`AdminLayout.tsx` line 63)
+- Remove the route from `App.tsx` (price-confirmations route)
+- Keep the file intact (hidden, not deleted)
+
+---
+
+## 7. Replace Ticket Analytics with Chat Routing / Assignment Control
+
+**Current**: "Ticket Analytics" tab shows stats about support tickets.
+
+**Change**: Replace with a **Chat Assignment Manager** that allows the master admin to:
+- See all admin users authorized to receive chats
+- Toggle each admin's chat availability (on/off)
+- Set a round-robin order (Admin 1, Admin 2, etc.)
+- View current assignment queue and who gets the next chat
+- Auto-routing: when a new chat arrives at `waiting_agent`, the system assigns it to the next available admin in the rotation
+
+**Implementation**:
+- **New page**: `src/pages/admin/ChatRouting.tsx` -- UI for managing chat assignment
+- **Database**: New table `chat_routing_config` with columns: `id`, `admin_user_id`, `is_available`, `priority_order`, `chats_assigned_count`, `last_assigned_at`
+- **Edge function update**: Modify the support conversation assignment logic to check `chat_routing_config` and assign round-robin
+- **Sidebar**: Replace the ticket-analytics nav item with the new Chat Routing page
+- **Route**: Replace the ticket-analytics route in `App.tsx`
+
+---
+
+## 8. Remove Transfer Proofs
+
+**Current**: "Transfer Proofs" page appears in the Finance nav section.
+
+**Changes**:
+- Remove from admin sidebar (`AdminLayout.tsx` line 61)
+- Remove the route from `App.tsx` (transfer-proofs route)
+- Keep the file intact (hidden, not deleted)
+
+---
+
+## 9. Move Support Contact Settings to Live Support Tab
+
+**Current**: `SupportContactSettings` is a tab inside `PaymentsSettings` (the "Support" tab).
+
+**Change**:
+- Remove the "Support" tab from `PaymentsSettings.tsx` (change from 3-col grid to 2-col)
+- Move `SupportContactSettings` into the Support Inbox / Live Chat area. Add it as a settings section within the `SupportInbox.tsx` page (e.g., a collapsible settings panel or a tab alongside Active/Closed conversations).
+
+---
+
+## Summary of Files Modified
+
+| File | Changes |
+|---|---|
+| `src/pages/admin/Orders.tsx` | Remove Print Label condition |
+| `src/pages/admin/Dashboard.tsx` | Remove AIActionsPanel + PendingBankTransfersWidget |
+| `src/components/layout/AdminLayout.tsx` | Remove bank-transfer, transfer-proofs, price-confirmations nav items; replace ticket-analytics with chat-routing |
+| `src/App.tsx` | Remove routes for bank-transfer-settings, transfer-proofs, price-confirmations; replace ticket-analytics route with chat-routing |
+| `src/pages/shop/Account.tsx` | Show user initials instead of User icon |
+| `src/pages/admin/ActiveCartsContent.tsx` | Add Platform column + per-row reminder button |
+| `supabase/functions/admin-get-carts/index.ts` | Include `signup_platform` in query |
+| `src/pages/admin/SavedCartsContent.tsx` | Add per-row manual reminder button |
+| `src/pages/admin/PaymentsSettings.tsx` | Remove Support tab (now 2 tabs) |
+| `src/pages/admin/SupportInbox.tsx` | Add SupportContactSettings section |
+| **NEW**: `src/pages/admin/ChatRouting.tsx` | Chat assignment manager page |
+| **DB Migration** | Create `chat_routing_config` table |
+

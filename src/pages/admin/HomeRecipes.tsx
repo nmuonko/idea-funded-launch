@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuthenticatedApi } from "@/hooks/useAuthenticatedApi";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -409,88 +410,92 @@ export default function HomeRecipes() {
         </CardContent>
       </Card>
 
-      {/* Mobile Homepage */}
+      {/* Homepage Curation Tabs */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Smartphone className="h-5 w-5" />
-                {fr ? "Accueil Mobile" : "Mobile Homepage"}
-              </CardTitle>
-              <CardDescription>
-                {fr ? `${mobileRecipes.length} sections, rafraîchi toutes les ${mobileHours}h` : `${mobileRecipes.length} sections, refreshed every ${mobileHours}h`}
-              </CardDescription>
-            </div>
-            <Button
-              onClick={() => rebuild("mobile")}
-              disabled={rebuildingKey === "all_mobile"}
-              className="gap-2"
-            >
-              {rebuildingKey === "all_mobile" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-              {fr ? "Reconstruire Mobile" : "Rebuild Mobile Now"}
-            </Button>
-          </div>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Home className="h-5 w-5" />
+            {fr ? "Curation Accueil" : "Home Curation"}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            {mobileRecipes.map(recipe => (
-              <RecipeRow
-                key={recipe.id}
-                recipe={recipe}
-                fr={fr}
-                onToggle={() => toggleRecipe(recipe)}
-                onEditSeeds={() => openSeedModal(recipe)}
-                onRebuild={() => rebuild("mobile", recipe.key)}
-                rebuilding={rebuildingKey === recipe.key}
-                onPublish={() => handlePublishNow(recipe.key)}
-                publishingThis={publishingSection === recipe.key}
-              />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+          <Tabs defaultValue="mobile">
+            <TabsList>
+              <TabsTrigger value="mobile" className="gap-2">
+                <Smartphone className="h-4 w-4" />
+                {fr ? "App Mobile" : "Mobile App"}
+              </TabsTrigger>
+              <TabsTrigger value="web" className="gap-2">
+                <Globe className="h-4 w-4" />
+                {fr ? "App Web" : "Web App"}
+              </TabsTrigger>
+            </TabsList>
 
-      {/* Web Homepage */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Globe className="h-5 w-5" />
-                {fr ? "Accueil Web" : "Web Homepage"}
-              </CardTitle>
-              <CardDescription>
-                {fr ? `${webRecipes.length} pages × 100 items, rafraîchi toutes les ${webHours}h` : `${webRecipes.length} pages × 100 items, refreshed every ${webHours}h`}
-              </CardDescription>
-            </div>
-            <Button
-              onClick={() => rebuild("web")}
-              disabled={rebuildingKey === "all_web"}
-              className="gap-2"
-            >
-              {rebuildingKey === "all_web" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-              {fr ? "Reconstruire Web" : "Rebuild Web Now"}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {webRecipes.map((recipe, i) => (
-              <RecipeRow
-                key={recipe.id}
-                recipe={recipe}
-                fr={fr}
-                highlight={i === 0}
-                onToggle={() => toggleRecipe(recipe)}
-                onEditSeeds={() => openSeedModal(recipe)}
-                onRebuild={() => rebuild("web", recipe.key)}
-                rebuilding={rebuildingKey === recipe.key}
-                onPublish={() => handlePublishNow(recipe.key)}
-                publishingThis={publishingSection === recipe.key}
-              />
-            ))}
-          </div>
+            <TabsContent value="mobile">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-muted-foreground">
+                  {fr ? `${mobileRecipes.length} sections, rafraîchi toutes les ${mobileHours}h` : `${mobileRecipes.length} sections, refreshed every ${mobileHours}h`}
+                </p>
+                <Button
+                  onClick={() => rebuild("mobile")}
+                  disabled={rebuildingKey === "all_mobile"}
+                  className="gap-2"
+                  size="sm"
+                >
+                  {rebuildingKey === "all_mobile" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  {fr ? "Reconstruire Mobile" : "Rebuild Mobile Now"}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {mobileRecipes.map(recipe => (
+                  <RecipeRow
+                    key={recipe.id}
+                    recipe={recipe}
+                    fr={fr}
+                    onToggle={() => toggleRecipe(recipe)}
+                    onEditSeeds={() => openSeedModal(recipe)}
+                    onRebuild={() => rebuild("mobile", recipe.key)}
+                    rebuilding={rebuildingKey === recipe.key}
+                    onPublish={() => handlePublishNow(recipe.key)}
+                    publishingThis={publishingSection === recipe.key}
+                  />
+                ))}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="web">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-muted-foreground">
+                  {fr ? `${webRecipes.length} pages × 100 items, rafraîchi toutes les ${webHours}h` : `${webRecipes.length} pages × 100 items, refreshed every ${webHours}h`}
+                </p>
+                <Button
+                  onClick={() => rebuild("web")}
+                  disabled={rebuildingKey === "all_web"}
+                  className="gap-2"
+                  size="sm"
+                >
+                  {rebuildingKey === "all_web" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  {fr ? "Reconstruire Web" : "Rebuild Web Now"}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {webRecipes.map((recipe, i) => (
+                  <RecipeRow
+                    key={recipe.id}
+                    recipe={recipe}
+                    fr={fr}
+                    highlight={i === 0}
+                    onToggle={() => toggleRecipe(recipe)}
+                    onEditSeeds={() => openSeedModal(recipe)}
+                    onRebuild={() => rebuild("web", recipe.key)}
+                    rebuilding={rebuildingKey === recipe.key}
+                    onPublish={() => handlePublishNow(recipe.key)}
+                    publishingThis={publishingSection === recipe.key}
+                  />
+                ))}
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 

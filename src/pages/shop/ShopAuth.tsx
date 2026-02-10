@@ -253,15 +253,19 @@ export default function ShopAuth() {
     }
   };
 
-  const handleResendVerification = async () => {
+   const handleResendVerification = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email,
+      const response = await supabase.functions.invoke('auth-resend-verification', {
+        body: {
+          email,
+          redirectBaseUrl: window.location.origin,
+        },
       });
       
-      if (error) throw error;
+      if (response.error) throw response.error;
+      const result = response.data;
+      if (result && !result.ok) throw new Error(result.message);
       
       toast({
         title: auth.verificationResent || 'Verification email resent!',

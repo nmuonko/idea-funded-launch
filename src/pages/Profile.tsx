@@ -75,12 +75,16 @@ export default function Profile() {
     
     try {
       setSendingVerification(true);
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: user.email,
+      const response = await supabase.functions.invoke('auth-resend-verification', {
+        body: {
+          email: user.email,
+          redirectBaseUrl: window.location.origin,
+        },
       });
 
-      if (error) throw error;
+      if (response.error) throw response.error;
+      const result = response.data;
+      if (result && !result.ok) throw new Error(result.message);
 
       toast({
         title: 'Verification Email Sent',

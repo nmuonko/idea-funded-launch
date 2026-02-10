@@ -1,65 +1,68 @@
 
 
-# Fix: Web Homepage Per-Category Curation + Missing Jewelry & Watches Recipe
+# Fix: Email Verification Redirect for Web App Users
 
-## Problem Summary
+## Problem
 
-The web app has category tabs (Homepage, Gaming, Vehicles, Living Room, Clothing, Toys, Sporting Goods, **Jewelry & Watches**, Refurbished, Parts & Accessories), but:
+When a web app user registers, the verification email link redirects to the mobile app domain (whatever `FRONTEND_BASE_URL` is set to) instead of the web app's `/email-confirmed` page. Both web and mobile users go through the same `auth-register` and `auth-resend-verification` edge functions, but the redirect URL is hardcoded to a single `FRONTEND_BASE_URL`.
 
-1. **No `jewelry_watches` recipe exists** in the admin portal — so this category has no curated seeds at all
-2. **No `jewelry_watches` section exists** in `home_sections` — so Publish cannot target it
-3. **The web homepage feed is a single mixed pool** — clicking a category tab navigates to `/search?category=X` which performs a live search instead of using the curated/prewarmed data from admin seeds
+## Solution
 
-## What Changes
+Make the edge functions dynamically choose the correct redirect URL based on request origin:
 
-### 1. Add `jewelry_watches` recipe + seeds (Database)
+1. The **web frontend** will pass its own origin URL in the request body
+2. The **edge functions** will use that origin (with validation) for the redirect, falling back to `FRONTEND_BASE_URL` for mobile
 
-- Insert `jewelry_watches` rows into `home_recipes` for both `mobile` and `web` targets (sort_order 8, between sporting_goods and refurbished)
-- Insert curated seed queries: diamond ring, gold necklace, silver bracelet, luxury watch men, Casio G-Shock, Rolex watch, Seiko automatic, Apple Watch, pendant necklace, earrings gold
-- Insert `jewelry_watches` row into `home_sections` table with appropriate eBay category and keywords
+## Changes
 
-### 2. Add `jewelry_watches` to prewarm registry (Edge Function)
+### 1. Edge Function: `auth-register/index.ts`
 
-- Add `{ key: "jewelry_watches", categoryKey: "jewelry_watches" }` to `HOME_PREWARM_SECTIONS` in `catalog-prewarm-home/index.ts`
-- This enables the admin "Publish" button to work for Jewelry & Watches
+- Accept an optional `redirectBaseUrl` field from the request body
+- Validate it against a whitelist of allowed domains (the published web app URL and preview URL)
+- Use it for the `redirectTo` parameter in `generateLink` instead of always using `FRONTEND_BASE_URL`
 
-### 3. Add `jewelry_watches` to mobile section definitions (Edge Function)
+### 2. Edge Function: `auth-resend-verification/index.ts`
 
-- Add a `jewelry_watches` entry to the `MOBILE_SECTIONS` array in `catalog-home/index.ts` with keywords like: ring, necklace, bracelet, watch, jewelry, gold, silver, diamond, pendant, earring
-- This ensures the mobile app can display a Jewelry & Watches section
+- Same change: accept optional `redirectBaseUrl` in the request body
+- Validate and use it for the verification link redirect
 
-### 4. No changes to frontend rendering code
+### 3. Frontend: `src/contexts/AuthContext.tsx`
 
-Per the project constraint, no modifications to the web or mobile frontend rendering. The existing `CategoryTabs.tsx` already handles `watches`/`jewelry_watches` keys with proper icon mapping and localization. The search results page already handles category browsing via `catalog-search`.
+- Pass `redirectBaseUrl: window.location.origin` in the `auth-register` request body
+- This ensures the verification email will redirect back to the web app
+
+### 4. Frontend: Resend verification call (if any)
+
+- Also pass `redirectBaseUrl: window.location.origin` when calling `auth-resend-verification`
 
 ## Technical Details
 
-### Database Migrations
+### Allowed origins whitelist (validated in edge functions)
 
 ```text
--- home_recipes: 2 new rows (mobile + web) for jewelry_watches
--- home_recipe_seeds: ~10 seed queries per target
--- home_sections: 1 new row for jewelry_watches with eBay category, keywords
--- home_section_seeds: ~10 seed queries for prewarm
+- https://idea-funded-launch.lovable.app (published web app)
+- https://id-preview--*.lovable.app (preview URLs)
+- FRONTEND_BASE_URL value (mobile app / default)
 ```
 
-### Edge Function Changes
+### Edge function redirect logic
 
-**`catalog-prewarm-home/index.ts`**: Add jewelry_watches to HOME_PREWARM_SECTIONS array
-
-**`catalog-home/index.ts`**: Add jewelry_watches to MOBILE_SECTIONS array with appropriate keywords
+```text
+1. Check if request body contains `redirectBaseUrl`
+2. Validate against whitelist
+3. If valid, use it; otherwise fall back to FRONTEND_BASE_URL
+4. Build redirectTo as `${selectedBaseUrl}/email-confirmed`
+```
 
 ### Files Modified
 
-- `supabase/functions/catalog-prewarm-home/index.ts` (add registry entry)
-- `supabase/functions/catalog-home/index.ts` (add mobile section definition)
+- `supabase/functions/auth-register/index.ts` -- accept and validate `redirectBaseUrl`
+- `supabase/functions/auth-resend-verification/index.ts` -- accept and validate `redirectBaseUrl`
+- `src/contexts/AuthContext.tsx` -- pass `window.location.origin` as `redirectBaseUrl`
 
 ### No-Regression Safeguards
 
-- No frontend code changes (web or mobile)
-- Existing recipes and sections are untouched
-- Mobile 8-section logic continues to work (now 9 sections with jewelry)
-- Web homepage mixed feed continues to work (jewelry seeds contribute to the pool)
-- Category tab click behavior unchanged (still routes to /search?category=X)
-- All existing prewarm and rebuild flows remain intact
+- Mobile app requests (which don't send `redirectBaseUrl`) continue using `FRONTEND_BASE_URL` as before
+- The whitelist prevents open redirect vulnerabilities
+- No database changes required
 

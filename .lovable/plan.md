@@ -1,50 +1,46 @@
 
 
-# Fix: All Email Links Must Redirect to afrishop-usa.com
+# Fix: Verification Email Not Being Sent
 
-## Problem
+## Root Cause
 
-Two issues prevent email verification and password reset links from landing on `https://afrishop-usa.com`:
-
-1. The `resolveRedirectBase` whitelist in `auth-register` and `auth-resend-verification` edge functions does NOT include `afrishop-usa.com`. When web users on the custom domain register, their origin fails validation and falls back to the mobile `FRONTEND_BASE_URL`.
-
-2. The password reset flow needs to consistently redirect to `afrishop-usa.com` paths.
-
-## Changes
-
-### 1. Edge Function: `auth-register/index.ts`
-
-Add `https://afrishop-usa.com` and `https://www.afrishop-usa.com` to the allowed origins whitelist in the `resolveRedirectBase` function.
-
-```text
-Before:
-  origin === 'https://idea-funded-launch.lovable.app' || preview regex || fallback
-
-After:
-  origin === 'https://afrishop-usa.com' ||
-  origin === 'https://www.afrishop-usa.com' ||
-  origin === 'https://idea-funded-launch.lovable.app' || preview regex || fallback
+The edge function logs show:
+```
+Failed to send verification email (non-blocking): supabaseAdmin.auth.admin.generateLink is not a function
 ```
 
-### 2. Edge Function: `auth-resend-verification/index.ts`
+The `@supabase/supabase-js@2` import via `esm.sh` is resolving to a version that does not expose `auth.admin.generateLink()`. This method was added in later v2 releases. The fix is to pin the import to a recent version that includes this method.
 
-Same whitelist update -- add `afrishop-usa.com` and `www.afrishop-usa.com`.
+## Fix
 
-### 3. No other changes needed
+### File: `supabase/functions/auth-register/index.ts`
 
-- `ShopAuth.tsx` already uses `window.location.origin` for password reset redirect, which will correctly resolve to `https://afrishop-usa.com` on production
-- `Auth.tsx` already hardcodes `https://afrishop-usa.com/auth/reset-password` for admin password reset
-- The `ResetPassword.tsx` page and `/email-confirmed` route already exist
+Update the Supabase JS import from:
+```typescript
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+```
+to a pinned version that supports `generateLink`:
+```typescript
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+```
+
+### File: `supabase/functions/auth-resend-verification/index.ts`
+
+Same import version pin if it also uses an unpinned `@2` import.
+
+## Why This Fixes It
+
+- `auth.admin.generateLink()` was introduced in a specific minor version of `@supabase/supabase-js` v2
+- Using the bare `@2` tag may resolve to an older cached version on `esm.sh` that predates this method
+- Pinning to `@2.49.1` (or similar recent version) guarantees the method exists
 
 ## Files Modified
 
-- `supabase/functions/auth-register/index.ts` -- add custom domain to whitelist
-- `supabase/functions/auth-resend-verification/index.ts` -- add custom domain to whitelist
+- `supabase/functions/auth-register/index.ts` -- pin supabase-js version
+- `supabase/functions/auth-resend-verification/index.ts` -- pin supabase-js version (if needed)
 
-## Result
+## After Fix
 
-- Email verification links will redirect to `https://afrishop-usa.com/email-confirmed`
-- Password reset links will redirect to `https://afrishop-usa.com/auth/reset-password`
-- Mobile users (no `redirectBaseUrl`) continue using `FRONTEND_BASE_URL` as before
-- Preview/staging URLs continue to work
+- Redeploy both edge functions
+- Test registration with a new email to confirm the verification email is sent
 

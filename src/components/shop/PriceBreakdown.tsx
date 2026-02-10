@@ -12,6 +12,7 @@ interface PriceBreakdownProps {
   className?: string;
   showDetails?: boolean;
   serverTotal?: number | null;
+  isVehicle?: boolean;
 }
 
 export function PriceBreakdown({
@@ -20,6 +21,7 @@ export function PriceBreakdown({
   className,
   showDetails = true,
   serverTotal,
+  isVehicle = false,
 }: PriceBreakdownProps) {
   const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();
   const { language } = useLanguage();
@@ -28,8 +30,15 @@ export function PriceBreakdown({
   
   const subtotal = itemPriceUsd * quantity;
   
-  // If cart has vehicles pending quote, mask shipping & markup
-  const vehiclePendingQuote = hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+  // Determine if this specific product or cart has vehicles pending quote
+  const vehiclePendingQuote = isVehicle
+    ? vehicleQuoteStatus !== 'quoted'
+    : hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+  
+  // Use vehicle markup for vehicle products, general markup otherwise
+  const effectiveMarkupPercent = isVehicle
+    ? feeSettings.vehicleMarkupPercent
+    : feeSettings.markupPercent;
   
   // Use canonical shipping formula: base + (subtotal * percent)
   const shippingFee = calculateShippingUsd(
@@ -39,9 +48,9 @@ export function PriceBreakdown({
   );
   
   // Service fee: subtotal * markup percent (normalize if > 1)
-  const markupRate = feeSettings.markupPercent > 1 
-    ? feeSettings.markupPercent / 100 
-    : feeSettings.markupPercent;
+  const markupRate = effectiveMarkupPercent > 1 
+    ? effectiveMarkupPercent / 100 
+    : effectiveMarkupPercent;
   const serviceFee = Math.round(subtotal * markupRate * 100) / 100;
   
   const total = subtotal + shippingFee + serviceFee;
@@ -59,21 +68,42 @@ export function PriceBreakdown({
 
           {vehiclePendingQuote ? (
             <>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1">
-                  {shop.markupFee || 'Markup Fee'}
-                </span>
-                <span className="text-amber-400 text-xs italic">
-                  {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
-                </span>
-              </div>
+              {/* Show vehicle markup with correct percentage */}
+              {isVehicle && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60 flex items-center gap-1">
+                    {shop.markupFee || 'Markup Fee'}
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Info className="h-3 w-3 text-white/40" />
+                      </TooltipTrigger>
+                      <TooltipContent className="bg-black/90 text-white border-white/10">
+                        <p>{language === 'fr' ? `Frais de service véhicule (${effectiveMarkupPercent}%)` : `Vehicle service fee (${effectiveMarkupPercent}%)`}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </span>
+                  <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+                </div>
+              )}
+
+              {/* Non-vehicle items in a mixed cart: mask markup */}
+              {!isVehicle && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-white/60 flex items-center gap-1">
+                    {shop.markupFee || 'Markup Fee'}
+                  </span>
+                  <span className="text-amber-400 text-xs italic">
+                    {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
+                  </span>
+                </div>
+              )}
 
               <div className="flex items-center justify-between text-sm">
                 <span className="text-white/60 flex items-center gap-1">
                   {shop.shippingFee || 'Shipping Fee'}
                 </span>
                 <span className="text-amber-400 text-xs italic">
-                  {language === 'fr' ? 'Inclus dans le devis' : 'Included in quote'}
+                  {language === 'fr' ? 'En attente du devis' : 'Awaiting quote'}
                 </span>
               </div>
             </>
@@ -119,18 +149,20 @@ export function PriceBreakdown({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-white font-medium">
-              {language === 'fr' ? 'Sous-total articles' : 'Item Subtotal'}
+              {isVehicle
+                ? (language === 'fr' ? 'Sous-total estimé' : 'Estimated Subtotal')
+                : (language === 'fr' ? 'Sous-total articles' : 'Item Subtotal')}
             </span>
             <span className="text-xl font-bold text-white">
-              ${subtotal.toFixed(2)}
+              ${isVehicle ? (subtotal + serviceFee).toFixed(2) : subtotal.toFixed(2)}
             </span>
           </div>
           <div className="flex items-center gap-2 text-amber-400 text-xs">
             <Car className="h-3.5 w-3.5 flex-shrink-0" />
             <span>
               {language === 'fr' 
-                ? 'Le total final sera déterminé après le devis de livraison'
-                : 'Final total will be determined after shipping quote'}
+                ? 'Les frais de livraison seront déterminés après le devis'
+                : 'Shipping will be determined after admin quote'}
             </span>
           </div>
         </div>

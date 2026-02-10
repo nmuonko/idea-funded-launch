@@ -248,5 +248,21 @@ export async function cachedCatalogFetch<T>(
   return data;
 }
 
+/**
+ * Clear all catalog-home cache entries (used after admin Rebuild/Publish)
+ */
+export function clearCatalogHomeCache(): number {
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(`${CACHE_PREFIX}catalog-home:`)) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
+  console.log('[CACHE] cleared', keysToRemove.length, 'catalog-home entries (admin action)');
+  return keysToRemove.length;
+}
+
 // Clear expired cache on module load
 clearExpiredCache();

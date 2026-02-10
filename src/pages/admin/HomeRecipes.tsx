@@ -26,6 +26,7 @@ import {
   ChevronRight, Settings2, Zap, Sparkles, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { clearCatalogHomeCache } from "@/lib/catalogCache";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export default function HomeRecipes() {
             ? `Section: ${sectionKey}` 
             : `Job: ${response.data.jobId}` 
         });
+        clearCatalogHomeCache();
         setTimeout(fetchLastPrewarmJob, 3000);
         setTimeout(fetchLastPrewarmJob, 8000);
         setTimeout(fetchLastPrewarmJob, 15000);
@@ -266,6 +268,7 @@ export default function HomeRecipes() {
           ? `${d.itemCount} items for ${recipeKey}, ${d.durationMs}ms`
           : `${d.itemCount} items, ${d.sectionCount} ${target === "mobile" ? "sections" : "pages"}, ${d.durationMs}ms`,
       });
+      clearCatalogHomeCache();
     } catch (err: any) {
       toast({ title: "Error", description: err.message || String(err), variant: "destructive" });
     } finally {

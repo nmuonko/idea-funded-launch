@@ -454,12 +454,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (response.error) {
         console.error('[Auth] Registration edge function error:', response.error);
+        const errorMessage = response.data?.message || response.error.message || 'Registration failed. Please try again.';
         toast({
           title: 'Error',
-          description: response.error.message || 'Registration failed. Please try again.',
+          description: errorMessage,
           variant: 'destructive',
         });
-        return { error: response.error };
+        return { error: new Error(errorMessage) };
       }
 
       const result = response.data;

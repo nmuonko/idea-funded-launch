@@ -41,6 +41,8 @@ const EmailConfirmed = () => {
   }, []);
 
   const handleDismiss = () => {
+    // Set sessionActive so AuthContext doesn't clear the session on the homepage
+    sessionStorage.setItem('sessionActive', 'true');
     setShowPopup(false);
     navigate("/", { replace: true });
   };

@@ -223,8 +223,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const rememberMe = localStorage.getItem('rememberMe');
         const sessionActive = sessionStorage.getItem('sessionActive');
         
-        // Don't clear session if in recovery flow OR on reset password page
-        if (!rememberMe && !sessionActive && !isRecoveryFlow && !isResetPasswordPage) {
+        // Also check if we're on the email confirmation page (verification link opens in new tab)
+        const isEmailConfirmPage = window.location.pathname === '/email-confirmed';
+        
+        // Don't clear session if in recovery flow OR on reset password page OR on email confirmation page
+        if (!rememberMe && !sessionActive && !isRecoveryFlow && !isResetPasswordPage && !isEmailConfirmPage) {
           // New browser session and user didn't want to be remembered - clear auth
           console.log('[Auth] Clearing session - remember me was not selected');
           await supabase.auth.signOut();

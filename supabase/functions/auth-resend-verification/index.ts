@@ -7,13 +7,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+/** Validate redirectBaseUrl against allowed origins */
+function resolveRedirectBase(requestedUrl: string | undefined, fallback: string): string {
+  if (!requestedUrl) return fallback;
+  try {
+    const url = new URL(requestedUrl);
+    const origin = url.origin;
+    if (
+      origin === 'https://idea-funded-launch.lovable.app' ||
+      /^https:\/\/id-preview--[a-z0-9-]+\.lovable\.app$/.test(origin) ||
+      origin === fallback
+    ) {
+      return origin;
+    }
+  } catch { /* invalid URL */ }
+  return fallback;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { email } = await req.json();
+    const body = await req.json();
+    const { email, redirectBaseUrl } = body;
 
     if (!email || email.trim() === '') {
       return new Response(
@@ -64,8 +82,10 @@ serve(async (req) => {
       );
     }
 
-    // Generate a new verification link
-    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    // Generate a new verification link - resolve redirect URL dynamically
+    const defaultBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const frontendBaseUrl = resolveRedirectBase(redirectBaseUrl, defaultBaseUrl);
+    console.log('[auth-resend-verification] Resolved redirect base URL:', frontendBaseUrl);
     
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',

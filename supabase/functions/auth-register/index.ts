@@ -39,6 +39,25 @@ interface RegisterRequest {
   stateOrProvince: string;
   postalCode?: string;
   country: string;
+  redirectBaseUrl?: string;
+}
+
+/** Validate redirectBaseUrl against allowed origins */
+function resolveRedirectBase(requestedUrl: string | undefined, fallback: string): string {
+  if (!requestedUrl) return fallback;
+  try {
+    const url = new URL(requestedUrl);
+    const origin = url.origin;
+    // Whitelist: published web app, Lovable preview URLs, and fallback
+    if (
+      origin === 'https://idea-funded-launch.lovable.app' ||
+      /^https:\/\/id-preview--[a-z0-9-]+\.lovable\.app$/.test(origin) ||
+      origin === fallback
+    ) {
+      return origin;
+    }
+  } catch { /* invalid URL, ignore */ }
+  return fallback;
 }
 
 function validateEmail(email: string): boolean {
@@ -227,7 +246,9 @@ serve(async (req) => {
     );
 
     // Create auth user - email verification required
-    const frontendBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const defaultBaseUrl = Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com';
+    const frontendBaseUrl = resolveRedirectBase(body.redirectBaseUrl, defaultBaseUrl);
+    console.log('[auth-register] Resolved redirect base URL:', frontendBaseUrl);
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email: email.trim(),
       password,

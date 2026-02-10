@@ -102,7 +102,18 @@ export default function ShopAuth() {
 
     setLoading(true);
     try {
-      const { userId } = await signIn(email, password, rememberMe);
+      const { error, userId } = await signIn(email, password, rememberMe);
+      
+      if (error) {
+        // If email not confirmed, redirect to verification screen
+        if (error.message?.includes('Email not confirmed')) {
+          setMode('verify');
+          return;
+        }
+        // Other errors already handled by AuthContext toast
+        return;
+      }
+      
       toast({
         title: auth.signInSuccess || 'Welcome back!',
       });
@@ -122,10 +133,6 @@ export default function ShopAuth() {
       navigate(redirect || '/', { replace: true });
     } catch (error: any) {
       console.error('Sign in error:', error);
-      toast({
-        title: auth.errors?.invalidCredentials || 'Invalid email or password',
-        variant: 'destructive',
-      });
     } finally {
       setLoading(false);
     }

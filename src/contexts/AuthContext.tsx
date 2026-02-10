@@ -338,7 +338,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error.message === 'Invalid login credentials') {
           userMessage = 'Invalid email or password. Please try again.';
         } else if (error.message?.includes('Email not confirmed')) {
-          userMessage = 'Please check your email and confirm your account before signing in.';
+          userMessage = 'Your email is not yet verified. Please verify your email to sign in.';
         } else if (error.message === 'Failed to fetch') {
           // Run diagnostics to get specific error type
           console.log('[Auth] Running diagnostics for network error...');

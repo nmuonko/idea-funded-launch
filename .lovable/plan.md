@@ -1,38 +1,50 @@
 
-
-# Fix: Force Correct Supabase JS Version in auth-register
+# Fix: Show Friendly Error Messages from Registration Edge Function
 
 ## Problem
 
-Despite pinning the import to `@2.49.1`, the `auth-register` edge function still fails with `supabaseAdmin.auth.admin.generateLink is not a function`. The `esm.sh` CDN is serving a cached/incorrect version. The `auth-resend-verification` function works fine with the same import, which confirms this is a caching issue specific to the `auth-register` function's deployment.
+When a user tries to register with an email that already exists, the edge function correctly returns a 409 status with a friendly message ("This email is already registered. Please sign in instead."). However, `supabase.functions.invoke()` treats any non-2xx response as an error, setting `response.error` with the generic message "Edge Function returned a non-2xx status code" while still placing the actual response body in `response.data`.
+
+The frontend code checks `response.error` first (line 455) and shows the generic error toast, never reaching the `response.data` check that contains the friendly message.
 
 ## Fix
 
-### File: `supabase/functions/auth-register/index.ts`
+### File: `src/contexts/AuthContext.tsx`
 
-Add a cache-busting query parameter to the `esm.sh` import URL to force a fresh resolution:
+Update the error handling block (lines 455-463) to check if `response.data` contains a structured error message before falling back to the generic `response.error.message`.
 
 ```typescript
-// Change from:
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+// Before:
+if (response.error) {
+  console.error('[Auth] Registration edge function error:', response.error);
+  toast({
+    title: 'Error',
+    description: response.error.message || 'Registration failed. Please try again.',
+    variant: 'destructive',
+  });
+  return { error: response.error };
+}
 
-// Change to:
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1?pin=v135";
+// After:
+if (response.error) {
+  console.error('[Auth] Registration edge function error:', response.error);
+  // Check if the response body has a friendly message (non-2xx responses still include data)
+  const errorMessage = response.data?.message || response.error.message || 'Registration failed. Please try again.';
+  toast({
+    title: 'Error',
+    description: errorMessage,
+    variant: 'destructive',
+  });
+  return { error: new Error(errorMessage) };
+}
 ```
 
-The `?pin=v135` parameter forces `esm.sh` to use a specific build version of its CDN, bypassing any stale cache.
+## Result
 
-### Redeploy
-
-Redeploy the `auth-register` edge function after the change.
-
-## Expected Result
-
-- `auth.admin.generateLink()` will be available
-- Verification emails will be sent immediately upon registration (not just on resend)
-- Users registering on `afrishop-usa.com` will receive their verification email right away
+- "Email already registered" will show: "This email is already registered. Please sign in instead."
+- Other edge function errors with structured responses will also show their friendly messages
+- Generic fallback remains for truly unexpected errors
 
 ## Files Modified
 
-- `supabase/functions/auth-register/index.ts` -- cache-bust esm.sh import
-
+- `src/contexts/AuthContext.tsx` -- improve error handling to extract friendly messages from edge function responses

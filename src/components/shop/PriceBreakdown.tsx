@@ -31,8 +31,9 @@ export function PriceBreakdown({
   const subtotal = itemPriceUsd * quantity;
   
   // Determine if this specific product or cart has vehicles pending quote
+  // For vehicle product pages, ALWAYS show pending (cart has no knowledge of this product's quote)
   const vehiclePendingQuote = isVehicle
-    ? vehicleQuoteStatus !== 'quoted'
+    ? true
     : hasVehicleItems && vehicleQuoteStatus !== 'quoted';
   
   // Use vehicle markup for vehicle products, general markup otherwise

@@ -505,16 +505,10 @@ export function determineShippingCategory(input: CategoryDetectionInput): Catego
   }
 
   // Determine if this requires a manual quote
-  // Vehicles ONLY require quote if:
-  // 1. Detected with sufficient confidence AND
-  // 2. No exclusion keywords were found AND  
-  // 3. Store is a car marketplace (TESLA_USED, EDMUNDS, or deprecated CARVANA, CARGURUS) OR very high confidence score
+  // ALL vehicles require a quote regardless of price, confidence, or store.
+  // Only exclusion keywords (parts, accessories, toys) bypass this.
   const isVehicle = finalCategory === 'vehicle';
-  // All car marketplaces (new and deprecated)
-  const CAR_MARKETPLACES = ['TESLA_USED', 'EDMUNDS', 'CARVANA', 'CARGURUS'];
-  const isCarMarketplace = CAR_MARKETPLACES.includes(store);
-  const requiresQuote = isVehicle && !hasVehicleExclusion && 
-    (isCarMarketplace || (confidence >= VEHICLE_QUOTE_CONFIDENCE_THRESHOLD && bestScore >= 3.0));
+  const requiresQuote = isVehicle && !hasVehicleExclusion;
 
   return {
     category: finalCategory,

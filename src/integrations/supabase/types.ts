@@ -3567,6 +3567,7 @@ export type Database = {
           phone: string | null
           postal_code: string | null
           province: string | null
+          signup_platform: string | null
           state_province: string | null
           updated_at: string
           user_id: string
@@ -3586,6 +3587,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           province?: string | null
+          signup_platform?: string | null
           state_province?: string | null
           updated_at?: string
           user_id: string
@@ -3605,6 +3607,7 @@ export type Database = {
           phone?: string | null
           postal_code?: string | null
           province?: string | null
+          signup_platform?: string | null
           state_province?: string | null
           updated_at?: string
           user_id?: string

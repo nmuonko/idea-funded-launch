@@ -451,6 +451,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           stateOrProvince: profileData?.province || 'Not provided',
           postalCode: profileData?.postal_code || '',
           country: profileData?.country || 'Not provided',
+          signup_platform: 'web',
           redirectBaseUrl: window.location.origin,
         },
       });

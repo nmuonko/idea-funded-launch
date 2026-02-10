@@ -11,10 +11,11 @@ import {
   LayoutDashboard, Users, UserCircle, LogOut, ArrowLeft, CreditCard, Settings, 
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
-  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
+  Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe, Target,
   ChevronDown, Database, Store, Search, Gift
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -61,6 +62,7 @@ export function AdminLayout() {
         { to: '/admin/payments', icon: Wallet, label: t.sidebar.payments, permission: 'can_view_payments' as const },
         { to: '/admin/payments-settings', icon: DollarSign, label: language === 'fr' ? 'Fournisseurs' : 'Providers', permission: 'can_view_payments' as const },
         { to: '/admin/referrals', icon: Gift, label: language === 'fr' ? 'Parrainages' : 'Referrals', permission: 'can_view_payments' as const },
+        { to: '/admin/marketers', icon: Target, label: language === 'fr' ? 'Marketeurs' : 'Marketers', permission: 'can_view_payments' as const },
       ]
     },
     {
@@ -319,6 +321,7 @@ export function AdminLayout() {
           {t.sidebar.adminPanel}
         </h2>
         <div className="flex items-center gap-2">
+          <AdminNotificationsBell />
           {isSuperAdmin && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -390,7 +393,8 @@ export function AdminLayout() {
               </TooltipTrigger>
               <TooltipContent>{t.common.customizeTheme}</TooltipContent>
             </Tooltip>
-          )}
+           )}
+          <AdminNotificationsBell />
           <LanguageSwitcher />
         </div>
         <div 

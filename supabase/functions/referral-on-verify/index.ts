@@ -110,6 +110,52 @@ serve(async (req) => {
 
     console.log('[referral-on-verify] Reward created for referrer:', referrerUserId, 'from referred:', userId);
 
+    // 6. Check marketer threshold alerts
+    try {
+      const { data: threshold } = await supabaseAdmin
+        .from('marketer_thresholds')
+        .select('*')
+        .eq('ref_code', refCode)
+        .eq('is_enabled', true)
+        .maybeSingle();
+
+      if (threshold) {
+        // Count verified signups for this ref_code
+        const { count: verifiedCount } = await supabaseAdmin
+          .from('referral_rewards')
+          .select('*', { count: 'exact', head: true })
+          .eq('ref_code', refCode);
+
+        const currentCount = verifiedCount || 0;
+        const alreadyNotified = (threshold.last_notified_count || 0) >= threshold.threshold_count;
+
+        if (currentCount >= threshold.threshold_count && !alreadyNotified) {
+          // Create admin notification
+          await supabaseAdmin.from('admin_notifications').insert({
+            type: 'MARKETER_THRESHOLD_REACHED',
+            title: 'Marketer target reached',
+            body: `${threshold.marketer_name} (${refCode}) reached ${currentCount} verified signups (target ${threshold.threshold_count}). Please process payment.`,
+            payload: {
+              ref_code: refCode,
+              marketer_name: threshold.marketer_name,
+              threshold_count: threshold.threshold_count,
+              verified_count: currentCount,
+            },
+          });
+
+          // Update threshold to avoid duplicate notifications
+          await supabaseAdmin
+            .from('marketer_thresholds')
+            .update({ last_notified_count: currentCount, notified_at: new Date().toISOString() })
+            .eq('id', threshold.id);
+
+          console.log('[referral-on-verify] Marketer threshold alert sent for:', refCode, currentCount);
+        }
+      }
+    } catch (threshErr: any) {
+      console.error('[referral-on-verify] Threshold check error (non-fatal):', threshErr.message);
+    }
+
     return new Response(JSON.stringify({ ok: true, rewarded: true }), {
       status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -3921,54 +3921,120 @@ export type Database = {
           },
         ]
       }
-      referral_codes: {
-        Row: {
-          code: string
-          created_at: string
-          id: string
-          user_id: string
-        }
-        Insert: {
-          code: string
-          created_at?: string
-          id?: string
-          user_id: string
-        }
-        Update: {
-          code?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       referral_events: {
         Row: {
+          anon_session_id: string | null
           created_at: string
           event_type: string
           id: string
+          meta: Json | null
           metadata: Json | null
           ref_code: string
           referred_user_id: string | null
           session_id: string | null
+          user_id: string | null
         }
         Insert: {
+          anon_session_id?: string | null
           created_at?: string
           event_type: string
           id?: string
+          meta?: Json | null
           metadata?: Json | null
           ref_code: string
           referred_user_id?: string | null
           session_id?: string | null
+          user_id?: string | null
         }
         Update: {
+          anon_session_id?: string | null
           created_at?: string
           event_type?: string
           id?: string
+          meta?: Json | null
           metadata?: Json | null
           ref_code?: string
           referred_user_id?: string | null
           session_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      referral_payout_claims: {
+        Row: {
+          created_at: string
+          id: string
+          paid_at: string | null
+          payout_amount_usd: number
+          ref_code: string
+          referrer_id: string
+          rule_id: string
+          status: string
+          verified_count_at_trigger: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payout_amount_usd: number
+          ref_code: string
+          referrer_id: string
+          rule_id: string
+          status?: string
+          verified_count_at_trigger: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payout_amount_usd?: number
+          ref_code?: string
+          referrer_id?: string
+          rule_id?: string
+          status?: string
+          verified_count_at_trigger?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_payout_claims_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "referrers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_payout_claims_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "referral_payout_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_payout_rules: {
+        Row: {
+          created_at: string
+          id: string
+          is_enabled: boolean
+          payout_amount_usd: number
+          threshold_verified_count: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          payout_amount_usd: number
+          threshold_verified_count: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          payout_amount_usd?: number
+          threshold_verified_count?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -3981,6 +4047,7 @@ export type Database = {
           paid_by: string | null
           ref_code: string
           referred_user_id: string
+          referrer_id: string | null
           referrer_user_id: string
           reward_type: string | null
           status: string
@@ -3994,6 +4061,7 @@ export type Database = {
           paid_by?: string | null
           ref_code: string
           referred_user_id: string
+          referrer_id?: string | null
           referrer_user_id: string
           reward_type?: string | null
           status?: string
@@ -4007,8 +4075,50 @@ export type Database = {
           paid_by?: string | null
           ref_code?: string
           referred_user_id?: string
+          referrer_id?: string | null
           referrer_user_id?: string
           reward_type?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_referrer_id_fkey"
+            columns: ["referrer_id"]
+            isOneToOne: false
+            referencedRelation: "referrers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referrers: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          phone: string
+          ref_code: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          full_name: string
+          id?: string
+          phone: string
+          ref_code: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          phone?: string
+          ref_code?: string
           status?: string
           updated_at?: string
         }

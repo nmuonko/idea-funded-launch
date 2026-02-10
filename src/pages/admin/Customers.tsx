@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, Users, ShoppingBag, DollarSign, Globe, RefreshCw, Download } from 'lucide-react';
+import { Search, Users, ShoppingBag, DollarSign, Globe, RefreshCw, Download, Monitor, Smartphone } from 'lucide-react';
 import { format } from 'date-fns';
 import { CustomerDetailDrawer } from '@/components/admin/CustomerDetailDrawer';
 import { CustomerTagFilter } from '@/components/admin/CustomerTagManager';
@@ -24,6 +24,7 @@ interface CustomerProfile {
   country: string | null;
   province: string | null;
   language: string | null;
+  signup_platform: string | null;
   created_at: string;
   order_count: number;
   total_spent: number;
@@ -64,6 +65,7 @@ export default function Customers() {
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [platformFilter, setPlatformFilter] = useState<string>('all');
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -118,6 +120,7 @@ export default function Customers() {
         country: p.country,
         province: p.province,
         language: p.language,
+        signup_platform: (p as any).signup_platform || 'web',
         created_at: p.created_at,
         order_count: statsMap.get(p.user_id)?.count || 0,
         total_spent: statsMap.get(p.user_id)?.total || 0,
@@ -149,8 +152,9 @@ export default function Customers() {
     const matchesCountry = countryFilter === 'all' || customer.country === countryFilter;
     const matchesProvince = provinceFilter === 'all' || customer.province === provinceFilter;
     const matchesLanguage = languageFilter === 'all' || customer.language === languageFilter;
+    const matchesPlatform = platformFilter === 'all' || customer.signup_platform === platformFilter;
 
-    return matchesSearch && matchesCountry && matchesProvince && matchesLanguage;
+    return matchesSearch && matchesCountry && matchesProvince && matchesLanguage && matchesPlatform;
   });
 
   // Stats
@@ -170,7 +174,7 @@ export default function Customers() {
   const exportToCSV = () => {
     const headers = [
       'Full Name', 'Email', 'Phone', 'Address', 'Country', 'Province', 
-      'Language', 'Orders', 'Total Spent (USD)', 'Last Order Date', 'Joined Date'
+      'Language', 'Platform', 'Orders', 'Total Spent (USD)', 'Last Order Date', 'Joined Date'
     ];
     
     const rows = filteredCustomers.map(c => [
@@ -181,6 +185,7 @@ export default function Customers() {
       c.country || '',
       c.province || '',
       getLanguageLabel(c.language),
+      c.signup_platform || 'web',
       c.order_count.toString(),
       c.total_spent.toFixed(2),
       c.last_order_date ? format(new Date(c.last_order_date), 'yyyy-MM-dd') : '',
@@ -302,6 +307,17 @@ export default function Customers() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={platformFilter} onValueChange={setPlatformFilter}>
+              <SelectTrigger className="w-full md:w-[150px]">
+                <Smartphone className="h-4 w-4 mr-2" />
+                <SelectValue placeholder="Platform" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Platforms</SelectItem>
+                <SelectItem value="web">Web App</SelectItem>
+                <SelectItem value="mobile">Mobile App</SelectItem>
+              </SelectContent>
+            </Select>
             <CustomerTagFilter selectedTags={selectedTags} onTagsChange={setSelectedTags} />
             <Button variant="outline" onClick={loadCustomers} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -323,6 +339,7 @@ export default function Customers() {
                   <TableHead>{t.customers?.phone || 'Phone'}</TableHead>
                   <TableHead>{t.customers?.location || 'Location'}</TableHead>
                   <TableHead>{t.customers?.language || 'Language'}</TableHead>
+                  <TableHead>Platform</TableHead>
                   <TableHead className="text-right">{t.customers?.orders || 'Orders'}</TableHead>
                   <TableHead className="text-right">{t.customers?.spent || 'Spent'}</TableHead>
                   <TableHead>{t.customers?.joined || 'Joined'}</TableHead>
@@ -337,6 +354,7 @@ export default function Customers() {
                       <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-36" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-12" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
@@ -344,7 +362,7 @@ export default function Customers() {
                   ))
                 ) : filteredCustomers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       {t.customers?.noCustomers || 'No customers found'}
                     </TableCell>
                   </TableRow>
@@ -369,6 +387,15 @@ export default function Customers() {
                       <TableCell>
                         <Badge variant="outline">
                           {getLanguageLabel(customer.language)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="gap-1">
+                          {customer.signup_platform === 'mobile' ? (
+                            <><Smartphone className="h-3 w-3" /> Mobile</>
+                          ) : (
+                            <><Monitor className="h-3 w-3" /> Web</>
+                          )}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">

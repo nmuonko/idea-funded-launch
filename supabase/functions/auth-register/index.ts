@@ -131,6 +131,7 @@ serve(async (req) => {
     const stateOrProvince = body.stateOrProvince || body.state_province || body.province;
     const postalCode = body.postalCode || body.postal_code;
     const country = body.country;
+    const signupPlatform = body.signup_platform || body.signupPlatform || 'web';
     
     // Also capture nationalPhoneNumber if mobile sends it separately
     const nationalPhoneNumber = body.nationalPhoneNumber || body.national_phone_number || body.localPhoneNumber;
@@ -378,6 +379,7 @@ serve(async (req) => {
       state_province: stateOrProvince?.trim() || null,
       postal_code: postalCode?.trim() || null,
       country: country.trim(),
+      signup_platform: signupPlatform,
     };
 
     // Use UPSERT to handle both new profiles and updates (prevents duplicates)

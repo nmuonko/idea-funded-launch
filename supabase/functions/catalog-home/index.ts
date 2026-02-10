@@ -214,10 +214,18 @@ function generateCorrelationId(): string {
   return `ch_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+  // Auto-add Cache-Control for web responses that include ttlSeconds
+  const finalHeaders: Record<string, string> = { ...corsHeaders, "Content-Type": "application/json; charset=utf-8", ...extraHeaders };
+  if (typeof data === "object" && data !== null && "ttlSeconds" in (data as Record<string, unknown>)) {
+    const ttl = (data as Record<string, unknown>).ttlSeconds;
+    if (typeof ttl === "number" && ttl > 0 && !finalHeaders["Cache-Control"]) {
+      finalHeaders["Cache-Control"] = `public, max-age=${ttl}`;
+    }
+  }
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+    headers: finalHeaders,
   });
 }
 

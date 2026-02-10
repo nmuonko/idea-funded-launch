@@ -128,6 +128,7 @@ export default function ShopCart() {
                     {/* Image */}
                     <Link 
                       to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                      state={{ product: { isVehicle: item.isVehicle } }}
                       className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                     >
                       <img
@@ -141,6 +142,7 @@ export default function ShopCart() {
                     <div className="flex-1 min-w-0">
                       <Link 
                         to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
+                        state={{ product: { isVehicle: item.isVehicle } }}
                         className="text-white hover:text-blue-400 transition-colors"
                       >
                         <h3 className="font-medium line-clamp-2 mb-1">
@@ -206,6 +208,7 @@ export default function ShopCart() {
                   <PriceBreakdown 
                     itemPriceUsd={totalUsd} 
                     showDetails={true}
+                    isVehicle={items.length > 0 && items.every(i => i.isVehicle)}
                   />
 
                   <div className="mt-6 space-y-3">

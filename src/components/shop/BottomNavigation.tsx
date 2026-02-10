@@ -15,7 +15,7 @@ const tabs = [
 
 export function BottomNavigation() {
   const location = useLocation();
-  const { itemCount } = useShopCart();
+  const { itemCount, savedItems } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
 
@@ -45,7 +45,8 @@ export function BottomNavigation() {
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = isActive(tab.path);
-          const showBadge = tab.key === 'cart' && itemCount > 0;
+          const showBadge = (tab.key === 'cart' && itemCount > 0) || (tab.key === 'saved' && savedItems.length > 0);
+          const badgeCount = tab.key === 'cart' ? itemCount : savedItems.length;
 
           return (
             <Link
@@ -60,7 +61,7 @@ export function BottomNavigation() {
                 <Icon className={cn("h-5 w-5", active && "scale-110")} />
                 {showBadge && (
                   <span className="absolute -top-1 -right-2 bg-blue-500 text-white text-[10px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-1">
-                    {itemCount > 99 ? '99+' : itemCount}
+                    {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
               </div>

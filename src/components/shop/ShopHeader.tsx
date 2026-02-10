@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
 import { CartDrawer } from './CartDrawer';
 import { useAuth } from '@/contexts/AuthContext';
+import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { languages, translations } from '@/lib/i18n/translations';
 import afrishopLogo from '@/assets/afrishop-logo.png';
@@ -21,6 +22,7 @@ export function ShopHeader() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { savedItems } = useShopCart();
   const { language, setLanguage } = useLanguage();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -147,6 +149,11 @@ export function ShopHeader() {
                       >
                         <Heart className="h-4 w-4" />
                         {shop.savedTab || 'Favorites'}
+                        {savedItems.length > 0 && (
+                          <span className="ml-auto bg-blue-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
+                            {savedItems.length > 99 ? '99+' : savedItems.length}
+                          </span>
+                        )}
                       </Link>
                       <Link
                         to="/support"

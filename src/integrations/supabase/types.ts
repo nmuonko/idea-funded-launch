@@ -2564,6 +2564,42 @@ export type Database = {
           },
         ]
       }
+      marketer_thresholds: {
+        Row: {
+          created_at: string
+          id: string
+          is_enabled: boolean
+          last_notified_count: number | null
+          marketer_name: string
+          notified_at: string | null
+          ref_code: string
+          threshold_count: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          last_notified_count?: number | null
+          marketer_name: string
+          notified_at?: string | null
+          ref_code: string
+          threshold_count?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_enabled?: boolean
+          last_notified_count?: number | null
+          marketer_name?: string
+          notified_at?: string | null
+          ref_code?: string
+          threshold_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       order_actions: {
         Row: {
           action_message: string | null

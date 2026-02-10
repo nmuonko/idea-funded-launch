@@ -1,86 +1,52 @@
 
 
-# Fix: Allow Unverified Users to Resend Verification from Sign-In
+# Add Saved/Favorites Item Count Badge
 
-## The Problem
+## Overview
+Show a count badge next to the "Favorites" link in the Quick Links section of the hamburger menu drawer, matching the existing cart badge pattern. Also add the same badge to the bottom navigation's "Saved" tab.
 
-Users who registered but never received a verification email (due to the earlier bug) are stuck:
-- They **can't sign in** because their email isn't confirmed
-- They **can't re-register** because the email already exists
-- They have **no way to reach** the "Resend Verification" button
+## Changes
 
-Currently, when they try to sign in, they just see a toast message saying "Please check your email" -- but there's no email to check.
+### 1. `src/components/shop/ShopHeader.tsx`
+- Import `useShopCart` from the cart context
+- Read `savedItems` from the context
+- Add a badge/count indicator next to the Favorites link in the Quick Links section (lines 143-150), similar to how the cart shows its item count
 
-## The Fix
+### 2. `src/components/shop/BottomNavigation.tsx`
+- Read `savedItems` from the existing `useShopCart()` hook (already imported)
+- Add a badge to the "saved" tab (same style as the cart badge) showing `savedItems.length` when greater than 0
 
-### 1. `src/pages/shop/ShopAuth.tsx` - Detect "Email not confirmed" and show verification screen
+## Technical Details
 
-Update `handleSignIn` to detect the "Email not confirmed" error from the auth system. When this happens, instead of just showing a toast, switch the UI to the verification screen (`mode = 'verify'`) where the user can click "Resend Verification."
-
+**ShopHeader.tsx** - Add to the Favorites link (line 143-150):
 ```typescript
-// In handleSignIn, after calling signIn():
-const { error, userId } = await signIn(email, password, rememberMe);
+import { useShopCart } from '@/contexts/ShopCartContext';
 
-if (error) {
-  // Check if this is an unverified email error
-  if (error.message?.includes('Email not confirmed')) {
-    // Switch to verification screen so user can resend
-    setMode('verify');
-    return;
-  }
-  // Other errors are already handled by AuthContext toast
-  return;
-}
+// Inside ShopHeader():
+const { savedItems } = useShopCart();
+
+// In the Favorites Link, add badge after the label:
+<Link to="/saved" ...>
+  <Heart className="h-4 w-4" />
+  {shop.savedTab || 'Favorites'}
+  {savedItems.length > 0 && (
+    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
+      {savedItems.length > 99 ? '99+' : savedItems.length}
+    </span>
+  )}
+</Link>
 ```
 
-### 2. `src/contexts/AuthContext.tsx` - Return the error so the caller can react to it
-
-The current `signIn` function already returns `{ error, userId }` when sign-in fails (line 359), so the error object is available. However, the `ShopAuth` sign-in handler doesn't currently check the returned error object. The `signIn` function will still show a helpful toast, but now `ShopAuth` will also redirect to the verify screen.
-
-Update the "Email not confirmed" toast message to be more actionable:
-
+**BottomNavigation.tsx** - Add badge logic for the "saved" tab (same pattern as cart badge):
 ```typescript
-// Change from:
-userMessage = 'Please check your email and confirm your account before signing in.';
+const { itemCount, savedItems } = useShopCart();
 
-// Change to:
-userMessage = 'Your email is not yet verified. Please verify your email to sign in.';
-```
-
-### 3. Verification screen already works
-
-The verification screen at `mode === 'verify'` (lines 757-796 in ShopAuth.tsx) already has:
-- A "Resend Verification" button that calls `auth-resend-verification`
-- The email variable is already populated from the sign-in form
-- A "Back to Sign In" link
-
-No changes needed to the verification screen itself.
-
-## Flow After Fix
-
-```text
-User tries to sign in
-       |
-       v
-   Email not confirmed?
-      / \
-    Yes   No
-     |     |
-     v     v
-  Show     Normal
-  verify   sign-in
-  screen   flow
-     |
-     v
-  User clicks
-  "Resend Verification"
-     |
-     v
-  Verification email
-  sent successfully
+// In the render loop, update showBadge logic:
+const showBadge = (tab.key === 'cart' && itemCount > 0) || 
+                  (tab.key === 'saved' && savedItems.length > 0);
+const badgeCount = tab.key === 'cart' ? itemCount : savedItems.length;
 ```
 
 ## Files Modified
-
-- `src/pages/shop/ShopAuth.tsx` -- detect "Email not confirmed" error in sign-in handler, redirect to verify screen
-- `src/contexts/AuthContext.tsx` -- improve the toast message for unverified email error
+- `src/components/shop/ShopHeader.tsx` -- add saved items count badge in Quick Links
+- `src/components/shop/BottomNavigation.tsx` -- add saved items count badge on Saved tab

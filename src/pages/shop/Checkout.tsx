@@ -30,7 +30,11 @@ interface ShippingAddress {
 export default function Checkout() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { items, totalUsd, savePendingCheckout, restoreFromPendingCheckout, canProceedToPayment, vehicleQuoteStatus, hasVehicleItems, serverTotalUsd } = useShopCart();
+  const { 
+    items, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 
+    vehicleQuoteStatus, serverTotalUsd,
+    selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
+  } = useShopCart();
   const { user } = useAuth();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
@@ -52,6 +56,10 @@ export default function Checkout() {
     postalCode: '',
     country: 'DR Congo',
   });
+
+  // Use selected items for checkout — fallback to all items if none selected
+  const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
+  const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
   // Restore cart from pending checkout if cart is empty on mount
   useEffect(() => {
@@ -120,7 +128,7 @@ export default function Checkout() {
       return;
     }
 
-    if (items.length === 0) {
+    if (checkoutItems.length === 0) {
       toast({
         title: shop.emptyCartTitle || 'Empty Cart',
         description: shop.emptyCart || 'Your cart is empty',
@@ -147,27 +155,30 @@ export default function Checkout() {
         .eq('user_id', user?.id);
 
       // Step 1: Create/update DRAFT order from cart items
-      console.log('[WEB_CHECKOUT] Step 1: Creating order from cart...');
+      // Pass only selected item IDs so the backend creates the order from the subset
+      const selectedCartItemIds = checkoutItems.map(i => i.id).filter(id => !id.startsWith('local_'));
+      console.log('[WEB_CHECKOUT] Step 1: Creating order from cart... selectedIds=', selectedCartItemIds.length);
+      
       const { data: orderData, error: orderError } = await supabase.functions.invoke(
-        'mobile-create-order-from-cart'
+        'mobile-create-order-from-cart',
+        {
+          body: selectedCartItemIds.length > 0 ? { cart_item_ids: selectedCartItemIds } : undefined,
+        }
       );
 
       console.log('[WEB_CHECKOUT] Order response:', { orderData, orderError });
 
       if (orderError) {
         console.error('[WEB_CHECKOUT] Order creation error:', orderError);
-        // Surface the actual error from backend if available
         const errorMsg = orderError.message || orderData?.message || 'Failed to prepare your order.';
         throw new Error(errorMsg);
       }
 
-      // Check for error in response body (some errors return 200 with error object)
       if (orderData?.error) {
         console.error('[WEB_CHECKOUT] Order response error:', orderData);
         throw new Error(orderData.message || orderData.error || 'Failed to prepare your order.');
       }
 
-      // Support both snake_case and camelCase response formats
       const orderId = orderData?.order_id || orderData?.orderId;
       const orderItemIds = orderData?.order_item_ids || orderData?.orderItemIds;
 
@@ -176,32 +187,25 @@ export default function Checkout() {
         throw new Error('Failed to create order. Please ensure your cart has items.');
       }
 
-      // Store the server-calculated total for display
       const srvTotal = orderData?.total_usd || orderData?.totalUsd;
       if (srvTotal) setOrderServerTotal(srvTotal);
-      const effectiveTotal = srvTotal || totalUsd;
+      const effectiveTotal = srvTotal || checkoutTotal;
 
       console.log('[WEB_CHECKOUT] Order created:', orderId, 'items:', orderItemIds.length, 'serverTotal:', srvTotal);
 
       // Step 2: Proceed to checkout with order item IDs
       console.log('[WEB_CHECKOUT] Step 2: Starting checkout...');
       
-      // Build checkout payload
-      // IMPORTANT: For mobile money (PawaPay), don't send payment_method_preference
-      // Backend auto-routes standard orders to PawaPay when no preference is provided
       const checkoutPayload: Record<string, any> = {
         cart_item_ids: orderItemIds,
         cart_id: orderId,
       };
       
-      // Only add payment_method_preference for Card or Bank Transfer
-      // Mobile money is the default route when no preference is sent
       if (paymentMethod === 'card') {
         checkoutPayload.payment_method_preference = 'CARD';
       } else if (paymentMethod === 'bank_transfer') {
         checkoutPayload.payment_method_preference = 'BANK_TRANSFER';
       }
-      // For 'mobile_money', we intentionally don't send payment_method_preference
       
       console.log('[WEB_CHECKOUT] Checkout payload:', checkoutPayload);
       
@@ -216,18 +220,15 @@ export default function Checkout() {
         throw new Error(error.message || 'Checkout failed');
       }
 
-      // Check for error in response body
       if (data?.error) {
         console.error('[WEB_CHECKOUT] Checkout response error:', data);
         throw new Error(data.message || data.error || 'Checkout failed');
       }
 
       // Handle different payment flows
-      // Step 3: Handle awaiting_provider_selection - need to call select-payment-provider
       if (data?.status === 'awaiting_provider_selection' && data?.checkout_session_id) {
         console.log('[WEB_CHECKOUT] Step 3: Selecting payment provider...');
         
-        // Map frontend payment method to provider
         const providerMap: Record<string, string> = {
           'mobile_money': 'pawapay',
           'card': 'stripe',
@@ -241,10 +242,8 @@ export default function Checkout() {
           provider,
         };
         
-        // Add phone and auto-detect operator for PawaPay
         if (provider === 'pawapay' && address.phone) {
           selectPayload.phone = address.phone;
-          // Auto-detect operator from phone prefix for DRC numbers
           const cleanPhone = address.phone.replace(/[\s\-+]/g, '');
           let prefix = '';
           if (cleanPhone.startsWith('243')) {
@@ -254,7 +253,6 @@ export default function Checkout() {
           } else {
             prefix = cleanPhone.slice(0, 2);
           }
-          // Map prefix to operator
           const operatorMap: Record<string, string> = {
             '81': 'VODACOM_MPESA_COD', '82': 'VODACOM_MPESA_COD', '83': 'VODACOM_MPESA_COD',
             '97': 'AIRTEL_COD', '99': 'AIRTEL_COD',
@@ -278,10 +276,8 @@ export default function Checkout() {
           throw new Error(providerData?.message || providerError?.message || 'Failed to initiate payment');
         }
         
-        // Handle PawaPay USSD flow - redirect to pending page
         if (providerData?.provider === 'pawapay' && providerData?.status === 'pending_user_confirmation') {
           console.log('[WEB_CHECKOUT] PawaPay USSD push initiated, redirecting to pending page');
-          // Save pending checkout snapshot (cart will be cleared on payment success)
           savePendingCheckout({ 
             orderId: providerData.order_id, 
             paymentMethod: 'mobile_money',
@@ -291,11 +287,8 @@ export default function Checkout() {
           return;
         }
         
-        // Handle Stripe redirect
         if (providerData?.provider === 'stripe' && providerData?.clientSecret) {
-          // Redirect to card payment page with client secret
           console.log('[WEB_CHECKOUT] Stripe clientSecret received, redirecting to card payment page');
-          // Save pending checkout snapshot (cart will be cleared on payment success)
           savePendingCheckout({ 
             orderId: providerData.order_id, 
             paymentMethod: 'card',
@@ -306,7 +299,6 @@ export default function Checkout() {
           return;
         }
         
-        // Handle bank transfer
         if (providerData?.provider === 'bank_transfer') {
           savePendingCheckout({ 
             orderId: providerData.order_id, 
@@ -317,16 +309,14 @@ export default function Checkout() {
           return;
         }
         
-        // Fallback - redirect to order
         if (providerData?.order_id) {
           savePendingCheckout({ orderId: providerData.order_id, totalUsd: effectiveTotal });
           navigate(`/orders/${providerData.order_id}`);
           return;
         }
       }
-      // Legacy flows (direct responses without select-payment-provider)
+      // Legacy flows
       else if (data?.payment_flow === 'STRIPE' && data?.clientSecret) {
-        // Redirect to Stripe checkout
         savePendingCheckout({ orderId: data.order_id, paymentMethod: 'card', totalUsd: effectiveTotal });
         navigate(`/payment-callback?session_id=${data.checkout_session_id}`);
       } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
@@ -367,7 +357,7 @@ export default function Checkout() {
     );
   }
 
-  if (items.length === 0) {
+  if (checkoutItems.length === 0) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -383,8 +373,8 @@ export default function Checkout() {
     );
   }
 
-  // Block checkout if vehicle quote is pending
-  if (!canProceedToPayment || (hasVehicleItems && vehicleQuoteStatus !== 'quoted')) {
+  // Block checkout ONLY if selected items include a vehicle needing a quote
+  if (!selectedCanProceedToPayment) {
     return (
       <div className="min-h-screen bg-black">
         <ShopHeader />
@@ -395,8 +385,8 @@ export default function Checkout() {
           </h2>
           <p className="text-white/60 mb-6">
             {language === 'fr' 
-              ? 'Votre panier contient un véhicule. Veuillez demander un devis depuis votre panier avant de procéder au paiement.'
-              : 'Your cart contains a vehicle. Please request a shipping quote from your cart before proceeding to payment.'}
+              ? 'Les articles sélectionnés incluent un véhicule. Désélectionnez-le dans le panier ou attendez votre devis.'
+              : 'Your selected items include a vehicle. Deselect it in the cart or wait for your shipping quote.'}
           </p>
           <Link to="/cart">
             <Button className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-full px-8">
@@ -650,9 +640,9 @@ export default function Checkout() {
                 >
                   <h2 className="text-lg font-semibold text-white mb-4">{shop.orderSummary || 'Order Summary'}</h2>
                   
-                  {/* Items Preview */}
+                  {/* Items Preview — show selected items */}
                   <div className="space-y-3 mb-4 pb-4 border-b border-white/10">
-                    {items.slice(0, 3).map((item) => (
+                    {checkoutItems.slice(0, 3).map((item) => (
                       <div key={item.id} className="flex gap-3">
                         <img
                           src={item.imageUrl || '/placeholder.svg'}
@@ -665,14 +655,14 @@ export default function Checkout() {
                         </div>
                       </div>
                     ))}
-                    {items.length > 3 && (
+                    {checkoutItems.length > 3 && (
                       <p className="text-sm text-white/50">
-                        +{items.length - 3} {items.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
+                        +{checkoutItems.length - 3} {checkoutItems.length - 3 !== 1 ? (shop.moreItems || 'more items') : (shop.moreItem || 'more item')}
                       </p>
                     )}
                   </div>
                   
-                  <PriceBreakdown itemPriceUsd={totalUsd} serverTotal={orderServerTotal ?? serverTotalUsd} />
+                  <PriceBreakdown itemPriceUsd={checkoutTotal} serverTotal={orderServerTotal ?? serverTotalUsd} />
 
                   <Button
                     type="submit"

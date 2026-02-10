@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -64,6 +64,15 @@ interface ShopCartContextType {
   vehicleQuoteStatus: VehicleQuoteStatus;
   canProceedToPayment: boolean;
   serverTotalUsd: number | null;
+  // Item selection for checkout
+  selectedItemIds: Set<string>;
+  toggleItemSelection: (id: string) => void;
+  selectAllItems: () => void;
+  deselectAllItems: () => void;
+  selectedItems: CartItem[];
+  selectedTotalUsd: number;
+  selectedHasVehicleItems: boolean;
+  selectedCanProceedToPayment: boolean;
 }
 
 const ShopCartContext = createContext<ShopCartContextType | undefined>(undefined);
@@ -91,16 +100,85 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [canProceedToPayment, setCanProceedToPayment] = useState(true);
   const [serverTotalUsd, setServerTotalUsd] = useState<number | null>(null);
 
-  // Load cart from localStorage on init (for guests) or as fallback
+  // --- Race condition fix: track items being deleted ---
+  const deletedItemIdsRef = useRef<Set<string>>(new Set());
+
+  // --- Item selection state ---
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+
+  // Keep selectedItemIds in sync with items (auto-select new items, remove stale selections)
   useEffect(() => {
-    const storedCart = localStorage.getItem(CART_STORAGE_KEY);
-    if (storedCart) {
-      try {
-        const parsed = JSON.parse(storedCart);
-        console.log('[CART] init source=localStorage items=', parsed.length);
-        setItems(parsed);
-      } catch (e) {
-        console.error('[CART] Failed to parse stored cart:', e);
+    setSelectedItemIds(prev => {
+      const currentIds = new Set(items.map(i => i.id));
+      const next = new Set<string>();
+      // Keep existing selections that still exist
+      for (const id of prev) {
+        if (currentIds.has(id)) next.add(id);
+      }
+      // Auto-select any new items not previously known
+      for (const id of currentIds) {
+        if (!prev.has(id) && !deletedItemIdsRef.current.has(id)) {
+          // If prev was empty (first load), select all; otherwise select new items
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }, [items]);
+
+  const toggleItemSelection = useCallback((id: string) => {
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectAllItems = useCallback(() => {
+    setSelectedItemIds(new Set(items.map(i => i.id)));
+  }, [items]);
+
+  const deselectAllItems = useCallback(() => {
+    setSelectedItemIds(new Set());
+  }, []);
+
+  const selectedItems = useMemo(() => {
+    return items.filter(i => selectedItemIds.has(i.id));
+  }, [items, selectedItemIds]);
+
+  const selectedTotalUsd = useMemo(() => {
+    return selectedItems.reduce((sum, item) => sum + item.priceUsd * item.quantity, 0);
+  }, [selectedItems]);
+
+  const selectedHasVehicleItems = useMemo(() => {
+    return selectedItems.some(i => i.isVehicle);
+  }, [selectedItems]);
+
+  const selectedCanProceedToPayment = useMemo(() => {
+    // Can proceed if no selected vehicle items need a quote
+    if (!selectedHasVehicleItems) return true;
+    return vehicleQuoteStatus === 'quoted';
+  }, [selectedHasVehicleItems, vehicleQuoteStatus]);
+
+  // Load cart from localStorage on init — ONLY for guests
+  useEffect(() => {
+    if (user) {
+      // Logged-in users get their cart from server via syncCart
+      console.log('[CART] init: logged-in user, skipping localStorage load');
+    } else {
+      const storedCart = localStorage.getItem(CART_STORAGE_KEY);
+      if (storedCart) {
+        try {
+          const parsed = JSON.parse(storedCart);
+          console.log('[CART] init source=localStorage items=', parsed.length);
+          setItems(parsed);
+        } catch (e) {
+          console.error('[CART] Failed to parse stored cart:', e);
+        }
       }
     }
     setInitialized(true);
@@ -114,15 +192,15 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         console.error('[CART] Failed to parse saved items:', e);
       }
     }
-  }, []);
+  }, [user]);
 
-  // Always persist cart to localStorage as backup
+  // Persist cart to localStorage ONLY for guest users as backup
   useEffect(() => {
-    if (initialized) {
+    if (initialized && !user) {
       localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
       console.log('[CART] persisted items=', items.length, 'key=', CART_STORAGE_KEY);
     }
-  }, [items, initialized]);
+  }, [items, initialized, user]);
 
   // Save wishlist to localStorage
   useEffect(() => {
@@ -146,10 +224,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           if (data?.exchangeRate) {
             setExchangeRate(data.exchangeRate);
           }
-          // Extract fee settings from API response
           if (data) {
             setFeeSettings({
-              // API returns nested structure: markup.value, shipping.flatUsd, shipping.percentValue
               markupPercent: data.markup?.value ?? data.markupPercent ?? 15,
               vehicleMarkupPercent: data.markup?.vehicleValue ?? data.markup?.value ?? 15,
               shippingBaseFeeUsd: data.shipping?.flatUsd ?? data.shippingBaseFeeUsd ?? 20,
@@ -189,7 +265,6 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     if (!stored) return null;
     try {
       const snapshot = JSON.parse(stored) as PendingCheckoutSnapshot;
-      // Check if expired
       if (Date.now() - snapshot.timestamp > PENDING_CHECKOUT_EXPIRY_MS) {
         console.log('[CART] pending checkout snapshot expired');
         localStorage.removeItem(PENDING_CHECKOUT_KEY);
@@ -217,7 +292,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [getPendingCheckout]);
 
-  // Sync cart when user logs in
+  // Sync cart when user logs in — filters out deleted items
   const syncCart = useCallback(async () => {
     if (!user || !session) return;
     
@@ -242,8 +317,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           requiresManualQuote: item.requiresManualQuote || false,
           vehicleQuoteApplied: item.vehicleQuoteApplied || false,
         }));
-        setItems(mappedItems);
-        console.log('[CART] init source=server items=', mappedItems.length);
+
+        // CRITICAL: Filter out items that are currently being deleted locally
+        const filtered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
+        setItems(filtered);
+        console.log('[CART] init source=server items=', mappedItems.length, 'afterFilter=', filtered.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
         
         // Update vehicle flags from summary
         const summary = data.summary || data;
@@ -281,19 +359,6 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user && initialized) {
-      // Merge guest cart to server if needed
-      const guestCart = localStorage.getItem(CART_STORAGE_KEY);
-      if (guestCart) {
-        try {
-          const guestItems = JSON.parse(guestCart) as CartItem[];
-          if (guestItems.length > 0) {
-            console.log('[CART] merge guest->server items=', guestItems.length);
-            // The sync will handle merging
-          }
-        } catch (e) {
-          // Ignore
-        }
-      }
       syncCart();
     }
   }, [user, initialized, syncCart]);
@@ -310,7 +375,6 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     );
 
     if (existingIndex >= 0) {
-      // Update quantity
       const updated = [...items];
       updated[existingIndex].quantity += item.quantity;
       setItems(updated);
@@ -318,13 +382,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       setItems((prev) => [...prev, newItem]);
     }
 
-    // If logged in, sync to backend
+    // If logged in, add to server then sync (respecting deletedItemIdsRef)
     if (user && session) {
       try {
-        // Build productUrl if not provided - construct from provider and productId
         let productUrl = item.productUrl;
         if (!productUrl && item.productId) {
-          // Extract clean product ID (remove provider prefix if present)
           let cleanId = item.productId;
           const lowerCleanId = cleanId.toLowerCase();
           
@@ -336,11 +398,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             cleanId = cleanId.slice(5);
           }
           
-          // Build URL using allowed domain based on provider
           if (item.provider === 'ebay') {
             productUrl = `https://www.ebay.com/itm/${cleanId}`;
           } else {
-            // Default to Amazon for rainforest/amazon/other providers
             productUrl = `https://www.amazon.com/dp/${cleanId}`;
           }
         }
@@ -359,7 +419,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
             productImageUrl: item.imageUrl,
           },
         });
-        // Resync to get server IDs
+        // Resync to get server IDs — deletedItemIdsRef ensures deleted items stay gone
         await syncCart();
       } catch (error) {
         console.error('[CART] Failed to add item to server:', error);
@@ -388,20 +448,34 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeItem = async (id: string) => {
+    // Track this ID as being deleted BEFORE any async work
+    deletedItemIdsRef.current.add(id);
+
+    // Remove locally immediately
     setItems((prev) => prev.filter((item) => item.id !== id));
+    // Also deselect
+    setSelectedItemIds(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
 
     if (user && session && !id.startsWith('local_')) {
       try {
-        // CRITICAL: Await the server delete to prevent race conditions
-        // If addItem calls syncCart before this completes, deleted items reappear
         await supabase.functions.invoke('mobile-delete-cart-item', {
           body: { cart_item_id: id },
         });
-        // Re-sync after confirmed server deletion
+        // Sync after confirmed deletion — filter still active via deletedItemIdsRef
         await syncCart();
       } catch (error) {
         console.error('[CART] Failed to remove item:', error);
+      } finally {
+        // Only clear from the set AFTER sync completes
+        deletedItemIdsRef.current.delete(id);
       }
+    } else {
+      // Local-only item, clear immediately
+      deletedItemIdsRef.current.delete(id);
     }
   };
 
@@ -472,6 +546,15 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         vehicleQuoteStatus,
         canProceedToPayment,
         serverTotalUsd,
+        // Item selection
+        selectedItemIds,
+        toggleItemSelection,
+        selectAllItems,
+        deselectAllItems,
+        selectedItems,
+        selectedTotalUsd,
+        selectedHasVehicleItems,
+        selectedCanProceedToPayment,
       }}
     >
       {children}

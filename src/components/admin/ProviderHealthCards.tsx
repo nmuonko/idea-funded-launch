@@ -68,7 +68,7 @@ export function ProviderHealthCards({ providers }: ProviderHealthCardsProps) {
     },
     {
       key: 'amazon',
-      label: 'Amazon (Rainforest)',
+      label: 'Amazon',
       icon: <Cloud className="h-5 w-5" />,
       configured: providers.amazon.configured,
       status: providers.amazon.configured 

@@ -82,49 +82,28 @@ export default function ShopHome() {
       // Only switch to live if we've exhausted cached pages (based on backend's totalPages)
       const shouldUseLive = totalPages > 0 && page > totalPages;
       
-      const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-home`);
-      url.searchParams.set('page', String(page));
-      url.searchParams.set('pageSize', String(PAGE_SIZE));
-      url.searchParams.set('client', 'web');
+      const params: Record<string, any> = {
+        page,
+        pageSize: PAGE_SIZE,
+        client: 'web',
+      };
       if (activeCategory && activeCategory !== 'all') {
-        url.searchParams.set('category', activeCategory);
+        params.category = activeCategory;
       }
       if (shouldUseLive) {
-        url.searchParams.set('live', '1');
+        params.live = '1';
       }
       
       console.log(`[ShopHome] fetching page=${page} shouldUseLive=${shouldUseLive} currentTotalPages=${totalPages}`);
       
-      const response = await fetch(url.toString(), {
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      // Check Content-Type before parsing to detect HTML error pages
-      const contentType = response.headers.get('content-type');
-      if (!contentType?.includes('application/json')) {
-        const textResponse = await response.text();
-        console.error('[ShopHome] Expected JSON but got:', contentType, textResponse.substring(0, 200));
-        
-        // Don't show error for first page - just show empty state with search CTA
-        if (page === 1) {
-          setProducts([]);
-          setHasMore(false);
-        }
-        return;
-      }
-      
-      // Even if HTTP status is not OK, try to parse JSON (backend returns 200 with ok:false)
-      const data = await response.json() as HomeFeedResponse & { 
+      const data = await cachedCatalogFetch<HomeFeedResponse & {
         ok?: boolean;
         error?: string;
-        totalPages?: number; 
+        totalPages?: number;
         hasMore?: boolean;
         hasMoreCached?: boolean;
         _meta?: { source?: string; poolSize?: number; isStale?: boolean };
-      };
+      }>('catalog-home', params);
       
       console.log(`[ShopHome] response page=${page} ok=${data.ok} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
       

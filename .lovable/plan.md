@@ -1,96 +1,40 @@
 
-# Fix Cart Reliability + Add Item Selection for Checkout
 
-## Problems Identified
+# Fix: Mobile Signup Platform Not Being Tracked
 
-1. **Deleted items reappear**: When you add a new item, the code calls `syncCart()` which fetches ALL server-side cart items. If the delete hasn't fully completed on the server, or if there's a timing overlap, the deleted item comes back from the server response and overwrites your local state.
+## Problem
 
-2. **Vehicle quotes block everything**: If your cart has a vehicle needing a quote, the entire checkout is blocked -- you can't pay for your non-vehicle items separately.
-
-3. **No item selection**: Unlike the mobile app, the web cart doesn't let you select which items to pay for.
-
----
+All users show as "Web" in the admin Customers page because:
+1. The `auth-register` edge function defaults `signup_platform` to `'web'` when no value is provided (line 134)
+2. The mobile app likely calls `auth-register` without explicitly sending `signup_platform: 'mobile'`
+3. Current database: all 18 users have `signup_platform = 'web'`
 
 ## Solution
 
-### 1. Fix the "deleted items reappear" race condition
+### 1. Auto-detect platform in the `auth-register` edge function
 
-**File: `src/contexts/ShopCartContext.tsx`**
+Instead of relying on the client to send the correct value, the edge function should detect the platform from the request's `User-Agent` header as a fallback. This way even if the mobile app forgets to send `signup_platform`, it still gets classified correctly.
 
-- Add a `deletedItemIds` set (React ref) that tracks IDs of items currently being deleted.
-- In `removeItem`: add the item ID to this set BEFORE calling the server delete. Remove it from the set only after `syncCart` completes.
-- In `syncCart`: after receiving server items, filter OUT any item whose ID is in the `deletedItemIds` set before calling `setItems`.
-- In `addItem`: do NOT call `syncCart()` immediately after adding. Instead, just add locally and call the server add endpoint. Only sync after the server confirms (and still respect the deleted set).
-- Remove the localStorage-to-state restore on init when user is logged in (server is the source of truth -- localStorage backup should only apply to guests).
+**File: `supabase/functions/auth-register/index.ts`**
 
-### 2. Add item selection (checkboxes) to the cart page
-
-**File: `src/pages/shop/ShopCart.tsx`**
-
-- Add a `selectedItemIds` state (Set of item IDs), defaulting to all items selected.
-- Each cart item row gets a checkbox.
-- "Select All / Deselect All" toggle at the top.
-- The Order Summary sidebar recalculates based on selected items only.
-- The "Proceed to Checkout" button passes selected item IDs to the checkout page (via navigation state or context).
-- Vehicle items can be deselected, allowing non-vehicle items to proceed to payment independently.
-
-### 3. Update checkout to handle partial item selection
-
-**Files: `src/contexts/ShopCartContext.tsx`, `src/pages/shop/Checkout.tsx`**
-
-- Add `selectedItemIds` state to the cart context so it persists across navigation.
-- Checkout page uses only the selected items for order creation and price display.
-- The `mobile-create-order-from-cart` call will use the selected subset.
-- Vehicle quote check applies only to selected items -- if no vehicle is selected, checkout proceeds normally.
-
-### 4. Prevent localStorage from resurrecting items for logged-in users
-
-**File: `src/contexts/ShopCartContext.tsx`**
-
-- On init, if a user is logged in, skip loading from localStorage and wait for `syncCart` to provide the authoritative server state.
-- Only persist to localStorage for guest users.
-
----
-
-## Technical Details
-
-### ShopCartContext changes
+- After reading `signupPlatform` from the body, add a fallback:
+  - If the body explicitly says `'mobile'`, use it
+  - If the body says `'web'` or is missing, check the `User-Agent` header for mobile indicators (e.g., contains "Dart", "okhttp", "Mobile", "Android", "iPhone", or the app's custom user agent)
+  - If the User-Agent looks like a mobile client, override to `'mobile'`
 
 ```text
-New state/refs:
-- deletedItemIdsRef = useRef<Set<string>>()
-- selectedItemIds: Set<string> (exposed in context)
-- toggleItemSelection(id): void
-- selectAllItems(): void
-- deselectAllItems(): void
-- selectedItems: CartItem[] (computed)
-- selectedTotalUsd: number (computed)
-
-Modified functions:
-- syncCart: filter out deletedItemIdsRef entries
-- addItem: don't call syncCart inline; add server-side then merge ID
-- removeItem: track in deletedItemIdsRef before server call
-- init useEffect: skip localStorage load when user is logged in
+Logic:
+  let signupPlatform = body.signup_platform || body.signupPlatform || null;
+  if (!signupPlatform || signupPlatform === 'web') {
+    const ua = req.headers.get('user-agent') || '';
+    const isMobileUA = /dart|okhttp|android|iphone|mobile|afrishop/i.test(ua);
+    signupPlatform = isMobileUA ? 'mobile' : 'web';
+  }
 ```
 
-### ShopCart.tsx (Cart Page) changes
+### 2. Fix existing users (optional data correction)
 
-```text
-- Add Checkbox import
-- Render checkbox per item row
-- "Select All" / "Deselect All" button in header
-- Order Summary uses selectedItems and selectedTotalUsd
-- Vehicle quote warning only shows if a vehicle item is SELECTED
-- "Proceed to Checkout" disabled if nothing selected
-```
-
-### Checkout.tsx changes
-
-```text
-- Read selectedItems from context instead of all items
-- Vehicle blocking logic checks only selected items
-- Order creation uses selected item IDs only
-```
+Run a one-time update if you know which users signed up via mobile. Since we can't retroactively determine this from the current data, this would need manual identification. Going forward, new signups will be tracked correctly.
 
 ---
 
@@ -98,6 +42,11 @@ Modified functions:
 
 | File | Change |
 |------|--------|
-| `src/contexts/ShopCartContext.tsx` | Race condition fix, item selection state, skip localStorage for logged-in users |
-| `src/pages/shop/ShopCart.tsx` | Add checkboxes, select all/none, recalculate summary from selection |
-| `src/pages/shop/Checkout.tsx` | Use selected items only, partial vehicle blocking |
+| `supabase/functions/auth-register/index.ts` | Add User-Agent-based platform detection as fallback (around line 134) |
+
+## Why This Works
+
+- The mobile app (Flutter/React Native) sends a distinctly different User-Agent than a web browser
+- This is a server-side fix -- no changes needed to the mobile app
+- Explicit `signup_platform: 'mobile'` from the mobile app still takes priority if sent
+

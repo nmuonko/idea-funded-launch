@@ -131,7 +131,12 @@ serve(async (req) => {
     const stateOrProvince = body.stateOrProvince || body.state_province || body.province;
     const postalCode = body.postalCode || body.postal_code;
     const country = body.country;
-    const signupPlatform = body.signup_platform || body.signupPlatform || 'web';
+    let signupPlatform = body.signup_platform || body.signupPlatform || null;
+    if (!signupPlatform || signupPlatform === 'web') {
+      const ua = req.headers.get('user-agent') || '';
+      const isMobileUA = /dart|okhttp|android|iphone|mobile|afrishop/i.test(ua);
+      signupPlatform = isMobileUA ? 'mobile' : 'web';
+    }
     const referredByCode = body.referred_by_code || body.referredByCode || null;
     
     // Also capture nationalPhoneNumber if mobile sends it separately

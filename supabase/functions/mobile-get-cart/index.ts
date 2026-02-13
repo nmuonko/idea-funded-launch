@@ -5,7 +5,7 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
-import { isMobileClient } from "../_shared/mobileCatalogHandler.ts";
+import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
 import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
@@ -274,10 +274,14 @@ serve(async (req) => {
 
     console.log('[GET_CART_DEBUG] User authenticated:', user.id);
 
-    // DYNAMIC PLATFORM DETECTION: fire-and-forget update
-    // Detects mobile vs web on every cart load and updates profile
+    // DYNAMIC PLATFORM DETECTION: fire-and-forget update (inlined to avoid heavy import)
     try {
-      const detectedPlatform = isMobileClient(req) ? 'mobile' : 'web';
+      const ua = (req.headers.get("user-agent") || "").toLowerCase();
+      const deviceId = req.headers.get("x-device-id") || "";
+      const isMobile = !!(deviceId.trim()) ||
+        ua.includes("okhttp") || ua.includes("expo") || ua.includes("dart") ||
+        ua.includes("flutter") || ua.includes("reactnative") || ua.includes("react-native");
+      const detectedPlatform = isMobile ? 'mobile' : 'web';
       supabase
         .from('profiles')
         .update({ last_active_platform: detectedPlatform })

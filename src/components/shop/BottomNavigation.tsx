@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Home, ShoppingCart, Heart, Package, User } from 'lucide-react';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -15,6 +15,7 @@ const tabs = [
 
 export function BottomNavigation() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { itemCount, savedItems } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
@@ -52,6 +53,13 @@ export function BottomNavigation() {
             <Link
               key={tab.key}
               to={tab.path}
+              onClick={(e) => {
+                // Prevent re-navigation when already on this path to avoid remount + empty state
+                if (isActive(tab.path) && tab.path === '/') {
+                  e.preventDefault();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+              }}
               className={cn(
                 "flex flex-col items-center justify-center flex-1 py-2 transition-colors",
                 active ? "text-blue-500" : "text-white/60 hover:text-white/80"

@@ -1,52 +1,49 @@
 
+# Add Terms & Conditions Popup Before Checkout
 
-# Fix: Mobile Signup Platform Not Being Tracked
+## What Changes
 
-## Problem
+Replace the small, easy-to-miss checkbox at the bottom of the checkout page with a prominent popup dialog that appears when the user clicks "Place Order." The dialog will clearly display the terms acceptance requirement, with Accept and Decline buttons.
 
-All users show as "Web" in the admin Customers page because:
-1. The `auth-register` edge function defaults `signup_platform` to `'web'` when no value is provided (line 134)
-2. The mobile app likely calls `auth-register` without explicitly sending `signup_platform: 'mobile'`
-3. Current database: all 18 users have `signup_platform = 'web'`
+## How It Works
 
-## Solution
+1. Remove the `termsAccepted` checkbox and its surrounding markup from the bottom of the form (lines 611-630).
+2. Remove the `disabled={!termsAccepted}` condition from the "Place Order" button so it is always clickable.
+3. When the user clicks "Place Order":
+   - If terms have NOT been accepted yet, show a Dialog popup instead of submitting.
+   - The popup displays a clear message: "Please review and accept our Terms of Service and Privacy Policy to complete your order."
+   - It includes links to `/terms` and `/privacy`.
+   - Two buttons: "Decline" (closes the dialog) and "Accept & Continue" (sets `termsAccepted = true` and submits the form).
+   - If terms HAVE already been accepted (user accepted earlier in the session), submit directly.
 
-### 1. Auto-detect platform in the `auth-register` edge function
+## User Experience
 
-Instead of relying on the client to send the correct value, the edge function should detect the platform from the request's `User-Agent` header as a fallback. This way even if the mobile app forgets to send `signup_platform`, it still gets classified correctly.
-
-**File: `supabase/functions/auth-register/index.ts`**
-
-- After reading `signupPlatform` from the body, add a fallback:
-  - If the body explicitly says `'mobile'`, use it
-  - If the body says `'web'` or is missing, check the `User-Agent` header for mobile indicators (e.g., contains "Dart", "okhttp", "Mobile", "Android", "iPhone", or the app's custom user agent)
-  - If the User-Agent looks like a mobile client, override to `'mobile'`
-
-```text
-Logic:
-  let signupPlatform = body.signup_platform || body.signupPlatform || null;
-  if (!signupPlatform || signupPlatform === 'web') {
-    const ua = req.headers.get('user-agent') || '';
-    const isMobileUA = /dart|okhttp|android|iphone|mobile|afrishop/i.test(ua);
-    signupPlatform = isMobileUA ? 'mobile' : 'web';
-  }
-```
-
-### 2. Fix existing users (optional data correction)
-
-Run a one-time update if you know which users signed up via mobile. Since we can't retroactively determine this from the current data, this would need manual identification. Going forward, new signups will be tracked correctly.
+- User fills in address and payment method, clicks "Place Order."
+- A centered popup appears asking them to accept terms.
+- They click "Accept & Continue" -- the order submits immediately.
+- If they click "Decline," the popup closes and nothing happens.
+- Once accepted in a session, subsequent order attempts skip the popup.
 
 ---
 
-## Files to Modify
+## Technical Details
 
-| File | Change |
-|------|--------|
-| `supabase/functions/auth-register/index.ts` | Add User-Agent-based platform detection as fallback (around line 134) |
+### File: `src/pages/shop/Checkout.tsx`
 
-## Why This Works
+**Remove** (lines 611-630): The existing checkbox + label block for terms.
 
-- The mobile app (Flutter/React Native) sends a distinctly different User-Agent than a web browser
-- This is a server-side fix -- no changes needed to the mobile app
-- Explicit `signup_platform: 'mobile'` from the mobile app still takes priority if sent
+**Add state**: `showTermsDialog` (boolean, default false).
 
+**Modify `handleSubmit`**: At the top, before the existing terms check, if `!termsAccepted`, call `setShowTermsDialog(true)` and return early (don't show a toast).
+
+**Add new function** `handleAcceptTerms`: Sets `termsAccepted = true`, closes the dialog, and programmatically submits the form by calling the core checkout logic.
+
+**Add Dialog component** (using the existing `src/components/ui/dialog.tsx`):
+- Rendered at the bottom of the JSX, outside the form.
+- `open={showTermsDialog}`, `onOpenChange={setShowTermsDialog}`.
+- Contains title, description with links, and two buttons.
+
+**Update "Place Order" button**: Remove `disabled={!termsAccepted}` -- keep only `disabled={loading}`.
+
+### No new files or dependencies needed
+- Uses the existing `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter` from `@/components/ui/dialog`.

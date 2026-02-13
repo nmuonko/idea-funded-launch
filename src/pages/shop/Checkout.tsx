@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3, Car } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,6 +44,7 @@ export default function Checkout() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('mobile_money');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showTermsDialog, setShowTermsDialog] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [orderServerTotal, setOrderServerTotal] = useState<number | null>(null);
   const [address, setAddress] = useState<ShippingAddress>({
@@ -116,18 +117,7 @@ export default function Checkout() {
     setAddress(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!termsAccepted) {
-      toast({
-        title: shop.termsRequired || 'Terms Required',
-        description: shop.acceptTermsMessage || 'Please accept the terms and conditions to continue',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const processCheckout = useCallback(async () => {
     if (checkoutItems.length === 0) {
       toast({
         title: shop.emptyCartTitle || 'Empty Cart',
@@ -339,6 +329,21 @@ export default function Checkout() {
     } finally {
       setLoading(false);
     }
+  }, [checkoutItems, checkoutTotal, paymentMethod, address, user, toast, shop, navigate, savePendingCheckout, serverTotalUsd, orderServerTotal]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!termsAccepted) {
+      setShowTermsDialog(true);
+      return;
+    }
+    processCheckout();
+  };
+
+  const handleAcceptTerms = () => {
+    setTermsAccepted(true);
+    setShowTermsDialog(false);
+    processCheckout();
   };
 
   if (!user) {
@@ -608,26 +613,6 @@ export default function Checkout() {
                   </RadioGroup>
                 </motion.div>
 
-                {/* Terms */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.2 }}
-                  className="flex items-start gap-3"
-                >
-                  <Checkbox
-                    id="terms"
-                    checked={termsAccepted}
-                    onCheckedChange={(checked) => setTermsAccepted(checked as boolean)}
-                    className="mt-1 border-white/40"
-                  />
-                  <label htmlFor="terms" className="text-sm text-white/70 cursor-pointer">
-                    {shop.agreeTerms || 'I agree to the'}{' '}
-                    <Link to="/terms" className="text-blue-400 hover:underline">{shop.termsOfService || 'Terms of Service'}</Link>
-                    {' '}{shop.and || 'and'}{' '}
-                    <Link to="/privacy" className="text-blue-400 hover:underline">{shop.privacyPolicy || 'Privacy Policy'}</Link>
-                  </label>
-                </motion.div>
               </div>
 
               {/* Right Column - Order Summary */}
@@ -666,7 +651,7 @@ export default function Checkout() {
 
                   <Button
                     type="submit"
-                    disabled={loading || !termsAccepted}
+                    disabled={loading}
                     className="w-full h-12 mt-6 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full"
                   >
                     {loading ? (
@@ -687,6 +672,45 @@ export default function Checkout() {
           </form>
         </div>
       </main>
+
+      {/* Terms & Conditions Dialog */}
+      <Dialog open={showTermsDialog} onOpenChange={setShowTermsDialog}>
+        <DialogContent className="bg-zinc-900 border-white/10 text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white text-lg">
+              {language === 'fr' ? 'Conditions Générales' : 'Terms & Conditions'}
+            </DialogTitle>
+            <DialogDescription className="text-white/70 pt-2">
+              {language === 'fr'
+                ? 'Veuillez lire et accepter nos conditions avant de finaliser votre commande.'
+                : 'Please review and accept our terms before completing your order.'}
+              <br /><br />
+              <Link to="/terms" className="text-blue-400 hover:underline" onClick={() => setShowTermsDialog(false)}>
+                {shop.termsOfService || 'Terms of Service'}
+              </Link>
+              {' '}{shop.and || (language === 'fr' ? 'et' : 'and')}{' '}
+              <Link to="/privacy" className="text-blue-400 hover:underline" onClick={() => setShowTermsDialog(false)}>
+                {shop.privacyPolicy || 'Privacy Policy'}
+              </Link>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-row gap-3 sm:justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowTermsDialog(false)}
+              className="flex-1 sm:flex-none border-white/20 text-white hover:bg-white/10"
+            >
+              {language === 'fr' ? 'Refuser' : 'Decline'}
+            </Button>
+            <Button
+              onClick={handleAcceptTerms}
+              className="flex-1 sm:flex-none bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white"
+            >
+              {language === 'fr' ? 'Accepter et Continuer' : 'Accept & Continue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

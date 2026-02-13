@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -66,6 +66,9 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [variants, setVariants] = useState<any[]>([]);
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
+  const navProductRef = useRef<ProductDetails | null>(null);
 
   // Detect if this product is a vehicle (from navigation state OR title analysis)
   const isVehicleFromState = !!(
@@ -79,9 +82,10 @@ export default function ProductDetailsPage() {
   // Reset ALL state when route params change (fixes similar product image merge bug)
   useEffect(() => {
     const nav = (location.state as any)?.product;
-    setProduct(nav ? {
+    const normalizedProvider = nav?.provider?.toLowerCase() === 'rainforest' ? 'amazon' : nav?.provider;
+    const navProduct = nav ? {
       id: nav.id,
-      provider: nav.provider,
+      provider: normalizedProvider || 'amazon',
       title: nav.title,
       description: undefined,
       images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
@@ -91,7 +95,9 @@ export default function ProductDetailsPage() {
       inStock: true,
       productUrl: nav.productUrl,
       brand: undefined,
-    } : null);
+    } : null;
+    setProduct(navProduct);
+    navProductRef.current = navProduct;
     setCurrentImageIndex(0);
     setSimilarProducts([]);
     setQuantity(1);
@@ -99,6 +105,8 @@ export default function ProductDetailsPage() {
     setLoading(!nav);
     setError(null);
     setLightboxOpen(false);
+    setVariants([]);
+    setSelectedVariant(null);
   }, [provider, id]);
 
   useEffect(() => {
@@ -179,9 +187,17 @@ export default function ProductDetailsPage() {
           };
         });
 
+        // Extract variants if available
+        if (item.variants && Array.isArray(item.variants)) {
+          setVariants(item.variants);
+        } else if (item.buybox_winner?.variant) {
+          setVariants([item.buybox_winner.variant]);
+        }
+
       } catch (err: any) {
         console.error('Failed to fetch product:', err);
-        if (!product) {
+        // CRITICAL: If we have navigation state product, keep showing it instead of error screen
+        if (!navProductRef.current) {
           setError(err.message || 'Failed to load product');
         }
       } finally {
@@ -299,9 +315,12 @@ export default function ProductDetailsPage() {
     );
   }
 
-  const providerColor = product.provider === 'amazon'
+  const displayProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+  const providerColor = displayProvider === 'amazon'
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+
+  const displayPrice = selectedVariant?.price?.value ?? product.priceUsd;
 
   return (
     <div className="min-h-screen bg-black">
@@ -359,7 +378,7 @@ export default function ProductDetailsPage() {
                 )}
 
                 <Badge variant="outline" className={`absolute top-4 left-4 capitalize ${providerColor}`}>
-                  {product.provider}
+                  {displayProvider === 'amazon' ? 'Amazon' : displayProvider === 'ebay' ? 'eBay' : displayProvider}
                 </Badge>
               </div>
 
@@ -430,10 +449,68 @@ export default function ProductDetailsPage() {
                 </Badge>
               )}
 
+              {/* Variant Selectors (Colors, Sizes) */}
+              {variants.length > 0 && (
+                <div className="space-y-4">
+                  {/* Color variants */}
+                  {variants.some((v: any) => v.color || v.dimension_values_display_data) && (
+                    <div>
+                      <h4 className="text-sm font-medium text-white/70 mb-2">
+                        {language === 'fr' ? 'Couleur' : 'Color'}
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {variants
+                          .filter((v: any) => v.color || v.title)
+                          .slice(0, 12)
+                          .map((v: any, idx: number) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedVariant(v)}
+                              className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                                selectedVariant === v
+                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  : 'border-white/20 text-white/70 hover:border-white/40'
+                              }`}
+                            >
+                              {v.color || v.title || v.asin}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Size variants */}
+                  {variants.some((v: any) => v.size) && (
+                    <div>
+                      <h4 className="text-sm font-medium text-white/70 mb-2">
+                        {language === 'fr' ? 'Taille' : 'Size'}
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {variants
+                          .filter((v: any) => v.size)
+                          .slice(0, 12)
+                          .map((v: any, idx: number) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedVariant(v)}
+                              className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                                selectedVariant === v
+                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
+                                  : 'border-white/20 text-white/70 hover:border-white/40'
+                              }`}
+                            >
+                              {v.size}
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Price Breakdown */}
               <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
                 <PriceBreakdown 
-                  itemPriceUsd={product.priceUsd} 
+                  itemPriceUsd={displayPrice} 
                   quantity={quantity}
                   isVehicle={isVehicle}
                 />
@@ -497,7 +574,7 @@ export default function ProductDetailsPage() {
                   className="flex items-center justify-center gap-2 text-sm text-white/60 hover:text-white transition-colors"
                 >
                   <ExternalLink className="h-4 w-4" />
-                  View on {product.provider}
+                  View on {displayProvider === 'amazon' ? 'Amazon' : displayProvider === 'ebay' ? 'eBay' : displayProvider}
                 </a>
               )}
 

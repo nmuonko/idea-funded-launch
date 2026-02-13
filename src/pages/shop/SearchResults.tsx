@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -64,11 +64,20 @@ export default function SearchResults() {
     refurbished: 'refurbished phone laptop',
   };
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
     const params: Record<string, any> = {
       q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
-      limit: 100,
+      limit: 30,
     };
 
     if (category) {
@@ -140,6 +149,7 @@ export default function SearchResults() {
       console.log('[SEARCH] got items=', mappedProducts.length,
         'nextCursor=', !!newCursor, 'hasMore=', !!newCursor || data?.hasMore === true);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('Search error:', err);
     } finally {
       setLoading(false);

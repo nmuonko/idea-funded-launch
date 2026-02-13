@@ -100,8 +100,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [canProceedToPayment, setCanProceedToPayment] = useState(true);
   const [serverTotalUsd, setServerTotalUsd] = useState<number | null>(null);
 
-  // --- Race condition fix: track items being deleted ---
-  const deletedItemIdsRef = useRef<Set<string>>(new Set());
+  // --- Race condition fix: track items being deleted with TTL ---
+  const deletedItemIdsRef = useRef<Map<string, number>>(new Map());
 
   // --- Item selection state ---
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
@@ -318,7 +318,13 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           vehicleQuoteApplied: item.vehicleQuoteApplied || false,
         }));
 
-        // CRITICAL: Filter out items that are currently being deleted locally
+        // CRITICAL: Filter out items that are currently being deleted locally (with TTL cleanup)
+        const now = Date.now();
+        const DELETED_TTL_MS = 30_000; // 30 seconds
+        // Clean up expired entries
+        for (const [delId, ts] of deletedItemIdsRef.current) {
+          if (now - ts > DELETED_TTL_MS) deletedItemIdsRef.current.delete(delId);
+        }
         const filtered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
         setItems(filtered);
         console.log('[CART] init source=server items=', mappedItems.length, 'afterFilter=', filtered.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
@@ -448,8 +454,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeItem = async (id: string) => {
-    // Track this ID as being deleted BEFORE any async work
-    deletedItemIdsRef.current.add(id);
+    // Track this ID as being deleted BEFORE any async work (with timestamp for TTL)
+    deletedItemIdsRef.current.set(id, Date.now());
 
     // Remove locally immediately
     setItems((prev) => prev.filter((item) => item.id !== id));
@@ -470,12 +476,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       } catch (error) {
         console.error('[CART] Failed to remove item:', error);
       } finally {
-        // Only clear from the set AFTER sync completes
-        deletedItemIdsRef.current.delete(id);
+        // Keep in the map for 30s TTL — DON'T clear immediately to survive multiple sync cycles
+        // The TTL cleanup in syncCart will handle removal after 30 seconds
       }
     } else {
-      // Local-only item, clear immediately
-      deletedItemIdsRef.current.delete(id);
+      // Local-only item — keep for a short while in case of race conditions
+      // Will be cleaned up by TTL in syncCart
     }
   };
 

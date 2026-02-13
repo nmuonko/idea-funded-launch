@@ -262,7 +262,7 @@ export default function ShopCart() {
                       <PriceBreakdown 
                         itemPriceUsd={selectedTotalUsd} 
                         showDetails={true}
-                        isVehicle={selectedItems.length > 0 && selectedItems.every(i => i.isVehicle)}
+                        isVehicle={selectedHasVehicleItems}
                       />
                     </>
                   )}

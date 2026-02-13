@@ -29,7 +29,7 @@ const circuitConfig: Record<string, { label: string; icon: React.ReactNode }> = 
   resend: { label: 'Email (Resend)', icon: <Mail className="h-4 w-4" /> },
   openai: { label: 'OpenAI', icon: <Brain className="h-4 w-4" /> },
   ebay: { label: 'eBay API', icon: <ShoppingCart className="h-4 w-4" /> },
-  rainforest: { label: 'Amazon', icon: <Cloud className="h-4 w-4" /> },
+  rainforest: { label: 'Amazon (Rainforest API)', icon: <Cloud className="h-4 w-4" /> },
 };
 
 export function CircuitBreakerStatus({ circuits }: CircuitBreakerStatusProps) {

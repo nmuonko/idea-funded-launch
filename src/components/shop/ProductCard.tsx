@@ -76,7 +76,8 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     }
   };
 
-  const providerColor = product.provider === 'amazon' || product.provider === 'rainforest'
+  const normalizedProvider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider;
+  const providerColor = normalizedProvider === 'amazon'
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
 

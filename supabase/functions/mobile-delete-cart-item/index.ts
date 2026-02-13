@@ -29,7 +29,18 @@ serve(async (req) => {
     // Extract itemId from URL path safely
     const url = new URL(req.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
-    const itemId = pathParts[pathParts.length - 1];
+    let itemId = pathParts[pathParts.length - 1];
+
+    // If the last path segment is the function name itself,
+    // the ID was sent in the request body (web app pattern)
+    if (itemId === 'mobile-delete-cart-item') {
+      try {
+        const body = await req.json();
+        itemId = body.cart_item_id || body.itemId || null;
+      } catch {
+        itemId = null;
+      }
+    }
 
     // Validate itemId format (UUID)
     if (!itemId || typeof itemId !== 'string' || itemId.length < 10) {

@@ -25,6 +25,7 @@ interface CustomerProfile {
   province: string | null;
   language: string | null;
   signup_platform: string | null;
+  last_active_platform: string | null;
   created_at: string;
   order_count: number;
   total_spent: number;
@@ -121,6 +122,7 @@ export default function Customers() {
         province: p.province,
         language: p.language,
         signup_platform: (p as any).signup_platform || 'web',
+        last_active_platform: (p as any).last_active_platform || null,
         created_at: p.created_at,
         order_count: statsMap.get(p.user_id)?.count || 0,
         total_spent: statsMap.get(p.user_id)?.total || 0,
@@ -152,7 +154,8 @@ export default function Customers() {
     const matchesCountry = countryFilter === 'all' || customer.country === countryFilter;
     const matchesProvince = provinceFilter === 'all' || customer.province === provinceFilter;
     const matchesLanguage = languageFilter === 'all' || customer.language === languageFilter;
-    const matchesPlatform = platformFilter === 'all' || customer.signup_platform === platformFilter;
+    const effectivePlatform = customer.last_active_platform || customer.signup_platform || 'web';
+    const matchesPlatform = platformFilter === 'all' || effectivePlatform === platformFilter;
 
     return matchesSearch && matchesCountry && matchesProvince && matchesLanguage && matchesPlatform;
   });
@@ -185,7 +188,7 @@ export default function Customers() {
       c.country || '',
       c.province || '',
       getLanguageLabel(c.language),
-      c.signup_platform || 'web',
+      c.last_active_platform || c.signup_platform || 'web',
       c.order_count.toString(),
       c.total_spent.toFixed(2),
       c.last_order_date ? format(new Date(c.last_order_date), 'yyyy-MM-dd') : '',
@@ -390,13 +393,18 @@ export default function Customers() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="gap-1">
-                          {customer.signup_platform === 'mobile' ? (
-                            <><Smartphone className="h-3 w-3" /> Mobile</>
-                          ) : (
-                            <><Monitor className="h-3 w-3" /> Web</>
-                          )}
-                        </Badge>
+                        {(() => {
+                          const platform = customer.last_active_platform || customer.signup_platform || 'web';
+                          return (
+                            <Badge variant="outline" className="gap-1">
+                              {platform === 'mobile' ? (
+                                <><Smartphone className="h-3 w-3" /> Mobile</>
+                              ) : (
+                                <><Monitor className="h-3 w-3" /> Web</>
+                              )}
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell className="text-right">
                         {customer.order_count > 0 ? (

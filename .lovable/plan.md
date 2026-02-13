@@ -1,62 +1,60 @@
 
-# Dynamic Platform Detection for All Users
+# Fix Homepage "Accueil" Tab Showing Wrong Products
 
-## Problem
-Currently, `signup_platform` is only set during registration via `auth-register`. This means:
-- Existing users who registered before the fix are all stuck as "web"
-- Users who registered on web but later switch to mobile (or vice versa) are never updated
-- There's no ongoing tracking of which platform a user is actively using
+## Problem Found
 
-## Solution
+The homepage "Accueil" tab is showing cheap car phone holders and phone cases instead of actual phones, laptops, and gaming consoles you seeded. This happens because:
 
-Add automatic platform detection to `mobile-get-cart` -- the most frequently called authenticated endpoint (called on every cart view, app open, and page load by both web and mobile apps). When the detected platform differs from what's stored, update the profile silently.
+1. The homepage recipe seeds are too broad -- "iPhone" and "Samsung Galaxy" match cheap accessories like "Car Phone Mount for iPhone" ($3.99)
+2. There's no minimum price filter on the homepage recipe, so $3 car phone holders rank alongside $800 iPhones
+3. The database query sorts by most recently updated, so cheap eBay accessories dominate
 
-### Step 1: Add `last_active_platform` Column to Profiles
+Category tabs (Gaming, Vehicles, etc.) work correctly because they have more specific seeds.
 
-Add a new column to track the most recent platform separately from `signup_platform`:
+## Fix Plan
 
-```sql
-ALTER TABLE profiles ADD COLUMN last_active_platform text DEFAULT NULL;
-```
+### 1. Update Homepage Recipe Seeds (Database)
 
-This keeps `signup_platform` as a historical record of how the user first registered, while `last_active_platform` reflects their current/most recent usage.
+Replace the 7 generic homepage seeds with more specific, diverse queries that represent a curated "featured" mix:
 
-### Step 2: Modify `mobile-get-cart` Edge Function
+| Current Seed | Problem | Replacement Seeds |
+|---|---|---|
+| "iPhone" | Matches car phone holders | "iPhone 15 Pro Max", "iPhone 14 Pro" |
+| "Samsung Galaxy" | Matches phone cases | "Samsung Galaxy S24 Ultra", "Samsung Galaxy Z Flip" |
+| "laptop computer" | OK but vague | "MacBook Pro", "gaming laptop" |
+| "PlayStation 5" | OK | Keep |
+| "sofa set living room" | OK | Keep |
+| "smart TV" | OK but vague | "Samsung 65 inch TV", "LG OLED TV" |
+| "Google pixel" | OK | "Google Pixel 8 Pro" |
 
-At the top of the function (after auth verification), add ~10 lines to detect the client platform and update the profile if needed:
+Additional new seeds for variety: "Air Jordan shoes", "LEGO set", "Apple Watch", "Nike sneakers", "Dyson vacuum"
 
-```
-1. Import `isMobileClient` from `_shared/mobileCatalogHandler.ts`
-2. After `verifyAndGetUser()`, detect platform via `isMobileClient(req)`
-3. Fire-and-forget update: set `last_active_platform` on the profile
-4. Also backfill `signup_platform` if it's currently NULL
-```
+### 2. Set Minimum Price on Homepage Recipe (Database)
 
-This is a non-blocking "fire and forget" update -- it won't slow down the cart response.
+Set `min_price_usd = 25` on the homepage recipe to filter out cheap accessories ($3-17 phone mounts, cases, screen protectors).
 
-### Step 3: Backfill Existing Users via One-Time Query
+### 3. Rebuild the Web Cache
 
-For the 18 existing users currently showing `signup_platform = 'web'`, we cannot retroactively determine their actual signup platform (no historical UA data exists). However, once they open the app again (web or mobile), `last_active_platform` will be set automatically.
+After updating seeds and min price, trigger a rebuild of the web homepage cache so the changes take effect immediately.
 
-For the admin Customers page, we'll use `last_active_platform` as the display value (falling back to `signup_platform`).
+### 4. Fix the `fetchItemsFromDB` Query (Code Change)
 
-### Step 4: Update Admin Customers Page Display
+In `supabase/functions/_shared/homeRecipeBuilder.ts`, the current query has a bug: when `min_price_usd` is set, it adds a second `price_usd` filter that conflicts with the existing `price_usd=gt.0`. Fix the filter construction to use `gte` properly.
 
-Modify the platform display column in `src/pages/admin/Customers.tsx` to prefer `last_active_platform` over `signup_platform`, so the admin always sees the most recent platform the user used.
+## Technical Details
 
----
-
-## Files to Modify
-
+### Files Modified
 | File | Change |
-|------|--------|
-| Database migration | Add `last_active_platform` column to `profiles` |
-| `supabase/functions/mobile-get-cart/index.ts` | Add ~10 lines for platform detection + profile update after auth |
-| `src/pages/admin/Customers.tsx` | Display `last_active_platform` with fallback to `signup_platform` |
+|---|---|
+| Database: `home_recipes` table | Set `min_price_usd = 25` for homepage recipe |
+| Database: `home_recipe_seeds` table | Delete old generic seeds, insert specific ones |
+| `supabase/functions/_shared/homeRecipeBuilder.ts` | Fix duplicate price filter bug (lines 146-153) |
 
-## How It Works Going Forward
+### Database Updates (Production)
+These need to run in Live environment after publishing:
+- Update homepage recipe min_price_usd
+- Delete old seeds, insert new specific seeds
+- Trigger cache rebuild via admin panel or edge function call
 
-1. **New user signs up** -- `auth-register` sets `signup_platform` correctly via UA detection (already working)
-2. **Any user opens the app** -- `mobile-get-cart` detects their platform and updates `last_active_platform` automatically
-3. **Admin views customers** -- sees the most recent platform each user used, not just their signup platform
-4. **No frontend app changes needed** -- detection happens entirely in the backend edge function
+### Verification
+After rebuild, the Accueil tab should show a diverse mix of high-value products (phones, laptops, TVs, consoles, furniture) instead of cheap car phone holders.

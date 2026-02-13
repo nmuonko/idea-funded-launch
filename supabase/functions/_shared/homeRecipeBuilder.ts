@@ -143,11 +143,10 @@ async function fetchItemsFromDB(
     .map(q => `title.ilike.*${q.replace(/ /g, "+")}*`)
     .join(",");
   
-  let filters = `provider=in.(amazon,ebay)&price_usd=gt.0&image_url=not.is.null&is_disallowed=eq.false&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${targetCount * 3}`;
+  // Build price filter: use min_price if set, otherwise default to > 0
+  const priceFloor = (minPrice && minPrice > 0) ? minPrice : 0;
+  let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${targetCount * 3}`;
   
-  if (minPrice && minPrice > 0) {
-    filters += `&price_usd=gte.${minPrice}`;
-  }
   if (maxPrice && maxPrice > 0) {
     filters += `&price_usd=lte.${maxPrice}`;
   }

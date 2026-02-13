@@ -5,6 +5,7 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
+import { isMobileClient } from "../_shared/mobileCatalogHandler.ts";
 import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
 import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
 import { lookupCartItemMediaCounts } from "../_shared/mediaCache.ts";
@@ -272,6 +273,22 @@ serve(async (req) => {
     const authTime = Date.now() - startTime;
 
     console.log('[GET_CART_DEBUG] User authenticated:', user.id);
+
+    // DYNAMIC PLATFORM DETECTION: fire-and-forget update
+    // Detects mobile vs web on every cart load and updates profile
+    try {
+      const detectedPlatform = isMobileClient(req) ? 'mobile' : 'web';
+      supabase
+        .from('profiles')
+        .update({ last_active_platform: detectedPlatform })
+        .eq('user_id', user.id)
+        .then(({ error }) => {
+          if (error) console.warn('[PLATFORM_DETECT] Update failed:', error.message);
+          else console.log('[PLATFORM_DETECT]', user.id, '→', detectedPlatform);
+        });
+    } catch (e) {
+      console.warn('[PLATFORM_DETECT] Detection error:', e);
+    }
 
     // Get cached pricing settings (5min TTL) - SINGLE SOURCE OF TRUTH
     const settingsStart = Date.now();

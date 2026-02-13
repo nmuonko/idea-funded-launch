@@ -3638,6 +3638,7 @@ export type Database = {
           full_name: string | null
           id: string
           language: string | null
+          last_active_platform: string | null
           name: string | null
           phone: string | null
           postal_code: string | null
@@ -3659,6 +3660,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           language?: string | null
+          last_active_platform?: string | null
           name?: string | null
           phone?: string | null
           postal_code?: string | null
@@ -3680,6 +3682,7 @@ export type Database = {
           full_name?: string | null
           id?: string
           language?: string | null
+          last_active_platform?: string | null
           name?: string | null
           phone?: string | null
           postal_code?: string | null

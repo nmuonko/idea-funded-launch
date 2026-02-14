@@ -34,7 +34,7 @@ export function PriceBreakdown({
   const subtotal = itemPriceUsd * quantity;
 
   const isDetailVehicle = isVehicle && ctx === 'product-detail';
-  const showPendingQuote = !isDetailVehicle && hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+  const showPendingQuote = !isDetailVehicle && isVehicle && vehicleQuoteStatus !== 'quoted';
   
   // Use vehicle markup for vehicle products, general markup otherwise
   const effectiveMarkupPercent = isVehicle

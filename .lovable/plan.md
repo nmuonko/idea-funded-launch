@@ -1,107 +1,73 @@
 
 
-# Fix: Variants Not Showing + Diagnostic Header Corrections
+# Fix: Variants Not Showing -- ID Format Mismatch
 
-## Root Cause Analysis
+## Root Cause
 
-Three bugs prevent variants from appearing:
+The DB-first lookup in `catalog-product` NEVER hits cached Amazon products because of an **ID format mismatch**:
 
-### Bug 1: Legacy `catalog_products` path short-circuits variants (Amazon)
+| Component | ID Format | Example |
+|-----------|-----------|---------|
+| Search (amazonFetcher) stores | `amazon_B0CMSYHFCF` | `amazon_` + ASIN |
+| Detail lookup queries | `rainforest:B0CMSYHFCF` | `rainforest:` + ASIN |
 
-When a DB hit on `catalog_items` has no cached variants, the code falls through to line 484. But before reaching the live Rainforest fetch (line 644), it hits the **legacy `catalog_products` fallback** (lines 486-548). This legacy path:
-- Returns a response WITHOUT checking variants cache
-- Returns WITHOUT fetching variants live  
-- Sets `X-Variants-Cache: SKIP`
+Two mismatches:
+1. **Prefix**: `amazon` vs `rainforest` -- search uses `amazon_`, detail uses `internalProvider` = `rainforest`
+2. **Separator**: `_` vs `:` -- search uses underscore, detail uses colon
 
-So any Amazon product that exists in `catalog_products` (most do) gets returned **without variants**, permanently blocking the live fetch path.
+This means:
+- The DB lookup at line 438-442 (`eq("id", "rainforest:B0CMSYHFCF")`) will never find `amazon_B0CMSYHFCF`
+- The variants cache check never runs (since it's inside the `if (dbItem)` block)
+- Every click falls through to a slow 7-12s live Rainforest fetch
+- The detail upsert at line 682 writes a NEW row with `rainforest:B0CMSYHFCF` (orphaned, never queried by search)
 
-### Bug 2: Wrong diagnostic header on variants cache HIT
-
-Line 476 reports `variantsCache: "SKIP"` when it should be `"HIT"`. This makes debugging misleading.
-
-### Bug 3: eBay adapter returns no variants
-
-The `ebayAdapter.ts` does not extract variation data from eBay API responses. The eBay live fetch path (lines 551-636) constructs the item without a `variants` field, then tries to cache `item.variants` which is always `undefined`.
+I verified this by calling the endpoint twice for the same ASIN. Both times returned `X-Source: live-rainforest` and `X-Variants-Cache: MISS`, taking 7-12 seconds each, despite the variants being successfully cached after the first call.
 
 ## Solution
 
-### File 1: `supabase/functions/catalog-product/index.ts`
+### File: `supabase/functions/catalog-product/index.ts`
 
-**Change A**: Fix variants cache HIT header (line 476)
-- Change `variantsCache: "SKIP"` to `variantsCache: "HIT"`
+**Change the `fullProductId` construction** for Amazon products to match the format used by search:
 
-**Change B**: Make legacy `catalog_products` path check variants cache + fall through if none
-- After building the legacy item (line 514-529), check `getCachedVariants()`
-- If variants found, attach them and return with `X-Variants-Cache: HIT`
-- If variants NOT found, **do not return** -- fall through to live Rainforest fetch, which will get variants
+```
+// Current (broken):
+const fullProductId = `${internalProvider}:${productId}`;
+// Produces: "rainforest:B0CMSYHFCF"
 
-This is the critical fix. Currently the legacy path always returns, preventing the live fetch from ever running for products that exist in `catalog_products`.
+// Fixed:
+const fullProductId = internalProvider === "rainforest" 
+  ? `amazon_${productId}` 
+  : `${internalProvider}:${productId}`;
+// Produces: "amazon_B0CMSYHFCF" (matches search cache)
+```
 
-**Change C**: Add structured log line per request
-- At each return point, log a single JSON line with: `provider, id, dbHit, variantsCacheHit, liveFetch, variantsCount, totalMs`
+This is a one-line fix. It aligns the detail endpoint's DB key with how search stores items.
 
-### File 2: eBay Variants (deferred -- separate concern)
+**Also update the live fetch upsert** (line 663) to use the same corrected `fullProductId`, so detail-fetched items are findable by subsequent lookups.
 
-eBay variations require a different API call (Browse API `getItem` with `fieldgroups=PRODUCT`). This is a larger change that should be handled separately. For now, eBay products will continue without variant selectors, which matches current behavior.
+**Also update the item response** `provider` field to remain `"rainforest"` for backward compat -- only the DB key format changes.
 
-### No Frontend Changes
+### No other file changes needed
 
-The frontend (`ProductDetails.tsx`) already:
-- Reads `item.variants` from response (line 256)
-- Groups by dimension name (lines 121-141)  
-- Renders `VariantSelector` when variants exist
-- Handles variant selection by navigating to child ASIN
+- `product_variants_cache` uses `(source="amazon", product_id="B0CMSYHFCF")` -- already correct, unaffected
+- Frontend sends `provider=amazon` -- already correct
+- `rainforestAdapter.ts` -- no changes
+- `ProductDetails.tsx` -- no changes
 
-### Image Proxy (deferred)
+## Expected Results After Fix
 
-The image proxy cache (section D) is a substantial new edge function + storage bucket. It should be implemented separately to keep this change focused on the variants bug.
+| Call | Before (broken) | After (fixed) |
+|------|-----------------|---------------|
+| 1st click (cold) | 7-12s live fetch, variants returned but DB key orphaned | 7-12s live fetch, variants cached, DB key matches search |
+| 2nd click (warm) | 7-12s live fetch AGAIN (DB miss due to ID mismatch) | ~100ms, DB hit + variants cache HIT, instant variants |
 
 ## Technical Details
 
-### Change B Detail (legacy path fix)
+The fix is approximately 3 lines in `catalog-product/index.ts`:
 
-Current code (simplified):
-```text
-// Line 486-548
-if (internalProvider === "rainforest") {
-  const legacyItem = await db.from("catalog_products")...;
-  if (legacyItem) {
-    // Builds item WITHOUT variants
-    return new Response(...);  // <-- BUG: always returns, blocks live fetch
-  }
-}
-```
+1. Line 392: Change `fullProductId` construction to use `amazon_` prefix for rainforest provider
+2. Lines 663-664: The `toCache.id` already uses `fullProductId`, so it automatically picks up the fix
+3. Lines 691-692: The `item.id` in the response also uses `fullProductId`, so the response ID will now be `amazon_B0CMSYHFCF` (matching search format)
 
-Fixed flow:
-```text
-if (internalProvider === "rainforest") {
-  const legacyItem = await db.from("catalog_products")...;
-  if (legacyItem) {
-    const cachedVariants = await getCachedVariants();
-    if (cachedVariants) {
-      item.variants = cachedVariants;
-      return new Response(...);  // Return with variants from cache
-    }
-    // NO return -- fall through to live Rainforest fetch for variants
-    console.log("[DETAIL_DB] legacy hit but no variants, falling through to live fetch");
-  }
-}
-```
-
-This ensures:
-- First click: legacy data available but no variants -> live Rainforest fetch runs -> variants extracted + cached
-- Second click: DB hit -> variants cache HIT -> instant return with variants
-
-## Expected Results
-
-| Scenario | Before | After |
-|----------|--------|-------|
-| Amazon product, first click | Legacy path returns without variants | Live fetch runs, variants appear, cached for next time |
-| Amazon product, second click | Same -- no variants | Variants cache HIT, instant with variants |
-| X-Variants-Cache header on cache hit | "SKIP" (wrong) | "HIT" (correct) |
-| eBay product | No variants | No variants (unchanged, deferred) |
-
-## Files Modified
-
-- `supabase/functions/catalog-product/index.ts` -- 3 changes (header fix, legacy path fix, structured logging)
+Everything downstream (variants cache, legacy path, eBay path) works correctly because they use `productId` directly, not `fullProductId`.
 

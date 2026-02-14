@@ -3626,6 +3626,30 @@ export type Database = {
         }
         Relationships: []
       }
+      product_variants_cache: {
+        Row: {
+          expires_at: string
+          product_id: string
+          source: string
+          updated_at: string
+          variants_json: Json
+        }
+        Insert: {
+          expires_at: string
+          product_id: string
+          source: string
+          updated_at?: string
+          variants_json?: Json
+        }
+        Update: {
+          expires_at?: string
+          product_id?: string
+          source?: string
+          updated_at?: string
+          variants_json?: Json
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           address: string | null

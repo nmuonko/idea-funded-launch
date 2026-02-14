@@ -25,6 +25,7 @@ const corsHeaders = {
  * - home_seen_items (older than 7 days)
  * - guest_cart_snapshots (older than 30 days)
  * - catalog_facets_cache (expired)
+ * - product_variants_cache (expired)
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -90,6 +91,7 @@ serve(async (req) => {
       home_seen_items_deleted: number;
       guest_cart_snapshots_deleted: number;
       catalog_facets_cache_deleted: number;
+      variants_cache_deleted: number;
       duration_ms: number;
       cleanup_at: string;
     };
@@ -105,7 +107,8 @@ serve(async (req) => {
       result.payment_attempts_expired +
       result.home_seen_items_deleted +
       result.guest_cart_snapshots_deleted +
-      result.catalog_facets_cache_deleted;
+      result.catalog_facets_cache_deleted +
+      result.variants_cache_deleted;
 
     log.log('Cleanup completed', { ...result, totalCleaned });
 

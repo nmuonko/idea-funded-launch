@@ -5067,6 +5067,16 @@ export type Database = {
         Args: { user_id: string }
         Returns: boolean
       }
+      check_dual_rate_limit: {
+        Args: {
+          p_ip_key: string
+          p_ip_limit: number
+          p_user_key: string
+          p_user_limit: number
+          p_window_minutes: number
+        }
+        Returns: Json
+      }
       check_provider_budget: {
         Args: { p_limit?: number; p_provider: string; p_window_type: string }
         Returns: Json

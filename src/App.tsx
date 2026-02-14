@@ -110,7 +110,16 @@ import PaymentPending from "./pages/shop/PaymentPending";
 import CardPayment from "./pages/shop/CardPayment";
 import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 2,  // 2 minutes — reuse cached data on re-mount
+      gcTime: 1000 * 60 * 10,    // 10 minutes — keep inactive queries in memory
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => {
   // Skip splash for public pages - only show for admin routes

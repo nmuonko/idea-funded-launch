@@ -39,7 +39,7 @@ export default function Account() {
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/browse');
+    navigate('/');
   };
 
   return (
@@ -50,7 +50,7 @@ export default function Account() {
         <div className="container mx-auto max-w-lg">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/browse">
+            <Link to="/">
               <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>

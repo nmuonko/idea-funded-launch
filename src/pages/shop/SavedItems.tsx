@@ -9,7 +9,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
 export default function SavedItems() {
-  const { savedItems, removeFromSaved, addItem, removeItem } = useShopCart();
+  const { savedItems, removeFromSaved, addItem, removeItem, exchangeRate } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = t.shop as any;
@@ -27,8 +27,7 @@ export default function SavedItems() {
     removeFromSaved(item.id);
   };
 
-  // Use exchange rate from context or default
-  const exchangeRate = 2200;
+  
 
   return (
     <div className="min-h-screen bg-black pb-20">
@@ -38,7 +37,7 @@ export default function SavedItems() {
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="flex items-center gap-3 mb-6">
-            <Link to="/browse">
+            <Link to="/">
               <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -62,7 +61,7 @@ export default function SavedItems() {
               <p className="text-white/60 mb-6">
                 {shop?.savedItemsDescription || 'Save items you love to find them easily later'}
               </p>
-              <Link to="/browse">
+              <Link to="/">
                 <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">
                   {shop?.startShopping || 'Start Shopping'}
                 </Button>

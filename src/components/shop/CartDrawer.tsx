@@ -63,7 +63,7 @@ export function CartDrawer({ className }: CartDrawerProps) {
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <ShoppingCart className="h-16 w-16 text-white/20 mb-4" />
             <p className="text-white/60 mb-4">{shop.emptyCart}</p>
-            <Link to="/browse">
+            <Link to="/">
               <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-full">
                 {shop.startShopping}
               </Button>

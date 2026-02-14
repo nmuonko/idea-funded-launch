@@ -167,7 +167,7 @@
                  <ArrowRight className="w-5 h-5 ml-2" />
                </Button>
                
-                <Link to="/browse">
+                <Link to="/">
                  <Button variant="outline" className="w-full border-white/20 text-white rounded-full">
                    Continue Shopping
                  </Button>

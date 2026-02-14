@@ -827,9 +827,10 @@ Deno.serve(async (req: Request) => {
     const allowedIds = new Set(filteredItems.map(i => i.id));
     const filteredFinalItems = mergedItems.filter(item => allowedIds.has(item.id)) as CatalogItem[];
 
-    // Enrich with media counts
+    // Enrich with media counts – skip blocking prefetch to avoid timeout cascade
     const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
-      supabase, filteredFinalItems as unknown as Record<string, unknown>[]
+      supabase, filteredFinalItems as unknown as Record<string, unknown>[],
+      undefined, { skipPrefetch: true }
     );
 
     let finalItems = filteredFinalItems.map((item, idx) => ({

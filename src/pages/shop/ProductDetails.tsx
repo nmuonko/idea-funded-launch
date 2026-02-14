@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -12,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useShopCart } from '@/contexts/ShopCartContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -85,10 +88,12 @@ export default function ProductDetailsPage() {
   const { provider, id } = useParams<{ provider: string; id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { addItem } = useShopCart();
+  const { addItem, items } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
+
+  const { user } = useAuth();
 
   const [product, setProduct] = useState<ProductData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +101,7 @@ export default function ProductDetailsPage() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
+  const [quoteRequested, setQuoteRequested] = useState(false);
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -327,6 +333,12 @@ export default function ProductDetailsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, id]);
 
+  // Check if this vehicle product is already in the user's cart
+  const isInCart = product && items.some(
+    item => item.productId === product.productUrl || item.productId === product.id
+  );
+  const showRequestQuote = isVehicle && isInCart && !!user;
+
   const handleAddToCart = useCallback(async () => {
     if (!product) return;
     setAdding(true);
@@ -346,6 +358,23 @@ export default function ProductDetailsPage() {
       setAdding(false);
     }
   }, [product, quantity, safeImages, addItem]);
+
+  const handleRequestQuote = useCallback(async () => {
+    setAdding(true);
+    try {
+      const { error } = await supabase.functions.invoke('mobile-request-quote', {
+        body: { locale: language }
+      });
+      if (error) throw error;
+      setQuoteRequested(true);
+      toast.success(shop.requestSent || 'Quote request sent!');
+    } catch (err) {
+      console.error('[ProductDetails] Quote request failed:', err);
+      toast.error('Failed to request quote');
+    } finally {
+      setAdding(false);
+    }
+  }, [language, shop]);
 
   const handleVariantSelect = useCallback((asin: string | undefined) => {
     if (!asin || asin === product?.id) return;
@@ -677,27 +706,39 @@ export default function ProductDetailsPage() {
                 </div>
               </div>
 
-              {/* Add to Cart */}
+              {/* Add to Cart / Request Quote */}
               <Button
-                onClick={handleAddToCart}
-                disabled={adding || !product.inStock}
+                onClick={quoteRequested ? undefined : showRequestQuote ? handleRequestQuote : handleAddToCart}
+                disabled={adding || !product.inStock || quoteRequested}
                 className={`w-full h-14 text-lg rounded-full transition-all ${
-                  added
+                  quoteRequested || added
                     ? 'bg-green-500 hover:bg-green-600'
-                    : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+                    : showRequestQuote
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600'
+                      : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
                 }`}
               >
                 {adding ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
+                ) : quoteRequested ? (
+                  <>
+                    <Check className="h-5 w-5 mr-2" />
+                    {shop.requestSent || 'Request Sent'}
+                  </>
+                ) : showRequestQuote ? (
+                  <>
+                    <FileText className="h-5 w-5 mr-2" />
+                    {shop.requestQuote || 'Request a Quote'}
+                  </>
                 ) : added ? (
                   <>
                     <Check className="h-5 w-5 mr-2" />
-                    {isVehicle ? (shop.requestSent || 'Request Sent') : (shop.addedToCart || 'Added to Cart')}
+                    {shop.addedToCart || 'Added to Cart'}
                   </>
                 ) : (
                   <>
-                    {isVehicle ? <FileText className="h-5 w-5 mr-2" /> : <ShoppingCart className="h-5 w-5 mr-2" />}
-                    {isVehicle ? (shop.requestQuote || 'Request a Quote') : (shop.addToCart || 'Add to Cart')}
+                    <ShoppingCart className="h-5 w-5 mr-2" />
+                    {shop.addToCart || 'Add to Cart'}
                   </>
                 )}
               </Button>

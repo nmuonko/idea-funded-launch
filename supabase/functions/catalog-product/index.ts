@@ -220,6 +220,15 @@ interface CatalogItem {
   category?: string | null;
   condition?: string;
   attributes?: Record<string, string>;
+  variants?: Array<{
+    asin?: string;
+    title?: string;
+    dimensions?: Array<{ name: string; value: string }>;
+    image?: string;
+    link?: string;
+    price?: { value: number; currency: string };
+    isCurrent?: boolean;
+  }>;
 }
 
 function mapDbItemToResponse(item: any): CatalogItem {
@@ -236,6 +245,26 @@ function mapDbItemToResponse(item: any): CatalogItem {
   
   allImages = upgradeGalleryImages(allImages, provider);
   const mainImage = allImages[0] || null;
+
+  // Extract variants from raw data if available
+  let variants: CatalogItem["variants"] = undefined;
+  const raw = item.raw as Record<string, any> | null;
+  if (raw?.variants && Array.isArray(raw.variants)) {
+    variants = raw.variants
+      .filter((v: any) => v.asin)
+      .slice(0, 30)
+      .map((v: any) => ({
+        asin: v.asin,
+        title: v.title || undefined,
+        dimensions: Array.isArray(v.dimensions)
+          ? v.dimensions.map((d: any) => ({ name: d.name || '', value: d.value || '' }))
+          : undefined,
+        image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || undefined,
+        link: v.link || undefined,
+        price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
+        isCurrent: v.is_current === true,
+      }));
+  }
   
   return {
     id: item.id,
@@ -251,9 +280,10 @@ function mapDbItemToResponse(item: any): CatalogItem {
     inStock: item.in_stock,
     rating: item.rating,
     reviewCount: item.review_count,
-    description: item.raw?.description || null,
+    description: raw?.description || null,
     brand: item.brand,
     category: item.category,
+    variants,
   };
 }
 
@@ -605,6 +635,7 @@ Deno.serve(async (req: Request) => {
       rating: product.rating ?? null,
       description: product.description || null,
       brand: product.brand || null,
+      variants: product.variants,
     };
 
     console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-rainforest ms=${Date.now() - startTime}`);

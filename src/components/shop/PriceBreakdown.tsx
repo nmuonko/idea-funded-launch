@@ -13,6 +13,7 @@ interface PriceBreakdownProps {
   showDetails?: boolean;
   serverTotal?: number | null;
   isVehicle?: boolean;
+  context?: 'product-detail' | 'cart';
 }
 
 export function PriceBreakdown({
@@ -22,17 +23,18 @@ export function PriceBreakdown({
   showDetails = true,
   serverTotal,
   isVehicle = false,
+  context,
 }: PriceBreakdownProps) {
+  const ctx = context ?? 'cart';
   const { feeSettings, hasVehicleItems, vehicleQuoteStatus } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
   
   const subtotal = itemPriceUsd * quantity;
-  
-  // Only show "Awaiting quote" when vehicles are actually in the cart
-  // Product detail pages should show normal shipping estimates before adding to cart
-  const vehiclePendingQuote = hasVehicleItems && vehicleQuoteStatus !== 'quoted';
+
+  const isDetailVehicle = isVehicle && ctx === 'product-detail';
+  const showPendingQuote = !isDetailVehicle && hasVehicleItems && vehicleQuoteStatus !== 'quoted';
   
   // Use vehicle markup for vehicle products, general markup otherwise
   const effectiveMarkupPercent = isVehicle
@@ -54,6 +56,46 @@ export function PriceBreakdown({
   
   const total = subtotal + shippingFee + serviceFee;
 
+  // === Product detail + vehicle: only Article + Markup + note ===
+  if (isDetailVehicle) {
+    return (
+      <div className={cn("space-y-3", className)}>
+        {showDetails && (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">
+                {shop.orderSummaryItem || 'Item'}{quantity > 1 ? ` (×${quantity})` : ''}
+              </span>
+              <span className="text-white/90">${subtotal.toFixed(2)}</span>
+            </div>
+
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60 flex items-center gap-1">
+                {shop.markupFee || 'Markup Fee'}
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Info className="h-3 w-3 text-white/40" />
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-black/90 text-white border-white/10">
+                    <p>{language === 'fr' ? `Frais de service véhicule (${effectiveMarkupPercent}%)` : `Vehicle service fee (${effectiveMarkupPercent}%)`}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </span>
+              <span className="text-white/90">${serviceFee.toFixed(2)}</span>
+            </div>
+
+            <div className="border-t border-white/10 pt-3" />
+          </>
+        )}
+
+        <div className="flex items-center gap-2 text-amber-400 text-xs">
+          <Car className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>{shop.shippingAfterQuote || 'Shipping will be determined after quote'}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("space-y-3", className)}>
       {showDetails && (
@@ -65,7 +107,7 @@ export function PriceBreakdown({
             <span className="text-white/90">${subtotal.toFixed(2)}</span>
           </div>
 
-          {vehiclePendingQuote ? (
+          {showPendingQuote ? (
             <>
               {/* Show vehicle markup with correct percentage */}
               {isVehicle && (
@@ -144,7 +186,7 @@ export function PriceBreakdown({
         </>
       )}
 
-      {vehiclePendingQuote ? (
+      {showPendingQuote ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-white font-medium">

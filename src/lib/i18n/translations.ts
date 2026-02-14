@@ -309,6 +309,9 @@ export const translations = {
       outOfStock: 'Out of Stock',
       addedToCart: 'Added to Cart',
       quantity: 'Quantity',
+      requestQuote: 'Request a Quote',
+      requestSent: 'Request Sent',
+      shippingAfterQuote: 'Shipping will be determined after quote',
       // Cart
       cart: 'Cart',
       yourCart: 'Your Cart',
@@ -747,6 +750,9 @@ export const translations = {
       outOfStock: 'Rupture de stock',
       addedToCart: 'Ajouté au panier',
       quantity: 'Quantité',
+      requestQuote: 'Demander un devis',
+      requestSent: 'Demande envoyée',
+      shippingAfterQuote: 'Le transport sera déterminé après devis',
       // Cart
       cart: 'Panier',
       yourCart: 'Votre panier',
@@ -1189,6 +1195,9 @@ export const translations = {
       outOfStock: 'Haipatikani',
       addedToCart: 'Imeongezwa Kikapuni',
       quantity: 'Kiasi',
+      requestQuote: 'Omba Bei',
+      requestSent: 'Ombi Limetumwa',
+      shippingAfterQuote: 'Usafirishaji utaamuliwa baada ya bei',
       // Cart
       cart: 'Kikapu',
       yourCart: 'Kikapu Chako',
@@ -1631,6 +1640,9 @@ export const translations = {
       outOfStock: 'Ezali Te',
       addedToCart: 'Etia Na Panier',
       quantity: 'Motango',
+      requestQuote: 'Senga Ntalo',
+      requestSent: 'Esengeli Etindami',
+      shippingAfterQuote: 'Transport ekoyebana nsima ya ntalo',
       // Cart
       cart: 'Panier',
       yourCart: 'Panier Na Yo',

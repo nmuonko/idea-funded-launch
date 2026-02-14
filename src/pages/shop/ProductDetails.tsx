@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
@@ -649,6 +649,7 @@ export default function ProductDetailsPage() {
                   itemPriceUsd={displayPrice}
                   quantity={quantity}
                   isVehicle={isVehicle}
+                  context="product-detail"
                 />
               </div>
 
@@ -691,12 +692,12 @@ export default function ProductDetailsPage() {
                 ) : added ? (
                   <>
                     <Check className="h-5 w-5 mr-2" />
-                    {shop.addedToCart || 'Added to Cart'}
+                    {isVehicle ? (shop.requestSent || 'Request Sent') : (shop.addedToCart || 'Added to Cart')}
                   </>
                 ) : (
                   <>
-                    <ShoppingCart className="h-5 w-5 mr-2" />
-                    {shop.addToCart || 'Add to Cart'}
+                    {isVehicle ? <FileText className="h-5 w-5 mr-2" /> : <ShoppingCart className="h-5 w-5 mr-2" />}
+                    {isVehicle ? (shop.requestQuote || 'Request a Quote') : (shop.addToCart || 'Add to Cart')}
                   </>
                 )}
               </Button>

@@ -156,6 +156,7 @@ export default function ProductDetailsPage() {
       inStock: true,
       productUrl: nav.productUrl,
       brand: undefined,
+      variants: nav.variants,
     } : null;
     setProduct(navProduct);
     navProductRef.current = navProduct;

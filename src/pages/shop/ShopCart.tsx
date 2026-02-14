@@ -172,7 +172,7 @@ export default function ShopCart() {
                       {/* Image */}
                       <Link 
                         to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
-                        state={{ product: { isVehicle: item.isVehicle } }}
+                        state={{ product: { id: item.productId, provider: item.provider, title: item.title, imageUrl: item.imageUrl, priceUsd: item.priceUsd, isVehicle: item.isVehicle, productUrl: item.productUrl } }}
                         className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                       >
                         <img
@@ -186,7 +186,7 @@ export default function ShopCart() {
                       <div className="flex-1 min-w-0">
                         <Link 
                           to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
-                          state={{ product: { isVehicle: item.isVehicle } }}
+                          state={{ product: { id: item.productId, provider: item.provider, title: item.title, imageUrl: item.imageUrl, priceUsd: item.priceUsd, isVehicle: item.isVehicle, productUrl: item.productUrl } }}
                           className="text-white hover:text-blue-400 transition-colors"
                         >
                           <h3 className="font-medium line-clamp-2 mb-1">
@@ -197,10 +197,37 @@ export default function ShopCart() {
                           from {item.provider}
                         </p>
                         {item.isVehicle && (
-                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 mb-2">
-                            <Car className="h-3 w-3 mr-1" />
-                            {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
-                          </Badge>
+                          <div className="space-y-2">
+                            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                              <Car className="h-3 w-3 mr-1" />
+                              {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
+                            </Badge>
+                            {user && vehicleQuoteStatus === 'none' && (
+                              <Button
+                                onClick={(e) => { e.preventDefault(); requestVehicleQuote(); }}
+                                disabled={requestingQuote}
+                                size="sm"
+                                className="h-8 text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-full"
+                              >
+                                {requestingQuote ? (
+                                  <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{language === 'fr' ? 'Envoi...' : 'Requesting...'}</>
+                                ) : (
+                                  <><FileText className="h-3 w-3 mr-1" />{language === 'fr' ? 'Demander un devis' : 'Request a Quote'}</>
+                                )}
+                              </Button>
+                            )}
+                            {user && vehicleQuoteStatus === 'pending' && (
+                              <Badge className="bg-white/10 text-white/50 border-white/20">
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                {language === 'fr' ? 'Devis en attente' : 'Quote Pending'}
+                              </Badge>
+                            )}
+                            {user && vehicleQuoteStatus === 'quoted' && (
+                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+                                {language === 'fr' ? 'Devis envoyé' : 'Quote Sent'}
+                              </Badge>
+                            )}
+                          </div>
                         )}
                         <p className="text-lg font-bold text-white">
                           ${item.priceUsd.toFixed(2)}

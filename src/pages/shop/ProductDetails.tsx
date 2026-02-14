@@ -349,8 +349,20 @@ export default function ProductDetailsPage() {
   const handleVariantSelect = useCallback((asin: string | undefined) => {
     if (!asin || asin === product?.id) return;
     const displayProv = product?.provider?.toLowerCase() === 'rainforest' ? 'amazon' : (product?.provider || 'amazon');
+    
+    // Find the variant's own image to show immediately
+    const variant = product?.variants?.find(v => v.asin === asin);
+    const variantImage = variant?.image;
+    
     navigate(`/product/${displayProv}/${asin}`, {
-      state: { product: product ? { ...product, id: asin } : undefined },
+      state: { 
+        product: product ? { 
+          ...product, 
+          id: asin,
+          imageUrl: variantImage || product.images?.[0],
+          images: undefined, // Clear old images so they don't flash
+        } : undefined 
+      },
     });
   }, [product, navigate]);
 
@@ -425,7 +437,7 @@ export default function ProductDetailsPage() {
               >
                 <AnimatePresence mode="wait">
                   <motion.img
-                    key={safeImageIndex}
+                    key={safeImages[safeImageIndex]}
                     src={safeImages[safeImageIndex] || '/placeholder.svg'}
                     alt={product.title}
                     initial={{ opacity: 0 }}

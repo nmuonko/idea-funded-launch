@@ -613,6 +613,7 @@ Deno.serve(async (req: Request) => {
           description: ebayItem.description || null,
           condition: ebayItem.attributes?.["Condition"],
           attributes: ebayItem.attributes,
+          variants: ebayItem.variants,
         };
         
         // Cache variants if present

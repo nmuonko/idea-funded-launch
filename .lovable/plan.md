@@ -1,48 +1,73 @@
 
 
-# Fix: Duplicate Import Crashing mobile-get-cart
+# Fix: Hide Shipping/Total for Vehicles on Product Detail, Show "Demander un devis"
 
-## Problem
+## Summary
 
-The `mobile-get-cart` edge function is **completely broken** -- it crashes on boot with:
+For vehicle listings on the web product detail page, hide the shipping fee line and total estimate entirely. Show only Article price + Frais de marge + a note that shipping is determined after quote. Change the "Add to Cart" button to "Demander un devis" (Request a Quote).
 
+## Changes
+
+### 1. `src/components/shop/PriceBreakdown.tsx`
+
+- Add `context?: 'product-detail' | 'cart'` prop (default `'cart'`)
+- Update logic:
+  - `isDetailVehicle = isVehicle && context === 'product-detail'`
+  - `showPendingQuote = !isDetailVehicle && hasVehicleItems && vehicleQuoteStatus !== 'quoted'`
+- When `isDetailVehicle`:
+  - Render Article line + Markup fee line (with amounts)
+  - Render a note: "Le transport sera determine apres devis" / "Shipping will be determined after quote"
+  - Do NOT render shipping line, subtotal, or total
+- When `showPendingQuote` (cart context): existing behavior unchanged ("En attente du devis" on shipping line)
+- Normal items: unchanged
+
+### 2. `src/pages/shop/ProductDetails.tsx`
+
+- Pass `context="product-detail"` to `<PriceBreakdown>`
+- When `isVehicle` is true, change the Add to Cart button:
+  - Label: use `shop.requestQuote` ("Demander un devis") instead of "Add to Cart"
+  - After-click label: use `shop.requestSent` ("Demande envoyee") instead of "Added to Cart"
+  - Icon: keep ShoppingCart (or switch to `FileText` for quote feel)
+  - Action: still calls `handleAddToCart` (existing cart+quote workflow)
+
+### 3. `src/lib/i18n/translations.ts`
+
+Add 3 new keys to each language's `shop` block:
+
+| Key | EN | FR | SW | LN |
+|---|---|---|---|---|
+| `requestQuote` | Request a Quote | Demander un devis | Omba Bei | Senga Ntalo |
+| `requestSent` | Request Sent | Demande envoyee | Ombi Limetumwa | Esengeli Etindami |
+| `shippingAfterQuote` | Shipping will be determined after quote | Le transport sera determine apres devis | Usafirishaji utaamuliwa baada ya bei | Transport ekoyebana nsima ya ntalo |
+
+## Technical Details
+
+### PriceBreakdown rendering branches
+
+```text
+IF isDetailVehicle (product detail + vehicle):
+  [Article]           $17,799.00
+  [Frais de marge]    $1,779.90
+  [Note: shipping determined after quote]
+  -- no shipping, no subtotal, no total --
+
+ELSE IF showPendingQuote (cart + vehicle not yet quoted):
+  [Article]           $17,799.00
+  [Frais de marge]    $1,779.90
+  [Shipping]          "En attente du devis"
+  [Sous-total]        $19,578.90
+  [Note: shipping after admin quote]
+
+ELSE (normal items):
+  [Article]           $XX.XX
+  [Frais de marge]    $X.XX
+  [Shipping]          $X.XX
+  [Total]             $XX.XX
 ```
-Uncaught SyntaxError: Identifier 'normalizeCategorySlug' has already been declared
-```
 
-This means every cart request returns a 500 error, causing the mobile app to show $0 for all item prices.
+### Files modified
+- `src/components/shop/PriceBreakdown.tsx`
+- `src/pages/shop/ProductDetails.tsx`
+- `src/lib/i18n/translations.ts`
 
-## Root Cause
-
-Line 8 and line 9 in `supabase/functions/mobile-get-cart/index.ts` are **identical duplicate imports**:
-
-```typescript
-import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
-import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";  // DUPLICATE
-```
-
-This is a simple copy-paste error that was introduced at some point during recent edits.
-
-## Fix
-
-**File: `supabase/functions/mobile-get-cart/index.ts`**
-
-Delete line 9 (the duplicate import). That's the entire fix -- one line removal.
-
-After:
-```typescript
-import { getCachedSettings, round2 } from "../_shared/settings-cache.ts";
-import { normalizeCategorySlug, getCategoryLabel } from "../_shared/shippingCategory.ts";
-import { isBlockedImageUrl } from "../_shared/imageValidation.ts";
-```
-
-## Impact
-
-- The function will boot successfully again
-- All cart item prices will display correctly on mobile
-- No logic changes -- just removing a duplicate line
-
-## Files Modified
-
-- `supabase/functions/mobile-get-cart/index.ts` -- remove duplicate import on line 9
-
+No mobile files touched. No backend changes.

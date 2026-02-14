@@ -1,87 +1,91 @@
 
-# Fix: Product Variants Not Showing
 
-## Root Cause
+# Optimize Product Detail: Add Diagnostic Headers + Confirm Architecture
 
-The `catalog_items` database table has **no `raw` column**. The current flow:
+## Current State Analysis
 
-1. User clicks a product
-2. Backend checks `catalog_items` DB first (line 383-418)
-3. `mapDbItemToResponse()` tries to read `item.raw.variants` -- but `raw` doesn't exist in the table
-4. Returns product with `variants: undefined`
-5. Frontend hides variant selector (correct behavior when no data)
+### Frontend (already correct -- no changes needed)
+The `ProductDetails.tsx` already implements the "instant render" pattern:
+- **Line 144-168**: On route change, immediately sets product from navigation state (title, image, price from the listing card)
+- **Line 166**: `setLoading(!nav)` -- if nav data exists, loading is `false` immediately, so the page renders instantly
+- **Line 233-258**: When the live fetch completes, it merges new data (variants, description, more images) into the existing product state
+- **Line 531-563**: Variant selectors appear as soon as `product.variants` is populated
 
-The **live Rainforest fetch** (line 576-656) does extract and return variants correctly, but it only runs on DB cache miss. Since most products are pre-cached from search, users almost never hit the live path.
+Users never see a blank screen -- they see listing data immediately and variants "drop in" when ready.
 
-## Solution
+### Backend (needs headers + minor cleanup)
+The `catalog-product/index.ts` flow is already lean for cache hits:
+1. DB lookup (~50ms)
+2. Variants cache lookup (~50ms)
+3. Return -- total ~100ms
 
-Change the `catalog-product` endpoint so that when a DB-cached Amazon product has no variants, it does a live Rainforest fetch to get variant data. This way the first user pays the fetch cost, but the variant data gets returned.
+For cache misses (live fetch), it's:
+1. DB lookup (miss) ~50ms
+2. Variants cache lookup (miss) ~50ms
+3. Legacy catalog_products check ~50ms (Amazon only)
+4. Live Rainforest/eBay fetch ~3-6s
+5. Cache write + return
 
-### Option chosen: Hybrid approach
+**What's missing**: No diagnostic headers to verify timing, no `X-Variants-Cache` header to confirm cache behavior.
 
-For DB-cached Amazon products:
-- Return the DB-cached data immediately for speed (price, images, title)
-- But **always do a live Rainforest fetch** for the variant data
-- Merge variants from the live fetch into the response
-- This is already what happens conceptually -- we just need to stop short-circuiting at the DB hit
-
-The simpler and more reliable approach: **Skip DB-first for Amazon product detail requests and always fetch live from Rainforest.** Product detail pages are infrequent (one user at a time clicking), and the Rainforest API response includes everything we need including variants. The DB cache was designed for search result lists, not detail pages.
-
-## Technical Changes
+## Changes
 
 ### File: `supabase/functions/catalog-product/index.ts`
 
-**Change the Amazon/Rainforest flow** (lines 389-418):
+**1. Add diagnostic response headers to ALL response paths**
 
-Instead of returning immediately when a DB hit is found for Amazon products, treat DB data as optional initial data and **always fetch live from Rainforest** for the `type=product` endpoint. This ensures variants, full descriptions, and up-to-date pricing are always returned.
+Add these headers to every `new Response(...)` call:
 
-Specifically:
-- When `internalProvider === "rainforest"` and we find a DB hit, **skip returning early** and fall through to the live Rainforest fetch (line 576)
-- The live fetch already caches back to DB (line 614), so the cache stays warm for search results
-- Keep DB-first for eBay (eBay doesn't have variant data in the same way)
-
-This is a ~5 line change: wrap the DB return block (lines 405-418) with a condition:
-
-```typescript
-if (dbItem) {
-  const item = mapDbItemToResponse(dbItem);
-  // ... block check ...
-
-  // For Amazon: skip DB cache, always fetch live to get variants
-  if (internalProvider !== "rainforest") {
-    // Return DB-cached response (eBay, etc.)
-    return new Response(JSON.stringify({ ... }));
-  }
-  // For Amazon/Rainforest: fall through to live fetch for variant data
-  console.log(`[DETAIL_DB] correlationId=${correlationId} db_hit but fetching live for variants`);
-}
+```
+X-Variants-Cache: HIT | MISS | SKIP
+X-Provider: amazon | ebay
+X-Upstream-Ms: <number>  (0 if no live fetch)
+X-Total-Ms: <number>
+X-Source: db | db+variants_cache | db-legacy | live-rainforest | live-ebay
 ```
 
-### File: `supabase/functions/_shared/rainforestAdapter.ts`
+Update `corsHeaders` to expose them:
+```typescript
+"Access-Control-Expose-Headers": "content-type, X-Variants-Cache, X-Provider, X-Upstream-Ms, X-Total-Ms, X-Source"
+```
 
-**No changes needed.** The `normalizeProduct()` function already correctly extracts variants from Rainforest API responses (lines 978-996). The Rainforest API returns variant data by default on `type=product` requests.
+**2. Track timing for each stage**
 
-### File: `src/pages/shop/ProductDetails.tsx`
+Add timing variables at the start:
+```typescript
+let tDbLookup = 0;
+let tVariantsCache = 0;
+let tUpstream = 0;
+```
 
-**No changes needed.** The frontend already:
-- Reads `item.variants` from the response (line 256)
-- Groups variants by dimension name (lines 121-141)
-- Renders the `VariantSelector` UI when variants exist (lines 531-564)
-- Handles variant selection by navigating to `/product/amazon/{childAsin}` (line 542)
+Wrap each stage with `Date.now()` measurements. Build a `responseHeaders` object that includes both `corsHeaders` and the timing headers, used by all response paths.
 
-## Impact
+**3. Remove legacy catalog_products fallback for speed (optional but recommended)**
 
-- Amazon product detail pages will always show variant selectors (Color, Size, Storage) when available
-- First load may be slightly slower (~1-2s extra for live fetch) vs DB cache hit
-- eBay product detail pages unaffected (still DB-first)
-- Search results unaffected
-- No database migration needed
-- No frontend changes needed
+Lines 488-549 query `catalog_products` table as a fallback before live fetch. This adds ~50ms latency on every cache miss for a table that may have stale/incomplete data. Consider removing or making it non-blocking.
 
-## What Is NOT Changed
+**4. Confirm no blocking enrichment in the path**
 
-- No payment, checkout, or cart logic changes
-- No search flow changes
-- No database schema changes
-- No frontend component changes
-- eBay product detail flow unchanged
+Verified: There is NO call to `enrichItemsWithMediaCounts` or any per-item HTTP enrichment in the product detail endpoint. The path is already clean: DB check, variants cache check, optional live fetch, respond.
+
+### No frontend changes
+
+Per project constraints, the frontend is not modified. It already handles the "instant render + lazy variant load" pattern correctly.
+
+### No prefetch changes
+
+Prefetching top search results' variants would require frontend changes (firing background fetches after search renders). This is deferred per project constraints.
+
+## Summary of Edits
+
+| File | Change |
+|------|--------|
+| `supabase/functions/catalog-product/index.ts` | Add X-Variants-Cache, X-Provider, X-Upstream-Ms, X-Total-Ms, X-Source headers to all response paths. Track stage timings. Update CORS expose headers. |
+
+## Verification
+
+After deployment, check in DevTools Network tab on any product click:
+- **Cache hit**: `X-Variants-Cache: HIT`, `X-Total-Ms: ~100`, `X-Upstream-Ms: 0`
+- **Cache miss**: `X-Variants-Cache: MISS`, `X-Total-Ms: ~4000`, `X-Upstream-Ms: ~3500`
+- **Second click same product**: `X-Variants-Cache: HIT`, near-instant
+

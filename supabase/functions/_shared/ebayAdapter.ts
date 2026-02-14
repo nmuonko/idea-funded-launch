@@ -32,6 +32,15 @@ export interface CatalogItem {
   rating: number | null;
   description?: string;
   attributes?: Record<string, string>;
+  variants?: Array<{
+    asin?: string;
+    title?: string;
+    dimensions?: Array<{ name: string; value: string }>;
+    image?: string;
+    link?: string;
+    price?: { value: number; currency: string };
+    isCurrent?: boolean;
+  }>;
 }
 
 interface TokenRecord {
@@ -617,7 +626,7 @@ export async function getEbayItem(
   }
 
   const data = await response.json();
-  const item = await normalizeItemDetail(data, supabase);
+  const item = await normalizeItemDetail(data, supabase, token, marketplace);
   
   debugLog("EBAY_ITEM_RES", { 
     status: response.status, 
@@ -689,7 +698,7 @@ async function getEbayItemWithToken(
   }
 
   const data = await response.json();
-  const item = await normalizeItemDetail(data, null); // No supabase in token retry path
+  const item = await normalizeItemDetail(data, null, token, marketplace);
   
   return {
     item,
@@ -702,7 +711,7 @@ async function getEbayItemWithToken(
   };
 }
 
-async function normalizeItemDetail(item: any, supabase?: any): Promise<CatalogItem> {
+async function normalizeItemDetail(item: any, supabase?: any, token?: string, marketplace?: string): Promise<CatalogItem> {
   // Extract attributes from localizedAspects
   const attributes: Record<string, string> = {};
   if (item.localizedAspects) {
@@ -723,6 +732,21 @@ async function normalizeItemDetail(item: any, supabase?: any): Promise<CatalogIt
   
   // Use async image extraction to potentially scrape more images
   const images = await extractDetailImagesAsync(item, supabase);
+
+  // Extract variants from item group if available
+  let variants: CatalogItem["variants"] = undefined;
+  if (token && item.primaryItemGroup?.itemGroupHref) {
+    try {
+      variants = await fetchItemGroupVariants(
+        token,
+        item.primaryItemGroup.itemGroupHref,
+        item.itemId,
+        marketplace || "EBAY_US"
+      );
+    } catch (err) {
+      console.warn("[ebayAdapter] Failed to fetch item group variants:", err);
+    }
+  }
   
   return {
     id: `ebay:${item.itemId}`,
@@ -738,7 +762,84 @@ async function normalizeItemDetail(item: any, supabase?: any): Promise<CatalogIt
     rating: null,
     description: item.shortDescription || item.description || undefined,
     attributes,
+    variants,
   };
+}
+
+/**
+ * Fetch all variant members from an eBay item group
+ */
+async function fetchItemGroupVariants(
+  token: string,
+  itemGroupHref: string,
+  currentItemId: string,
+  marketplace: string
+): Promise<CatalogItem["variants"]> {
+  debugLog("EBAY_VARIANTS_REQ", { itemGroupHref: itemGroupHref.slice(0, 100), currentItemId });
+
+  const response = await fetch(itemGroupHref, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": marketplace,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    debugLog("EBAY_VARIANTS_ERR", { status: response.status });
+    return undefined;
+  }
+
+  const data = await response.json();
+  const items = data.items || [];
+
+  if (items.length === 0) return undefined;
+
+  // Limit to 30 variants max
+  const limited = items.slice(0, 30);
+
+  const variants: NonNullable<CatalogItem["variants"]> = limited.map((member: any) => {
+    // Extract variation-specific dimensions from localizedAspects
+    // eBay item group members typically have aspects like Color, Size
+    const dimensions: Array<{ name: string; value: string }> = [];
+    if (member.localizedAspects && Array.isArray(member.localizedAspects)) {
+      // Common variant dimension names
+      const variantAspectNames = new Set([
+        "color", "colour", "size", "style", "storage", "capacity",
+        "pattern", "material", "flavor", "scent", "model", "configuration",
+        "length", "width", "height", "weight", "volume", "pack size",
+        "size type", "inseam", "waist size", "shoe size", "ring size",
+      ]);
+      for (const aspect of member.localizedAspects) {
+        if (aspect.name && aspect.value && variantAspectNames.has(aspect.name.toLowerCase())) {
+          dimensions.push({ name: aspect.name, value: aspect.value });
+        }
+      }
+    }
+
+    const price = member.price
+      ? { value: parseFloat(member.price.value) || 0, currency: member.price.currency || "USD" }
+      : undefined;
+
+    const image = member.image?.imageUrl
+      ? upgradeImageToHighRes(member.image.imageUrl)
+      : undefined;
+
+    return {
+      asin: member.itemId,
+      title: member.title || undefined,
+      dimensions: dimensions.length > 0 ? dimensions : undefined,
+      image,
+      link: member.itemWebUrl || undefined,
+      price,
+      isCurrent: member.itemId === currentItemId,
+    };
+  });
+
+  debugLog("EBAY_VARIANTS_RES", { count: variants.length, currentFound: variants.some(v => v.isCurrent) });
+
+  return variants.length > 0 ? variants : undefined;
 }
 
 // ─── Helper Functions ────────────────────────────────────────────────────────

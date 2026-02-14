@@ -1,6 +1,9 @@
+import { memo } from 'react';
 import { ProductCard, Product } from './ProductCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+
+const MemoizedProductCard = memo(ProductCard);
 
 interface ProductGridProps {
   products: Product[];
@@ -37,7 +40,12 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
       className
     )}>
       {products.map((product) => (
-        <ProductCard key={`${product.provider}-${product.id}`} product={product} />
+        <div
+          key={`${product.provider}-${product.id}`}
+          style={{ contentVisibility: 'auto', containIntrinsicSize: '0 320px' }}
+        >
+          <MemoizedProductCard product={product} />
+        </div>
       ))}
     </div>
   );

@@ -448,7 +448,7 @@ Deno.serve(async (req: Request) => {
         query: qOriginal, env: envName, durationMs: Date.now() - startTime,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: buildResponseHeaders(cachedItems.length, 3600) });
+      }), { status: 200, headers: buildResponseHeaders(cachedItems.length, 3600, { cacheStatus: "HIT", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: Date.now() - startTime }) });
     }
 
     // ─── STALE-WHILE-REVALIDATE ───────────────────────────────────────────────
@@ -489,7 +489,7 @@ Deno.serve(async (req: Request) => {
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: buildResponseHeaders(staleItems.length, 300) });
+      }), { status: 200, headers: buildResponseHeaders(staleItems.length, 300, { cacheStatus: "STALE", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: staleDuration }) });
     }
 
     const isVehicle = isVehicleQuery(qNorm);
@@ -1076,10 +1076,10 @@ Deno.serve(async (req: Request) => {
 
     // Debug header (base64 JSON for structured parsing in Network tab)
     const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped };
-    const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds);
+    const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: Date.now() - startTime });
     responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
     responseHeaders["x-afrishop-search-intent"] = effectiveIntent.intentKey;
-    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent";
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time";
 
     return new Response(JSON.stringify(response), {
       status: 200,

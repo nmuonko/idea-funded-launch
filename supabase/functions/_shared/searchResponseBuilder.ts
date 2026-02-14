@@ -76,7 +76,11 @@ const corsHeaders = {
 /**
  * Build final response headers with dynamic Cache-Control.
  */
-export function buildResponseHeaders(itemCount: number, cacheTtlSeconds: number): Record<string, string> {
+export function buildResponseHeaders(
+  itemCount: number,
+  cacheTtlSeconds: number,
+  extra?: { cacheStatus?: string; cacheAgeSec?: number; responseTimeMs?: number }
+): Record<string, string> {
   const cacheControlHeader = itemCount > 0
     ? `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`
     : "no-store, max-age=0";
@@ -91,6 +95,10 @@ export function buildResponseHeaders(itemCount: number, cacheTtlSeconds: number)
     headers["Pragma"] = "no-cache";
     headers["Expires"] = "0";
   }
+  // Cache status headers for client-side SWR
+  if (extra?.cacheStatus) headers["X-Cache-Status"] = extra.cacheStatus;
+  if (extra?.cacheAgeSec !== undefined) headers["X-Cache-Age"] = String(extra.cacheAgeSec);
+  if (extra?.responseTimeMs !== undefined) headers["X-Response-Time"] = String(extra.responseTimeMs);
   return headers;
 }
 

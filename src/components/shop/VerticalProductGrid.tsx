@@ -1,6 +1,9 @@
+import { memo } from 'react';
 import { ProductCard, Product } from '@/components/shop/ProductCard';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
 import { cn } from '@/lib/utils';
+
+const MemoizedProductCard = memo(ProductCard);
 
 interface VerticalProductGridProps {
   products: Product[];
@@ -42,11 +45,12 @@ export function VerticalProductGrid({
       className
     )}>
       {products.map((product) => (
-        <ProductCard 
-          key={`${product.provider}-${product.id}`} 
-          product={product}
-          compact
-        />
+        <div
+          key={`${product.provider}-${product.id}`}
+          style={{ contentVisibility: 'auto', containIntrinsicSize: '0 280px' }}
+        >
+          <MemoizedProductCard product={product} compact />
+        </div>
       ))}
     </div>
   );

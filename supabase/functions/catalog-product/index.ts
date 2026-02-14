@@ -400,22 +400,28 @@ Deno.serve(async (req: Request) => {
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db ms=${Date.now() - startTime}`);
-      
-      return new Response(JSON.stringify({
-        ok: true,
-        status: "success",
-        env: envName,
-        id: fullProductId,
-        item,
-        product: item,
-        source: "db",
-        cached: true,
-        error: null,
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      // For Amazon/Rainforest: skip DB cache return, fall through to live fetch for variant data
+      if (internalProvider === "rainforest") {
+        console.log(`[DETAIL_DB] correlationId=${correlationId} db_hit but fetching live for variants`);
+      } else {
+        // Return DB-cached response for non-Amazon providers (eBay, etc.)
+        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db ms=${Date.now() - startTime}`);
+        
+        return new Response(JSON.stringify({
+          ok: true,
+          status: "success",
+          env: envName,
+          id: fullProductId,
+          item,
+          product: item,
+          source: "db",
+          cached: true,
+          error: null,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
     
     console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);

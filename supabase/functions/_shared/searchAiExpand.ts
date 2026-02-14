@@ -7,7 +7,7 @@
 // Use 'any' type to avoid importing the Supabase SDK
 type SupabaseClientAny = any;
 
-const AI_REFINE_TIMEOUT_MS = 2000; // 2s timeout (increased from 1s for better refinement)
+const AI_REFINE_TIMEOUT_MS = 800; // 800ms hard budget (reduced from 2s for speed)
 
 export interface AiRefineResult {
   refined: string;

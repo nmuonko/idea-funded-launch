@@ -46,9 +46,44 @@ import {
   buildEmptyResponse, buildResponseHeaders, corsHeaders,
   SearchResponse, SearchMeta,
 } from "../_shared/searchResponseBuilder.ts";
+import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 100;
+
+// ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
+const TOTAL_BUDGET_MS = 3500;
+const REWRITE_BUDGET_MS = 800;
+const DB_BUDGET_MS = 500;
+const ALT_QUERIES_MAX = 1;
+
+// ─── FAST PATH: DIRECT QUERY DETECTION ─────────────────────────────────────
+const MODEL_TOKENS = new Set([
+  "iphone","samsung","tecno","infinix","pixel","playstation","ps5","ps4","xbox",
+  "macbook","thinkpad","galaxy","redmi","oppo","vivo","huawei","camon","spark",
+  "hot","note","nintendo","switch","airpods","ipad","dell","hp","lenovo","asus",
+  "acer","msi","razer","jbl","sony","lg","hisense","bose","canon","nikon",
+  "gopro","garmin","fitbit","dyson","karcher","bosch","makita","dewalt",
+]);
+const BROAD_SINGLE_TERMS = new Set([
+  "telephone","téléphone","tv","frigo","vetement","vêtement","chaussure",
+  "ordinateur","voiture","cuisiniere","cuisinière","montre","casque","tablette",
+]);
+
+function isDirectQuery(q: string): boolean {
+  const words = q.trim().split(/\s+/);
+  if (words.length > 6) return false;
+  // Single broad term → NOT direct
+  if (words.length === 1 && BROAD_SINGLE_TERMS.has(words[0].toLowerCase())) return false;
+  const qLow = q.toLowerCase();
+  // Contains digit → direct
+  if (/\d/.test(qLow)) return true;
+  // Contains known model token → direct
+  for (const w of words) {
+    if (MODEL_TOKENS.has(w.toLowerCase())) return true;
+  }
+  return false;
+}
 
 function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
@@ -63,6 +98,7 @@ Deno.serve(async (req: Request) => {
 
   const requestId = generateRequestId();
   const startTime = Date.now();
+  const timings: SearchTimings = { rewrite: 0, aiRefine: 0, dbFirst: 0, providers: 0, altQueries: 0, postProcess: 0, total: 0 };
   const url = new URL(req.url);
 
   const rawQuery = url.searchParams.get("q") || "";
@@ -207,14 +243,28 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ─── PARALLEL: REWRITE + SETTINGS ─────────────────────────────────────────
+    // ─── PARALLEL: REWRITE + SETTINGS (with timeout budget) ─────────────────
     const rewriteStart = Date.now();
-    const [searchMetaResult, settings] = await Promise.all([
-      rewriteSearchQuery(supabase, qOriginal, { lang, categoryKey, requestId }),
-      getCatalogSettings(supabase),
-    ]);
-    searchMeta = searchMetaResult;
-    perfLog.rewrite_ms = Date.now() - rewriteStart;
+    let settings: any;
+    try {
+      const rewriteTimeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("REWRITE_TIMEOUT")), REWRITE_BUDGET_MS)
+      );
+      const [searchMetaResult2, settingsResult] = await Promise.race([
+        Promise.all([
+          rewriteSearchQuery(supabase, qOriginal, { lang, categoryKey, requestId }),
+          getCatalogSettings(supabase),
+        ]),
+        rewriteTimeout.then(() => { throw new Error("REWRITE_TIMEOUT"); }) as never,
+      ]);
+      searchMeta = searchMetaResult2;
+      settings = settingsResult;
+    } catch {
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} rewrite_timeout — using defaults`);
+      settings = await getCatalogSettings(supabase);
+    }
+    timings.rewrite = Date.now() - rewriteStart;
+    perfLog.rewrite_ms = timings.rewrite;
     let qNorm = searchMeta.rewrittenQuery;
 
     if (searchMeta.rewriteApplied) {
@@ -389,8 +439,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ─── AI QUERY REFINER (blocking, replaces old non-blocking expansion) ────
+    // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
+    // Fast path: fire but don't block; normal path: await with budget
+    const directQuery = isDirectQuery(qNorm);
     const aiRefinePromise = refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
+    if (directQuery) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=true, skipping AI refiner await + DB-first`);
+    }
 
     // ─── EFFECTIVE MODE ───────────────────────────────────────────────────────
     const baseEffectiveMode = getEffectiveMode(settings, providerParam || undefined);
@@ -495,19 +550,36 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
-    // ─── RESOLVE AI REFINER ─────────────────────────────────────────────────
-    const aiRefineResult = await aiRefinePromise;
-    const aiExpandedTerms = aiRefineResult?.expandedTerms || null;
+    // ─── RESOLVE AI REFINER (skip await for fast path) ────────────────────────
+    const aiRefineStart = Date.now();
+    let aiRefineResult: AiRefineResult | null = null;
+    let aiExpandedTerms: string[] | null = null;
+
+    if (!directQuery) {
+      // Normal path: await AI refiner (already has 800ms internal timeout)
+      aiRefineResult = await aiRefinePromise;
+      aiExpandedTerms = aiRefineResult?.expandedTerms || null;
+    } else {
+      // Fast path: check if AI already resolved (non-blocking)
+      const raceResult = await Promise.race([
+        aiRefinePromise,
+        new Promise<null>((r) => setTimeout(() => r(null), 50)),
+      ]);
+      if (raceResult) {
+        aiRefineResult = raceResult;
+        aiExpandedTerms = raceResult.expandedTerms || null;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} fast_path_ai_resolved_early`);
+      }
+    }
+    timings.aiRefine = Date.now() - aiRefineStart;
     
     // Use AI refined query as primary, with vehicle poison safety check
     const POISON_SUFFIXES = ["accessories", "parts", "floor mats", "car parts", "case", "cover", "phone", "charger", "floor mat"];
     if (aiRefineResult && aiRefineResult.refined && aiRefineResult.refined !== qNorm) {
-      // Safety: if original query is vehicle-like, block poisoned refinements
       if (isVehicleLikeQueryGuardrail(qOriginal)) {
         const addedWords = aiRefineResult.refined.toLowerCase().replace(qNorm.toLowerCase(), "").trim();
         if (POISON_SUFFIXES.some(p => addedWords.includes(p))) {
           console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_BLOCKED_vehicle_poison: "${aiRefineResult.refined}" (added="${addedWords}")`);
-          // Do NOT apply the poisoned refinement — keep qNorm as-is
         } else {
           console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_refine_override: "${qNorm}" → "${aiRefineResult.refined}"`);
           qNorm = aiRefineResult.refined;
@@ -554,46 +626,53 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_pipeline: qOriginal="${qOriginal}" qCanon="${qCanonicalized}" qRewrite="${qRewrite}" providerQuery="${providerQuery}"`);
 
-    // ─── DB-FIRST SEARCH ──────────────────────────────────────────────────────
+    // ─── DB-FIRST SEARCH (skip for fast path + time budget) ─────────────────
     let dbFallbackItems: any[] | null = null;
     let dbCount = 0;
+    const dbFirstStart = Date.now();
 
-    if (!cursor && !hasBuyingIntent) {
+    if (!directQuery && !cursor && !hasBuyingIntent) {
       try {
-        const dbResult = await searchDbFirst({
+        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), DB_BUDGET_MS));
+        const dbWork = searchDbFirst({
           supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId,
         });
-        dbCount = dbResult.dbCount;
+        const dbResult = await Promise.race([dbWork, dbTimeout]);
+        
+        if (dbResult) {
+          dbCount = dbResult.dbCount;
 
-        if (dbResult.items) {
-          // ── INTENT SCORING on DB-first results (gaming, phone_device, vehicle_listing) ──
-          let dbItems = dbResult.items;
-          const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory"];
-          if (SCORED_INTENTS.includes(effectiveIntent.intentKey)) {
-            const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
-            const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
-            dbItems = dbScoreResult.items as any[];
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
-            if (dbItems.length === 0) {
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
-              dbFallbackItems = null;
+          if (dbResult.items) {
+            let dbItems = dbResult.items;
+            const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory"];
+            if (SCORED_INTENTS.includes(effectiveIntent.intentKey)) {
+              const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
+              const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
+              dbItems = dbScoreResult.items as any[];
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_scored: before=${dbResult.items.length} after=${dbItems.length} dropped=${dbScoreResult.dropped}`);
+              if (dbItems.length === 0) {
+                console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_${effectiveIntent.intentKey}_empty_after_scoring — skipping DB-first`);
+                dbFallbackItems = null;
+              }
+            }
+            
+            if (dbItems.length > 0) {
+              dbFallbackItems = dbItems;
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_merge: ${dbItems.length} DB items will be merged with provider results`);
             }
           }
-          
-          // Instead of returning early, save DB items to merge with provider results
-          if (dbItems.length > 0) {
-            dbFallbackItems = dbItems;
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_merge: ${dbItems.length} DB items will be merged with provider results`);
-          }
-        }
 
-        if (!dbFallbackItems) {
-          dbFallbackItems = dbResult.fallbackItems;
+          if (!dbFallbackItems) {
+            dbFallbackItems = dbResult.fallbackItems;
+          }
+        } else {
+          console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_timeout after ${DB_BUDGET_MS}ms`);
         }
       } catch (dbErr) {
         console.warn(`[CATALOG_SEARCH] requestId=${requestId} db_first_error:`, (dbErr as Error).message);
       }
     }
+    timings.dbFirst = Date.now() - dbFirstStart;
 
     // ─── LAZY IMPORT PROVIDERS ────────────────────────────────────────────────
     const { fetchAmazonItems } = await import("../_shared/amazonFetcher.ts");
@@ -647,6 +726,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const providerMs = Date.now() - providerStartMs;
+    timings.providers = providerMs;
 
     // Extract results
     let amazonItems: CatalogItem[] = [];
@@ -691,20 +771,32 @@ Deno.serve(async (req: Request) => {
     const providerItemCount = amazonItems.length + ebayItems.length;
     console.log(`[CATALOG_SEARCH] requestId=${requestId} providers_ok providerQuery="${providerQuery}"`, JSON.stringify({ amazon: amazonItems.length, ebay: ebayItems.length, durationMs: providerMs }));
 
-    // ─── SECONDARY ATTEMPT: alt queries from AI refiner OR canonical fallback ──
-    // If providers returned < 60 items and we have alt queries, try them to fill the page
+    // ─── ALT QUERIES (max 1, with time budget) ──────────────────────────────
+    const altQueriesStart = Date.now();
     const totalProviderItems = amazonItems.length + ebayItems.length;
     const altQueries = aiRefineResult?.alt || [];
+    const elapsedSoFar = Date.now() - startTime;
+    const budgetExceeded = elapsedSoFar > TOTAL_BUDGET_MS;
     
-    if (totalProviderItems < 60 && !providerTimedOut) {
-      // Try alt queries from AI refiner first
+    // Fast path queries skip all alt attempts; also skip if budget exceeded
+    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded) {
+      let altAttempts = 0;
+      // Try alt queries from AI refiner (max ALT_QUERIES_MAX = 1)
       for (const altQ of altQueries) {
+        if (altAttempts >= ALT_QUERIES_MAX) break;
         if (amazonItems.length + ebayItems.length >= limit) break;
         if (altQ === providerQuery || altQ === qCanonicalized) continue;
+        // Re-check budget before each attempt
+        if (Date.now() - startTime > TOTAL_BUDGET_MS) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_BUDGET_EXCEEDED — stopping`);
+          break;
+        }
         
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_attempt q="${altQ}"`);
+        altAttempts++;
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_attempt q="${altQ}" (${altAttempts}/${ALT_QUERIES_MAX})`);
         try {
-          const altTimeout = 3000;
+          const altTimeout = Math.min(2000, TOTAL_BUDGET_MS - (Date.now() - startTime));
+          if (altTimeout <= 200) break; // Not enough time
           const altPromise = Promise.allSettled([
             skipAmazon
               ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
@@ -714,7 +806,6 @@ Deno.serve(async (req: Request) => {
           const altTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("ALT_TIMEOUT")), altTimeout));
           const altSettled = await Promise.race([altPromise, altTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
           
-          // Merge alt results (deduplicate by id)
           const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
           if (!skipAmazon && altSettled[0].status === "fulfilled") {
             const newItems = altSettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
@@ -731,72 +822,15 @@ Deno.serve(async (req: Request) => {
           console.warn(`[CATALOG_SEARCH] requestId=${requestId} alt_query_timeout`);
         }
       }
-      
-      // Fallback: try canonical query if different from provider query
-      if (amazonItems.length + ebayItems.length < 60 && providerQuery !== qCanonicalized) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_attempt q="${qCanonicalized}"`);
-        try {
-          const secondaryTimeout = 3000;
-          const secondaryPromise = Promise.allSettled([
-            skipAmazon
-              ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
-              : fetchAmazonItems({ supabase, query: qCanonicalized, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-2nd" }),
-            fetchEbayItems({ supabase, query: qCanonicalized, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-2nd" }),
-          ]);
-          const secondaryTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("SECONDARY_TIMEOUT")), secondaryTimeout));
-          const secondarySettled = await Promise.race([secondaryPromise, secondaryTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
-          const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
-          if (!skipAmazon && secondarySettled[0].status === "fulfilled") {
-            const newItems = secondarySettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
-            amazonItems = [...amazonItems, ...newItems];
-            if (secondarySettled[0].value.items.length > 0) { amazonHasMore = secondarySettled[0].value.hasMore; amazonCacheHit = secondarySettled[0].value.cacheHit; amazonStatus = secondarySettled[0].value.status; }
-            amazonDebug.ok = true; amazonDebug.count = amazonItems.length;
-          }
-          if (secondarySettled[1].status === "fulfilled") {
-            const newItems = secondarySettled[1].value.items.filter((i: any) => !existingIds.has(i.id));
-            ebayItems = [...ebayItems, ...newItems];
-            if (secondarySettled[1].value.items.length > 0) { ebayHasMore = secondarySettled[1].value.hasMore; ebayTotal = secondarySettled[1].value.total; }
-            ebayDebug.ok = true; ebayDebug.count = ebayItems.length;
-          }
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} secondary_results amazon=${amazonItems.length} ebay=${ebayItems.length}`);
-        } catch {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} secondary_provider_timeout`);
-        }
-      }
+    } else if (budgetExceeded) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: budget exceeded (${elapsedSoFar}ms > ${TOTAL_BUDGET_MS}ms)`);
+    } else if (directQuery) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: fast path`);
     }
-
-    // ─── FIX D: TRACTOR-SPECIFIC 3RD PROVIDER ATTEMPT ─────────────────────────
-    if (amazonItems.length + ebayItems.length === 0 && !providerTimedOut) {
-      const qLow = qNorm.toLowerCase();
-      const isTractorIntent = qLow.includes("tractor") || qLow.includes("tracteur");
-      if (isTractorIntent) {
-        const tractorQuery = "farm tractor";
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback_attempt q="${tractorQuery}"`);
-        try {
-          const tTimeout = 3000;
-          const tPromise = Promise.allSettled([
-            fetchAmazonItems({ supabase, query: tractorQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment: true, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-trc" }),
-            fetchEbayItems({ supabase, query: tractorQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment: true, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-trc" }),
-          ]);
-          const tTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TRACTOR_TIMEOUT")), tTimeout));
-          const tSettled = await Promise.race([tPromise, tTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
-          if (tSettled[0].status === "fulfilled") {
-            const r = tSettled[0].value;
-            amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
-            amazonStatus = r.status; amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
-          }
-          if (tSettled[1].status === "fulfilled") {
-            const r = tSettled[1].value;
-            ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
-          }
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback amazon=${amazonItems.length} ebay=${ebayItems.length}`);
-        } catch {
-          console.warn(`[CATALOG_SEARCH] requestId=${requestId} tractor_fallback_timeout`);
-        }
-      }
-    }
+    timings.altQueries = Date.now() - altQueriesStart;
 
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
+    const postProcessStart = Date.now();
     const mixResult = mixProviderItems({
       amazonItems: amazonItems as ProviderItem[], ebayItems: ebayItems as ProviderItem[],
       limit, cursor: mixerCursor, amazonFirstCount: settings.mixedAmazonFirstCount,
@@ -892,6 +926,23 @@ Deno.serve(async (req: Request) => {
     // Sort (only if explicit sort requested — scoring already ranks by relevance)
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;
+    }
+    timings.postProcess = Date.now() - postProcessStart;
+
+    // ─── EARLY CACHE WRITE (fire-and-forget, before final response assembly) ─
+    // Ensures next user gets instant cache hit even if this request is still finishing
+    const earlyCacheMeta = {
+      qNorm, provider: providerParam || "mixed",
+      page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, sort,
+      category_key: categoryKey || undefined, vehicleMode: hasBuyingIntent,
+      minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
+    };
+    if (finalItems.length > 0) {
+      const earlyResponse = { status: "success", items: finalItems, total: finalItems.length, nextCursor: mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null, hasMore: mixResult.hasMore, searchMeta, _meta: { ...earlyCacheMeta, cachedAt: new Date().toISOString() } };
+      setCache(supabase, "search", globalCacheKey, earlyResponse, {
+        provider: "mixed", query: qNorm, category: categoryKey || undefined,
+        page: earlyCacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
+      }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Early cache write failed:`, err));
     }
 
     // Provider stats
@@ -1049,7 +1100,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ─── CACHE WRITE ──────────────────────────────────────────────────────────
+    // ─── FINAL CACHE WRITE (overwrite early cache with complete response) ────
     const cacheMeta = {
       qNorm, provider: providerParam || "mixed",
       page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, sort,
@@ -1071,16 +1122,20 @@ Deno.serve(async (req: Request) => {
       }).catch(() => {});
     }
 
-    // Summary log with intent
+    // Finalize timings
+    timings.total = Date.now() - startTime;
+
+    // Summary log with timings
     const topTitles = finalItems.slice(0, 3).map((i: any) => ((i.title || "") as string).slice(0, 60));
+    console.log(`[CATALOG_SEARCH][TIMING] requestId=${requestId} q="${qOriginal}" directQuery=${directQuery} total=${timings.total}ms rewrite=${timings.rewrite}ms ai=${timings.aiRefine}ms db=${timings.dbFirst}ms providers=${timings.providers}ms alt=${timings.altQueries}ms post=${timings.postProcess}ms items=${finalItems.length}`);
     console.log(`[CATALOG_SEARCH][INTENT] q="${qOriginal}" intentKey=${effectiveIntent.intentKey} providers=${finalCount} db=${dbCount} returned=${finalItems.length} topTitles=${JSON.stringify(topTitles)}`);
 
-    // Debug header (base64 JSON for structured parsing in Network tab)
-    const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped };
-    const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: Date.now() - startTime });
+    // Debug header + timing headers
+    const debugObj = { providerQuery, intentKey: effectiveIntent.intentKey, dbCount, ebayStatus: ebayDebug.ok ? "ok" : ebayDebug.error, amazonStatus: amazonDebug.ok ? "ok" : amazonDebug.error, finalCount, source: searchSource, dropped: scoreResult.dropped, directQuery };
+    const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: timings.total, timings });
     responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
     responseHeaders["x-afrishop-search-intent"] = effectiveIntent.intentKey;
-    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time";
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess";
 
     return new Response(JSON.stringify(response), {
       status: 200,

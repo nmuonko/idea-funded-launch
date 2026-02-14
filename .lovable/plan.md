@@ -1,103 +1,72 @@
 
 
-# Fix: Vehicle Product Detail — Restore "Add to Cart" Button + Quote Request Visibility
+# Fix: Robust isInCart Check + Correct Quote Request
 
-## Two Issues
+## Issues Found
 
-### Issue 1: Quote requests not visible in admin portal
-The quote request IS being created successfully in the **test** database (I can see the Toyota RAV4 PENDING quote from today). However, the **live/production** database has no matching record. This is expected behavior: test and live databases are isolated. When you view the admin portal on the published URL, it queries the live database. To see the test quote, access the admin portal via the **preview URL** instead.
+### 1. `isInCart` check is fragile but partially works
 
-No code change needed for this -- it's a test vs. live data separation issue.
+**Root cause**: Cart items from the server have `productId` set to the full `productUrl` (e.g., `https://www.ebay.com/itm/123456`). But `product.id` is just the raw ID (e.g., `123456`). The current check compares both `product.id` and `product.productUrl`, so the `productUrl` match should work in most cases.
 
-### Issue 2: Button flow on product detail page
-Currently, vehicles immediately show "Demander un devis" instead of "Add to Cart". The user wants:
+However, the check can still break if URL formats differ (tracking params, URL encoding). A more robust approach is to also check if `productUrl` contains `product.id`.
 
-1. **Before adding to cart**: Show normal "Add to Cart" button (with the vehicle price breakdown: Article + Markup + shipping note)
-2. **After adding to cart + logged in**: Show "Demander un devis" button (which triggers the quote request)
-3. **After quote requested**: Show "Demande envoyee" confirmation
+**Fix**: Update `isInCart` to use a contains-based match as fallback:
+```typescript
+const isInCart = product && items.some(item => 
+  item.productId === product.productUrl || 
+  item.productId === product.id ||
+  item.productUrl === product.productUrl ||
+  (product.id && item.productId?.includes(product.id))
+);
+```
+
+### 2. `mobile-request-quote` is actually fine for web
+
+After reading the edge function code, it is platform-agnostic despite the name:
+- It authenticates the user via JWT
+- Finds the user's DRAFT order
+- Auto-detects vehicle items (`is_vehicle = true`) from the cart
+- Creates quote requests with dedup protection
+- Sends admin notification email
+
+The `{ locale }` body is sufficient because the function reads vehicle items from the cart automatically. No product payload is needed -- the cart already has all the data.
+
+**However**, the function name is confusing. We can either:
+- (A) Rename it (breaks mobile) -- NOT recommended
+- (B) Keep using it from web as-is -- recommended, since the logic is shared
+
+**No backend changes needed.**
+
+### 3. Minor: Reset `quoteRequested` when product changes
+
+Currently `quoteRequested` persists across product navigation. It should reset when the product changes.
 
 ## Changes
 
-### File 1: `src/pages/shop/ProductDetails.tsx`
+### File: `src/pages/shop/ProductDetails.tsx`
 
-**Detect if this vehicle is already in the user's cart** by checking `items` from `useShopCart()`:
+1. **Fix `isInCart`** (line 337-339): Use a more robust matching strategy that checks `productUrl` match AND a fallback `includes` check on `product.id`:
 
 ```typescript
-const { addItem, items } = useShopCart();
-const { user } = useAuth();
-
-// Check if this vehicle product is already in the cart
-const isInCart = product && items.some(
-  item => item.productId === product.productUrl || item.productId === product.id
-);
-const showRequestQuote = isVehicle && isInCart && !!user;
+const isInCart = product && items.some(item => {
+  if (item.productUrl && product.productUrl && item.productUrl === product.productUrl) return true;
+  if (item.productId === product.id) return true;
+  if (product.id && item.productId?.includes(product.id)) return true;
+  return false;
+});
 ```
 
-**Update the button logic** (lines 680-703):
+2. **Reset `quoteRequested` on product change** (inside the existing `useEffect` that resets state on route change, around line 170-176): Add `setQuoteRequested(false)`.
 
-- Default state (not in cart): "Add to Cart" with ShoppingCart icon -- calls `handleAddToCart`
-- `showRequestQuote` (in cart + logged in + vehicle): "Demander un devis" with FileText icon -- calls `handleRequestQuote` (invokes `mobile-request-quote`)
-- After quote requested: "Demande envoyee" with Check icon (green)
+3. **Keep `mobile-request-quote` call as-is** -- the function works correctly for both platforms. The `{ locale }` payload is sufficient since the function auto-detects vehicle items from the user's cart.
 
-**Add `handleRequestQuote` function**:
-```typescript
-const [quoteRequested, setQuoteRequested] = useState(false);
+## No Backend Changes
 
-const handleRequestQuote = useCallback(async () => {
-  setAdding(true);
-  try {
-    const { error } = await supabase.functions.invoke('mobile-request-quote', {
-      body: { locale: language }
-    });
-    if (error) throw error;
-    setQuoteRequested(true);
-    toast.success(shop.requestSent || 'Quote request sent!');
-  } catch (err) {
-    console.error('[ProductDetails] Quote request failed:', err);
-    toast.error('Failed to request quote');
-  } finally {
-    setAdding(false);
-  }
-}, [language, shop]);
-```
-
-**Button rendering logic**:
-```text
-IF quoteRequested:
-  [Check icon] "Demande envoyee" (green, disabled)
-
-ELSE IF showRequestQuote (vehicle + in cart + logged in):
-  [FileText icon] "Demander un devis" -> handleRequestQuote
-
-ELSE IF added (just added, transient):
-  [Check icon] "Added to Cart" (green)
-
-ELSE:
-  [ShoppingCart icon] "Add to Cart" -> handleAddToCart
-```
-
-**Remove the auto-quote from ShopCartContext** (lines 342-357): The auto-request-quote on every cart sync causes duplicate requests. Instead, quote requests should only happen when the user explicitly clicks "Demander un devis". This block will be removed.
-
-### File 2: `src/contexts/ShopCartContext.tsx`
-
-**Remove the auto-quote request block** (lines 342-357) that fires on every `syncCart`. The quote should only be triggered by explicit user action on the product detail page or cart page.
-
-### File 3: `src/components/shop/PriceBreakdown.tsx`
-
-No changes needed -- the current `isDetailVehicle` logic (showing Article + Markup + shipping note) is correct for the product detail page.
-
-## Summary of Button States for Vehicles
-
-| State | Button Label | Icon | Action |
-|-------|-------------|------|--------|
-| Not in cart | "Ajouter au panier" | ShoppingCart | Add to cart |
-| Just added (3s) | "Ajoute au panier" | Check (green) | None |
-| In cart + logged in | "Demander un devis" | FileText | Request quote |
-| Quote sent | "Demande envoyee" | Check (green) | None (disabled) |
-
-Non-vehicle products are completely unaffected -- they always show "Add to Cart" / "Added to Cart".
+The `mobile-request-quote` edge function already:
+- Reads vehicle items from the user's cart (no need to send product info in the body)
+- Deduplicates quote requests (checks `quote_requests` table before inserting)
+- Sends admin email notifications
+- Returns success with quote IDs
 
 ## Files Modified
-- `src/pages/shop/ProductDetails.tsx` -- add quote request flow, update button states
-- `src/contexts/ShopCartContext.tsx` -- remove auto-quote-request from syncCart
-
+- `src/pages/shop/ProductDetails.tsx` -- fix `isInCart` matching, reset `quoteRequested` on navigation

@@ -1,73 +1,103 @@
 
 
-# Fix: Hide Shipping/Total for Vehicles on Product Detail, Show "Demander un devis"
+# Fix: Vehicle Product Detail — Restore "Add to Cart" Button + Quote Request Visibility
 
-## Summary
+## Two Issues
 
-For vehicle listings on the web product detail page, hide the shipping fee line and total estimate entirely. Show only Article price + Frais de marge + a note that shipping is determined after quote. Change the "Add to Cart" button to "Demander un devis" (Request a Quote).
+### Issue 1: Quote requests not visible in admin portal
+The quote request IS being created successfully in the **test** database (I can see the Toyota RAV4 PENDING quote from today). However, the **live/production** database has no matching record. This is expected behavior: test and live databases are isolated. When you view the admin portal on the published URL, it queries the live database. To see the test quote, access the admin portal via the **preview URL** instead.
+
+No code change needed for this -- it's a test vs. live data separation issue.
+
+### Issue 2: Button flow on product detail page
+Currently, vehicles immediately show "Demander un devis" instead of "Add to Cart". The user wants:
+
+1. **Before adding to cart**: Show normal "Add to Cart" button (with the vehicle price breakdown: Article + Markup + shipping note)
+2. **After adding to cart + logged in**: Show "Demander un devis" button (which triggers the quote request)
+3. **After quote requested**: Show "Demande envoyee" confirmation
 
 ## Changes
 
-### 1. `src/components/shop/PriceBreakdown.tsx`
+### File 1: `src/pages/shop/ProductDetails.tsx`
 
-- Add `context?: 'product-detail' | 'cart'` prop (default `'cart'`)
-- Update logic:
-  - `isDetailVehicle = isVehicle && context === 'product-detail'`
-  - `showPendingQuote = !isDetailVehicle && hasVehicleItems && vehicleQuoteStatus !== 'quoted'`
-- When `isDetailVehicle`:
-  - Render Article line + Markup fee line (with amounts)
-  - Render a note: "Le transport sera determine apres devis" / "Shipping will be determined after quote"
-  - Do NOT render shipping line, subtotal, or total
-- When `showPendingQuote` (cart context): existing behavior unchanged ("En attente du devis" on shipping line)
-- Normal items: unchanged
+**Detect if this vehicle is already in the user's cart** by checking `items` from `useShopCart()`:
 
-### 2. `src/pages/shop/ProductDetails.tsx`
+```typescript
+const { addItem, items } = useShopCart();
+const { user } = useAuth();
 
-- Pass `context="product-detail"` to `<PriceBreakdown>`
-- When `isVehicle` is true, change the Add to Cart button:
-  - Label: use `shop.requestQuote` ("Demander un devis") instead of "Add to Cart"
-  - After-click label: use `shop.requestSent` ("Demande envoyee") instead of "Added to Cart"
-  - Icon: keep ShoppingCart (or switch to `FileText` for quote feel)
-  - Action: still calls `handleAddToCart` (existing cart+quote workflow)
-
-### 3. `src/lib/i18n/translations.ts`
-
-Add 3 new keys to each language's `shop` block:
-
-| Key | EN | FR | SW | LN |
-|---|---|---|---|---|
-| `requestQuote` | Request a Quote | Demander un devis | Omba Bei | Senga Ntalo |
-| `requestSent` | Request Sent | Demande envoyee | Ombi Limetumwa | Esengeli Etindami |
-| `shippingAfterQuote` | Shipping will be determined after quote | Le transport sera determine apres devis | Usafirishaji utaamuliwa baada ya bei | Transport ekoyebana nsima ya ntalo |
-
-## Technical Details
-
-### PriceBreakdown rendering branches
-
-```text
-IF isDetailVehicle (product detail + vehicle):
-  [Article]           $17,799.00
-  [Frais de marge]    $1,779.90
-  [Note: shipping determined after quote]
-  -- no shipping, no subtotal, no total --
-
-ELSE IF showPendingQuote (cart + vehicle not yet quoted):
-  [Article]           $17,799.00
-  [Frais de marge]    $1,779.90
-  [Shipping]          "En attente du devis"
-  [Sous-total]        $19,578.90
-  [Note: shipping after admin quote]
-
-ELSE (normal items):
-  [Article]           $XX.XX
-  [Frais de marge]    $X.XX
-  [Shipping]          $X.XX
-  [Total]             $XX.XX
+// Check if this vehicle product is already in the cart
+const isInCart = product && items.some(
+  item => item.productId === product.productUrl || item.productId === product.id
+);
+const showRequestQuote = isVehicle && isInCart && !!user;
 ```
 
-### Files modified
-- `src/components/shop/PriceBreakdown.tsx`
-- `src/pages/shop/ProductDetails.tsx`
-- `src/lib/i18n/translations.ts`
+**Update the button logic** (lines 680-703):
 
-No mobile files touched. No backend changes.
+- Default state (not in cart): "Add to Cart" with ShoppingCart icon -- calls `handleAddToCart`
+- `showRequestQuote` (in cart + logged in + vehicle): "Demander un devis" with FileText icon -- calls `handleRequestQuote` (invokes `mobile-request-quote`)
+- After quote requested: "Demande envoyee" with Check icon (green)
+
+**Add `handleRequestQuote` function**:
+```typescript
+const [quoteRequested, setQuoteRequested] = useState(false);
+
+const handleRequestQuote = useCallback(async () => {
+  setAdding(true);
+  try {
+    const { error } = await supabase.functions.invoke('mobile-request-quote', {
+      body: { locale: language }
+    });
+    if (error) throw error;
+    setQuoteRequested(true);
+    toast.success(shop.requestSent || 'Quote request sent!');
+  } catch (err) {
+    console.error('[ProductDetails] Quote request failed:', err);
+    toast.error('Failed to request quote');
+  } finally {
+    setAdding(false);
+  }
+}, [language, shop]);
+```
+
+**Button rendering logic**:
+```text
+IF quoteRequested:
+  [Check icon] "Demande envoyee" (green, disabled)
+
+ELSE IF showRequestQuote (vehicle + in cart + logged in):
+  [FileText icon] "Demander un devis" -> handleRequestQuote
+
+ELSE IF added (just added, transient):
+  [Check icon] "Added to Cart" (green)
+
+ELSE:
+  [ShoppingCart icon] "Add to Cart" -> handleAddToCart
+```
+
+**Remove the auto-quote from ShopCartContext** (lines 342-357): The auto-request-quote on every cart sync causes duplicate requests. Instead, quote requests should only happen when the user explicitly clicks "Demander un devis". This block will be removed.
+
+### File 2: `src/contexts/ShopCartContext.tsx`
+
+**Remove the auto-quote request block** (lines 342-357) that fires on every `syncCart`. The quote should only be triggered by explicit user action on the product detail page or cart page.
+
+### File 3: `src/components/shop/PriceBreakdown.tsx`
+
+No changes needed -- the current `isDetailVehicle` logic (showing Article + Markup + shipping note) is correct for the product detail page.
+
+## Summary of Button States for Vehicles
+
+| State | Button Label | Icon | Action |
+|-------|-------------|------|--------|
+| Not in cart | "Ajouter au panier" | ShoppingCart | Add to cart |
+| Just added (3s) | "Ajoute au panier" | Check (green) | None |
+| In cart + logged in | "Demander un devis" | FileText | Request quote |
+| Quote sent | "Demande envoyee" | Check (green) | None (disabled) |
+
+Non-vehicle products are completely unaffected -- they always show "Add to Cart" / "Added to Cart".
+
+## Files Modified
+- `src/pages/shop/ProductDetails.tsx` -- add quote request flow, update button states
+- `src/contexts/ShopCartContext.tsx` -- remove auto-quote-request from syncCart
+

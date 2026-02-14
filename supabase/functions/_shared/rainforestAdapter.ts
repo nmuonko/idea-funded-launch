@@ -975,21 +975,42 @@ function normalizeProduct(
   // Compute image count from actual images array
   const imageCount = finalImages.length || 1;
 
+  // Extract variants from Rainforest data
+  const rawProduct = product as any;
+  let variants: CatalogProduct["variants"] = undefined;
+  if (rawProduct.variants && Array.isArray(rawProduct.variants) && rawProduct.variants.length > 0) {
+    variants = rawProduct.variants
+      .filter((v: any) => v.asin)
+      .slice(0, 30)
+      .map((v: any) => ({
+        asin: v.asin,
+        title: v.title || undefined,
+        dimensions: Array.isArray(v.dimensions)
+          ? v.dimensions.map((d: any) => ({ name: d.name || '', value: d.value || '' }))
+          : undefined,
+        image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || undefined,
+        link: v.link || undefined,
+        price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
+        isCurrent: v.is_current === true,
+      }));
+  }
+
   return {
     providerProductId: product.asin,
     title: product.title,
     brand: product.brand,
     description,
     imageUrl,
-    images: finalImages, // Never empty if imageUrl exists
-    imageCount,          // Total images available from listing
+    images: finalImages,
+    imageCount,
     productUrl,
-    priceUsd, // null or positive number, never 0 for missing
+    priceUsd,
     currency: "USD",
-    inStock: true, // Rainforest only returns in-stock items by default
+    inStock: true,
     categoryPath: categoryPath.length > 0 ? categoryPath : undefined,
     rating: product.rating || null,
     reviewCount: product.ratings_total || product.reviews_total,
+    variants,
     raw: product as unknown as Record<string, unknown>,
   };
 }

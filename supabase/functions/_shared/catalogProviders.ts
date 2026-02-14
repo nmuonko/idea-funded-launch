@@ -30,6 +30,15 @@ export interface CatalogProduct {
   reviewCount?: number;
   specifications?: Record<string, string>;
   raw?: Record<string, unknown>;
+  variants?: Array<{
+    asin?: string;
+    title?: string;
+    dimensions?: Array<{ name: string; value: string }>;
+    image?: string;
+    link?: string;
+    price?: { value: number; currency: string };
+    isCurrent?: boolean;
+  }>;
 }
 
 export interface SearchFilters {

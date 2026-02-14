@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight, Heart } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ShoppingCart, Check, Loader2, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { ProductImageViewer } from '@/components/shop/ProductImageViewer';
@@ -22,7 +22,6 @@ function looksLikeVehicleListing(title: string): boolean {
     'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
     'floor mat', 'seat cover', 'car wash', 'phone holder', 'emblem', 'badge',
     'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap',
-    // Car electronics & accessories
     'stereo', 'radio', 'navigation', 'carplay', 'android auto', 'headunit',
     'head unit', 'media player', 'dashcam', 'dash cam', 'speaker', 'amplifier',
     'subwoofer', 'gps', 'bluetooth', 'adapter', 'cable', 'obd', 'scanner',
@@ -36,7 +35,6 @@ function looksLikeVehicleListing(title: string): boolean {
     'mazda', 'volkswagen', 'lexus', 'porsche', 'dodge', 'ram', 'gmc',
     'land rover', 'range rover', 'volvo', 'buick', 'cadillac', 'lincoln'];
 
-  // "for [brand]" pattern means accessory/part compatibility, NOT a vehicle
   const forBrandPattern = new RegExp(
     '\\bfor\\s+(' + brands.join('|') + ')\\b', 'i'
   );
@@ -50,7 +48,7 @@ function looksLikeVehicleListing(title: string): boolean {
   return (hasYear && hasBrand) || (hasBrand && hasBodyType);
 }
 
-interface ProductDetails {
+interface ProductData {
   id: string;
   provider: string;
   title: string;
@@ -62,17 +60,37 @@ interface ProductDetails {
   inStock: boolean;
   productUrl?: string;
   brand?: string;
+  variants?: Array<{
+    asin?: string;
+    title?: string;
+    dimensions?: Array<{ name: string; value: string }>;
+    image?: string;
+    link?: string;
+    price?: { value: number; currency: string };
+    isCurrent?: boolean;
+  }>;
+}
+
+interface VariantGroup {
+  name: string;
+  options: Array<{
+    value: string;
+    asin?: string;
+    image?: string;
+    isCurrent?: boolean;
+  }>;
 }
 
 export default function ProductDetailsPage() {
   const { provider, id } = useParams<{ provider: string; id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const { addItem } = useShopCart();
   const { language } = useLanguage();
   const t = translations[language] || translations.en;
   const shop = (t.shop || {}) as any;
 
-  const [product, setProduct] = useState<ProductDetails | null>(null);
+  const [product, setProduct] = useState<ProductData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -81,11 +99,8 @@ export default function ProductDetailsPage() {
   const [similarProducts, setSimilarProducts] = useState<Product[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [variants, setVariants] = useState<any[]>([]);
-  const [selectedVariant, setSelectedVariant] = useState<any>(null);
-  const navProductRef = useRef<ProductDetails | null>(null);
+  const navProductRef = useRef<ProductData | null>(null);
 
-  // Detect if this product is a vehicle (from navigation state OR title analysis)
   const isVehicleFromState = !!(
     (location.state as any)?.product?.isVehicle ||
     (location.state as any)?.isVehicle ||
@@ -94,14 +109,45 @@ export default function ProductDetailsPage() {
   );
   const isVehicle = isVehicleFromState || (product ? looksLikeVehicleListing(product.title) : false);
 
-  // Reset ALL state when route params change (fixes similar product image merge bug)
+  // Safe accessors
+  const safeImages = useMemo(() => {
+    if (product?.images?.length) return product.images;
+    return ['/placeholder.svg'];
+  }, [product?.images]);
+
+  const safeImageIndex = Math.min(currentImageIndex, safeImages.length - 1);
+
+  // Group variants by dimension name
+  const variantGroups = useMemo((): VariantGroup[] => {
+    if (!product?.variants?.length) return [];
+    const groups = new Map<string, Map<string, { asin?: string; image?: string; isCurrent?: boolean }>>();
+
+    for (const v of product.variants) {
+      if (!v.dimensions?.length) continue;
+      for (const dim of v.dimensions) {
+        if (!dim.name || !dim.value) continue;
+        if (!groups.has(dim.name)) groups.set(dim.name, new Map());
+        const optMap = groups.get(dim.name)!;
+        if (!optMap.has(dim.value)) {
+          optMap.set(dim.value, { asin: v.asin, image: v.image, isCurrent: v.isCurrent });
+        }
+      }
+    }
+
+    return Array.from(groups.entries()).map(([name, optMap]) => ({
+      name,
+      options: Array.from(optMap.entries()).map(([value, data]) => ({ value, ...data })),
+    }));
+  }, [product?.variants]);
+
+  // Reset state when route params change
   useEffect(() => {
     const nav = (location.state as any)?.product;
     const normalizedProvider = nav?.provider?.toLowerCase() === 'rainforest' ? 'amazon' : nav?.provider;
-    const navProduct = nav ? {
+    const navProduct: ProductData | null = nav ? {
       id: nav.id,
       provider: normalizedProvider || 'amazon',
-      title: nav.title,
+      title: nav.title || 'Product',
       description: undefined,
       images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
       priceUsd: nav.priceUsd || 0,
@@ -120,23 +166,23 @@ export default function ProductDetailsPage() {
     setLoading(!nav);
     setError(null);
     setLightboxOpen(false);
-    setVariants([]);
-    setSelectedVariant(null);
   }, [provider, id]);
 
+  // Fetch product by route param — always, regardless of nav state
   useEffect(() => {
+    if (!provider || !id) return;
+
+    const controller = new AbortController();
+    const fetchStart = Date.now();
+    const hadInitialData = !!navProductRef.current;
+
     const fetchProduct = async () => {
-      if (!provider || !id) return;
-      
       try {
         setError(null);
-
-        // Decode and normalize the product ID
         const productIdDecoded = decodeURIComponent(id);
         const lowerProvider = provider.toLowerCase();
         const lowerProductId = productIdDecoded.toLowerCase();
-        
-        // Strip redundant provider prefix if ID starts with provider name
+
         let cleanProductId = productIdDecoded;
         if (lowerProvider === 'ebay' && lowerProductId.startsWith('ebay_')) {
           cleanProductId = productIdDecoded.slice(5);
@@ -147,40 +193,48 @@ export default function ProductDetailsPage() {
         } else if (lowerProvider === 'rainforest' && lowerProductId.startsWith('rainforest_')) {
           cleanProductId = productIdDecoded.slice(11);
         }
-        
+
         const normalizedProvider = lowerProvider === 'rainforest' ? 'amazon' : lowerProvider;
-        
+
         const apiUrl = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`);
         apiUrl.searchParams.set('provider', normalizedProvider);
         apiUrl.searchParams.set('id', cleanProductId);
-        
         if (normalizedProvider === 'amazon') {
           apiUrl.searchParams.set('amazon_domain', 'amazon.com');
         }
-        
+
         const response = await fetch(apiUrl.toString(), {
+          signal: controller.signal,
           headers: {
             'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
             'Content-Type': 'application/json',
           },
         });
-        
-        const data = await response.json();
-        
+
+        if (controller.signal.aborted) return;
+
+        let data: any;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error('Invalid response from server');
+        }
+
+        if (controller.signal.aborted) return;
+
         if (!response.ok || data.status === 'error') {
           throw new Error(data.error?.message || 'Product not found');
         }
-        
+
         if (!data?.item) throw new Error('Product not found');
 
         const item = data.item;
+
         setProduct(prev => {
           const newImages = item.images || item.imageUrls || (item.image_url ? [item.image_url] : []);
-          
-          // Only merge images if enriching the SAME product; otherwise fully replace
           let mergedImages = newImages;
           const fetchedId = item.provider_product_id || item.id;
-          if (prev?.id && (prev.id === fetchedId)) {
+          if (prev?.id && prev.id === fetchedId) {
             const existingSet = new Set(prev.images);
             const additional = newImages.filter((img: string) => !existingSet.has(img));
             mergedImages = [...prev.images, ...additional];
@@ -199,34 +253,42 @@ export default function ProductDetailsPage() {
             inStock: item.in_stock !== false,
             productUrl: item.product_url || item.productUrl || prev?.productUrl,
             brand: item.brand || prev?.brand,
+            variants: item.variants || undefined,
           };
         });
 
-        // Extract variants if available
-        if (item.variants && Array.isArray(item.variants)) {
-          setVariants(item.variants);
-        } else if (item.buybox_winner?.variant) {
-          setVariants([item.buybox_winner.variant]);
-        }
-
+        console.log('[ProductDetails] fetch complete', {
+          id: cleanProductId,
+          provider: normalizedProvider,
+          durationMs: Date.now() - fetchStart,
+          hadInitialData,
+          source: data.source,
+          hasVariants: !!item.variants?.length,
+        });
       } catch (err: any) {
-        console.error('Failed to fetch product:', err);
-        // CRITICAL: If we have navigation state product, keep showing it instead of error screen
+        if (controller.signal.aborted) return;
+        console.error('[ProductDetails] fetch error', {
+          id, provider, error: err.message,
+          durationMs: Date.now() - fetchStart,
+          hadInitialData,
+        });
         if (!navProductRef.current) {
           setError(err.message || 'Failed to load product');
         }
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchProduct();
+    return () => controller.abort();
   }, [provider, id]);
 
-  // Fetch similar products in PARALLEL
+  // Fetch similar products
   useEffect(() => {
     const title = product?.title;
     if (!title || !provider || !id) return;
+    const controller = new AbortController();
 
     const fetchSimilar = async () => {
       try {
@@ -235,7 +297,8 @@ export default function ProductDetailsPage() {
           q: keywords.trim().toLowerCase(),
           limit: 5,
         });
-        
+
+        if (controller.signal.aborted) return;
         if (similarData?.items) {
           const currentId = product?.id || id;
           setSimilarProducts(
@@ -254,24 +317,24 @@ export default function ProductDetailsPage() {
           );
         }
       } catch (err) {
-        console.warn('Failed to fetch similar products:', err);
+        if (!controller.signal.aborted) console.warn('Failed to fetch similar products:', err);
       }
     };
 
     fetchSimilar();
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, id]);
 
-  const handleAddToCart = async () => {
+  const handleAddToCart = useCallback(async () => {
     if (!product) return;
-    
     setAdding(true);
     try {
       await addItem({
         productId: product.id,
         provider: product.provider,
         title: product.title,
-        imageUrl: product.images[0] || '',
+        imageUrl: safeImages[0] || '',
         priceUsd: product.priceUsd,
         quantity,
         productUrl: product.productUrl,
@@ -281,17 +344,18 @@ export default function ProductDetailsPage() {
     } finally {
       setAdding(false);
     }
-  };
+  }, [product, quantity, safeImages, addItem]);
 
-  const nextImage = () => {
-    if (!product) return;
-    setCurrentImageIndex((prev) => (prev + 1) % product.images.length);
-  };
+  const handleVariantSelect = useCallback((asin: string | undefined) => {
+    if (!asin || asin === product?.id) return;
+    const displayProv = product?.provider?.toLowerCase() === 'rainforest' ? 'amazon' : (product?.provider || 'amazon');
+    navigate(`/product/${displayProv}/${asin}`, {
+      state: { product: product ? { ...product, id: asin } : undefined },
+    });
+  }, [product, navigate]);
 
-  const prevImage = () => {
-    if (!product) return;
-    setCurrentImageIndex((prev) => (prev - 1 + product.images.length) % product.images.length);
-  };
+  const nextImage = () => setCurrentImageIndex(prev => (prev + 1) % safeImages.length);
+  const prevImage = () => setCurrentImageIndex(prev => (prev - 1 + safeImages.length) % safeImages.length);
 
   if (loading) {
     return (
@@ -319,7 +383,7 @@ export default function ProductDetailsPage() {
         <ShopHeader />
         <div className="pt-24 px-4 text-center">
           <p className="text-red-400 mb-4">{error || 'Product not found'}</p>
-          <Link to="/browse">
+          <Link to="/">
             <Button variant="outline" className="border-white/20 text-white hover:bg-white/10">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back to Shop
@@ -335,7 +399,8 @@ export default function ProductDetailsPage() {
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
 
-  const displayPrice = selectedVariant?.price?.value ?? product.priceUsd;
+  const displayPrice = product.priceUsd;
+  const safeRating = typeof product.rating === 'number' ? product.rating : null;
 
   return (
     <div className="min-h-screen bg-black">
@@ -343,9 +408,8 @@ export default function ProductDetailsPage() {
 
       <main className="pt-24 px-4 pb-20">
         <div className="container mx-auto max-w-6xl">
-          {/* Back Button */}
-          <Link 
-            to="/browse" 
+          <Link
+            to="/"
             className="inline-flex items-center gap-2 text-white/60 hover:text-white mb-6 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -361,8 +425,8 @@ export default function ProductDetailsPage() {
               >
                 <AnimatePresence mode="wait">
                   <motion.img
-                    key={currentImageIndex}
-                    src={product.images[currentImageIndex] || '/placeholder.svg'}
+                    key={safeImageIndex}
+                    src={safeImages[safeImageIndex] || '/placeholder.svg'}
                     alt={product.title}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -371,7 +435,7 @@ export default function ProductDetailsPage() {
                   />
                 </AnimatePresence>
 
-                {product.images.length > 1 && (
+                {safeImages.length > 1 && (
                   <>
                     <Button
                       variant="ghost"
@@ -397,15 +461,14 @@ export default function ProductDetailsPage() {
                 </Badge>
               </div>
 
-              {/* Thumbnails */}
-              {product.images.length > 1 && (
+              {safeImages.length > 1 && (
                 <div className="flex gap-2 overflow-x-auto pb-2">
-                  {product.images.slice(0, 6).map((img, index) => (
+                  {safeImages.slice(0, 6).map((img, index) => (
                     <button
                       key={index}
                       onClick={() => setCurrentImageIndex(index)}
                       className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                        index === currentImageIndex
+                        index === safeImageIndex
                           ? 'border-blue-500'
                           : 'border-white/10 hover:border-white/30'
                       }`}
@@ -434,21 +497,21 @@ export default function ProductDetailsPage() {
               </h1>
 
               {/* Rating */}
-              {product.rating && (
+              {safeRating !== null && safeRating > 0 && (
                 <div className="flex items-center gap-2">
                   <div className="flex items-center">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <span
                         key={i}
-                        className={i < Math.round(product.rating!) ? 'text-yellow-400' : 'text-white/20'}
+                        className={i < Math.round(safeRating) ? 'text-yellow-400' : 'text-white/20'}
                       >
                         ★
                       </span>
                     ))}
                   </div>
                   <span className="text-white/60">
-                    {product.rating.toFixed(1)}
-                    {product.reviewCount && ` (${product.reviewCount} reviews)`}
+                    {safeRating.toFixed(1)}
+                    {product.reviewCount ? ` (${product.reviewCount} reviews)` : ''}
                   </span>
                 </div>
               )}
@@ -464,68 +527,46 @@ export default function ProductDetailsPage() {
                 </Badge>
               )}
 
-              {/* Variant Selectors (Colors, Sizes) */}
-              {variants.length > 0 && (
+              {/* Variant Selectors */}
+              {variantGroups.length > 0 && (
                 <div className="space-y-4">
-                  {/* Color variants */}
-                  {variants.some((v: any) => v.color || v.dimension_values_display_data) && (
-                    <div>
-                      <h4 className="text-sm font-medium text-white/70 mb-2">
-                        {language === 'fr' ? 'Couleur' : 'Color'}
-                      </h4>
+                  {variantGroups.map(group => (
+                    <div key={group.name}>
+                      <h4 className="text-sm font-medium text-white/70 mb-2">{group.name}</h4>
                       <div className="flex flex-wrap gap-2">
-                        {variants
-                          .filter((v: any) => v.color || v.title)
-                          .slice(0, 12)
-                          .map((v: any, idx: number) => (
+                        {group.options.slice(0, 16).map((opt, idx) => {
+                          const isSelected = opt.isCurrent === true;
+                          return (
                             <button
                               key={idx}
-                              onClick={() => setSelectedVariant(v)}
-                              className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                                selectedVariant === v
+                              onClick={() => handleVariantSelect(opt.asin)}
+                              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                                isSelected
                                   ? 'border-blue-500 bg-blue-500/20 text-blue-400'
                                   : 'border-white/20 text-white/70 hover:border-white/40'
                               }`}
                             >
-                              {v.color || v.title || v.asin}
+                              {opt.image && (
+                                <img
+                                  src={opt.image}
+                                  alt={opt.value}
+                                  className="w-5 h-5 rounded-sm object-cover"
+                                />
+                              )}
+                              {opt.value}
                             </button>
-                          ))}
+                          );
+                        })}
                       </div>
                     </div>
-                  )}
-                  {/* Size variants */}
-                  {variants.some((v: any) => v.size) && (
-                    <div>
-                      <h4 className="text-sm font-medium text-white/70 mb-2">
-                        {language === 'fr' ? 'Taille' : 'Size'}
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {variants
-                          .filter((v: any) => v.size)
-                          .slice(0, 12)
-                          .map((v: any, idx: number) => (
-                            <button
-                              key={idx}
-                              onClick={() => setSelectedVariant(v)}
-                              className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                                selectedVariant === v
-                                  ? 'border-blue-500 bg-blue-500/20 text-blue-400'
-                                  : 'border-white/20 text-white/70 hover:border-white/40'
-                              }`}
-                            >
-                              {v.size}
-                            </button>
-                          ))}
-                      </div>
-                    </div>
-                  )}
+                  ))}
                 </div>
               )}
 
               {/* Price Breakdown */}
               <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
-                <PriceBreakdown 
-                  itemPriceUsd={displayPrice} 
+                <PriceBreakdown
+                  itemPriceUsd={displayPrice}
                   quantity={quantity}
                   isVehicle={isVehicle}
                 />
@@ -615,8 +656,8 @@ export default function ProductDetailsPage() {
 
       {lightboxOpen && (
         <ProductImageViewer
-          images={product.images}
-          currentIndex={currentImageIndex}
+          images={safeImages}
+          currentIndex={safeImageIndex}
           onClose={() => setLightboxOpen(false)}
           onIndexChange={setCurrentImageIndex}
         />

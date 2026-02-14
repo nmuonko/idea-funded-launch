@@ -459,7 +459,7 @@ Deno.serve(async (req: Request) => {
       const cachedVariants = await getCachedVariants();
       if (cachedVariants) {
         item.variants = cachedVariants;
-        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db+variants_cache variants=${cachedVariants.length} ms=${Date.now() - startTime}`);
+        console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: cachedVariants.length, totalMs: Date.now() - startTime }));
         
         return new Response(JSON.stringify({
           ok: true,
@@ -473,7 +473,7 @@ Deno.serve(async (req: Request) => {
           error: null,
         }), {
           status: 200,
-          headers: buildDiagHeaders({ variantsCache: "SKIP", provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db" }),
+          headers: buildDiagHeaders({ variantsCache: "HIT", provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db+variants_cache" }),
         });
       }
 
@@ -528,22 +528,22 @@ Deno.serve(async (req: Request) => {
           brand: legacyItem.brand || null,
         };
 
-        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db-legacy ms=${Date.now() - startTime}`);
+        // Check variants cache before returning legacy data
+        const legacyCachedVariants = await getCachedVariants();
+        if (legacyCachedVariants) {
+          item.variants = legacyCachedVariants;
+          console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "amazon", id: productId, dbHit: false, dbLegacyHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: legacyCachedVariants.length, totalMs: Date.now() - startTime }));
+          return new Response(JSON.stringify({
+            ok: true, status: "success", env: envName, id: fullProductId,
+            item, product: item, source: "db-legacy", cached: true, error: null,
+          }), {
+            status: 200,
+            headers: buildDiagHeaders({ variantsCache: "HIT", provider: "amazon", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db-legacy+variants_cache" }),
+          });
+        }
 
-        return new Response(JSON.stringify({
-          ok: true,
-          status: "success",
-          env: envName,
-          id: fullProductId,
-          item,
-          product: item,
-          source: "db-legacy",
-          cached: true,
-          error: null,
-        }), {
-          status: 200,
-          headers: buildDiagHeaders({ variantsCache: "SKIP", provider: "amazon", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db-legacy" }),
-        });
+        // NO return here -- fall through to live Rainforest fetch to get variants
+        console.log(`[DETAIL_DB] correlationId=${correlationId} legacy hit but no variants cached, falling through to live fetch`);
       }
     }
 
@@ -618,7 +618,7 @@ Deno.serve(async (req: Request) => {
           await cacheVariants(item.variants);
         }
 
-        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-ebay ms=${Date.now() - startTime}`);
+        console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "ebay", id: productId, dbHit: false, variantsCacheHit: false, liveFetch: true, variantsCount: item.variants?.length ?? 0, totalMs: Date.now() - startTime }));
         
         return new Response(JSON.stringify({
           ok: true,
@@ -711,7 +711,7 @@ Deno.serve(async (req: Request) => {
       await cacheVariants(item.variants);
     }
 
-    console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-rainforest ms=${Date.now() - startTime}`);
+    console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: "amazon", id: productId, dbHit: false, variantsCacheHit: false, liveFetch: true, variantsCount: item.variants?.length ?? 0, totalMs: Date.now() - startTime }));
 
     return new Response(JSON.stringify({
       ok: true,

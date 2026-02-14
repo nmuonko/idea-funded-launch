@@ -439,21 +439,10 @@ export async function buildWebHomepage(env: string, recipeKey?: string | null): 
   // Merge: if single-recipe rebuild, replace only that recipe's items in existing pool
   let allItems = newItems;
   if (recipeKey && existingPayload) {
-    const existingItems = ((existingPayload as Record<string, unknown>).items as RecipeItem[]) || [];
-    // Get all recipes for web to know which recipe each seed query belongs to
-    const allWebRecipes = await loadRecipes("web");
-    const targetRecipe = allWebRecipes.find(r => r.key === recipeKey);
-    
-    if (targetRecipe) {
-      const targetSeeds = await loadSeedsForRecipe(targetRecipe.id);
-      const targetQueries = new Set(targetSeeds.map(s => s.query.toLowerCase()));
-      
-      // Keep existing items that don't match the rebuilt recipe's seed queries
-      // Simple approach: remove items whose IDs are in the new set, then add new items
-      const newIdSet = new Set(newItems.map(i => i.id));
-      const kept = existingItems.filter(i => !newIdSet.has(i.id));
-      allItems = [...kept, ...newItems];
-    }
+    const existingItems = ((existingPayload as Record<string, unknown>).items as Array<RecipeItem & { _recipeKey?: string }>) || [];
+    // Keep all items that belong to OTHER recipes, remove all items from the rebuilt recipe
+    const kept = existingItems.filter(i => (i._recipeKey || "homepage") !== recipeKey);
+    allItems = [...kept, ...newItems];
   }
 
   const payload = {

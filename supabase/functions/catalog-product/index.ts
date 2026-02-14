@@ -389,7 +389,9 @@ Deno.serve(async (req: Request) => {
 
   // Internal provider: amazon -> rainforest for DB lookups
   const internalProvider = (provider === "amazon" || provider === "rainforest" || !provider) ? "rainforest" : provider;
-  const fullProductId = `${internalProvider}:${productId}`;
+  const fullProductId = internalProvider === "rainforest" 
+    ? `amazon_${productId}` 
+    : `${internalProvider}:${productId}`;
 
   try {
     // Create SDK-free DB client

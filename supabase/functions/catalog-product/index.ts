@@ -37,9 +37,27 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-supabase-client-info, x-supabase-client-version, x-supabase-client-name, x-afrishop-environment, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-device-id",
-  "Access-Control-Expose-Headers": "content-type",
+  "Access-Control-Expose-Headers": "content-type, X-Variants-Cache, X-Provider, X-Upstream-Ms, X-Total-Ms, X-Source",
   "Cache-Control": "public, max-age=300",
 };
+
+function buildDiagHeaders(opts: {
+  variantsCache: "HIT" | "MISS" | "SKIP";
+  provider: "amazon" | "ebay";
+  upstreamMs: number;
+  totalMs: number;
+  source: string;
+}): Record<string, string> {
+  return {
+    ...corsHeaders,
+    "Content-Type": "application/json",
+    "X-Variants-Cache": opts.variantsCache,
+    "X-Provider": opts.provider,
+    "X-Upstream-Ms": String(opts.upstreamMs),
+    "X-Total-Ms": String(opts.totalMs),
+    "X-Source": opts.source,
+  };
+}
 
 /**
  * Upgrade ALL gallery images to high-resolution for product detail view
@@ -455,26 +473,7 @@ Deno.serve(async (req: Request) => {
           error: null,
         }), {
           status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // No cached variants — for non-Amazon, return without variants (eBay will live-fetch below)
-      if (internalProvider !== "rainforest" && internalProvider !== "ebay") {
-        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db no_variants ms=${Date.now() - startTime}`);
-        return new Response(JSON.stringify({
-          ok: true,
-          status: "success",
-          env: envName,
-          id: fullProductId,
-          item,
-          product: item,
-          source: "db",
-          cached: true,
-          error: null,
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: buildDiagHeaders({ variantsCache: "SKIP", provider: externalProvider as "amazon" | "ebay", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db" }),
         });
       }
 
@@ -543,7 +542,7 @@ Deno.serve(async (req: Request) => {
           error: null,
         }), {
           status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: buildDiagHeaders({ variantsCache: "SKIP", provider: "amazon", upstreamMs: 0, totalMs: Date.now() - startTime, source: "db-legacy" }),
         });
       }
     }
@@ -633,7 +632,7 @@ Deno.serve(async (req: Request) => {
           error: null,
         }), {
           status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          headers: buildDiagHeaders({ variantsCache: "MISS", provider: "ebay", upstreamMs: Date.now() - startTime, totalMs: Date.now() - startTime, source: "live-ebay" }),
         });
         
       } catch (err) {
@@ -726,7 +725,7 @@ Deno.serve(async (req: Request) => {
       error: null,
     }), {
       status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: buildDiagHeaders({ variantsCache: "MISS", provider: "amazon", upstreamMs: Date.now() - startTime, totalMs: Date.now() - startTime, source: "live-rainforest" }),
     });
 
   } catch (err) {

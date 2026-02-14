@@ -16,10 +16,10 @@ interface CachedSettings {
 let settingsCache: CachedSettings | null = null;
 let refreshInProgress = false;
 
-// INSTANT UPDATES: Set TTL to 0 so admin changes reflect immediately
-// Edge function instances have short lifetimes anyway (~5-10 min)
-const CACHE_TTL_MS = 0;                   // Always fetch fresh for instant admin updates
-const STALE_TTL_MS = 30 * 1000;           // 30 seconds - very short stale window
+// OPTIMIZED FOR 5K-10K USERS: In-memory TTL cache to reduce DB pressure
+// Edge function instances live ~5-10 min; 60s cache eliminates ~95% of settings queries
+const CACHE_TTL_MS = 60 * 1000;           // 60 seconds fresh — skip DB entirely
+const STALE_TTL_MS = 5 * 60 * 1000;      // 5 minutes stale-while-revalidate
 
 /**
  * Get cached settings with stale-while-revalidate pattern

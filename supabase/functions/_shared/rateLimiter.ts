@@ -53,8 +53,8 @@ export async function checkRateLimit(
 }
 
 /**
- * Check dual rate limits (per-user AND per-IP)
- * Both must pass for the request to be allowed
+ * Check dual rate limits (per-user AND per-IP) in a SINGLE DB round-trip
+ * Uses check_dual_rate_limit DB function for optimal performance at scale
  */
 export async function checkDualRateLimit(
   supabase: SupabaseClient,
@@ -68,35 +68,26 @@ export async function checkDualRateLimit(
   const userKey = `user:${userId}:${action}`;
   const ipKey = `ip:${clientIp}:${action}`;
 
-  // Check both limits in parallel
-  const [userResult, ipResult] = await Promise.all([
-    checkRateLimit(supabase, userKey, userLimit, windowMinutes),
-    checkRateLimit(supabase, ipKey, ipLimit, windowMinutes),
-  ]);
+  // Single DB call instead of two parallel calls
+  const { data, error } = await supabase.rpc('check_dual_rate_limit', {
+    p_user_key: userKey,
+    p_ip_key: ipKey,
+    p_user_limit: userLimit,
+    p_ip_limit: ipLimit,
+    p_window_minutes: windowMinutes,
+  });
 
-  // Both must be allowed
-  if (!userResult.allowed) {
-    return {
-      allowed: false,
-      user_result: userResult,
-      ip_result: ipResult,
-      blocked_by: 'user',
-    };
-  }
-
-  if (!ipResult.allowed) {
-    return {
-      allowed: false,
-      user_result: userResult,
-      ip_result: ipResult,
-      blocked_by: 'ip',
-    };
+  if (error) {
+    console.error('[RateLimiter] Error checking dual rate limit:', error);
+    // Fail open
+    return { allowed: true };
   }
 
   return {
-    allowed: true,
-    user_result: userResult,
-    ip_result: ipResult,
+    allowed: data.allowed,
+    user_result: data.user_result as RateLimitResult,
+    ip_result: data.ip_result as RateLimitResult,
+    blocked_by: data.blocked_by || undefined,
   };
 }
 

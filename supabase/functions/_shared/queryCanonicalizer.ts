@@ -96,6 +96,12 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   
   // Toyota models - prevent "camry" → "camaro" fuzzy match
   "camry": [],        // CRITICAL: Prevent "camry" → "camaro"
+  
+  // Tecno phone models - prevent fuzzy match corruption
+  "camon": [],        // Tecno Camon - prevent "camon" → "camry" fuzzy match
+  "spark": [],        // Tecno Spark model
+  "pouvoir": [],      // Tecno Pouvoir model
+  "phantom": [],      // Tecno Phantom model
   "corolla": [],      // Prevent unwanted fuzzy matches
   "rav4": [],         // Prevent unwanted fuzzy matches
   "highlander": [],   // Prevent unwanted fuzzy matches

@@ -349,23 +349,90 @@ export default function ProductDetailsPage() {
 
   const handleVariantSelect = useCallback((asin: string | undefined) => {
     if (!asin || asin === product?.id) return;
-    const displayProv = product?.provider?.toLowerCase() === 'rainforest' ? 'amazon' : (product?.provider || 'amazon');
-    
-    // Find the variant's own image to show immediately
-    const variant = product?.variants?.find(v => v.asin === asin);
-    const variantImage = variant?.image;
-    
-    navigate(`/product/${displayProv}/${asin}`, {
-      state: { 
-        product: product ? { 
-          ...product, 
-          id: asin,
-          imageUrl: variantImage || product.images?.[0],
-          images: undefined, // Clear old images so they don't flash
-        } : undefined 
-      },
+
+    // Find the clicked variant
+    const clickedVariant = product?.variants?.find(v => v.asin === asin);
+    if (!clickedVariant) return;
+
+    // 1. Optimistic UI update - instant
+    setProduct(prev => {
+      if (!prev) return prev;
+      const newImage = clickedVariant.image;
+      const updatedVariants = prev.variants?.map(v => ({
+        ...v,
+        isCurrent: v.asin === asin,
+      }));
+      return {
+        ...prev,
+        id: asin,
+        images: newImage ? [newImage] : prev.images,
+        variants: updatedVariants,
+      };
     });
-  }, [product, navigate]);
+    setCurrentImageIndex(0);
+
+    // 2. Update URL without triggering navigation
+    const displayProv = product?.provider?.toLowerCase() === 'rainforest'
+      ? 'amazon' : (product?.provider || 'amazon');
+    window.history.replaceState(null, '', `/product/${displayProv}/${asin}`);
+
+    // 3. Background fetch for full product data
+    const fetchVariantData = async () => {
+      try {
+        const apiUrl = new URL(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`
+        );
+        apiUrl.searchParams.set('provider', 'amazon');
+        apiUrl.searchParams.set('id', asin);
+        apiUrl.searchParams.set('amazon_domain', 'amazon.com');
+
+        const resp = await fetch(apiUrl.toString(), {
+          headers: {
+            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'Content-Type': 'application/json',
+          },
+        });
+        const data = await resp.json();
+        if (!data?.item) return;
+        const item = data.item;
+
+        setProduct(prev => {
+          if (!prev || prev.id !== asin) return prev; // stale guard
+          const newImages = item.images || item.imageUrls ||
+            (item.image_url ? [item.image_url] : []);
+          return {
+            ...prev,
+            title: item.title || prev.title,
+            description: item.description || prev.description,
+            images: newImages.length > 0 ? newImages : prev.images,
+            priceUsd: item.price_usd || item.priceUsd || prev.priceUsd,
+            rating: item.rating ?? prev.rating,
+            reviewCount: item.review_count || prev.reviewCount,
+            brand: item.brand || prev.brand,
+            variants: item.variants || prev.variants,
+          };
+        });
+      } catch (err) {
+        console.warn('[ProductDetails] background variant fetch failed', err);
+      }
+    };
+
+    fetchVariantData();
+  }, [product]);
+
+  const translateVariantLabel = useCallback((name: string) => {
+    const key = name.toLowerCase();
+    const map: Record<string, string> = {
+      color: shop.variantColor || 'Color',
+      colour: shop.variantColor || 'Color',
+      size: shop.variantSize || 'Size',
+      style: shop.variantStyle || 'Style',
+      storage: shop.variantStorage || 'Storage',
+      pattern: shop.variantPattern || 'Pattern',
+      material: shop.variantMaterial || 'Material',
+    };
+    return map[key] || name;
+  }, [shop]);
 
   const nextImage = () => setCurrentImageIndex(prev => (prev + 1) % safeImages.length);
   const prevImage = () => setCurrentImageIndex(prev => (prev - 1 + safeImages.length) % safeImages.length);
@@ -545,7 +612,7 @@ export default function ProductDetailsPage() {
                 <div className="space-y-4">
                   {variantGroups.map(group => (
                     <div key={group.name}>
-                      <h4 className="text-sm font-medium text-white/70 mb-2">{group.name}</h4>
+                      <h4 className="text-sm font-medium text-white/70 mb-2">{translateVariantLabel(group.name)}</h4>
                       <div className="flex flex-wrap gap-2">
                         {group.options.slice(0, 16).map((opt, idx) => {
                           const isSelected = opt.isCurrent === true;

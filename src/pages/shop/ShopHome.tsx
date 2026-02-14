@@ -107,15 +107,30 @@ export default function ShopHome() {
       
       console.log(`[ShopHome] response page=${page} ok=${data.ok} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
       
-      // Handle ok:false gracefully - don't show error banner, just empty state
+      // Handle ok:false gracefully - retry once with skipCache before showing empty
       if (data.ok === false) {
-        console.warn('[ShopHome] Backend returned ok:false, rendering empty feed:', data.error);
+        console.warn('[ShopHome] Backend returned ok:false, retrying without cache:', data.error);
         
-        if (page === 1) {
-          // Show empty state instead of error - user can still search
+        if (page === 1 && !append) {
+          try {
+            const retryData = await cachedCatalogFetch<HomeFeedResponse & {
+              ok?: boolean; totalPages?: number; hasMore?: boolean; hasMoreCached?: boolean;
+              _meta?: { source?: string; poolSize?: number; isStale?: boolean };
+            }>('catalog-home', params, { skipCache: true });
+            
+            if (retryData.ok !== false && retryData?.sections?.[0]?.items?.length) {
+              const mapped = retryData.sections[0].items.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0);
+              setProducts(mapped);
+              if (retryData.totalPages) setTotalPages(retryData.totalPages);
+              setHasMore(retryData.hasMore !== false && mapped.length > 0);
+              setCurrentPage(1);
+              return;
+            }
+          } catch (retryErr) {
+            console.warn('[ShopHome] Retry also failed:', retryErr);
+          }
           setProducts([]);
           setHasMore(false);
-          // DON'T set error - we want to show "Search products" CTA instead
         }
         return;
       }

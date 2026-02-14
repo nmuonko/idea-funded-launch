@@ -1,87 +1,50 @@
 
+# Fix Vehicle Markup Alignment and Quote State Feedback
 
-# Backend Optimization for 5,000-10,000 Concurrent Users
+## Problem 1: Markup Fee Mismatch
 
-## Current State
+The admin has configured a **10% markup for vehicles** (`category_markups.vehicles = 10`) and a **30% general markup** (`markup_percent = 30`). However, when a car is added to cart:
 
-Your backend is already well-architected with multi-layer caching, rate limiting, and lightweight SDK-free database clients. The main bottlenecks for scaling to 5K-10K users are:
+- `mobile-add-cart-item` uses the **general 30% markup** because its settings helper (`_shared/cart/db.ts`) does not fetch `category_markups` from the database at all
+- `mobile-get-cart` correctly uses the **10% vehicle markup** (via `_shared/settings-cache.ts` which reads `category_markups`)
+- This causes the mobile app to show inconsistent pricing between add-to-cart response and cart view
 
-1. **Frontend re-fetching**: Most queries have no `staleTime` configured, causing unnecessary repeated API calls on every component mount
-2. **Database connection pressure**: Every rate limit check and cache lookup is a separate DB round-trip
-3. **No in-memory caching at the edge**: Every request hits the database even for hot data like settings and exchange rates
-4. **Cleanup functions run inline**: Expired cache cleanup competes with user-facing queries
+### Fix
 
-## Optimization Plan
+**File: `supabase/functions/_shared/cart/db.ts`**
+- Add `category_markups` to the SELECT query in `getCachedSettings`
+- Add `vehicleMarkupPercent` to the returned `CartSettings` object, extracted from `category_markups.vehicles` (defaulting to general markup)
 
-### 1. Frontend: Add Global Query Caching (Biggest Impact)
+**File: `supabase/functions/_shared/cart/pricing.ts`**
+- No changes needed -- `calculateItemPricing` already accepts a markup parameter; callers just need to pass the correct one
 
-Configure TanStack Query with sensible defaults so the browser caches responses and avoids redundant API calls. This alone can reduce backend load by 50-70%.
+**File: `supabase/functions/mobile-add-cart-item/index.ts`**
+- When a vehicle is detected (`isVehicle = true`), use `settings.vehicleMarkupPercent` instead of `settings.markupPercent` for pricing calculation
 
-**File: `src/App.tsx` (or wherever QueryClient is created)**
-- Set default `staleTime` to 2 minutes and `gcTime` to 10 minutes
-- This means repeated page navigations reuse cached data instead of hitting the backend
+## Problem 2: Quote State Update After Clicking "Request a Quote"
 
-### 2. Edge Functions: In-Memory Settings Cache
+The flow is: user clicks button -> calls `mobile-request-quote` -> `syncCart()` re-fetches cart -> state updates. This already works correctly after the earlier `NONE`/`pending` fix, but there may be a brief delay where the button is still visible.
 
-The `mobile-get-cart`, `mobile-checkout`, and other critical functions call `getCachedSettings()` on every request. Add a simple in-memory TTL cache (60s) inside the shared settings helper so repeated invocations within the same edge function instance skip the DB entirely.
+### Fix
 
-**File: `supabase/functions/_shared/settings-cache.ts`**
-- Add module-level variable to store settings + timestamp
-- Return cached value if < 60 seconds old
-- This eliminates ~1 DB query per request for all cart/checkout/pricing operations
+**File: `src/pages/shop/ShopCart.tsx`**
+- After a successful quote request, **optimistically set** `vehicleQuoteStatus` to `'pending'` immediately (before `syncCart` completes) so the UI transitions instantly from the amber button to the "Quote Pending" status bar
+- This requires exposing a `setVehicleQuoteStatus` setter or adding a helper method in the cart context
 
-### 3. Edge Functions: Batch Rate Limit Check
-
-Currently `checkDualRateLimit` makes 2 sequential DB calls (user + IP). Combine into a single DB function call.
-
-**File: `supabase/functions/_shared/rateLimiter.ts`**
-- Already uses `Promise.all` (good), but create a new `check_dual_rate_limit` DB function that checks both keys in one round-trip
-
-**New DB function: `check_dual_rate_limit`**
-- Accepts both keys, returns both results in one call
-- Cuts rate-limiting latency in half
-
-### 4. Add HTTP Cache Headers to Read-Only Endpoints
-
-For catalog browsing (home, search, product details), add `Cache-Control` headers so browsers and CDNs can cache responses without hitting your backend at all.
-
-**Files: `catalog-home/index.ts`, `catalog-search/index.ts`, `catalog-product/index.ts`**
-- `catalog-product` already has `Cache-Control: public, max-age=300` (good)
-- Add similar headers to `catalog-home` (max-age=120) and `catalog-search` (max-age=60)
-
-### 5. Optimize Database Indexes for Hot Paths
-
-Add composite indexes for the most frequent query patterns to reduce DB CPU under load.
-
-**New migration:**
-- Index on `catalog_cache(cache_key, expires_at)` if not already present
-- Index on `order_items(order_id, is_saved_for_later)` for cart queries
-- Partial index on `orders(user_id) WHERE status = 'DRAFT'` for active cart lookups
+**File: `src/contexts/ShopCartContext.tsx`**
+- Expose a `markQuoteRequested` helper function that sets `vehicleQuoteStatus = 'pending'` immediately
+- The subsequent `syncCart()` call will confirm the state from the server
 
 ## Technical Details
 
-### Files to Modify
-1. `src/App.tsx` or `src/main.tsx` -- QueryClient default options
-2. `supabase/functions/_shared/settings-cache.ts` -- In-memory TTL cache
-3. `supabase/functions/_shared/rateLimiter.ts` -- Batch rate limit helper
-4. `supabase/functions/catalog-home/index.ts` -- Cache-Control headers
-5. `supabase/functions/catalog-search/index.ts` -- Cache-Control headers
-6. New DB migration -- Composite indexes for hot paths
-7. New DB function -- `check_dual_rate_limit` for single-call rate checking
+### Files Modified
+1. `supabase/functions/_shared/cart/db.ts` -- Add `category_markups` to settings query and return `vehicleMarkupPercent`
+2. `supabase/functions/mobile-add-cart-item/index.ts` -- Use vehicle-specific markup when `isVehicle` is detected
+3. `src/contexts/ShopCartContext.tsx` -- Add `markQuoteRequested()` helper for optimistic state update
+4. `src/pages/shop/ShopCart.tsx` -- Call `markQuoteRequested()` immediately on successful quote request for instant UI feedback
 
-### Expected Impact
+### Edge Functions Redeployed
+- `mobile-add-cart-item` (markup fix)
 
-```text
-Optimization                    | Load Reduction | Latency Impact
---------------------------------|----------------|----------------
-Frontend staleTime defaults     | -50-70% calls  | Instant nav
-In-memory settings cache        | -1 query/req   | -5-15ms/req
-Batch rate limit check          | -1 query/req   | -10-20ms/req
-HTTP Cache-Control headers      | -20-30% calls  | 0ms (cached)
-Database indexes                | CPU savings     | -5-10ms/query
-```
-
-### No Infrastructure Changes Needed
-
-These are all code-level optimizations. The managed infrastructure auto-scales edge functions, so the goal is to reduce the load each request puts on the database -- which is the true bottleneck at scale.
-
+### No database changes needed
+The `category_markups` column already exists in `settings` with the correct value (`vehicles: 10`).

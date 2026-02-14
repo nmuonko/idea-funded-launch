@@ -35,7 +35,7 @@ export function ShopHeader() {
       <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - Far Left */}
-          <Link to="/browse" className="flex-shrink-0">
+          <Link to="/" className="flex-shrink-0">
             <img src={afrishopLogo} alt="AfriShop" className="h-8" />
           </Link>
 
@@ -127,7 +127,7 @@ export function ShopHeader() {
                     <h3 className="text-sm font-medium text-white/60 mb-3 uppercase tracking-wider">{shop.quickLinks}</h3>
                     <div className="space-y-1">
                       <Link
-                        to="/browse"
+                        to="/"
                         onClick={() => setMobileMenuOpen(false)}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
                       >

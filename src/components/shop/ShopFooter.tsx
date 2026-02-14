@@ -33,7 +33,7 @@ import { translations } from '@/lib/i18n/translations';
              <h3 className="text-white font-semibold text-base mb-5">AfriShop</h3>
              <ul className="space-y-3">
                <li>
-                 <Link to="/browse" className="text-white/60 hover:text-white text-sm transition-colors">
+                 <Link to="/" className="text-white/60 hover:text-white text-sm transition-colors">
                    {shop.shopFooterTitle || 'Boutique'}
                  </Link>
                </li>

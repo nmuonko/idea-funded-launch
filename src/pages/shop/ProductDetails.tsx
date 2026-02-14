@@ -170,6 +170,7 @@ export default function ProductDetailsPage() {
     setSimilarProducts([]);
     setQuantity(1);
     setAdded(false);
+    setQuoteRequested(false);
     setLoading(!nav);
     setError(null);
     setLightboxOpen(false);
@@ -334,9 +335,12 @@ export default function ProductDetailsPage() {
   }, [provider, id]);
 
   // Check if this vehicle product is already in the user's cart
-  const isInCart = product && items.some(
-    item => item.productId === product.productUrl || item.productId === product.id
-  );
+  const isInCart = product && items.some(item => {
+    if (item.productUrl && product.productUrl && item.productUrl === product.productUrl) return true;
+    if (item.productId === product.id) return true;
+    if (product.id && item.productId?.includes(product.id)) return true;
+    return false;
+  });
   const showRequestQuote = isVehicle && isInCart && !!user;
 
   const handleAddToCart = useCallback(async () => {

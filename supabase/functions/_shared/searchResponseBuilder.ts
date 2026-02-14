@@ -76,10 +76,20 @@ const corsHeaders = {
 /**
  * Build final response headers with dynamic Cache-Control.
  */
+export interface SearchTimings {
+  rewrite: number;
+  aiRefine: number;
+  dbFirst: number;
+  providers: number;
+  altQueries: number;
+  postProcess: number;
+  total: number;
+}
+
 export function buildResponseHeaders(
   itemCount: number,
   cacheTtlSeconds: number,
-  extra?: { cacheStatus?: string; cacheAgeSec?: number; responseTimeMs?: number }
+  extra?: { cacheStatus?: string; cacheAgeSec?: number; responseTimeMs?: number; timings?: SearchTimings }
 ): Record<string, string> {
   const cacheControlHeader = itemCount > 0
     ? `public, max-age=${Math.min(cacheTtlSeconds, 3600)}, s-maxage=${cacheTtlSeconds}`
@@ -99,6 +109,16 @@ export function buildResponseHeaders(
   if (extra?.cacheStatus) headers["X-Cache-Status"] = extra.cacheStatus;
   if (extra?.cacheAgeSec !== undefined) headers["X-Cache-Age"] = String(extra.cacheAgeSec);
   if (extra?.responseTimeMs !== undefined) headers["X-Response-Time"] = String(extra.responseTimeMs);
+  // Timing breakdown headers
+  if (extra?.timings) {
+    const t = extra.timings;
+    headers["X-Search-T-Total"] = String(t.total);
+    headers["X-Search-T-Rewrite"] = String(t.rewrite);
+    headers["X-Search-T-Db"] = String(t.dbFirst);
+    headers["X-Search-T-Upstream"] = String(t.providers);
+    headers["X-Search-T-AltQueries"] = String(t.altQueries);
+    headers["X-Search-T-PostProcess"] = String(t.postProcess);
+  }
   return headers;
 }
 

@@ -105,7 +105,7 @@ function formatItem(
   
   // Get quote request info - ALWAYS include regardless of status
   const quoteRequest = item.quote_requests?.[0];
-  const quoteStatus = quoteRequest?.status || (isVehicle && !vehicleQuoteApplied ? 'PENDING' : null);
+  const quoteStatus = quoteRequest?.status || (isVehicle && !vehicleQuoteApplied ? 'NONE' : null);
   const quotedShippingUsd = quoteRequest?.quoted_shipping_usd ?? null;
   const quotedTotalUsd = quoteRequest?.quoted_total_usd ?? null;
   
@@ -416,6 +416,7 @@ serve(async (req) => {
     let vehicleTotalUsd = 0;
     let hasVehicleItems = false;
     let allVehiclesQuoted = true;
+    let anyVehicleNoQuoteRequest = false;
     let vehiclesWithPendingQuotes: string[] = [];
 
     // CRITICAL: Price confirmation tracking for checkout blocking
@@ -452,6 +453,9 @@ serve(async (req) => {
           vehicleTotalUsd += formattedItem.itemTotalUsd;  // Use itemTotalUsd (base+margin+shipping)
         } else {
           allVehiclesQuoted = false;
+          if (formattedItem.quoteStatus === 'NONE') {
+            anyVehicleNoQuoteRequest = true;
+          }
           vehiclesWithPendingQuotes.push(item.id);
           vehicleBasePriceTotal += formattedItem.itemBaseTotalUsd;
           vehicleMarginTotal += formattedItem.itemMarginUsd;  // Include estimated margin
@@ -506,7 +510,13 @@ serve(async (req) => {
     // Determine vehicle quote status
     let vehicleQuoteStatus: 'none' | 'pending' | 'quoted' = 'none';
     if (hasVehicleItems) {
-      vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : 'pending';
+      if (allVehiclesQuoted) {
+        vehicleQuoteStatus = 'quoted';
+      } else if (anyVehicleNoQuoteRequest) {
+        vehicleQuoteStatus = 'none';
+      } else {
+        vehicleQuoteStatus = 'pending';
+      }
     }
 
     // CRITICAL: Checkout is blocked if there are pending price confirmations

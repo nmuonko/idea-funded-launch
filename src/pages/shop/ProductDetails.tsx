@@ -341,7 +341,8 @@ export default function ProductDetailsPage() {
     if (product.id && item.productId?.includes(product.id)) return true;
     return false;
   });
-  const showRequestQuote = isVehicle && isInCart && !!user;
+  // Quote requests are now initiated from the cart page, not here
+  const showRequestQuote = false;
 
   const handleAddToCart = useCallback(async () => {
     if (!product) return;
@@ -710,30 +711,18 @@ export default function ProductDetailsPage() {
                 </div>
               </div>
 
-              {/* Add to Cart / Request Quote */}
+              {/* Add to Cart */}
               <Button
-                onClick={quoteRequested ? undefined : showRequestQuote ? handleRequestQuote : handleAddToCart}
-                disabled={adding || !product.inStock || quoteRequested}
+                onClick={handleAddToCart}
+                disabled={adding || !product.inStock}
                 className={`w-full h-14 text-lg rounded-full transition-all ${
-                  quoteRequested || added
+                  added
                     ? 'bg-green-500 hover:bg-green-600'
-                    : showRequestQuote
-                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600'
-                      : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
+                    : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600'
                 }`}
               >
                 {adding ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
-                ) : quoteRequested ? (
-                  <>
-                    <Check className="h-5 w-5 mr-2" />
-                    {shop.requestSent || 'Request Sent'}
-                  </>
-                ) : showRequestQuote ? (
-                  <>
-                    <FileText className="h-5 w-5 mr-2" />
-                    {shop.requestQuote || 'Request a Quote'}
-                  </>
                 ) : added ? (
                   <>
                     <Check className="h-5 w-5 mr-2" />

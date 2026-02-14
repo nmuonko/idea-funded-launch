@@ -1,92 +1,143 @@
 
+# Fix: Search Speed — Timing Instrumentation + Fast Path + Hard Time Budget
 
-# Fix: Search Speed + Vehicle Quote False Positives
+## Problem Analysis
 
-## Three Issues Identified
+Current cache-miss search flow is sequential and unbounded:
 
-### 1. Search takes 14-18 seconds on first query
+1. Category resolution (~50ms)
+2. Rate limit check (~50ms)
+3. Rewrite + Settings in parallel (~100-500ms)
+4. FR-EN fallback (~1ms)
+5. **AI refiner await** (~800-2000ms) -- BLOCKING, waits for full result before providers start
+6. DB-first search (~200-500ms)
+7. Provider fetch (Amazon + eBay parallel, 3-8s)
+8. **Alt queries** (up to 3s EACH, sequential loop)
+9. **Secondary canonical query** (another 3s)
+10. **Tractor fallback** (another 3s)
+11. Mix + filter + score + guardrails (~50ms)
+12. Media enrichment (~50ms with skipPrefetch)
+13. Cache write (~50ms)
 
-**Root cause**: The `enrichItemsWithMediaCounts` step is the bottleneck. Server logs show dozens of "Timeout" entries -- each media cache lookup has a 3-second timeout, and they pile up sequentially. Combined with the AI refiner, rewriter, DB-first search, and secondary/alt query attempts, the total exceeds 14 seconds.
+Worst case: steps 5+6+7+8+9+10 = 2s + 0.5s + 5s + 3s + 3s + 3s = **16.5s**
 
-**The server-side shared cache works correctly** -- once a query is cached (24h stale, 7d expire), subsequent users get it instantly. But the first search (cache miss) is painfully slow.
+## Root Causes
 
-**Fix**: Skip media enrichment for search results entirely. Media counts (image galleries) are only useful on the product detail page. For search listings, we just need the primary image. Pass `skipPrefetch: true` to avoid blocking fetches, which eliminates the timeout cascade.
+1. **AI refiner blocks providers** (line 499): `await aiRefinePromise` completes before providers start. The refiner modifies `qNorm` which becomes `providerQuery`, so providers can't start until refiner finishes.
+2. **Unlimited sequential alt queries** (lines 699-766): If primary returns < 60 items, code tries alt queries AND secondary canonical query, each with 3s timeouts.
+3. **No global time budget**: Nothing stops the function from spending 16s on sequential fallbacks.
+4. **Cache write happens LAST** (line 1060): Even if primary results are good, cache isn't populated until all fallback attempts complete.
 
-### 2. Car accessories incorrectly show "Awaiting quote"
+## Changes
 
-**Root cause**: The `looksLikeVehicleListing()` function in `ProductDetails.tsx` checks for (brand + year) or (brand + body type). The product title "Car CarPlay Android Auto Navigation Stereo GPS Radio... **for Toyota Camry 2018-2021**" matches "toyota" (brand) + "2018" (year), so it returns `true`.
+### 1. Timing Instrumentation (File: `catalog-search/index.ts`)
 
-The exclusions list is missing car electronics/accessory keywords: stereo, radio, navigation, carplay, headunit, media player, dashcam, speaker, amplifier, antenna (already there but only exact match), gps, bluetooth, adapter, cable, obd, scanner.
+Add a `timings` object that tracks each stage:
 
-**Fix**: Expand the exclusions list in `looksLikeVehicleListing` to include car electronics and accessory terms. Also add a stronger check: if the title contains "for [brand]" pattern (indicating compatibility, not the vehicle itself), it should NOT be flagged as a vehicle.
-
-### 3. Quote should only trigger when added to cart (not on product page)
-
-**Root cause**: In `PriceBreakdown.tsx`, line 35-36: `const vehiclePendingQuote = isVehicle ? true : ...`. When `isVehicle` is `true`, it ALWAYS shows "Awaiting quote" even on the product detail page before adding to cart. The comment even says "For vehicle product pages, ALWAYS show pending".
-
-**Fix**: Change the logic so that the "Awaiting quote" state only applies when the item is actually in the cart. On the product detail page (before adding to cart), show normal shipping estimates instead.
-
-## Technical Changes
-
-### File 1: `src/pages/shop/ProductDetails.tsx` (lines 19-35)
-Expand `looksLikeVehicleListing` exclusions:
-
-```typescript
-const exclusions = ['charger', 'mount', 'holder', 'brake pad', 'oil filter',
-  'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
-  'floor mat', 'seat cover', 'car wash', 'phone holder', 'emblem', 'badge',
-  'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap',
-  // Car electronics & accessories
-  'stereo', 'radio', 'navigation', 'carplay', 'android auto', 'headunit',
-  'head unit', 'media player', 'dashcam', 'dash cam', 'speaker', 'amplifier',
-  'subwoofer', 'gps', 'bluetooth', 'adapter', 'cable', 'obd', 'scanner',
-  'led light', 'light bar', 'fog light', 'backup camera', 'reverse camera',
-  'tablet', 'touchscreen', 'display'];
+```text
+timings = {
+  rewrite: 0,    // rewrite + settings parallel
+  aiRefine: 0,   // AI refiner wait
+  dbFirst: 0,    // DB-first search
+  providers: 0,  // primary provider fetch
+  altQueries: 0, // alt + secondary attempts
+  postProcess: 0,// filter + score + guardrails + media
+  total: 0
+}
 ```
 
-Also add a "for [brand]" compatibility pattern check -- if the title says "for Toyota" rather than just "Toyota", it is an accessory, not a vehicle:
+Return these as response headers:
+- `X-Search-T-Total`, `X-Search-T-Rewrite`, `X-Search-T-Db`, `X-Search-T-Upstream`, `X-Search-T-AltQueries`, `X-Search-T-PostProcess`
+- Existing `X-Cache-Status` (HIT/STALE/MISS) already works
 
+Log a single structured timing line per request.
+
+### 2. Fast Path for Direct Queries (File: `catalog-search/index.ts`)
+
+Add `isDirectQuery(q)` function:
+- Query has <= 6 words
+- Contains at least one digit OR a known model token (iphone, samsung, tecno, infinix, pixel, playstation, ps5, xbox, macbook, thinkpad, galaxy, redmi, oppo, vivo, huawei, camon, spark, hot, note)
+- NOT a single broad generic term (telephone, tv, frigo, vetement, chaussure, ordinateur, voiture, cuisiniere alone without specifics)
+
+When `isDirectQuery` is true:
+- **Do NOT await AI refiner** -- use the FR-EN fallback rewrite or original query directly for providers
+- Fire AI refiner in parallel (non-blocking) -- if it returns before providers, use its result; otherwise ignore
+- Skip DB-first search entirely (direct queries hit providers immediately)
+- After primary providers return: skip ALL alt query attempts regardless of result count
+
+This ensures queries like "tecno camon 20", "iphone 13", "cuisiniere 4 feux" go straight to providers.
+
+### 3. Hard Time Budget + Limited Retries (File: `catalog-search/index.ts`)
+
+Constants:
 ```typescript
-// "for [brand]" pattern = accessory/part, not a vehicle
-const forBrandPattern = /\bfor\s+(toyota|honda|ford|...)\b/i;
-if (forBrandPattern.test(title)) return false;
+const TOTAL_BUDGET_MS = 3500;
+const REWRITE_BUDGET_MS = 800;
+const AI_REFINE_BUDGET_MS = 800; // reduced from 2000
+const DB_BUDGET_MS = 500;
+const ALT_QUERIES_MAX = 1; // down from unlimited
 ```
 
-### File 2: `src/components/shop/PriceBreakdown.tsx` (lines 33-37)
-Change vehicle quote logic to only apply in cart context (not product page):
+Implementation:
+- Wrap rewrite+settings `Promise.all` with `Promise.race` against `REWRITE_BUDGET_MS` timeout
+- Wrap AI refiner with `AI_REFINE_BUDGET_MS` timeout (reduce from 2s to 800ms)
+- Wrap DB-first with `DB_BUDGET_MS` timeout
+- Before alt queries: check `Date.now() - startTime > TOTAL_BUDGET_MS` -- if exceeded, skip entirely
+- Limit alt query loop to `ALT_QUERIES_MAX = 1` attempt (currently unlimited)
+- Remove secondary canonical query attempt entirely (lines 736-765) -- it's redundant with alt queries
+- Remove tractor-specific 3rd attempt (lines 768-797) -- fold into alt query logic
 
-```typescript
-// Only show "Awaiting quote" if this vehicle is actually IN the cart
-// Product detail pages pass isVehicle but the item isn't in cart yet
-const vehiclePendingQuote = hasVehicleItems && vehicleQuoteStatus !== 'quoted';
-// Don't force quote state on product pages based on isVehicle prop alone
+### 4. Early Cache Population (File: `catalog-search/index.ts`)
+
+After primary provider results are mixed and filtered (before alt queries):
+- If result count > 0, immediately write to shared cache with a "partial" flag
+- This means the NEXT user gets instant results even if we're still running alt queries
+- On final response, overwrite cache with complete results (removes partial flag)
+
+### 5. Confirm Media Enrichment Not Blocking
+
+Already confirmed: `enrichItemsWithMediaCounts` is called with `{ skipPrefetch: true }` (line 833). With skipPrefetch, it only does DB lookups for cached counts -- no HTTP fetches, no 3s timeouts. This is fine (~50ms).
+
+## File Changes
+
+| File | Change |
+|------|--------|
+| `supabase/functions/catalog-search/index.ts` | Add timings object, `isDirectQuery()`, time budgets, early cache write, remove redundant fallbacks, add timing headers |
+| `supabase/functions/_shared/searchAiExpand.ts` | Reduce `AI_REFINE_TIMEOUT_MS` from 2000 to 800 |
+| `supabase/functions/_shared/searchResponseBuilder.ts` | Add timing headers to `buildResponseHeaders` |
+
+## Expected Flow After Changes
+
+### Fast Path ("tecno camon 20"):
+```text
+1. Category + Rate limit + Rewrite+Settings (parallel) ~200ms
+2. FR-EN fallback (instant) ~1ms  
+3. Skip AI refiner await, skip DB-first
+4. Provider fetch (Amazon + eBay parallel) ~2-4s
+5. Mix + filter + score ~50ms
+6. Early cache write (fire-and-forget)
+7. Return response
+TOTAL: ~2.5-4.5s (down from 10-18s)
 ```
 
-### File 3: `supabase/functions/catalog-search/index.ts` (lines 830-833)
-Skip blocking media enrichment in search results:
-
-```typescript
-const { items: enrichedItems, stats: mediaStats } = await enrichItemsWithMediaCounts(
-  supabase, filteredFinalItems as unknown as Record<string, unknown>[],
-  undefined, { skipPrefetch: true }
-);
+### Normal Path ("chaussures homme"):
+```text
+1. Category + Rate limit + Rewrite+Settings ~200ms
+2. AI refiner (800ms budget, timeout = continue without)
+3. DB-first (500ms budget)
+4. Provider fetch ~2-4s
+5. Check budget: if > 3.5s elapsed, skip alt queries
+6. At most 1 alt query attempt
+7. Mix + filter + score ~50ms
+8. Cache write
+9. Return response  
+TOTAL: ~3-5s max
 ```
-
-This single change should cut 5-12 seconds from the first search by eliminating the media cache timeout cascade.
-
-## Expected Results
-
-| Issue | Before | After |
-|-------|--------|-------|
-| First search (cache miss) | 14-18 seconds | 3-6 seconds |
-| Repeat search (any user, cache hit) | <1 second | <1 second (unchanged) |
-| Car stereo "for Toyota Camry" | Shows "Awaiting quote" | Shows normal shipping fee |
-| Actual vehicle listing | Shows "Awaiting quote" | Shows "Awaiting quote" (unchanged) |
-| Quote on product page vs cart | Always shows on product page | Only shows when in cart |
 
 ## What Is NOT Changed
 
 - No payment, checkout, or category logic changes
-- Server-side shared cache behavior unchanged
-- Client-side LRU + SWR from previous changes unchanged
-- Vehicle detection for actual vehicles unchanged
+- Cache key format unchanged (existing cached results still valid)
+- Provider fetcher internals unchanged
+- Content blocking, scoring, guardrails unchanged
+- Client-side LRU + SWR unchanged

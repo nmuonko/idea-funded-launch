@@ -1,48 +1,96 @@
 
 
-# Fix: Single-Recipe Rebuild Overwrites All Tabs
+# Instant Search: Shared Cache + Client Cache + SWR + No Duplicates
 
-## Problem
+## Overview
 
-When you click "Rebuild" on a specific recipe (e.g., "homepage") in the admin portal, it should only update that tab's items. Instead, the merge logic has a bug that can corrupt items from other tabs.
+Make AfriShop search feel instant by layering client-side caching with the existing server-side cache, adding stale-while-revalidate on the frontend, fixing pagination duplicates, and virtualizing the product grid.
 
-The web cache stores ALL recipes' items in a single row, tagged with `_recipeKey` (e.g., "homepage", "gaming", "vehicles"). When serving a tab, items are filtered by this tag. This part works correctly.
+## Current State
 
-The bug is in the **merge step** when rebuilding a single recipe:
+- **Server cache**: Already exists via `catalog_cache` table with SWR pattern (stale/expire TTLs, background refresh). Query normalization exists server-side (`normalizeQuery` in `catalogCache.ts`).
+- **Client cache**: `src/lib/catalogCache.ts` uses `localStorage` with TTL, but search pages skip cache on pagination (`skipCache: pageNum > 1`). No in-memory LRU. No SWR on client side -- cache miss = full loading spinner.
+- **Deduplication**: Basic `dedupeProducts` exists in `SearchResults.tsx` using `id:provider` key, but no persistent `seenIds` across pages.
+- **No virtualization**: `ProductGrid` renders all products with `.map()`.
 
-- **Current (broken)**: Removes existing items whose **product ID** collides with new items. This means if a product appears in both "gaming" and "homepage", rebuilding "homepage" would steal it from "gaming". It also keeps stale "homepage" items that weren't in the new fetch.
-- **Correct**: Remove ALL existing items tagged with the rebuilt recipe's `_recipeKey`, then add the fresh items.
+## Changes
 
-Additionally, when we ran `home-auto-refresh` earlier to fix your seeds, it called `buildWebHomepage(env)` **without** a `recipeKey` -- which rebuilt ALL 12 recipes at once. That's why every tab changed simultaneously.
+### 1. Enhanced Client Cache with In-Memory LRU + SWR (Frontend)
 
-## Fix
+**File: `src/lib/catalogCache.ts`**
 
-One code change in `supabase/functions/_shared/homeRecipeBuilder.ts` (lines 441-456):
+- Add an in-memory LRU map (max 50 entries) that sits in front of localStorage
+- New `cachedCatalogFetchWithSwr()` function:
+  1. Check in-memory LRU first (instant, <1ms)
+  2. Check localStorage second (fast, <5ms)
+  3. If hit (even expired up to 2x TTL): return data immediately, set `isStale=true`
+  4. Fire network request in parallel
+  5. On response: update both caches, call an `onUpdate` callback to refresh UI smoothly
+- Normalize queries client-side with same logic as server (`normalizeQuery`: trim, lowercase, collapse whitespace, remove diacritics, strip punctuation, keep numbers, max 120 chars)
+- `stableStringify(filters)`: sort keys alphabetically for deterministic cache keys
 
-Replace the ID-collision merge with a clean `_recipeKey`-based merge:
+### 2. Search Results with Instant Render + SWR UI (Frontend)
 
-```typescript
-// Merge: replace only the target recipe's items, keep everything else
-if (recipeKey && existingPayload) {
-  const existingItems = (existingPayload.items as Array<RecipeItem & { _recipeKey?: string }>) || [];
-  // Keep all items that belong to OTHER recipes
-  const kept = existingItems.filter(i => (i._recipeKey || "homepage") !== recipeKey);
-  allItems = [...kept, ...newItems];
-}
-```
+**File: `src/pages/shop/SearchResults.tsx`**
 
-This is simpler (removes unnecessary seed-query loading) and correct -- rebuilding "homepage" only touches homepage-tagged items, leaving gaming/vehicles/etc. untouched.
+- Replace `cachedCatalogFetch` with new `cachedCatalogFetchWithSwr`
+- On cache hit: render products immediately, show subtle "Updating..." badge (not a full spinner)
+- On fresh data arrival: smoothly replace product list (no flash)
+- Debounce search input at 200ms (already using AbortController for cancellation)
+- Maintain a `seenIds` Set across pagination:
+  - On page 1: reset `seenIds`
+  - On subsequent pages: filter incoming items against `seenIds` before appending
+  - Prevents any duplicates across "Load More" clicks
+
+### 3. Virtualized Product Grid (Frontend)
+
+**File: `src/components/shop/ProductGrid.tsx`**
+
+- Use CSS `content-visibility: auto` with `contain-intrinsic-size` on product card wrappers
+- This gives virtualization-like benefits without a heavy library dependency
+- Memoize `ProductCard` with `React.memo` to prevent unnecessary re-renders
+
+### 4. Server-Side Search Cache Improvements (Backend)
+
+**File: `supabase/functions/catalog-search/index.ts`**
+
+- Add `X-Cache-Status` response header: `HIT`, `STALE`, `MISS` for client-side SWR decisions
+- Add `X-Cache-Age` header with cache age in seconds
+- Add timing headers: `X-Response-Time` for total ms
+- These headers let the client cache make smarter TTL decisions
+
+No new database tables needed -- the existing `catalog_cache` table with its SWR pattern is already robust. The server-side shared cache across users is already working. The main gaps are all on the client side.
 
 ## Technical Details
 
-### File Changed
-- `supabase/functions/_shared/homeRecipeBuilder.ts` (lines 441-456)
+### Files Modified
 
-### What This Fixes
-- Admin "Rebuild" button per recipe now correctly updates only that tab
-- No cross-contamination between recipes when products appear in multiple categories
-- Stale items from the rebuilt recipe are properly removed
+| File | Change |
+|------|--------|
+| `src/lib/catalogCache.ts` | Add in-memory LRU, `cachedCatalogFetchWithSwr()`, shared `normalizeQuery`, `stableStringify` |
+| `src/pages/shop/SearchResults.tsx` | Use SWR fetch, debounced input, `seenIds` dedup, "Updating..." indicator |
+| `src/components/shop/ProductGrid.tsx` | Add `content-visibility: auto` for virtualization |
+| `src/components/shop/ProductCard.tsx` | Wrap with `React.memo` |
+| `supabase/functions/catalog-search/index.ts` | Add `X-Cache-Status`, `X-Cache-Age`, `X-Response-Time` headers |
 
-### After Deploying
-Use the admin portal's per-recipe "Rebuild" button to update individual tabs independently. The `home-auto-refresh` cron will continue to rebuild everything on schedule.
+### No New Dependencies
+
+All changes use native browser APIs (localStorage, Map, IntersectionObserver, `content-visibility` CSS). No new npm packages needed.
+
+### Performance Targets
+
+| Scenario | Current | After |
+|----------|---------|-------|
+| Repeat search (same user) | ~500-2000ms (network) | <5ms (memory LRU) |
+| Repeat search (different user, same query) | ~500-2000ms (server cache hit but full round-trip) | ~100-300ms (client shows stale, refreshes in background) |
+| First-ever search | ~1-3s | ~1-3s (unchanged, but with skeleton instead of spinner) |
+| Load More duplicates | Possible | Zero (seenIds filter) |
+
+### What Is NOT Changed
+
+- No payment, checkout, or category logic changes
+- No business rules or product filtering changes
+- No new database tables or migrations
+- Server-side cache TTLs remain as configured
+- Existing admin cache-clear functionality continues to work
 

@@ -64,6 +64,7 @@ interface ShopCartContextType {
   vehicleQuoteStatus: VehicleQuoteStatus;
   canProceedToPayment: boolean;
   serverTotalUsd: number | null;
+  markQuoteRequested: () => void;
   // Item selection for checkout
   selectedItemIds: Set<string>;
   toggleItemSelection: (id: string) => void;
@@ -537,6 +538,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         vehicleQuoteStatus,
         canProceedToPayment,
         serverTotalUsd,
+        markQuoteRequested: () => setVehicleQuoteStatus('pending'),
         // Item selection
         selectedItemIds,
         toggleItemSelection,

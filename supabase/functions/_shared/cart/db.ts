@@ -7,6 +7,7 @@ import { PostgrestClient, PostgrestResult } from "../postgrest.ts";
 
 export interface CartSettings {
   markupPercent: number;
+  vehicleMarkupPercent: number;
   exchangeRate: number;
   shippingBaseFeeUsd: number;
   shippingPercent: number;
@@ -249,8 +250,9 @@ export async function getCachedSettings(
     exchange_rate_usd_to_cdf: number;
     shipping_base_fee_usd: number;
     shipping_percent: number;
+    category_markups?: Record<string, number> | null;
   }[]>("settings")
-    .select("markup_percent, global_markup_percent, exchange_rate_usd_to_cdf, shipping_base_fee_usd, shipping_percent")
+    .select("markup_percent, global_markup_percent, exchange_rate_usd_to_cdf, shipping_base_fee_usd, shipping_percent, category_markups")
     .limit(1);
   
   if (result.error) {
@@ -263,9 +265,14 @@ export async function getCachedSettings(
   }
   
   const row = result.data[0];
+  const generalMarkup = row.markup_percent ?? row.global_markup_percent ?? 15;
+  const categoryMarkups = row.category_markups as Record<string, number> | null;
+  const vehicleMarkup = categoryMarkups?.vehicles ?? generalMarkup;
+  
   return {
     data: {
-      markupPercent: row.markup_percent ?? row.global_markup_percent ?? 15,
+      markupPercent: generalMarkup,
+      vehicleMarkupPercent: vehicleMarkup,
       exchangeRate: row.exchange_rate_usd_to_cdf,
       shippingBaseFeeUsd: row.shipping_base_fee_usd,
       shippingPercent: row.shipping_percent,

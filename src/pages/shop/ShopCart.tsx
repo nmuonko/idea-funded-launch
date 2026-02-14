@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 export default function ShopCart() {
   const { 
     items, loading, updateQuantity, removeItem, clearCart, restoreFromPendingCheckout, 
-    hasVehicleItems, vehicleQuoteStatus, syncCart,
+    hasVehicleItems, vehicleQuoteStatus, syncCart, markQuoteRequested,
     selectedItemIds, toggleItemSelection, selectAllItems, deselectAllItems,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
@@ -48,6 +48,8 @@ export default function ShopCart() {
     try {
       const { data, error } = await supabase.functions.invoke('mobile-request-quote');
       if (error) throw error;
+      // Optimistically update UI immediately
+      markQuoteRequested();
       toast({
         title: language === 'fr' ? 'Devis demandé !' : 'Quote Requested!',
         description: language === 'fr' 

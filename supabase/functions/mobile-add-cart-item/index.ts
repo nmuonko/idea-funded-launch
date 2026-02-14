@@ -151,13 +151,17 @@ serve(async (req) => {
     }
     const settings = settingsResult.data;
     
-    console.log(`[CART_ADD] ${correlationId} Settings: markup=${settings.markupPercent}% rate=${settings.exchangeRate}`);
+    console.log(`[CART_ADD] ${correlationId} Settings: markup=${settings.markupPercent}% vehicleMarkup=${settings.vehicleMarkupPercent}% rate=${settings.exchangeRate}`);
     
-    // Calculate pricing
-    const pricing = calculateItemPricing(
+    // Determine effective markup — will be refined after vehicle detection below
+    // For now use general; recalculate if vehicle detected
+    let effectiveMarkup = settings.markupPercent;
+    
+    // Calculate pricing (initial — may be recalculated for vehicles)
+    let pricing = calculateItemPricing(
       productPrice,
       quantity,
-      settings.markupPercent,
+      effectiveMarkup,
       settings.exchangeRate
     );
     
@@ -210,6 +214,16 @@ serve(async (req) => {
       isVehicle = true;
       requiresManualQuote = true;
       finalShippingTypeId = null;
+      
+      // Recalculate pricing with vehicle-specific markup
+      effectiveMarkup = settings.vehicleMarkupPercent;
+      pricing = calculateItemPricing(
+        productPrice,
+        quantity,
+        effectiveMarkup,
+        settings.exchangeRate
+      );
+      console.log(`[CART_ADD] ${correlationId} Vehicle detected — using vehicle markup ${effectiveMarkup}%`);
     } else if (detection.category && detection.category !== "vehicle") {
       const catTypeResult = await getShippingTypeForCategory(db, detection.category, correlationId);
       if (catTypeResult.data) {

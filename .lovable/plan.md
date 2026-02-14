@@ -1,30 +1,58 @@
 
 
-# Make the "Request a Quote" Button Prominent in Cart
+# Fix: Stop Auto-Sending Quote on Cart Add -- Make It User-Initiated
 
 ## Problem
 
-The "Request a Quote" button in the cart is too small (`size="sm"`, `h-8`, `text-xs`) and blends in with badges. Additionally, for vehicles where a quote was already sent from the product details page previously, it shows "Quote Pending" -- which is correct server state, but the user expects to control this from the cart.
+When a vehicle is added to the cart, the backend automatically treats it as "Quote Pending" even though no quote was actually requested. This happens because:
 
-**Note:** For the vehicle currently in your cart, a quote was already requested in a prior session (the server already has status "pending"). The button WILL appear for any **new** vehicle you add to cart going forward. The code logic is correct -- we just need to make the button much more visible.
+1. **Backend (`mobile-get-cart`)** defaults the per-item `quoteStatus` to `'PENDING'` for any vehicle without an actual quote request record (line 108)
+2. **Backend summary logic** (line 509) only distinguishes `'quoted'` vs `'pending'` -- there is no `'none'` state for "vehicle in cart but user hasn't requested a quote yet"
 
-## Changes: `src/pages/shop/ShopCart.tsx`
+This means the cart UI always shows "Quote Pending" instead of the "Request a Quote" button.
 
-Make the "Request a Quote" button highly visible:
+## Root Cause
 
-1. **Increase button size** -- change from `size="sm"` / `h-8 text-xs` to a full-width, taller button (`w-full h-10 text-sm font-semibold`) with a pulsing animation to draw attention
-2. **Add an attention-grabbing wrapper** -- wrap the button area in a highlighted container with a subtle amber border/glow so it stands out from the rest of the card
-3. **Make "Quote Pending" also more visible** -- upgrade from a tiny badge to a styled status bar so users can clearly see the state
+Two places in `supabase/functions/mobile-get-cart/index.ts`:
 
-The button hierarchy will be:
-- `vehicleQuoteStatus === 'none'`: Large amber gradient button with pulse effect -- "Request a Quote"
-- `vehicleQuoteStatus === 'pending'`: Amber outlined status bar -- "Quote Pending - You'll be notified"  
-- `vehicleQuoteStatus === 'quoted'`: Green status bar -- "Quote Received"
+- **Line 108**: `const quoteStatus = quoteRequest?.status || (isVehicle && !vehicleQuoteApplied ? 'PENDING' : null);`
+  - When there's no `quoteRequest` record, it defaults to `'PENDING'` instead of `null` or `'NONE'`
+
+- **Line 507-510**: Summary logic only has two outcomes for vehicles:
+  ```
+  vehicleQuoteStatus = allVehiclesQuoted ? 'quoted' : 'pending';
+  ```
+  - Missing the `'none'` state for vehicles with no quote request at all
+
+## Changes
+
+### 1. `supabase/functions/mobile-get-cart/index.ts`
+
+**Line 108** -- Only report `'PENDING'` if an actual quote_request record exists:
+```typescript
+const quoteStatus = quoteRequest?.status || (isVehicle && !vehicleQuoteApplied ? 'NONE' : null);
+```
+
+**Lines 506-510** -- Add `'none'` state detection using a new tracker for vehicles that have no quote request at all:
+- Track whether any vehicle has `quoteStatus === 'NONE'` (no request made)
+- If all vehicles are quoted: `'quoted'`
+- If some vehicles have pending requests: `'pending'`
+- If any vehicle has no request at all: `'none'`
+
+This ensures the cart context receives `vehicleQuoteStatus: 'none'` when the user hasn't clicked "Request a Quote" yet, which makes the prominent amber button appear.
+
+### 2. No frontend changes needed
+
+The cart UI (`ShopCart.tsx`) already handles all three states correctly:
+- `'none'` -- shows the prominent "Request a Quote" button
+- `'pending'` -- shows "Quote Pending" status bar
+- `'quoted'` -- shows "Quote Received" status bar
 
 ## Technical Details
 
 ### File Modified
-- `src/pages/shop/ShopCart.tsx` (lines 199-230) -- Resize and restyle the inline quote button and status indicators
+- `supabase/functions/mobile-get-cart/index.ts` -- Fix per-item quoteStatus default and summary-level vehicleQuoteStatus logic to distinguish "no quote requested" from "quote pending"
 
-### No backend changes needed
-The quote flow is already working correctly. This is purely a visibility/styling improvement.
+### Edge function redeployment
+The `mobile-get-cart` function will be redeployed automatically after the change.
+

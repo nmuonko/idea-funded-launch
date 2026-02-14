@@ -692,7 +692,11 @@ Deno.serve(async (req: Request) => {
     const providerStartMs = Date.now();
     // Dynamic timeout: vehicle queries need more time on eBay Motors
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
-    const PROVIDER_TIMEOUT_MS = isVehicleIntent ? 8000 : 5000;
+    const elapsedBeforeProviders = Date.now() - startTime;
+    const PROVIDER_TIMEOUT_MS = Math.min(
+      isVehicleIntent ? 6000 : 4000,
+      Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200)
+    );
 
     // For vehicle_listing intent, force eBay Motors category
     const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };

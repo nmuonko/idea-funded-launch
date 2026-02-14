@@ -1,72 +1,81 @@
 
 
-# Fix: Robust isInCart Check + Correct Quote Request
+# Fix: Homepage Showing Only Laptops — Per-Seed Balancing in Web Recipe Builder
 
-## Issues Found
+## Root Cause
 
-### 1. `isInCart` check is fragile but partially works
+The `homepage` recipe has 12 seed queries (iPhone 15 Pro Max, Samsung Galaxy S24, MacBook Pro, PlayStation 5, gaming laptop, etc.). The `fetchItemsFromDB` function in `homeRecipeBuilder.ts` combines ALL seed queries into a single SQL query with OR clauses, ordered by `updated_at DESC`, limited to 300.
 
-**Root cause**: Cart items from the server have `productId` set to the full `productUrl` (e.g., `https://www.ebay.com/itm/123456`). But `product.id` is just the raw ID (e.g., `123456`). The current check compares both `product.id` and `product.productUrl`, so the `productUrl` match should work in most cases.
+The problem: whichever product type was most recently refreshed in `catalog_items` dominates the results. Right now, MacBook Pro items were recently crawled/updated, so the first 100 items returned are all MacBook Pros. Phones, TVs, sneakers, etc. are pushed out entirely.
 
-However, the check can still break if URL formats differ (tracking params, URL encoding). A more robust approach is to also check if `productUrl` contains `product.id`.
+**Current cached homepage data**: All 100 items tagged `_recipeKey=homepage` are MacBook Pro listings.
 
-**Fix**: Update `isInCart` to use a contains-based match as fallback:
-```typescript
-const isInCart = product && items.some(item => 
-  item.productId === product.productUrl || 
-  item.productId === product.id ||
-  item.productUrl === product.productUrl ||
-  (product.id && item.productId?.includes(product.id))
-);
+## Fix
+
+Change `fetchItemsFromDB` to use a **per-seed quota** strategy instead of a single combined query. Each seed gets an equal share of the target count.
+
+### File: `supabase/functions/_shared/homeRecipeBuilder.ts`
+
+**Replace `fetchItemsFromDB`** (lines 132-174):
+
+Instead of one big OR query, fetch items **per seed** with a per-seed limit, then merge and shuffle.
+
+```text
+Current (broken):
+  OR all 12 seed queries together
+  ORDER BY updated_at DESC
+  LIMIT 300
+  -> MacBook dominates because it has newest updates
+
+Fixed:
+  FOR EACH seed (12 seeds, target=100):
+    perSeedLimit = ceil(targetCount / seeds.length) * 2  // e.g. ceil(100/12)*2 = 18
+    Query: title ILIKE '%seed_query%' ORDER BY updated_at DESC LIMIT perSeedLimit
+  MERGE all results, dedup by ID
+  SHUFFLE to mix categories
+  Return first targetCount items
 ```
 
-### 2. `mobile-request-quote` is actually fine for web
+This ensures each seed contributes roughly equal items (8-9 per seed for 100 total with 12 seeds), giving phones, laptops, TVs, and other categories fair representation.
 
-After reading the edge function code, it is platform-agnostic despite the name:
-- It authenticates the user via JWT
-- Finds the user's DRAFT order
-- Auto-detects vehicle items (`is_vehicle = true`) from the cart
-- Creates quote requests with dedup protection
-- Sends admin notification email
+### After code change: Force cache rebuild
 
-The `{ locale }` body is sufficient because the function reads vehicle items from the cart automatically. No product payload is needed -- the cart already has all the data.
+The existing cached data in `home_cache_web_feed` will remain stale until the TTL expires (up to 10 hours). To see changes immediately, either:
+- Trigger a manual rebuild via the admin portal
+- Or call the `home-auto-refresh` edge function
 
-**However**, the function name is confusing. We can either:
-- (A) Rename it (breaks mobile) -- NOT recommended
-- (B) Keep using it from web as-is -- recommended, since the logic is shared
+## Technical Details
 
-**No backend changes needed.**
-
-### 3. Minor: Reset `quoteRequested` when product changes
-
-Currently `quoteRequested` persists across product navigation. It should reset when the product changes.
-
-## Changes
-
-### File: `src/pages/shop/ProductDetails.tsx`
-
-1. **Fix `isInCart`** (line 337-339): Use a more robust matching strategy that checks `productUrl` match AND a fallback `includes` check on `product.id`:
+### Modified function signature (no change)
 
 ```typescript
-const isInCart = product && items.some(item => {
-  if (item.productUrl && product.productUrl && item.productUrl === product.productUrl) return true;
-  if (item.productId === product.id) return true;
-  if (product.id && item.productId?.includes(product.id)) return true;
-  return false;
-});
+async function fetchItemsFromDB(
+  seeds: SeedRow[],
+  targetCount: number,
+  minPrice?: number | null,
+  maxPrice?: number | null
+): Promise<RecipeItem[]>
 ```
 
-2. **Reset `quoteRequested` on product change** (inside the existing `useEffect` that resets state on route change, around line 170-176): Add `setQuoteRequested(false)`.
+### New implementation approach
 
-3. **Keep `mobile-request-quote` call as-is** -- the function works correctly for both platforms. The `{ locale }` payload is sufficient since the function auto-detects vehicle items from the user's cart.
+1. Calculate `perSeedLimit = Math.ceil((targetCount * 2) / seeds.length)` (over-fetch slightly per seed to account for filtering)
+2. Fire parallel fetch requests per seed (up to 12 seeds, capped at 12 parallel requests)
+3. Collect results, deduplicate by item ID
+4. Shuffle the merged array (Fisher-Yates) to prevent any single seed from clustering at the top
+5. Return the first `targetCount` items
 
-## No Backend Changes
+### Shuffle function
 
-The `mobile-request-quote` edge function already:
-- Reads vehicle items from the user's cart (no need to send product info in the body)
-- Deduplicates quote requests (checks `quote_requests` table before inserting)
-- Sends admin email notifications
-- Returns success with quote IDs
+A simple Fisher-Yates shuffle will ensure the homepage has a visually diverse mix of phones, laptops, TVs, sneakers, etc. on every rebuild.
 
-## Files Modified
-- `src/pages/shop/ProductDetails.tsx` -- fix `isInCart` matching, reset `quoteRequested` on navigation
+### Impact
+
+- Web homepage "Accueil" tab will show a balanced mix of all 12 seeded product categories
+- Mobile homepage is NOT affected (uses separate section-based architecture with its own seeds)
+- Other web tabs (phones, vehicles, gaming, etc.) are NOT affected (each has its own recipe with category-specific seeds)
+- Cache will need a rebuild after deployment to reflect the new distribution
+
+### Files modified
+- `supabase/functions/_shared/homeRecipeBuilder.ts` -- replace `fetchItemsFromDB` with per-seed balanced fetching
+

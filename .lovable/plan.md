@@ -1,163 +1,137 @@
 
 
-# Fix: Instant Variant Selection + Translate Variant Labels
+# Add eBay Product Variants
 
-## Problem 1: Variant clicks take 7-15 seconds to show changes
+## Problem
 
-Currently, clicking a variant (e.g., a different color) triggers `navigate()` to a new ASIN route. This causes:
-1. The route change effect resets the product
-2. A full `catalog-product` API fetch starts for the new ASIN
-3. Nothing visibly changes until the fetch completes (7-15s on cache miss)
+eBay products never show variant selectors (Color, Size, Style) because the backend `normalizeItemDetail` function in `ebayAdapter.ts` does not extract variant data from the eBay API response.
 
-**Fix**: Instead of navigating, do an **optimistic local update**:
-- Immediately update the product image to the variant's thumbnail
-- Immediately mark the clicked variant as "current" (highlight it)
-- Update the URL with `window.history.replaceState` (no React re-render/fetch)
-- Fetch the new ASIN's full data in the background silently
-- When the fetch completes, merge the new data (price, title, full images) smoothly
+## How eBay Variants Work
 
-This eliminates the perceived delay entirely -- the user sees the color/image change instantly.
+The eBay Browse API uses a two-step approach for multi-variation items:
 
-## Problem 2: "Color" and "Size" labels not translated
+1. `getItem` returns a `primaryItemGroup` field containing an `itemGroupHref` URL
+2. Calling that URL (`getItemsByItemGroup`) returns all variation members with their images, prices, and dimension values (e.g., Color: Red, Size: Large)
 
-The variant group labels (Color, Size, Style) come raw from the Amazon API in English. They need to be mapped to translated strings.
-
-**Fix**: Add a translation map for common variant dimension names and apply it in the variant selector rendering.
+Currently, the codebase uses `primaryItemGroup` only for extracting additional images -- it completely ignores the `itemGroupHref` and never fetches variant members.
 
 ## Technical Plan
 
-### File: `src/lib/i18n/translations.ts`
+### File: `supabase/functions/_shared/ebayAdapter.ts`
 
-Add variant label translations to each language block inside `shop`:
+**Change 1: Update `CatalogItem` type to include variants**
 
-| Key | EN | FR | SW | LN |
-|-----|----|----|----|----|
-| `variantColor` | Color | Couleur | Rangi | Langi |
-| `variantSize` | Size | Taille | Ukubwa | Bonene |
-| `variantStyle` | Style | Style | Mtindo | Lolenge |
-| `variantStorage` | Storage | Stockage | Hifadhi | Esika |
-| `variantPattern` | Pattern | Motif | Muundo | Elilingi |
-| `variantMaterial` | Material | Materiau | Nyenzo | Biloko |
-
-### File: `src/pages/shop/ProductDetails.tsx`
-
-**Change 1: Optimistic variant selection (replace `handleVariantSelect`)**
-
-Instead of navigating:
+Add a `variants` field to the eBay adapter's `CatalogItem` interface (line 21-35) matching the shape used by catalog-product:
 
 ```typescript
-const handleVariantSelect = useCallback((asin: string | undefined) => {
-  if (!asin || asin === product?.id) return;
-
-  // Find the clicked variant
-  const clickedVariant = product?.variants?.find(v => v.asin === asin);
-  if (!clickedVariant) return;
-
-  // 1. Optimistic UI update - instant
-  setProduct(prev => {
-    if (!prev) return prev;
-    const newImage = clickedVariant.image;
-    const updatedVariants = prev.variants?.map(v => ({
-      ...v,
-      isCurrent: v.asin === asin,
-    }));
-    return {
-      ...prev,
-      id: asin,
-      images: newImage ? [newImage] : prev.images,
-      variants: updatedVariants,
-    };
-  });
-  setCurrentImageIndex(0);
-
-  // 2. Update URL without triggering navigation
-  const displayProv = product?.provider?.toLowerCase() === 'rainforest'
-    ? 'amazon' : (product?.provider || 'amazon');
-  window.history.replaceState(null, '', `/product/${displayProv}/${asin}`);
-
-  // 3. Background fetch for full product data
-  const fetchVariantData = async () => {
-    try {
-      const apiUrl = new URL(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-product`
-      );
-      apiUrl.searchParams.set('provider', 'amazon');
-      apiUrl.searchParams.set('id', asin);
-      apiUrl.searchParams.set('amazon_domain', 'amazon.com');
-
-      const resp = await fetch(apiUrl.toString(), {
-        headers: {
-          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          'Content-Type': 'application/json',
-        },
-      });
-      const data = await resp.json();
-      if (!data?.item) return;
-      const item = data.item;
-
-      setProduct(prev => {
-        if (!prev || prev.id !== asin) return prev; // stale
-        const newImages = item.images || item.imageUrls || 
-          (item.image_url ? [item.image_url] : []);
-        return {
-          ...prev,
-          title: item.title || prev.title,
-          description: item.description || prev.description,
-          images: newImages.length > 0 ? newImages : prev.images,
-          priceUsd: item.price_usd || item.priceUsd || prev.priceUsd,
-          rating: item.rating ?? prev.rating,
-          reviewCount: item.review_count || prev.reviewCount,
-          brand: item.brand || prev.brand,
-          variants: item.variants || prev.variants,
-        };
-      });
-    } catch (err) {
-      console.warn('[ProductDetails] background variant fetch failed', err);
-    }
-  };
-
-  fetchVariantData();
-}, [product]);
+export interface CatalogItem {
+  // ... existing fields
+  variants?: Array<{
+    asin?: string;       // reuse 'asin' field for eBay itemId
+    title?: string;
+    dimensions?: Array<{ name: string; value: string }>;
+    image?: string;
+    link?: string;
+    price?: { value: number; currency: string };
+    isCurrent?: boolean;
+  }>;
+}
 ```
 
-**Change 2: Translate variant group labels**
+**Change 2: Add `fetchItemGroupVariants` function**
 
-Add a helper to map English dimension names to translations:
+Create a new helper that calls the eBay `getItemsByItemGroup` endpoint:
 
 ```typescript
-const translateVariantLabel = useCallback((name: string) => {
-  const key = name.toLowerCase();
-  const map: Record<string, string> = {
-    color: shop.variantColor || 'Color',
-    colour: shop.variantColor || 'Color',
-    size: shop.variantSize || 'Size',
-    style: shop.variantStyle || 'Style',
-    storage: shop.variantStorage || 'Storage',
-    pattern: shop.variantPattern || 'Pattern',
-    material: shop.variantMaterial || 'Material',
-  };
-  return map[key] || name;
-}, [shop]);
+async function fetchItemGroupVariants(
+  token: string,
+  itemGroupHref: string,
+  currentItemId: string,
+  marketplace: string
+): Promise<CatalogItem["variants"]>
 ```
 
-Then in the rendering (line 548), change:
+This function will:
+- Call the `itemGroupHref` URL with the existing OAuth token
+- Parse the response `items` array
+- Extract each item's `itemId`, `title`, `image`, `price`, and variation aspects (`localizedAspects` or `itemGroupAdditionalImages`)
+- Map eBay's variation aspects into `dimensions` (e.g., `[{name: "Color", value: "Red"}]`)
+- Mark the current item with `isCurrent: true`
+- Limit to 30 variants max (same as Amazon)
+
+**Change 3: Update `normalizeItemDetail` to extract variants**
+
+After the existing image extraction (line 725), add variant extraction:
+
 ```typescript
-// Before:
-<h4 className="...">{group.name}</h4>
-
-// After:
-<h4 className="...">{translateVariantLabel(group.name)}</h4>
+// Extract variants from item group if available
+let variants: CatalogItem["variants"] = undefined;
+if (item.primaryItemGroup?.itemGroupHref) {
+  // Need a token to fetch - get it from the outer scope or parameter
+  variants = await fetchItemGroupVariants(
+    token, 
+    item.primaryItemGroup.itemGroupHref,
+    item.itemId,
+    marketplace
+  );
+}
 ```
+
+Then include `variants` in the returned object.
+
+**Change 4: Thread `token` and `marketplace` through to `normalizeItemDetail`**
+
+The function signature needs updating to receive the OAuth token:
+
+```typescript
+async function normalizeItemDetail(
+  item: any, 
+  supabase?: any,
+  token?: string,
+  marketplace?: string
+): Promise<CatalogItem>
+```
+
+Update callers at lines 535 and 692 to pass the token.
+
+### File: `supabase/functions/catalog-product/index.ts`
+
+**No changes needed** -- the eBay live fetch section (line 600) already includes `variants` in the response if `item.variants` is populated, and the caching logic at line 618-621 already handles caching eBay variants.
+
+## eBay `getItemsByItemGroup` Response Shape
+
+The API returns:
+
+```json
+{
+  "items": [
+    {
+      "itemId": "v1|123|456",
+      "title": "iPhone 15 - Red",
+      "image": { "imageUrl": "..." },
+      "price": { "value": "999.00", "currency": "USD" },
+      "localizedAspects": [
+        { "name": "Color", "value": "Red" },
+        { "name": "Storage", "value": "128GB" }
+      ]
+    },
+    ...
+  ]
+}
+```
+
+Each item maps to one variant option with its specific color/size/etc.
+
+## Expected Behavior After Fix
+
+| eBay Product | Before | After |
+|---|---|---|
+| Multi-variation listing | No variant selectors | Shows Color, Size, Style selectors |
+| Single item listing | No variant selectors | No variant selectors (correct - no variants) |
+| Variant click | N/A | Optimistic update (uses existing Amazon variant logic) |
 
 ## Files Modified
 
-- `src/lib/i18n/translations.ts` -- add 6 variant label keys to each of the 4 language blocks
-- `src/pages/shop/ProductDetails.tsx` -- replace `handleVariantSelect` with optimistic update + add `translateVariantLabel` helper
+- `supabase/functions/_shared/ebayAdapter.ts` -- add variant type, fetch function, and extraction in normalizeItemDetail
+- No frontend changes needed (per the no-frontend-modification rule, and the existing variant UI already works for any provider)
 
-## Expected Results
-
-| Action | Before | After |
-|--------|--------|-------|
-| Click "Red" color | 7-15s wait, then image changes | Image changes instantly, details update in background |
-| "Color" label in French | Shows "Color" (English) | Shows "Couleur" |
-| "Size" label in Swahili | Shows "Size" (English) | Shows "Ukubwa" |

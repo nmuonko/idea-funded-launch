@@ -129,6 +129,23 @@ async function loadRefreshSettings(env: string): Promise<RefreshSettings> {
 /**
  * Fetch items from catalog_items DB using seed queries
  */
+/**
+ * Fisher-Yates shuffle to ensure diverse category mixing
+ */
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * Fetch items per seed individually, then merge, dedup, shuffle.
+ * This ensures each seed contributes roughly equal items instead of
+ * one recently-updated category dominating the entire result set.
+ */
 async function fetchItemsFromDB(
   seeds: SeedRow[],
   targetCount: number,
@@ -136,41 +153,59 @@ async function fetchItemsFromDB(
   maxPrice?: number | null
 ): Promise<RecipeItem[]> {
   if (seeds.length === 0) return [];
-  
-  const queries = seeds.map(s => s.query);
-  const orClauses = queries
-    .slice(0, 12)
-    .map(q => `title.ilike.*${q.replace(/ /g, "+")}*`)
-    .join(",");
-  
-  // Build price filter: use min_price if set, otherwise default to > 0
+
+  const activeSeedQueries = seeds.slice(0, 12);
+  const perSeedLimit = Math.ceil((targetCount * 2) / activeSeedQueries.length);
   const priceFloor = (minPrice && minPrice > 0) ? minPrice : 0;
-  let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&or=(${orClauses})&order=updated_at.desc.nullslast&limit=${targetCount * 3}`;
-  
-  if (maxPrice && maxPrice > 0) {
-    filters += `&price_usd=lte.${maxPrice}`;
+  const headers = restHeaders();
+  const base = baseUrl();
+
+  // Fire parallel per-seed queries
+  const perSeedPromises = activeSeedQueries.map(seed => {
+    const titleFilter = `title.ilike.*${seed.query.replace(/ /g, "+")}*`;
+    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=updated_at.desc.nullslast&limit=${perSeedLimit}`;
+    if (maxPrice && maxPrice > 0) {
+      filters += `&price_usd=lte.${maxPrice}`;
+    }
+    const url = `${base}/rest/v1/catalog_items?${filters}`;
+    return fetchJson<Array<Record<string, unknown>>>(url, headers);
+  });
+
+  const results = await Promise.allSettled(perSeedPromises);
+
+  // Merge and dedup
+  const usedIds = new Set<string>();
+  const allItems: RecipeItem[] = [];
+
+  for (const result of results) {
+    if (result.status !== "fulfilled" || !result.value) continue;
+    for (const row of result.value) {
+      const id = `${row.provider}_${row.provider_product_id}`;
+      if (usedIds.has(id)) continue;
+      const title = (row.title as string) || "";
+      const imageUrl = row.image_url as string | null;
+      const priceUsd = row.price_usd as number | null;
+      if (!title || !imageUrl || !priceUsd || priceUsd <= 0) continue;
+      usedIds.add(id);
+      allItems.push({
+        id,
+        provider: row.provider as string,
+        provider_product_id: row.provider_product_id as string,
+        title,
+        price_usd: priceUsd,
+        priceUsd: priceUsd,
+        currency: "USD",
+        image_url: imageUrl,
+        imageUrl: imageUrl,
+        product_url: row.product_url as string | null,
+        productUrl: row.product_url as string | null,
+        in_stock: true,
+      });
+    }
   }
 
-  const url = `${baseUrl()}/rest/v1/catalog_items?${filters}`;
-  const rows = await fetchJson<Array<Record<string, unknown>>>(url, restHeaders());
-  if (!rows || rows.length === 0) return [];
-
-  return rows
-    .map(row => ({
-      id: `${row.provider}_${row.provider_product_id}`,
-      provider: row.provider as string,
-      provider_product_id: row.provider_product_id as string,
-      title: (row.title as string) || "Product",
-      price_usd: row.price_usd as number | null,
-      priceUsd: row.price_usd as number | null,
-      currency: "USD",
-      image_url: row.image_url as string | null,
-      imageUrl: row.image_url as string | null,
-      product_url: row.product_url as string | null,
-      productUrl: row.product_url as string | null,
-      in_stock: true,
-    }))
-    .filter(i => i.title && i.image_url && i.price_usd && i.price_usd > 0);
+  // Shuffle to mix categories, then trim to target
+  return shuffleArray(allItems).slice(0, targetCount);
 }
 
 /**

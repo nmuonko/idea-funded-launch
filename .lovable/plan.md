@@ -1,143 +1,83 @@
 
-# Fix: Search Speed — Timing Instrumentation + Fast Path + Hard Time Budget
 
-## Problem Analysis
+# Fix: Canonicalizer Bug + Provider Timeout Exceeding Budget
 
-Current cache-miss search flow is sequential and unbounded:
+## Two Bugs Found
 
-1. Category resolution (~50ms)
-2. Rate limit check (~50ms)
-3. Rewrite + Settings in parallel (~100-500ms)
-4. FR-EN fallback (~1ms)
-5. **AI refiner await** (~800-2000ms) -- BLOCKING, waits for full result before providers start
-6. DB-first search (~200-500ms)
-7. Provider fetch (Amazon + eBay parallel, 3-8s)
-8. **Alt queries** (up to 3s EACH, sequential loop)
-9. **Secondary canonical query** (another 3s)
-10. **Tractor fallback** (another 3s)
-11. Mix + filter + score + guardrails (~50ms)
-12. Media enrichment (~50ms with skipPrefetch)
-13. Cache write (~50ms)
+### Bug 1: "camon" corrupted to "camry" by fuzzy matcher
 
-Worst case: steps 5+6+7+8+9+10 = 2s + 0.5s + 5s + 3s + 3s + 3s = **16.5s**
+The `fuzzyMatch()` function in `queryCanonicalizer.ts` matches "camon" (Tecno phone model) to "camry" (Toyota car model) with Levenshtein distance 2 (threshold=2). This causes "tecno camon 20" to search for "tecno camry 20" -- returning 0 results.
 
-## Root Causes
+**Fix**: Add "camon" (and other Tecno model names) to `CANONICAL_TERMS` as protected terms with empty arrays, just like "camry" is already protected. This prevents fuzzy matching from corrupting them.
 
-1. **AI refiner blocks providers** (line 499): `await aiRefinePromise` completes before providers start. The refiner modifies `qNorm` which becomes `providerQuery`, so providers can't start until refiner finishes.
-2. **Unlimited sequential alt queries** (lines 699-766): If primary returns < 60 items, code tries alt queries AND secondary canonical query, each with 3s timeouts.
-3. **No global time budget**: Nothing stops the function from spending 16s on sequential fallbacks.
-4. **Cache write happens LAST** (line 1060): Even if primary results are good, cache isn't populated until all fallback attempts complete.
-
-## Changes
-
-### 1. Timing Instrumentation (File: `catalog-search/index.ts`)
-
-Add a `timings` object that tracks each stage:
-
-```text
-timings = {
-  rewrite: 0,    // rewrite + settings parallel
-  aiRefine: 0,   // AI refiner wait
-  dbFirst: 0,    // DB-first search
-  providers: 0,  // primary provider fetch
-  altQueries: 0, // alt + secondary attempts
-  postProcess: 0,// filter + score + guardrails + media
-  total: 0
-}
-```
-
-Return these as response headers:
-- `X-Search-T-Total`, `X-Search-T-Rewrite`, `X-Search-T-Db`, `X-Search-T-Upstream`, `X-Search-T-AltQueries`, `X-Search-T-PostProcess`
-- Existing `X-Cache-Status` (HIT/STALE/MISS) already works
-
-Log a single structured timing line per request.
-
-### 2. Fast Path for Direct Queries (File: `catalog-search/index.ts`)
-
-Add `isDirectQuery(q)` function:
-- Query has <= 6 words
-- Contains at least one digit OR a known model token (iphone, samsung, tecno, infinix, pixel, playstation, ps5, xbox, macbook, thinkpad, galaxy, redmi, oppo, vivo, huawei, camon, spark, hot, note)
-- NOT a single broad generic term (telephone, tv, frigo, vetement, chaussure, ordinateur, voiture, cuisiniere alone without specifics)
-
-When `isDirectQuery` is true:
-- **Do NOT await AI refiner** -- use the FR-EN fallback rewrite or original query directly for providers
-- Fire AI refiner in parallel (non-blocking) -- if it returns before providers, use its result; otherwise ignore
-- Skip DB-first search entirely (direct queries hit providers immediately)
-- After primary providers return: skip ALL alt query attempts regardless of result count
-
-This ensures queries like "tecno camon 20", "iphone 13", "cuisiniere 4 feux" go straight to providers.
-
-### 3. Hard Time Budget + Limited Retries (File: `catalog-search/index.ts`)
-
-Constants:
 ```typescript
-const TOTAL_BUDGET_MS = 3500;
-const REWRITE_BUDGET_MS = 800;
-const AI_REFINE_BUDGET_MS = 800; // reduced from 2000
-const DB_BUDGET_MS = 500;
-const ALT_QUERIES_MAX = 1; // down from unlimited
+// In CANONICAL_TERMS, after the tecno entry:
+"camon": [],     // Tecno Camon phone model - prevent fuzzy match to "camry"
+"spark": [],     // Tecno Spark phone model
+"pouvoir": [],   // Tecno Pouvoir phone model  
+"phantom": [],   // Tecno Phantom phone model
 ```
 
-Implementation:
-- Wrap rewrite+settings `Promise.all` with `Promise.race` against `REWRITE_BUDGET_MS` timeout
-- Wrap AI refiner with `AI_REFINE_BUDGET_MS` timeout (reduce from 2s to 800ms)
-- Wrap DB-first with `DB_BUDGET_MS` timeout
-- Before alt queries: check `Date.now() - startTime > TOTAL_BUDGET_MS` -- if exceeded, skip entirely
-- Limit alt query loop to `ALT_QUERIES_MAX = 1` attempt (currently unlimited)
-- Remove secondary canonical query attempt entirely (lines 736-765) -- it's redundant with alt queries
-- Remove tractor-specific 3rd attempt (lines 768-797) -- fold into alt query logic
+### Bug 2: Provider timeout (5000ms) exceeds total budget (3500ms)
 
-### 4. Early Cache Population (File: `catalog-search/index.ts`)
+The `PROVIDER_TIMEOUT_MS` is set to 5000ms (line 695), but the total budget is only 3500ms. By the time providers start (after rewrite ~200ms), there's only ~3300ms left, yet providers are allowed 5000ms. The budget check only gates alt queries -- it never stops the primary provider fetch.
 
-After primary provider results are mixed and filtered (before alt queries):
-- If result count > 0, immediately write to shared cache with a "partial" flag
-- This means the NEXT user gets instant results even if we're still running alt queries
-- On final response, overwrite cache with complete results (removes partial flag)
+**Fix**: Calculate a dynamic provider timeout based on remaining budget:
 
-### 5. Confirm Media Enrichment Not Blocking
-
-Already confirmed: `enrichItemsWithMediaCounts` is called with `{ skipPrefetch: true }` (line 833). With skipPrefetch, it only does DB lookups for cached counts -- no HTTP fetches, no 3s timeouts. This is fine (~50ms).
-
-## File Changes
-
-| File | Change |
-|------|--------|
-| `supabase/functions/catalog-search/index.ts` | Add timings object, `isDirectQuery()`, time budgets, early cache write, remove redundant fallbacks, add timing headers |
-| `supabase/functions/_shared/searchAiExpand.ts` | Reduce `AI_REFINE_TIMEOUT_MS` from 2000 to 800 |
-| `supabase/functions/_shared/searchResponseBuilder.ts` | Add timing headers to `buildResponseHeaders` |
-
-## Expected Flow After Changes
-
-### Fast Path ("tecno camon 20"):
 ```text
-1. Category + Rate limit + Rewrite+Settings (parallel) ~200ms
-2. FR-EN fallback (instant) ~1ms  
-3. Skip AI refiner await, skip DB-first
-4. Provider fetch (Amazon + eBay parallel) ~2-4s
-5. Mix + filter + score ~50ms
-6. Early cache write (fire-and-forget)
-7. Return response
-TOTAL: ~2.5-4.5s (down from 10-18s)
+const elapsed = Date.now() - startTime;
+const PROVIDER_TIMEOUT_MS = Math.min(
+  isVehicleIntent ? 6000 : 4000,       // absolute max
+  Math.max(2000, TOTAL_BUDGET_MS - elapsed - 200)  // remaining budget minus 200ms for post-processing
+);
 ```
 
-### Normal Path ("chaussures homme"):
-```text
-1. Category + Rate limit + Rewrite+Settings ~200ms
-2. AI refiner (800ms budget, timeout = continue without)
-3. DB-first (500ms budget)
-4. Provider fetch ~2-4s
-5. Check budget: if > 3.5s elapsed, skip alt queries
-6. At most 1 alt query attempt
-7. Mix + filter + score ~50ms
-8. Cache write
-9. Return response  
-TOTAL: ~3-5s max
+This ensures the provider fetch respects the overall 3500ms budget. For "cuisiniere 4 feux" with 200ms spent on rewrite, providers get ~3100ms instead of 5000ms.
+
+## Technical Changes
+
+### File 1: `supabase/functions/_shared/queryCanonicalizer.ts`
+
+Add protected Tecno model names to `CANONICAL_TERMS` (around line 20, after the "tecno" entry):
+
+```typescript
+"camon": [],     // Tecno Camon - prevent "camon" -> "camry" fuzzy match
+"spark": [],     // Tecno Spark model
+"pouvoir": [],   // Tecno Pouvoir model
+"phantom": [],   // Tecno Phantom model
 ```
+
+### File 2: `supabase/functions/catalog-search/index.ts`
+
+Replace the static `PROVIDER_TIMEOUT_MS` (lines 694-695) with a dynamic calculation:
+
+```typescript
+const elapsedBeforeProviders = Date.now() - startTime;
+const PROVIDER_TIMEOUT_MS = Math.min(
+  isVehicleIntent ? 6000 : 4000,
+  Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200)
+);
+```
+
+This ensures:
+- "tecno camon 20" (fast path, ~200ms pre-work): providers get ~3100ms
+- "cuisiniere 4 feux" (~300ms pre-work): providers get ~3000ms
+- Vehicle queries: capped at 6000ms (vehicles need eBay Motors which is slower)
+- Minimum 2000ms so providers always have a reasonable window
+
+## Expected Results After Fix
+
+| Query | Before | After |
+|-------|--------|-------|
+| "tecno camon 20" | 0 results (camon->camry bug) | Correct results, ~3s |
+| "cuisiniere 4 feux" | 8s (provider timeout too high) | ~3.5s max |
+| Same query (cache hit) | Instant | Instant (unchanged) |
 
 ## What Is NOT Changed
 
-- No payment, checkout, or category logic changes
-- Cache key format unchanged (existing cached results still valid)
-- Provider fetcher internals unchanged
-- Content blocking, scoring, guardrails unchanged
-- Client-side LRU + SWR unchanged
+- No payment, checkout, or category logic
+- Cache key format unchanged
+- Alt query logic unchanged (already capped at 1)
+- Fast path detection unchanged
+- Timing headers unchanged (already working)
+

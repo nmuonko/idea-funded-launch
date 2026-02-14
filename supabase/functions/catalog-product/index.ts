@@ -377,6 +377,43 @@ Deno.serve(async (req: Request) => {
     // Create SDK-free DB client
     const db = createAdminPostgrestClient();
 
+    // ========== VARIANTS CACHE HELPER ==========
+    const variantsSource = internalProvider === "rainforest" ? "amazon" : "ebay";
+    
+    async function getCachedVariants(): Promise<CatalogItem["variants"] | null> {
+      try {
+        const { data } = await db
+          .from("product_variants_cache")
+          .select("variants_json")
+          .eq("source", variantsSource)
+          .eq("product_id", productId!)
+          .gt("expires_at", new Date().toISOString())
+          .maybeSingle();
+        if (data?.variants_json && Array.isArray(data.variants_json) && data.variants_json.length > 0) {
+          return data.variants_json as CatalogItem["variants"];
+        }
+        return null;
+      } catch { return null; }
+    }
+
+    async function cacheVariants(variants: CatalogItem["variants"]): Promise<void> {
+      if (!variants || variants.length === 0) return;
+      const ttlDays = variantsSource === "amazon" ? 7 : 2;
+      const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+      try {
+        await db.from("product_variants_cache").upsert({
+          source: variantsSource,
+          product_id: productId!,
+          variants_json: variants,
+          updated_at: new Date().toISOString(),
+          expires_at: expiresAt,
+        }, { onConflict: "source,product_id" });
+        console.log(`[VARIANTS_CACHE] cached ${variants.length} variants for ${variantsSource}:${productId} ttl=${ttlDays}d`);
+      } catch (e) {
+        console.warn(`[VARIANTS_CACHE] write failed: ${e}`);
+      }
+    }
+
     // ========== DB-FIRST: Check catalog_items ==========
     console.log(`[DETAIL_DB] correlationId=${correlationId} id=${fullProductId} checking...`);
     
@@ -400,12 +437,11 @@ Deno.serve(async (req: Request) => {
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      // For Amazon/Rainforest: skip DB cache return, fall through to live fetch for variant data
-      if (internalProvider === "rainforest") {
-        console.log(`[DETAIL_DB] correlationId=${correlationId} db_hit but fetching live for variants`);
-      } else {
-        // Return DB-cached response for non-Amazon providers (eBay, etc.)
-        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db ms=${Date.now() - startTime}`);
+      // Check variants cache for ALL providers (amazon + ebay)
+      const cachedVariants = await getCachedVariants();
+      if (cachedVariants) {
+        item.variants = cachedVariants;
+        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db+variants_cache variants=${cachedVariants.length} ms=${Date.now() - startTime}`);
         
         return new Response(JSON.stringify({
           ok: true,
@@ -422,6 +458,28 @@ Deno.serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
+      // No cached variants — for non-Amazon, return without variants (eBay will live-fetch below)
+      if (internalProvider !== "rainforest" && internalProvider !== "ebay") {
+        console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=db no_variants ms=${Date.now() - startTime}`);
+        return new Response(JSON.stringify({
+          ok: true,
+          status: "success",
+          env: envName,
+          id: fullProductId,
+          item,
+          product: item,
+          source: "db",
+          cached: true,
+          error: null,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Amazon or eBay with no cached variants: fall through to live fetch
+      console.log(`[DETAIL_DB] correlationId=${correlationId} db_hit but no cached variants, fetching live...`);
     }
     
     console.log(`[DETAIL_DB] correlationId=${correlationId} miss, fetching_live...`);
@@ -556,6 +614,11 @@ Deno.serve(async (req: Request) => {
           attributes: ebayItem.attributes,
         };
         
+        // Cache variants if present
+        if (item.variants && item.variants.length > 0) {
+          await cacheVariants(item.variants);
+        }
+
         console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-ebay ms=${Date.now() - startTime}`);
         
         return new Response(JSON.stringify({
@@ -643,6 +706,11 @@ Deno.serve(async (req: Request) => {
       brand: product.brand || null,
       variants: product.variants,
     };
+
+    // Cache variants if present
+    if (item.variants && item.variants.length > 0) {
+      await cacheVariants(item.variants);
+    }
 
     console.log(`[CATALOG_PRODUCT] success correlationId=${correlationId} source=live-rainforest ms=${Date.now() - startTime}`);
 

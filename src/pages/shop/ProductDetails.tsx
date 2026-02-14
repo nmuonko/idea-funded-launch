@@ -21,15 +21,30 @@ function looksLikeVehicleListing(title: string): boolean {
   const exclusions = ['charger', 'mount', 'holder', 'brake pad', 'oil filter',
     'toy car', 'diecast', 'model car', 'rc car', 'hot wheels', 'key fob',
     'floor mat', 'seat cover', 'car wash', 'phone holder', 'emblem', 'badge',
-    'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap'];
+    'washer bottle', 'wiper', 'antenna', 'mirror cover', 'mud flap',
+    // Car electronics & accessories
+    'stereo', 'radio', 'navigation', 'carplay', 'android auto', 'headunit',
+    'head unit', 'media player', 'dashcam', 'dash cam', 'speaker', 'amplifier',
+    'subwoofer', 'gps', 'bluetooth', 'adapter', 'cable', 'obd', 'scanner',
+    'led light', 'light bar', 'fog light', 'backup camera', 'reverse camera',
+    'tablet', 'touchscreen', 'display', 'screen protector', 'car cover',
+    'air freshener', 'cup holder', 'trunk organizer', 'sun visor'];
   if (exclusions.some(e => lower.includes(e))) return false;
-  const bodyTypes = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'convertible',
-    'minivan', 'wagon', 'pickup', 'crossover', '4x4', 'motorcycle'];
-  const hasYear = /\b(19|20)\d{2}\b/.test(title);
+
   const brands = ['toyota', 'honda', 'ford', 'chevrolet', 'chevy', 'nissan',
     'bmw', 'mercedes', 'audi', 'tesla', 'jeep', 'hyundai', 'kia', 'subaru',
     'mazda', 'volkswagen', 'lexus', 'porsche', 'dodge', 'ram', 'gmc',
     'land rover', 'range rover', 'volvo', 'buick', 'cadillac', 'lincoln'];
+
+  // "for [brand]" pattern means accessory/part compatibility, NOT a vehicle
+  const forBrandPattern = new RegExp(
+    '\\bfor\\s+(' + brands.join('|') + ')\\b', 'i'
+  );
+  if (forBrandPattern.test(title)) return false;
+
+  const bodyTypes = ['sedan', 'suv', 'truck', 'coupe', 'hatchback', 'convertible',
+    'minivan', 'wagon', 'pickup', 'crossover', '4x4', 'motorcycle'];
+  const hasYear = /\b(19|20)\d{2}\b/.test(title);
   const hasBrand = brands.some(b => lower.includes(b));
   const hasBodyType = bodyTypes.some(b => lower.includes(b));
   return (hasYear && hasBrand) || (hasBrand && hasBodyType);

@@ -1,85 +1,59 @@
 
 
-# Fix: Variant Selection Shows Wrong Image During Loading
+# Fix: Variants Disappear During Variant Selection
 
 ## Problem
 
-When clicking a color variant, three visual glitches happen in sequence:
-1. The OLD product's image shows immediately (wrong color)
-2. The image disappears or flickers during the fetch
-3. The correct image finally appears after 100ms-7s (depending on cache)
+When clicking a color/size variant, the variant selectors disappear for ~5 seconds, then reappear. This is because the route reset effect reconstructs the product from navigation state but **drops the `variants` field**.
 
 ## Root Cause
 
-In `handleVariantSelect` (line 349-355), the navigation state passes the entire current product including its images:
-```
-state: { product: { ...product, id: asin } }
-```
-This means the new ASIN page renders with the OLD color's images until the API fetch completes and overwrites them.
+The flow when clicking a variant:
+
+1. `handleVariantSelect` passes `{ ...product, id: asin, images: undefined }` in nav state -- this INCLUDES `variants`
+2. Route changes, triggering the reset `useEffect` (line 144)
+3. The reset effect constructs `navProduct` from nav state at lines 147-159, but this object **does not include `variants`**
+4. `setProduct(navProduct)` is called -- product now has no variants
+5. Variant selectors vanish (they depend on `product.variants`)
+6. The API fetch runs, takes ~5s, returns with variants, and they reappear
 
 ## Fix
 
 ### File: `src/pages/shop/ProductDetails.tsx`
 
-**Change 1: Pass variant-specific image in nav state**
-
-Update `handleVariantSelect` to find the selected variant's image from the variants data and use it as the initial image, instead of carrying over all old images:
+**One change**: Add `variants` to the `navProduct` construction in the reset effect (line 147-159):
 
 ```typescript
-const handleVariantSelect = useCallback((asin: string | undefined) => {
-  if (!asin || asin === product?.id) return;
-  const displayProv = product?.provider?.toLowerCase() === 'rainforest' 
-    ? 'amazon' : (product?.provider || 'amazon');
-  
-  // Find the variant's own image
-  const variant = product?.variants?.find(v => v.asin === asin);
-  const variantImage = variant?.image;
-  
-  navigate(`/product/${displayProv}/${asin}`, {
-    state: { 
-      product: product ? { 
-        ...product, 
-        id: asin,
-        // Use variant image if available, otherwise keep first image as fallback
-        imageUrl: variantImage || product.images?.[0],
-        images: undefined, // Clear old images so they don't flash
-      } : undefined 
-    },
-  });
-}, [product, navigate]);
+const navProduct: ProductData | null = nav ? {
+  id: nav.id,
+  provider: normalizedProvider || 'amazon',
+  title: nav.title || 'Product',
+  description: undefined,
+  images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
+  priceUsd: nav.priceUsd || 0,
+  rating: nav.rating,
+  reviewCount: undefined,
+  inStock: true,
+  productUrl: nav.productUrl,
+  brand: undefined,
+  variants: nav.variants,  // <-- ADD THIS LINE
+} : null;
 ```
 
-**Change 2: Handle the cleared images in the route reset effect**
+This preserves the variants from the previous product during variant selection, so selectors stay visible immediately. When the API fetch completes, it updates variants with the new ASIN's data (which may differ if the new variant has different options).
 
-In the `useEffect` at line 144, the nav product construction already handles single `imageUrl`:
-```typescript
-images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
-```
-This already works correctly -- when `images` is cleared and `imageUrl` is set to the variant image, the page will show just the variant's correct image immediately.
+## eBay Variants
 
-**Change 3: Use AnimatePresence key on the image URL (not just index)**
-
-The current `motion.img` at line 428 uses `key={safeImageIndex}` which doesn't change when images swap (index stays 0). Update to key on the actual image URL for proper crossfade:
-
-```typescript
-<motion.img
-  key={safeImages[safeImageIndex]}  // Key on URL, not index
-  src={safeImages[safeImageIndex] || '/placeholder.svg'}
-  ...
-/>
-```
-
-This ensures a smooth crossfade when the image URL changes (variant image to full-res image), rather than an instant swap.
+eBay products still won't show variants because the backend `catalog-product` function does not extract variation data from eBay API responses. This is a backend issue requiring a separate change to the eBay adapter -- it was deferred in the previous plan as a larger effort. The current fix only addresses the disappearing variants on Amazon products.
 
 ## Expected Behavior After Fix
 
 | Step | Before | After |
 |------|--------|-------|
-| Click blue variant | Shows old red image | Shows blue variant thumbnail immediately |
-| During fetch | Image disappears/flickers | Blue thumbnail stays stable |
-| Fetch completes | Correct blue image appears suddenly | Smooth crossfade to full-res blue image |
+| Click color variant | Variants disappear for ~5s | Variants stay visible immediately |
+| During fetch | No selectors shown | Previous selectors shown (correct color highlighted after fetch) |
+| Fetch completes | Variants reappear | Variants update smoothly if options differ |
 
 ## Files Modified
 
-- `src/pages/shop/ProductDetails.tsx` -- 3 small changes (variant nav state, animation key)
-
+- `src/pages/shop/ProductDetails.tsx` -- add one line (`variants: nav.variants`) to the nav product construction

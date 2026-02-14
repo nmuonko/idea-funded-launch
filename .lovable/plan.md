@@ -1,60 +1,51 @@
 
-# Fix Homepage "Accueil" Tab Showing Wrong Products
+# Fix: Trigger Web Recipe Cache Rebuild
 
-## Problem Found
+## Root Cause
 
-The homepage "Accueil" tab is showing cheap car phone holders and phone cases instead of actual phones, laptops, and gaming consoles you seeded. This happens because:
+The seeds and min_price were updated correctly in the test database, but:
 
-1. The homepage recipe seeds are too broad -- "iPhone" and "Samsung Galaxy" match cheap accessories like "Car Phone Mount for iPhone" ($3.99)
-2. There's no minimum price filter on the homepage recipe, so $3 car phone holders rank alongside $800 iPhones
-3. The database query sorts by most recently updated, so cheap eBay accessories dominate
+1. The **recipe web cache** (`home_cache_web_feed`) is **empty** -- it was never rebuilt after the seed changes
+2. When the recipe cache is empty, `catalog-home` **falls back to the legacy cache** (`catalog_home_cache`), which contains 891 stale items from Feb 6 -- all cheap car accessories fetched with the old generic seeds
+3. The stale legacy cache keeps getting served because the code serves expired cache as "stale-while-revalidate"
 
-Category tabs (Gaming, Vehicles, etc.) work correctly because they have more specific seeds.
+## Fix (3 small changes)
 
-## Fix Plan
+### 1. Clear the stale legacy cache (Database)
 
-### 1. Update Homepage Recipe Seeds (Database)
+Delete the old `catalog_home_cache` entries so the function stops serving stale car accessories as a fallback:
 
-Replace the 7 generic homepage seeds with more specific, diverse queries that represent a curated "featured" mix:
+```sql
+DELETE FROM catalog_home_cache WHERE true;
+```
 
-| Current Seed | Problem | Replacement Seeds |
-|---|---|---|
-| "iPhone" | Matches car phone holders | "iPhone 15 Pro Max", "iPhone 14 Pro" |
-| "Samsung Galaxy" | Matches phone cases | "Samsung Galaxy S24 Ultra", "Samsung Galaxy Z Flip" |
-| "laptop computer" | OK but vague | "MacBook Pro", "gaming laptop" |
-| "PlayStation 5" | OK | Keep |
-| "sofa set living room" | OK | Keep |
-| "smart TV" | OK but vague | "Samsung 65 inch TV", "LG OLED TV" |
-| "Google pixel" | OK | "Google Pixel 8 Pro" |
+### 2. Trigger a web recipe rebuild
 
-Additional new seeds for variety: "Air Jordan shoes", "LEGO set", "Apple Watch", "Nike sneakers", "Dyson vacuum"
+Call the `home-auto-refresh` edge function (or `buildWebHomepage`) to populate `home_cache_web_feed` with items matching the new specific seeds ("iPhone 15 Pro Max", "MacBook Pro", etc.) filtered at `min_price_usd >= 25`.
 
-### 2. Set Minimum Price on Homepage Recipe (Database)
+### 3. Also apply changes to Production database
 
-Set `min_price_usd = 25` on the homepage recipe to filter out cheap accessories ($3-17 phone mounts, cases, screen protectors).
+The **production** database still has:
+- `min_price_usd = NULL` (no price filter)
+- Old generic seeds ("iPhone", "Samsung Galaxy", etc.)
+- Two duplicate homepage recipes
 
-### 3. Rebuild the Web Cache
+After publishing, run these SQL updates in the Live environment:
+- Set `min_price_usd = 25` on homepage recipes
+- Replace old seeds with specific ones
+- Clear both caches
+- Trigger rebuild
 
-After updating seeds and min price, trigger a rebuild of the web homepage cache so the changes take effect immediately.
+## Technical Steps
 
-### 4. Fix the `fetchItemsFromDB` Query (Code Change)
+| Step | Action |
+|------|--------|
+| Clear test legacy cache | `DELETE FROM catalog_home_cache` |
+| Trigger test rebuild | Call `home-auto-refresh` edge function |
+| Verify test preview | Check Accueil tab shows phones/laptops/TVs instead of car mounts |
+| Publish to production | Deploy code changes |
+| Update production DB | Run seed/price SQL updates in Live environment |
+| Clear production cache | Delete both cache tables in Live |
+| Trigger production rebuild | Call `home-auto-refresh` on production |
 
-In `supabase/functions/_shared/homeRecipeBuilder.ts`, the current query has a bug: when `min_price_usd` is set, it adds a second `price_usd` filter that conflicts with the existing `price_usd=gt.0`. Fix the filter construction to use `gte` properly.
-
-## Technical Details
-
-### Files Modified
-| File | Change |
-|---|---|
-| Database: `home_recipes` table | Set `min_price_usd = 25` for homepage recipe |
-| Database: `home_recipe_seeds` table | Delete old generic seeds, insert specific ones |
-| `supabase/functions/_shared/homeRecipeBuilder.ts` | Fix duplicate price filter bug (lines 146-153) |
-
-### Database Updates (Production)
-These need to run in Live environment after publishing:
-- Update homepage recipe min_price_usd
-- Delete old seeds, insert new specific seeds
-- Trigger cache rebuild via admin panel or edge function call
-
-### Verification
-After rebuild, the Accueil tab should show a diverse mix of high-value products (phones, laptops, TVs, consoles, furniture) instead of cheap car phone holders.
+No code file changes are needed -- only database cleanup and cache rebuild.

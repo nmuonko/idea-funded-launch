@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, SlidersHorizontal, X } from 'lucide-react';
+import { Loader2, SlidersHorizontal, X, RefreshCw } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
@@ -10,17 +10,21 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { cachedCatalogFetchWithSwr, normalizeQuery, stableStringify } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
-/** Deduplicate products by id+provider */
-function dedupeProducts(list: Product[]): Product[] {
-  const seen = new Set<string>();
+/** Generate a unique key per product for deduplication */
+function productKey(p: Product): string {
+  return (p.id || '') + ':' + (p.provider || '');
+}
+
+/** Deduplicate products using a Set of seen keys */
+function dedupeWithSet(list: Product[], seenIds: Set<string>): Product[] {
   return list.filter(p => {
-    const key = (p.id || '') + ':' + (p.provider || '');
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const key = productKey(p);
+    if (seenIds.has(key)) return false;
+    seenIds.add(key);
     return true;
   });
 }
@@ -38,12 +42,16 @@ export default function SearchResults() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [isRevalidating, setIsRevalidating] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const nextCursorRef = useRef<string | null>(null);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
+
+  // Persistent seenIds across pages — reset on new search
+  const seenIdsRef = useRef<Set<string>>(new Set());
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -76,7 +84,7 @@ export default function SearchResults() {
 
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
     const params: Record<string, any> = {
-      q: searchQuery.trim().toLowerCase().replace(/\s+/g, ' '),
+      q: normalizeQuery(searchQuery),
       limit: 30,
     };
 
@@ -92,11 +100,8 @@ export default function SearchResults() {
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
     if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
 
-
-
-
     if (Object.keys(filters).length > 0) {
-      params.filters = JSON.stringify(filters);
+      params.filters = stableStringify(filters);
     }
 
     // Pagination: prefer cursor, fall back to page number
@@ -106,56 +111,89 @@ export default function SearchResults() {
       params.page = pageNum;
     }
 
-    console.log('[SEARCH] fetch page=', pageNum, 'q=', params.q,
-      'cursor=', params.cursor || 'none', 'pageFallback=', params.page || 'none', 'append=', append);
-
+    // Reset seenIds on fresh search
     if (pageNum === 1 && !append) {
+      seenIdsRef.current = new Set();
       setLoading(true);
     } else if (pageNum > 1) {
       setLoadingMore(true);
     }
 
     try {
-      const data = await cachedCatalogFetch<any>('catalog-search', params, { 
-        skipCache: pageNum > 1 
+      const result = await cachedCatalogFetchWithSwr<any>('catalog-search', params, {
+        skipCache: pageNum > 1,
+        signal: controller.signal,
+        onUpdate: (freshData) => {
+          // Background SWR update — smoothly replace page 1 results
+          if (pageNum === 1 && !append) {
+            const freshProducts = mapItems(freshData?.items || []);
+            const freshSeenIds = new Set<string>();
+            const deduped = dedupeWithSet(freshProducts, freshSeenIds);
+            seenIdsRef.current = freshSeenIds;
+            setProducts(deduped);
+            setTotalResults(deduped.length);
+            setIsRevalidating(false);
+
+            const newCursor = freshData?.nextCursor || null;
+            nextCursorRef.current = newCursor;
+            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < 3);
+          }
+        },
       });
 
-      const mappedProducts: Product[] = (data?.items || []).map((item: any) => ({
-        id: item.provider_product_id || item.id,
-        provider: item.provider || 'amazon',
-        title: item.title || 'Product',
-        imageUrl: item.image_url || item.imageUrl || '',
-        priceUsd: item.price_usd || item.priceUsd || 0,
-        rating: item.rating,
-        inStock: item.in_stock !== false,
-        productUrl: item.product_url,
-      }));
+      if (controller.signal.aborted) return;
+
+      const { data, isStale } = result;
+
+      if (isStale && pageNum === 1) {
+        setIsRevalidating(true);
+      }
+
+      const mappedProducts = mapItems(data?.items || []);
 
       if (append) {
+        // Dedupe against all previously seen items
+        const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
         setProducts(prev => {
-          const deduped = dedupeProducts([...prev, ...mappedProducts]);
-          setTotalResults(deduped.length);
-          return deduped;
+          const combined = [...prev, ...newUnique];
+          setTotalResults(combined.length);
+          return combined;
         });
       } else {
-        setProducts(mappedProducts);
-        setTotalResults(mappedProducts.length);
+        seenIdsRef.current = new Set();
+        const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
+        setProducts(deduped);
+        setTotalResults(deduped.length);
+        if (!isStale) setIsRevalidating(false);
       }
 
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
       setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3);
-
-      console.log('[SEARCH] got items=', mappedProducts.length,
-        'nextCursor=', !!newCursor, 'hasMore=', !!newCursor || data?.hasMore === true);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Search error:', err);
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, [query, category, sort, priceRange]);
+
+  /** Map raw API items to Product interface */
+  function mapItems(items: any[]): Product[] {
+    return items.map((item: any) => ({
+      id: item.provider_product_id || item.id,
+      provider: item.provider || 'amazon',
+      title: item.title || 'Product',
+      imageUrl: item.image_url || item.imageUrl || '',
+      priceUsd: item.price_usd || item.priceUsd || 0,
+      rating: item.rating,
+      inStock: item.in_stock !== false,
+      productUrl: item.product_url,
+    }));
+  }
 
   // Initial search
   useEffect(() => {
@@ -182,7 +220,7 @@ export default function SearchResults() {
     fetchProducts(nextPage, true);
   }, [page, fetchProducts]);
 
-  // Infinite scroll: auto-load next page when sentinel is visible
+  // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
@@ -231,11 +269,19 @@ export default function SearchResults() {
                   {shop.resultsFor || 'Results for'} "{query}"
                 </h1>
               )}
-              {!loading && (
-                <p className="text-sm text-white/60">
-                  {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
-                </p>
-              )}
+              <div className="flex items-center gap-2">
+                {!loading && (
+                  <p className="text-sm text-white/60">
+                    {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
+                  </p>
+                )}
+                {isRevalidating && (
+                  <span className="inline-flex items-center gap-1 text-xs text-blue-400/80">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    {shop.updating || 'Updating…'}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">

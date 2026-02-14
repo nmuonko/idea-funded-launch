@@ -1,73 +1,85 @@
 
 
-# Fix: Variants Not Showing -- ID Format Mismatch
+# Fix: Variant Selection Shows Wrong Image During Loading
+
+## Problem
+
+When clicking a color variant, three visual glitches happen in sequence:
+1. The OLD product's image shows immediately (wrong color)
+2. The image disappears or flickers during the fetch
+3. The correct image finally appears after 100ms-7s (depending on cache)
 
 ## Root Cause
 
-The DB-first lookup in `catalog-product` NEVER hits cached Amazon products because of an **ID format mismatch**:
-
-| Component | ID Format | Example |
-|-----------|-----------|---------|
-| Search (amazonFetcher) stores | `amazon_B0CMSYHFCF` | `amazon_` + ASIN |
-| Detail lookup queries | `rainforest:B0CMSYHFCF` | `rainforest:` + ASIN |
-
-Two mismatches:
-1. **Prefix**: `amazon` vs `rainforest` -- search uses `amazon_`, detail uses `internalProvider` = `rainforest`
-2. **Separator**: `_` vs `:` -- search uses underscore, detail uses colon
-
-This means:
-- The DB lookup at line 438-442 (`eq("id", "rainforest:B0CMSYHFCF")`) will never find `amazon_B0CMSYHFCF`
-- The variants cache check never runs (since it's inside the `if (dbItem)` block)
-- Every click falls through to a slow 7-12s live Rainforest fetch
-- The detail upsert at line 682 writes a NEW row with `rainforest:B0CMSYHFCF` (orphaned, never queried by search)
-
-I verified this by calling the endpoint twice for the same ASIN. Both times returned `X-Source: live-rainforest` and `X-Variants-Cache: MISS`, taking 7-12 seconds each, despite the variants being successfully cached after the first call.
-
-## Solution
-
-### File: `supabase/functions/catalog-product/index.ts`
-
-**Change the `fullProductId` construction** for Amazon products to match the format used by search:
-
+In `handleVariantSelect` (line 349-355), the navigation state passes the entire current product including its images:
 ```
-// Current (broken):
-const fullProductId = `${internalProvider}:${productId}`;
-// Produces: "rainforest:B0CMSYHFCF"
+state: { product: { ...product, id: asin } }
+```
+This means the new ASIN page renders with the OLD color's images until the API fetch completes and overwrites them.
 
-// Fixed:
-const fullProductId = internalProvider === "rainforest" 
-  ? `amazon_${productId}` 
-  : `${internalProvider}:${productId}`;
-// Produces: "amazon_B0CMSYHFCF" (matches search cache)
+## Fix
+
+### File: `src/pages/shop/ProductDetails.tsx`
+
+**Change 1: Pass variant-specific image in nav state**
+
+Update `handleVariantSelect` to find the selected variant's image from the variants data and use it as the initial image, instead of carrying over all old images:
+
+```typescript
+const handleVariantSelect = useCallback((asin: string | undefined) => {
+  if (!asin || asin === product?.id) return;
+  const displayProv = product?.provider?.toLowerCase() === 'rainforest' 
+    ? 'amazon' : (product?.provider || 'amazon');
+  
+  // Find the variant's own image
+  const variant = product?.variants?.find(v => v.asin === asin);
+  const variantImage = variant?.image;
+  
+  navigate(`/product/${displayProv}/${asin}`, {
+    state: { 
+      product: product ? { 
+        ...product, 
+        id: asin,
+        // Use variant image if available, otherwise keep first image as fallback
+        imageUrl: variantImage || product.images?.[0],
+        images: undefined, // Clear old images so they don't flash
+      } : undefined 
+    },
+  });
+}, [product, navigate]);
 ```
 
-This is a one-line fix. It aligns the detail endpoint's DB key with how search stores items.
+**Change 2: Handle the cleared images in the route reset effect**
 
-**Also update the live fetch upsert** (line 663) to use the same corrected `fullProductId`, so detail-fetched items are findable by subsequent lookups.
+In the `useEffect` at line 144, the nav product construction already handles single `imageUrl`:
+```typescript
+images: nav.imageUrl ? [nav.imageUrl] : ['/placeholder.svg'],
+```
+This already works correctly -- when `images` is cleared and `imageUrl` is set to the variant image, the page will show just the variant's correct image immediately.
 
-**Also update the item response** `provider` field to remain `"rainforest"` for backward compat -- only the DB key format changes.
+**Change 3: Use AnimatePresence key on the image URL (not just index)**
 
-### No other file changes needed
+The current `motion.img` at line 428 uses `key={safeImageIndex}` which doesn't change when images swap (index stays 0). Update to key on the actual image URL for proper crossfade:
 
-- `product_variants_cache` uses `(source="amazon", product_id="B0CMSYHFCF")` -- already correct, unaffected
-- Frontend sends `provider=amazon` -- already correct
-- `rainforestAdapter.ts` -- no changes
-- `ProductDetails.tsx` -- no changes
+```typescript
+<motion.img
+  key={safeImages[safeImageIndex]}  // Key on URL, not index
+  src={safeImages[safeImageIndex] || '/placeholder.svg'}
+  ...
+/>
+```
 
-## Expected Results After Fix
+This ensures a smooth crossfade when the image URL changes (variant image to full-res image), rather than an instant swap.
 
-| Call | Before (broken) | After (fixed) |
-|------|-----------------|---------------|
-| 1st click (cold) | 7-12s live fetch, variants returned but DB key orphaned | 7-12s live fetch, variants cached, DB key matches search |
-| 2nd click (warm) | 7-12s live fetch AGAIN (DB miss due to ID mismatch) | ~100ms, DB hit + variants cache HIT, instant variants |
+## Expected Behavior After Fix
 
-## Technical Details
+| Step | Before | After |
+|------|--------|-------|
+| Click blue variant | Shows old red image | Shows blue variant thumbnail immediately |
+| During fetch | Image disappears/flickers | Blue thumbnail stays stable |
+| Fetch completes | Correct blue image appears suddenly | Smooth crossfade to full-res blue image |
 
-The fix is approximately 3 lines in `catalog-product/index.ts`:
+## Files Modified
 
-1. Line 392: Change `fullProductId` construction to use `amazon_` prefix for rainforest provider
-2. Lines 663-664: The `toCache.id` already uses `fullProductId`, so it automatically picks up the fix
-3. Lines 691-692: The `item.id` in the response also uses `fullProductId`, so the response ID will now be `amazon_B0CMSYHFCF` (matching search format)
-
-Everything downstream (variants cache, legacy path, eBay path) works correctly because they use `productId` directly, not `fullProductId`.
+- `src/pages/shop/ProductDetails.tsx` -- 3 small changes (variant nav state, animation key)
 

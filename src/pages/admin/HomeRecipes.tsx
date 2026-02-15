@@ -51,6 +51,9 @@ interface Seed {
   weight: number;
   enabled: boolean;
   sort_order: number;
+  max_items: number;
+  required_terms: string[];
+  excluded_terms: string[];
 }
 
 interface RefreshSettings {
@@ -85,6 +88,7 @@ export default function HomeRecipes() {
   const [addingSeed, setAddingSeed] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [editingSeedId, setEditingSeedId] = useState<string | null>(null);
 
   // Rebuild states - track which specific key is rebuilding (or "all_mobile"/"all_web")
   const [rebuildingKey, setRebuildingKey] = useState<string | null>(null);
@@ -297,6 +301,16 @@ export default function HomeRecipes() {
     try {
       await supabase.from("home_recipe_seeds").update({ enabled: !seed.enabled }).eq("id", seed.id);
       setSeeds(prev => prev.map(s => s.id === seed.id ? { ...s, enabled: !s.enabled } : s));
+      invalidateCacheAfterSeedChange();
+    } catch {
+      toast({ title: "Error", variant: "destructive" });
+    }
+  };
+
+  const updateSeedField = async (seedId: string, field: string, value: unknown) => {
+    try {
+      await supabase.from("home_recipe_seeds").update({ [field]: value }).eq("id", seedId);
+      setSeeds(prev => prev.map(s => s.id === seedId ? { ...s, [field]: value } : s));
       invalidateCacheAfterSeedChange();
     } catch {
       toast({ title: "Error", variant: "destructive" });
@@ -609,33 +623,88 @@ export default function HomeRecipes() {
             ) : (
               <div className="space-y-1">
                 {seeds.map((seed, index) => (
-                  <div
-                    key={seed.id}
-                    draggable
-                    onDragStart={() => handleDragStart(index)}
-                    onDragOver={(e) => handleDragOver(e, index)}
-                    onDrop={(e) => handleDrop(e, index)}
-                    onDragEnd={handleDragEnd}
-                    className={`flex items-center gap-2 p-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
-                      dragOverIndex === index ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
-                    } ${dragIndex === index ? "opacity-50" : ""}`}
-                  >
-                    <span className="text-xs text-muted-foreground font-mono w-5 text-center">{index + 1}</span>
-                    <Switch
-                      checked={seed.enabled}
-                      onCheckedChange={() => toggleSeedEnabled(seed)}
-                    />
-                    <span className={`flex-1 text-sm ${!seed.enabled ? "text-muted-foreground line-through" : ""}`}>
-                      {seed.query}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive"
-                      onClick={() => deleteSeed(seed.id)}
+                  <div key={seed.id}>
+                    <div
+                      draggable
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      onDragEnd={handleDragEnd}
+                      className={`flex items-center gap-2 p-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
+                        dragOverIndex === index ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
+                      } ${dragIndex === index ? "opacity-50" : ""}`}
                     >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
+                      <span className="text-xs text-muted-foreground font-mono w-5 text-center">{index + 1}</span>
+                      <Switch
+                        checked={seed.enabled}
+                        onCheckedChange={() => toggleSeedEnabled(seed)}
+                      />
+                      <span className={`flex-1 text-sm ${!seed.enabled ? "text-muted-foreground line-through" : ""}`}>
+                        {seed.query}
+                      </span>
+                      <Badge variant="outline" className="text-xs">
+                        ×{seed.max_items || 3}
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setEditingSeedId(editingSeedId === seed.id ? null : seed.id)}
+                      >
+                        <Settings2 className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive"
+                        onClick={() => deleteSeed(seed.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    {/* Expandable seed settings */}
+                    {editingSeedId === seed.id && (
+                      <div className="ml-7 mr-2 p-3 rounded-md bg-muted/30 border border-border space-y-3 mt-1 mb-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">{fr ? "Items max (1-5)" : "Max items (1-5)"}</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={5}
+                            value={seed.max_items || 3}
+                            onChange={e => {
+                              const v = Math.min(5, Math.max(1, parseInt(e.target.value) || 3));
+                              updateSeedField(seed.id, "max_items", v);
+                            }}
+                            className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{fr ? "Termes requis (virgule)" : "Required terms (comma-sep)"}</Label>
+                          <Input
+                            placeholder="e.g. tesla, model"
+                            defaultValue={(seed.required_terms || []).join(", ")}
+                            onBlur={e => {
+                              const terms = e.target.value.split(",").map(t => t.trim()).filter(Boolean);
+                              updateSeedField(seed.id, "required_terms", terms);
+                            }}
+                            className="h-8"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">{fr ? "Termes exclus (virgule)" : "Excluded terms (comma-sep)"}</Label>
+                          <Input
+                            placeholder="e.g. case, cover"
+                            defaultValue={(seed.excluded_terms || []).join(", ")}
+                            onBlur={e => {
+                              const terms = e.target.value.split(",").map(t => t.trim()).filter(Boolean);
+                              updateSeedField(seed.id, "excluded_terms", terms);
+                            }}
+                            className="h-8"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

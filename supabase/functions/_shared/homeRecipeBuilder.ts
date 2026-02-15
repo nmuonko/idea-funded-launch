@@ -32,6 +32,10 @@ export interface SeedRow {
   query: string;
   weight: number;
   enabled: boolean;
+  sort_order: number;
+  max_items: number;
+  required_terms: string[];
+  excluded_terms: string[];
 }
 
 export interface RecipeItem {
@@ -112,9 +116,14 @@ async function loadRecipes(target: "mobile" | "web"): Promise<RecipeRow[]> {
 }
 
 async function loadSeedsForRecipe(recipeId: string): Promise<SeedRow[]> {
-  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=sort_order.asc,weight.desc`;
+  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=sort_order.asc&select=id,recipe_id,query,weight,enabled,sort_order,max_items,required_terms,excluded_terms`;
   const rows = await fetchJson<SeedRow[]>(url, restHeaders());
-  return rows || [];
+  return (rows || []).map(r => ({
+    ...r,
+    max_items: r.max_items ?? 3,
+    required_terms: r.required_terms ?? [],
+    excluded_terms: r.excluded_terms ?? [],
+  }));
 }
 
 async function loadRefreshSettings(env: string): Promise<RefreshSettings> {
@@ -141,10 +150,65 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
+// Cache version key - bump this to invalidate all recipe caches
+const CACHE_VERSION = "home_v3_seed_order_round_robin";
+
 /**
- * Fetch items per seed individually, then merge, dedup, shuffle.
- * This ensures each seed contributes roughly equal items instead of
- * one recently-updated category dominating the entire result set.
+ * Normalize text for comparison: lowercase, remove accents/special chars
+ */
+function normalizeText(t: string): string {
+  return t.toLowerCase().replace(/[àáâãäå]/g, "a").replace(/[èéêë]/g, "e")
+    .replace(/[ìíîï]/g, "i").replace(/[òóôõö]/g, "o").replace(/[ùúûü]/g, "u")
+    .replace(/[^a-z0-9\s]/g, "").trim();
+}
+
+/**
+ * Extract brand-like token from seed query (first word typically)
+ */
+function deriveBrandToken(query: string): string {
+  const normalized = normalizeText(query);
+  // Return first meaningful word (skip common prefixes like "new", "used")
+  const skipWords = new Set(["new", "used", "for", "the", "a", "an"]);
+  const words = normalized.split(/\s+/).filter(w => w.length > 1 && !skipWords.has(w));
+  return words[0] || normalized.split(/\s+/)[0] || "";
+}
+
+/**
+ * Check if an item is relevant to a seed based on required_terms or auto-derived brand
+ */
+function isRelevantToSeed(
+  itemTitle: string,
+  itemBrand: string,
+  seed: SeedRow
+): boolean {
+  const normTitle = normalizeText(itemTitle);
+  const normBrand = normalizeText(itemBrand);
+  const combined = normTitle + " " + normBrand;
+
+  // Check excluded_terms first
+  if (seed.excluded_terms && seed.excluded_terms.length > 0) {
+    for (const term of seed.excluded_terms) {
+      if (combined.includes(normalizeText(term))) return false;
+    }
+  }
+
+  // Check required_terms if specified
+  if (seed.required_terms && seed.required_terms.length > 0) {
+    return seed.required_terms.every(term => combined.includes(normalizeText(term)));
+  }
+
+  // Auto-derive brand token from seed query and enforce it
+  const brandToken = deriveBrandToken(seed.query);
+  if (brandToken && brandToken.length >= 2) {
+    return combined.includes(brandToken);
+  }
+
+  return true;
+}
+
+/**
+ * Fetch items per seed individually with strict relevance filtering,
+ * then round-robin interleave respecting seed.max_items.
  */
 async function fetchItemsFromDB(
   seeds: SeedRow[],
@@ -154,16 +218,16 @@ async function fetchItemsFromDB(
 ): Promise<RecipeItem[]> {
   if (seeds.length === 0) return [];
 
-  const activeSeedQueries = seeds.slice(0, 12);
-  const perSeedLimit = Math.ceil((targetCount * 2) / activeSeedQueries.length);
+  const activeSeedQueries = seeds.slice(0, 20);
   const priceFloor = (minPrice && minPrice > 0) ? minPrice : 0;
   const headers = restHeaders();
   const base = baseUrl();
 
-  // Fire parallel per-seed queries
+  // Fire parallel per-seed queries (fetch more candidates for relevance filtering)
   const perSeedPromises = activeSeedQueries.map(seed => {
+    const candidateLimit = 30; // fetch 30 candidates, filter down to max_items
     const titleFilter = `title.ilike.*${seed.query.replace(/ /g, "+")}*`;
-    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=updated_at.desc.nullslast&limit=${perSeedLimit}`;
+    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=updated_at.desc.nullslast&limit=${candidateLimit}`;
     if (maxPrice && maxPrice > 0) {
       filters += `&price_usd=lte.${maxPrice}`;
     }
@@ -173,24 +237,44 @@ async function fetchItemsFromDB(
 
   const results = await Promise.allSettled(perSeedPromises);
 
-  // Collect items per seed (preserving seed order from sort_order)
-  const usedIds = new Set<string>();
+  // Collect items per seed with relevance filtering
+  const globalUsedIds = new Set<string>();
+  const globalSeenTitles = new Set<string>();
+  const normTitle = (t: string) => normalizeText(t).replace(/\s+/g, "").slice(0, 40);
   const perSeedItems: RecipeItem[][] = [];
 
-  for (const result of results) {
+  for (let si = 0; si < results.length; si++) {
+    const result = results[si];
+    const seed = activeSeedQueries[si];
     const seedItems: RecipeItem[] = [];
+    const maxForSeed = seed.max_items || 3;
+
     if (result.status !== "fulfilled" || !result.value) {
       perSeedItems.push(seedItems);
       continue;
     }
+
     for (const row of result.value) {
+      if (seedItems.length >= maxForSeed) break;
+
       const id = `${row.provider}_${row.provider_product_id}`;
-      if (usedIds.has(id)) continue;
+      if (globalUsedIds.has(id)) continue;
+
       const title = (row.title as string) || "";
+      const brand = (row.brand as string) || "";
       const imageUrl = row.image_url as string | null;
       const priceUsd = row.price_usd as number | null;
       if (!title || !imageUrl || !priceUsd || priceUsd <= 0) continue;
-      usedIds.add(id);
+
+      // Strict relevance check
+      if (!isRelevantToSeed(title, brand, seed)) continue;
+
+      // Title dedup across all seeds
+      const nt = normTitle(title);
+      if (globalSeenTitles.has(nt)) continue;
+
+      globalUsedIds.add(id);
+      globalSeenTitles.add(nt);
       seedItems.push({
         id,
         provider: row.provider as string,
@@ -209,32 +293,22 @@ async function fetchItemsFromDB(
     perSeedItems.push(seedItems);
   }
 
-  // Round-robin interleave with title dedup: take items from each seed in order
+  // Round-robin interleave: s1[0], s2[0], s3[0], s1[1], s2[1], s3[1], ...
   const interleaved: RecipeItem[] = [];
-  const nonEmptySeeds = perSeedItems.filter(s => s.length > 0);
-  if (nonEmptySeeds.length === 0) return [];
-  
-  const seenTitles = new Set<string>();
-  const normalizeTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
-  
-  const maxRounds = Math.ceil(targetCount / nonEmptySeeds.length);
-  for (let round = 0; round < maxRounds && interleaved.length < targetCount; round++) {
-    for (const seedItems of nonEmptySeeds) {
-      // Find next non-duplicate item from this seed starting at `round`
-      for (let idx = round; idx < seedItems.length; idx++) {
-        const normTitle = normalizeTitle(seedItems[idx].title);
-        if (!seenTitles.has(normTitle)) {
-          seenTitles.add(normTitle);
-          interleaved.push(seedItems[idx]);
-          break;
-        }
+  const maxRound = Math.max(...perSeedItems.map(s => s.length), 0);
+
+  for (let round = 0; round < maxRound && interleaved.length < targetCount; round++) {
+    for (const seedItems of perSeedItems) {
+      if (round < seedItems.length && interleaved.length < targetCount) {
+        interleaved.push(seedItems[round]);
       }
-      if (interleaved.length >= targetCount) break;
     }
   }
 
   return interleaved;
 }
+
+export { CACHE_VERSION };
 
 /**
  * Fetch items from eBay Browse API for a single query

@@ -194,6 +194,22 @@ export default function HomeRecipes() {
     }
   };
 
+  // Bump schema version + clear client cache when seeds change
+  const invalidateCacheAfterSeedChange = () => {
+    clearCatalogHomeCache();
+    // Bump web schema version to force clients to refetch
+    if (refreshSettings) {
+      supabase.from("home_refresh_settings").update({
+        web_schema_version: (refreshSettings.web_schema_version || 1) + 1,
+        mobile_schema_version: (refreshSettings.mobile_schema_version || 1) + 1,
+        updated_at: new Date().toISOString(),
+      }).eq("env", "production").then(() => {
+        fetchAll();
+      });
+    }
+  };
+
+
   const addSeed = async () => {
     if (!newSeedQuery.trim() || !seedModalRecipe) return;
     setAddingSeed(true);
@@ -215,6 +231,7 @@ export default function HomeRecipes() {
         .order("sort_order", { ascending: true });
       setSeeds((data as Seed[]) || []);
       toast({ title: fr ? "Ajouté" : "Added" });
+      invalidateCacheAfterSeedChange();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
@@ -255,6 +272,7 @@ export default function HomeRecipes() {
           supabase.from("home_recipe_seeds").update({ sort_order: s.sort_order }).eq("id", s.id)
         )
       );
+      invalidateCacheAfterSeedChange();
     } catch {
       toast({ title: "Error", description: "Failed to save order", variant: "destructive" });
     }
@@ -269,6 +287,7 @@ export default function HomeRecipes() {
     try {
       await supabase.from("home_recipe_seeds").delete().eq("id", seedId);
       setSeeds(prev => prev.filter(s => s.id !== seedId));
+      invalidateCacheAfterSeedChange();
     } catch {
       toast({ title: "Error", variant: "destructive" });
     }
@@ -278,6 +297,7 @@ export default function HomeRecipes() {
     try {
       await supabase.from("home_recipe_seeds").update({ enabled: !seed.enabled }).eq("id", seed.id);
       setSeeds(prev => prev.map(s => s.id === seed.id ? { ...s, enabled: !s.enabled } : s));
+      invalidateCacheAfterSeedChange();
     } catch {
       toast({ title: "Error", variant: "destructive" });
     }

@@ -123,6 +123,15 @@ export default function ProductDetailsPage() {
 
   const safeImageIndex = Math.min(currentImageIndex, safeImages.length - 1);
 
+  // Preload first 4 gallery images when data arrives
+  useEffect(() => {
+    if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
+    safeImages.slice(0, 4).forEach(src => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, [safeImages]);
+
   // Group variants by dimension name
   const variantGroups = useMemo((): VariantGroup[] => {
     if (!product?.variants?.length) return [];
@@ -542,6 +551,8 @@ export default function ProductDetailsPage() {
                     key={safeImages[safeImageIndex]}
                     src={safeImages[safeImageIndex] || '/placeholder.svg'}
                     alt={product.title}
+                    loading="eager"
+                    fetchPriority="high"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -590,6 +601,7 @@ export default function ProductDetailsPage() {
                       <img
                         src={img}
                         alt={`${product.title} ${index + 1}`}
+                        loading="lazy"
                         className="w-full h-full object-contain bg-white/5 p-1"
                       />
                     </button>

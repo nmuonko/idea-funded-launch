@@ -50,6 +50,7 @@ interface Seed {
   query: string;
   weight: number;
   enabled: boolean;
+  sort_order: number;
 }
 
 interface RefreshSettings {
@@ -82,6 +83,8 @@ export default function HomeRecipes() {
   const [loadingSeeds, setLoadingSeeds] = useState(false);
   const [newSeedQuery, setNewSeedQuery] = useState("");
   const [addingSeed, setAddingSeed] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   // Rebuild states - track which specific key is rebuilding (or "all_mobile"/"all_web")
   const [rebuildingKey, setRebuildingKey] = useState<string | null>(null);
@@ -182,8 +185,8 @@ export default function HomeRecipes() {
         .from("home_recipe_seeds")
         .select("*")
         .eq("recipe_id", recipe.id)
-        .order("weight", { ascending: false });
-      setSeeds(data || []);
+        .order("sort_order", { ascending: true });
+      setSeeds((data as Seed[]) || []);
     } catch {
       // ignore
     } finally {
@@ -195,27 +198,71 @@ export default function HomeRecipes() {
     if (!newSeedQuery.trim() || !seedModalRecipe) return;
     setAddingSeed(true);
     try {
+      const maxSort = seeds.length > 0 ? Math.max(...seeds.map(s => s.sort_order)) : 0;
       const { error } = await supabase.from("home_recipe_seeds").insert({
         recipe_id: seedModalRecipe.id,
         query: newSeedQuery.trim(),
         weight: 1,
         enabled: true,
+        sort_order: maxSort + 1,
       });
       if (error) throw error;
       setNewSeedQuery("");
-      // Refresh seeds
       const { data } = await supabase
         .from("home_recipe_seeds")
         .select("*")
         .eq("recipe_id", seedModalRecipe.id)
-        .order("weight", { ascending: false });
-      setSeeds(data || []);
+        .order("sort_order", { ascending: true });
+      setSeeds((data as Seed[]) || []);
       toast({ title: fr ? "Ajouté" : "Added" });
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {
       setAddingSeed(false);
     }
+  };
+
+  const handleDragStart = (index: number) => {
+    setDragIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  };
+
+  const handleDrop = async (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIndex) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const reordered = [...seeds];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropIndex, 0, moved);
+    
+    // Update local state immediately
+    const updated = reordered.map((s, i) => ({ ...s, sort_order: i + 1 }));
+    setSeeds(updated);
+    setDragIndex(null);
+    setDragOverIndex(null);
+
+    // Persist sort_order to DB
+    try {
+      await Promise.all(
+        updated.map(s =>
+          supabase.from("home_recipe_seeds").update({ sort_order: s.sort_order }).eq("id", s.id)
+        )
+      );
+    } catch {
+      toast({ title: "Error", description: "Failed to save order", variant: "destructive" });
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
   };
 
   const deleteSeed = async (seedId: string) => {
@@ -541,8 +588,19 @@ export default function HomeRecipes() {
               </p>
             ) : (
               <div className="space-y-1">
-                {seeds.map(seed => (
-                  <div key={seed.id} className="flex items-center gap-2 p-2 rounded hover:bg-muted/50">
+                {seeds.map((seed, index) => (
+                  <div
+                    key={seed.id}
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={handleDragEnd}
+                    className={`flex items-center gap-2 p-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
+                      dragOverIndex === index ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"
+                    } ${dragIndex === index ? "opacity-50" : ""}`}
+                  >
+                    <span className="text-xs text-muted-foreground font-mono w-5 text-center">{index + 1}</span>
                     <Switch
                       checked={seed.enabled}
                       onCheckedChange={() => toggleSeedEnabled(seed)}

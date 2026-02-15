@@ -112,7 +112,7 @@ async function loadRecipes(target: "mobile" | "web"): Promise<RecipeRow[]> {
 }
 
 async function loadSeedsForRecipe(recipeId: string): Promise<SeedRow[]> {
-  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=weight.desc`;
+  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=sort_order.asc,weight.desc`;
   const rows = await fetchJson<SeedRow[]>(url, restHeaders());
   return rows || [];
 }
@@ -173,12 +173,16 @@ async function fetchItemsFromDB(
 
   const results = await Promise.allSettled(perSeedPromises);
 
-  // Merge and dedup
+  // Collect items per seed (preserving seed order from sort_order)
   const usedIds = new Set<string>();
-  const allItems: RecipeItem[] = [];
+  const perSeedItems: RecipeItem[][] = [];
 
   for (const result of results) {
-    if (result.status !== "fulfilled" || !result.value) continue;
+    const seedItems: RecipeItem[] = [];
+    if (result.status !== "fulfilled" || !result.value) {
+      perSeedItems.push(seedItems);
+      continue;
+    }
     for (const row of result.value) {
       const id = `${row.provider}_${row.provider_product_id}`;
       if (usedIds.has(id)) continue;
@@ -187,7 +191,7 @@ async function fetchItemsFromDB(
       const priceUsd = row.price_usd as number | null;
       if (!title || !imageUrl || !priceUsd || priceUsd <= 0) continue;
       usedIds.add(id);
-      allItems.push({
+      seedItems.push({
         id,
         provider: row.provider as string,
         provider_product_id: row.provider_product_id as string,
@@ -202,10 +206,24 @@ async function fetchItemsFromDB(
         in_stock: true,
       });
     }
+    perSeedItems.push(seedItems);
   }
 
-  // Shuffle to mix categories, then trim to target
-  return shuffleArray(allItems).slice(0, targetCount);
+  // Round-robin interleave: take items from each seed in order
+  const interleaved: RecipeItem[] = [];
+  const nonEmptySeeds = perSeedItems.filter(s => s.length > 0);
+  if (nonEmptySeeds.length === 0) return [];
+  
+  const maxRounds = Math.ceil(targetCount / nonEmptySeeds.length);
+  for (let round = 0; round < maxRounds && interleaved.length < targetCount; round++) {
+    for (const seedItems of nonEmptySeeds) {
+      if (round < seedItems.length && interleaved.length < targetCount) {
+        interleaved.push(seedItems[round]);
+      }
+    }
+  }
+
+  return interleaved;
 }
 
 /**

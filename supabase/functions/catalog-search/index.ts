@@ -407,11 +407,15 @@ Deno.serve(async (req: Request) => {
       "chaussure": "shoes",
       "chaussures": "shoes",
       "chaussure dame": "women shoes",
+      "chaussure femme": "women shoes",
       "chaussure dame haut talon": "women high heel shoes",
+      "chaussure femme talon": "women heel shoes",
       "chaussure homme": "men shoes",
       "chaussure enfant": "kids shoes",
       "talon": "heels",
       "talon haut": "high heels",
+      "talons hauts": "high heels",
+      "haut talon": "high heels",
       "basket": "sneakers",
       "baskets": "sneakers",
       "botte": "boots",
@@ -442,6 +446,37 @@ Deno.serve(async (req: Request) => {
       "chapeau": "hat",
       "lunettes": "glasses",
       "lunettes de soleil": "sunglasses",
+      // ─── Accessories / Bags ───
+      "sac": "bag",
+      "sac a main": "women handbag",
+      "sac à main": "women handbag",
+      "sacoche": "messenger bag",
+      "portefeuille": "wallet",
+      // ─── Jewelry / Beauty ───
+      "bracelet": "bracelet",
+      "collier": "necklace",
+      "boucles d'oreilles": "earrings",
+      "boucles d oreilles": "earrings",
+      "meches": "hair extensions",
+      "mèches": "hair extensions",
+      "tissage": "hair weave",
+      // ─── Formal / Uniform ───
+      "costume": "suit",
+      "tenue": "outfit",
+      "uniforme": "uniform",
+      // ─── Generic tokens (composable with any noun) ───
+      "femme": "women",
+      "dame": "women",
+      "homme": "men",
+      "enfant": "kids",
+      "bebe": "baby",
+      "bébé": "baby",
+      "noir": "black",
+      "blanc": "white",
+      "rouge": "red",
+      "bleu": "blue",
+      "grand": "large",
+      "petit": "small",
     };
 
     // Detect if query might be French: accented chars, lang=fr, or matches FR terms
@@ -464,16 +499,27 @@ Deno.serve(async (req: Request) => {
         searchMeta.rewriteApplied = true;
         frFallbackApplied = true;
       } else if (isFrenchLikely) {
-        // Try matching individual words for multi-word queries
-        for (const [frTerm, enTerm] of Object.entries(FR_EN_FALLBACK)) {
-          if (qNormLower.includes(frTerm) || qNoAccents.includes(removeAccentsFn(frTerm))) {
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_partial: "${qNorm}" contains "${frTerm}" → "${enTerm}"`);
-            qNorm = qNormLower.replace(frTerm, enTerm).replace(removeAccentsFn(frTerm), enTerm);
-            searchMeta.rewrittenQuery = qNorm;
-            searchMeta.rewriteApplied = true;
-            frFallbackApplied = true;
-            break;
+        // Sort by key length descending so multi-word phrases match before single words
+        const sortedEntries = Object.entries(FR_EN_FALLBACK)
+          .sort((a, b) => b[0].length - a[0].length);
+        let translated = qNormLower;
+        let anyMatch = false;
+        for (const [frTerm, enTerm] of sortedEntries) {
+          const frTermNoAccents = removeAccentsFn(frTerm);
+          if (translated.includes(frTerm)) {
+            translated = translated.replace(frTerm, enTerm);
+            anyMatch = true;
+          } else if (translated.includes(frTermNoAccents)) {
+            translated = translated.replace(frTermNoAccents, enTerm);
+            anyMatch = true;
           }
+        }
+        if (anyMatch) {
+          qNorm = translated.trim().replace(/\s+/g, " ");
+          searchMeta.rewrittenQuery = qNorm;
+          searchMeta.rewriteApplied = true;
+          frFallbackApplied = true;
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_multi: "${qNormLower}" => "${qNorm}"`);
         }
       }
     }
@@ -656,6 +702,8 @@ Deno.serve(async (req: Request) => {
       "pantalon": "pants", "chemise": "shirt", "veste": "jacket",
       "manteau": "coat", "botte": "boots", "bottes": "boots",
       "sandale": "sandals", "sandales": "sandals", "basket": "sneakers", "baskets": "sneakers",
+      "sac": "bag", "perruque": "wig", "costume": "suit",
+      "collier": "necklace", "bracelet": "bracelet",
     };
     const pqTokens = providerQuery.toLowerCase().split(/\s+/);
     for (const token of pqTokens) {

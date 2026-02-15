@@ -336,6 +336,24 @@ export default function HomeRecipes() {
     try {
       const body: Record<string, unknown> = { target, env: "production" };
       if (recipeKey) body.recipeKey = recipeKey;
+
+      // Fetch current seeds from Test DB and include them so Live DB gets synced
+      const recipes = target === "mobile" ? mobileRecipes : webRecipes;
+      const targetRecipes = recipeKey ? recipes.filter(r => r.key === recipeKey) : recipes;
+      
+      if (targetRecipes.length > 0) {
+        const recipeIds = targetRecipes.map(r => r.id);
+        const { data: currentSeeds } = await supabase
+          .from("home_recipe_seeds")
+          .select("id, recipe_id, query, weight, enabled, sort_order, max_items, required_terms, excluded_terms")
+          .in("recipe_id", recipeIds)
+          .order("sort_order", { ascending: true });
+        
+        if (currentSeeds && currentSeeds.length > 0) {
+          body.seeds = currentSeeds;
+        }
+      }
+
       const res = await supabase.functions.invoke("admin-rebuild-home", {
         method: "POST",
         body,
@@ -343,11 +361,12 @@ export default function HomeRecipes() {
       });
       if (res.error) throw res.error;
       const d = res.data;
+      const syncMsg = d.seedsSynced ? ` (${d.seedsSynced} seeds synced)` : "";
       toast({
         title: fr ? "✓ Reconstruit!" : "✓ Rebuilt!",
         description: recipeKey 
-          ? `${d.itemCount} items for ${recipeKey}, ${d.durationMs}ms`
-          : `${d.itemCount} items, ${d.sectionCount} ${target === "mobile" ? "sections" : "pages"}, ${d.durationMs}ms`,
+          ? `${d.itemCount} items for ${recipeKey}, ${d.durationMs}ms${syncMsg}`
+          : `${d.itemCount} items, ${d.sectionCount} ${target === "mobile" ? "sections" : "pages"}, ${d.durationMs}ms${syncMsg}`,
       });
       clearCatalogHomeCache();
     } catch (err: any) {

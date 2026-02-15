@@ -71,9 +71,6 @@ export function ShopHeader() {
                 <div className="p-4 space-y-6">
                   {/* Account */}
                   <div>
-                    <h3 className="text-sm font-medium text-white/60 mb-3 uppercase tracking-wider">
-                      {shop.accountTab || 'Account'}
-                    </h3>
                     <div className="space-y-1">
                       {user ? (
                         <Link
@@ -81,8 +78,12 @@ export function ShopHeader() {
                           onClick={() => setMobileMenuOpen(false)}
                           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
                         >
-                          <User className="h-4 w-4" />
-                          {shop.accountTab || 'My Profile'}
+                          <span className="flex items-center justify-center h-7 w-7 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
+                            {user.user_metadata?.full_name
+                              ? user.user_metadata.full_name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+                              : user.email?.charAt(0)?.toUpperCase() || '?'}
+                          </span>
+                          {user.user_metadata?.full_name || (language === 'fr' ? 'Mon Compte' : 'My Account')}
                         </Link>
                       ) : (
                         <Link

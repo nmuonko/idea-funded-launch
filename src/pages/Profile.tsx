@@ -11,7 +11,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, AlertCircle, Mail, Lock, LogOut, MapPin } from 'lucide-react';
+import { Loader2, AlertCircle, Mail, Lock, LogOut, MapPin, ArrowLeft } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const DRC_PROVINCES = [
   'Kinshasa', 'Kongo-Central', 'Kwango', 'Kwilu', 'Mai-Ndombe',
@@ -222,6 +223,13 @@ export default function Profile() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container max-w-2xl mx-auto py-8 px-4">
+        <Link
+          to="/"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors text-sm"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Retour au menu principal
+        </Link>
         {/* Email Verification Banner */}
         {user && !user.email_confirmed_at && (
           <Alert className="mb-6 border-amber-500 bg-amber-50 dark:bg-amber-950">

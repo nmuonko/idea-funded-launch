@@ -2060,27 +2060,36 @@ export type Database = {
         Row: {
           created_at: string
           enabled: boolean
+          excluded_terms: string[]
           id: string
+          max_items: number
           query: string
           recipe_id: string
+          required_terms: string[]
           sort_order: number
           weight: number
         }
         Insert: {
           created_at?: string
           enabled?: boolean
+          excluded_terms?: string[]
           id?: string
+          max_items?: number
           query: string
           recipe_id: string
+          required_terms?: string[]
           sort_order?: number
           weight?: number
         }
         Update: {
           created_at?: string
           enabled?: boolean
+          excluded_terms?: string[]
           id?: string
+          max_items?: number
           query?: string
           recipe_id?: string
+          required_terms?: string[]
           sort_order?: number
           weight?: number
         }

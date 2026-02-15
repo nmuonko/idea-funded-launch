@@ -312,7 +312,7 @@ serve(async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error.message || 'Internal server error',
+        error: 'An error occurred while creating checkout session',
         error_code: 'INTERNAL_ERROR',
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

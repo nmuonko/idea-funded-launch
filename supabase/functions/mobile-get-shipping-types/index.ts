@@ -70,7 +70,7 @@ serve(async (req) => {
 
     console.error('[mobile-get-shipping-types] Error:', error.message);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: 'An error occurred while fetching shipping types' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

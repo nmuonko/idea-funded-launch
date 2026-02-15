@@ -234,7 +234,7 @@ Deno.serve(async (req) => {
   } catch (error: any) {
     console.error('[payments-check-intent] Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message || 'Internal server error', error_code: 'INTERNAL_ERROR' }),
+      JSON.stringify({ success: false, error: 'An error occurred while checking payment status', error_code: 'INTERNAL_ERROR' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

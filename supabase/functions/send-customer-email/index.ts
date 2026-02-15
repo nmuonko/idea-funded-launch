@@ -85,6 +85,32 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
+    // Input validation: enforce length limits and reject HTML tags in raw input
+    const MAX_SUBJECT_LENGTH = 200;
+    const MAX_BODY_LENGTH = 10000;
+    const MAX_EMAIL_LENGTH = 320;
+
+    if (customer_email.length > MAX_EMAIL_LENGTH || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customer_email)) {
+      return new Response(JSON.stringify({ error: "Invalid email address" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (subject.length > MAX_SUBJECT_LENGTH) {
+      return new Response(JSON.stringify({ error: `Subject must be under ${MAX_SUBJECT_LENGTH} characters` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (body.length > MAX_BODY_LENGTH) {
+      return new Response(JSON.stringify({ error: `Body must be under ${MAX_BODY_LENGTH} characters` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     console.log(`[send-customer-email] Sending email to ${customer_email}`);
 
     // Sanitize body content to prevent XSS - escape HTML entities before converting newlines

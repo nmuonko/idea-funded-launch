@@ -206,11 +206,8 @@ serve(async (req) => {
       }
     }
 
-    // Service role
-    if (!isAuthorized && authHeader === `Bearer ${supabaseServiceKey}`) {
-      isAuthorized = true;
-      authMethod = 'service_role';
-    }
+    // Service role - only accept from internal edge function calls (not from client)
+    // Do NOT compare bearer token directly against service role key to prevent key exposure attacks
 
     if (!isAuthorized) {
       return new Response(

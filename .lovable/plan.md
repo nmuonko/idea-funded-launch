@@ -1,55 +1,33 @@
 
-# Fix: "talon" Corrupted to "tahoe" by Fuzzy Canonicalizer
+# Fix: "Effacer la recherche" + Stale Search Cache
 
-## Root Cause
+## Problem 1: "Effacer la recherche" Shows Random Items
 
-When searching "chaussure dame haut talon", the fuzzy canonicalizer at line 144 of `catalog-search/index.ts` runs **before** the French-to-English translation layer (line ~500). It fuzzy-matches "talon" (French for "heel") to "tahoe" (Chevy Tahoe) with Levenshtein distance 2, corrupting the query to "chaussure dame haut tahoe".
+When you click "Effacer la recherche" (Clear Search), the app clears the URL parameters but stays on the `/search` page. With an empty query, the search falls back to `"popular"`, which shows random products like bras instead of returning you to the homepage.
 
-This causes two cascading failures:
-1. Intent detection sees "tahoe" and classifies the query as `vehicle_listing`
-2. Vehicle listing intent disables Amazon search
-3. eBay also returns 0 results for the corrupted query
-4. Result: "No products found"
+**Fix**: Change the button to navigate to `/` (homepage) instead of just clearing search params.
 
-The debug headers confirm this: `qCanon: "chaussure dame haut tahoe"`, `intentKey: "vehicle_listing"`, `amazonStatus: "disabled"`.
+## Problem 2: "chaussure dame haut talon" Shows No Results
 
-## Fix
+The backend now works correctly (confirmed: returns shoes/heels results). However, the frontend has **stale cached data** from previous failed searches stored in the browser (localStorage + in-memory cache). These old "0 results" entries are being served instantly, preventing the app from fetching fresh results from the fixed backend.
 
-Two changes in `supabase/functions/_shared/queryCanonicalizer.ts`:
+**Fix**: Increment the cache version prefix so all old cache entries are automatically ignored on the next page load.
 
-### 1. Add common French fashion/body terms as protected tokens
+---
 
-Add these as empty-array entries in `CANONICAL_TERMS` (same pattern as existing protected terms like "rover", "tahoe") to prevent fuzzy corruption:
+## Technical Details
 
-```
-"talon": []     // French for "heel" - prevent "talon" -> "tahoe"
-"salon": []     // French for "living room" - prevent fuzzy matches
-"pantalon": []  // French for "pants" - prevent fuzzy matches
-"manteau": []   // French for "coat" - prevent fuzzy matches
-"collier": []   // French for "necklace" - prevent fuzzy matches
-```
+### File 1: `src/pages/shop/SearchResults.tsx`
 
-### 2. Tighten fuzzy matching for 5-char tokens
+**Line 383**: Change `onClick={() => setSearchParams({})}` to `onClick={() => navigate('/')}` so the clear button navigates to the homepage instead of staying on the search page with a fallback query.
 
-Currently the threshold is 2 for all tokens >= 4 chars. For short tokens (4-5 chars), Levenshtein distance 2 is too aggressive (40-50% of the word can change). Reduce the threshold to 1 for tokens with 5 or fewer characters:
+### File 2: `src/lib/catalogCache.ts`
 
-```typescript
-const effectiveThreshold = token.length <= 5 ? 1 : threshold;
-```
+**Cache prefix version bump**: Increment the `CACHE_PREFIX` constant (e.g., from `"afrishop_cache_v"` to a new version number) to invalidate all stale localStorage entries from before the backend fix. This is a one-line change that forces fresh network fetches for all queries.
 
-This prevents "talon" -> "tahoe" (distance 2 > new threshold 1) while still allowing corrections for longer words like "playstaion" -> "playstation" (distance 1).
+---
 
 ## Files Changed
 
-- **Modified**: `supabase/functions/_shared/queryCanonicalizer.ts` -- add protected French terms + tighten short-token fuzzy threshold
-
-## Deployment
-
-Redeploy `catalog-search` (which imports the shared module).
-
-## Verification
-
-After deployment, search "chaussure dame haut talon" and confirm:
-- `qCanon` does NOT contain "tahoe"
-- `intentKey` is NOT `vehicle_listing`
-- Results are returned (shoes/heels)
+- `src/pages/shop/SearchResults.tsx` -- navigate to homepage on clear
+- `src/lib/catalogCache.ts` -- bump cache version to bust stale entries

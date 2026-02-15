@@ -3782,6 +3782,39 @@ export type Database = {
         }
         Relationships: []
       }
+      query_translation_cache: {
+        Row: {
+          created_at: string
+          expires_at: string
+          hit_count: number
+          normalized_query: string
+          provider: string
+          source_lang: string
+          target_lang: string
+          translated_query: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          hit_count?: number
+          normalized_query: string
+          provider?: string
+          source_lang?: string
+          target_lang?: string
+          translated_query: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          hit_count?: number
+          normalized_query?: string
+          provider?: string
+          source_lang?: string
+          target_lang?: string
+          translated_query?: string
+        }
+        Relationships: []
+      }
       quote_requests: {
         Row: {
           admin_notes: string | null

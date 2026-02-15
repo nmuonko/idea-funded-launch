@@ -415,7 +415,7 @@ serve(async (req) => {
       return jsonResponse({ 
         success: false, 
         error: 'AUTH_ERROR', 
-        message: error.message 
+        message: 'Authentication failed. Please sign in again.' 
       }, error.status || 401);
     }
     

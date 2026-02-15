@@ -334,7 +334,7 @@ serve(async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({ 
         success: false, 
-        error: error.message || 'Internal server error',
+        error: 'An error occurred while verifying payment',
         error_code: 'INTERNAL_ERROR',
         status: 'pending',
       }),

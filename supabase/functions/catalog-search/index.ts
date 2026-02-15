@@ -37,6 +37,7 @@ import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
+import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -613,9 +614,9 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED vehicle_listing intent via category=${categoryKey}`);
     }
 
-    // ─── CACHE CHECK ──────────────────────────────────────────────────────────
+    // ─── CACHE CHECK (GLOBAL — no user identifiers) ─────────────────────────
     const cacheStart = Date.now();
-    const globalCacheKey = buildCacheKey("search", {
+    let globalCacheKey = buildCacheKey("search", {
       env: effectiveEnv, query: qNorm, provider: providerParam || "all",
       category: categoryKey || undefined,
       page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit,
@@ -624,6 +625,8 @@ Deno.serve(async (req: Request) => {
       condition: catalogFilters.condition, sort, vehicleMode: hasBuyingIntent,
       intentKey: effectiveIntent.intentKey,
     });
+    // ASSERTION: Ensure no user identifiers leaked into cache key
+    globalCacheKey = assertGlobalCacheKey(globalCacheKey, requestId);
 
     let cacheResult = await getCache(supabase, globalCacheKey);
     const envUsed = effectiveEnv;
@@ -632,16 +635,73 @@ Deno.serve(async (req: Request) => {
     // Validate cache
     cacheResult = validateCacheHit({ cacheResult, qNorm, hasBuyingIntent, catalogFilters, requestId });
 
+    // Track cache status for headers
+    let finalCacheStatus = "MISS";
+    let cacheMatchedQuery: string | null = null;
+    let cacheTtlRemaining = 0;
+
     // ─── FRESH CACHE HIT ──────────────────────────────────────────────────────
     if (cacheResult.hit && !cacheResult.stale && !cacheResult.negativeCached) {
       const cachedResponse = cacheResult.data;
       const cachedItems = filterCachedItems(cachedResponse.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
+      finalCacheStatus = "HIT";
+      // Compute TTL remaining
+      const expiresAt = cacheResult.data?._meta?.cachedAt ? new Date(cacheResult.data._meta.cachedAt).getTime() + 7 * 24 * 60 * 60 * 1000 : 0;
+      cacheTtlRemaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+      const hitHeaders = buildResponseHeaders(cachedItems.length, 3600, { cacheStatus: "HIT", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: Date.now() - startTime });
+      hitHeaders["X-Cache-TTL-Remaining"] = String(cacheTtlRemaining);
+      hitHeaders["X-Results-Count"] = String(cachedItems.length);
+      hitHeaders["X-Next-Cursor"] = cachedResponse.nextCursor ? "present" : "absent";
+      hitHeaders["X-Translate"] = translateStatus;
+      hitHeaders["X-Translate-Ms"] = String(translateMs);
+      if (translateProvider) hitHeaders["X-Translate-Provider"] = translateProvider;
+      hitHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+      // Structured log
+      console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "HIT", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlRemaining, resultsCount: cachedItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, requestId }));
       return new Response(JSON.stringify({
         ...cachedResponse, items: cachedItems, total: cachedItems.length,
         query: qOriginal, env: envName, durationMs: Date.now() - startTime,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "cache", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: buildResponseHeaders(cachedItems.length, 3600, { cacheStatus: "HIT", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: Date.now() - startTime }) });
+      }), { status: 200, headers: hitHeaders });
+    }
+
+    // ─── NEAR-MATCH LOOKUP (global similarity cache) ──────────────────────────
+    if (!cacheResult.hit || cacheResult.negativeCached) {
+      const nearMatch = await findNearMatch(supabase, qNorm, {
+        provider: providerParam || "all",
+        vehicleMode: hasBuyingIntent,
+        categoryKey: categoryKey || undefined,
+        intentKey: effectiveIntent.intentKey,
+        sort,
+        page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+      }, requestId);
+
+      if (nearMatch.hit && nearMatch.data) {
+        const nearItems = filterCachedItems(nearMatch.data.items || [], hasBuyingIntent, catalogFilters, requestId, effectiveIntent.intentKey);
+        if (nearItems.length > 0) {
+          finalCacheStatus = "NEAR_HIT";
+          cacheMatchedQuery = nearMatch.matchedQuery;
+          const nearHeaders = buildResponseHeaders(nearItems.length, 3600, { cacheStatus: "NEAR_HIT", cacheAgeSec: nearMatch.cacheAgeSec, responseTimeMs: Date.now() - startTime });
+          nearHeaders["X-Cache-TTL-Remaining"] = String(nearMatch.ttlRemainingSec);
+          nearHeaders["X-Results-Count"] = String(nearItems.length);
+          nearHeaders["X-Next-Cursor"] = nearMatch.data.nextCursor ? "present" : "absent";
+          nearHeaders["X-Cache-Match"] = nearMatch.matchedQuery || "";
+          nearHeaders["X-Translate"] = translateStatus;
+          nearHeaders["X-Translate-Ms"] = String(translateMs);
+          if (translateProvider) nearHeaders["X-Translate-Provider"] = translateProvider;
+          nearHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+          // Structured log
+          console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "NEAR_HIT", matchedQuery: nearMatch.matchedQuery, provider: providerParam || "all", ttlRemaining: nearMatch.ttlRemainingSec, resultsCount: nearItems.length, totalMs: Date.now() - startTime, upstreamMs: 0, similarity: nearMatch.similarity, requestId }));
+          return new Response(JSON.stringify({
+            ...nearMatch.data, items: nearItems, total: nearItems.length,
+            query: qOriginal, env: envName, durationMs: Date.now() - startTime,
+            _cacheHit: true, _cacheAgeSec: nearMatch.cacheAgeSec, _nearMatch: true,
+            _matchedQuery: nearMatch.matchedQuery, _similarity: nearMatch.similarity,
+            meta: { source: "near_match", isStale: false, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), matchedQuery: nearMatch.matchedQuery, similarity: nearMatch.similarity },
+          }), { status: 200, headers: nearHeaders });
+        }
+      }
     }
 
     // ─── STALE-WHILE-REVALIDATE ───────────────────────────────────────────────
@@ -677,12 +737,21 @@ Deno.serve(async (req: Request) => {
         }
       })();
 
+      const staleHeaders = buildResponseHeaders(staleItems.length, 300, { cacheStatus: "STALE", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: staleDuration });
+      staleHeaders["X-Cache-TTL-Remaining"] = "0";
+      staleHeaders["X-Results-Count"] = String(staleItems.length);
+      staleHeaders["X-Next-Cursor"] = cacheResult.data.nextCursor ? "present" : "absent";
+      staleHeaders["X-Translate"] = translateStatus;
+      staleHeaders["X-Translate-Ms"] = String(translateMs);
+      if (translateProvider) staleHeaders["X-Translate-Provider"] = translateProvider;
+      staleHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+      console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "STALE", matchedQuery: null, provider: providerParam || "all", ttlRemaining: 0, resultsCount: staleItems.length, totalMs: staleDuration, upstreamMs: 0, requestId }));
       return new Response(JSON.stringify({
         ...cacheResult.data, items: staleItems, total: staleItems.length,
         query: qOriginal, env: envName, durationMs: staleDuration,
         _cacheHit: true, _cacheAgeSec: cacheResult.cacheAgeSec,
         meta: { source: "stale", isStale: true, envUsed, envRequested: envName, correlationId: requestId, ts: new Date().toISOString() },
-      }), { status: 200, headers: buildResponseHeaders(staleItems.length, 300, { cacheStatus: "STALE", cacheAgeSec: cacheResult.cacheAgeSec, responseTimeMs: staleDuration }) });
+      }), { status: 200, headers: staleHeaders });
     }
 
     const isVehicle = isVehicleQuery(qNorm);
@@ -1284,10 +1353,15 @@ Deno.serve(async (req: Request) => {
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: timings.total, timings });
     responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
     responseHeaders["x-afrishop-search-intent"] = effectiveIntent.intentKey;
+    responseHeaders["X-Cache-TTL-Remaining"] = String(cacheTtlSeconds);
+    responseHeaders["X-Results-Count"] = String(finalItems.length);
+    responseHeaders["X-Next-Cursor"] = nextCursor ? "present" : "absent";
     responseHeaders["X-Translate"] = translateStatus;
     responseHeaders["X-Translate-Ms"] = String(translateMs);
     if (translateProvider) responseHeaders["X-Translate-Provider"] = translateProvider;
-    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Cache-TTL-Remaining, X-Results-Count, X-Next-Cursor, X-Cache-Match, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
+    // Structured cache log
+    console.log(JSON.stringify({ event: "search_cache", canonicalQuery: qNorm, cacheStatus: "MISS", matchedQuery: null, provider: providerParam || "all", ttlRemaining: cacheTtlSeconds, resultsCount: finalItems.length, totalMs: timings.total, upstreamMs: timings.providers, requestId }));
 
     return new Response(JSON.stringify(response), {
       status: 200,

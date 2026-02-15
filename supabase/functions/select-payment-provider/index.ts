@@ -65,33 +65,36 @@ serve(async (req) => {
     if (!checkout_session_id) {
       console.log('[PAYMENT_FLOW] VALIDATION_ERROR: missing checkout_session_id');
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'MISSING_CHECKOUT_SESSION',
         message: 'Checkout session ID is required.',
         message_fr: 'L\'identifiant de session de paiement est requis.',
-      }, 400);
+      }, 200);
     }
 
     if (!provider || !VALID_PROVIDERS.includes(provider as ProviderSelection)) {
       console.log('[PAYMENT_FLOW] VALIDATION_ERROR: invalid provider', { provider, valid: VALID_PROVIDERS });
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'INVALID_PROVIDER',
         message: 'Invalid payment provider. Choose: pawapay, stripe, or bank_transfer.',
         message_fr: 'Fournisseur de paiement invalide. Choisissez: pawapay, stripe, ou bank_transfer.',
         valid_providers: VALID_PROVIDERS,
-      }, 400);
+      }, 200);
     }
 
     // pawaPay requires phone number
     if (provider === 'pawapay' && !phone) {
       console.log('[PAYMENT_FLOW] VALIDATION_ERROR: pawapay requires phone');
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'PHONE_REQUIRED',
         message: 'Phone number is required for mobile money payments.',
         message_fr: 'Le numéro de téléphone est requis pour les paiements mobile money.',
-      }, 400);
+      }, 200);
     }
 
     // ============================================
@@ -107,11 +110,12 @@ serve(async (req) => {
     if (sessionError || !session) {
       console.log('[PAYMENT_FLOW] SESSION_NOT_FOUND', { checkout_session_id, error: sessionError?.message });
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'SESSION_NOT_FOUND',
         message: 'Checkout session not found or expired.',
         message_fr: 'Session de paiement introuvable ou expirée.',
-      }, 404);
+      }, 200);
     }
 
     // Validate session status allows provider selection
@@ -137,12 +141,13 @@ serve(async (req) => {
       }
 
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'INVALID_SESSION_STATUS',
         message: 'Session is not in a valid state for provider selection.',
         message_fr: 'La session n\'est pas dans un état valide pour la sélection du fournisseur.',
         current_status: session.status,
-      }, 400);
+      }, 200);
     }
 
     // Check session expiry (30 minutes)
@@ -156,11 +161,12 @@ serve(async (req) => {
         .eq('id', checkout_session_id);
 
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'SESSION_EXPIRED',
         message: 'Checkout session has expired. Please start a new checkout.',
         message_fr: 'La session de paiement a expiré. Veuillez recommencer le paiement.',
-      }, 410);
+      }, 200);
     }
 
     // ============================================
@@ -332,11 +338,12 @@ serve(async (req) => {
 
       console.error('[PAYMENT_FLOW] CREATE_ATTEMPT_ERROR', createAttemptError.message);
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'PAYMENT_ATTEMPT_FAILED',
-        message: 'Failed to create payment attempt.',
-        error: createAttemptError.message,
-      }, 500);
+        message: 'Unable to process payment. Please try again.',
+        message_fr: 'Impossible de traiter le paiement. Veuillez réessayer.',
+      }, 200);
     }
 
     console.log('[PAYMENT_FLOW] PAYMENT_ATTEMPT_CREATED', {
@@ -380,22 +387,24 @@ serve(async (req) => {
       if (!pawaProvider || pawaProvider.provider_key !== 'pawapay' || !pawaProvider.is_enabled) {
         console.error('[PAYMENT_FLOW] PAWAPAY_NOT_AVAILABLE');
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'PROVIDER_NOT_AVAILABLE',
           message: 'Mobile money payments are temporarily unavailable.',
           message_fr: 'Les paiements mobile money sont temporairement indisponibles.',
-        }, 503);
+        }, 200);
       }
 
       const secretsValid = validateProviderSecrets(pawaProvider);
       if (!secretsValid.valid) {
         console.error('[PAYMENT_FLOW] PAWAPAY_SECRETS_MISSING', { missing: secretsValid.missing });
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'PROVIDER_CONFIG_ERROR',
           message: 'Mobile money payments are temporarily unavailable.',
           message_fr: 'Les paiements mobile money sont temporairement indisponibles.',
-        }, 503);
+        }, 200);
       }
 
       try {
@@ -493,12 +502,13 @@ serve(async (req) => {
           });
 
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'PAWAPAY_FAILED',
-            message: depositResult.error || 'Mobile money payment failed.',
-            message_fr: 'Le paiement mobile money a échoué.',
+            message: 'Mobile money payment failed. Please try again.',
+            message_fr: 'Le paiement mobile money a échoué. Veuillez réessayer.',
             order_id: orderId,
-          }, 400);
+          }, 200);
         }
       } catch (pawaError: any) {
         await supabase
@@ -513,19 +523,21 @@ serve(async (req) => {
 
         if (pawaError instanceof ConfigMissingError) {
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'PROVIDER_NOT_CONFIGURED',
-            message: 'Mobile money payments are not configured.',
-            message_fr: 'Les paiements mobile money ne sont pas configurés.',
-          }, 503);
+            message: 'Mobile money payments are temporarily unavailable.',
+            message_fr: 'Les paiements mobile money sont temporairement indisponibles.',
+          }, 200);
         }
 
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'PAWAPAY_ERROR',
           message: 'An error occurred processing your payment.',
           message_fr: 'Une erreur s\'est produite lors du traitement de votre paiement.',
-        }, 500);
+        }, 200);
       }
     }
 
@@ -546,11 +558,12 @@ serve(async (req) => {
       if (currency !== 'USD') {
         console.log('[PAYMENT_FLOW] STRIPE_USD_REQUIRED', { requested: currency });
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'USD_REQUIRED',
           message: 'Card payments require USD currency.',
           message_fr: 'Les paiements par carte nécessitent la devise USD.',
-        }, 400);
+        }, 200);
       }
 
       try {
@@ -559,11 +572,12 @@ serve(async (req) => {
         if (!stripeProvider || stripeProvider.provider_key !== 'stripe' || !stripeProvider.is_enabled) {
           console.error('[PAYMENT_FLOW] STRIPE_NOT_AVAILABLE');
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'CARD_NOT_AVAILABLE',
             message: 'Card payments are temporarily unavailable.',
             message_fr: 'Les paiements par carte sont temporairement indisponibles.',
-          }, 503);
+          }, 200);
         }
 
         const { createPaymentIntent, getStripeConfig } = await import('../_shared/stripeAdapter.ts');
@@ -648,11 +662,12 @@ serve(async (req) => {
           });
 
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'STRIPE_FAILED',
             message: 'Failed to initialize card payment.',
             message_fr: 'Échec de l\'initialisation du paiement par carte.',
-          }, 500);
+          }, 200);
         }
       } catch (stripeError: any) {
         await supabase
@@ -666,11 +681,12 @@ serve(async (req) => {
         });
 
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'STRIPE_ERROR',
           message: 'An error occurred processing your card payment.',
           message_fr: 'Une erreur s\'est produite lors du traitement de votre paiement par carte.',
-        }, 500);
+        }, 200);
       }
     }
 
@@ -755,23 +771,22 @@ serve(async (req) => {
 
     // Should never reach here
     return jsonResponse({
+      ok: false,
       success: false,
       code: 'UNKNOWN_PROVIDER',
       message: 'Unknown provider selected.',
-    }, 400);
+      message_fr: 'Fournisseur inconnu sélectionné.',
+    }, 200);
 
   } catch (error: any) {
     console.error('[PAYMENT_FLOW] UNEXPECTED_ERROR', error.message);
     
-    if (error.name === 'AuthError') {
-      return errorResponse(error.message, error.status);
-    }
-    
     return jsonResponse({
+      ok: false,
       success: false,
       code: 'INTERNAL_ERROR',
       message: 'An unexpected error occurred.',
       message_fr: 'Une erreur inattendue s\'est produite.',
-    }, 500);
+    }, 200);
   }
 });

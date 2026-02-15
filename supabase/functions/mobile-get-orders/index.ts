@@ -73,7 +73,6 @@ serve(async (req) => {
       .eq('user_id', user.id)
       .neq('status', 'DRAFT')
       .order('created_at', { ascending: false })
-      .order('id', { ascending: false }) // Stable secondary sort
       .range(offset, offset + pageSize - 1);
     const queryTime = Date.now() - queryStart;
 

@@ -1,27 +1,27 @@
 
+# Fix Mobile Orders Error: Double `.order()` Chain
 
-# Clean Up Unused Support Page and Import
+## Problem
+The `mobile-get-orders` backend function chains two `.order()` calls (lines 75-76), which is not supported by the Supabase client version used in backend functions. This causes the error: `.order(...).order(...) is not a function`.
 
-## What Changes
+## Fix
 
-Remove the orphaned `/support` route and unused imports left over from removing the Support link in the hamburger menu.
+### File: `supabase/functions/mobile-get-orders/index.ts`
 
-## Technical Details
+Remove the second `.order('id', { ascending: false })` on line 76. Ordering by `created_at DESC` alone is sufficient for consistent results -- the `id` is a UUID so it does not provide meaningful tie-breaking anyway.
 
-### File: `src/components/shop/ShopHeader.tsx`
-- Remove `HelpCircle` from the lucide-react import statement (it is no longer used anywhere in the file).
+**Before:**
+```ts
+.order('created_at', { ascending: false })
+.order('id', { ascending: false })
+.range(offset, offset + pageSize - 1);
+```
 
-### File: `src/App.tsx`
-- Remove the `import Support from "./pages/Support";` line (line 31).
-- Remove the `/support` route block (lines 220-224) that wraps `<Support />` in a `<ProtectedRoute>`.
-
-### File: `src/pages/Support.tsx`
-- Delete this file entirely since it is no longer reachable from the UI. The in-app chat fully replaces it.
-
-**Note:** The admin-side support pages (`AdminSupportInbox`, `SupportContactSettings`, `ChatRouting`, etc.) remain untouched -- those are backend/admin tools, not the customer-facing ticket page.
+**After:**
+```ts
+.order('created_at', { ascending: false })
+.range(offset, offset + pageSize - 1);
+```
 
 ## Files Changed
-- `src/components/shop/ShopHeader.tsx` -- remove unused `HelpCircle` import
-- `src/App.tsx` -- remove Support import and `/support` route
-- `src/pages/Support.tsx` -- delete file
-
+- `supabase/functions/mobile-get-orders/index.ts` -- remove duplicate `.order()` call (1 line)

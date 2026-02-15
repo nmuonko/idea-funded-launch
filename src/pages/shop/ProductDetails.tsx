@@ -16,6 +16,7 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
+import { resizeImageUrl, IMAGE_SIZE_HERO, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
@@ -124,12 +125,11 @@ export default function ProductDetailsPage() {
   const safeImageIndex = Math.min(currentImageIndex, safeImages.length - 1);
 
   // Preload first 4 gallery images when data arrives
+  // Preload only the first image at hero size (not 4 full-res images)
   useEffect(() => {
     if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
-    safeImages.slice(0, 4).forEach(src => {
-      const img = new Image();
-      img.src = src;
-    });
+    const img = new Image();
+    img.src = resizeImageUrl(safeImages[0], IMAGE_SIZE_HERO);
   }, [safeImages]);
 
   // Group variants by dimension name
@@ -549,7 +549,7 @@ export default function ProductDetailsPage() {
                 <AnimatePresence mode="wait">
                   <motion.img
                     key={safeImages[safeImageIndex]}
-                    src={safeImages[safeImageIndex] || '/placeholder.svg'}
+                    src={resizeImageUrl(safeImages[safeImageIndex] || '/placeholder.svg', IMAGE_SIZE_HERO)}
                     alt={product.title}
                     loading="eager"
                     fetchPriority="high"
@@ -599,7 +599,7 @@ export default function ProductDetailsPage() {
                       }`}
                     >
                       <img
-                        src={img}
+                        src={resizeImageUrl(img, IMAGE_SIZE_THUMB)}
                         alt={`${product.title} ${index + 1}`}
                         loading="lazy"
                         className="w-full h-full object-contain bg-white/5 p-1"

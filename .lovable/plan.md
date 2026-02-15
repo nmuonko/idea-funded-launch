@@ -1,43 +1,60 @@
 
+# Speed Up Product Detail Image Loading
 
-# Fix Homepage Double-Click Empty State and Stale Toys Content
+## Problem
 
-## Problem 1: "No products available" on re-clicking Homepage tab
+When tapping a product, the gallery images load slowly because:
+1. The main image (`motion.img`) has no explicit `loading="eager"` or `fetchpriority="high"` -- the browser may deprioritize it
+2. No image preloading happens -- the single image from navigation state displays, then the API fetch brings additional gallery images that load from scratch
+3. Thumbnail images (up to 6) all load simultaneously without any priority hints
 
-**Root cause found**: When you click the "Homepage" tab in CategoryTabs while already viewing it, `handleCategoryChange('all')` runs and does this:
+## Solution
 
-```
-setActiveCategory('all');   // same value -- React skips re-render
-setProducts([]);            // CLEARS the product list
-setHasMore(true);
-```
+Three targeted changes in `src/pages/shop/ProductDetails.tsx`:
 
-Since `activeCategory` doesn't actually change, the `useEffect` watching `[language, activeCategory]` never re-fires, so `fetchFeed` is never called again. Result: empty screen with "No products available."
+### 1. Eager-load the main hero image with high fetch priority
 
-**Fix**: Add a guard in `handleCategoryChange` -- if the category is already active, do nothing (don't clear products). This is a 2-line fix.
+Add `loading="eager"` and `fetchPriority="high"` to the main `motion.img` element so the browser prioritizes it immediately:
 
-## Problem 2: Homepage showing only toys (LEGO, Barbie, Nerf)
-
-**Root cause found**: The backend recipe cache (`recipe_cache` source) currently has 85 items, and many of the seed queries like "LEGO set", combined with eBay results for "barbie doll accessories" and "nerf gun blaster", are producing a toys-heavy feed. The other seeds (iPhone, MacBook, Nike, etc.) may have returned fewer results or failed during the last recipe build.
-
-**Fix**: Trigger a recipe rebuild from the admin panel to refresh the cached pool with balanced results across all seeds. No frontend code change needed for this -- it's a data/cache freshness issue.
-
-## Technical Changes
-
-### File: `src/pages/shop/ShopHome.tsx`
-
-- In `handleCategoryChange`: add early return if `category === activeCategory` to prevent clearing products when the same tab is clicked again.
-
-```typescript
-const handleCategoryChange = (category: string) => {
-  if (category === activeCategory) return; // Don't clear if same tab
-  setActiveCategory(category);
-  setCurrentPage(1);
-  setTotalPages(0);
-  setProducts([]);
-  setHasMore(true);
-};
+```tsx
+<motion.img
+  key={safeImages[safeImageIndex]}
+  src={safeImages[safeImageIndex] || '/placeholder.svg'}
+  loading="eager"
+  fetchPriority="high"
+  ...
+/>
 ```
 
-This single guard prevents the empty state on re-click while still allowing normal category switching.
+### 2. Preload gallery images when API data arrives
 
+After the API fetch merges new images into state, use `<link rel="preload">` via a `useEffect` to tell the browser to start downloading the first few gallery images in the background before the user scrolls to thumbnails:
+
+```tsx
+useEffect(() => {
+  if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
+  // Preload the first 4 images using Image() constructor
+  safeImages.slice(0, 4).forEach(src => {
+    const img = new Image();
+    img.src = src;
+  });
+}, [safeImages]);
+```
+
+### 3. Lazy-load thumbnails beyond the first visible set
+
+Add `loading="lazy"` to thumbnail `<img>` tags so they don't compete with the hero image for bandwidth:
+
+```tsx
+<img
+  src={img}
+  loading="lazy"
+  ...
+/>
+```
+
+## Files Changed
+
+- `src/pages/shop/ProductDetails.tsx` -- 3 small edits (hero image attributes, preload effect, thumbnail lazy loading)
+
+No backend changes needed.

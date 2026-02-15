@@ -647,39 +647,25 @@ export default function AdminOrders() {
     try {
       setBulkDeleteLoading(true);
       const orderIds = Array.from(selectedOrders);
-      let successCount = 0;
-      let failCount = 0;
       
-      for (const orderId of orderIds) {
-        try {
-          const { error } = await supabase.functions.invoke('admin-delete-order', {
-            body: { orderId }
-          });
-          
-          if (error) {
-            failCount++;
-            console.error(`Failed to delete order ${orderId}:`, error);
-          } else {
-            successCount++;
-          }
-        } catch (err) {
-          failCount++;
-          console.error(`Failed to delete order ${orderId}:`, err);
-        }
-      }
+      const { data, error } = await supabase.functions.invoke('admin-bulk-delete-orders', {
+        body: { orderIds }
+      });
 
-      if (successCount > 0) {
-        toast({
-          title: 'Orders Deleted',
-          description: failCount > 0 
-            ? `Deleted ${successCount} order(s). ${failCount} failed.`
-            : `Successfully deleted ${successCount} order(s)`,
-        });
-      } else {
+      if (error) {
+        console.error('Bulk delete failed:', error);
         toast({
           title: 'Error',
-          description: 'Failed to delete any orders',
+          description: 'Failed to delete orders',
           variant: 'destructive',
+        });
+      } else {
+        const result = data as { deleted: number; notFound: number } | null;
+        toast({
+          title: 'Orders Deleted',
+          description: result?.notFound 
+            ? `Deleted ${result.deleted} order(s). ${result.notFound} not found.`
+            : `Successfully deleted ${result?.deleted || orderIds.length} order(s)`,
         });
       }
 

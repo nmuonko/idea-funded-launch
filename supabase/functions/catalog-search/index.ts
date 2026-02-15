@@ -140,67 +140,28 @@ Deno.serve(async (req: Request) => {
   const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
 
-  // ─── VEHICLE + INTENT DETECTION ──────────────────────────────────────────────
-  const qCanonicalized = canonicalizeQuery(qOriginal);
-  const qNormEarly = qCanonicalized.toLowerCase().replace(/\s+/g, " ");
-  const isVehicleEarly = isVehicleQuery(qNormEarly);
-  const isHeavyEquipment = isHeavyEquipmentQuery(qNormEarly);
-
-  // Early intent classification (uses pre-rewrite query for correct detection)
-  const earlyIntent = classifySearchIntent(qNormEarly);
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} early_intent=${earlyIntent.intentKey}`);
-
-  if (qCanonicalized !== qOriginal) {
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} query_canonicalized: "${qOriginal}" → "${qCanonicalized}"`);
-  }
-
-  if (isHeavyEquipment) {
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} HEAVY_EQUIPMENT detected — skipping vehicle category/price restrictions`);
-  }
-
-  // NOTE: Vehicle maxPrice gating removed — true proxy mode (no intent-based price filters)
-
-  let hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
-  const hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
+  // ─── DEFERRED: Canonicalization + intent detection moved AFTER translation ──
+  // This prevents fuzzy corruption of French tokens (e.g., "talon" → "tahoe")
+  // before they get translated to English.
+  // Placeholders — will be set after translation layer below.
+  let qCanonicalized = qOriginal;
+  let isHeavyEquipment = false;
+  let hasBuyingIntent = false;
+  let hasMakeModel = false;
   let vehicleProbeResult: VehicleProbeResult | null = null;
-
-  // Force buying intent for vehicle_listing detected by intent classifier
-  if (earlyIntent.vehicleListingIntent && !hasBuyingIntent) {
-    hasBuyingIntent = true;
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED hasBuyingIntent=true via vehicle_listing intent`);
-  }
-
-  const hasAccessoryInQuery = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw =>
-    qCanonicalized.toLowerCase().includes(kw)
-  );
-
-  // Skip vehicle probe for heavy equipment and vehicle_listing intent (already classified)
-  if (!hasBuyingIntent && !hasAccessoryInQuery && !isHeavyEquipment && !earlyIntent.vehicleListingIntent && isAmbiguousQuery(qCanonicalized)) {
-    try {
-      const supabaseForProbe = createAdminPostgrestClient();
-      vehicleProbeResult = await probeEbayVehicleCategory(supabaseForProbe, qCanonicalized, requestId);
-      if (vehicleProbeResult.vehicleMode) {
-        hasBuyingIntent = true;
-      }
-    } catch (e) {
-      console.warn(`[VEHICLE_PROBE] requestId=${requestId} probe failed:`, (e as Error).message);
-    }
-  }
-
-  // NOTE: Vehicle minPrice gating removed — true proxy mode (no intent-based price filters)
-  // hasBuyingIntent is still tracked for cache key separation and scoring
+  let earlyIntent: SearchIntent = { intentKey: "general", vehicleListingIntent: false, confidence: 0 };
 
   let searchMeta: SearchMeta = {
     originalQuery: qOriginal,
-    normalizedQuery: qNormEarly,
-    rewrittenQuery: qNormEarly,
+    normalizedQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
+    rewrittenQuery: qOriginal.toLowerCase().replace(/\s+/g, " "),
     rewriteApplied: false,
     ruleId: null,
     rulePriority: null,
     categoryKey,
   };
 
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang, isVehicle: isVehicleEarly, hasBuyingIntent }));
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang }));
 
   // Empty query
   if (!qOriginal) {
@@ -578,6 +539,50 @@ Deno.serve(async (req: Request) => {
       translateMs = Date.now() - translateStart;
     }
 
+    // ─── CANONICALIZATION + INTENT DETECTION (post-translation) ──────────────
+    // Runs AFTER translation so French tokens are already English.
+    // Prevents fuzzy corruption like "talon" → "tahoe" before translation.
+    qCanonicalized = canonicalizeQuery(qNorm);
+    const qNormForIntent = qCanonicalized.toLowerCase().replace(/\s+/g, " ");
+    isHeavyEquipment = isHeavyEquipmentQuery(qNormForIntent);
+
+    earlyIntent = classifySearchIntent(qNormForIntent);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} intent=${earlyIntent.intentKey} (post-translate)`);
+
+    if (qCanonicalized !== qNorm) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} query_canonicalized: "${qNorm}" → "${qCanonicalized}"`);
+      qNorm = qCanonicalized;
+      searchMeta.rewrittenQuery = qNorm;
+    }
+
+    if (isHeavyEquipment) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} HEAVY_EQUIPMENT detected`);
+    }
+
+    hasBuyingIntent = hasVehicleBuyingIntent(qCanonicalized);
+    hasMakeModel = isVehicleMakeModelQuery(qCanonicalized);
+
+    if (earlyIntent.vehicleListingIntent && !hasBuyingIntent) {
+      hasBuyingIntent = true;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FORCED hasBuyingIntent=true via vehicle_listing intent`);
+    }
+
+    const hasAccessoryInQuery = VEHICLE_TOY_ACCESSORY_FILTER_KEYWORDS.some(kw =>
+      qCanonicalized.toLowerCase().includes(kw)
+    );
+
+    if (!hasBuyingIntent && !hasAccessoryInQuery && !isHeavyEquipment && !earlyIntent.vehicleListingIntent && isAmbiguousQuery(qCanonicalized)) {
+      try {
+        const supabaseForProbe = createAdminPostgrestClient();
+        vehicleProbeResult = await probeEbayVehicleCategory(supabaseForProbe, qCanonicalized, requestId);
+        if (vehicleProbeResult.vehicleMode) {
+          hasBuyingIntent = true;
+        }
+      } catch (e) {
+        console.warn(`[VEHICLE_PROBE] requestId=${requestId} probe failed:`, (e as Error).message);
+      }
+    }
+
     // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
     // Fast path: fire but don't block; normal path: await with budget
     const directQuery = isDirectQuery(qNorm);
@@ -901,7 +906,7 @@ Deno.serve(async (req: Request) => {
     // - gaming: eBay only (Amazon returns wrong results for console queries)
     // - All others (including vehicle_listing): both providers
     const skipAmazon = false; // True proxy mode: always call both providers
-    
+
 
     const providerStartMs = Date.now();
     // Dynamic timeout: vehicle queries need more time on eBay Motors

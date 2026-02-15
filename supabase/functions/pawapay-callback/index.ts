@@ -72,7 +72,7 @@ const pawaPayCallbackSchema = z.object({
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, signature, signature-input, content-digest',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, signature, signature-input, content-digest, signature-date',
 };
 
 // ==================== OFFICIAL pawaPay Callback IP Addresses ====================
@@ -291,23 +291,36 @@ async function verifyContentDigest(rawBody: string, contentDigest: string | null
   }
   
   try {
-    // Parse Content-Digest header: sha-256=:base64encoded:
-    const match = contentDigest.match(/sha-256=:([A-Za-z0-9+/=]+):/);
-    if (!match) {
-      console.warn('[pawapay-callback] Invalid Content-Digest format');
+    // pawaPay uses SHA-512 for Content-Digest (per their docs)
+    // Support both SHA-256 and SHA-512 for forward compatibility
+    const sha512Match = contentDigest.match(/sha-512=:([A-Za-z0-9+/=]+):/);
+    const sha256Match = contentDigest.match(/sha-256=:([A-Za-z0-9+/=]+):/);
+    
+    let expectedDigest: string;
+    let algorithm: 'SHA-256' | 'SHA-512';
+    
+    if (sha512Match) {
+      expectedDigest = sha512Match[1];
+      algorithm = 'SHA-512';
+    } else if (sha256Match) {
+      expectedDigest = sha256Match[1];
+      algorithm = 'SHA-256';
+    } else {
+      console.warn('[pawapay-callback] Unsupported Content-Digest algorithm. Expected sha-256 or sha-512.');
       return false;
     }
     
-    const expectedDigest = match[1];
-    
-    // Calculate SHA-256 of body
     const encoder = new TextEncoder();
     const data = encoder.encode(rawBody);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashBuffer = await crypto.subtle.digest(algorithm, data);
     const hashArray = new Uint8Array(hashBuffer);
     const actualDigest = btoa(String.fromCharCode(...hashArray));
     
-    return expectedDigest === actualDigest;
+    const isValid = expectedDigest === actualDigest;
+    if (!isValid) {
+      console.warn('[pawapay-callback] Content-Digest mismatch', { algorithm });
+    }
+    return isValid;
   } catch (error) {
     console.error('[pawapay-callback] Content-Digest verification error:', error);
     return false;
@@ -392,6 +405,7 @@ async function verifySignature(
     const algMatch = signatureInput.match(/alg="([^"]+)"/);
 
     // 3. Build signature base string per RFC-9421 §2.5
+    // pawaPay callback covered components: @method, @authority, @path, signature-date, content-digest, content-type
     const url = new URL(req.url);
     const signatureBaseLines: string[] = [];
 
@@ -422,6 +436,10 @@ async function verifySignature(
         case 'content-length':
           value = req.headers.get('content-length') || '';
           break;
+        case 'signature-date':
+          // pawaPay-specific header included in signature base
+          value = req.headers.get('signature-date') || '';
+          break;
         default:
           // Generic header lookup
           value = req.headers.get(component) || '';
@@ -448,22 +466,32 @@ async function verifySignature(
     const signatureBytes = Uint8Array.from(atob(sigValueMatch[1]), c => c.charCodeAt(0));
 
     // 5. Import the public key and verify
+    // pawaPay supported algorithms per their docs:
+    // - ecdsa-p256-sha256 (EC P-256, primary)
+    // - ecdsa-p384-sha384 (EC P-384)
+    // - rsa-pss-sha512 (RSA-PSS with SHA-512)
+    // - rsa-v1_5-sha256 (RSASSA-PKCS1-v1.5 with SHA-256)
     const algorithm = (algMatch?.[1] || publicKey.algorithm || '').toLowerCase();
     let cryptoAlgorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams;
     let verifyAlgorithm: AlgorithmIdentifier | RsaPssParams | EcdsaParams;
 
-    if (algorithm.includes('ecdsa') || algorithm.includes('p256') || algorithm.includes('p-256')) {
+    if (algorithm.includes('ecdsa-p384') || algorithm.includes('p-384') || algorithm.includes('p384')) {
+      cryptoAlgorithm = { name: 'ECDSA', namedCurve: 'P-384' };
+      verifyAlgorithm = { name: 'ECDSA', hash: 'SHA-384' };
+    } else if (algorithm.includes('ecdsa') || algorithm.includes('p256') || algorithm.includes('p-256')) {
       cryptoAlgorithm = { name: 'ECDSA', namedCurve: 'P-256' };
       verifyAlgorithm = { name: 'ECDSA', hash: 'SHA-256' };
-    } else if (algorithm.includes('rsa') || algorithm.includes('ps256')) {
-      cryptoAlgorithm = { name: 'RSA-PSS', hash: 'SHA-256' };
-      verifyAlgorithm = { name: 'RSA-PSS', saltLength: 32 };
+    } else if (algorithm.includes('rsa-pss') || algorithm.includes('ps512')) {
+      cryptoAlgorithm = { name: 'RSA-PSS', hash: 'SHA-512' };
+      verifyAlgorithm = { name: 'RSA-PSS', saltLength: 64 };
+    } else if (algorithm.includes('rsa-v1_5') || algorithm.includes('rs256') || algorithm.includes('pkcs1')) {
+      cryptoAlgorithm = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+      verifyAlgorithm = { name: 'RSASSA-PKCS1-v1_5' };
     } else if (algorithm.includes('ed25519')) {
-      // Ed25519 may not be supported in all runtimes
-      console.warn('[pawapay-callback] Ed25519 not supported, falling back to header check');
+      console.warn('[pawapay-callback] Ed25519 not supported in Web Crypto API');
       return { valid: false, reason: 'unsupported_algorithm' };
     } else {
-      // Default to ECDSA P-256 (pawaPay's typical choice)
+      // Default to ECDSA P-256 (pawaPay's primary algorithm)
       cryptoAlgorithm = { name: 'ECDSA', namedCurve: 'P-256' };
       verifyAlgorithm = { name: 'ECDSA', hash: 'SHA-256' };
     }
@@ -503,8 +531,8 @@ async function verifySignature(
     }
   } catch (cryptoError: any) {
     console.error('[pawapay-callback] Crypto verification error:', cryptoError.message);
-    // Don't trust the signature if crypto fails
-    return { valid: false, reason: `crypto_error: ${cryptoError.message}` };
+    // Don't trust the signature if crypto fails - don't leak internal error details
+    return { valid: false, reason: 'crypto_error' };
   }
 }
 
@@ -612,11 +640,10 @@ serve(async (req) => {
               reason: 'ip_not_allowlisted',
             });
             return new Response(JSON.stringify({ 
-              success: false, 
-              error: 'ip_not_allowlisted',
-              receivedIp: clientIp,
+              status: 'rejected', 
+              message: 'Unauthorized',
             }), {
-              status: 403,
+              status: 200,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           }
@@ -649,11 +676,10 @@ serve(async (req) => {
           reason: 'ip_not_allowlisted',
         });
         return new Response(JSON.stringify({ 
-          success: false, 
-          error: 'ip_not_allowlisted',
-          receivedIp: clientIp,
+          status: 'rejected', 
+          message: 'Unauthorized',
         }), {
-          status: 403,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -689,10 +715,7 @@ serve(async (req) => {
     // ==================== Process Callback ====================
     
     // Initialize admin client
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+    const supabase = createAdminClient();
 
     // Extract validated fields
     const depositId = validatedPayload.depositId;

@@ -1,45 +1,36 @@
 
-# Move Referral to the Hamburger Menu (Quick Links Section)
+# Fix Account Menu Redundancy and Add Profile Navigation
 
-## What Changes
+## Problem
+1. In the hamburger menu, there is a section header labeled "Account" and inside it a link also labeled "Account" -- this is redundant and confusing.
+2. No user initials are shown in the menu to personalize it.
+3. The Profile Settings page has no quick way to return to the homepage/main menu.
 
-Remove the floating referral button entirely and add a "Partager & Gagner" link inside the hamburger menu's **Quick Links** section in `ShopHeader.tsx`. This way users find it naturally alongside Home, My Orders, Favorites, and Support.
+## Changes
 
-Tapping the link will open the same bottom drawer with the InviteEarn registration form.
+### 1. ShopHeader.tsx -- Simplify the Account section
+- Remove the "Account" section header (`<h3>`) entirely.
+- Instead, when the user is logged in, show their **initials in a small avatar circle** followed by their name (or "My Account" fallback), linking to `/profile`.
+- When not logged in, just show the Sign In link as before (no section header needed).
+
+### 2. ShopHeader.tsx -- Add user initials at the bottom of the menu
+- At the bottom of the menu (below Quick Links), show a small footer area with the user's avatar initials and email when logged in. This gives a personal touch.
+
+### 3. Profile.tsx -- Add a "Return to Main Menu" button
+- Add a back/home navigation link at the top of the Profile page (above the card) that takes the user back to the homepage (`/`). This will use an `ArrowLeft` icon with text like "Return to Main Menu" / "Retour au menu principal".
 
 ## Technical Details
 
-### 1. Delete the floating button component
-- **Remove** `src/components/shop/ReferralFAB.tsx`
-- **Remove** the `<ReferralFAB />` import and usage from wherever it's rendered (likely a layout component)
+### File: `src/components/shop/ShopHeader.tsx`
+- Remove the `<h3>` "Account" section header (lines 74-76)
+- Keep the link to `/profile` but change the label from `shop.accountTab` to something like the user's name or "My Profile"
+- Show a small avatar with initials next to the link text
+- Add a subtle user info footer at the bottom of the sheet (initials + email)
 
-### 2. Add referral entry to ShopHeader.tsx Quick Links
-
-After the Support link (line 165), add a new button that opens a Drawer with InviteEarn:
-
-```tsx
-<Drawer>
-  <DrawerTrigger asChild>
-    <button
-      onClick={() => setMobileMenuOpen(false)}
-      className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors w-full text-left"
-    >
-      <Gift className="h-4 w-4" />
-      Partager & Gagner
-    </button>
-  </DrawerTrigger>
-  <DrawerContent className="bg-black border-white/10 px-4 pb-8 pt-4 max-h-[85vh] overflow-y-auto">
-    <InviteEarn language={language} />
-  </DrawerContent>
-</Drawer>
-```
-
-### 3. Add necessary imports to ShopHeader.tsx
-- `Gift` from lucide-react
-- `Drawer`, `DrawerTrigger`, `DrawerContent` from `@/components/ui/drawer`
-- `InviteEarn` from `@/components/shop/InviteEarn`
+### File: `src/pages/Profile.tsx`
+- Add a navigation link at the top of the page content: an `ArrowLeft` icon with "Return to Main Menu" that navigates to `/`
+- Import `ArrowLeft` from lucide-react
 
 ## Files Changed
-- `src/components/shop/ShopHeader.tsx` -- add referral link in Quick Links section + imports
-- `src/components/shop/ReferralFAB.tsx` -- delete file
-- Layout file where `<ReferralFAB />` is rendered -- remove import and usage
+- `src/components/shop/ShopHeader.tsx` -- remove redundant Account header, add initials to account link, add user footer
+- `src/pages/Profile.tsx` -- add "Return to Main Menu" link at top

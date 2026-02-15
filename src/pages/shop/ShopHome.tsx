@@ -192,6 +192,7 @@ export default function ShopHome() {
   }, [language, activeCategory]);
 
   const handleCategoryChange = (category: string) => {
+    if (category === activeCategory) return;
     setActiveCategory(category);
     setCurrentPage(1);
     setTotalPages(0);

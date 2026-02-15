@@ -1,29 +1,43 @@
 
 
-# Add Global Floating "Partager & Gagner" Button
+# Fix Homepage Double-Click Empty State and Stale Toys Content
 
-## Approach
+## Problem 1: "No products available" on re-clicking Homepage tab
 
-Add a small floating gift button **above the bottom navigation bar** on every page. Since `BottomNavigation` is already rendered on all 7 shop pages, placing the floating button inside it means zero changes to individual pages.
+**Root cause found**: When you click the "Homepage" tab in CategoryTabs while already viewing it, `handleCategoryChange('all')` runs and does this:
 
-Tapping the button opens a bottom sheet (using Vaul's `Drawer`) containing the existing `InviteEarn` component.
+```
+setActiveCategory('all');   // same value -- React skips re-render
+setProducts([]);            // CLEARS the product list
+setHasMore(true);
+```
 
-## Changes
+Since `activeCategory` doesn't actually change, the `useEffect` watching `[language, activeCategory]` never re-fires, so `fetchFeed` is never called again. Result: empty screen with "No products available."
 
-### 1. New Component: `src/components/shop/ReferralFAB.tsx`
+**Fix**: Add a guard in `handleCategoryChange` -- if the category is already active, do nothing (don't clear products). This is a 2-line fix.
 
-A floating action button (FAB) positioned just above the bottom nav bar:
-- Small circular button with a Gift icon and a pulsing orange gradient
-- On tap, opens a `Drawer` (bottom sheet) with the full `InviteEarn` registration/share form
-- Uses existing `InviteEarn` component inside the drawer -- no duplication of logic
-- Respects the current language setting
-- Hidden on the `/account` page (since InviteEarn is already shown there inline)
+## Problem 2: Homepage showing only toys (LEGO, Barbie, Nerf)
 
-### 2. Modified: `src/components/shop/BottomNavigation.tsx`
+**Root cause found**: The backend recipe cache (`recipe_cache` source) currently has 85 items, and many of the seed queries like "LEGO set", combined with eBay results for "barbie doll accessories" and "nerf gun blaster", are producing a toys-heavy feed. The other seeds (iPhone, MacBook, Nike, etc.) may have returned fewer results or failed during the last recipe build.
 
-- Import and render `ReferralFAB` just above the nav bar
-- No other changes to navigation logic
+**Fix**: Trigger a recipe rebuild from the admin panel to refresh the cached pool with balanced results across all seeds. No frontend code change needed for this -- it's a data/cache freshness issue.
 
-### No backend changes needed
+## Technical Changes
 
-The existing `create-referrer` edge function and `InviteEarn` component handle all referral logic. This is purely a UI visibility improvement.
+### File: `src/pages/shop/ShopHome.tsx`
+
+- In `handleCategoryChange`: add early return if `category === activeCategory` to prevent clearing products when the same tab is clicked again.
+
+```typescript
+const handleCategoryChange = (category: string) => {
+  if (category === activeCategory) return; // Don't clear if same tab
+  setActiveCategory(category);
+  setCurrentPage(1);
+  setTotalPages(0);
+  setProducts([]);
+  setHasMore(true);
+};
+```
+
+This single guard prevents the empty state on re-click while still allowing normal category switching.
+

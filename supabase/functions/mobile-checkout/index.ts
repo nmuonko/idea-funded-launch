@@ -535,12 +535,12 @@ serve(async (req) => {
           error: sessionError?.message 
         });
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'CHECKOUT_SESSION_EXPIRED',
           message: 'Checkout session expired. Please refresh.',
           message_fr: 'Session de paiement expirée. Veuillez actualiser.',
-          error: 'Checkout session not found or expired.',
-        }, 410);
+        }, 200);
       }
       
       // Check if session is still valid (not completed/failed)
@@ -550,12 +550,13 @@ serve(async (req) => {
           status: existingSession.status 
         });
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'CHECKOUT_SESSION_COMPLETED',
           message: 'This checkout has already been completed.',
           message_fr: 'Ce paiement a déjà été effectué.',
           order_id: existingSession.order_id,
-        }, 400);
+        }, 200);
       }
       
       // Check expiry (sessions expire after 30 minutes)
@@ -573,12 +574,12 @@ serve(async (req) => {
         await supabase.from('checkout_sessions').update({ status: 'expired' }).eq('id', providedCheckoutSessionId);
         
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'CHECKOUT_SESSION_EXPIRED',
           message: 'Checkout session expired. Please refresh.',
           message_fr: 'Session de paiement expirée. Veuillez actualiser.',
-          error: 'Checkout session expired after 30 minutes.',
-        }, 410);
+        }, 200);
       }
       
       // Parse payment_method_preference for this call
@@ -593,12 +594,12 @@ serve(async (req) => {
           valid: VALID_PAYMENT_PREFERENCES 
         });
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'PAYMENT_METHOD_NOT_SUPPORTED',
           message: 'Payment method not supported.',
           message_fr: 'Mode de paiement non supporté.',
-          error: `Invalid payment_method_preference. Valid values: ${VALID_PAYMENT_PREFERENCES.join(', ')}`,
-        }, 400);
+        }, 200);
       }
       
       // Session is valid - use stored cart snapshot and totals
@@ -657,11 +658,12 @@ serve(async (req) => {
       if (paymentMethodPreference === 'CARD') {
         if (!paymentSettings.stripe_enabled) {
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'PAYMENT_METHOD_DISABLED',
             message: 'Card payments are currently disabled. Please use Bank Transfer.',
-            error: 'Stripe is not enabled.',
-          }, 400);
+            message_fr: 'Les paiements par carte sont actuellement désactivés. Veuillez utiliser le virement bancaire.',
+          }, 200);
         }
         
         // Check if Stripe is available
@@ -732,12 +734,12 @@ serve(async (req) => {
                 error: stripeResult.error,
               });
               return jsonResponse({
+                ok: false,
                 success: false,
                 code: 'STRIPE_INIT_FAILED',
                 message: 'Unable to initialize card payment.',
                 message_fr: 'Impossible d\'initialiser le paiement par carte.',
-                error: stripeResult.error || 'Failed to create Stripe payment intent.',
-              }, 500);
+              }, 200);
             }
           } catch (stripeError: any) {
             console.error('[mobile-checkout] STRIPE_EXCEPTION', {
@@ -745,22 +747,23 @@ serve(async (req) => {
               error: stripeError.message,
             });
             return jsonResponse({
+              ok: false,
               success: false,
               code: 'STRIPE_INIT_FAILED',
               message: 'Unable to initialize card payment.',
               message_fr: 'Impossible d\'initialiser le paiement par carte.',
-              error: stripeError.message,
-            }, 500);
+            }, 200);
           }
         }
         
         // No card provider available
         return jsonResponse({
+          ok: false,
           success: false,
           code: 'CARD_NOT_AVAILABLE',
           message: 'Card payments are not available. Please use Bank Transfer.',
-          error: 'Card payment provider not configured.',
-        }, 503);
+          message_fr: 'Les paiements par carte ne sont pas disponibles. Veuillez utiliser le virement bancaire.',
+        }, 200);
       }
       
       // ============================================
@@ -769,11 +772,12 @@ serve(async (req) => {
       if (paymentMethodPreference === 'BANK_TRANSFER') {
         if (!paymentSettings.bank_transfer_enabled) {
           return jsonResponse({
+            ok: false,
             success: false,
             code: 'PAYMENT_METHOD_DISABLED',
             message: 'Bank Transfer is currently disabled. Please use Card payment.',
-            error: 'Bank Transfer is not enabled.',
-          }, 400);
+            message_fr: 'Le virement bancaire est actuellement désactivé. Veuillez utiliser le paiement par carte.',
+          }, 200);
         }
         
         console.log('[mobile-checkout] CHECKOUT_BANK_TRANSFER (session reuse)', {
@@ -833,12 +837,12 @@ serve(async (req) => {
       
       // No valid preference provided for session reuse
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'PAYMENT_METHOD_NOT_SUPPORTED',
         message: 'Payment method not supported.',
         message_fr: 'Mode de paiement non supporté.',
-        error: 'When reusing checkout_session, payment_method_preference (CARD or BANK_TRANSFER) is required.',
-      }, 400);
+      }, 200);
     }
 
     // ============================================
@@ -889,10 +893,12 @@ serve(async (req) => {
     if (!cart_item_ids || !Array.isArray(cart_item_ids) || cart_item_ids.length === 0) {
       console.log('[mobile-checkout] CHECKOUT_ERROR', { code: 'EMPTY_CART', cart_item_ids });
       return jsonResponse({ 
+        ok: false,
         success: false, 
         code: 'EMPTY_CART',
-        error: 'cart_item_ids array is required and must not be empty' 
-      }, 400);
+        message: 'Your cart is empty.',
+        message_fr: 'Votre panier est vide.',
+      }, 200);
     }
 
     // ============================================
@@ -962,12 +968,13 @@ serve(async (req) => {
       
       console.log('[mobile-checkout] PROFILE_INCOMPLETE', { userId: user.id, missingFields });
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'PROFILE_INCOMPLETE',
         message: `Please add your ${missingFieldNames} to your profile before checkout.`,
-        error: `Please add your ${missingFieldNames} to your profile before checkout.`,
+        message_fr: `Veuillez ajouter votre ${missingFieldNames} à votre profil avant de payer.`,
         missingFields,
-      }, 400);
+      }, 200);
     }
 
     const profile = userProfile!;
@@ -986,11 +993,12 @@ serve(async (req) => {
         reason: 'missing',
       });
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'PHONE_REQUIRED',
-        message: 'Phone number missing in profile',
-        error: 'A valid phone number is required in your profile before checkout.',
-      }, 400);
+        message: 'Phone number missing in profile.',
+        message_fr: 'Numéro de téléphone manquant dans le profil.',
+      }, 200);
     }
     
     // Step 2: Normalize phone - remove spaces, dashes, parentheses
@@ -1026,11 +1034,12 @@ serve(async (req) => {
     
     if (!phoneValid) {
       return jsonResponse({
+        ok: false,
         success: false,
         code: 'INVALID_PHONE',
         message: 'Phone number invalid. Please update your profile phone in international format like +243...',
-        error: 'Phone number must be in international format (e.g., +243812345678).',
-      }, 400);
+        message_fr: 'Numéro de téléphone invalide. Veuillez mettre à jour votre profil avec un format international comme +243...',
+      }, 200);
     }
     
     // Store normalized phone for later use
@@ -1040,7 +1049,7 @@ serve(async (req) => {
     // Validate order fetch result
     if (orderFetchError) {
       console.error('[mobile-checkout] Error fetching cart:', orderFetchError);
-      return jsonResponse({ success: false, error: 'Failed to fetch cart data.' }, 500);
+      return jsonResponse({ ok: false, success: false, code: 'CART_FETCH_ERROR', message: 'Unable to load cart. Please try again.', message_fr: 'Impossible de charger le panier. Veuillez réessayer.' }, 200);
     }
 
     if (!orderData) {

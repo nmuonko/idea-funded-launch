@@ -340,7 +340,7 @@ async function verifySignature(
     return { valid: false, reason: 'incomplete_signature_headers' };
   }
   
-  // Verify Content-Digest first
+  // Verify Content-Digest first (body integrity)
   if (contentDigest) {
     const digestValid = await verifyContentDigest(rawBody, contentDigest);
     if (!digestValid) {
@@ -355,8 +355,8 @@ async function verifySignature(
     return { valid: false, reason: 'no_public_keys' };
   }
   
-  // Parse Signature-Input to extract keyId
-  // Format: sig1=("@method" "@target-uri" "content-digest");keyid="key-id";...
+  // Parse Signature-Input to extract keyId and covered components
+  // Format: sig1=("@method" "@target-uri" "content-digest");keyid="key-id";alg="ecdsa-p256-sha256";created=1234567890
   const keyIdMatch = signatureInput.match(/keyid="([^"]+)"/);
   if (!keyIdMatch) {
     return { valid: false, reason: 'missing_keyid' };
@@ -369,16 +369,143 @@ async function verifySignature(
     console.warn('[pawapay-callback] Public key not found for keyId:', keyId);
     return { valid: false, reason: 'unknown_keyid' };
   }
-  
-  // Note: Full cryptographic verification would be implemented here
-  // This requires reconstructing the signature base from Signature-Input
-  // and verifying using the public key with the specified algorithm
-  // 
-  // For now, if we have valid headers and a matching keyId, we'll trust it
-  // Production should implement full RFC-9421 verification
-  
-  console.log('[pawapay-callback] Signature verification passed (headers present, keyId matched)');
-  return { valid: true, reason: 'signature_verified' };
+
+  // ============================================
+  // RFC-9421 Full Cryptographic Verification
+  // ============================================
+  try {
+    // 1. Parse covered components from Signature-Input
+    // e.g. sig1=("@method" "@target-uri" "content-digest");keyid="...";alg="...";created=...
+    const componentsMatch = signatureInput.match(/sig\d+=\(([^)]+)\)/);
+    if (!componentsMatch) {
+      console.warn('[pawapay-callback] Cannot parse covered components from Signature-Input');
+      return { valid: false, reason: 'invalid_signature_input_format' };
+    }
+
+    const coveredComponents = componentsMatch[1]
+      .split(/\s+/)
+      .map(c => c.replace(/"/g, ''))
+      .filter(Boolean);
+
+    // 2. Extract created and other params
+    const createdMatch = signatureInput.match(/created=(\d+)/);
+    const algMatch = signatureInput.match(/alg="([^"]+)"/);
+
+    // 3. Build signature base string per RFC-9421 §2.5
+    const url = new URL(req.url);
+    const signatureBaseLines: string[] = [];
+
+    for (const component of coveredComponents) {
+      let value: string;
+      switch (component) {
+        case '@method':
+          value = req.method.toUpperCase();
+          break;
+        case '@target-uri':
+          value = req.url;
+          break;
+        case '@path':
+          value = url.pathname;
+          break;
+        case '@authority':
+          value = url.host;
+          break;
+        case '@scheme':
+          value = url.protocol.replace(':', '');
+          break;
+        case 'content-digest':
+          value = contentDigest || '';
+          break;
+        case 'content-type':
+          value = req.headers.get('content-type') || '';
+          break;
+        case 'content-length':
+          value = req.headers.get('content-length') || '';
+          break;
+        default:
+          // Generic header lookup
+          value = req.headers.get(component) || '';
+          break;
+      }
+      signatureBaseLines.push(`"${component}": ${value}`);
+    }
+
+    // Add signature params line
+    const sigParamsMatch = signatureInput.match(/sig\d+=\([^)]+\)(.*)$/);
+    const sigParams = sigParamsMatch ? `(${componentsMatch[1]})${sigParamsMatch[1]}` : signatureInput;
+    signatureBaseLines.push(`"@signature-params": ${sigParams}`);
+
+    const signatureBase = signatureBaseLines.join('\n');
+
+    // 4. Parse the signature value (base64 encoded)
+    // Format: sig1=:base64signature:
+    const sigValueMatch = signature.match(/sig\d+=:([A-Za-z0-9+/=]+):/);
+    if (!sigValueMatch) {
+      console.warn('[pawapay-callback] Cannot parse signature value');
+      return { valid: false, reason: 'invalid_signature_format' };
+    }
+
+    const signatureBytes = Uint8Array.from(atob(sigValueMatch[1]), c => c.charCodeAt(0));
+
+    // 5. Import the public key and verify
+    const algorithm = (algMatch?.[1] || publicKey.algorithm || '').toLowerCase();
+    let cryptoAlgorithm: AlgorithmIdentifier | RsaHashedImportParams | EcKeyImportParams;
+    let verifyAlgorithm: AlgorithmIdentifier | RsaPssParams | EcdsaParams;
+
+    if (algorithm.includes('ecdsa') || algorithm.includes('p256') || algorithm.includes('p-256')) {
+      cryptoAlgorithm = { name: 'ECDSA', namedCurve: 'P-256' };
+      verifyAlgorithm = { name: 'ECDSA', hash: 'SHA-256' };
+    } else if (algorithm.includes('rsa') || algorithm.includes('ps256')) {
+      cryptoAlgorithm = { name: 'RSA-PSS', hash: 'SHA-256' };
+      verifyAlgorithm = { name: 'RSA-PSS', saltLength: 32 };
+    } else if (algorithm.includes('ed25519')) {
+      // Ed25519 may not be supported in all runtimes
+      console.warn('[pawapay-callback] Ed25519 not supported, falling back to header check');
+      return { valid: false, reason: 'unsupported_algorithm' };
+    } else {
+      // Default to ECDSA P-256 (pawaPay's typical choice)
+      cryptoAlgorithm = { name: 'ECDSA', namedCurve: 'P-256' };
+      verifyAlgorithm = { name: 'ECDSA', hash: 'SHA-256' };
+    }
+
+    // Decode PEM public key
+    const pemBody = publicKey.publicKey
+      .replace(/-----BEGIN PUBLIC KEY-----/, '')
+      .replace(/-----END PUBLIC KEY-----/, '')
+      .replace(/\s/g, '');
+    const keyBytes = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0));
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'spki',
+      keyBytes,
+      cryptoAlgorithm,
+      false,
+      ['verify']
+    );
+
+    // 6. Verify the signature
+    const encoder = new TextEncoder();
+    const dataToVerify = encoder.encode(signatureBase);
+
+    const isValid = await crypto.subtle.verify(
+      verifyAlgorithm,
+      cryptoKey,
+      signatureBytes,
+      dataToVerify
+    );
+
+    if (isValid) {
+      console.log('[pawapay-callback] Cryptographic signature verification PASSED');
+      return { valid: true, reason: 'crypto_verified' };
+    } else {
+      console.warn('[pawapay-callback] Cryptographic signature verification FAILED');
+      return { valid: false, reason: 'crypto_verification_failed' };
+    }
+  } catch (cryptoError: any) {
+    console.error('[pawapay-callback] Crypto verification error:', cryptoError.message);
+    // Don't trust the signature if crypto fails
+    return { valid: false, reason: `crypto_error: ${cryptoError.message}` };
+  }
 }
 
 // ==================== Helper Functions ====================

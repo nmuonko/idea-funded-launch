@@ -170,14 +170,6 @@ export function ShopHeader() {
                               </span>
                             )}
                           </Link>
-                          <Link
-                            to="/support"
-                            onClick={() => setMobileMenuOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                          >
-                            <HelpCircle className="h-4 w-4" />
-                            {shop.support}
-                          </Link>
                           <Drawer>
                             <DrawerTrigger asChild>
                               <button

@@ -1164,19 +1164,30 @@ serve(async (req) => {
             console.log(`[CATALOG_HOME] recipe_web_cache_fallback_to_production env=${env} correlationId=${correlationId}`);
             webCache = await readWebCache("production");
           }
-        // Map tab keys to recipe keys
+        // Map tab keys to recipe keys — COMPLETE explicit map for safety
         const TAB_TO_RECIPE: Record<string, string> = {
+          // Homepage
           all: "homepage",
           "": "homepage",
-          gaming: "gaming",
+          // Exact recipe keys (explicit for safety)
+          electronics: "electronics",
           vehicles: "vehicles",
-          home: "home_garden",
-          fashion: "clothing",
-          clothing_shoes_accessories: "clothing",
+          home_garden: "home_garden",
           toys: "toys",
           sporting_goods: "sporting_goods",
-          watches: "jewelry_watches",
+          jewelry_watches: "jewelry_watches",
           refurbished: "refurbished",
+          parts_accessories: "parts_accessories",
+          gaming: "gaming",
+          phones: "phones",
+          // Aliases (tab key differs from recipe key)
+          clothing_shoes_accessories: "clothing",
+          // Legacy aliases (old frontend keys)
+          home: "home_garden",
+          fashion: "clothing",
+          watches: "jewelry_watches",
+          // Fallback aliases
+          business_industrial: "electronics",
         };
         const recipeKeyFilter = TAB_TO_RECIPE[category] || category || "homepage";
 
@@ -1191,6 +1202,60 @@ serve(async (req) => {
               return rk === recipeKeyFilter;
             });
             
+            // DIAGNOSTIC: log zero-match so mismatches are visible in logs
+            if (allItems.length === 0) {
+              console.warn(
+                `[CATALOG_HOME] ZERO_MATCH category=${category} recipeKeyFilter=${recipeKeyFilter} ` +
+                `totalRawItems=${rawItems.length} correlationId=${correlationId}`
+              );
+              // Fallback: serve homepage items instead of falling through to legacy cache
+              const homepageFallbackItems = rawItems.filter((item: Record<string, unknown>) => {
+                const rk = item._recipeKey as string;
+                return !rk || rk === "homepage";
+              });
+              if (homepageFallbackItems.length > 0) {
+                const totalPages = Math.ceil(homepageFallbackItems.length / pageSize) || 1;
+                const offset = (page - 1) * pageSize;
+                const pageItems = homepageFallbackItems.slice(offset, offset + pageSize);
+                const langKey: "fr" | "en" = (locale === "en" ? "en" : "fr");
+                let sections = [{
+                  key: "featured",
+                  title: langKey === "fr" ? "En vedette" : "Featured",
+                  title_en: "Featured",
+                  title_fr: "En vedette",
+                  hideTitle: true,
+                  items: pageItems,
+                }];
+                sections = normalizeSectionTitles(sections, langKey) as typeof sections;
+                const totalMs = Date.now() - startTime;
+                return jsonResponse({
+                  ok: true,
+                  sections,
+                  page,
+                  pageSize,
+                  totalPages,
+                  totalItems: homepageFallbackItems.length,
+                  hasMore: true,
+                  hasMoreCached: page < totalPages,
+                  ttlSeconds: recipeSettings.web_refresh_hours * 3600,
+                  correlationId,
+                  meta: {
+                    client: "web",
+                    envUsed: env,
+                    envRequested,
+                    source: "recipe_cache_category_fallback",
+                    categoryFallback: true,
+                    originalCategory: category,
+                    isStale: false,
+                    correlationId,
+                    ts: Date.now(),
+                    totalMs,
+                    schemaVersion: recipeSettings.web_schema_version,
+                  },
+                }, 200, { "X-Category-Fallback": "true" });
+              }
+            }
+
             if (allItems.length > 0) {
               const totalPages = Math.ceil(allItems.length / pageSize) || 1;
               const offset = (page - 1) * pageSize;

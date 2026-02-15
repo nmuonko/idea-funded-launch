@@ -28,7 +28,7 @@ import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
-import Support from "./pages/Support";
+
 import NotFound from "./pages/NotFound";
 import AdminDashboard from "./pages/admin/Dashboard";
 import AdminOrders from "./pages/admin/Orders";
@@ -215,11 +215,6 @@ const App = () => {
             <Route path="/profile" element={
               <ProtectedRoute>
                 <Profile />
-              </ProtectedRoute>
-            } />
-            <Route path="/support" element={
-              <ProtectedRoute>
-                <Support />
               </ProtectedRoute>
             } />
             <Route path="/orders" element={

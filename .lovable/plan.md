@@ -1,27 +1,56 @@
 
-# Fix Mobile Orders Error: Double `.order()` Chain
+
+# Fix: French Fashion Search Terms Not Translating
 
 ## Problem
-The `mobile-get-orders` backend function chains two `.order()` calls (lines 75-76), which is not supported by the Supabase client version used in backend functions. This causes the error: `.order(...).order(...) is not a function`.
+Searching "chaussure dame haut talon" (women's high heel shoes) returns no results because the French-to-English translation fallback map is missing common fashion and clothing terms. If the AI refiner times out (800ms budget), the raw French query goes directly to Amazon/eBay, which returns nothing.
 
-## Fix
+## Solution
+Add missing French fashion, clothing, and footwear terms to the `FR_EN_FALLBACK` dictionary in `supabase/functions/catalog-search/index.ts`. This provides instant, reliable translation without depending on the AI refiner.
 
-### File: `supabase/functions/mobile-get-orders/index.ts`
+## Changes
 
-Remove the second `.order('id', { ascending: false })` on line 76. Ordering by `created_at DESC` alone is sufficient for consistent results -- the `id` is a UUID so it does not provide meaningful tie-breaking anyway.
+### File: `supabase/functions/catalog-search/index.ts`
 
-**Before:**
-```ts
-.order('created_at', { ascending: false })
-.order('id', { ascending: false })
-.range(offset, offset + pageSize - 1);
-```
+Add the following entries to the `FR_EN_FALLBACK` map (around line 276-406):
 
-**After:**
-```ts
-.order('created_at', { ascending: false })
-.range(offset, offset + pageSize - 1);
-```
+**Footwear:**
+- `chaussure` / `chaussures` -> `shoes`
+- `chaussure dame` -> `women shoes`
+- `chaussure dame haut talon` -> `women high heel shoes`
+- `chaussure homme` -> `men shoes`
+- `chaussure enfant` -> `kids shoes`
+- `talon` / `talon haut` -> `high heels`
+- `basket` / `baskets` -> `sneakers`
+- `botte` / `bottes` -> `boots`
+- `sandale` / `sandales` -> `sandals`
+- `pantoufle` / `pantoufles` -> `slippers`
+
+**Clothing (missing terms):**
+- `vetement` / `vetement femme` -> `clothing` / `women clothing`
+- `vetement homme` -> `men clothing`
+- `pantalon` -> `pants`
+- `jupe` -> `skirt`
+- `chemise` -> `shirt`
+- `robe` -> `dress`
+- `manteau` -> `coat`
+- `veste` -> `jacket`
+- `pull` -> `sweater`
+- `sous vetement` -> `underwear`
+- `maillot de bain` -> `swimsuit`
+- `echarpe` -> `scarf`
+- `ceinture` -> `belt`
+- `chapeau` -> `hat`
+- `lunettes` / `lunettes de soleil` -> `glasses` / `sunglasses`
+
+Also add `chaussure` to the `FR_FORCE_MAP` (around line 604) to ensure provider queries never contain this French word.
+
+### Deployment
+Redeploy the `catalog-search` edge function after changes.
+
+## Why This Works
+The `FR_EN_FALLBACK` map is checked before sending queries to Amazon/eBay. Multi-word entries are matched first (exact match), then partial/individual word matching kicks in. Adding "chaussure dame haut talon" as an exact entry guarantees this specific query translates correctly, while individual terms like "chaussure" and "talon" handle variations.
 
 ## Files Changed
-- `supabase/functions/mobile-get-orders/index.ts` -- remove duplicate `.order()` call (1 line)
+- `supabase/functions/catalog-search/index.ts` -- add ~30 French fashion/clothing terms to `FR_EN_FALLBACK` and `FR_FORCE_MAP`
+

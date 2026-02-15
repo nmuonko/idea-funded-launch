@@ -1,58 +1,17 @@
 
-# Make Language and Quick Links Collapsible Dropdowns
+
+# Remove Redundant Support Link from Quick Links
 
 ## What Changes
 
-Convert the "Choisir la langue" (Language) section and "Liens rapides" (Quick Links) section in the hamburger menu from always-visible lists into collapsible dropdown sections using Radix Collapsible. This keeps the menu cleaner -- users tap the header to expand/collapse each section.
+Remove the "Support" link (which navigates to `/support` -- the Customer Support Tickets page) from the Quick Links dropdown in the hamburger menu. Since there is already an in-app chat that auto-escalates to a live agent, the separate ticket page is redundant.
 
 ## Technical Details
 
 ### File: `src/components/shop/ShopHeader.tsx`
 
-**1. Add imports:**
-- Import `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` from `@/components/ui/collapsible`
-- Import `ChevronRight` from lucide-react (already imported: `ChevronDown`)
+Remove lines 173-180 -- the `<Link to="/support">` block that shows the support/ticket page link under Quick Links. The remaining links (Home, My Orders, Favorites, Share & Earn) stay as-is.
 
-**2. Language section (lines 101-126):**
-Replace the static list with a Collapsible. The header "Choisir la langue / Language" becomes a clickable trigger showing the current language flag + name, with a chevron that rotates on open. The language buttons appear inside CollapsibleContent.
+## Files Changed
+- `src/components/shop/ShopHeader.tsx` -- remove the `/support` link from Quick Links section
 
-```tsx
-<Collapsible>
-  <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider px-0 py-2 hover:text-white/80 transition-colors">
-    <span className="flex items-center gap-2">
-      <Globe className="h-4 w-4" />
-      {currentLanguage.flag} {shop.selectLanguage || 'Language'}
-    </span>
-    <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
-  </CollapsibleTrigger>
-  <CollapsibleContent>
-    <div className="space-y-1 mt-2">
-      {/* existing language buttons */}
-    </div>
-  </CollapsibleContent>
-</Collapsible>
-```
-
-**3. Quick Links section (lines 128-183):**
-Same pattern -- wrap in Collapsible. The "Liens rapides" header becomes a clickable trigger with a chevron. All the links (Home, My Orders, Favorites, Support, Share & Earn) go inside CollapsibleContent.
-
-```tsx
-<div className="pt-4 border-t border-white/10">
-  <Collapsible>
-    <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider px-0 py-2 hover:text-white/80 transition-colors">
-      <span>{shop.quickLinks}</span>
-      <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
-    </CollapsibleTrigger>
-    <CollapsibleContent>
-      <div className="space-y-1 mt-2">
-        {/* existing quick links */}
-      </div>
-    </CollapsibleContent>
-  </Collapsible>
-</div>
-```
-
-## Summary
-- **1 file** changed: `src/components/shop/ShopHeader.tsx`
-- Both sections become collapsible dropdowns with animated chevron indicators
-- Content stays the same, just wrapped in Collapsible components

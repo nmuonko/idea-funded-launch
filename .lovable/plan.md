@@ -1,112 +1,106 @@
 
 
-# Fix: Slow Order Deletion + Cars Section BMW Bias
+# Seed-Ordered, Balanced Product Display with Admin Drag-and-Drop
 
-## Issue 1: Bulk Order Deletion Is Too Slow
+## Problem
 
-### Root Cause
-The admin bulk delete (visible in the screenshot deleting 31 orders) calls the `admin-delete-order` edge function **one at a time in a sequential for-loop**. Each call performs **11+ sequential database operations** (deleting from order_actions, order_items, payments, maisha_payments, checkout_sessions, payment_attempts, manual_transfer_sessions, manual_transfer_proofs, bank_transfer_view_tokens, payment_links, cart_recovery tables, quote_requests, then the order itself, then an audit log insert).
+1. **No display ordering**: Seeds have a `weight` field but no `sort_order`. The builder shuffles all items randomly, so there's no way for admins to control which products appear first.
+2. **Unbalanced results**: A seed like "BMW X5" can return 20+ items while another seed gets 1-2, because `fetchItemsFromDB` grabs `perSeedLimit` items per seed then shuffles everything together.
+3. **Unrelated items in some tabs**: The `_recipeKey` filter in `catalog-home` depends on the cache being fresh. If the cache was built before seeds were fixed, stale unrelated items persist.
+4. **No drag-and-drop**: The admin seed modal has no way to reorder seeds -- they're just listed by weight.
 
-For 31 orders: ~31 calls x 11 DB operations x ~50ms each = **~17 seconds minimum**.
+## Solution
 
-### Fix
+### Change 1: Add `sort_order` column to `home_recipe_seeds`
 
-**A. Create a new `admin-bulk-delete-orders` edge function** that accepts an array of order IDs and deletes them all in bulk SQL operations instead of one-at-a-time:
+Add a `sort_order INTEGER NOT NULL DEFAULT 0` column. This replaces `weight` as the ordering mechanism for display purposes. Seeds ordered by `sort_order ASC` will determine the exact product display order on the frontend.
 
-- Delete from all child tables using `WHERE order_id = ANY($1)` (single query per table instead of 31)
-- Batch the audit log inserts into one multi-row INSERT
-- This reduces 341 DB calls down to ~13 total (one per table + audit)
+### Change 2: Round-robin item selection in `homeRecipeBuilder.ts`
 
-**B. Update `src/pages/admin/Orders.tsx`** to call the new bulk endpoint instead of looping over the single-delete function.
+Replace the current "fetch N per seed then shuffle" logic with a **round-robin** approach:
 
-### Files
+1. Fetch items per seed (in parallel, same as now)
+2. Instead of shuffling, interleave items: take 1-2 from seed 1, then 1-2 from seed 2, etc.
+3. This guarantees each seed contributes equally and the order matches the admin's seed arrangement
+
+```text
+Current flow:
+  Seed "BMW" -> 15 items
+  Seed "Toyota" -> 12 items
+  Seed "Honda" -> 8 items
+  => shuffle all 35 -> random order, BMW dominates
+
+New flow:
+  Seed "BMW" -> 15 items (keep top 2)
+  Seed "Toyota" -> 12 items (keep top 2)
+  Seed "Honda" -> 8 items (keep top 2)
+  => interleave: BMW1, Toyota1, Honda1, BMW2, Toyota2, Honda2
+  => ordered, balanced, diverse
+```
+
+### Change 3: Admin seed modal with drag-and-drop reordering
+
+Update the seed editor modal in `HomeRecipes.tsx` to:
+- Display seeds ordered by `sort_order` (not `weight`)
+- Allow drag-and-drop reordering (using HTML5 drag events, no new dependency)
+- Auto-save `sort_order` values when seeds are reordered
+- Show the position number next to each seed
+
+### Change 4: Backend seed loading respects `sort_order`
+
+Update `loadSeedsForRecipe` in `homeRecipeBuilder.ts` to order by `sort_order ASC` instead of `weight DESC`, so the round-robin picks items in the admin-defined order.
+
+## Files Changed
 
 | File | Change |
 |------|--------|
-| `supabase/functions/admin-bulk-delete-orders/index.ts` | New edge function accepting `{ orderIds: string[] }`, performing bulk deletes |
-| `src/pages/admin/Orders.tsx` | Replace sequential for-loop with single call to `admin-bulk-delete-orders` |
-
----
-
-## Issue 2: Cars/Vehicles Section Shows Mostly BMW
-
-### Root Cause
-
-The `home_recipe_seeds` table for the `vehicles` recipe has **duplicate entries**: "BMW X5" appears 3 times and "BMW X5 SUV" once, giving BMW disproportionate weight. The current cache data confirms this: **62 BMW items vs 20 Toyota and 1 Other** -- no Honda, Ford, Mercedes, Tesla, Chevrolet, Jeep, or other brands appear at all.
-
-Additionally, many of the BMW results are **accessories/parts** (door handles, emblems, control arms, grilles) rather than actual vehicles, because the eBay search for "BMW X5" returns parts alongside listings.
-
-### Fix
-
-**A. Clean up duplicate seeds** in the `home_recipe_seeds` database table:
-- Remove duplicate "BMW X5" entries (keep just 1)
-- Remove duplicate entries for other makes that also appear multiple times (Toyota RAV4 x2, Honda CR-V x2, Ford Explorer x2, etc.)
-
-**B. Force a recipe cache rebuild** after cleaning seeds so the new, balanced seed list takes effect.
-
-**C. Verify the `motorsFilter.ts` accessory filtering** is being applied during recipe building to strip out parts/accessories from vehicle results.
-
-### Data Changes
-
-| Table | Change |
-|-------|--------|
-| `home_recipe_seeds` | Remove duplicate BMW X5 and other duplicate vehicle seed entries |
-
-No code file changes needed for this issue -- it is a data problem in the seeds table.
-
----
+| Database migration | Add `sort_order` column to `home_recipe_seeds`, backfill from existing row order |
+| `supabase/functions/_shared/homeRecipeBuilder.ts` | Change `loadSeedsForRecipe` to order by `sort_order ASC`; replace shuffle with round-robin interleave in `fetchItemsFromDB` |
+| `src/pages/admin/HomeRecipes.tsx` | Add drag-and-drop reordering to seed modal; load/save `sort_order`; show position numbers |
 
 ## Technical Details
 
-### Bulk Delete Function Structure
+### Database Migration
 
-```typescript
-// admin-bulk-delete-orders/index.ts
-// 1. Auth check (same as existing)
-// 2. Accept { orderIds: string[] } (max 100)
-// 3. Fetch order details for audit log
-// 4. Bulk delete from child tables:
-//    - order_actions WHERE order_id IN (...)
-//    - order_items WHERE order_id IN (...)
-//    - payments WHERE order_id IN (...)
-//    - maisha_payments WHERE order_id IN (...)
-//    - checkout_sessions WHERE order_id IN (...)
-//    - payment_attempts WHERE order_id IN (...)
-//    - manual_transfer_proofs via session IDs
-//    - manual_transfer_sessions WHERE order_id IN (...)
-//    - bank_transfer_view_tokens WHERE order_id IN (...)
-//    - payment_links WHERE order_id IN (...)
-//    - cart_recovery_ab_tests WHERE order_id IN (...)
-//    - cart_recovery_predictions WHERE order_id IN (...)
-//    - quote_requests via item IDs
-//    - orders WHERE id IN (...)
-// 5. Batch insert audit logs
+```sql
+ALTER TABLE public.home_recipe_seeds 
+ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+
+-- Backfill: assign sort_order based on current weight DESC ordering per recipe
+WITH numbered AS (
+  SELECT id, ROW_NUMBER() OVER (
+    PARTITION BY recipe_id ORDER BY weight DESC, created_at ASC
+  ) AS rn
+  FROM home_recipe_seeds
+)
+UPDATE home_recipe_seeds SET sort_order = numbered.rn
+FROM numbered WHERE home_recipe_seeds.id = numbered.id;
 ```
 
-### Frontend Bulk Delete Change
+### Round-Robin Logic (homeRecipeBuilder.ts)
 
 ```typescript
-// Before: sequential loop (slow)
-for (const orderId of orderIds) {
-  await supabase.functions.invoke('admin-delete-order', { body: { orderId } });
+// Instead of shuffleArray(allItems).slice(0, targetCount):
+// Group items by seed index, then interleave
+const perSeedItems: RecipeItem[][] = []; // one array per seed
+// ... fill from parallel queries ...
+
+const interleaved: RecipeItem[] = [];
+const maxPerSeed = Math.ceil(targetCount / perSeedItems.length);
+for (let round = 0; round < maxPerSeed && interleaved.length < targetCount; round++) {
+  for (const seedItems of perSeedItems) {
+    if (round < seedItems.length && interleaved.length < targetCount) {
+      interleaved.push(seedItems[round]);
+    }
+  }
 }
-
-// After: single call (fast)
-const { data, error } = await supabase.functions.invoke('admin-bulk-delete-orders', {
-  body: { orderIds }
-});
+return interleaved;
 ```
 
-### Seed Cleanup (duplicates to remove)
+### Drag-and-Drop in Seed Modal
 
-```text
-Duplicates found in home_recipe_seeds for vehicles:
-- "BMW X5" appears 3x (keep 1)
-- "Toyota RAV4" appears 2x (keep 1, remove "Toyota RAV4 SUV" variant)
-- "Honda CR-V" appears 2x (keep 1, remove "Honda CR-V SUV" variant)
-- "Ford Explorer" appears 2x (keep 1, remove "Ford Explorer SUV" variant)
-- "Toyota Camry" appears 2x (keep 1)
-- "Honda Civic" appears 2x (keep 1)
-```
+Uses native HTML5 drag events (no new library needed):
+- Each seed row gets `draggable={true}`
+- On drop, recalculate `sort_order` values and batch-update via a single query
+- Visual drag indicator shows insertion point
 
-After cleanup and cache rebuild, the vehicles section should show a balanced mix of all makes.

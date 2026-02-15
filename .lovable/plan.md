@@ -1,73 +1,55 @@
 
-
-# Fix: Mobile Orders Showing $0
+# Fix: "talon" Corrupted to "tahoe" by Fuzzy Canonicalizer
 
 ## Root Cause
 
-The `mobile-get-orders` edge function is **crashing** on every request with:
+When searching "chaussure dame haut talon", the fuzzy canonicalizer at line 144 of `catalog-search/index.ts` runs **before** the French-to-English translation layer (line ~500). It fuzzy-matches "talon" (French for "heel") to "tahoe" (Chevy Tahoe) with Levenshtein distance 2, corrupting the query to "chaussure dame haut tahoe".
 
-```
-Error: supabase.from(...).select(...).eq(...).neq(...).order(...).range is not a function
-```
+This causes two cascading failures:
+1. Intent detection sees "tahoe" and classifies the query as `vehicle_listing`
+2. Vehicle listing intent disables Amazon search
+3. eBay also returns 0 results for the corrupted query
+4. Result: "No products found"
 
-The custom REST client in `_shared/auth.ts` (`createQueryBuilder`) is missing two methods that `mobile-get-orders` uses:
-
-1. **`.range(from, to)`** -- used for pagination (`line 76`)
-2. **`.select('*', { count: 'exact', head: true })`** -- the count overload with options object (`line 57`)
-
-Because the function crashes entirely, the mobile app receives an error response and displays `$0` as its fallback for all order totals.
-
-The database has correct prices (e.g., $303.20, $416.60, $1,230.00) -- this is purely a function crash, not a data issue.
+The debug headers confirm this: `qCanon: "chaussure dame haut tahoe"`, `intentKey: "vehicle_listing"`, `amazonStatus: "disabled"`.
 
 ## Fix
 
-Add `.range(from, to)` and count-aware `.select()` support to `createQueryBuilder` in `supabase/functions/_shared/auth.ts`.
+Two changes in `supabase/functions/_shared/queryCanonicalizer.ts`:
 
-### 1. Add `range()` method to `createQueryBuilder` (line ~126)
+### 1. Add common French fashion/body terms as protected tokens
 
-Add a `range` method that stores from/to values and translates them to the PostgREST `Range` header (`Range: from-to`) in the fetch call:
+Add these as empty-array entries in `CANONICAL_TERMS` (same pattern as existing protected terms like "rover", "tahoe") to prevent fuzzy corruption:
 
-```typescript
-range(from: number, to: number) {
-  this._rangeFrom = from;
-  this._rangeTo = to;
-  return this;
-}
+```
+"talon": []     // French for "heel" - prevent "talon" -> "tahoe"
+"salon": []     // French for "living room" - prevent fuzzy matches
+"pantalon": []  // French for "pants" - prevent fuzzy matches
+"manteau": []   // French for "coat" - prevent fuzzy matches
+"collier": []   // French for "necklace" - prevent fuzzy matches
 ```
 
-In the `then()` handler, add the `Range` header when `_rangeFrom` is set:
+### 2. Tighten fuzzy matching for 5-char tokens
+
+Currently the threshold is 2 for all tokens >= 4 chars. For short tokens (4-5 chars), Levenshtein distance 2 is too aggressive (40-50% of the word can change). Reduce the threshold to 1 for tokens with 5 or fewer characters:
 
 ```typescript
-if (this._rangeFrom !== null) {
-  finalHeaders['Range'] = `${this._rangeFrom}-${this._rangeTo}`;
-  finalHeaders['Range-Unit'] = 'items';
-}
+const effectiveThreshold = token.length <= 5 ? 1 : threshold;
 ```
 
-### 2. Support `select('*', { count: 'exact', head: true })` options
-
-Update `createRestClient.from().select()` to detect when the second argument is an options object with `count` and `head`:
-
-- If `head: true` is set, use HTTP `HEAD` method instead of `GET`
-- If `count: 'exact'` is set, add `Prefer: count=exact` header
-- Parse the `content-range` response header to extract the count value (format: `*/total`)
-
-### 3. No changes to `mobile-get-orders/index.ts`
-
-The function code itself is correct -- it just needs the REST client to support these two methods.
+This prevents "talon" -> "tahoe" (distance 2 > new threshold 1) while still allowing corrections for longer words like "playstaion" -> "playstation" (distance 1).
 
 ## Files Changed
 
-- **Modified**: `supabase/functions/_shared/auth.ts` -- add `range()` method and count/head support to `createQueryBuilder`
+- **Modified**: `supabase/functions/_shared/queryCanonicalizer.ts` -- add protected French terms + tighten short-token fuzzy threshold
 
 ## Deployment
 
-Redeploy `mobile-get-orders` (which uses the shared `auth.ts` module). All other mobile edge functions using the same shared module will also benefit from the fix.
+Redeploy `catalog-search` (which imports the shared module).
 
 ## Verification
 
-After deployment, call `mobile-get-orders` and confirm:
-- Response returns `ok: true` with orders containing real `totalUsd`/`totalCdf` values
-- Pagination works correctly
-- `total_count` returns accurate numbers
-
+After deployment, search "chaussure dame haut talon" and confirm:
+- `qCanon` does NOT contain "tahoe"
+- `intentKey` is NOT `vehicle_listing`
+- Results are returned (shoes/heels)

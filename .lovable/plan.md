@@ -1,114 +1,52 @@
 
-# Fix Plan: Payment Flow Issues (5 Items)
+# Fix: Slow Image Loading on Product Page
 
-## Issue 1: `select-payment-provider` Returns 4xx/5xx Instead of HTTP 200
+## Root Cause
 
-**Problem**: This function returns HTTP 400, 404, 410, 500, 503 for application-level errors. This violates the project's "Never 4xx/5xx" mobile API standard, causing generic fetch failures on mobile clients instead of localized error messages.
+The backend (`catalog-product/index.ts`) upgrades ALL image URLs to `_SL1500` (1500px) resolution via `upgradeGalleryImages()`. The frontend then:
+1. Preloads **4 of these 1500px images** at once via `new Image()` (lines 127-133)
+2. Renders 64x64px thumbnails using the same 1500px URLs (lines 601-606)
+3. Shows the hero image at 1500px even though the container is ~400-600px wide
 
-**Affected lines** (in `select-payment-provider/index.ts`):
-- Line 72: `}, 400)` (missing checkout session)
-- Line 83: `}, 400)` (invalid provider)
-- Line 94: `}, 400)` (phone required)
-- Line 114: `}, 404)` (session not found)
-- Line 145: `}, 400)` (invalid session status)
-- Line 163: `}, 410)` (session expired)
-- Line 339: `}, 500)` (create attempt error + raw error leak)
-- Line 387: `}, 503)` (provider not available)
-- Line 398: `}, 503)` (secrets missing)
-- Line 501: `}, 400)` (pawapay failed)
-- Line 520: `}, 503)` (config missing)
-- Line 528: `}, 500)` (pawapay exception)
-- Line 553: `}, 400)` (USD required)
-- Line 566: `}, 503)` (stripe not available)
-- Line 655: `}, 500)` (stripe failed)
-- Line 673: `}, 500)` (stripe exception)
-- Line 761: `}, 400)` (unknown provider)
-- Line 775: `}, 500)` (catch-all)
+A single `_SL1500` Amazon image is typically 200-500KB. Loading 4-5 of them simultaneously (hero + 4 preloads) means 1-2.5MB hitting the network at once, causing visible delay especially on mobile.
 
-**Fix**: Change all non-2xx status codes to `200`. Add `ok: false` field to every error response for consistency. Keep `success: false` for backward compatibility.
+## Solution: Multi-Resolution Image Strategy (Frontend Only)
 
----
+Add a lightweight URL rewriter on the frontend that downsizes image URLs based on display context. No backend changes needed.
 
-## Issue 2: Raw Error Messages Leaked to Client
+### New File: `src/lib/imageResize.ts`
 
-**Problem**: Several locations expose raw database/provider error strings to the client, which is a security risk (exposes internal structure) and violates the error sanitization standard.
+A small utility (~30 lines) with two functions:
+- `resizeImageUrl(url, targetSize)` -- rewrites `_SL1500` to the target size (e.g., `_SL800`, `_SL300`)
+- Constants: `IMAGE_SIZE_HERO = 800`, `IMAGE_SIZE_THUMB = 300`, `IMAGE_SIZE_FULL = 1500`
 
-**Locations in `select-payment-provider/index.ts`**:
-- Line 338: `error: createAttemptError.message` -- raw DB error sent to client
-- Line 498: `message: depositResult.error || 'Mobile money payment failed.'` -- raw pawaPay error used as user message
+Works for both Amazon (`_SL###`) and eBay (`s-l###`) URL patterns.
 
-**Locations in `mobile-checkout/index.ts`**:
-- Line 739: `error: stripeResult.error || 'Failed to create Stripe payment intent.'` -- raw Stripe error
-- Line 753: `error: stripeError.message` -- raw exception message
-- Line 763: `error: 'Card payment provider not configured.'` -- internal config detail
+### Changes to `src/pages/shop/ProductDetails.tsx`
 
-**Fix**: Replace all raw error leaks with generic bilingual messages. Log the raw error server-side only. Use the existing `sanitizePaymentError()` helper where applicable.
+1. **Hero image** (line 552): Rewrite URL to `_SL800` (800px is plenty for a ~500px container at 2x). This cuts the main image payload by ~60%.
 
----
+2. **Thumbnail strip** (line 601): Rewrite URLs to `_SL300` (300px for a 64px display at 2x). This cuts each thumbnail from ~300KB to ~15KB.
 
-## Issue 3: `mobile-checkout` Returns 4xx/5xx for Application Errors
+3. **Preloading** (lines 127-133): Reduce from 4 images to just the **first image** at `_SL800`. The rest load lazily as the user scrolls thumbnails.
 
-**Problem**: Same issue as #1 but in `mobile-checkout/index.ts`. Several error paths return HTTP 400, 410, 500, 503 instead of 200.
+4. **Lightbox** (line 785-790): Pass the original `_SL1500` URLs to `ProductImageViewer` -- fullscreen is the only place that needs max resolution.
 
-**Key affected lines**:
-- Line 543: `}, 410)` (session not found)
-- Line 558: `}, 400)` (session already completed)
-- Line 581: `}, 410)` (session expired by time)
-- Line 601: `}, 400)` (payment method not supported)
-- Line 664: `}, 400)` (card payments disabled)
-- Line 741: `}, 500)` (Stripe init failed)
-- Line 753: `}, 500)` (Stripe exception)
-- Line 763: `}, 503)` (card not available)
-- Line 841: `}, 400)` (no valid preference)
-- Line 895: `}, 400)` (empty cart)
-- Line 970: `}, 400)` (profile incomplete)
-- Line 993: `}, 400)` (phone required)
+### Changes to `src/components/shop/ProductImageViewer.tsx`
 
-**Fix**: Change all to HTTP 200 with `ok: false` in the JSON body. Same pattern as Issue 1.
+No changes needed -- it already receives the full `safeImages` array which will remain at `_SL1500`.
 
----
+## Expected Impact
 
-## Issue 4: `pawapay-callback` Signature Verification is Incomplete
+| Context | Before | After |
+|---------|--------|-------|
+| Hero image | ~300KB (_SL1500) | ~120KB (_SL800) |
+| Each thumbnail | ~300KB (_SL1500) | ~15KB (_SL300) |
+| Preload budget | 4 x 300KB = 1.2MB | 1 x 120KB = 120KB |
+| Initial page load | ~1.5MB images | ~250KB images |
+| Lightbox (on tap) | Already loaded | 300KB per image (on demand) |
 
-**Problem**: The `verifySignature` function (line 324-382) checks that HTTP headers are present and the `keyId` matches a fetched public key, but does NOT perform actual cryptographic verification of the signature. The comment on line 373-376 explicitly says "For now... we'll trust it." This means any request with the correct header format and a valid-looking `keyId` would pass verification.
+## Files Changed
 
-**Fix**: Implement full RFC-9421 signature verification:
-1. Parse the `Signature-Input` header to extract covered components (e.g., `@method`, `@target-uri`, `content-digest`)
-2. Reconstruct the signature base string from those components
-3. Import the public key (RSA/ECDSA as specified by `algorithm` field)
-4. Verify the signature cryptographically using `crypto.subtle.verify()`
-5. If crypto verification fails, fall back to IP allowlist check (existing behavior)
-
-This is the most complex change and requires careful testing against pawaPay's sandbox.
-
----
-
-## Issue 5: Delete Legacy `mobile-initiate-maisha-payment` Edge Function
-
-**Problem**: This function still exists at `supabase/functions/mobile-initiate-maisha-payment/index.ts` (616 lines). It contains hardcoded payment limits ($5,000 USD / 30M CDF) and references to the removed MaishaPay provider. It is no longer called from the primary checkout flow (replaced by `select-payment-provider`), but remains deployed and accessible.
-
-**Fix**: Delete the `supabase/functions/mobile-initiate-maisha-payment/` directory and remove the deployed function. Also remove the legacy `web-maisha-callback` function if it is no longer in use (needs verification against `config.toml` and any remaining references).
-
----
-
-## Summary of Files Changed
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/select-payment-provider/index.ts` | All error responses changed to HTTP 200 with `ok: false`; raw error messages replaced with generic bilingual strings |
-| `supabase/functions/mobile-checkout/index.ts` | All error responses changed to HTTP 200 with `ok: false`; raw error leaks sanitized |
-| `supabase/functions/pawapay-callback/index.ts` | Full RFC-9421 cryptographic signature verification implemented in `verifySignature()` |
-| `supabase/functions/mobile-initiate-maisha-payment/` | Directory deleted |
-
-## Implementation Order
-
-1. Issues 1 + 2 together (select-payment-provider -- response stability + error sanitization)
-2. Issue 3 (mobile-checkout -- response stability + error sanitization)
-3. Issue 5 (delete legacy function -- low risk, high cleanup value)
-4. Issue 4 (pawapay-callback signature -- highest complexity, requires sandbox testing)
-
-## Risk Assessment
-
-- Issues 1-3: Low risk. Only changes HTTP status codes and error message strings. No logic changes.
-- Issue 5: Low risk. Function is unused by current flows.
-- Issue 4: Medium risk. Cryptographic implementation must match pawaPay's exact signing algorithm. Recommend testing in sandbox before production deployment.
+- `src/lib/imageResize.ts` -- NEW: URL rewriting utility
+- `src/pages/shop/ProductDetails.tsx` -- use resized URLs for hero + thumbnails, reduce preloading

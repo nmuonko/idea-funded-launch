@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle, Heart, Gift } from 'lucide-react';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
 import { CartDrawer } from './CartDrawer';
@@ -99,87 +100,100 @@ export function ShopHeader() {
                   </div>
 
                   {/* Language */}
-                  <div>
-                    <h3 className="text-sm font-medium text-white/60 mb-3 uppercase tracking-wider">
-                      {shop.selectLanguage || 'Language'}
-                    </h3>
-                    <div className="space-y-1">
-                      {languages.map((lang) => (
-                        <button
-                          key={lang.code}
-                          onClick={() => {
-                            setLanguage(lang.code);
-                            setMobileMenuOpen(false);
-                          }}
-                          className={cn(
-                            "w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2",
-                            language === lang.code
-                              ? "bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-white border border-blue-500/30"
-                              : "text-white/70 hover:bg-white/5 hover:text-white"
-                          )}
-                        >
-                          <span>{lang.flag}</span>
-                          {lang.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <Collapsible>
+                    <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider py-2 hover:text-white/80 transition-colors">
+                      <span className="flex items-center gap-2">
+                        <Globe className="h-4 w-4" />
+                        {currentLanguage.flag} {shop.selectLanguage || 'Language'}
+                      </span>
+                      <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="space-y-1 mt-2">
+                        {languages.map((lang) => (
+                          <button
+                            key={lang.code}
+                            onClick={() => {
+                              setLanguage(lang.code);
+                              setMobileMenuOpen(false);
+                            }}
+                            className={cn(
+                              "w-full text-left px-3 py-2 rounded-lg transition-colors flex items-center gap-2",
+                              language === lang.code
+                                ? "bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-white border border-blue-500/30"
+                                : "text-white/70 hover:bg-white/5 hover:text-white"
+                            )}
+                          >
+                            <span>{lang.flag}</span>
+                            {lang.name}
+                          </button>
+                        ))}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
 
                   {/* Quick Links */}
                   <div className="pt-4 border-t border-white/10">
-                    <h3 className="text-sm font-medium text-white/60 mb-3 uppercase tracking-wider">{shop.quickLinks}</h3>
-                    <div className="space-y-1">
-                      <Link
-                        to="/"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                      >
-                        <Home className="h-4 w-4" />
-                        {shop.homeLink}
-                      </Link>
-                      <Link
-                        to="/my-orders"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                      >
-                        <Package className="h-4 w-4" />
-                        {shop.myOrders}
-                      </Link>
-                      <Link
-                        to="/saved"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                      >
-                        <Heart className="h-4 w-4" />
-                        {shop.savedTab || 'Favorites'}
-                        {savedItems.length > 0 && (
-                          <span className="ml-auto bg-blue-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
-                            {savedItems.length > 99 ? '99+' : savedItems.length}
-                          </span>
-                        )}
-                      </Link>
-                      <Link
-                        to="/support"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-                      >
-                        <HelpCircle className="h-4 w-4" />
-                        {shop.support}
-                      </Link>
-                      <Drawer>
-                        <DrawerTrigger asChild>
-                          <button
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors w-full text-left"
+                    <Collapsible>
+                      <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider py-2 hover:text-white/80 transition-colors">
+                        <span>{shop.quickLinks}</span>
+                        <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="space-y-1 mt-2">
+                          <Link
+                            to="/"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
                           >
-                            <Gift className="h-4 w-4" />
-                            {language === 'fr' ? 'Partager & Gagner' : 'Share & Earn'}
-                          </button>
-                        </DrawerTrigger>
-                        <DrawerContent className="bg-black border-white/10 px-4 pb-8 pt-4 max-h-[85vh] overflow-y-auto">
-                          <InviteEarn language={language} />
-                        </DrawerContent>
-                      </Drawer>
-                    </div>
+                            <Home className="h-4 w-4" />
+                            {shop.homeLink}
+                          </Link>
+                          <Link
+                            to="/my-orders"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                          >
+                            <Package className="h-4 w-4" />
+                            {shop.myOrders}
+                          </Link>
+                          <Link
+                            to="/saved"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                          >
+                            <Heart className="h-4 w-4" />
+                            {shop.savedTab || 'Favorites'}
+                            {savedItems.length > 0 && (
+                              <span className="ml-auto bg-blue-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
+                                {savedItems.length > 99 ? '99+' : savedItems.length}
+                              </span>
+                            )}
+                          </Link>
+                          <Link
+                            to="/support"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors"
+                          >
+                            <HelpCircle className="h-4 w-4" />
+                            {shop.support}
+                          </Link>
+                          <Drawer>
+                            <DrawerTrigger asChild>
+                              <button
+                                className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors w-full text-left"
+                              >
+                                <Gift className="h-4 w-4" />
+                                {language === 'fr' ? 'Partager & Gagner' : 'Share & Earn'}
+                              </button>
+                            </DrawerTrigger>
+                            <DrawerContent className="bg-black border-white/10 px-4 pb-8 pt-4 max-h-[85vh] overflow-y-auto">
+                              <InviteEarn language={language} />
+                            </DrawerContent>
+                          </Drawer>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   </div>
                 </div>
               </SheetContent>

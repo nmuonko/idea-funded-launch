@@ -2063,6 +2063,7 @@ export type Database = {
           id: string
           query: string
           recipe_id: string
+          sort_order: number
           weight: number
         }
         Insert: {
@@ -2071,6 +2072,7 @@ export type Database = {
           id?: string
           query: string
           recipe_id: string
+          sort_order?: number
           weight?: number
         }
         Update: {
@@ -2079,6 +2081,7 @@ export type Database = {
           id?: string
           query?: string
           recipe_id?: string
+          sort_order?: number
           weight?: number
         }
         Relationships: [

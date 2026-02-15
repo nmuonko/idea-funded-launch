@@ -89,6 +89,16 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "navigator": [],    // Prevent unwanted fuzzy matches
   "tahoe": [],        // Prevent unwanted fuzzy matches
   "suburban": [],     // Prevent unwanted fuzzy matches
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROTECTED FRENCH TERMS: Prevent fuzzy matching to vehicle/product names
+  // e.g., "talon" (heel) must NOT fuzzy-match to "tahoe" (Levenshtein distance 2)
+  // ═══════════════════════════════════════════════════════════════════════════
+  "talon": [],        // French for "heel" - prevent "talon" → "tahoe"
+  "salon": [],        // French for "living room" - prevent fuzzy matches
+  "pantalon": [],     // French for "pants" - prevent fuzzy matches
+  "manteau": [],      // French for "coat" - prevent fuzzy matches
+  "collier": [],      // French for "necklace" - prevent fuzzy matches
   "wrangler": [],     // Prevent unwanted fuzzy matches
   "gladiator": [],    // Prevent unwanted fuzzy matches
   "prius": [],        // Prevent unwanted fuzzy matches
@@ -274,8 +284,12 @@ function fuzzyMatch(token: string, threshold: number = 2): string | null {
     return null;
   }
   
+  // Tighten threshold for short tokens (4-5 chars): distance 2 is too aggressive
+  // e.g., "talon" → "tahoe" (distance 2) would be 40% of the word changing
+  const effectiveThreshold = token.length <= 5 ? 1 : threshold;
+  
   let bestMatch: string | null = null;
-  let bestDistance = threshold + 1;
+  let bestDistance = effectiveThreshold + 1;
   
   for (const canonical of Object.keys(CANONICAL_TERMS)) {
     // Skip short canonical terms (≤4 chars) — they cause false matches
@@ -286,7 +300,7 @@ function fuzzyMatch(token: string, threshold: number = 2): string | null {
     if (Math.abs(token.length - canonical.length) > threshold) continue;
     
     const distance = levenshteinDistance(token, canonical);
-    if (distance <= threshold && distance < bestDistance) {
+    if (distance <= effectiveThreshold && distance < bestDistance) {
       bestDistance = distance;
       bestMatch = canonical;
     }

@@ -38,6 +38,7 @@ import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
+import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -112,20 +113,8 @@ Deno.serve(async (req: Request) => {
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
 
-  // ─── CATEGORY RESOLUTION ────────────────────────────────────────────────────
+  // ─── CATEGORY RESOLUTION (deferred to parallel block below) ──────────────
   let categoryKey = rawCategoryKey;
-  if (rawCategoryKey) {
-    const catClient = createAdminPostgrestClient();
-    const catRes = await resolveCategoryWithDb(catClient, rawCategoryKey, requestId);
-    if (catRes.resolved) {
-      categoryKey = catRes.resolved;
-      if (categoryKey !== rawCategoryKey) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} category_resolved: "${rawCategoryKey}" → "${categoryKey}" (${catRes.method})`);
-      }
-    } else {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} category_unresolved: "${rawCategoryKey}" — passing raw`);
-    }
-  }
 
   // ─── FIX A: ENV FALLBACK — public clients auto-use production ───────────
   const authHeader = req.headers.get("authorization") || "";
@@ -206,22 +195,36 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // ─── PARALLEL: REWRITE + SETTINGS (with timeout budget) ─────────────────
+    // ─── PARALLEL: REWRITE + SETTINGS + CATEGORY (with timeout budget) ────────
     const rewriteStart = Date.now();
     let settings: any;
     try {
       const rewriteTimeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("REWRITE_TIMEOUT")), REWRITE_BUDGET_MS)
       );
-      const [searchMetaResult2, settingsResult] = await Promise.race([
+      const categoryPromise = rawCategoryKey
+        ? resolveCategoryWithDb(createAdminPostgrestClient(), rawCategoryKey, requestId)
+        : Promise.resolve(null);
+      const [searchMetaResult2, settingsResult, catResult] = await Promise.race([
         Promise.all([
           rewriteSearchQuery(supabase, qOriginal, { lang, categoryKey, requestId }),
           getCatalogSettings(supabase),
+          categoryPromise,
         ]),
         rewriteTimeout.then(() => { throw new Error("REWRITE_TIMEOUT"); }) as never,
       ]);
       searchMeta = searchMetaResult2;
       settings = settingsResult;
+      if (catResult && rawCategoryKey) {
+        if (catResult.resolved) {
+          categoryKey = catResult.resolved;
+          if (categoryKey !== rawCategoryKey) {
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} category_resolved: "${rawCategoryKey}" → "${categoryKey}" (${catResult.method})`);
+          }
+        } else {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} category_unresolved: "${rawCategoryKey}" — passing raw`);
+        }
+      }
     } catch {
       console.warn(`[CATALOG_SEARCH] requestId=${requestId} rewrite_timeout — using defaults`);
       settings = await getCatalogSettings(supabase);
@@ -235,212 +238,8 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── FIX #1: FAST BILINGUAL REWRITE FALLBACK ─────────────────────────────
-    // If rewrite table didn't match, apply a small built-in FR→EN map
-    const FR_EN_FALLBACK: Record<string, string> = {
-      "tracteur": "tractor",
-      "tracteurs": "tractor",
-      "agricole": "farm",
-      "frigo": "refrigerator",
-      "refrigerateur": "refrigerator",
-      "réfrigérateur": "refrigerator",
-      "frigo americain": "side by side refrigerator",
-      "frigo américain": "side by side refrigerator",
-      "telephone": "phone",
-      "téléphone": "phone",
-      "voiture": "car",
-      "voitures": "car",
-      "camion": "truck",
-      "camions": "truck",
-      "machine a laver": "washing machine",
-      "machine à laver": "washing machine",
-      "chargeur": "charger",
-      "chargeur iphone": "iphone charger",
-      "chargeur type c": "usb type c charger",
-      "ecouteurs": "earbuds",
-      "écouteurs": "earbuds",
-      "ecouteurs bluetooth": "bluetooth earbuds",
-      "écouteurs bluetooth": "bluetooth earbuds",
-      "coque": "phone case",
-      "coque iphone": "iphone phone case",
-      "coque iphone 13": "iphone 13 phone case",
-      "protection ecran": "screen protector",
-      "protection écran": "screen protector",
-      "protection ecran iphone": "iphone screen protector",
-      "protection écran iphone": "iphone screen protector",
-      "ordinateur": "laptop computer",
-      "ordinateur portable": "laptop",
-      "imprimante": "printer",
-      "aspirateur": "vacuum cleaner",
-      "ventilateur": "fan",
-      "climatiseur": "air conditioner",
-      "televiseur": "television",
-      "téléviseur": "television",
-      "montre": "watch",
-      "casque": "headphones",
-      "casque gaming": "gaming headset",
-      "clavier": "keyboard",
-      "souris": "mouse",
-      "tablette": "tablet",
-      "enceinte": "speaker",
-      "seche cheveux": "hair dryer",
-      "sèche cheveux": "hair dryer",
-      "fer a repasser": "iron",
-      "fer à repasser": "iron",
-      "micro ondes": "microwave",
-      "micro onde": "microwave",
-      "four": "oven",
-      "cafetiere": "coffee maker",
-      "cafetière": "coffee maker",
-      "mixeur": "blender",
-      "tondeuse": "lawn mower",
-      "perceuse": "drill",
-      "velo": "bicycle",
-      "vélo": "bicycle",
-      "trottinette": "scooter",
-      "poussette": "stroller",
-      "matelas": "mattress",
-      "canape": "sofa",
-      "canapé": "sofa",
-      "bureau": "desk",
-      "etagere": "shelf",
-      "étagère": "shelf",
-      "congelateur": "freezer",
-      "congélateur": "freezer",
-      "cuisiniere": "gas stove",
-      "cuisinière": "gas stove",
-      "cuisiniere 4 feux": "4 burner gas stove",
-      "cuisinière 4 feux": "4 burner gas stove",
-      "groupe electrogene": "generator",
-      "groupe électrogène": "generator",
-      "generateur": "generator",
-      "générateur": "generator",
-      "generateur 5kva": "5kva generator",
-      "générateur 5kva": "5kva generator",
-      "stabilisateur tension": "voltage stabilizer",
-      "panneau solaire": "solar panel",
-      "panneau solaire 300w": "300w solar panel",
-      "kit solaire": "solar kit",
-      "kit solaire maison": "home solar kit",
-      "moto cg": "motorcycle",
-      "moto cg 125": "125cc motorcycle",
-      "moto honda": "honda motorcycle",
-      "scooter 150cc": "150cc scooter",
-      "pneus": "tires",
-      "pneus toyota": "toyota tires",
-      "batterie voiture": "car battery",
-      "batterie voiture 12v": "12v car battery",
-      "huile moteur": "motor oil",
-      "huile moteur 5w30": "5w30 motor oil",
-      "motoculteur": "garden tiller",
-      "pompe a eau": "water pump",
-      "pompe à eau": "water pump",
-      "motopompe": "gasoline water pump",
-      "motopompe essence": "gasoline water pump",
-      "pulverisateur": "sprayer",
-      "pulvérisateur": "agricultural sprayer",
-      "semoir": "seed planter",
-      "broyeur": "grinder shredder",
-      "machette": "machete",
-      "tronconneuse": "chainsaw",
-      "tronçonneuse": "chainsaw",
-      "poste a souder": "welding machine",
-      "poste à souder": "welding machine",
-      "scie circulaire": "circular saw",
-      "routeur wifi": "wifi router",
-      "manette ps5": "ps5 controller",
-      "sac a main": "handbag",
-      "sac à main": "handbag",
-      "montre homme": "men watch",
-      "parfum": "perfume",
-      "perruque": "wig",
-      "tissage bresilien": "brazilian hair weave",
-      "tissage brésilien": "brazilian hair weave",
-      "robe soiree": "evening dress",
-      "robe soirée": "evening dress",
-      "costume homme": "men suit",
-      "couche pampers": "pampers diapers",
-      "biberon": "baby bottle",
-      "lait infantile": "infant formula",
-      "lit bebe": "baby crib",
-      "lit bébé": "baby crib",
-      "moustiquaire": "mosquito net",
-      "draps": "bed sheets",
-      "rideaux": "curtains",
-      // ─── Fashion / Footwear / Clothing ───
-      "chaussure": "shoes",
-      "chaussures": "shoes",
-      "chaussure dame": "women shoes",
-      "chaussure femme": "women shoes",
-      "chaussure dame haut talon": "women high heel shoes",
-      "chaussure femme talon": "women heel shoes",
-      "chaussure homme": "men shoes",
-      "chaussure enfant": "kids shoes",
-      "talon": "heels",
-      "talon haut": "high heels",
-      "talons hauts": "high heels",
-      "haut talon": "high heels",
-      "basket": "sneakers",
-      "baskets": "sneakers",
-      "botte": "boots",
-      "bottes": "boots",
-      "sandale": "sandals",
-      "sandales": "sandals",
-      "pantoufle": "slippers",
-      "pantoufles": "slippers",
-      "vetement": "clothing",
-      "vêtement": "clothing",
-      "vetement femme": "women clothing",
-      "vêtement femme": "women clothing",
-      "vetement homme": "men clothing",
-      "vêtement homme": "men clothing",
-      "pantalon": "pants",
-      "jupe": "skirt",
-      "chemise": "shirt",
-      "robe": "dress",
-      "manteau": "coat",
-      "veste": "jacket",
-      "pull": "sweater",
-      "sous vetement": "underwear",
-      "sous vêtement": "underwear",
-      "maillot de bain": "swimsuit",
-      "echarpe": "scarf",
-      "écharpe": "scarf",
-      "ceinture": "belt",
-      "chapeau": "hat",
-      "lunettes": "glasses",
-      "lunettes de soleil": "sunglasses",
-      // ─── Accessories / Bags ───
-      "sac": "bag",
-      "sac a main": "women handbag",
-      "sac à main": "women handbag",
-      "sacoche": "messenger bag",
-      "portefeuille": "wallet",
-      // ─── Jewelry / Beauty ───
-      "bracelet": "bracelet",
-      "collier": "necklace",
-      "boucles d'oreilles": "earrings",
-      "boucles d oreilles": "earrings",
-      "meches": "hair extensions",
-      "mèches": "hair extensions",
-      "tissage": "hair weave",
-      // ─── Formal / Uniform ───
-      "costume": "suit",
-      "tenue": "outfit",
-      "uniforme": "uniform",
-      // ─── Generic tokens (composable with any noun) ───
-      "femme": "women",
-      "dame": "women",
-      "homme": "men",
-      "enfant": "kids",
-      "bebe": "baby",
-      "bébé": "baby",
-      "noir": "black",
-      "blanc": "white",
-      "rouge": "red",
-      "bleu": "blue",
-      "grand": "large",
-      "petit": "small",
-    };
+    // If rewrite table didn't match, apply shared FR→EN map
+    const FR_EN_FALLBACK = FR_EN_MAP;
 
     // Detect if query might be French: accented chars, lang=fr, or matches FR terms
     const qNormLower = qNorm.toLowerCase().replace(/\s+/g, " ").trim();
@@ -813,25 +612,7 @@ Deno.serve(async (req: Request) => {
     let providerQuery = qRewrite || qCanonicalized || qOriginal;
 
     // Safety: if providerQuery still contains known French trigger tokens, force English
-    const FR_FORCE_MAP: Record<string, string> = {
-      "tracteur": "tractor", "tracteurs": "tractor", "agricole": "farm equipment",
-      "voiture": "car", "voitures": "cars", "camion": "truck", "camions": "trucks",
-      "téléphone": "phone", "telephone": "phone", "frigo": "refrigerator",
-      "réfrigérateur": "refrigerator", "refrigerateur": "refrigerator",
-      "ordinateur": "laptop computer", "écouteurs": "earbuds", "ecouteurs": "earbuds",
-      "chargeur": "charger", "aspirateur": "vacuum cleaner", "climatiseur": "air conditioner",
-      "imprimante": "printer", "ventilateur": "fan", "casque": "headphones",
-      "clavier": "keyboard", "souris": "mouse", "tablette": "tablet", "enceinte": "speaker",
-      "montre": "watch", "vélo": "bicycle", "velo": "bicycle", "matelas": "mattress",
-      "canapé": "sofa", "canape": "sofa", "bureau": "desk",
-      "chaussure": "shoes", "chaussures": "shoes", "talon": "heels",
-      "vetement": "clothing", "vêtement": "clothing", "robe": "dress",
-      "pantalon": "pants", "chemise": "shirt", "veste": "jacket",
-      "manteau": "coat", "botte": "boots", "bottes": "boots",
-      "sandale": "sandals", "sandales": "sandals", "basket": "sneakers", "baskets": "sneakers",
-      "sac": "bag", "perruque": "wig", "costume": "suit",
-      "collier": "necklace", "bracelet": "bracelet",
-    };
+    const FR_FORCE_MAP = FR_EN_MAP;
     const pqTokens = providerQuery.toLowerCase().split(/\s+/);
     for (const token of pqTokens) {
       const stripped = token.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -1154,22 +935,7 @@ Deno.serve(async (req: Request) => {
     }
     timings.postProcess = Date.now() - postProcessStart;
 
-    // ─── EARLY CACHE WRITE (fire-and-forget, before final response assembly) ─
-    // Ensures next user gets instant cache hit even if this request is still finishing
-    const earlyCacheMeta = {
-      qNorm, provider: providerParam || "mixed",
-      page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, sort,
-      category_key: categoryKey || undefined, vehicleMode: hasBuyingIntent,
-      minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
-    };
-    if (finalItems.length > 0) {
-      const earlyResponse = { status: "success", items: finalItems, total: finalItems.length, nextCursor: mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null, hasMore: mixResult.hasMore, searchMeta, _meta: { ...earlyCacheMeta, cachedAt: new Date().toISOString() } };
-      setCache(supabase, "search", globalCacheKey, earlyResponse, {
-        provider: "mixed", query: qNorm, category: categoryKey || undefined,
-        page: earlyCacheMeta.page, pageSize: limit, amazonDomain: "amazon.com",
-      }).catch(err => console.warn(`[CATALOG_SEARCH] requestId=${requestId} Early cache write failed:`, err));
-    }
-
+    // Early cache write removed — final cache write below handles everything
     // Provider stats
     const sourceServed: ("ebay" | "amazon")[] = [];
     if (ebayItems.length > 0) sourceServed.push("ebay");

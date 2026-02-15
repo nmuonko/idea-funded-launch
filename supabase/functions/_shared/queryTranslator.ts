@@ -45,9 +45,8 @@ export async function lookupTranslationCache(
 
     const row = data[0] as { translated_query: string; source_lang: string; provider: string };
 
-    // Fire-and-forget hit_count increment
-    const updateClient = createAdminPostgrestClient();
-    updateClient
+    // Fire-and-forget hit_count increment (reuse existing client)
+    client
       .from("query_translation_cache")
       .update({ hit_count: (row as any).hit_count ? (row as any).hit_count + 1 : 1 })
       .eq("source_lang", "auto")

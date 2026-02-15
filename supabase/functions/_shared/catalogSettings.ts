@@ -2,7 +2,9 @@
  * Catalog Settings Helper
  * Centralized access to admin_settings for catalog provider configuration
  * 
- * Settings are fetched fresh each request to ensure instant admin updates
+ * Uses 60-second in-memory TTL cache to avoid DB hits on every request.
+ * Admin updates reflect within 60 seconds. Call invalidateCatalogSettingsCache()
+ * for immediate effect after admin changes.
  */
 
 // Use 'any' type to avoid importing the Supabase SDK (prevents bundle bloat)
@@ -85,6 +87,21 @@ const DEFAULT_SETTINGS: CatalogSettings = {
   ebayHomeCacheTtlSeconds: 1800,     // 30 minutes
 };
 
+// ─── IN-MEMORY TTL CACHE (60s) ───────────────────────────────────────────────
+
+const CACHE_TTL_MS = 60_000; // 60 seconds
+
+let catalogSettingsCache: { value: CatalogSettings; expiresAt: number } | null = null;
+
+/**
+ * Invalidate the in-memory settings cache.
+ * Call after admin updates for immediate effect.
+ */
+export function invalidateCatalogSettingsCache(): void {
+  catalogSettingsCache = null;
+  console.log("[catalogSettings] In-memory cache invalidated");
+}
+
 // ─── PARSE HELPERS ────────────────────────────────────────────────────────────
 
 function parseJsonValue<T>(value: string | null, defaultValue: T): T {
@@ -112,10 +129,15 @@ function parseBoolean(value: string | null, defaultValue: boolean): boolean {
 // ─── FETCH SETTINGS ───────────────────────────────────────────────────────────
 
 /**
- * Fetch catalog settings from admin_settings table
- * Always fetches fresh to ensure instant admin updates
+ * Fetch catalog settings from admin_settings table.
+ * Uses 60-second in-memory TTL cache to reduce DB pressure.
  */
 export async function getCatalogSettings(supabase: SupabaseClient): Promise<CatalogSettings> {
+  // Return cached value if still valid
+  if (catalogSettingsCache && Date.now() < catalogSettingsCache.expiresAt) {
+    return catalogSettingsCache.value;
+  }
+
   const keys = [
     "catalog_provider_mode",
     "amazon_enabled",
@@ -158,7 +180,7 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
 
   const get = (key: string) => settingsMap.get(key) || null;
 
-  return {
+  const result: CatalogSettings = {
     catalogProviderMode: parseJsonValue<ProviderMode>(get("catalog_provider_mode"), DEFAULT_SETTINGS.catalogProviderMode),
     amazonEnabled: parseBoolean(get("amazon_enabled"), DEFAULT_SETTINGS.amazonEnabled),
     ebayEnabled: parseBoolean(get("ebay_enabled"), DEFAULT_SETTINGS.ebayEnabled),
@@ -181,6 +203,11 @@ export async function getCatalogSettings(supabase: SupabaseClient): Promise<Cata
     homeItemsPerSection: parseNumber(get("home_items_per_section"), DEFAULT_SETTINGS.homeItemsPerSection),
     ebayHomeCacheTtlSeconds: parseNumber(get("ebay_home_cache_ttl_seconds"), DEFAULT_SETTINGS.ebayHomeCacheTtlSeconds),
   };
+
+  // Update cache
+  catalogSettingsCache = { value: result, expiresAt: Date.now() + CACHE_TTL_MS };
+
+  return result;
 }
 
 // ─── EFFECTIVE MODE RESOLVER ──────────────────────────────────────────────────
@@ -244,7 +271,8 @@ export function getEffectiveMode(
 // ─── UPDATE SETTING ───────────────────────────────────────────────────────────
 
 /**
- * Update a catalog setting (admin only)
+ * Update a catalog setting (admin only).
+ * Automatically invalidates the in-memory cache.
  */
 export async function updateCatalogSetting(
   supabase: SupabaseClient,
@@ -295,6 +323,9 @@ export async function updateCatalogSetting(
     console.error("[catalogSettings] Error updating setting:", error.message);
     return { success: false, error: error.message };
   }
+
+  // Invalidate cache after successful update
+  invalidateCatalogSettingsCache();
 
   console.log(`[catalogSettings] Updated ${key}=${serialized} by ${updatedBy || "unknown"}`);
   return { success: true };

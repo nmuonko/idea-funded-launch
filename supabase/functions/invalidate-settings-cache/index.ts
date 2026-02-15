@@ -9,6 +9,7 @@ import {
   jsonResponse 
 } from "../_shared/auth.ts";
 import { invalidateSettingsCache } from "../_shared/settings-cache.ts";
+import { invalidateCatalogSettingsCache } from "../_shared/catalogSettings.ts";
 
 serve(async (req) => {
   const corsResponse = handleCors(req);
@@ -32,6 +33,7 @@ serve(async (req) => {
 
     // Invalidate the cache
     invalidateSettingsCache();
+    invalidateCatalogSettingsCache();
 
     console.log('[invalidate-settings-cache] Cache invalidated by admin:', user.id);
 

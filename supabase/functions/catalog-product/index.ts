@@ -434,14 +434,15 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ========== DB-FIRST: Check catalog_items ==========
+    // ========== DB-FIRST: Check catalog_items + variants in PARALLEL ==========
     console.log(`[DETAIL_DB] correlationId=${correlationId} id=${fullProductId} checking...`);
     
-    const { data: dbItem } = await db
-      .from("catalog_items")
-      .select("*")
-      .eq("id", fullProductId)
-      .maybeSingle();
+    const [dbItemResult, cachedVariantsResult] = await Promise.all([
+      db.from("catalog_items").select("*").eq("id", fullProductId).maybeSingle(),
+      getCachedVariants(),
+    ]);
+
+    const dbItem = dbItemResult.data;
 
     if (dbItem) {
       const item = mapDbItemToResponse(dbItem);
@@ -457,11 +458,10 @@ Deno.serve(async (req: Request) => {
         return errorResponse("PRODUCT_NOT_AVAILABLE", getBlockedSearchMessage("en"));
       }
       
-      // Check variants cache for ALL providers (amazon + ebay)
-      const cachedVariants = await getCachedVariants();
-      if (cachedVariants) {
-        item.variants = cachedVariants;
-        console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: cachedVariants.length, totalMs: Date.now() - startTime }));
+      // Use pre-fetched variants cache result
+      if (cachedVariantsResult) {
+        item.variants = cachedVariantsResult;
+        console.log(JSON.stringify({ event: "DETAIL_RESPONSE", correlationId, provider: externalProvider, id: productId, dbHit: true, variantsCacheHit: true, liveFetch: false, variantsCount: cachedVariantsResult.length, totalMs: Date.now() - startTime }));
         
         return new Response(JSON.stringify({
           ok: true,

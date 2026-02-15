@@ -126,14 +126,11 @@ export async function findNearMatch(
     const now = new Date().toISOString();
 
     // Fetch recent non-expired search cache entries
-    // Filter by cache_type and use LIKE on cache_key for provider + vehicleMode match
-    const keyPattern = `search:%:p=${params.provider}:%:vm=${vmMarker}:%:in=${intentKey}:%`;
-
+    // Use equality filters only (no LIKE) to leverage indexes
     const { data: candidates, error } = await supabase
       .from("catalog_cache")
       .select("cache_key, query, response, updated_at, expires_at, stale_at")
       .eq("cache_type", "search")
-      .like("cache_key", keyPattern)
       .gt("expires_at", now)
       .not("response->_negativeCached", "is", true)
       .order("updated_at", { ascending: false })

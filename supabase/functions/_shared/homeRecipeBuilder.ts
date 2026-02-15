@@ -209,17 +209,27 @@ async function fetchItemsFromDB(
     perSeedItems.push(seedItems);
   }
 
-  // Round-robin interleave: take items from each seed in order
+  // Round-robin interleave with title dedup: take items from each seed in order
   const interleaved: RecipeItem[] = [];
   const nonEmptySeeds = perSeedItems.filter(s => s.length > 0);
   if (nonEmptySeeds.length === 0) return [];
   
+  const seenTitles = new Set<string>();
+  const normalizeTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
+  
   const maxRounds = Math.ceil(targetCount / nonEmptySeeds.length);
   for (let round = 0; round < maxRounds && interleaved.length < targetCount; round++) {
     for (const seedItems of nonEmptySeeds) {
-      if (round < seedItems.length && interleaved.length < targetCount) {
-        interleaved.push(seedItems[round]);
+      // Find next non-duplicate item from this seed starting at `round`
+      for (let idx = round; idx < seedItems.length; idx++) {
+        const normTitle = normalizeTitle(seedItems[idx].title);
+        if (!seenTitles.has(normTitle)) {
+          seenTitles.add(normTitle);
+          interleaved.push(seedItems[idx]);
+          break;
+        }
       }
+      if (interleaved.length >= targetCount) break;
     }
   }
 

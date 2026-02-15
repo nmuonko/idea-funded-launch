@@ -1,122 +1,112 @@
 
 
-# Audit & Harden: Web App Category Filters to Backend Recipe Mapping
+# Fix: Slow Order Deletion + Cars Section BMW Bias
 
-## Current State (After Last Fix)
+## Issue 1: Bulk Order Deletion Is Too Slow
 
-All 9 tab keys from `catalog-tabs` now correctly resolve to recipe keys:
+### Root Cause
+The admin bulk delete (visible in the screenshot deleting 31 orders) calls the `admin-delete-order` edge function **one at a time in a sequential for-loop**. Each call performs **11+ sequential database operations** (deleting from order_actions, order_items, payments, maisha_payments, checkout_sessions, payment_attempts, manual_transfer_sessions, manual_transfer_proofs, bank_transfer_view_tokens, payment_links, cart_recovery tables, quote_requests, then the order itself, then an audit log insert).
 
-```text
-Tab Key (frontend sends)     -->  Recipe Key (DB _recipeKey)   Status
-─────────────────────────────────────────────────────────────────────
-electronics                  -->  electronics                  OK (identity)
-vehicles                     -->  vehicles                     OK (identity)
-home_garden                  -->  home_garden                  OK (identity)
-clothing_shoes_accessories   -->  clothing                     OK (mapped)
-toys                         -->  toys                         OK (identity)
-sporting_goods               -->  sporting_goods               OK (identity)
-jewelry_watches              -->  jewelry_watches              OK (identity)
-refurbished                  -->  refurbished                  OK (identity)
-parts_accessories            -->  parts_accessories            OK (identity)
-```
+For 31 orders: ~31 calls x 11 DB operations x ~50ms each = **~17 seconds minimum**.
 
-The only mismatch was `clothing_shoes_accessories` which we fixed. Identity keys work because of the fallback: `TAB_TO_RECIPE[category] || category`.
+### Fix
 
-## Problem: Fragile Hardcoded Map
+**A. Create a new `admin-bulk-delete-orders` edge function** that accepts an array of order IDs and deletes them all in bulk SQL operations instead of one-at-a-time:
 
-The `TAB_TO_RECIPE` map in `catalog-home/index.ts` is hardcoded. If an admin:
-- Renames a recipe key in the DB
-- Adds a new category tab in `categoryMapper.ts`
-- Changes a recipe key to not match the tab key
+- Delete from all child tables using `WHERE order_id = ANY($1)` (single query per table instead of 31)
+- Batch the audit log inserts into one multi-row INSERT
+- This reduces 341 DB calls down to ~13 total (one per table + audit)
 
-...the filter silently breaks and shows unrelated products (exactly the bug we just fixed).
+**B. Update `src/pages/admin/Orders.tsx`** to call the new bulk endpoint instead of looping over the single-delete function.
 
-## Fix: Auto-Derive Mapping + Add Missing Entries
-
-### Change 1: Complete the TAB_TO_RECIPE with all aliases from categoryMapper
-
-The `categoryMapper.ts` already defines `CATEGORY_ALIASES` (e.g., `clothing -> clothing_shoes_accessories`). But the `TAB_TO_RECIPE` in `catalog-home` does the **reverse** mapping (tab key -> recipe key). These should stay in sync.
-
-Add all missing reverse aliases to `TAB_TO_RECIPE`:
-
-```text
-Current TAB_TO_RECIPE (11 entries):
-  all, "", gaming, vehicles, home, fashion,
-  clothing_shoes_accessories, toys, sporting_goods, watches, refurbished
-
-Add these for completeness:
-  electronics: "electronics"        (explicit identity - safety)
-  home_garden: "home_garden"        (explicit identity - safety)
-  jewelry_watches: "jewelry_watches" (explicit identity - safety)
-  parts_accessories: "parts_accessories" (explicit identity)
-  phones: "phones"                  (subcategory with its own recipe)
-  business_industrial: "electronics" (no recipe exists, fallback)
-```
-
-### Change 2: Add a diagnostic log when a category has no matching recipe items
-
-After the recipe filter runs, if zero items match, log a warning with the category and resolved recipe key. This makes future mismatches immediately visible in logs instead of silently showing wrong content.
-
-### Change 3: Add fallback to `homepage` recipe when category filter returns zero items
-
-Currently when a filter matches nothing, it falls through to the legacy 3-tier cache which may return stale/unrelated content. Instead, return the `homepage` mix with a header indicating the fallback, so the user sees curated content rather than random items.
-
-## Files Changed
+### Files
 
 | File | Change |
 |------|--------|
-| `supabase/functions/catalog-home/index.ts` | Expand TAB_TO_RECIPE with all explicit mappings; add zero-match diagnostic log; add homepage fallback |
+| `supabase/functions/admin-bulk-delete-orders/index.ts` | New edge function accepting `{ orderIds: string[] }`, performing bulk deletes |
+| `src/pages/admin/Orders.tsx` | Replace sequential for-loop with single call to `admin-bulk-delete-orders` |
+
+---
+
+## Issue 2: Cars/Vehicles Section Shows Mostly BMW
+
+### Root Cause
+
+The `home_recipe_seeds` table for the `vehicles` recipe has **duplicate entries**: "BMW X5" appears 3 times and "BMW X5 SUV" once, giving BMW disproportionate weight. The current cache data confirms this: **62 BMW items vs 20 Toyota and 1 Other** -- no Honda, Ford, Mercedes, Tesla, Chevrolet, Jeep, or other brands appear at all.
+
+Additionally, many of the BMW results are **accessories/parts** (door handles, emblems, control arms, grilles) rather than actual vehicles, because the eBay search for "BMW X5" returns parts alongside listings.
+
+### Fix
+
+**A. Clean up duplicate seeds** in the `home_recipe_seeds` database table:
+- Remove duplicate "BMW X5" entries (keep just 1)
+- Remove duplicate entries for other makes that also appear multiple times (Toyota RAV4 x2, Honda CR-V x2, Ford Explorer x2, etc.)
+
+**B. Force a recipe cache rebuild** after cleaning seeds so the new, balanced seed list takes effect.
+
+**C. Verify the `motorsFilter.ts` accessory filtering** is being applied during recipe building to strip out parts/accessories from vehicle results.
+
+### Data Changes
+
+| Table | Change |
+|-------|--------|
+| `home_recipe_seeds` | Remove duplicate BMW X5 and other duplicate vehicle seed entries |
+
+No code file changes needed for this issue -- it is a data problem in the seeds table.
+
+---
 
 ## Technical Details
 
-### Updated TAB_TO_RECIPE (complete map)
+### Bulk Delete Function Structure
 
 ```typescript
-const TAB_TO_RECIPE: Record<string, string> = {
-  // Homepage
-  all: "homepage",
-  "": "homepage",
-  // Exact recipe keys (explicit for safety)
-  electronics: "electronics",
-  vehicles: "vehicles",
-  home_garden: "home_garden",
-  toys: "toys",
-  sporting_goods: "sporting_goods",
-  jewelry_watches: "jewelry_watches",
-  refurbished: "refurbished",
-  parts_accessories: "parts_accessories",
-  gaming: "gaming",
-  phones: "phones",
-  // Aliases (tab key differs from recipe key)
-  clothing_shoes_accessories: "clothing",
-  // Legacy aliases (old frontend keys)
-  home: "home_garden",
-  fashion: "clothing",
-  watches: "jewelry_watches",
-};
+// admin-bulk-delete-orders/index.ts
+// 1. Auth check (same as existing)
+// 2. Accept { orderIds: string[] } (max 100)
+// 3. Fetch order details for audit log
+// 4. Bulk delete from child tables:
+//    - order_actions WHERE order_id IN (...)
+//    - order_items WHERE order_id IN (...)
+//    - payments WHERE order_id IN (...)
+//    - maisha_payments WHERE order_id IN (...)
+//    - checkout_sessions WHERE order_id IN (...)
+//    - payment_attempts WHERE order_id IN (...)
+//    - manual_transfer_proofs via session IDs
+//    - manual_transfer_sessions WHERE order_id IN (...)
+//    - bank_transfer_view_tokens WHERE order_id IN (...)
+//    - payment_links WHERE order_id IN (...)
+//    - cart_recovery_ab_tests WHERE order_id IN (...)
+//    - cart_recovery_predictions WHERE order_id IN (...)
+//    - quote_requests via item IDs
+//    - orders WHERE id IN (...)
+// 5. Batch insert audit logs
 ```
 
-### Zero-Match Diagnostic
+### Frontend Bulk Delete Change
 
 ```typescript
-if (allItems.length === 0) {
-  console.warn(
-    `[CATALOG_HOME] ZERO_MATCH category=${category} recipeKeyFilter=${recipeKeyFilter} ` +
-    `totalRawItems=${rawItems.length} correlationId=${correlationId}`
-  );
-  // Fallback: serve homepage items instead of falling through to legacy cache
-  const homepageItems = rawItems.filter(
-    (item) => (item._recipeKey as string) === "homepage" || !item._recipeKey
-  );
-  if (homepageItems.length > 0) {
-    // Use homepage items as fallback, with a header indicating fallback
-    // ... (same pagination logic, add X-Category-Fallback: true header)
-  }
+// Before: sequential loop (slow)
+for (const orderId of orderIds) {
+  await supabase.functions.invoke('admin-delete-order', { body: { orderId } });
 }
+
+// After: single call (fast)
+const { data, error } = await supabase.functions.invoke('admin-bulk-delete-orders', {
+  body: { orderIds }
+});
 ```
 
-This ensures:
-1. Every possible category key the frontend can send is explicitly mapped
-2. Mismatches are logged for fast debugging
-3. Users never see completely unrelated content -- they get the curated homepage feed as a safe fallback
+### Seed Cleanup (duplicates to remove)
 
+```text
+Duplicates found in home_recipe_seeds for vehicles:
+- "BMW X5" appears 3x (keep 1)
+- "Toyota RAV4" appears 2x (keep 1, remove "Toyota RAV4 SUV" variant)
+- "Honda CR-V" appears 2x (keep 1, remove "Honda CR-V SUV" variant)
+- "Ford Explorer" appears 2x (keep 1, remove "Ford Explorer SUV" variant)
+- "Toyota Camry" appears 2x (keep 1)
+- "Honda Civic" appears 2x (keep 1)
+```
+
+After cleanup and cache rebuild, the vehicles section should show a balanced mix of all makes.

@@ -841,7 +841,8 @@ Deno.serve(async (req: Request) => {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} providerQuery_force_en: "${token}" → "${enWord}" => providerQuery="${providerQuery}"`);
       }
     }
-    providerQuery = providerQuery.trim().replace(/\s+/g, " ");
+    // Deduplicate consecutive/repeated tokens (e.g., "refrigerator refrigerator samsung" → "refrigerator samsung")
+    providerQuery = [...new Set(providerQuery.trim().split(/\s+/))].join(" ");
 
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_pipeline: qOriginal="${qOriginal}" qCanon="${qCanonicalized}" qRewrite="${qRewrite}" providerQuery="${providerQuery}"`);
 
@@ -863,7 +864,7 @@ Deno.serve(async (req: Request) => {
 
           if (dbResult.items) {
             let dbItems = dbResult.items;
-            const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory"];
+            const SCORED_INTENTS = ["gaming", "phone_device", "vehicle_listing", "phone_accessory", "appliance_fridge"];
             if (SCORED_INTENTS.includes(effectiveIntent.intentKey)) {
               const dbQueryTokens = providerQuery.toLowerCase().split(/\s+/).filter((t: string) => t.length >= 2);
               const dbScoreResult = scoreAndRankItems(dbItems as unknown as Record<string, unknown>[], effectiveIntent, dbQueryTokens, limit);
@@ -1001,8 +1002,9 @@ Deno.serve(async (req: Request) => {
     const elapsedSoFar = Date.now() - startTime;
     const budgetExceeded = elapsedSoFar > TOTAL_BUDGET_MS;
     
-    // Fast path queries skip all alt attempts; also skip if budget exceeded
-    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded) {
+    // Appliance intents with enough results skip alt queries to prevent dilution
+    const applianceIntentSufficient = effectiveIntent.intentKey === "appliance_fridge" && totalProviderItems >= 20;
+    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient) {
       let altAttempts = 0;
       // Try alt queries from AI refiner (max ALT_QUERIES_MAX = 1)
       for (const altQ of altQueries) {
@@ -1134,7 +1136,7 @@ Deno.serve(async (req: Request) => {
       "perfume","makeup","lipstick","mascara",
     ];
     // Only apply the guard for intents that should NEVER return clothing/shoes
-    const GUARDED_INTENTS = ["gaming", "phone_device", "phone_accessory", "vehicle_listing", "vehicle_parts", "heavy_equipment"];
+    const GUARDED_INTENTS = ["gaming", "phone_device", "phone_accessory", "vehicle_listing", "vehicle_parts", "heavy_equipment", "appliance_fridge"];
     if (GUARDED_INTENTS.includes(effectiveIntent.intentKey) && finalItems.length > 0) {
       const beforeGuard = finalItems.length;
       finalItems = finalItems.filter(item => {

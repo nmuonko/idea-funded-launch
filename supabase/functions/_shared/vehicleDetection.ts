@@ -483,7 +483,7 @@ function hasMileageToken(text: string): boolean {
 }
 
 export interface SearchIntent {
-  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "gaming" | "general";
+  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "gaming" | "appliance_fridge" | "general";
   vehicleListingIntent: boolean;
   vehiclePartsIntent: boolean;
   phoneDeviceIntent: boolean;
@@ -497,6 +497,20 @@ export interface SearchIntent {
  */
 export function classifySearchIntent(qNorm: string): SearchIntent {
   const lower = qNorm.toLowerCase().trim();
+
+  // ── APPLIANCE: FRIDGE / REFRIGERATOR ─────────────────────────────────────
+  const FRIDGE_KW = [
+    "refrigerator","fridge","réfrigérateur","refrigerateur","frigo",
+    "congélateur","congelateur","freezer","mini fridge","side by side refrigerator",
+    "french door refrigerator","top freezer","bottom freezer",
+  ];
+  const hasFridgeIntent = FRIDGE_KW.some(kw => lower.includes(kw));
+  // Only classify as fridge if query does NOT explicitly ask for accessories/filters
+  const FRIDGE_ACCESSORY_OVERRIDE = ["water filter","filtre","filter","cartridge","replacement"];
+  const hasFridgeAccessoryOverride = FRIDGE_ACCESSORY_OVERRIDE.some(kw => lower.includes(kw));
+  if (hasFridgeIntent && !hasFridgeAccessoryOverride) {
+    return { intentKey: "appliance_fridge", vehicleListingIntent: false, vehiclePartsIntent: false, phoneDeviceIntent: false, phoneAccessoryIntent: false, isHeavyEquipment: false };
+  }
 
   // ── GAMING FIRST — must be checked before vehicles because canonicalization
   // can corrupt "game" into vehicle model tokens (e.g., "gle" = Mercedes GLE)

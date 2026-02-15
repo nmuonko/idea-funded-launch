@@ -149,6 +149,48 @@ function scoreOne(
       if (hasAny(title, PHONE_DEVICE_SIGNALS)) score -= 20; // Actual phone, not accessory
       break;
     }
+    case "appliance_fridge": {
+      // ── FRIDGE RELEVANCE FILTER ──
+      const FRIDGE_TITLE_SIGNALS = [
+        "refrigerator","fridge","french door","side-by-side","side by side",
+        "mini fridge","top freezer","bottom freezer","freezer","ice maker",
+        "cu ft","cubic feet","cu. ft","counter depth","stainless steel refrigerator",
+        "compact refrigerator","beverage cooler","wine cooler",
+      ];
+      const FRIDGE_MODEL_PATTERNS = /\b(rf28|rs27|rt18|rt21|rf23|rf29|lf|lfx|lrm|wrx|wrs|gss|gne|gte|gfe|ffss|ffhb|lrs|lrd)\d/i;
+      const FRIDGE_ACCESSORY_HARD_DROP = [
+        "water filter","replacement filter","ice filter","cartridge","filter for",
+        "door bin","shelf","handle","gasket","bulb","thermostat",
+        "compressor","relay","evaporator","fan motor","drain","hose",
+        "defrost","dispenser","drawer","crisper","light","bracket",
+        "cap","valve","tube","tray","cover plate","deli drawer",
+        "door shelf","door rack","guard","ice bucket","auger",
+        "sensor","control board","wire harness","kick plate",
+        "drip tray","pan","grommet","spring","hinge","cam",
+        "ami parts","oem part","replacement part","repair",
+        "ice maker assembly","icemaker assembly","icemaker",
+        "beverage center","flipper","mullion","heater",
+        "filtration","carbon block","da97-","da63-","da82-",
+        "assembly for samsung","assembly for",
+      ];
+      
+      const hasFridgeSignal = hasAny(title, FRIDGE_TITLE_SIGNALS) || FRIDGE_MODEL_PATTERNS.test(title);
+      const isAccessoryOnly = hasAny(title, FRIDGE_ACCESSORY_HARD_DROP);
+      
+      // Key insight: "Refrigerator Water Filter" has BOTH fridge signal AND accessory keyword.
+      // Accessories always lose — if title has accessory term, drop it regardless of fridge signal.
+      if (isAccessoryOnly) return null;
+      
+      // Hard-drop items that have NO fridge signal at all (random Samsung items)
+      if (!hasFridgeSignal) return null;
+      
+      // Boost actual fridges
+      if (hasAny(title, FRIDGE_TITLE_SIGNALS)) score += 15;
+      if (FRIDGE_MODEL_PATTERNS.test(title)) score += 10;
+      if (priceUsd >= 200) score += 5; // Real fridges cost money
+      if (priceUsd < 20) return null; // Too cheap, likely accessory
+      break;
+    }
     case "heavy_equipment": {
       if (hasAny(title, ["tractor","excavator","loader","bulldozer","backhoe","john deere","kubota","caterpillar","massey","case ih"])) score += 10;
       break;

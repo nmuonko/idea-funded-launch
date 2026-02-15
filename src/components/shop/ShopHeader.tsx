@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle, Heart, Gift } from 'lucide-react';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, Heart, Gift } from 'lucide-react';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';

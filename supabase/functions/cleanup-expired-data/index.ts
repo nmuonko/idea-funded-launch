@@ -92,6 +92,7 @@ serve(async (req) => {
       guest_cart_snapshots_deleted: number;
       catalog_facets_cache_deleted: number;
       variants_cache_deleted: number;
+      translation_cache_deleted: number;
       duration_ms: number;
       cleanup_at: string;
     };
@@ -108,7 +109,8 @@ serve(async (req) => {
       result.home_seen_items_deleted +
       result.guest_cart_snapshots_deleted +
       result.catalog_facets_cache_deleted +
-      result.variants_cache_deleted;
+      result.variants_cache_deleted +
+      result.translation_cache_deleted;
 
     log.log('Cleanup completed', { ...result, totalCleaned });
 

@@ -36,6 +36,7 @@ import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts"
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
+import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -489,39 +490,91 @@ Deno.serve(async (req: Request) => {
     let frFallbackApplied = false;
     const originalQNormBeforeFrFallback = qNorm;
 
+    // ─── TRANSLATION LAYER (DB cache → static fallback → OpenAI) ─────────
+    let translateStatus = "SKIP";
+    let translateMs = 0;
+    let translateProvider = "";
+    const translateStart = Date.now();
+
     if (!searchMeta.rewriteApplied || qNorm === qNormLower) {
-      // Try exact match first, then accent-stripped match
-      const directMatch = FR_EN_FALLBACK[qNormLower] || FR_EN_FALLBACK[qNoAccents];
-      if (directMatch) {
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback: "${qNorm}" → "${directMatch}"`);
-        qNorm = directMatch;
-        searchMeta.rewrittenQuery = directMatch;
+      // [Step 1] DB translation cache lookup
+      const cacheHit = await lookupTranslationCache(qNormLower, requestId);
+      if (cacheHit) {
+        qNorm = cacheHit.translatedQuery;
+        searchMeta.rewrittenQuery = cacheHit.translatedQuery;
         searchMeta.rewriteApplied = true;
         frFallbackApplied = true;
-      } else if (isFrenchLikely) {
-        // Sort by key length descending so multi-word phrases match before single words
-        const sortedEntries = Object.entries(FR_EN_FALLBACK)
-          .sort((a, b) => b[0].length - a[0].length);
-        let translated = qNormLower;
-        let anyMatch = false;
-        for (const [frTerm, enTerm] of sortedEntries) {
-          const frTermNoAccents = removeAccentsFn(frTerm);
-          if (translated.includes(frTerm)) {
-            translated = translated.replace(frTerm, enTerm);
-            anyMatch = true;
-          } else if (translated.includes(frTermNoAccents)) {
-            translated = translated.replace(frTermNoAccents, enTerm);
-            anyMatch = true;
-          }
-        }
-        if (anyMatch) {
-          qNorm = translated.trim().replace(/\s+/g, " ");
-          searchMeta.rewrittenQuery = qNorm;
+        translateStatus = "HIT";
+        translateProvider = cacheHit.provider;
+        translateMs = Date.now() - translateStart;
+      } else {
+        // [Step 2] Static FR_EN_FALLBACK (existing logic)
+        const directMatch = FR_EN_FALLBACK[qNormLower] || FR_EN_FALLBACK[qNoAccents];
+        if (directMatch) {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback: "${qNorm}" → "${directMatch}"`);
+          qNorm = directMatch;
+          searchMeta.rewrittenQuery = directMatch;
           searchMeta.rewriteApplied = true;
           frFallbackApplied = true;
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_multi: "${qNormLower}" => "${qNorm}"`);
+          translateStatus = "STATIC";
+          translateProvider = "static";
+          // Write static translation to cache (fire-and-forget)
+          writeTranslationCache(qNormLower, directMatch, "fr", "static", requestId);
+        } else if (isFrenchLikely) {
+          // Sort by key length descending so multi-word phrases match before single words
+          const sortedEntries = Object.entries(FR_EN_FALLBACK)
+            .sort((a, b) => b[0].length - a[0].length);
+          let translated = qNormLower;
+          let anyMatch = false;
+          for (const [frTerm, enTerm] of sortedEntries) {
+            const frTermNoAccents = removeAccentsFn(frTerm);
+            if (translated.includes(frTerm)) {
+              translated = translated.replace(frTerm, enTerm);
+              anyMatch = true;
+            } else if (translated.includes(frTermNoAccents)) {
+              translated = translated.replace(frTermNoAccents, enTerm);
+              anyMatch = true;
+            }
+          }
+          if (anyMatch) {
+            qNorm = translated.trim().replace(/\s+/g, " ");
+            searchMeta.rewrittenQuery = qNorm;
+            searchMeta.rewriteApplied = true;
+            frFallbackApplied = true;
+            translateStatus = "STATIC";
+            translateProvider = "static";
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_multi: "${qNormLower}" => "${qNorm}"`);
+            // Write multi-match static translation to cache
+            writeTranslationCache(qNormLower, qNorm, "fr", "static", requestId);
+          }
+        }
+
+        // [Step 3] OpenAI translation if still French-likely and no translation yet
+        if (isFrenchLikely && !frFallbackApplied) {
+          const aiResult = await callOpenAiTranslation(qNormLower, requestId);
+          if (aiResult) {
+            if (!aiResult.unchanged) {
+              qNorm = aiResult.translated_query;
+              searchMeta.rewrittenQuery = aiResult.translated_query;
+              searchMeta.rewriteApplied = true;
+              frFallbackApplied = true;
+              translateStatus = "MISS";
+              translateProvider = "openai:gpt-4o-mini:v1";
+              // Cache the OpenAI translation (fire-and-forget)
+              writeTranslationCache(qNormLower, aiResult.translated_query, aiResult.source_lang, "openai:gpt-4o-mini:v1", requestId);
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} openai_translate: "${qNormLower}" → "${aiResult.translated_query}"`);
+            } else {
+              translateStatus = "SKIP";
+              translateProvider = "openai:gpt-4o-mini:v1";
+            }
+          } else {
+            // Timeout or error — continue with original query
+            translateStatus = "TIMEOUT";
+            translateProvider = "";
+          }
         }
       }
+      translateMs = Date.now() - translateStart;
     }
 
     // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
@@ -1231,7 +1284,10 @@ Deno.serve(async (req: Request) => {
     const responseHeaders = buildResponseHeaders(finalItems.length, cacheTtlSeconds, { cacheStatus: "MISS", responseTimeMs: timings.total, timings });
     responseHeaders["x-afrishop-search-debug"] = btoa(JSON.stringify(debugObj)).slice(0, 200);
     responseHeaders["x-afrishop-search-intent"] = effectiveIntent.intentKey;
-    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess";
+    responseHeaders["X-Translate"] = translateStatus;
+    responseHeaders["X-Translate-Ms"] = String(translateMs);
+    if (translateProvider) responseHeaders["X-Translate-Provider"] = translateProvider;
+    responseHeaders["Access-Control-Expose-Headers"] = "x-afrishop-search-debug, x-afrishop-search-intent, X-Cache-Status, X-Cache-Age, X-Response-Time, X-Search-T-Total, X-Search-T-Rewrite, X-Search-T-Db, X-Search-T-Upstream, X-Search-T-AltQueries, X-Search-T-PostProcess, X-Translate, X-Translate-Ms, X-Translate-Provider";
 
     return new Response(JSON.stringify(response), {
       status: 200,

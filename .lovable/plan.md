@@ -1,41 +1,38 @@
 
 
-# Remove Unwanted Payment Providers (Keep Only PawaPay + Stripe)
+# Fix Mobile View Cutoff Issues on Cart Page
 
-## What Changes
+## Problems Identified
 
-The payment providers table currently has 5 entries. We will remove 3 (MaishaPay, Bank Transfer, AvadaPay) so only **PawaPay** and **Stripe** remain.
+From the screenshots, several elements are being clipped on the right edge on mobile:
+1. The "Demander un devis" button text is cut off
+2. Order summary text like "Frais de livraison" and "En attente du devis" is truncated
+3. The bottom CTA button "Demander un devis" is also cut off on the right
 
-## Steps
+## Root Causes
 
-### 1. Delete unwanted rows from `payment_providers` table
-Run a database migration to delete `maishapay`, `bank_transfer`, and `avadapay` from the `payment_providers` table on Test. After publish, you will also need to run the same DELETE on Live.
+1. **Cart item row layout** (line 159): Uses `flex gap-4` with checkbox + 96px image + flex-1 details + quantity controls, which is too tight on small screens (320-375px wide)
+2. **Container padding**: `px-4` on the main element combined with the grid layout doesn't leave enough breathing room on small screens
+3. **Order summary panel**: Fixed padding `p-6` inside the summary card eats into available width
 
-```sql
-DELETE FROM payment_providers 
-WHERE provider_key IN ('maishapay', 'bank_transfer', 'avadapay');
-```
+## Changes
 
-### 2. Simplify `getAllProviders` filter
-Update `supabase/functions/_shared/paymentProviders.ts` to remove the `.neq('provider_key', 'maishapay')` filter since MaishaPay no longer exists. The function will just return all rows (which will be only PawaPay and Stripe).
+### File: `src/pages/shop/ShopCart.tsx`
 
-### 3. Manual step for Live
-After publishing, run this SQL on the **Live** environment (Cloud View, Run SQL, Live selected):
+1. **Reduce mobile padding** on the main container: Change `px-4` to `px-3 sm:px-4` (line 76)
+2. **Reduce cart item gap** on mobile: Change `gap-4` to `gap-2 sm:gap-4` on the cart item flex row (line 159)
+3. **Reduce cart item padding** on mobile: Change `p-4` to `p-3 sm:p-4` on the cart item card (line 159)
+4. **Shrink image on mobile**: Change `w-24 h-24` to `w-20 h-20 sm:w-24 sm:h-24` (line 178)
+5. **Reduce order summary padding** on mobile: Change `p-6` to `p-4 sm:p-6` (line 288)
+6. **Make vehicle badge text smaller on mobile**: Add `text-xs` to prevent line overflow (line 203-206)
+7. **Ensure quote button wraps properly**: Add `whitespace-normal` and reduce horizontal padding on the "Demander un devis" button inside the cart item (lines 210-221)
 
-```sql
-DELETE FROM payment_providers 
-WHERE provider_key IN ('maishapay', 'bank_transfer', 'avadapay');
-```
+### File: `src/components/shop/PriceBreakdown.tsx`
+
+8. **Allow "En attente du devis" / "Awaiting quote" text to wrap**: Remove `italic` whitespace constraints and ensure the flex layout uses `min-w-0` and `text-right` so text doesn't overflow (lines 142-149)
 
 ## Result
-- The Payment Settings admin page will only show PawaPay and Stripe
-- No other providers will appear in the checkout flow
-- Existing edge function adapters (avadapayAdapter, etc.) remain in code but are never called since no provider record exists to route to them
 
-## Files Changed
-
-| File | Change |
-|------|--------|
-| Database migration (new) | DELETE 3 provider rows |
-| `supabase/functions/_shared/paymentProviders.ts` | Remove `.neq('provider_key', 'maishapay')` filter |
-
+- All prices, labels, and buttons will be fully visible on phones as narrow as 320px
+- No content will be cut off on the right edge
+- The layout will remain unchanged on tablet and desktop screens

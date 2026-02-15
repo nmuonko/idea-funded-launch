@@ -1,60 +1,33 @@
 
-# Speed Up Product Detail Image Loading
 
-## Problem
+# Make Referral Button Visible on Homepage (All Devices)
 
-When tapping a product, the gallery images load slowly because:
-1. The main image (`motion.img`) has no explicit `loading="eager"` or `fetchpriority="high"` -- the browser may deprioritize it
-2. No image preloading happens -- the single image from navigation state displays, then the API fetch brings additional gallery images that load from scratch
-3. Thumbnail images (up to 6) all load simultaneously without any priority hints
+## Current Behavior
+- The floating gift button (ReferralFAB) is only visible on **mobile** (`md:hidden` hides it on desktop/tablet)
+- It appears on every page except `/account`
 
-## Solution
+## Proposed Change
 
-Three targeted changes in `src/pages/shop/ProductDetails.tsx`:
+### File: `src/components/shop/ReferralFAB.tsx`
 
-### 1. Eager-load the main hero image with high fetch priority
+Remove the `md:hidden` class from the button so it appears on **all screen sizes** (mobile, tablet, and desktop). This single class removal makes the pulsing gift icon visible to every user on every device, including the homepage.
 
-Add `loading="eager"` and `fetchPriority="high"` to the main `motion.img` element so the browser prioritizes it immediately:
+The button will continue to:
+- Hide on the `/account` page (where InviteEarn is already shown inline)
+- Open a bottom drawer with the referral registration form when tapped
+- Pulse with the orange-to-pink gradient to attract attention
 
-```tsx
-<motion.img
-  key={safeImages[safeImageIndex]}
-  src={safeImages[safeImageIndex] || '/placeholder.svg'}
-  loading="eager"
-  fetchPriority="high"
-  ...
-/>
-```
-
-### 2. Preload gallery images when API data arrives
-
-After the API fetch merges new images into state, use `<link rel="preload">` via a `useEffect` to tell the browser to start downloading the first few gallery images in the background before the user scrolls to thumbnails:
+On desktop, the button position will be adjusted slightly (e.g., `bottom-8 right-8`) so it sits comfortably in the corner without overlapping the bottom nav (which is mobile-only).
 
 ```tsx
-useEffect(() => {
-  if (!safeImages.length || safeImages[0] === '/placeholder.svg') return;
-  // Preload the first 4 images using Image() constructor
-  safeImages.slice(0, 4).forEach(src => {
-    const img = new Image();
-    img.src = src;
-  });
-}, [safeImages]);
+<button
+  className="fixed bottom-20 md:bottom-8 right-4 md:right-8 z-50 h-12 w-12 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 shadow-lg flex items-center justify-center text-white animate-pulse hover:scale-110 transition-transform"
+  aria-label="Partager & Gagner"
+>
 ```
 
-### 3. Lazy-load thumbnails beyond the first visible set
+## Summary
+- **1 file** changed: `src/components/shop/ReferralFAB.tsx`
+- Remove `md:hidden` so the button is visible on all devices
+- Adjust positioning for desktop (`bottom-8 right-8` instead of `bottom-20`) since desktop has no bottom nav bar
 
-Add `loading="lazy"` to thumbnail `<img>` tags so they don't compete with the hero image for bandwidth:
-
-```tsx
-<img
-  src={img}
-  loading="lazy"
-  ...
-/>
-```
-
-## Files Changed
-
-- `src/pages/shop/ProductDetails.tsx` -- 3 small edits (hero image attributes, preload effect, thumbnail lazy loading)
-
-No backend changes needed.

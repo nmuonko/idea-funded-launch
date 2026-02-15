@@ -1,36 +1,58 @@
 
-# Fix Account Menu Redundancy and Add Profile Navigation
+# Make Language and Quick Links Collapsible Dropdowns
 
-## Problem
-1. In the hamburger menu, there is a section header labeled "Account" and inside it a link also labeled "Account" -- this is redundant and confusing.
-2. No user initials are shown in the menu to personalize it.
-3. The Profile Settings page has no quick way to return to the homepage/main menu.
+## What Changes
 
-## Changes
-
-### 1. ShopHeader.tsx -- Simplify the Account section
-- Remove the "Account" section header (`<h3>`) entirely.
-- Instead, when the user is logged in, show their **initials in a small avatar circle** followed by their name (or "My Account" fallback), linking to `/profile`.
-- When not logged in, just show the Sign In link as before (no section header needed).
-
-### 2. ShopHeader.tsx -- Add user initials at the bottom of the menu
-- At the bottom of the menu (below Quick Links), show a small footer area with the user's avatar initials and email when logged in. This gives a personal touch.
-
-### 3. Profile.tsx -- Add a "Return to Main Menu" button
-- Add a back/home navigation link at the top of the Profile page (above the card) that takes the user back to the homepage (`/`). This will use an `ArrowLeft` icon with text like "Return to Main Menu" / "Retour au menu principal".
+Convert the "Choisir la langue" (Language) section and "Liens rapides" (Quick Links) section in the hamburger menu from always-visible lists into collapsible dropdown sections using Radix Collapsible. This keeps the menu cleaner -- users tap the header to expand/collapse each section.
 
 ## Technical Details
 
 ### File: `src/components/shop/ShopHeader.tsx`
-- Remove the `<h3>` "Account" section header (lines 74-76)
-- Keep the link to `/profile` but change the label from `shop.accountTab` to something like the user's name or "My Profile"
-- Show a small avatar with initials next to the link text
-- Add a subtle user info footer at the bottom of the sheet (initials + email)
 
-### File: `src/pages/Profile.tsx`
-- Add a navigation link at the top of the page content: an `ArrowLeft` icon with "Return to Main Menu" that navigates to `/`
-- Import `ArrowLeft` from lucide-react
+**1. Add imports:**
+- Import `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` from `@/components/ui/collapsible`
+- Import `ChevronRight` from lucide-react (already imported: `ChevronDown`)
 
-## Files Changed
-- `src/components/shop/ShopHeader.tsx` -- remove redundant Account header, add initials to account link, add user footer
-- `src/pages/Profile.tsx` -- add "Return to Main Menu" link at top
+**2. Language section (lines 101-126):**
+Replace the static list with a Collapsible. The header "Choisir la langue / Language" becomes a clickable trigger showing the current language flag + name, with a chevron that rotates on open. The language buttons appear inside CollapsibleContent.
+
+```tsx
+<Collapsible>
+  <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider px-0 py-2 hover:text-white/80 transition-colors">
+    <span className="flex items-center gap-2">
+      <Globe className="h-4 w-4" />
+      {currentLanguage.flag} {shop.selectLanguage || 'Language'}
+    </span>
+    <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+  </CollapsibleTrigger>
+  <CollapsibleContent>
+    <div className="space-y-1 mt-2">
+      {/* existing language buttons */}
+    </div>
+  </CollapsibleContent>
+</Collapsible>
+```
+
+**3. Quick Links section (lines 128-183):**
+Same pattern -- wrap in Collapsible. The "Liens rapides" header becomes a clickable trigger with a chevron. All the links (Home, My Orders, Favorites, Support, Share & Earn) go inside CollapsibleContent.
+
+```tsx
+<div className="pt-4 border-t border-white/10">
+  <Collapsible>
+    <CollapsibleTrigger className="flex items-center justify-between w-full text-sm font-medium text-white/60 uppercase tracking-wider px-0 py-2 hover:text-white/80 transition-colors">
+      <span>{shop.quickLinks}</span>
+      <ChevronDown className="h-4 w-4 transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
+    </CollapsibleTrigger>
+    <CollapsibleContent>
+      <div className="space-y-1 mt-2">
+        {/* existing quick links */}
+      </div>
+    </CollapsibleContent>
+  </Collapsible>
+</div>
+```
+
+## Summary
+- **1 file** changed: `src/components/shop/ShopHeader.tsx`
+- Both sections become collapsible dropdowns with animated chevron indicators
+- Content stays the same, just wrapped in Collapsible components

@@ -1,56 +1,98 @@
 
 
-# Fix: French Fashion Search Terms Not Translating
+# Harden French Translation Fallback for DRC Fashion Searches
 
 ## Problem
-Searching "chaussure dame haut talon" (women's high heel shoes) returns no results because the French-to-English translation fallback map is missing common fashion and clothing terms. If the AI refiner times out (800ms budget), the raw French query goes directly to Amazon/eBay, which returns nothing.
-
-## Solution
-Add missing French fashion, clothing, and footwear terms to the `FR_EN_FALLBACK` dictionary in `supabase/functions/catalog-search/index.ts`. This provides instant, reliable translation without depending on the AI refiner.
+The current fallback map was expanded with fashion terms, but has gaps that cause real-world DRC searches to fail:
+- Partial matching stops after the **first** matched term (`break` on line 475), so multi-word queries like "chaussure dame haut talon noir" only translate the first recognized word
+- Missing high-traffic DRC terms: `sac`, `sac a main`, `perruque`, `bracelet`, `collier`, `costume`, `uniforme`
+- Missing generic token translations (`femme`->`women`, `dame`->`women`, `homme`->`men`, `enfant`->`kids`, `bebe`->`baby`) that would let any combination work
+- Accent normalization already exists (line 449-450) and is used for lookup (line 459), but the `FR_EN_FALLBACK` map has redundant accented/non-accented duplicate entries -- these are harmless but add clutter
 
 ## Changes
 
 ### File: `supabase/functions/catalog-search/index.ts`
 
-Add the following entries to the `FR_EN_FALLBACK` map (around line 276-406):
+#### 1. Normalize FR_EN_FALLBACK keys (accent-strip before lookup)
+The code already strips accents from the query (`qNoAccents` on line 450) and checks `FR_EN_FALLBACK[qNoAccents]` on line 459. However, for partial matching (line 468-477), it also calls `removeAccentsFn(frTerm)` per entry. This means accented duplicate keys (`vêtement` alongside `vetement`) are redundant -- we can keep them for safety but the real fix is elsewhere.
 
-**Footwear:**
-- `chaussure` / `chaussures` -> `shoes`
-- `chaussure dame` -> `women shoes`
-- `chaussure dame haut talon` -> `women high heel shoes`
-- `chaussure homme` -> `men shoes`
-- `chaussure enfant` -> `kids shoes`
-- `talon` / `talon haut` -> `high heels`
-- `basket` / `baskets` -> `sneakers`
-- `botte` / `bottes` -> `boots`
-- `sandale` / `sandales` -> `sandals`
-- `pantoufle` / `pantoufles` -> `slippers`
+#### 2. Fix partial matching: replace ALL known terms, not just the first
+Currently the loop on lines 468-477 does `break` after the first match. This means "chaussure dame haut talon noir" might only translate "chaussure" and leave the rest in French.
 
-**Clothing (missing terms):**
-- `vetement` / `vetement femme` -> `clothing` / `women clothing`
-- `vetement homme` -> `men clothing`
-- `pantalon` -> `pants`
-- `jupe` -> `skirt`
-- `chemise` -> `shirt`
-- `robe` -> `dress`
-- `manteau` -> `coat`
-- `veste` -> `jacket`
-- `pull` -> `sweater`
-- `sous vetement` -> `underwear`
-- `maillot de bain` -> `swimsuit`
-- `echarpe` -> `scarf`
-- `ceinture` -> `belt`
-- `chapeau` -> `hat`
-- `lunettes` / `lunettes de soleil` -> `glasses` / `sunglasses`
+**Fix**: Remove the `break`, sort entries by descending key length (longest phrases first to avoid partial clobbering), and replace all matched terms in the query.
 
-Also add `chaussure` to the `FR_FORCE_MAP` (around line 604) to ensure provider queries never contain this French word.
+```
+Before (line 466-477):
+  } else if (isFrenchLikely) {
+    for (const [frTerm, enTerm] of Object.entries(FR_EN_FALLBACK)) {
+      if (qNormLower.includes(frTerm) || qNoAccents.includes(removeAccentsFn(frTerm))) {
+        qNorm = qNormLower.replace(frTerm, enTerm).replace(removeAccentsFn(frTerm), enTerm);
+        ...
+        break;  // <-- Only translates first match!
+      }
+    }
+  }
 
-### Deployment
-Redeploy the `catalog-search` edge function after changes.
+After:
+  } else if (isFrenchLikely) {
+    // Sort by key length descending so multi-word phrases match before single words
+    const sortedEntries = Object.entries(FR_EN_FALLBACK)
+      .sort((a, b) => b[0].length - a[0].length);
+    let translated = qNormLower;
+    let anyMatch = false;
+    for (const [frTerm, enTerm] of sortedEntries) {
+      const frTermNoAccents = removeAccentsFn(frTerm);
+      if (translated.includes(frTerm)) {
+        translated = translated.replace(frTerm, enTerm);
+        anyMatch = true;
+      } else if (translated.includes(frTermNoAccents)) {
+        translated = translated.replace(frTermNoAccents, enTerm);
+        anyMatch = true;
+      }
+    }
+    if (anyMatch) {
+      qNorm = translated.trim().replace(/\s+/g, " ");
+      searchMeta.rewrittenQuery = qNorm;
+      searchMeta.rewriteApplied = true;
+      frFallbackApplied = true;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_multi: ... => "${qNorm}"`);
+    }
+  }
+```
 
-## Why This Works
-The `FR_EN_FALLBACK` map is checked before sending queries to Amazon/eBay. Multi-word entries are matched first (exact match), then partial/individual word matching kicks in. Adding "chaussure dame haut talon" as an exact entry guarantees this specific query translates correctly, while individual terms like "chaussure" and "talon" handle variations.
+#### 3. Add missing DRC high-traffic terms to FR_EN_FALLBACK
+
+**Accessories / Bags:**
+- `sac` -> `bag`, `sac a main` -> `women handbag`, `sacoche` -> `messenger bag`, `portefeuille` -> `wallet`
+
+**Jewelry / Beauty:**
+- `bracelet` -> `bracelet`, `collier` -> `necklace`, `boucles d'oreilles` / `boucles d oreilles` -> `earrings`
+- `perruque` (already exists), `meches` / `mèches` -> `hair extensions`, `tissage` -> `hair weave`
+
+**Formal / Uniform:**
+- `costume` -> `suit`, `tenue` -> `outfit`, `uniforme` -> `uniform`
+
+**Generic token mappings (critical for combo queries):**
+- `femme` -> `women`, `dame` -> `women`, `homme` -> `men`, `enfant` -> `kids`, `bebe` / `bébé` -> `baby`
+- `haut` -> `high`, `noir` -> `black`, `blanc` -> `white`, `rouge` -> `red`, `bleu` -> `blue`
+- `grand` -> `large`, `petit` -> `small`
+
+**Variant spellings / typos:**
+- `chaussure femme` -> `women shoes` (in addition to existing `chaussure dame`)
+- `talons hauts` -> `high heels`, `haut talon` -> `high heels` (in addition to existing `talon haut`)
+
+#### 4. Add a few high-impact terms to FR_FORCE_MAP
+Add only: `sac`, `perruque`, `costume`, `collier`, `bracelet` -- these are French-only words that will never return results on English providers.
+
+Do NOT add generic words like `femme`, `dame`, `noir`, `blanc` to FR_FORCE_MAP as they could appear in brand names or product titles.
+
+#### 5. Redeploy
+Redeploy the `catalog-search` edge function.
+
+## Why This Matters
+- "chaussure dame haut talon noir" currently only translates the first word. After this fix, it becomes "women shoes women high heels black" (then the AI refiner or provider handles deduplication).
+- DRC users frequently search for bags, jewelry, and formal wear in French -- these terms currently return zero results.
+- Generic token mapping (`femme`->`women`, `noir`->`black`) makes the system composable: any new French phrase automatically gets partially translated even without an exact dictionary entry.
 
 ## Files Changed
-- `supabase/functions/catalog-search/index.ts` -- add ~30 French fashion/clothing terms to `FR_EN_FALLBACK` and `FR_FORCE_MAP`
-
+- `supabase/functions/catalog-search/index.ts` -- fix multi-match logic, add ~25 new terms, update FR_FORCE_MAP

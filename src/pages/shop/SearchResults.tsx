@@ -380,7 +380,7 @@ export default function SearchResults() {
             <div className="text-center py-20">
               <p className="text-white/60 mb-4">{shop.noProductsFound || 'No products found'} "{query}"</p>
               <Button
-                onClick={() => setSearchParams({})}
+                onClick={() => navigate('/')}
                 variant="outline"
                 className="border-white/20 text-white hover:bg-white/10"
               >

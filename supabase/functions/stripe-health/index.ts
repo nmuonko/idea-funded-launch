@@ -177,11 +177,46 @@ Deno.serve(async (req) => {
     });
 
     // Optional: Create test intent for admin verification (test mode only)
+    // Requires admin authentication
     let testIntentCreated = false;
     let testIntentId: string | undefined;
 
     if (adminRequest.test_intent && mode === 'test') {
-      console.log('[STRIPE_HEALTH_CHECK] Creating test intent...');
+      // Verify admin auth before allowing test intent creation
+      const authHeader = req.headers.get('authorization');
+      if (!authHeader?.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'STRIPE_API_ERROR', message: 'Authentication required for test intent creation' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+      const token = authHeader.substring(7);
+      
+      // Verify user is admin
+      const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` },
+      });
+      if (!userRes.ok) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'STRIPE_API_ERROR', message: 'Unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const userData = await userRes.json();
+      
+      // Check admin role
+      const roleRes = await fetch(`${supabaseUrl}/rest/v1/user_roles?user_id=eq.${userData.id}&role=eq.admin&select=id&limit=1`, {
+        headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` },
+      });
+      const roles = roleRes.ok ? await roleRes.json() : [];
+      if (!Array.isArray(roles) || roles.length === 0) {
+        return new Response(JSON.stringify({ ok: false, error_code: 'STRIPE_API_ERROR', message: 'Admin access required' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log('[STRIPE_HEALTH_CHECK] Admin verified, creating test intent...');
       
       try {
         const testBody = new URLSearchParams({

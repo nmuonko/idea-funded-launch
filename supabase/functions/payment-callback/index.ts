@@ -78,6 +78,19 @@ serve(async (req: Request): Promise<Response> => {
     return returnAppRedirect('error', orderIdParam, 'Missing session ID');
   }
 
+  // Validate session_id format (Stripe session IDs start with cs_)
+  if (!/^cs_(test|live)_[a-zA-Z0-9]+$/.test(sessionId)) {
+    console.error('[payment-callback] Invalid session_id format');
+    return returnAppRedirect('error', orderIdParam, 'Invalid session');
+  }
+
+  // Validate order_id format if provided (must be UUID)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (orderIdParam && !uuidRegex.test(orderIdParam)) {
+    console.error('[payment-callback] Invalid order_id format');
+    return returnAppRedirect('error', '', 'Invalid order');
+  }
+
   // Verify with Stripe
   const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
   if (!stripeSecretKey) {

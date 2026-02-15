@@ -1,10 +1,7 @@
 /**
  * Payment Provider System - Provider-Agnostic Payment Gateway
  * 
- * Supports multiple payment providers (pawaPay, Stripe, Bank Transfer)
- * with automatic routing based on enabled providers, countries, and methods.
- * 
- * MaishaPay REMOVED - 2026-01
+ * Active providers: PawaPay, Stripe
  */
 
 // SDK-free: use 'any' for client type to avoid bundle bloat
@@ -89,25 +86,21 @@ export interface CallbackResult {
  * Get the active payment provider based on country and method
  * Falls back by priority if default is not suitable
  * 
- * MaishaPay is EXCLUDED from selection
  */
 export async function getActiveProvider(
   supabase: SupabaseClient,
   country: string = 'COD',
   method: string = 'MOBILE_MONEY'
 ): Promise<PaymentProvider | null> {
-  // First try to get default enabled provider that matches criteria
-  // EXCLUDE maishapay from results
   const { data: providers, error } = await supabase
     .from('payment_providers')
     .select('*')
     .eq('is_enabled', true)
-    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('is_default', { ascending: false })
     .order('priority', { ascending: true });
 
   if (error || !providers || providers.length === 0) {
-    console.error('[PaymentRouter] No enabled providers found (excluding maishapay):', error?.message);
+    console.error('[PaymentRouter] No enabled providers found:', error?.message);
     return null;
   }
 
@@ -129,7 +122,7 @@ export async function getActiveProvider(
     }
   }
 
-  // Fallback to first enabled provider (excluding maishapay)
+  // Fallback to first enabled provider
   console.warn('[PaymentRouter] No matching provider, using fallback:', providers[0].provider_key);
   return providers[0];
 }
@@ -193,12 +186,10 @@ export async function selectProviderByLimits(
   isVehicle: boolean = false,
   requestedCurrency: 'USD' | 'CDF' = 'USD'
 ): Promise<ProviderSelectionResult> {
-  // Fetch all enabled providers sorted by priority, EXCLUDING maishapay
   const { data: providers, error } = await supabase
     .from('payment_providers')
     .select('*')
     .eq('is_enabled', true)
-    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('priority', { ascending: true });
 
   if (error || !providers || providers.length === 0) {
@@ -242,7 +233,7 @@ export async function selectProviderByLimits(
     return { success: true, provider: pawaPayProvider, currency };
   }
 
-  // Fallback: try any available provider (but not maishapay)
+  // Fallback: try any available provider
   const fallbackProvider = providers[0];
   if (fallbackProvider) {
     console.log('[PaymentRouter] Using fallback provider:', fallbackProvider.provider_key);
@@ -258,18 +249,11 @@ export async function selectProviderByLimits(
 
 /**
  * Get a specific provider by key
- * Returns null for maishapay (disabled)
  */
 export async function getProviderByKey(
   supabase: SupabaseClient,
   providerKey: string
 ): Promise<PaymentProvider | null> {
-  // Block maishapay lookups
-  if (providerKey === 'maishapay') {
-    console.warn('[PaymentRouter] MaishaPay is disabled, returning null');
-    return null;
-  }
-
   const { data, error } = await supabase
     .from('payment_providers')
     .select('*')
@@ -285,13 +269,12 @@ export async function getProviderByKey(
 }
 
 /**
- * Get all providers (for admin) - excludes maishapay
+ * Get all providers (for admin)
  */
 export async function getAllProviders(supabase: SupabaseClient): Promise<PaymentProvider[]> {
   const { data, error } = await supabase
     .from('payment_providers')
     .select('*')
-    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay
     .order('priority', { ascending: true });
 
   if (error) {
@@ -448,7 +431,6 @@ export async function getPaymentByOrderId(
     .from('payments')
     .select('*')
     .eq('order_id', orderId)
-    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay records
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -472,7 +454,6 @@ export async function getPaymentByReference(
     .from('payments')
     .select('*')
     .eq('reference', reference)
-    .neq('provider_key', 'maishapay') // EXCLUDE MaishaPay records
     .maybeSingle();
 
   if (error) {
@@ -491,11 +472,6 @@ export async function getPaymentByDepositId(
   providerKey: string,
   depositId: string
 ): Promise<any | null> {
-  // Block maishapay lookups
-  if (providerKey === 'maishapay') {
-    return null;
-  }
-
   const { data, error } = await supabase
     .from('payments')
     .select('*')
@@ -524,12 +500,6 @@ export async function logPaymentEvent(
     payload: any;
   }
 ): Promise<{ inserted: boolean; duplicate: boolean }> {
-  // Block maishapay events
-  if (params.provider_key === 'maishapay') {
-    console.warn('[PaymentRouter] Ignoring MaishaPay event');
-    return { inserted: false, duplicate: false };
-  }
-
   // If event_id provided, check for duplicate first
   if (params.event_id) {
     const { data: existing } = await supabase
@@ -571,7 +541,6 @@ export async function logPaymentEvent(
 
 /**
  * Map provider-specific status to our standard status
- * MaishaPay mapping REMOVED
  */
 export function normalizePaymentStatus(
   providerKey: string,

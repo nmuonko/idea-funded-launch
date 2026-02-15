@@ -1172,6 +1172,7 @@ serve(async (req) => {
           vehicles: "vehicles",
           home: "home_garden",
           fashion: "clothing",
+          clothing_shoes_accessories: "clothing",
           toys: "toys",
           sporting_goods: "sporting_goods",
           watches: "jewelry_watches",

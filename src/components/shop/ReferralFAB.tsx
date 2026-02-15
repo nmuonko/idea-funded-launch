@@ -17,7 +17,7 @@ export function ReferralFAB() {
     <Drawer open={open} onOpenChange={setOpen}>
       <DrawerTrigger asChild>
         <button
-          className="fixed bottom-20 md:bottom-8 right-4 md:right-8 z-50 h-12 w-12 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 shadow-lg flex items-center justify-center text-white animate-pulse hover:scale-110 transition-transform"
+          className="fixed bottom-20 md:bottom-8 left-4 md:left-8 z-50 h-12 w-12 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 shadow-lg flex items-center justify-center text-white animate-pulse hover:scale-110 transition-transform"
           aria-label="Partager & Gagner"
         >
           <Gift className="h-5 w-5" />

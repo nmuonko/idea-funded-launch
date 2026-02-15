@@ -73,7 +73,7 @@ export default function ShopCart() {
     <div className="min-h-screen bg-black">
       <ShopHeader />
 
-      <main className="pt-24 px-4 pb-20">
+      <main className="pt-24 px-3 sm:px-4 pb-20">
         <div className="container mx-auto max-w-4xl">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">
@@ -156,7 +156,7 @@ export default function ShopCart() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`flex gap-4 p-4 rounded-2xl border transition-colors ${
+                      className={`flex gap-2 sm:gap-4 p-3 sm:p-4 rounded-2xl border transition-colors ${
                         isSelected 
                           ? 'bg-white/5 border-blue-500/30' 
                           : 'bg-white/[0.02] border-white/5 opacity-60'
@@ -175,7 +175,7 @@ export default function ShopCart() {
                       <Link 
                         to={`/product/${item.provider}/${encodeURIComponent(item.productId)}`}
                         state={{ product: { id: item.productId, provider: item.provider, title: item.title, imageUrl: item.imageUrl, priceUsd: item.priceUsd, isVehicle: item.isVehicle, productUrl: item.productUrl } }}
-                        className="w-24 h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
+                        className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-white/5 flex-shrink-0"
                       >
                         <img
                           src={item.imageUrl || '/placeholder.svg'}
@@ -200,7 +200,7 @@ export default function ShopCart() {
                         </p>
                         {item.isVehicle && (
                           <div className="space-y-3 mt-1">
-                            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-xs">
                               <Car className="h-3 w-3 mr-1" />
                               {language === 'fr' ? 'Véhicule — Devis requis' : 'Vehicle — Quote Required'}
                             </Badge>
@@ -210,7 +210,7 @@ export default function ShopCart() {
                                 <Button
                                   onClick={(e) => { e.preventDefault(); requestVehicleQuote(); }}
                                   disabled={requestingQuote}
-                                  className="w-full h-10 text-sm font-semibold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-lg animate-pulse hover:animate-none"
+                                  className="w-full h-10 text-sm font-semibold bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-lg animate-pulse hover:animate-none whitespace-normal px-2 sm:px-4"
                                 >
                                   {requestingQuote ? (
                                     <><Loader2 className="h-4 w-4 mr-2 animate-spin" />{language === 'fr' ? 'Envoi en cours...' : 'Requesting...'}</>
@@ -285,7 +285,7 @@ export default function ShopCart() {
 
               {/* Order Summary — based on SELECTED items only */}
               <div className="lg:col-span-1">
-                <div className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-6">
+                <div className="sticky top-24 bg-white/5 rounded-2xl border border-white/10 p-4 sm:p-6">
                   <h2 className="text-lg font-semibold text-white mb-4">{shop.orderSummary || 'Order Summary'}</h2>
 
                   {noneSelected ? (

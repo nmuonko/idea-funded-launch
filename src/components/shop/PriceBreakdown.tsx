@@ -139,11 +139,11 @@ export function PriceBreakdown({
                 </div>
               )}
 
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60 flex items-center gap-1">
+              <div className="flex justify-between items-start gap-2 text-sm">
+                <span className="text-white/60 flex items-center gap-1 flex-shrink-0">
                   {shop.shippingFee || 'Shipping Fee'}
                 </span>
-                <span className="text-amber-400 text-xs italic">
+                <span className="text-amber-400 text-xs italic text-right min-w-0">
                   {language === 'fr' ? 'En attente du devis' : 'Awaiting quote'}
                 </span>
               </div>

@@ -1,106 +1,101 @@
 
 
-# Seed-Ordered, Balanced Product Display with Admin Drag-and-Drop
+# Fix Publish Failure: Clean Up Conflicting Migration Files
 
 ## Problem
 
-1. **No display ordering**: Seeds have a `weight` field but no `sort_order`. The builder shuffles all items randomly, so there's no way for admins to control which products appear first.
-2. **Unbalanced results**: A seed like "BMW X5" can return 20+ items while another seed gets 1-2, because `fetchItemsFromDB` grabs `perSeedLimit` items per seed then shuffles everything together.
-3. **Unrelated items in some tabs**: The `_recipeKey` filter in `catalog-home` depends on the cache being fresh. If the cache was built before seeds were fixed, stale unrelated items persist.
-4. **No drag-and-drop**: The admin seed modal has no way to reorder seeds -- they're just listed by weight.
+There are 5 migration files from today's session that create/drop the same unique index on `home_recipe_seeds(recipe_id, sort_order)` in conflicting ways. When the publish system runs these against the Live database sequentially:
+
+1. Migration `050217` adds `sort_order` with `DEFAULT 0` and `NOT NULL` -- all existing rows get `sort_order = 0`
+2. Migration `050521` tries to create a unique index -- **FAILS** because all rows have `sort_order = 0`
+
+Even though a later migration (`052512`) tries to fix this with a backfill-then-create approach, and the final migration (`122759`) drops the index entirely, the process never gets past step 2.
 
 ## Solution
 
-### Change 1: Add `sort_order` column to `home_recipe_seeds`
-
-Add a `sort_order INTEGER NOT NULL DEFAULT 0` column. This replaces `weight` as the ordering mechanism for display purposes. Seeds ordered by `sort_order ASC` will determine the exact product display order on the frontend.
-
-### Change 2: Round-robin item selection in `homeRecipeBuilder.ts`
-
-Replace the current "fetch N per seed then shuffle" logic with a **round-robin** approach:
-
-1. Fetch items per seed (in parallel, same as now)
-2. Instead of shuffling, interleave items: take 1-2 from seed 1, then 1-2 from seed 2, etc.
-3. This guarantees each seed contributes equally and the order matches the admin's seed arrangement
-
-```text
-Current flow:
-  Seed "BMW" -> 15 items
-  Seed "Toyota" -> 12 items
-  Seed "Honda" -> 8 items
-  => shuffle all 35 -> random order, BMW dominates
-
-New flow:
-  Seed "BMW" -> 15 items (keep top 2)
-  Seed "Toyota" -> 12 items (keep top 2)
-  Seed "Honda" -> 8 items (keep top 2)
-  => interleave: BMW1, Toyota1, Honda1, BMW2, Toyota2, Honda2
-  => ordered, balanced, diverse
-```
-
-### Change 3: Admin seed modal with drag-and-drop reordering
-
-Update the seed editor modal in `HomeRecipes.tsx` to:
-- Display seeds ordered by `sort_order` (not `weight`)
-- Allow drag-and-drop reordering (using HTML5 drag events, no new dependency)
-- Auto-save `sort_order` values when seeds are reordered
-- Show the position number next to each seed
-
-### Change 4: Backend seed loading respects `sort_order`
-
-Update `loadSeedsForRecipe` in `homeRecipeBuilder.ts` to order by `sort_order ASC` instead of `weight DESC`, so the round-robin picks items in the admin-defined order.
+Consolidate all 5 migration files into a single clean migration that:
+- Adds the 4 new columns (`sort_order`, `max_items`, `required_terms`, `excluded_terms`) with safe defaults
+- Backfills `sort_order` with unique sequential values per recipe
+- Adds the `max_items` check constraint
+- Does NOT create the unique index (managed at application level per earlier decision)
 
 ## Files Changed
 
 | File | Change |
 |------|--------|
-| Database migration | Add `sort_order` column to `home_recipe_seeds`, backfill from existing row order |
-| `supabase/functions/_shared/homeRecipeBuilder.ts` | Change `loadSeedsForRecipe` to order by `sort_order ASC`; replace shuffle with round-robin interleave in `fetchItemsFromDB` |
-| `src/pages/admin/HomeRecipes.tsx` | Add drag-and-drop reordering to seed modal; load/save `sort_order`; show position numbers |
+| `supabase/migrations/20260215050217_*.sql` | Rewrite to contain the consolidated, safe migration |
+| `supabase/migrations/20260215050521_*.sql` | Empty out (keep file, set to no-op comment) |
+| `supabase/migrations/20260215051302_*.sql` | Empty out |
+| `supabase/migrations/20260215052512_*.sql` | Empty out |
+| `supabase/migrations/20260215122632_*.sql` | Empty out |
+| `supabase/migrations/20260215122759_*.sql` | Empty out |
 
 ## Technical Details
 
-### Database Migration
+### Consolidated Migration (in the first file)
 
 ```sql
-ALTER TABLE public.home_recipe_seeds 
-ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+-- Add columns safely
+ALTER TABLE public.home_recipe_seeds ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+ALTER TABLE public.home_recipe_seeds ADD COLUMN IF NOT EXISTS max_items INTEGER;
+ALTER TABLE public.home_recipe_seeds ADD COLUMN IF NOT EXISTS required_terms TEXT[];
+ALTER TABLE public.home_recipe_seeds ADD COLUMN IF NOT EXISTS excluded_terms TEXT[];
 
--- Backfill: assign sort_order based on current weight DESC ordering per recipe
-WITH numbered AS (
-  SELECT id, ROW_NUMBER() OVER (
-    PARTITION BY recipe_id ORDER BY weight DESC, created_at ASC
-  ) AS rn
-  FROM home_recipe_seeds
-)
-UPDATE home_recipe_seeds SET sort_order = numbered.rn
-FROM numbered WHERE home_recipe_seeds.id = numbered.id;
+-- Set defaults
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN max_items SET DEFAULT 3;
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN required_terms SET DEFAULT '{}';
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN excluded_terms SET DEFAULT '{}';
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN sort_order SET DEFAULT 0;
+
+-- Fill NULLs
+UPDATE home_recipe_seeds SET max_items = 3 WHERE max_items IS NULL;
+UPDATE home_recipe_seeds SET required_terms = '{}' WHERE required_terms IS NULL;
+UPDATE home_recipe_seeds SET excluded_terms = '{}' WHERE excluded_terms IS NULL;
+
+-- Backfill sort_order with unique values per recipe
+DO $$
+DECLARE rec RECORD; seed RECORD; i INTEGER;
+BEGIN
+  FOR rec IN (SELECT DISTINCT recipe_id FROM home_recipe_seeds) LOOP
+    i := 1;
+    FOR seed IN (
+      SELECT id FROM home_recipe_seeds
+      WHERE recipe_id = rec.recipe_id
+      ORDER BY COALESCE(sort_order, 999999), weight DESC, created_at ASC, id ASC
+    ) LOOP
+      UPDATE home_recipe_seeds SET sort_order = i WHERE id = seed.id;
+      i := i + 1;
+    END LOOP;
+  END LOOP;
+END $$;
+
+-- Set NOT NULL
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN sort_order SET NOT NULL;
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN max_items SET NOT NULL;
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN required_terms SET NOT NULL;
+ALTER TABLE public.home_recipe_seeds ALTER COLUMN excluded_terms SET NOT NULL;
+
+-- Add check constraint
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'home_recipe_seeds_max_items_check') THEN
+    ALTER TABLE public.home_recipe_seeds
+      ADD CONSTRAINT home_recipe_seeds_max_items_check CHECK (max_items >= 1 AND max_items <= 5);
+  END IF;
+END $$;
+
+-- Clean up any leftover indexes (no unique index created)
+DROP INDEX IF EXISTS home_recipe_seeds_recipe_sort_order_uidx;
+DROP INDEX IF EXISTS idx_home_recipe_seeds_recipe_sort;
 ```
 
-### Round-Robin Logic (homeRecipeBuilder.ts)
+### Remaining Migration Files
 
-```typescript
-// Instead of shuffleArray(allItems).slice(0, targetCount):
-// Group items by seed index, then interleave
-const perSeedItems: RecipeItem[][] = []; // one array per seed
-// ... fill from parallel queries ...
+Each will contain only:
 
-const interleaved: RecipeItem[] = [];
-const maxPerSeed = Math.ceil(targetCount / perSeedItems.length);
-for (let round = 0; round < maxPerSeed && interleaved.length < targetCount; round++) {
-  for (const seedItems of perSeedItems) {
-    if (round < seedItems.length && interleaved.length < targetCount) {
-      interleaved.push(seedItems[round]);
-    }
-  }
-}
-return interleaved;
+```sql
+-- no-op: consolidated into earlier migration
 ```
 
-### Drag-and-Drop in Seed Modal
-
-Uses native HTML5 drag events (no new library needed):
-- Each seed row gets `draggable={true}`
-- On drop, recalculate `sort_order` values and batch-update via a single query
-- Visual drag indicator shows insertion point
+This ensures all 6 files still exist (the system tracks them by filename) but only the first one does any work, and it handles all edge cases safely.
 

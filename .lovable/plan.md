@@ -1,98 +1,205 @@
 
 
-# Harden French Translation Fallback for DRC Fashion Searches
+# Dynamic French-to-English Translation via OpenAI Responses API
 
-## Problem
-The current fallback map was expanded with fashion terms, but has gaps that cause real-world DRC searches to fail:
-- Partial matching stops after the **first** matched term (`break` on line 475), so multi-word queries like "chaussure dame haut talon noir" only translate the first recognized word
-- Missing high-traffic DRC terms: `sac`, `sac a main`, `perruque`, `bracelet`, `collier`, `costume`, `uniforme`
-- Missing generic token translations (`femme`->`women`, `dame`->`women`, `homme`->`men`, `enfant`->`kids`, `bebe`->`baby`) that would let any combination work
-- Accent normalization already exists (line 449-450) and is used for lookup (line 459), but the `FR_EN_FALLBACK` map has redundant accented/non-accented duplicate entries -- these are harmless but add clutter
+## Overview
+
+Add a non-blocking OpenAI translation layer to `catalog-search` that dynamically translates French queries to English before sending them to Amazon/eBay. Uses OpenAI's **Responses API** with **Structured Outputs** (`response_format` with `json_schema`, `strict: true`) for deterministic JSON results. Translations are cached in a new `query_translation_cache` table for 14 days. The static `FR_EN_FALLBACK` map stays as an instant fallback. Translation never blocks search (700ms hard timeout).
+
+## Translation Flow
+
+```text
+User Query ("chaussure dame haut talon noir")
+    |
+[1] Normalize: lowercase, trim, collapse spaces, remove accents
+    |
+[2] DB Cache Lookup (query_translation_cache where expires_at > now())
+    |---> HIT: use translated_query, increment hit_count async, X-Translate: HIT
+    |
+[3] Static FR_EN_FALLBACK (existing multi-match logic, unchanged)
+    |---> HIT: use translation, write to cache as provider=static, X-Translate: STATIC
+    |
+[4] If still isFrenchLikely and no translation yet:
+    OpenAI Responses API (gpt-4o-mini, 700ms AbortController timeout)
+    |---> Success + not unchanged: save to cache, use translated query, X-Translate: MISS
+    |---> Success + unchanged: don't cache, X-Translate: SKIP
+    |---> Timeout: continue with original query, X-Translate: TIMEOUT
+    |---> Error: continue with original query, X-Translate: ERROR
+    |
+[5] finalQuery used for:
+    - buildCacheKey("search", { query: finalQuery })  -- unifies FR/EN cache
+    - Provider search (Amazon/eBay get English query)
+    - searchMeta.rewrittenQuery (client display)
+```
 
 ## Changes
 
-### File: `supabase/functions/catalog-search/index.ts`
+### A. Database Migration
 
-#### 1. Normalize FR_EN_FALLBACK keys (accent-strip before lookup)
-The code already strips accents from the query (`qNoAccents` on line 450) and checks `FR_EN_FALLBACK[qNoAccents]` on line 459. However, for partial matching (line 468-477), it also calls `removeAccentsFn(frTerm)` per entry. This means accented duplicate keys (`vêtement` alongside `vetement`) are redundant -- we can keep them for safety but the real fix is elsewhere.
+**Create `query_translation_cache` table:**
 
-#### 2. Fix partial matching: replace ALL known terms, not just the first
-Currently the loop on lines 468-477 does `break` after the first match. This means "chaussure dame haut talon noir" might only translate "chaussure" and leave the rest in French.
+```sql
+CREATE TABLE public.query_translation_cache (
+  source_lang TEXT NOT NULL DEFAULT 'auto',
+  target_lang TEXT NOT NULL DEFAULT 'en',
+  normalized_query TEXT NOT NULL,
+  translated_query TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'openai:gpt-4o-mini:v1',
+  hit_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (source_lang, target_lang, normalized_query)
+);
 
-**Fix**: Remove the `break`, sort entries by descending key length (longest phrases first to avoid partial clobbering), and replace all matched terms in the query.
+CREATE INDEX idx_qtc_expires ON public.query_translation_cache (expires_at);
 
-```
-Before (line 466-477):
-  } else if (isFrenchLikely) {
-    for (const [frTerm, enTerm] of Object.entries(FR_EN_FALLBACK)) {
-      if (qNormLower.includes(frTerm) || qNoAccents.includes(removeAccentsFn(frTerm))) {
-        qNorm = qNormLower.replace(frTerm, enTerm).replace(removeAccentsFn(frTerm), enTerm);
-        ...
-        break;  // <-- Only translates first match!
-      }
-    }
-  }
-
-After:
-  } else if (isFrenchLikely) {
-    // Sort by key length descending so multi-word phrases match before single words
-    const sortedEntries = Object.entries(FR_EN_FALLBACK)
-      .sort((a, b) => b[0].length - a[0].length);
-    let translated = qNormLower;
-    let anyMatch = false;
-    for (const [frTerm, enTerm] of sortedEntries) {
-      const frTermNoAccents = removeAccentsFn(frTerm);
-      if (translated.includes(frTerm)) {
-        translated = translated.replace(frTerm, enTerm);
-        anyMatch = true;
-      } else if (translated.includes(frTermNoAccents)) {
-        translated = translated.replace(frTermNoAccents, enTerm);
-        anyMatch = true;
-      }
-    }
-    if (anyMatch) {
-      qNorm = translated.trim().replace(/\s+/g, " ");
-      searchMeta.rewrittenQuery = qNorm;
-      searchMeta.rewriteApplied = true;
-      frFallbackApplied = true;
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback_multi: ... => "${qNorm}"`);
-    }
-  }
+ALTER TABLE public.query_translation_cache ENABLE ROW LEVEL SECURITY;
 ```
 
-#### 3. Add missing DRC high-traffic terms to FR_EN_FALLBACK
+**Update `cleanup_all_expired_data()` to add:**
 
-**Accessories / Bags:**
-- `sac` -> `bag`, `sac a main` -> `women handbag`, `sacoche` -> `messenger bag`, `portefeuille` -> `wallet`
+```sql
+DELETE FROM public.query_translation_cache WHERE expires_at < now();
+GET DIAGNOSTICS v_translation_cache_deleted = ROW_COUNT;
+```
 
-**Jewelry / Beauty:**
-- `bracelet` -> `bracelet`, `collier` -> `necklace`, `boucles d'oreilles` / `boucles d oreilles` -> `earrings`
-- `perruque` (already exists), `meches` / `mèches` -> `hair extensions`, `tissage` -> `hair weave`
+And include `translation_cache_deleted` in the returned JSON + add it to the `totalCleaned` sum.
 
-**Formal / Uniform:**
-- `costume` -> `suit`, `tenue` -> `outfit`, `uniforme` -> `uniform`
+**Update `cleanup-expired-data` edge function** to include the new field in the result type.
 
-**Generic token mappings (critical for combo queries):**
-- `femme` -> `women`, `dame` -> `women`, `homme` -> `men`, `enfant` -> `kids`, `bebe` / `bébé` -> `baby`
-- `haut` -> `high`, `noir` -> `black`, `blanc` -> `white`, `rouge` -> `red`, `bleu` -> `blue`
-- `grand` -> `large`, `petit` -> `small`
+---
 
-**Variant spellings / typos:**
-- `chaussure femme` -> `women shoes` (in addition to existing `chaussure dame`)
-- `talons hauts` -> `high heels`, `haut talon` -> `high heels` (in addition to existing `talon haut`)
+### B. New File: `supabase/functions/_shared/queryTranslator.ts` (~100 lines)
 
-#### 4. Add a few high-impact terms to FR_FORCE_MAP
-Add only: `sac`, `perruque`, `costume`, `collier`, `bracelet` -- these are French-only words that will never return results on English providers.
+Three exported functions:
 
-Do NOT add generic words like `femme`, `dame`, `noir`, `blanc` to FR_FORCE_MAP as they could appear in brand names or product titles.
+**`lookupTranslationCache(supabase, normalizedQuery)`**
+- Uses `createAdminPostgrestClient()` (service role, bypasses RLS)
+- Queries `query_translation_cache` for `(source_lang='auto', target_lang='en', normalized_query=normalizedQuery)` where `expires_at > now()`
+- On hit: returns `{ translatedQuery, sourceLang, provider }`, fires off async `hit_count` increment (no await)
+- On miss: returns `null`
 
-#### 5. Redeploy
-Redeploy the `catalog-search` edge function.
+**`callOpenAiTranslation(query, requestId)`**
+- Calls `POST https://api.openai.com/v1/responses` with `gpt-4o-mini`
+- Uses the corrected Responses API shape:
+  ```typescript
+  {
+    model: "gpt-4o-mini",
+    instructions: "Translate this e-commerce search query to English for Amazon/eBay product search. If already English, set unchanged=true.",
+    input: query,
+    temperature: 0,
+    max_output_tokens: 60,
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "translation",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            translated_query: { type: "string" },
+            source_lang: { type: "string" },
+            unchanged: { type: "boolean" },
+          },
+          required: ["translated_query", "source_lang", "unchanged"],
+          additionalProperties: false,
+        },
+      },
+    },
+  }
+  ```
+- Uses `AbortController` with 700ms timeout
+- Reads `OPENAI_API_KEY` from `Deno.env`
+- Returns `{ translated_query, source_lang, unchanged } | null` on timeout/error
 
-## Why This Matters
-- "chaussure dame haut talon noir" currently only translates the first word. After this fix, it becomes "women shoes women high heels black" (then the AI refiner or provider handles deduplication).
-- DRC users frequently search for bags, jewelry, and formal wear in French -- these terms currently return zero results.
-- Generic token mapping (`femme`->`women`, `noir`->`black`) makes the system composable: any new French phrase automatically gets partially translated even without an exact dictionary entry.
+**`writeTranslationCache(supabase, normalizedQuery, translatedQuery, sourceLang, provider)`**
+- Uses `createAdminPostgrestClient()` for upsert
+- Sets `expires_at` to 14 days from now
+- Skips insert if `translatedQuery === normalizedQuery` (unchanged/already English)
+- Fire-and-forget (caller does not need to await)
+
+---
+
+### C. Modify: `supabase/functions/catalog-search/index.ts`
+
+**1. Add import** at the top (around line 38):
+```typescript
+import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
+```
+
+**2. Add translation variables** after `let frFallbackApplied = false;` (line 489):
+```typescript
+let translateStatus = "SKIP";  // HIT|MISS|STATIC|SKIP|TIMEOUT|ERROR
+let translateMs = 0;
+let translateProvider = "";
+```
+
+**3. Insert DB cache lookup** at the start of the `if (!searchMeta.rewriteApplied || ...)` block (line 492), before the static fallback:
+- Call `lookupTranslationCache(supabase, qNormLower)` 
+- If hit: set `qNorm`, `searchMeta.rewrittenQuery`, `frFallbackApplied`, `translateStatus = "HIT"`, and skip the static fallback entirely
+
+**4. After static fallback success** (around line 522, inside the `if (anyMatch)` block):
+- Set `translateStatus = "STATIC"`, `translateProvider = "static"`
+- Fire-and-forget `writeTranslationCache(supabase, qNormLower, qNorm, "fr", "static")`
+
+**5. After the static fallback block** (line 525), if `isFrenchLikely && !frFallbackApplied`:
+- Call `callOpenAiTranslation(qNormLower, requestId)` with timing
+- If success and `!result.unchanged`: set `qNorm = result.translated_query`, update `searchMeta`, `translateStatus = "MISS"`, `translateProvider = "openai:gpt-4o-mini:v1"`, fire-and-forget `writeTranslationCache(...)`
+- If success and `result.unchanged`: `translateStatus = "SKIP"` (don't cache)
+- If null (timeout/error): `translateStatus = "TIMEOUT"` or `"ERROR"`, continue with original query
+
+**6. Add translation headers** to all response paths (line 1231-1234):
+```typescript
+responseHeaders["X-Translate"] = translateStatus;
+responseHeaders["X-Translate-Ms"] = String(translateMs);
+responseHeaders["X-Translate-Provider"] = translateProvider;
+```
+
+**7. Update `Access-Control-Expose-Headers`** (line 1234) to include the new headers:
+```typescript
+responseHeaders["Access-Control-Expose-Headers"] = "..., X-Translate, X-Translate-Ms, X-Translate-Provider";
+```
+
+Note: `X-Translate-Lang` is logged only (not in headers) to avoid leaking user data.
+
+---
+
+### D. Modify: `supabase/functions/cleanup-expired-data/index.ts`
+
+Add `translation_cache_deleted` to the result type interface and the `totalCleaned` sum.
+
+---
+
+### E. Redeploy
+
+Redeploy `catalog-search` and `cleanup-expired-data` edge functions.
+
+---
+
+## Key Design Decisions
+
+1. **Responses API with `response_format`** (not `text.format`) -- ensures strict JSON output every time, no parse-failure fallback needed.
+2. **Provider version in cache** (`openai:gpt-4o-mini:v1`) -- changing model/version auto-invalidates old entries (different `provider` value, but same primary key means upsert overwrites).
+3. **Skip caching unchanged queries** -- if OpenAI says `unchanged: true`, the query is already English; don't waste cache rows.
+4. **French detection stays local** -- existing `isFrenchLikely` heuristic (accents + `lang=fr`) gates whether OpenAI is called. English queries never hit OpenAI.
+5. **Service role for all cache ops** -- `createAdminPostgrestClient()` uses `SUPABASE_SERVICE_ROLE_KEY`, bypassing RLS.
+6. **Static fallback writes to cache** -- subsequent identical queries get a fast DB cache hit (~5ms) instead of re-running the multi-match loop.
+7. **Cache key unification is automatic** -- `buildCacheKey("search", { query: qNorm })` already uses `qNorm`, which is now the translated English query. "chaussure femme" and "women shoes" will share the same result cache.
+
+## Performance Budget
+
+| Scenario | Added Latency |
+|---|---|
+| DB cache HIT | ~5ms |
+| Static fallback HIT | ~0ms + async cache write |
+| OpenAI success | ~300-500ms |
+| OpenAI timeout | 700ms max |
+| English query (SKIP) | ~0ms (no translation attempted) |
 
 ## Files Changed
-- `supabase/functions/catalog-search/index.ts` -- fix multi-match logic, add ~25 new terms, update FR_FORCE_MAP
+
+- **New migration**: `query_translation_cache` table + `cleanup_all_expired_data()` update
+- **New file**: `supabase/functions/_shared/queryTranslator.ts`
+- **Modified**: `supabase/functions/catalog-search/index.ts` -- import, translation step, headers
+- **Modified**: `supabase/functions/cleanup-expired-data/index.ts` -- add new field to result type
+

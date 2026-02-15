@@ -53,7 +53,7 @@ function createRestClient(url: string, key: string, userToken?: string): Supabas
 
   return {
     from: (table: string) => ({
-      select: (cols = "*") => createQueryBuilder(url, table, cols, baseHeaders, 'GET'),
+      select: (cols = "*", opts?: { count?: string; head?: boolean }) => createQueryBuilder(url, table, cols, baseHeaders, 'GET', opts),
       insert: (rows: unknown) => createMutationBuilder(url, table, rows, baseHeaders, 'POST'),
       update: (data: unknown) => createUpdateBuilder(url, table, data, baseHeaders),
       upsert: (rows: unknown, opts?: { onConflict?: string }) => 
@@ -101,7 +101,7 @@ function createRestClient(url: string, key: string, userToken?: string): Supabas
   };
 }
 
-function createQueryBuilder(url: string, table: string, cols: string, headers: Record<string, string>, _method: string) {
+function createQueryBuilder(url: string, table: string, cols: string, headers: Record<string, string>, _method: string, selectOpts?: { count?: string; head?: boolean }) {
   const builder = {
     _table: table,
     _cols: cols,
@@ -109,6 +109,10 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
     _single: false,
     _order: null as string | null,
     _limit: null as number | null,
+    _rangeFrom: null as number | null,
+    _rangeTo: null as number | null,
+    _count: selectOpts?.count || null as string | null,
+    _head: selectOpts?.head || false,
     eq(col: string, val: unknown) { this._filters.push(`${col}=eq.${encodeURIComponent(String(val))}`); return this; },
     neq(col: string, val: unknown) { this._filters.push(`${col}=neq.${encodeURIComponent(String(val))}`); return this; },
     in(col: string, vals: unknown[]) { this._filters.push(`${col}=in.(${vals.map(v => encodeURIComponent(String(v))).join(",")})`); return this; },
@@ -124,6 +128,7 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
       return this; 
     },
     limit(n: number) { this._limit = n; return this; },
+    range(from: number, to: number) { this._rangeFrom = from; this._rangeTo = to; return this; },
     maybeSingle() { this._single = true; return this; },
     single() { this._single = true; return this; },
     async then(resolve: (v: unknown) => void) {
@@ -131,26 +136,52 @@ function createQueryBuilder(url: string, table: string, cols: string, headers: R
       if (this._order) params.push(`order=${this._order}`);
       if (this._limit !== null) params.push(`limit=${this._limit}`);
       
-      const finalHeaders = this._single 
+      const finalHeaders: Record<string, string> = this._single 
         ? { ...headers, Accept: 'application/vnd.pgrst.object+json' } 
-        : headers;
+        : { ...headers };
+
+      // Support range() for pagination
+      if (this._rangeFrom !== null && this._rangeTo !== null) {
+        finalHeaders['Range'] = `${this._rangeFrom}-${this._rangeTo}`;
+        finalHeaders['Range-Unit'] = 'items';
+      }
+
+      // Support count option (e.g. { count: 'exact' })
+      if (this._count) {
+        finalHeaders['Prefer'] = `count=${this._count}`;
+      }
+
+      const method = this._head ? 'HEAD' : 'GET';
         
       try {
         const res = await fetch(`${url}/rest/v1/${this._table}?${params.join('&')}`, { 
-          method: 'GET',
+          method,
           headers: finalHeaders,
         });
         if (!res.ok) {
-          const errText = await res.text();
+          const errText = method === 'HEAD' ? '' : await res.text();
           // Handle 406 for single() when no rows found
           if (res.status === 406 && this._single) {
-            return resolve({ data: null, error: null });
+            return resolve({ data: null, error: null, count: 0 });
           }
-          return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` } });
+          return resolve({ data: null, error: { message: `${res.status}: ${errText.substring(0, 100)}` }, count: null });
         }
-        return resolve({ data: await res.json(), error: null });
+
+        // Parse count from content-range header (format: "*/total" or "from-to/total")
+        let count: number | null = null;
+        const contentRange = res.headers.get('content-range');
+        if (contentRange) {
+          const match = contentRange.match(/\/(\d+)$/);
+          if (match) count = parseInt(match[1], 10);
+        }
+
+        if (this._head) {
+          return resolve({ data: null, error: null, count });
+        }
+
+        return resolve({ data: await res.json(), error: null, count });
       } catch (e: unknown) { 
-        return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }); 
+        return resolve({ data: null, error: { message: e instanceof Error ? e.message : String(e) }, count: null }); 
       }
     }
   };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle, Heart } from 'lucide-react';
+import { LogIn, User, Menu, Globe, ChevronDown, Home, Package, HelpCircle, Heart, Gift } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SearchBar } from './SearchBar';
 import { CartDrawer } from './CartDrawer';
@@ -17,6 +17,8 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
+import { InviteEarn } from '@/components/shop/InviteEarn';
 
 export function ShopHeader() {
   const location = useLocation();
@@ -163,6 +165,19 @@ export function ShopHeader() {
                         <HelpCircle className="h-4 w-4" />
                         {shop.support}
                       </Link>
+                      <Drawer>
+                        <DrawerTrigger asChild>
+                          <button
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition-colors w-full text-left"
+                          >
+                            <Gift className="h-4 w-4" />
+                            {language === 'fr' ? 'Partager & Gagner' : 'Share & Earn'}
+                          </button>
+                        </DrawerTrigger>
+                        <DrawerContent className="bg-black border-white/10 px-4 pb-8 pt-4 max-h-[85vh] overflow-y-auto">
+                          <InviteEarn language={language} />
+                        </DrawerContent>
+                      </Drawer>
                     </div>
                   </div>
                 </div>

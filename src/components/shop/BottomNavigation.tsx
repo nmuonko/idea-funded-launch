@@ -4,7 +4,7 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
-import { ReferralFAB } from './ReferralFAB';
+
 
 const tabs = [
   { key: 'browse', icon: Home, path: '/' },
@@ -43,7 +43,6 @@ export function BottomNavigation() {
 
   return (
     <>
-    <ReferralFAB />
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-t border-white/10 md:hidden pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-around h-16 px-2">
         {tabs.map((tab) => {

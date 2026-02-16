@@ -85,7 +85,7 @@ export default function SearchResults() {
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
     const params: Record<string, any> = {
       q: normalizeQuery(searchQuery),
-      limit: 30,
+      limit: 100,
     };
 
     if (category) {
@@ -136,7 +136,7 @@ export default function SearchResults() {
 
             const newCursor = freshData?.nextCursor || null;
             nextCursorRef.current = newCursor;
-            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < 3);
+            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < 6);
           }
         },
       });
@@ -169,7 +169,7 @@ export default function SearchResults() {
 
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
-      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 3);
+      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 6);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Search error:', err);

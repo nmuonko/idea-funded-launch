@@ -51,8 +51,8 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 200;
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
 const TOTAL_BUDGET_MS = 3500;

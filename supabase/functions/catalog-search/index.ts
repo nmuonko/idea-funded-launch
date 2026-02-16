@@ -483,7 +483,7 @@ Deno.serve(async (req: Request) => {
     let globalCacheKey = buildCacheKey("search", {
       env: effectiveEnv, query: qNorm, provider: providerParam || "all",
       category: categoryKey || undefined,
-      page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit,
+      page: pageParam + 1, pageSize: limit,
       minPrice: catalogFilters.minPrice, maxPrice: catalogFilters.maxPrice,
       brand: catalogFilters.brand?.join(","), rating: catalogFilters.rating,
       condition: catalogFilters.condition, sort, vehicleMode: hasBuyingIntent,
@@ -538,7 +538,7 @@ Deno.serve(async (req: Request) => {
         categoryKey: categoryKey || undefined,
         intentKey: effectiveIntent.intentKey,
         sort,
-        page: Math.floor(mixerCursor.ebayOffset / limit) + 1,
+        page: pageParam + 1,
       }, requestId);
 
       if (nearMatch.hit && nearMatch.data) {
@@ -1226,7 +1226,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Compute explicit page from cursor for response
-    const pageForResponse = Math.floor(mixerCursor.ebayOffset / limit) + 1;
+    const pageForResponse = pageParam + 1;
 
     const response: SearchResponse = {
       status: "success", env: envName, query: qOriginal, items: finalItems,
@@ -1347,7 +1347,7 @@ Deno.serve(async (req: Request) => {
     // ─── FINAL CACHE WRITE (overwrite early cache with complete response) ────
     const cacheMeta = {
       qNorm, provider: providerParam || "mixed",
-      page: Math.floor(mixerCursor.ebayOffset / limit) + 1, pageSize: limit, sort,
+      page: pageParam + 1, pageSize: limit, sort,
       category_key: categoryKey || undefined, vehicleMode: hasBuyingIntent,
       minPriceUsed: hasBuyingIntent ? (catalogFilters.minPrice || 1000) : 0,
     };

@@ -61,10 +61,12 @@ export default function SearchResults() {
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   // Persistent seenIds across pages — reset on new search
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeSearchTokenRef = useRef(0);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -128,11 +130,19 @@ export default function SearchResults() {
 
     const currentIdentity = `${query}|${category}|${sort}`;
 
+    // Track search token for stale-request detection
+    let token: number | null = null;
+
     // Reset seenIds on fresh search
     if (pageNum === 0 && !append) {
+      activeSearchTokenRef.current += 1;
+      token = activeSearchTokenRef.current;
       seenIdsRef.current = new Set();
       searchIdentityRef.current = currentIdentity;
       setLoading(true);
+      setHasSearched(false);
+      setProducts([]);
+      setTotalResults(0);
       setIncomplete(false);
       setSearchError(null);
     } else if (pageNum > 0) {
@@ -153,6 +163,9 @@ export default function SearchResults() {
       });
 
       if (controller.signal.aborted) return;
+      // Stale request guard: if a newer search started, discard this result
+      if (token !== null && token !== activeSearchTokenRef.current) return;
+
       if (!response.ok) {
         const errText = await response.text();
         console.error('[SEARCH_ERROR] status:', response.status, 'body:', errText);
@@ -199,11 +212,18 @@ export default function SearchResults() {
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
+      // Only apply error if this is still the active search
+      if (token !== null && token !== activeSearchTokenRef.current) return;
       console.error('Search error:', err);
       setSearchError(err.message || 'Search failed');
+      setHasSearched(true);
     } finally {
       if (!controller.signal.aborted) {
-        setLoading(false);
+        // Only update loading states if token is still current
+        if (token === null || token === activeSearchTokenRef.current) {
+          setLoading(false);
+          setHasSearched(true);
+        }
         setLoadingMore(false);
       }
     }
@@ -452,8 +472,8 @@ export default function SearchResults() {
             </div>
           )}
 
-          {/* No Results — only show after ALL loading is done */}
-          {!loading && !loadingMore && products.length === 0 && (
+          {/* No Results — only show after search completed and ALL loading is done */}
+          {hasSearched && !loading && !loadingMore && !prefetchingNext && products.length === 0 && (
             <div className="text-center py-20">
               {searchError ? (
                 <>

@@ -58,15 +58,15 @@ const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
-const PAGE0_DEADLINE_MS = 3500;  // Hard deadline for page 0 (generous for Amazon)
-const TOTAL_BUDGET_MS = 5000;    // Budget for page > 0
+const PAGE0_DEADLINE_MS = 8000;  // Hard deadline for page 0 (generous for both providers)
+const TOTAL_BUDGET_MS = 10000;   // Budget for page > 0
 const FAST_MIN_FIRST_PAGE = 60;  // Return page 0 as soon as we have this many items
 const REWRITE_BUDGET_MS = 600;   // Tighter rewrite budget
 const DB_BUDGET_MS_P0 = 400;     // DB budget on page 0
 const DB_BUDGET_MS = 500;        // DB budget on page > 0
-const AMAZON_TIMEOUT_P0 = 2500;  // Amazon-specific timeout on page 0
-const EBAY_TIMEOUT_P0 = 2500;    // eBay-specific timeout on page 0
-const PROVIDER_TIMEOUT_PN = 4000; // Provider timeout on page > 0
+const AMAZON_TIMEOUT_P0 = 5000;  // Amazon-specific timeout on page 0
+const EBAY_TIMEOUT_P0 = 5000;    // eBay-specific timeout on page 0
+const PROVIDER_TIMEOUT_PN = 6000; // Provider timeout on page > 0
 const AI_TIMEOUT_P0 = 300;       // AI refiner/translator timeout on page 0
 const ALT_QUERIES_MAX = 1;
 
@@ -758,13 +758,9 @@ Deno.serve(async (req: Request) => {
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
     const elapsedBeforeProviders = Date.now() - startTime;
 
-    // Per-provider timeouts: each provider gets its own deadline
-    const amazonTimeoutMs = isFirstPage
-      ? Math.max(1000, AMAZON_TIMEOUT_P0 - Math.max(0, elapsedBeforeProviders - 500))
-      : Math.min(isVehicleIntent ? 5000 : PROVIDER_TIMEOUT_PN, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
-    const ebayTimeoutMs = isFirstPage
-      ? Math.max(1000, EBAY_TIMEOUT_P0 - Math.max(0, elapsedBeforeProviders - 500))
-      : Math.min(isVehicleIntent ? 5000 : PROVIDER_TIMEOUT_PN, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
+    // Per-provider timeouts: fixed per-provider deadlines (not reduced by pre-processing time)
+    const amazonTimeoutMs = isFirstPage ? AMAZON_TIMEOUT_P0 : Math.min(isVehicleIntent ? 7000 : PROVIDER_TIMEOUT_PN, 8000);
+    const ebayTimeoutMs = isFirstPage ? EBAY_TIMEOUT_P0 : Math.min(isVehicleIntent ? 7000 : PROVIDER_TIMEOUT_PN, 8000);
 
     // Overall page deadline (generous: max of both provider timeouts + buffer)
     const overallDeadlineMs = isFirstPage

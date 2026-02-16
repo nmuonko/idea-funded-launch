@@ -39,7 +39,7 @@ import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardra
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
-import { preNormalizeQuery } from "../_shared/queryPreNormalizer.ts";
+import { preNormalizeQuery, getSynonymFallbackQueries } from "../_shared/queryPreNormalizer.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -931,6 +931,64 @@ Deno.serve(async (req: Request) => {
     }
     timings.altQueries = Date.now() - altQueriesStart;
 
+    // ─── DETERMINISTIC SYNONYM FALLBACK (no AI, strict timeout) ─────────────
+    // When preNorm matched and providers returned < 10 items, try synonym queries
+    let fallbackAttempted = false;
+    let fallbackQueryUsed: string | null = null;
+    const totalAfterAlt = amazonItems.length + ebayItems.length;
+    if (preNorm.matched && totalAfterAlt < 10 && preNorm.inferredCategory) {
+      const synonymQueries = getSynonymFallbackQueries(preNorm.effectiveQuery, preNorm.inferredCategory);
+      if (synonymQueries.length > 0) {
+        const elapsedNow = Date.now() - startTime;
+        const fallbackBudget = isFirstPage
+          ? Math.min(600, Math.max(200, PAGE0_DEADLINE_MS - elapsedNow - 100))
+          : Math.min(1200, Math.max(300, TOTAL_BUDGET_MS - elapsedNow - 200));
+        
+        if (fallbackBudget > 200) {
+          // Try only the first synonym on page 0, up to 2 on page > 0
+          const maxFallbacks = isFirstPage ? 1 : Math.min(2, synonymQueries.length);
+          const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
+          
+          for (let fi = 0; fi < maxFallbacks; fi++) {
+            const fbQuery = synonymQueries[fi];
+            if (!fbQuery) break;
+            fallbackAttempted = true;
+            fallbackQueryUsed = fbQuery;
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} synonym_fallback q="${fbQuery}" budget=${fallbackBudget}ms`);
+            
+            try {
+              const fbTimeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("SYNONYM_FB_TIMEOUT")), fallbackBudget)
+              );
+              const fbFetch = Promise.allSettled([
+                fetchAmazonItems({ supabase, query: fbQuery, settings, effectiveMode, mixerCursor, isVehicle: false, hasBuyingIntent: false, isHeavyEquipment: false, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-sfb" }),
+                fetchEbayItems({ supabase, query: fbQuery, effectiveMode, isVehicle: false, hasBuyingIntent: false, isHeavyEquipment: false, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-sfb" }),
+              ]);
+              const fbSettled = await Promise.race([fbFetch, fbTimeout]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+              
+              if (fbSettled[0].status === "fulfilled") {
+                const newItems = fbSettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
+                newItems.forEach((i: any) => existingIds.add(i.id));
+                amazonItems = [...amazonItems, ...newItems];
+              }
+              if (fbSettled[1].status === "fulfilled") {
+                const newItems = fbSettled[1].value.items.filter((i: any) => !existingIds.has(i.id));
+                newItems.forEach((i: any) => existingIds.add(i.id));
+                ebayItems = [...ebayItems, ...newItems];
+              }
+              const fbTotal = amazonItems.length + ebayItems.length;
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} synonym_fallback_result q="${fbQuery}" total=${fbTotal}`);
+              if (fbTotal >= 10) break; // Got enough, stop
+            } catch {
+              console.warn(`[CATALOG_SEARCH] requestId=${requestId} synonym_fallback_timeout q="${fbQuery}"`);
+            }
+          }
+        } else {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} synonym_fallback_skipped: budget too low (${fallbackBudget}ms)`);
+        }
+      }
+    }
+
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     const postProcessStart = Date.now();
     const mixResult = mixProviderItems({
@@ -1067,6 +1125,10 @@ Deno.serve(async (req: Request) => {
     const incomplete = providerTimedOut || !amazonDone || !ebayDone ||
       (amazonDone && !!amazonError) || (ebayDone && !!ebayError);
     
+    // ─── FIX: Safe maxPages computation (never undefined) ─────────────────────
+    const HARD_MAX_ITEMS = 500;
+    const maxPages = Math.max(1, Math.ceil(HARD_MAX_ITEMS / limit));
+
     // Per-provider hasMore
     const ebayProviderHasMore = ebayHasMore || !ebayDone || (ebayDone && !!ebayError);
     const amazonProviderHasMore = amazonHasMore || !amazonDone || (amazonDone && !!amazonError);
@@ -1085,10 +1147,6 @@ Deno.serve(async (req: Request) => {
     } catch { /* default */ }
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";
-
-    // ─── FIX: Safe maxPages computation (never undefined) ─────────────────────
-    const HARD_MAX_ITEMS = 500;
-    const maxPages = Math.max(1, Math.ceil(HARD_MAX_ITEMS / limit));
 
     // Build searchDebug for meta
     const finalCount = finalItems.length;
@@ -1119,6 +1177,13 @@ Deno.serve(async (req: Request) => {
         counts: { db: dbCount, amazon: amazonItems.length, ebay: ebayItems.length, finalUnique: finalCount },
         providersDone: { amazonDone, ebayDone },
         incomplete,
+      };
+      searchDebug.synonymFallback = {
+        attempted: fallbackAttempted,
+        queryUsed: fallbackQueryUsed,
+        preNormMatched: preNorm.matched,
+        inferredCategory: preNorm.inferredCategory,
+        providerItemsBeforeFallback: totalAfterAlt,
       };
     }
 

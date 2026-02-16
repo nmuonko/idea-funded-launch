@@ -104,17 +104,25 @@ export default function SearchResults() {
     return url.toString();
   }, [query, category, sort, priceRange]);
 
+  // Track current query identity so prefetch can check staleness
+  const searchIdentityRef = useRef('');
+
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
-    // Cancel any in-flight request
-    if (abortControllerRef.current) {
+    // Only abort in-flight requests for NEW searches (page 0), not pagination
+    if (pageNum === 0 && abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    if (pageNum === 0) {
+      abortControllerRef.current = controller;
+    }
+
+    const currentIdentity = `${query}|${category}|${sort}`;
 
     // Reset seenIds on fresh search
     if (pageNum === 0 && !append) {
       seenIdsRef.current = new Set();
+      searchIdentityRef.current = currentIdentity;
       setLoading(true);
       setIncomplete(false);
     } else if (pageNum > 0) {
@@ -163,10 +171,12 @@ export default function SearchResults() {
       // Auto-prefetch page 1 if page 0 was incomplete
       if (pageNum === 0 && isIncomplete && backendHasMore) {
         setPrefetchingNext(true);
-        // Small delay to let UI render first
         setTimeout(() => {
-          if (!controller.signal.aborted) {
+          // Only prefetch if we're still on the same search
+          if (searchIdentityRef.current === currentIdentity) {
             prefetchNextPage(1);
+          } else {
+            setPrefetchingNext(false);
           }
         }, 500);
       }
@@ -179,7 +189,7 @@ export default function SearchResults() {
         setLoadingMore(false);
       }
     }
-  }, [buildFetchUrl]);
+  }, [buildFetchUrl, query, category, sort]);
 
   /** Prefetch next page in background and append results */
   const prefetchNextPage = useCallback(async (nextPageNum: number) => {

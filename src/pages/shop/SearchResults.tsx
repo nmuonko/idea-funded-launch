@@ -69,12 +69,14 @@ export default function SearchResults() {
   const [cursorMode, setCursorMode] = useState(false);
   const [providersStatus, setProvidersStatus] = useState<any>(null);
   const [showProviderDebug, setShowProviderDebug] = useState(false);
+  const [showAutoLoadDebug, setShowAutoLoadDebug] = useState(false);
   const [autoFillRunning, setAutoFillRunning] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
   const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageRef = useRef(0);
+  const lastRequestedPageRef = useRef<number | null>(null);
   const autoFillAbortRef = useRef(false);
   const productsRef = useRef<Product[]>([]);
 
@@ -338,6 +340,7 @@ export default function SearchResults() {
   useEffect(() => {
     setPage(0);
     pageRef.current = 0;
+    lastRequestedPageRef.current = null;
     fetchProducts(0, false);
   }, [query, category, sort]);
 
@@ -368,15 +371,18 @@ export default function SearchResults() {
   useEffect(() => { cursorModeRef.current = cursorMode; }, [cursorMode]);
 
   const handleLoadMore = useCallback(() => {
-    if (loadingRef.current || loadingMoreRef.current || !hasMoreRef.current) {
-      console.log('[LOADMORE_SKIP]', { loading: loadingRef.current, loadingMore: loadingMoreRef.current, hasMore: hasMoreRef.current });
-      return;
-    }
+    if (loadingRef.current || loadingMoreRef.current) return;
+    if (!hasMoreRef.current) return;
+
     const nextPage = pageRef.current + 1;
     if (nextPage >= MAX_PAGES) {
       console.log('[LOADMORE_SKIP] MAX_PAGES reached', { nextPage, MAX_PAGES });
       return;
     }
+    // Prevent re-requesting the same page
+    if (lastRequestedPageRef.current === nextPage) return;
+    lastRequestedPageRef.current = nextPage;
+
     pageRef.current = nextPage;
     setPage(nextPage);
     const cursorToUse = cursorModeRef.current ? nextCursorRef.current : null;
@@ -394,11 +400,9 @@ export default function SearchResults() {
       ([entry]) => {
         sentinelVisibleRef.current = entry.isIntersecting;
         if (!entry.isIntersecting) return;
-        if (loadingRef.current || loadingMoreRef.current) return;
-        if (!hasMoreRef.current) return;
         handleLoadMore();
       },
-      { rootMargin: '600px' }
+      { rootMargin: '800px' }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
@@ -407,13 +411,13 @@ export default function SearchResults() {
   // Re-check: after loading finishes, if sentinel is still visible, load more
   useEffect(() => {
     if (!loading && !loadingMore && hasMore && sentinelVisibleRef.current) {
-      const timer = setTimeout(() => {
+      const t = setTimeout(() => {
         if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current && sentinelVisibleRef.current) {
-          console.log('[SENTINEL_RECHECK] Triggering load more — sentinel still visible');
+          console.log('[SENTINEL_RECHECK] Triggering load more');
           handleLoadMore();
         }
-      }, 200);
-      return () => clearTimeout(timer);
+      }, 150);
+      return () => clearTimeout(t);
     }
   }, [loading, loadingMore, hasMore, handleLoadMore]);
 
@@ -633,32 +637,45 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {/* Debug Results (DEV only) */}
-          {import.meta.env.DEV && (
-            <div className="mb-4 flex gap-2">
+          {/* Debug + Auto-Load Debug */}
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowAutoLoadDebug(v => !v)}
+              className="text-xs text-white/70 hover:text-white underline"
+            >
+              {showAutoLoadDebug ? 'Hide Auto-Load Debug' : 'Show Auto-Load Debug'}
+            </button>
+            {providersStatus && (
               <button
-                onClick={() => console.log('[DEBUG_RESULTS]', { query, page, productsLoaded: products.length, backendHasMore: hasMore, incomplete, providersStatus })}
+                onClick={() => setShowProviderDebug(v => !v)}
                 className="text-xs text-white/40 hover:text-white/70 underline"
               >
-                Debug Results
+                {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
               </button>
-              {providersStatus && (
-                <button
-                  onClick={() => setShowProviderDebug(v => !v)}
-                  className="text-xs text-white/40 hover:text-white/70 underline"
-                >
-                  {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
-                </button>
-              )}
-              <button
-                onClick={() => handleLoadMore()}
-                className="text-xs text-cyan-400 hover:text-cyan-300 underline"
-              >
-                Force Load Next Page
-              </button>
-            </div>
+            )}
+            <button
+              onClick={() => handleLoadMore()}
+              className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+            >
+              Force Load Next Page
+            </button>
+          </div>
+          {showAutoLoadDebug && (
+            <pre className="mb-4 p-2 rounded text-xs text-white/70 bg-black/30 overflow-x-auto max-h-32">
+              {JSON.stringify({
+                page,
+                pageRef: pageRef.current,
+                hasMore,
+                loading,
+                loadingMore,
+                sentinelVisible: sentinelVisibleRef.current,
+                lastRequestedPage: lastRequestedPageRef.current,
+                productsLoaded: products.length,
+                autoFillRunning,
+              }, null, 2)}
+            </pre>
           )}
-          {showProviderDebug && providersStatus && import.meta.env.DEV && (
+          {showProviderDebug && providersStatus && (
             <pre className="mb-4 p-3 rounded text-xs text-white/60 bg-white/5 border border-white/10 overflow-x-auto max-h-40">
               {JSON.stringify({
                 amazon: providersStatus.amazon,
@@ -675,7 +692,7 @@ export default function SearchResults() {
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
           {/* Infinite scroll sentinel — always rendered so observer stays attached */}
-          <div ref={sentinelRef} style={{ height: 1, visibility: hasMore ? 'visible' : 'hidden' }} />
+          <div ref={sentinelRef} style={{ height: 1 }} />
 
           {/* Loading more indicator */}
           {(loadingMore || prefetchingNext) && (

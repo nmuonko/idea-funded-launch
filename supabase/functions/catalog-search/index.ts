@@ -73,6 +73,11 @@ const MODEL_TOKENS = new Set([
 const BROAD_SINGLE_TERMS = new Set([
   "telephone","téléphone","tv","frigo","vetement","vêtement","chaussure",
   "ordinateur","voiture","cuisiniere","cuisinière","montre","casque","tablette",
+  // Fashion (EN + FR) — skip AI refiner for these
+  "skirt","dress","shirt","pants","jeans","jacket","shoes","boots","sneakers",
+  "heels","clothing","hat","belt","hoodie","sweater","coat",
+  "jupe","robe","chemise","pantalon","chaussures","bottes","vêtements",
+  "sandales","baskets","manteau","veste","pull",
 ]);
 
 function isDirectQuery(q: string): boolean {
@@ -789,9 +794,10 @@ Deno.serve(async (req: Request) => {
     const elapsedSoFar = Date.now() - startTime;
     const budgetExceeded = elapsedSoFar > TOTAL_BUDGET_MS;
     
-    // Appliance intents with enough results skip alt queries to prevent dilution
+    // Appliance/fashion intents with enough results skip alt queries to prevent dilution
     const applianceIntentSufficient = effectiveIntent.intentKey === "appliance_fridge" && totalProviderItems >= 20;
-    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient) {
+    const fashionIntentSufficient = effectiveIntent.intentKey === "fashion" && totalProviderItems >= 20;
+    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient && !fashionIntentSufficient) {
       let altAttempts = 0;
       // Try alt queries from AI refiner (max ALT_QUERIES_MAX = 1)
       for (const altQ of altQueries) {
@@ -922,13 +928,21 @@ Deno.serve(async (req: Request) => {
       "poster","wall art","canvas","blanket","towel","pillow","rug",
       "perfume","makeup","lipstick","mascara",
     ];
+    // Vehicle/tech keywords to drop from fashion searches
+    const FASHION_WRONG_CAT_KW = [
+      "car","truck","suv","sedan","motorcycle","tractor","excavator","forklift",
+      "engine","transmission","playstation","xbox","nintendo","console",
+      "gpu","cpu","laptop","iphone","samsung","refrigerator","fridge",
+    ];
     // Only apply the guard for intents that should NEVER return clothing/shoes
-    const GUARDED_INTENTS = ["gaming", "phone_device", "phone_accessory", "vehicle_listing", "vehicle_parts", "heavy_equipment", "appliance_fridge"];
+    const GUARDED_INTENTS = ["gaming", "phone_device", "phone_accessory", "vehicle_listing", "vehicle_parts", "heavy_equipment", "appliance_fridge", "fashion"];
     if (GUARDED_INTENTS.includes(effectiveIntent.intentKey) && finalItems.length > 0) {
       const beforeGuard = finalItems.length;
+      const wrongCatList = effectiveIntent.intentKey === "fashion" ? FASHION_WRONG_CAT_KW : UNIVERSAL_WRONG_CAT_KW;
       finalItems = finalItems.filter(item => {
         const t = ((item as any).title || "").toLowerCase();
-        return !UNIVERSAL_WRONG_CAT_KW.some(kw => t.includes(kw));
+        // Use word-boundary matching for short tokens to avoid false drops (e.g. "carhartt")
+        return !wrongCatList.some(kw => kw.length <= 4 ? new RegExp(`\\b${kw}\\b`, 'i').test(t) : t.includes(kw));
       });
       const guardDropped = beforeGuard - finalItems.length;
       if (guardDropped > 0) {

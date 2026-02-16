@@ -12,7 +12,7 @@ type SupabaseClient = any;
 import { canonicalizeQuery, wasQueryCanonicalized } from "./queryCanonicalizer.ts";
 
 // Cache version for invalidating stale entries when schema changes
-export const AMAZON_CACHE_VERSION = "search_fast_v2_page100_session500"; // v19: fast-first, 100/page, 500 session cap
+export const AMAZON_CACHE_VERSION = "search_fast_v3_fashion"; // v20: fashion intent, cache invalidation
 
 // TTL configuration per cache type (in minutes) - POSITIVE results
 export const CACHE_TTL = {

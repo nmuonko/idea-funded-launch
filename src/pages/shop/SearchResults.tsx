@@ -60,7 +60,7 @@ export default function SearchResults() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
-  const [totalResults, setTotalResults] = useState(0);
+  // totalResults removed — use products.length directly
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -167,7 +167,7 @@ export default function SearchResults() {
       setHasSearched(false);
       setHasMore(true);
       setProducts([]);
-      setTotalResults(0);
+      // products cleared above — no totalResults needed
       setIncomplete(false);
       setSearchError(null);
       setIsRevalidating(false);
@@ -231,21 +231,16 @@ export default function SearchResults() {
 
       if (append) {
         const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
-        setProducts(prev => {
-          const combined = [...prev, ...newUnique];
-          setTotalResults(combined.length);
-          return combined;
-        });
+        setProducts(prev => [...prev, ...newUnique]);
       } else {
         seenIdsRef.current = new Set();
         const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
         setProducts(deduped);
-        setTotalResults(deduped.length);
       }
 
-      // hasMore: backend says more OR incomplete OR cursor exists OR returned near-full page, within page limit
-      const returnedNearFullPage = returnedCount >= Math.floor(PAGE_SIZE * 0.5); // 50+ items suggests more exist
-      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0) || !!responseCursor || returnedNearFullPage) && pageNum < MAX_PAGES - 1;
+      // hasMore: trust backend, treat incomplete as "more may exist", enforce hard cap
+      const reachedCap = pageNum >= MAX_PAGES - 1;
+      const computedHasMore = !reachedCap && (backendHasMore || isIncomplete || !!responseCursor || returnedCount === PAGE_SIZE);
       setHasMore(computedHasMore);
       setIncomplete(isIncomplete);
 
@@ -300,11 +295,7 @@ export default function SearchResults() {
       const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
 
       if (newUnique.length > 0 && token === activeSearchTokenRef.current) {
-        setProducts(prev => {
-          const combined = [...prev, ...newUnique];
-          setTotalResults(combined.length);
-          return combined;
-        });
+        setProducts(prev => [...prev, ...newUnique]);
       }
 
       if (token === activeSearchTokenRef.current) {
@@ -429,7 +420,12 @@ export default function SearchResults() {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                 {!loading && hasSearched && (
                   <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
-                    {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
+                    {products.length} {language === 'fr' ? 'produits affichés' : 'products shown'}
+                    {(hasMore || incomplete) && (
+                      <span className="ml-2 text-xs text-white/40">
+                        — {language === 'fr' ? 'Plus de résultats disponibles…' : 'More results available…'}
+                      </span>
+                    )}
                   </p>
                 )}
                 {isRevalidating && (
@@ -510,28 +506,36 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {/* Provider Debug (DEV only) */}
-          {providersStatus && import.meta.env.DEV && (
-            <div className="mb-4">
+          {/* Debug Results (DEV only) */}
+          {import.meta.env.DEV && (
+            <div className="mb-4 flex gap-2">
               <button
-                onClick={() => setShowProviderDebug(v => !v)}
+                onClick={() => console.log('[DEBUG_RESULTS]', { query, page, productsLoaded: products.length, backendHasMore: hasMore, incomplete, providersStatus })}
                 className="text-xs text-white/40 hover:text-white/70 underline"
               >
-                {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
+                Debug Results
               </button>
-              {showProviderDebug && (
-                <pre className="mt-2 p-3 rounded text-xs text-white/60 bg-white/5 border border-white/10 overflow-x-auto max-h-40">
-                  {JSON.stringify({
-                    amazon: providersStatus.amazon,
-                    ebay: providersStatus.ebay,
-                    hasMore,
-                    totalResults,
-                    page,
-                    incomplete,
-                  }, null, 2)}
-                </pre>
+              {providersStatus && (
+                <button
+                  onClick={() => setShowProviderDebug(v => !v)}
+                  className="text-xs text-white/40 hover:text-white/70 underline"
+                >
+                  {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
+                </button>
               )}
             </div>
+          )}
+          {showProviderDebug && providersStatus && import.meta.env.DEV && (
+            <pre className="mb-4 p-3 rounded text-xs text-white/60 bg-white/5 border border-white/10 overflow-x-auto max-h-40">
+              {JSON.stringify({
+                amazon: providersStatus.amazon,
+                ebay: providersStatus.ebay,
+                hasMore,
+                productsLoaded: products.length,
+                page,
+                incomplete,
+              }, null, 2)}
+            </pre>
           )}
 
           {/* Products */}

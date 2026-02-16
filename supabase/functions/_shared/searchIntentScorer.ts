@@ -286,6 +286,30 @@ function scoreOne(
       if (title.includes("console")) score += 5;
       break;
     }
+    case "fashion": {
+      // ── FASHION: drop vehicles/tech, boost fashion items ──
+      const FASHION_WRONG_KW = [
+        "car","truck","suv","sedan","motorcycle","tractor","excavator","forklift",
+        "engine","transmission","playstation","xbox","nintendo","console",
+        "gpu","cpu","laptop","refrigerator","fridge",
+      ];
+      // Word-boundary check for short tokens
+      const hasFashionWrongCat = FASHION_WRONG_KW.some(kw =>
+        kw.length <= 4 ? new RegExp(`\\b${kw}\\b`, 'i').test(title) : title.includes(kw)
+      );
+      if (hasFashionWrongCat) return null;
+
+      // Boost fashion-related terms
+      const FASHION_BOOST_KW = [
+        "skirt","dress","pants","shirt","blouse","jeans","jacket","coat","hoodie",
+        "sweater","shoes","sneakers","boots","sandals","heels","clothing","hat","belt",
+        "jupe","robe","pantalon","chemise","veste","manteau","chaussures","baskets","bottes",
+      ];
+      if (hasAny(title, FASHION_BOOST_KW)) score += 10;
+      if (priceUsd > 0 && priceUsd < 500) score += 5;
+      if (priceUsd >= 5000) score -= 20; // Too expensive for fashion
+      break;
+    }
     case "general":
     default: {
       // Light penalty for accessories when query looks like a device model

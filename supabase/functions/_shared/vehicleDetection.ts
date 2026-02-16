@@ -483,7 +483,7 @@ function hasMileageToken(text: string): boolean {
 }
 
 export interface SearchIntent {
-  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "gaming" | "appliance_fridge" | "general";
+  intentKey: "vehicle_listing" | "vehicle_parts" | "phone_device" | "phone_accessory" | "heavy_equipment" | "gaming" | "appliance_fridge" | "fashion" | "general";
   vehicleListingIntent: boolean;
   vehiclePartsIntent: boolean;
   phoneDeviceIntent: boolean;
@@ -497,6 +497,28 @@ export interface SearchIntent {
  */
 export function classifySearchIntent(qNorm: string): SearchIntent {
   const lower = qNorm.toLowerCase().trim();
+
+  // ── FASHION INTENT (early, same priority as gaming/fridge) ────────────────
+  const FASHION_KW = [
+    // English
+    "skirt","dress","pants","shirt","blouse","jeans","jacket","coat","hoodie",
+    "sweater","shoes","sneakers","boots","sandals","heels","clothing","underwear",
+    "swimsuit","scarf","hat","belt","leggings","cardigan","blazer","vest",
+    // French
+    "jupe","robe","pantalon","chemise","jean","veste","manteau","pull",
+    "chaussures","baskets","bottes","sandales","talons","vetements","vêtements",
+    "chapeau","ceinture","soutien-gorge","maillot","écharpe","echarpe",
+    "collant","gilet","blouson",
+  ];
+  // Normalize accents for matching
+  const lowerNoAccent = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const fashionIntent = FASHION_KW.some(kw => {
+    const kwNorm = kw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return wordishMatch(lower, kw) || wordishMatch(lowerNoAccent, kwNorm);
+  });
+  if (fashionIntent) {
+    return { intentKey: "fashion", vehicleListingIntent: false, vehiclePartsIntent: false, phoneDeviceIntent: false, phoneAccessoryIntent: false, isHeavyEquipment: false };
+  }
 
   // ── APPLIANCE: FRIDGE / REFRIGERATOR ─────────────────────────────────────
   const FRIDGE_KW = [

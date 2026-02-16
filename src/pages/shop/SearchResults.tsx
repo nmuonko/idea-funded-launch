@@ -62,11 +62,14 @@ export default function SearchResults() {
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursorMode, setCursorMode] = useState(false);
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
   const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageRef = useRef(0);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -87,13 +90,18 @@ export default function SearchResults() {
     refurbished: 'refurbished phone laptop',
   };
 
-  const buildFetchUrl = useCallback((pageNum: number) => {
+  const buildFetchUrl = useCallback((pageNum: number, cursor?: string | null) => {
     const IGNORED_CATEGORIES = new Set(['', 'all', 'home', 'accueil']);
     const effectiveCategory = IGNORED_CATEGORIES.has(category.toLowerCase()) ? '' : category;
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
     const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
     url.searchParams.set('q', searchQuery.trim());
     url.searchParams.set('limit', String(PAGE_SIZE));
+
+    // Use cursor if in cursor mode and cursor exists, otherwise use page number
+    if (cursor) {
+      url.searchParams.set('cursor', cursor);
+    }
     url.searchParams.set('page', String(pageNum));
 
     if (effectiveCategory) {
@@ -127,7 +135,7 @@ export default function SearchResults() {
     }));
   }
 
-  const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
+  const fetchProducts = useCallback(async (pageNum: number, append: boolean = false, cursorVal?: string | null) => {
     if (pageNum === 0 && abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -145,6 +153,7 @@ export default function SearchResults() {
       token = activeSearchTokenRef.current;
       seenIdsRef.current = new Set();
       searchIdentityRef.current = currentIdentity;
+      pageRef.current = 0;
       if (revalidateTimerRef.current) {
         clearTimeout(revalidateTimerRef.current);
         revalidateTimerRef.current = null;
@@ -158,12 +167,18 @@ export default function SearchResults() {
       setSearchError(null);
       setIsRevalidating(false);
       setPrefetchingNext(false);
+      setNextCursor(null);
+      setCursorMode(false);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
 
+    const effectiveCursor = cursorVal || null;
+
+    console.log('[SEARCH_REQ]', { page: pageNum, cursor: effectiveCursor, limit: PAGE_SIZE, q: query, category, sort });
+
     try {
-      const fetchUrl = buildFetchUrl(pageNum);
+      const fetchUrl = buildFetchUrl(pageNum, effectiveCursor);
       const response = await fetch(fetchUrl, {
         method: 'GET',
         headers: {
@@ -189,7 +204,18 @@ export default function SearchResults() {
       const isIncomplete = !!data?.incomplete || !!data?.partial;
       const backendHasMore = data?.hasMore === true;
 
-      console.log('[SEARCH_DEBUG] response:', { page: pageNum, returnedCount, hasMore: backendHasMore, incomplete: isIncomplete });
+      // Extract cursor from any possible location in response
+      const responseCursor = data?.cursor || data?.nextCursor || data?.cursorNext || data?.meta?.cursor || data?.meta?.nextCursor || null;
+
+      console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, totalFromBackend: data?.total });
+
+      // If backend returns a cursor, switch to cursor mode
+      if (responseCursor) {
+        setCursorMode(true);
+        setNextCursor(responseCursor);
+      } else {
+        setNextCursor(null);
+      }
 
       const mappedProducts = mapItems(data?.items || []);
 
@@ -207,10 +233,13 @@ export default function SearchResults() {
         setTotalResults(deduped.length);
       }
 
-      // hasMore: backend says more OR incomplete with items, within page limit
-      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0)) && pageNum < MAX_PAGES - 1;
+      // hasMore: backend says more OR incomplete OR cursor exists OR returned full page, within page limit
+      const returnedFullPage = returnedCount >= PAGE_SIZE;
+      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0) || !!responseCursor || returnedFullPage) && pageNum < MAX_PAGES - 1;
       setHasMore(computedHasMore);
       setIncomplete(isIncomplete);
+
+      console.log('[SEARCH_PAGINATION]', { pageNum, computedHasMore, backendHasMore, isIncomplete, hasCursor: !!responseCursor, maxPages: MAX_PAGES });
 
       // Auto-revalidate page 0 if incomplete (background enrichment)
       if (pageNum === 0 && isIncomplete && !append) {
@@ -287,6 +316,7 @@ export default function SearchResults() {
   // Initial search
   useEffect(() => {
     setPage(0);
+    pageRef.current = 0;
     fetchProducts(0, false);
   }, [query, category, sort]);
 
@@ -302,12 +332,32 @@ export default function SearchResults() {
     });
   };
 
+  // Use refs for handleLoadMore to avoid stale closures
+  const loadingRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const nextCursorRef = useRef<string | null>(null);
+  const cursorModeRef = useRef(false);
+
+  // Keep refs in sync
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { nextCursorRef.current = nextCursor; }, [nextCursor]);
+  useEffect(() => { cursorModeRef.current = cursorMode; }, [cursorMode]);
+
   const handleLoadMore = useCallback(() => {
-    if (loading || loadingMore || !hasMore) return;
-    const nextPage = page + 1;
+    if (loadingRef.current || loadingMoreRef.current || !hasMoreRef.current) {
+      console.log('[LOADMORE_SKIP]', { loading: loadingRef.current, loadingMore: loadingMoreRef.current, hasMore: hasMoreRef.current });
+      return;
+    }
+    const nextPage = pageRef.current + 1;
+    pageRef.current = nextPage;
     setPage(nextPage);
-    fetchProducts(nextPage, true);
-  }, [page, fetchProducts, loading, loadingMore, hasMore]);
+    const cursorToUse = cursorModeRef.current ? nextCursorRef.current : null;
+    console.log('[LOADMORE]', { nextPage, cursorMode: cursorModeRef.current, cursor: cursorToUse });
+    fetchProducts(nextPage, true, cursorToUse);
+  }, [fetchProducts]);
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);

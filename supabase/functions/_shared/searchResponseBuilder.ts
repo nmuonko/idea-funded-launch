@@ -35,15 +35,17 @@ export interface SearchResponse {
   _cacheAgeSec?: number;
   // Pagination fields
   page?: number;
+  pageSize?: number;
   returnedCount?: number;
   totalAvailableEstimate?: number;
   providersStatus?: {
-    ebay: { ok: boolean; count: number; timedOut: boolean };
-    amazon: { ok: boolean; count: number; timedOut: boolean };
+    ebay: { ok: boolean; count: number; timedOut: boolean; hasMore?: boolean };
+    amazon: { ok: boolean; count: number; timedOut: boolean; hasMore?: boolean };
   };
   qRefined?: string;
   sourcesUsed?: string[];
   partial?: boolean;
+  incomplete?: boolean;
 }
 
 export function buildEmptyResponse(

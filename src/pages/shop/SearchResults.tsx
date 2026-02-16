@@ -288,9 +288,14 @@ export default function SearchResults() {
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
+    if (!sentinelRef.current) return;
     const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) handleLoadMore(); },
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        if (loading || loadingMore) return;
+        if (!hasMore) return;
+        handleLoadMore();
+      },
       { rootMargin: '400px' }
     );
     observer.observe(sentinelRef.current);

@@ -58,10 +58,15 @@ const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
-const TOTAL_BUDGET_MS = 4000; // Slightly more budget for fast-first strategy
-const FAST_MIN_FIRST_PAGE = 60; // Return page 0 as soon as we have this many items
-const REWRITE_BUDGET_MS = 800;
-const DB_BUDGET_MS = 500;
+const PAGE0_DEADLINE_MS = 1800;  // Hard deadline for page 0 (leave ~200ms for JSON/edge)
+const TOTAL_BUDGET_MS = 4000;    // Budget for page > 0
+const FAST_MIN_FIRST_PAGE = 60;  // Return page 0 as soon as we have this many items
+const REWRITE_BUDGET_MS = 600;   // Tighter rewrite budget
+const DB_BUDGET_MS_P0 = 400;     // DB budget on page 0
+const DB_BUDGET_MS = 500;        // DB budget on page > 0
+const PROVIDER_TIMEOUT_P0 = 1200; // Provider timeout on page 0
+const PROVIDER_TIMEOUT_PN = 3000; // Provider timeout on page > 0
+const AI_TIMEOUT_P0 = 300;       // AI refiner/translator timeout on page 0
 const ALT_QUERIES_MAX = 1;
 
 // ─── FAST PATH: DIRECT QUERY DETECTION ─────────────────────────────────────
@@ -118,6 +123,7 @@ Deno.serve(async (req: Request) => {
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT), 10)));
   const pageParam = Math.max(0, parseInt(url.searchParams.get("page") || "0", 10));
+  const isFirstPage = pageParam === 0;
   const providerParam = url.searchParams.get("provider") || null;
   const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("categoryKey") || url.searchParams.get("category") || url.searchParams.get("_recipeKey") || url.searchParams.get("recipeKey") || null;
   const lang = url.searchParams.get("lang") || "fr";
@@ -356,8 +362,14 @@ Deno.serve(async (req: Request) => {
         }
 
         // [Step 3] OpenAI translation if still French-likely and no translation yet
+        // On page 0: race with AI_TIMEOUT_P0 to avoid blocking
         if (isFrenchLikely && !frFallbackApplied) {
-          const aiResult = await callOpenAiTranslation(qNormLower, requestId);
+          const aiTranslateTimeout = isFirstPage ? AI_TIMEOUT_P0 : 2000;
+          const aiTranslatePromise = callOpenAiTranslation(qNormLower, requestId);
+          const aiResult = await Promise.race([
+            aiTranslatePromise,
+            new Promise<null>(r => setTimeout(() => r(null), aiTranslateTimeout)),
+          ]);
           if (aiResult) {
             if (!aiResult.unchanged) {
               qNorm = aiResult.translated_query;
@@ -366,7 +378,6 @@ Deno.serve(async (req: Request) => {
               frFallbackApplied = true;
               translateStatus = "MISS";
               translateProvider = "openai:gpt-4o-mini:v1";
-              // Cache the OpenAI translation (fire-and-forget)
               writeTranslationCache(qNormLower, aiResult.translated_query, aiResult.source_lang, "openai:gpt-4o-mini:v1", requestId);
               console.log(`[CATALOG_SEARCH] requestId=${requestId} openai_translate: "${qNormLower}" → "${aiResult.translated_query}"`);
             } else {
@@ -374,9 +385,9 @@ Deno.serve(async (req: Request) => {
               translateProvider = "openai:gpt-4o-mini:v1";
             }
           } else {
-            // Timeout or error — continue with original query
             translateStatus = "TIMEOUT";
             translateProvider = "";
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} openai_translate_timeout (${aiTranslateTimeout}ms) — using raw query`);
           }
         }
       }
@@ -429,6 +440,7 @@ Deno.serve(async (req: Request) => {
 
     // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
     // Skip AI entirely when preNormalizer matched (deterministic fast path)
+    // On page 0: race AI with AI_TIMEOUT_P0 to never block
     const directQuery = isDirectQuery(qNorm) || preNormSkipAI;
     const aiRefinePromise = preNormSkipAI
       ? Promise.resolve(null)
@@ -608,25 +620,28 @@ Deno.serve(async (req: Request) => {
     const isVehicle = isVehicleQuery(qNorm);
     const page = Math.floor(mixerCursor.ebayOffset / limit) + 1;
 
-    // ─── RESOLVE AI REFINER (skip await for fast path) ────────────────────────
+    // ─── RESOLVE AI REFINER (skip await for fast path / page 0) ─────────────
     const aiRefineStart = Date.now();
     let aiRefineResult: AiRefineResult | null = null;
     let aiExpandedTerms: string[] | null = null;
 
-    if (!directQuery) {
-      // Normal path: await AI refiner (already has 800ms internal timeout)
+    if (!directQuery && !isFirstPage) {
+      // Page > 0: await AI refiner normally (already has internal timeout)
       aiRefineResult = await aiRefinePromise;
       aiExpandedTerms = aiRefineResult?.expandedTerms || null;
     } else {
-      // Fast path: check if AI already resolved (non-blocking)
+      // Fast path OR page 0: race AI with short timeout, never block
+      const raceTimeout = isFirstPage ? AI_TIMEOUT_P0 : 50;
       const raceResult = await Promise.race([
         aiRefinePromise,
-        new Promise<null>((r) => setTimeout(() => r(null), 50)),
+        new Promise<null>((r) => setTimeout(() => r(null), raceTimeout)),
       ]);
       if (raceResult) {
         aiRefineResult = raceResult;
         aiExpandedTerms = raceResult.expandedTerms || null;
-        console.log(`[CATALOG_SEARCH] requestId=${requestId} fast_path_ai_resolved_early`);
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} fast_path_ai_resolved_early (${Date.now() - aiRefineStart}ms)`);
+      } else if (isFirstPage) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} page0_ai_skipped (>${raceTimeout}ms) — using raw query`);
       }
     }
     timings.aiRefine = Date.now() - aiRefineStart;
@@ -681,7 +696,7 @@ Deno.serve(async (req: Request) => {
 
     if (!directQuery && !cursor && !hasBuyingIntent) {
       try {
-        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), DB_BUDGET_MS));
+        const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
         const dbWork = searchDbFirst({
           supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId,
         });
@@ -738,16 +753,16 @@ Deno.serve(async (req: Request) => {
 
 
     const providerStartMs = Date.now();
-    // Dynamic timeout: page 0 is fast (2-2.5s), later pages get more time (3-4s)
-    // Vehicle queries also get extra time on eBay Motors
+    // ─── FAST-FIRST: tight timeouts on page 0, relaxed on page > 0 ──────────
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
-    const isFirstPage = pageParam === 0 && !cursor;
     const elapsedBeforeProviders = Date.now() - startTime;
-    const baseTimeout = isFirstPage ? (isVehicleIntent ? 2500 : 2200) : (isVehicleIntent ? 4000 : 3500);
-    const PROVIDER_TIMEOUT_MS = Math.min(
-      baseTimeout,
-      Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200)
-    );
+    // Page 0: enforce hard deadline minus elapsed time; page > 0: generous
+    const remainingBudget = isFirstPage
+      ? Math.max(800, PAGE0_DEADLINE_MS - elapsedBeforeProviders - 100)
+      : Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
+    const PROVIDER_TIMEOUT_MS = isFirstPage
+      ? Math.min(PROVIDER_TIMEOUT_P0, remainingBudget)
+      : Math.min(isVehicleIntent ? 4000 : PROVIDER_TIMEOUT_PN, remainingBudget);
 
     // For vehicle_listing intent, force eBay Motors category
     const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };
@@ -771,9 +786,8 @@ Deno.serve(async (req: Request) => {
       [amazonSettled, ebaySettled] = settled;
     } catch {
       providerTimedOut = true;
-      console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms`);
-      // CRITICAL FIX: Even on timeout, check if providers already settled
-      // eBay may have returned in 3s but Amazon is still pending at 4s
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms (page=${pageParam})`);
+      // Even on timeout, check if providers already settled
       const partialSettled = await providerPromise; // allSettled never rejects
       amazonSettled = partialSettled[0];
       ebaySettled = partialSettled[1];
@@ -831,22 +845,21 @@ Deno.serve(async (req: Request) => {
     const totalProviderItems = amazonItems.length + ebayItems.length;
     const altQueries = aiRefineResult?.alt || [];
     const elapsedSoFar = Date.now() - startTime;
-    const budgetExceeded = elapsedSoFar > TOTAL_BUDGET_MS;
+    const activeBudget = isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS;
+    const budgetExceeded = elapsedSoFar > activeBudget;
     
-    // Appliance/fashion intents with enough results skip alt queries to prevent dilution
+    // Page 0: NEVER run alt queries unless results are critically low (<10)
+    // Page > 0: run alt queries if results are low and budget allows
+    const skipAltOnPage0 = isFirstPage && totalProviderItems >= 10;
     const applianceIntentSufficient = effectiveIntent.intentKey === "appliance_fridge" && totalProviderItems >= 20;
     const fashionIntentSufficient = effectiveIntent.intentKey === "fashion" && totalProviderItems >= 20;
-    // FIX: On page 0, skip alt queries unless results are very low (<10) — prevents 2-4s extra delay
-    const skipAltOnPage0 = isFirstPage && totalProviderItems >= 10;
     if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient && !fashionIntentSufficient && !skipAltOnPage0) {
       let altAttempts = 0;
-      // Try alt queries from AI refiner (max ALT_QUERIES_MAX = 1)
       for (const altQ of altQueries) {
         if (altAttempts >= ALT_QUERIES_MAX) break;
         if (amazonItems.length + ebayItems.length >= limit) break;
         if (altQ === providerQuery || altQ === qCanonicalized) continue;
-        // Re-check budget before each attempt
-        if (Date.now() - startTime > TOTAL_BUDGET_MS) {
+        if (Date.now() - startTime > activeBudget) {
           console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_BUDGET_EXCEEDED — stopping`);
           break;
         }
@@ -854,8 +867,8 @@ Deno.serve(async (req: Request) => {
         altAttempts++;
         console.log(`[CATALOG_SEARCH] requestId=${requestId} alt_query_attempt q="${altQ}" (${altAttempts}/${ALT_QUERIES_MAX})`);
         try {
-          const altTimeout = Math.min(2000, TOTAL_BUDGET_MS - (Date.now() - startTime));
-          if (altTimeout <= 200) break; // Not enough time
+          const altTimeout = Math.min(2000, activeBudget - (Date.now() - startTime));
+          if (altTimeout <= 200) break;
           const altPromise = Promise.allSettled([
             skipAmazon
               ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
@@ -881,8 +894,10 @@ Deno.serve(async (req: Request) => {
           console.warn(`[CATALOG_SEARCH] requestId=${requestId} alt_query_timeout`);
         }
       }
+    } else if (isFirstPage && totalProviderItems >= 10) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: page0 fast path (${totalProviderItems} items already)`);
     } else if (budgetExceeded) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: budget exceeded (${elapsedSoFar}ms > ${TOTAL_BUDGET_MS}ms)`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: budget exceeded (${elapsedSoFar}ms > ${activeBudget}ms)`);
     } else if (directQuery) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: fast path`);
     }

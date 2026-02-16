@@ -767,37 +767,55 @@ Deno.serve(async (req: Request) => {
     // For vehicle_listing intent, force eBay Motors category
     const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };
 
-    const providerPromise = Promise.allSettled([
-      skipAmazon
-        ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
-        : fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
-      fetchEbayItems(ebayParamsForIntent),
-    ]);
-
-    let amazonSettled: PromiseSettledResult<any>;
-    let ebaySettled: PromiseSettledResult<any>;
+    // ─── TRUE HARD DEADLINE: non-blocking provider fetch ────────────────────
+    // Track provider completion with flags + partial results.
+    // On page 0, we NEVER await providers after the deadline — return immediately.
+    let amazonDone = false;
+    let ebayDone = false;
+    let amazonResult: any = null;
+    let ebayResult: any = null;
+    let amazonError: string | null = null;
+    let ebayError: string | null = null;
     let providerTimedOut = false;
 
-    try {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("PROVIDER_TIMEOUT")), PROVIDER_TIMEOUT_MS)
-      );
-      const settled = await Promise.race([providerPromise, timeoutPromise]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
-      [amazonSettled, ebaySettled] = settled;
-    } catch {
-      providerTimedOut = true;
-      console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms (page=${pageParam})`);
-      // Even on timeout, check if providers already settled
-      const partialSettled = await providerPromise; // allSettled never rejects
-      amazonSettled = partialSettled[0];
-      ebaySettled = partialSettled[1];
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} post_timeout_recovery: amazon=${amazonSettled.status} ebay=${ebaySettled.status}`);
+    const amazonPromise = (skipAmazon
+      ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+      : fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId })
+    ).then(r => { amazonResult = r; amazonDone = true; return r; })
+     .catch(e => { amazonError = String(e?.message || "unknown").slice(0, 100); amazonDone = true; return null; });
+
+    const ebayPromise = fetchEbayItems(ebayParamsForIntent)
+      .then(r => { ebayResult = r; ebayDone = true; return r; })
+      .catch(e => { ebayError = String(e?.message || "unknown").slice(0, 100); ebayDone = true; return null; });
+
+    if (isFirstPage) {
+      // ─── PAGE 0: Race providers against hard deadline, NEVER block after ───
+      const deadlineTimer = new Promise<"DEADLINE">(r => setTimeout(() => r("DEADLINE"), PROVIDER_TIMEOUT_MS));
+      
+      // Race: wait until deadline OR both providers finish, whichever first
+      const bothDone = Promise.all([amazonPromise, ebayPromise]).then(() => "DONE" as const);
+      const raceResult = await Promise.race([bothDone, deadlineTimer]);
+      
+      if (raceResult === "DEADLINE") {
+        providerTimedOut = true;
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} PAGE0_HARD_DEADLINE after ${PROVIDER_TIMEOUT_MS}ms — amazonDone=${amazonDone} ebayDone=${ebayDone}`);
+        // DO NOT await providers — use whatever we have right now
+      }
+    } else {
+      // ─── PAGE > 0: Standard timeout with allSettled ───────────────────────
+      const timeoutPromise = new Promise<"TIMEOUT">(r => setTimeout(() => r("TIMEOUT"), PROVIDER_TIMEOUT_MS));
+      const bothDone = Promise.all([amazonPromise, ebayPromise]).then(() => "DONE" as const);
+      const raceResult = await Promise.race([bothDone, timeoutPromise]);
+      if (raceResult === "TIMEOUT") {
+        providerTimedOut = true;
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms (page=${pageParam})`);
+      }
     }
 
     const providerMs = Date.now() - providerStartMs;
     timings.providers = providerMs;
 
-    // Extract results
+    // Extract results from flag-based provider tracking
     let amazonItems: CatalogItem[] = [];
     let amazonHasMore = false;
     let amazonCacheHit = false;
@@ -806,35 +824,45 @@ Deno.serve(async (req: Request) => {
     let amazonLiveUsed = false;
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
-    if (amazonSettled.status === "fulfilled") {
-      const r = amazonSettled.value;
+    if (amazonDone && amazonResult) {
+      const r = amazonResult;
       amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
       amazonBudgetRemaining = r.budgetRemaining; amazonStatus = r.status;
       amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
       amazonDebug.ok = true; amazonDebug.count = r.items.length; amazonDebug.ms = providerMs;
-    } else {
-      console.error(`[CATALOG_SEARCH] requestId=${requestId} amazon_err:`, amazonSettled.reason);
+    } else if (amazonDone && amazonError) {
+      console.error(`[CATALOG_SEARCH] requestId=${requestId} amazon_err:`, amazonError);
       amazonStatus = "error";
-      amazonDebug.error = String((amazonSettled as PromiseRejectedResult).reason?.message || "unknown").slice(0, 100);
+      amazonDebug.error = amazonError;
       amazonDebug.ms = providerMs;
+    } else if (!amazonDone) {
+      // Provider didn't finish before deadline
+      amazonStatus = "timeout";
+      amazonDebug.error = "deadline_exceeded";
+      amazonDebug.ms = providerMs;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} amazon_not_done_at_deadline`);
     }
 
     let ebayItems: CatalogItem[] = [];
     let ebayHasMore = false;
     let ebayTotal = 0;
 
-    if (ebaySettled.status === "fulfilled") {
-      const r = ebaySettled.value;
+    if (ebayDone && ebayResult) {
+      const r = ebayResult;
       ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
       ebayDebug.ok = true; ebayDebug.count = r.items.length; ebayDebug.ms = providerMs;
       (ebayDebug as any).rawCount = r.rawCount ?? r.items.length;
       (ebayDebug as any).mappedCount = r.mappedCount ?? r.items.length;
       (ebayDebug as any).filteredCount = r.filteredCount ?? r.items.length;
       (ebayDebug as any).failOpenUsed = r.failOpenUsed ?? false;
-    } else {
-      console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebaySettled.reason);
-      ebayDebug.error = String((ebaySettled as PromiseRejectedResult).reason?.message || "unknown").slice(0, 100);
+    } else if (ebayDone && ebayError) {
+      console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebayError);
+      ebayDebug.error = ebayError;
       ebayDebug.ms = providerMs;
+    } else if (!ebayDone) {
+      ebayDebug.error = "deadline_exceeded";
+      ebayDebug.ms = providerMs;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} ebay_not_done_at_deadline`);
     }
 
     const providerItemCount = amazonItems.length + ebayItems.length;
@@ -1035,14 +1063,13 @@ Deno.serve(async (req: Request) => {
     const durationMs = Date.now() - startTime;
 
     // ─── FIX: Robust hasMore logic ──────────────────────────────────────────
-    // If a provider timed out, we can't know if there are more results — assume yes
-    const incomplete = providerTimedOut || 
-      (amazonSettled.status === "rejected") || 
-      (ebaySettled.status === "rejected");
+    // If a provider timed out or didn't finish, we can't know if there are more — assume yes
+    const incomplete = providerTimedOut || !amazonDone || !ebayDone ||
+      (amazonDone && !!amazonError) || (ebayDone && !!ebayError);
     
     // Per-provider hasMore
-    const ebayProviderHasMore = ebayHasMore || (ebaySettled.status === "rejected");
-    const amazonProviderHasMore = amazonHasMore || (amazonSettled.status === "rejected");
+    const ebayProviderHasMore = ebayHasMore || !ebayDone || (ebayDone && !!ebayError);
+    const amazonProviderHasMore = amazonHasMore || !amazonDone || (amazonDone && !!amazonError);
     
     // Overall hasMore: true if any provider has more OR if incomplete (timeout)
     const robustHasMore = (pageParam < (maxPages - 1)) && (
@@ -1074,7 +1101,7 @@ Deno.serve(async (req: Request) => {
       isVehicle, isHeavyEquipment, hasBuyingIntent,
       scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },
     };
-    // DEV-only pre-normalizer debug
+    // DEV-only pre-normalizer + deadline debug
     if (DEV) {
       searchDebug.preNorm = {
         qRaw: qOriginal,
@@ -1085,6 +1112,13 @@ Deno.serve(async (req: Request) => {
         inferredCategory: preNorm.inferredCategory,
         skipAI: preNorm.skipAI,
         category_key_applied: categoryKey || null,
+      };
+      searchDebug.deadline = {
+        deadlineHit: providerTimedOut,
+        elapsedMs: Date.now() - startTime,
+        counts: { db: dbCount, amazon: amazonItems.length, ebay: ebayItems.length, finalUnique: finalCount },
+        providersDone: { amazonDone, ebayDone },
+        incomplete,
       };
     }
 
@@ -1105,8 +1139,8 @@ Deno.serve(async (req: Request) => {
       returnedCount: finalItems.length,
       totalAvailableEstimate: Math.max(ebayTotal, amazonItems.length + ebayItems.length, finalItems.length),
       providersStatus: {
-        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: providerTimedOut && !ebayDebug.ok, hasMore: ebayProviderHasMore },
-        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: providerTimedOut && !amazonDebug.ok, hasMore: amazonProviderHasMore },
+        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: !ebayDone || (providerTimedOut && !ebayDebug.ok), hasMore: ebayProviderHasMore },
+        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: !amazonDone || (providerTimedOut && !amazonDebug.ok), hasMore: amazonProviderHasMore },
       },
       qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
       sourcesUsed: sourceServed,

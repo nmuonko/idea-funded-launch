@@ -327,27 +327,27 @@ export default function SearchResults() {
       <main className="px-4 py-6">
         <div className="container mx-auto">
           {/* Results Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-6 mt-2">
+            <div className="min-w-0 shrink">
               {query && (
-                <h1 className="text-lg md:text-xl font-bold text-white">
+                <h1 className="text-lg md:text-xl font-bold text-white whitespace-normal break-words leading-snug">
                   {shop.resultsFor || 'Results for'} "{query}"
                 </h1>
               )}
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                 {!loading && (
-                  <p className="text-sm text-white/60">
+                  <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
                     {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
                   </p>
                 )}
                 {isRevalidating && (
-                  <span className="inline-flex items-center gap-1 text-xs text-blue-400/80">
-                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span className="inline-flex items-center gap-1 text-xs text-blue-400/80 whitespace-normal">
+                    <RefreshCw className="h-3 w-3 flex-shrink-0 animate-spin" />
                     {shop.updating || 'Updating…'}
                   </span>
                 )}
                 {prefetchingNext && !loading && (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 whitespace-normal">
                     <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                     {shop.fetchingMoreSources || 'Loading more sources…'}
                   </span>

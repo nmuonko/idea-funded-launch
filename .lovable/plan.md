@@ -1,67 +1,41 @@
 
+# Prettier "Partager & Gagner" Referral Drawer
 
-# Fix: Products Not Loading Beyond 100
+The current drawer is functional but visually flat -- plain dark background, no visual hierarchy, and basic form inputs. Here's the redesign plan:
 
-## Root Cause
+## Visual Improvements
 
-There are **two competing pagination systems** in `SearchResults.tsx` that both try to advance pages simultaneously:
+### 1. Add a decorative header section
+- Gradient background header (orange-to-yellow) with a large centered Gift icon and animated sparkle effect
+- Title in bold white text over the gradient
+- Subtitle/description below with better typography and spacing
 
-1. **`autoFillToCap`** -- an async loop that manually increments `pageRef.current` and calls `fetchProducts`
-2. **Sentinel re-check** -- a `useEffect` that calls `handleLoadMore` when loading finishes and the sentinel is still visible
+### 2. Improve the registration form
+- Card-style container with subtle glassmorphism (`backdrop-blur`, semi-transparent background)
+- Rounded input fields with icons inside (User, Mail, Phone icons as prefixes)
+- Better label styling with proper spacing
+- The "Obtenir mon lien" button gets a larger size, rounded-full shape, and a subtle shadow/glow effect
 
-Both systems race to set `pageRef.current`, causing:
-- Page skips (autoFill sets page to 2 while sentinel tries page 1)
-- The `lastRequestedPageRef` guard blocking legitimate requests
-- The `loadingMoreRef` staying stale because React's `useEffect` sync hasn't fired by the time autoFill checks it
+### 3. Improve the "link generated" state
+- Show a success animation/checkmark when the link is generated
+- Display the referral link in a styled card with a gradient border
+- Larger, more prominent copy button with animation on click
 
-## Solution
+### 4. Polish the DrawerContent
+- Add a subtle handle bar indicator at the top (the small gray pill)
+- Rounded top corners with more padding
+- Smooth entry animation
 
-**Remove `autoFillToCap` entirely** and rely solely on the sentinel re-check pattern, which is simpler and self-correcting. The re-check already chains correctly:
+## Technical Changes
 
-```text
-Page 0 loads -> re-check fires -> handleLoadMore(page 1)
-Page 1 loads -> re-check fires -> handleLoadMore(page 2)
-Page 2 loads -> re-check fires -> handleLoadMore(page 3)
-...until hasMore=false or MAX_PAGES reached
-```
+**Single file**: `src/components/shop/InviteEarn.tsx`
 
-The sentinel has `rootMargin: '800px'`, meaning it's "visible" immediately after products render, so no scrolling is needed.
+- Add `User, Mail, Phone, Sparkles` imports from lucide-react
+- Restructure the JSX layout:
+  - Top section: gradient banner with icon and title
+  - Middle: description text
+  - Bottom: form fields with icon prefixes or the referral link display
+- Use Tailwind classes for the gradient header (`bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400`), glassmorphism on the form card (`bg-white/10 backdrop-blur-md`), and glow on the CTA button (`shadow-[0_0_20px_rgba(249,115,22,0.3)]`)
+- Input fields wrapped in a `div` with a leading icon and proper rounded styling
 
-## Changes (single file: `src/pages/shop/SearchResults.tsx`)
-
-### 1. Remove autoFill state and refs
-Delete:
-- `autoFillRunning` state
-- `autoFillAbortRef` ref
-- `productsRef` ref and its sync effect
-- `autoFillToCap` function
-- Auto-trigger `useEffect` (lines 473-482)
-
-### 2. Remove autoFill UI elements
-Delete:
-- "Chargement automatique..." spinner text
-- "Charger plus automatiquement" button
-- "Stop" button
-- `showAutoLoadDebug` and `showProviderDebug` state (already removed from UI but still declared)
-
-### 3. Ensure re-check works reliably
-The existing re-check pattern is correct. Just verify:
-- Sentinel is always rendered (already done: `<div ref={sentinelRef} style={{ height: 1 }} />`)
-- Re-check fires on every `loading`/`loadingMore` state change (already done)
-- `handleLoadMore` uses refs for all guards (already done)
-- `lastRequestedPageRef` resets on new search (already done)
-
-### 4. Clean up unused state declarations
-Remove `showProviderDebug`, `showAutoLoadDebug`, `autoFillRunning` declarations since their UI was already removed.
-
-## Expected Behavior
-
-- Search "iphone 11": Page 0 loads ~100 items, then pages 1-4 auto-chain via re-check, reaching ~500
-- No user interaction needed -- sentinel with 800px rootMargin triggers immediately
-- "Load More" button remains as manual fallback
-- Clean console logs show `[SENTINEL_RECHECK]` firing for each page
-
-## Technical Detail
-
-The re-check `useEffect` depends on `[loading, loadingMore, hasMore, handleLoadMore]`. Each page fetch toggles `loadingMore` (true then false), which triggers the effect. The 150ms setTimeout ensures refs are synced before calling `handleLoadMore`. The `lastRequestedPageRef` guard prevents duplicate requests within the same cycle.
-
+No backend changes needed. No new dependencies required.

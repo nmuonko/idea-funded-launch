@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Gift, Copy, Check, Loader2 } from 'lucide-react';
+import { Gift, Copy, Check, Loader2, User, Mail, Phone, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -63,7 +62,6 @@ export function InviteEarn({ language }: InviteEarnProps) {
   const { toast } = useToast();
   const lang = (t as any)[language] || t.fr;
 
-  // Check if already registered
   const storedCode = (() => {
     try {
       return localStorage.getItem(REF_CODE_KEY) || null;
@@ -109,69 +107,99 @@ export function InviteEarn({ language }: InviteEarnProps) {
   };
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center gap-3">
-        <Gift className="h-5 w-5 text-orange-400" />
-        <span className="text-white font-medium">{lang.title}</span>
+    <div className="overflow-hidden rounded-2xl">
+      {/* Gradient Header */}
+      <div className="relative bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400 px-6 py-8 text-center overflow-hidden">
+        {/* Decorative sparkles */}
+        <Sparkles className="absolute top-3 right-4 h-5 w-5 text-white/40 animate-pulse" />
+        <Sparkles className="absolute bottom-4 left-5 h-4 w-4 text-white/30 animate-pulse [animation-delay:0.5s]" />
+        <Sparkles className="absolute top-6 left-10 h-3 w-3 text-yellow-200/50 animate-pulse [animation-delay:1s]" />
+
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm">
+          <Gift className="h-7 w-7 text-white" />
+        </div>
+        <h3 className="text-xl font-bold text-white tracking-tight">{lang.title}</h3>
+        <p className="mt-2 text-sm text-white/80 max-w-[280px] mx-auto leading-relaxed">
+          {lang.description}
+        </p>
       </div>
 
-      <p className="text-white/60 text-sm">{lang.description}</p>
+      {/* Content */}
+      <div className="bg-[hsl(var(--background))]/95 backdrop-blur-md p-5">
+        {refCode ? (
+          <div className="space-y-4">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {lang.shareTitle}
+            </p>
 
-      {refCode ? (
-        <>
-          <p className="text-white/40 text-xs">{lang.shareTitle}</p>
-          <div className="bg-white/5 rounded-lg px-3 py-2 text-sm text-orange-300 font-mono break-all">
-            https://afrishop-usa.com/get?ref={refCode}
+            {/* Link card with gradient border */}
+            <div className="relative rounded-xl p-[1px] bg-gradient-to-r from-orange-500 to-yellow-400">
+              <div className="rounded-xl bg-[hsl(var(--background))] px-4 py-3">
+                <p className="text-sm font-mono text-orange-400 break-all leading-relaxed">
+                  https://afrishop-usa.com/get?ref={refCode}
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleCopy}
+              className={`w-full h-12 rounded-full text-base font-semibold transition-all duration-300 ${
+                copied
+                  ? 'bg-green-500 hover:bg-green-600 text-white'
+                  : 'bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white shadow-[0_0_20px_rgba(249,115,22,0.3)]'
+              }`}
+            >
+              {copied ? <Check className="h-5 w-5 mr-2" /> : <Copy className="h-5 w-5 mr-2" />}
+              {copied ? lang.copied : lang.copyLink}
+            </Button>
           </div>
-          <Button
-            onClick={handleCopy}
-            variant="outline"
-            className="w-full border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-          >
-            {copied ? <Check className="h-4 w-4 mr-2" /> : <Copy className="h-4 w-4 mr-2" />}
-            {copied ? lang.copied : lang.copyLink}
-          </Button>
-        </>
-      ) : (
-        <div className="space-y-3">
-          <div>
-            <Label className="text-white/70 text-xs">{lang.namePlaceholder}</Label>
-            <Input
-              value={form.full_name}
-              onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-              placeholder={lang.namePlaceholder}
-              className="bg-white/5 border-white/20 text-white"
-            />
+        ) : (
+          <div className="space-y-3">
+            {/* Name */}
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={form.full_name}
+                onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
+                placeholder={lang.namePlaceholder}
+                className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50 focus:border-orange-400 transition-colors"
+              />
+            </div>
+
+            {/* Email */}
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="email"
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                placeholder={lang.emailPlaceholder}
+                className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50 focus:border-orange-400 transition-colors"
+              />
+            </div>
+
+            {/* Phone */}
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={form.phone}
+                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder={lang.phonePlaceholder}
+                className="pl-10 h-11 rounded-xl bg-muted/50 border-border/50 focus:border-orange-400 transition-colors"
+              />
+            </div>
+
+            <Button
+              onClick={handleRegister}
+              disabled={loading}
+              className="w-full h-12 rounded-full bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 text-white font-semibold text-base shadow-[0_0_20px_rgba(249,115,22,0.3)] transition-all duration-300 mt-1"
+            >
+              {loading ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Gift className="h-5 w-5 mr-2" />}
+              {lang.register}
+            </Button>
           </div>
-          <div>
-            <Label className="text-white/70 text-xs">{lang.emailPlaceholder}</Label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              placeholder={lang.emailPlaceholder}
-              className="bg-white/5 border-white/20 text-white"
-            />
-          </div>
-          <div>
-            <Label className="text-white/70 text-xs">{lang.phonePlaceholder}</Label>
-            <Input
-              value={form.phone}
-              onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-              placeholder={lang.phonePlaceholder}
-              className="bg-white/5 border-white/20 text-white"
-            />
-          </div>
-          <Button
-            onClick={handleRegister}
-            disabled={loading}
-            className="w-full bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-semibold"
-          >
-            {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Gift className="h-4 w-4 mr-2" />}
-            {lang.register}
-          </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

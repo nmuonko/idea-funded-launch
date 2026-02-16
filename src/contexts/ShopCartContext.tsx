@@ -391,7 +391,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           }
           
           if (item.provider === 'ebay') {
-            productUrl = `https://www.ebay.com/itm/${cleanId}`;
+            // Extract numeric item ID from eBay's v1|itemId|variationId format
+            const ebayItemId = cleanId.startsWith('v1|') ? cleanId.split('|')[1] : cleanId;
+            productUrl = `https://www.ebay.com/itm/${ebayItemId}`;
           } else {
             productUrl = `https://www.amazon.com/dp/${cleanId}`;
           }

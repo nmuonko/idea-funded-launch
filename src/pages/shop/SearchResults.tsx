@@ -15,7 +15,8 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
 const PAGE_SIZE = 100;
-const MAX_PAGES = 5; // 5 pages × 100 = 500 max
+const HARD_MAX_ITEMS = 500;
+const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
 
 /** Generate a unique key per product for deduplication */
 function productKey(p: Product): string {
@@ -287,14 +288,14 @@ export default function SearchResults() {
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || loading || loadingMore || prefetchingNext) return;
+    if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
     const observer = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) handleLoadMore(); },
       { rootMargin: '400px' }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, prefetchingNext, handleLoadMore]);
+  }, [hasMore, loading, loadingMore, handleLoadMore]);
 
   const handleApplyFilters = () => {
     setPage(0);
@@ -420,9 +421,9 @@ export default function SearchResults() {
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
-          {/* Infinite scroll sentinel */}
-          {!loading && hasMore && products.length > 0 && !prefetchingNext && (
-            <div ref={sentinelRef} className="h-4" />
+          {/* Infinite scroll sentinel — ALWAYS rendered when more pages possible */}
+          {hasMore && products.length > 0 && (
+            <div ref={sentinelRef} style={{ height: 1 }} />
           )}
 
           {/* Loading more indicator */}

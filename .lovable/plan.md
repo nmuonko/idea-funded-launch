@@ -1,41 +1,39 @@
 
-# Prettier "Partager & Gagner" Referral Drawer
 
-The current drawer is functional but visually flat -- plain dark background, no visual hierarchy, and basic form inputs. Here's the redesign plan:
+# Fix Broken eBay Item Links in Admin Orders
 
-## Visual Improvements
+## Problem
+When clicking on item links in the admin Orders page, eBay links show "page not found." The URLs stored in the database look like:
+- `https://www.ebay.com/itm/v1|225470519349|0`
 
-### 1. Add a decorative header section
-- Gradient background header (orange-to-yellow) with a large centered Gift icon and animated sparkle effect
-- Title in bold white text over the gradient
-- Subtitle/description below with better typography and spacing
+The pipe characters (`|`) get URL-encoded to `%7C`, producing invalid eBay URLs. The correct URL should be:
+- `https://www.ebay.com/itm/225470519349`
 
-### 2. Improve the registration form
-- Card-style container with subtle glassmorphism (`backdrop-blur`, semi-transparent background)
-- Rounded input fields with icons inside (User, Mail, Phone icons as prefixes)
-- Better label styling with proper spacing
-- The "Obtenir mon lien" button gets a larger size, rounded-full shape, and a subtle shadow/glow effect
+## Root Cause
+eBay's Browse API uses a variation ID format (`v1|<itemId>|<variationId>`), and this raw format is being passed directly into the URL when creating order items. The numeric item ID needs to be extracted first.
 
-### 3. Improve the "link generated" state
-- Show a success animation/checkmark when the link is generated
-- Display the referral link in a styled card with a gradient border
-- Larger, more prominent copy button with animation on click
+## Fix (2 files)
 
-### 4. Polish the DrawerContent
-- Add a subtle handle bar indicator at the top (the small gray pill)
-- Rounded top corners with more padding
-- Smooth entry animation
+### 1. `src/contexts/ShopCartContext.tsx` -- Fix URL construction
+When building the eBay product URL from a product ID, extract the numeric item ID from the `v1|...|...` format before constructing the URL.
 
-## Technical Changes
+```
+Before:  productUrl = `https://www.ebay.com/itm/${cleanId}`
+         // cleanId = "v1|225470519349|0" -> broken URL
 
-**Single file**: `src/components/shop/InviteEarn.tsx`
+After:   Extract "225470519349" from "v1|225470519349|0", then
+         productUrl = `https://www.ebay.com/itm/225470519349"
+```
 
-- Add `User, Mail, Phone, Sparkles` imports from lucide-react
-- Restructure the JSX layout:
-  - Top section: gradient banner with icon and title
-  - Middle: description text
-  - Bottom: form fields with icon prefixes or the referral link display
-- Use Tailwind classes for the gradient header (`bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400`), glassmorphism on the form card (`bg-white/10 backdrop-blur-md`), and glow on the CTA button (`shadow-[0_0_20px_rgba(249,115,22,0.3)]`)
-- Input fields wrapped in a `div` with a leading icon and proper rounded styling
+Add a small helper that checks if the ID starts with `v1|` and splits on `|` to get the second segment (the actual eBay listing ID).
 
-No backend changes needed. No new dependencies required.
+### 2. Fix existing broken URLs in Live database
+Run a SQL update on the **Live** environment to correct the 4 affected order items for Hattie's order. This converts URLs like `https://www.ebay.com/itm/v1|225470519349|0` to `https://www.ebay.com/itm/225470519349`.
+
+The SQL will use a regex to extract the numeric ID from the `v1|...|...` pattern in the `product_url` column.
+
+### 3. Also fix the edge function that may produce these URLs
+Review `catalog-product/index.ts` and `catalog-refresh-seeded/index.ts` to ensure the `productUrl` field returned for eBay items uses a clean URL format (`/itm/<numericId>`) rather than the raw API ID format.
+
+## No new dependencies needed.
+

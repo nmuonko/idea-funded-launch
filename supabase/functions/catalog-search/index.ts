@@ -51,11 +51,13 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 500;
+const DEFAULT_LIMIT = 100;   // Default page size
+const MAX_LIMIT = 100;       // Max page size (eBay hard limit = 100)
+const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
-const TOTAL_BUDGET_MS = 3500;
+const TOTAL_BUDGET_MS = 4000; // Slightly more budget for fast-first strategy
+const FAST_MIN_FIRST_PAGE = 60; // Return page 0 as soon as we have this many items
 const REWRITE_BUDGET_MS = 800;
 const DB_BUDGET_MS = 500;
 const ALT_QUERIES_MAX = 1;
@@ -107,8 +109,8 @@ Deno.serve(async (req: Request) => {
   const rawQuery = url.searchParams.get("q") || "";
   const qOriginal = rawQuery.trim();
   const cursor = url.searchParams.get("cursor") || null;
-  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
-  const pageParam = parseInt(url.searchParams.get("page") || "0", 10);
+  const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT), 10)));
+  const pageParam = Math.max(0, parseInt(url.searchParams.get("page") || "0", 10));
   const providerParam = url.searchParams.get("provider") || null;
   const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
   const lang = url.searchParams.get("lang") || "fr";
@@ -697,7 +699,7 @@ Deno.serve(async (req: Request) => {
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
     const isFirstPage = pageParam === 0 && !cursor;
     const elapsedBeforeProviders = Date.now() - startTime;
-    const baseTimeout = isFirstPage ? (isVehicleIntent ? 2500 : 2000) : (isVehicleIntent ? 4000 : 3000);
+    const baseTimeout = isFirstPage ? (isVehicleIntent ? 2500 : 2200) : (isVehicleIntent ? 4000 : 3500);
     const PROVIDER_TIMEOUT_MS = Math.min(
       baseTimeout,
       Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200)

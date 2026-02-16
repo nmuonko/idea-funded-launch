@@ -637,56 +637,8 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {/* Debug + Auto-Load Debug */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button
-              onClick={() => setShowAutoLoadDebug(v => !v)}
-              className="text-xs text-white/70 hover:text-white underline"
-            >
-              {showAutoLoadDebug ? 'Hide Auto-Load Debug' : 'Show Auto-Load Debug'}
-            </button>
-            {providersStatus && (
-              <button
-                onClick={() => setShowProviderDebug(v => !v)}
-                className="text-xs text-white/40 hover:text-white/70 underline"
-              >
-                {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
-              </button>
-            )}
-            <button
-              onClick={() => handleLoadMore()}
-              className="text-xs text-cyan-400 hover:text-cyan-300 underline"
-            >
-              Force Load Next Page
-            </button>
-          </div>
-          {showAutoLoadDebug && (
-            <pre className="mb-4 p-2 rounded text-xs text-white/70 bg-black/30 overflow-x-auto max-h-32">
-              {JSON.stringify({
-                page,
-                pageRef: pageRef.current,
-                hasMore,
-                loading,
-                loadingMore,
-                sentinelVisible: sentinelVisibleRef.current,
-                lastRequestedPage: lastRequestedPageRef.current,
-                productsLoaded: products.length,
-                autoFillRunning,
-              }, null, 2)}
-            </pre>
-          )}
-          {showProviderDebug && providersStatus && (
-            <pre className="mb-4 p-3 rounded text-xs text-white/60 bg-white/5 border border-white/10 overflow-x-auto max-h-40">
-              {JSON.stringify({
-                amazon: providersStatus.amazon,
-                ebay: providersStatus.ebay,
-                hasMore,
-                productsLoaded: products.length,
-                page,
-                incomplete,
-              }, null, 2)}
-            </pre>
-          )}
+
+
 
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />

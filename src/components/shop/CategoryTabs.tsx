@@ -145,7 +145,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   };
 
   return (
-    <ScrollArea className={cn("w-full whitespace-nowrap", className)}>
+    <ScrollArea className={cn("w-full", className)}>
       <div className="flex gap-2 py-2 snap-x snap-mandatory">
         {tabs.map((tab) => (
           <button
@@ -159,7 +159,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             )}
           >
             {tab.icon}
-            {tab.title}
+            <span className="whitespace-nowrap">{tab.title}</span>
           </button>
         ))}
       </div>

@@ -54,7 +54,7 @@ export default function SearchResults() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [isRevalidating, setIsRevalidating] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(0); // 0-based page index
+  const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
@@ -63,10 +63,10 @@ export default function SearchResults() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Persistent seenIds across pages — reset on new search
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
+  const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -87,18 +87,15 @@ export default function SearchResults() {
     refurbished: 'refurbished phone laptop',
   };
 
-  /** Build URL for a given page */
   const buildFetchUrl = useCallback((pageNum: number) => {
     const IGNORED_CATEGORIES = new Set(['', 'all', 'home', 'accueil']);
     const effectiveCategory = IGNORED_CATEGORIES.has(category.toLowerCase()) ? '' : category;
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
     const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
-    // Send raw query — backend handles its own normalization
     url.searchParams.set('q', searchQuery.trim());
     url.searchParams.set('limit', String(PAGE_SIZE));
     url.searchParams.set('page', String(pageNum));
 
-    // Only send category when it's a real filter, not home/accueil
     if (effectiveCategory) {
       url.searchParams.set('category_key', effectiveCategory);
     }
@@ -111,15 +108,26 @@ export default function SearchResults() {
       url.searchParams.set('filters', stableStringify(filters));
     }
 
-    console.log('[SEARCH_DEBUG] fetchUrl:', url.toString());
     return url.toString();
   }, [query, category, sort, priceRange]);
 
-  // Track current query identity so prefetch can check staleness
   const searchIdentityRef = useRef('');
 
+  /** Map raw API items to Product interface */
+  function mapItems(items: any[]): Product[] {
+    return items.map((item: any) => ({
+      id: item.provider_product_id || item.id,
+      provider: item.provider || 'amazon',
+      title: item.title || 'Product',
+      imageUrl: item.image_url || item.imageUrl || '',
+      priceUsd: item.price_usd || item.priceUsd || 0,
+      rating: item.rating,
+      inStock: item.in_stock !== false,
+      productUrl: item.product_url,
+    }));
+  }
+
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
-    // Only abort in-flight requests for NEW searches (page 0), not pagination
     if (pageNum === 0 && abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -129,22 +137,27 @@ export default function SearchResults() {
     }
 
     const currentIdentity = `${query}|${category}|${sort}`;
-
-    // Track search token for stale-request detection
     let token: number | null = null;
 
-    // Reset seenIds on fresh search
+    // Full reset on new search
     if (pageNum === 0 && !append) {
       activeSearchTokenRef.current += 1;
       token = activeSearchTokenRef.current;
       seenIdsRef.current = new Set();
       searchIdentityRef.current = currentIdentity;
+      if (revalidateTimerRef.current) {
+        clearTimeout(revalidateTimerRef.current);
+        revalidateTimerRef.current = null;
+      }
       setLoading(true);
       setHasSearched(false);
+      setHasMore(true);
       setProducts([]);
       setTotalResults(0);
       setIncomplete(false);
       setSearchError(null);
+      setIsRevalidating(false);
+      setPrefetchingNext(false);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
@@ -163,7 +176,6 @@ export default function SearchResults() {
       });
 
       if (controller.signal.aborted) return;
-      // Stale request guard: if a newer search started, discard this result
       if (token !== null && token !== activeSearchTokenRef.current) return;
 
       if (!response.ok) {
@@ -173,11 +185,13 @@ export default function SearchResults() {
       }
 
       const data = await response.json();
-      console.log('[SEARCH_DEBUG] response:', { page: pageNum, returnedCount: data?.items?.length, hasMore: data?.hasMore, incomplete: data?.incomplete, partial: data?.partial, providersStatus: data?.providersStatus });
-      const mappedProducts = mapItems(data?.items || []);
-
-      // Track incomplete (provider timeouts)
+      const returnedCount = data?.items?.length || 0;
       const isIncomplete = !!data?.incomplete || !!data?.partial;
+      const backendHasMore = data?.hasMore === true;
+
+      console.log('[SEARCH_DEBUG] response:', { page: pageNum, returnedCount, hasMore: backendHasMore, incomplete: isIncomplete });
+
+      const mappedProducts = mapItems(data?.items || []);
 
       if (append) {
         const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
@@ -193,33 +207,27 @@ export default function SearchResults() {
         setTotalResults(deduped.length);
       }
 
-      // hasMore from backend (already accounts for incomplete/timeouts)
-      const backendHasMore = data?.hasMore === true;
-      setHasMore(backendHasMore && pageNum < MAX_PAGES - 1);
+      // hasMore: backend says more OR incomplete with items, within page limit
+      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0)) && pageNum < MAX_PAGES - 1;
+      setHasMore(computedHasMore);
       setIncomplete(isIncomplete);
 
-      // Auto-prefetch page 1 if page 0 was incomplete
-      if (pageNum === 0 && isIncomplete && backendHasMore) {
-        setPrefetchingNext(true);
-        setTimeout(() => {
-          // Only prefetch if we're still on the same search
-          if (searchIdentityRef.current === currentIdentity) {
-            prefetchNextPage(1);
-          } else {
-            setPrefetchingNext(false);
-          }
+      // Auto-revalidate page 0 if incomplete (background enrichment)
+      if (pageNum === 0 && isIncomplete && !append) {
+        const capturedToken = token ?? activeSearchTokenRef.current;
+        revalidateTimerRef.current = setTimeout(() => {
+          if (capturedToken !== activeSearchTokenRef.current) return;
+          revalidateInBackground(capturedToken);
         }, 500);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
-      // Only apply error if this is still the active search
       if (token !== null && token !== activeSearchTokenRef.current) return;
       console.error('Search error:', err);
       setSearchError(err.message || 'Search failed');
       setHasSearched(true);
     } finally {
       if (!controller.signal.aborted) {
-        // Only update loading states if token is still current
         if (token === null || token === activeSearchTokenRef.current) {
           setLoading(false);
           setHasSearched(true);
@@ -229,10 +237,13 @@ export default function SearchResults() {
     }
   }, [buildFetchUrl, query, category, sort]);
 
-  /** Prefetch next page in background and append results */
-  const prefetchNextPage = useCallback(async (nextPageNum: number) => {
+  /** Background revalidation to enrich incomplete page-0 results */
+  const revalidateInBackground = useCallback(async (token: number) => {
+    if (token !== activeSearchTokenRef.current) return;
+    setIsRevalidating(true);
+    setPrefetchingNext(true);
     try {
-      const fetchUrl = buildFetchUrl(nextPageNum);
+      const fetchUrl = buildFetchUrl(0);
       const response = await fetch(fetchUrl, {
         method: 'GET',
         headers: {
@@ -242,44 +253,36 @@ export default function SearchResults() {
           'Accept': 'application/json',
         },
       });
-
+      if (token !== activeSearchTokenRef.current) return;
       if (!response.ok) return;
+
       const data = await response.json();
       const mappedProducts = mapItems(data?.items || []);
       const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
 
-      if (newUnique.length > 0) {
+      if (newUnique.length > 0 && token === activeSearchTokenRef.current) {
         setProducts(prev => {
           const combined = [...prev, ...newUnique];
           setTotalResults(combined.length);
           return combined;
         });
-        setPage(nextPageNum);
       }
 
-      const backendHasMore = data?.hasMore === true;
-      setHasMore(backendHasMore && nextPageNum < MAX_PAGES - 1);
-      setIncomplete(!!data?.incomplete || !!data?.partial);
+      if (token === activeSearchTokenRef.current) {
+        const backendHasMore = data?.hasMore === true;
+        const isIncomplete = !!data?.incomplete || !!data?.partial;
+        setHasMore(backendHasMore || isIncomplete);
+        setIncomplete(isIncomplete);
+      }
     } catch {
-      // Prefetch failed silently — user can still use Load More
+      // Revalidation failed silently
     } finally {
-      setPrefetchingNext(false);
+      if (token === activeSearchTokenRef.current) {
+        setIsRevalidating(false);
+        setPrefetchingNext(false);
+      }
     }
   }, [buildFetchUrl]);
-
-  /** Map raw API items to Product interface */
-  function mapItems(items: any[]): Product[] {
-    return items.map((item: any) => ({
-      id: item.provider_product_id || item.id,
-      provider: item.provider || 'amazon',
-      title: item.title || 'Product',
-      imageUrl: item.image_url || item.imageUrl || '',
-      priceUsd: item.price_usd || item.priceUsd || 0,
-      rating: item.rating,
-      inStock: item.in_stock !== false,
-      productUrl: item.product_url,
-    }));
-  }
 
   // Initial search
   useEffect(() => {
@@ -328,6 +331,9 @@ export default function SearchResults() {
     fetchProducts(0, false);
   };
 
+  // Derived: only show empty state when truly done
+  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
+
   return (
     <div className="min-h-screen bg-black">
       <ShopHeader />
@@ -361,7 +367,7 @@ export default function SearchResults() {
                 </h1>
               )}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                {!loading && (
+                {!loading && hasSearched && (
                   <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
                     {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
                   </p>
@@ -472,8 +478,8 @@ export default function SearchResults() {
             </div>
           )}
 
-          {/* No Results — only show after search completed and ALL loading is done */}
-          {hasSearched && !loading && !loadingMore && !prefetchingNext && products.length === 0 && (
+          {/* No Results — ONLY after all loading/revalidation/incomplete done */}
+          {showEmpty && (
             <div className="text-center py-20">
               {searchError ? (
                 <>

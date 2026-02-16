@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Loader2, SlidersHorizontal, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { cachedCatalogFetchWithSwr, normalizeQuery, stableStringify } from '@/lib/catalogCache';
+import { normalizeQuery, stableStringify } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
@@ -19,7 +19,6 @@ const MAX_PAGES = 5; // 5 pages × 100 = 500 max
 
 /** Generate a unique key per product for deduplication */
 function productKey(p: Product): string {
-  // Cross-provider dedupe: use normalized URL if available, else id+provider
   if (p.productUrl) {
     try {
       const u = new URL(p.productUrl);
@@ -55,14 +54,15 @@ export default function SearchResults() {
   const [isRevalidating, setIsRevalidating] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0); // 0-based page index
-  const nextCursorRef = useRef<string | null>(null);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
-  const [partialResults, setPartialResults] = useState(false);
+  const [incomplete, setIncomplete] = useState(false);
+  const [prefetchingNext, setPrefetchingNext] = useState(false);
 
   // Persistent seenIds across pages — reset on new search
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -83,7 +83,26 @@ export default function SearchResults() {
     refurbished: 'refurbished phone laptop',
   };
 
-  const abortControllerRef = useRef<AbortController | null>(null);
+  /** Build URL for a given page */
+  const buildFetchUrl = useCallback((pageNum: number) => {
+    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
+    const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
+    url.searchParams.set('q', normalizeQuery(searchQuery));
+    url.searchParams.set('limit', String(PAGE_SIZE));
+    url.searchParams.set('page', String(pageNum));
+
+    if (category) url.searchParams.set('category_key', category);
+    if (sort && sort !== 'relevance') url.searchParams.set('sort', sort);
+
+    const filters: Record<string, number> = {};
+    if (priceRange[0] > 0) filters.minPrice = priceRange[0];
+    if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
+    if (Object.keys(filters).length > 0) {
+      url.searchParams.set('filters', stableStringify(filters));
+    }
+
+    return url.toString();
+  }, [query, category, sort, priceRange]);
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false) => {
     // Cancel any in-flight request
@@ -93,83 +112,36 @@ export default function SearchResults() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
-    const params: Record<string, any> = {
-      q: normalizeQuery(searchQuery),
-      limit: PAGE_SIZE,
-      page: pageNum,
-    };
-
-    if (category) {
-      params.category_key = category;
-    }
-
-    if (sort && sort !== 'relevance') {
-      params.sort = sort;
-    }
-
-    const filters: Record<string, number> = {};
-    if (priceRange[0] > 0) filters.minPrice = priceRange[0];
-    if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
-
-    if (Object.keys(filters).length > 0) {
-      params.filters = stableStringify(filters);
-    }
-
-    // Cursor-based pagination for subsequent pages
-    if (pageNum > 0 && nextCursorRef.current) {
-      params.cursor = nextCursorRef.current;
-    }
-
     // Reset seenIds on fresh search
     if (pageNum === 0 && !append) {
       seenIdsRef.current = new Set();
       setLoading(true);
-      setPartialResults(false);
+      setIncomplete(false);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
 
     try {
-      const result = await cachedCatalogFetchWithSwr<any>('catalog-search', params, {
-        skipCache: pageNum > 0,
-        signal: controller.signal,
-        onUpdate: (freshData) => {
-          // Background SWR update — smoothly replace page 0 results
-          if (pageNum === 0 && !append) {
-            const freshProducts = mapItems(freshData?.items || []);
-            const freshSeenIds = new Set<string>();
-            const deduped = dedupeWithSet(freshProducts, freshSeenIds);
-            seenIdsRef.current = freshSeenIds;
-            setProducts(deduped);
-            setTotalResults(deduped.length);
-            setIsRevalidating(false);
-            setPartialResults(!!freshData?.partial);
-
-            const newCursor = freshData?.nextCursor || null;
-            nextCursorRef.current = newCursor;
-            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < MAX_PAGES - 1);
-          }
+      const fetchUrl = buildFetchUrl(pageNum);
+      const response = await fetch(fetchUrl, {
+        method: 'GET',
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
 
       if (controller.signal.aborted) return;
+      if (!response.ok) throw new Error(`Search failed: ${response.status}`);
 
-      const { data, isStale } = result;
-
-      if (isStale && pageNum === 0) {
-        setIsRevalidating(true);
-      }
-
-      // Track partial results from provider timeouts
-      if (data?.partial) {
-        setPartialResults(true);
-      }
-
+      const data = await response.json();
       const mappedProducts = mapItems(data?.items || []);
 
+      // Track incomplete (provider timeouts)
+      const isIncomplete = !!data?.incomplete || !!data?.partial;
+
       if (append) {
-        // Dedupe against all previously seen items
         const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
         setProducts(prev => {
           const combined = [...prev, ...newUnique];
@@ -181,12 +153,23 @@ export default function SearchResults() {
         const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
         setProducts(deduped);
         setTotalResults(deduped.length);
-        if (!isStale) setIsRevalidating(false);
       }
 
-      const newCursor = data?.nextCursor || null;
-      nextCursorRef.current = newCursor;
-      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < MAX_PAGES - 1);
+      // hasMore from backend (already accounts for incomplete/timeouts)
+      const backendHasMore = data?.hasMore === true;
+      setHasMore(backendHasMore && pageNum < MAX_PAGES - 1);
+      setIncomplete(isIncomplete);
+
+      // Auto-prefetch page 1 if page 0 was incomplete
+      if (pageNum === 0 && isIncomplete && backendHasMore) {
+        setPrefetchingNext(true);
+        // Small delay to let UI render first
+        setTimeout(() => {
+          if (!controller.signal.aborted) {
+            prefetchNextPage(1);
+          }
+        }, 500);
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Search error:', err);
@@ -196,7 +179,43 @@ export default function SearchResults() {
         setLoadingMore(false);
       }
     }
-  }, [query, category, sort, priceRange]);
+  }, [buildFetchUrl]);
+
+  /** Prefetch next page in background and append results */
+  const prefetchNextPage = useCallback(async (nextPageNum: number) => {
+    try {
+      const fetchUrl = buildFetchUrl(nextPageNum);
+      const response = await fetch(fetchUrl, {
+        method: 'GET',
+        headers: {
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) return;
+      const data = await response.json();
+      const mappedProducts = mapItems(data?.items || []);
+      const newUnique = dedupeWithSet(mappedProducts, seenIdsRef.current);
+
+      if (newUnique.length > 0) {
+        setProducts(prev => {
+          const combined = [...prev, ...newUnique];
+          setTotalResults(combined.length);
+          return combined;
+        });
+        setPage(nextPageNum);
+      }
+
+      const backendHasMore = data?.hasMore === true;
+      setHasMore(backendHasMore && nextPageNum < MAX_PAGES - 1);
+      setIncomplete(!!data?.incomplete || !!data?.partial);
+    } catch {
+      // Prefetch failed silently — user can still use Load More
+    } finally {
+      setPrefetchingNext(false);
+    }
+  }, [buildFetchUrl]);
 
   /** Map raw API items to Product interface */
   function mapItems(items: any[]): Product[] {
@@ -215,7 +234,6 @@ export default function SearchResults() {
   // Initial search
   useEffect(() => {
     setPage(0);
-    nextCursorRef.current = null;
     fetchProducts(0, false);
   }, [query, category, sort]);
 
@@ -240,14 +258,14 @@ export default function SearchResults() {
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || loading || loadingMore) return;
+    if (!sentinelRef.current || !hasMore || loading || loadingMore || prefetchingNext) return;
     const observer = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) handleLoadMore(); },
       { rootMargin: '400px' }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, handleLoadMore]);
+  }, [hasMore, loading, loadingMore, prefetchingNext, handleLoadMore]);
 
   const handleApplyFilters = () => {
     setPage(0);
@@ -298,10 +316,10 @@ export default function SearchResults() {
                     {shop.updating || 'Updating…'}
                   </span>
                 )}
-                {partialResults && !isRevalidating && !loading && (
+                {prefetchingNext && !loading && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
-                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                    {shop.fetchingMoreSources || 'Some sources still loading…'}
+                    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                    {shop.fetchingMoreSources || 'Loading more sources…'}
                   </span>
                 )}
               </div>
@@ -374,19 +392,19 @@ export default function SearchResults() {
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
           {/* Infinite scroll sentinel */}
-          {!loading && hasMore && products.length > 0 && (
+          {!loading && hasMore && products.length > 0 && !prefetchingNext && (
             <div ref={sentinelRef} className="h-4" />
           )}
 
           {/* Loading more indicator */}
-          {loadingMore && (
+          {(loadingMore || prefetchingNext) && (
             <div className="flex justify-center mt-8">
               <Loader2 className="h-6 w-6 animate-spin text-white/60" />
             </div>
           )}
 
           {/* Load More fallback button */}
-          {!loading && hasMore && products.length > 0 && !loadingMore && (
+          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && (
             <div className="text-center mt-4">
               <Button
                 onClick={handleLoadMore}

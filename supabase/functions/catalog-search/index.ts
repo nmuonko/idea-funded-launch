@@ -797,7 +797,9 @@ Deno.serve(async (req: Request) => {
     // Appliance/fashion intents with enough results skip alt queries to prevent dilution
     const applianceIntentSufficient = effectiveIntent.intentKey === "appliance_fridge" && totalProviderItems >= 20;
     const fashionIntentSufficient = effectiveIntent.intentKey === "fashion" && totalProviderItems >= 20;
-    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient && !fashionIntentSufficient) {
+    // FIX: On page 0, skip alt queries unless results are very low (<10) — prevents 2-4s extra delay
+    const skipAltOnPage0 = isFirstPage && totalProviderItems >= 10;
+    if (!directQuery && totalProviderItems < 60 && !providerTimedOut && !budgetExceeded && !applianceIntentSufficient && !fashionIntentSufficient && !skipAltOnPage0) {
       let altAttempts = 0;
       // Try alt queries from AI refiner (max ALT_QUERIES_MAX = 1)
       for (const altQ of altQueries) {
@@ -978,6 +980,21 @@ Deno.serve(async (req: Request) => {
     const nextCursor = mixResult.nextCursor ? encodeMixerCursor(mixResult.nextCursor) : null;
     const durationMs = Date.now() - startTime;
 
+    // ─── FIX: Robust hasMore logic ──────────────────────────────────────────
+    // If a provider timed out, we can't know if there are more results — assume yes
+    const incomplete = providerTimedOut || 
+      (amazonSettled.status === "rejected") || 
+      (ebaySettled.status === "rejected");
+    
+    // Per-provider hasMore
+    const ebayProviderHasMore = ebayHasMore || (ebaySettled.status === "rejected");
+    const amazonProviderHasMore = amazonHasMore || (amazonSettled.status === "rejected");
+    
+    // Overall hasMore: true if any provider has more OR if incomplete (timeout)
+    const robustHasMore = (pageParam < (MAX_PAGES - 1)) && (
+      mixResult.hasMore || ebayProviderHasMore || amazonProviderHasMore || incomplete
+    );
+
     // Cache TTL from settings
     let cacheTtlSeconds = 3600;
     try {
@@ -1005,7 +1022,7 @@ Deno.serve(async (req: Request) => {
 
     const response: SearchResponse = {
       status: "success", env: envName, query: qOriginal, items: finalItems,
-      nextCursor, hasMore: mixResult.hasMore,
+      nextCursor, hasMore: robustHasMore,
       total: Math.max(ebayTotal, amazonItems.length, finalItems.length),
       appliedFilters: buildAppliedSortFilter(sort, catalogFilters, sort !== "relevance"),
       providerStats, searchMeta,
@@ -1013,15 +1030,17 @@ Deno.serve(async (req: Request) => {
       durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
       // Pagination fields
       page: pageForResponse,
+      pageSize: limit,
       returnedCount: finalItems.length,
       totalAvailableEstimate: Math.max(ebayTotal, amazonItems.length + ebayItems.length, finalItems.length),
       providersStatus: {
-        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: providerTimedOut && !ebayDebug.ok },
-        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: providerTimedOut && !amazonDebug.ok },
+        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: providerTimedOut && !ebayDebug.ok, hasMore: ebayProviderHasMore },
+        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: providerTimedOut && !amazonDebug.ok, hasMore: amazonProviderHasMore },
       },
       qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
       sourcesUsed: sourceServed,
-      partial: providerTimedOut || undefined,
+      partial: incomplete || undefined,
+      incomplete: incomplete || undefined,
       meta: { source: searchSource, isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined, searchDebug } as any,
     };
 

@@ -51,6 +51,82 @@ export interface PreNormalizeResult {
   qNormalizedNoStops?: string; // for debug
 }
 
+// ─── DETERMINISTIC SYNONYM FALLBACK QUERIES ─────────────────────────────────
+// When provider results are low, these provide alternative queries per category.
+// Keyed by substring found in effectiveQuery → list of fallback queries to try.
+
+const CLOTHING_SYNONYMS: Record<string, string[]> = {
+  "men's pants": ["mens pants", "men trousers", "men's trousers", "chino pants men"],
+  "women's pants": ["womens pants", "women trousers", "ladies pants"],
+  "pants trousers": ["pants", "trousers", "slacks"],
+  "women's dress": ["womens dress", "women dress", "ladies dress"],
+  "women dress": ["womens dress", "ladies dress", "dress for women"],
+  "women skirt": ["womens skirt", "ladies skirt", "skirt for women"],
+  "men shoes": ["mens shoes", "shoes for men", "men's footwear"],
+  "women shoes": ["womens shoes", "shoes for women", "ladies shoes"],
+  "men clothing": ["mens clothing", "men's apparel", "menswear"],
+  "women clothing": ["womens clothing", "women's apparel", "womenswear"],
+  "men shirt": ["mens shirt", "men's dress shirt", "button down shirt men"],
+  "women shirt": ["womens shirt", "blouse women", "women's top"],
+  "sweater": ["pullover", "knit sweater", "crewneck sweater"],
+  "jacket": ["coat", "outerwear", "blazer"],
+  "sneakers": ["athletic shoes", "running shoes", "trainers"],
+  "boots": ["ankle boots", "leather boots", "work boots"],
+};
+
+const ELECTRONICS_SYNONYMS: Record<string, string[]> = {
+  "headphones": ["earphones", "over ear headphones", "wireless headphones"],
+  "speaker": ["bluetooth speaker", "portable speaker", "wireless speaker"],
+  "tablet": ["android tablet", "drawing tablet", "tablet computer"],
+  "monitor": ["computer monitor", "display", "screen"],
+};
+
+const HOME_GARDEN_SYNONYMS: Record<string, string[]> = {
+  "refrigerator": ["fridge", "top freezer refrigerator", "french door refrigerator"],
+  "washing machine": ["washer", "laundry machine", "front load washer"],
+  "air conditioner": ["AC unit", "portable air conditioner", "window AC"],
+  "generator": ["portable generator", "power generator", "home generator"],
+};
+
+const VEHICLE_SYNONYMS: Record<string, string[]> = {
+  "used car": ["pre-owned car", "second hand car", "used vehicle"],
+  "motorcycle": ["motorbike", "used motorcycle", "street motorcycle"],
+};
+
+const GAMING_SYNONYMS: Record<string, string[]> = {
+  "gaming console": ["video game console", "game system"],
+  "controller": ["gamepad", "game controller", "wireless controller"],
+};
+
+const CATEGORY_SYNONYM_MAP: Record<string, Record<string, string[]>> = {
+  clothing: CLOTHING_SYNONYMS,
+  electronics: ELECTRONICS_SYNONYMS,
+  home_garden: HOME_GARDEN_SYNONYMS,
+  vehicles: VEHICLE_SYNONYMS,
+  gaming: GAMING_SYNONYMS,
+};
+
+/**
+ * Returns deterministic synonym fallback queries for a given effectiveQuery + category.
+ * Used when provider results are low (<10) to retry with alternative phrasing.
+ */
+export function getSynonymFallbackQueries(
+  effectiveQuery: string,
+  category: InferredCategory,
+): string[] {
+  if (!category) return [];
+  const synonymMap = CATEGORY_SYNONYM_MAP[category];
+  if (!synonymMap) return [];
+  const eqLower = effectiveQuery.toLowerCase();
+  for (const [trigger, synonyms] of Object.entries(synonymMap)) {
+    if (eqLower.includes(trigger.toLowerCase())) {
+      // Return synonyms that differ from the original query
+      return synonyms.filter(s => s.toLowerCase() !== eqLower);
+    }
+  }
+  return [];
+}
+
 // ─── PHRASE MAPS (FR phrase → EN provider query) per category ────────────────
 
 const CLOTHING_PHRASES: Record<string, string> = {
@@ -68,7 +144,9 @@ const CLOTHING_PHRASES: Record<string, string> = {
   "vetement": "clothing", "vetement femme": "women clothing", "vetement dame": "women clothing",
   "vetement homme": "men clothing", "vetement enfant": "kids clothing",
   // pantalon
-  "pantalon": "pants", "pantalon femme": "women pants", "pantalon homme": "men pants",
+  "pantalon": "pants trousers", "pantalon femme": "women's pants", "pantalon homme": "men's pants",
+  "pantalon jean": "jeans", "pantalon jean homme": "men's jeans", "pantalon jean femme": "women's jeans",
+  "pantalon chino": "chino pants", "pantalon chino homme": "men's chino pants",
   // chemise
   "chemise": "shirt", "chemise femme": "women shirt", "chemise homme": "men shirt",
   // blouse

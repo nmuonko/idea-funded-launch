@@ -18,15 +18,18 @@ const PAGE_SIZE = 100;
 const HARD_MAX_ITEMS = 500;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
 
-/** Generate a unique key per product for deduplication */
+/** Generate a unique key per product for deduplication — provider-aware */
 function productKey(p: Product): string {
+  const provider = p.provider || 'unknown';
+  const pid = (p as any).providerProductId || p.id || '';
+  if (pid) return `${provider}:${pid}`;
   if (p.productUrl) {
     try {
       const u = new URL(p.productUrl);
-      return u.hostname + u.pathname;
+      return `${provider}:${u.hostname}${u.pathname}`;
     } catch { /* fall through */ }
   }
-  return (p.id || '') + ':' + (p.provider || '');
+  return `${provider}:${p.title || ''}`;
 }
 
 /** Deduplicate products using a Set of seen keys */
@@ -64,6 +67,8 @@ export default function SearchResults() {
   const [hasSearched, setHasSearched] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorMode, setCursorMode] = useState(false);
+  const [providersStatus, setProvidersStatus] = useState<any>(null);
+  const [showProviderDebug, setShowProviderDebug] = useState(false);
 
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -207,7 +212,12 @@ export default function SearchResults() {
       // Extract cursor from any possible location in response
       const responseCursor = data?.cursor || data?.nextCursor || data?.cursorNext || data?.meta?.cursor || data?.meta?.nextCursor || null;
 
-      console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, totalFromBackend: data?.total });
+      console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, totalFromBackend: data?.total, providersStatus: data?.providersStatus });
+
+      // Store provider debug info
+      if (data?.providersStatus) {
+        setProvidersStatus(data.providersStatus);
+      }
 
       // If backend returns a cursor, switch to cursor mode
       if (responseCursor) {
@@ -233,13 +243,13 @@ export default function SearchResults() {
         setTotalResults(deduped.length);
       }
 
-      // hasMore: backend says more OR incomplete OR cursor exists OR returned full page, within page limit
-      const returnedFullPage = returnedCount >= PAGE_SIZE;
-      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0) || !!responseCursor || returnedFullPage) && pageNum < MAX_PAGES - 1;
+      // hasMore: backend says more OR incomplete OR cursor exists OR returned near-full page, within page limit
+      const returnedNearFullPage = returnedCount >= Math.floor(PAGE_SIZE * 0.5); // 50+ items suggests more exist
+      const computedHasMore = (backendHasMore || (isIncomplete && returnedCount > 0) || !!responseCursor || returnedNearFullPage) && pageNum < MAX_PAGES - 1;
       setHasMore(computedHasMore);
       setIncomplete(isIncomplete);
 
-      console.log('[SEARCH_PAGINATION]', { pageNum, computedHasMore, backendHasMore, isIncomplete, hasCursor: !!responseCursor, maxPages: MAX_PAGES });
+      console.log('[SEARCH_PAGINATION]', { pageNum, computedHasMore, backendHasMore, isIncomplete, hasCursor: !!responseCursor, returnedCount, maxPages: MAX_PAGES });
 
       // Auto-revalidate page 0 if incomplete (background enrichment)
       if (pageNum === 0 && isIncomplete && !append) {
@@ -499,6 +509,30 @@ export default function SearchResults() {
               </Sheet>
             </div>
           </div>
+
+          {/* Provider Debug (DEV only) */}
+          {providersStatus && import.meta.env.DEV && (
+            <div className="mb-4">
+              <button
+                onClick={() => setShowProviderDebug(v => !v)}
+                className="text-xs text-white/40 hover:text-white/70 underline"
+              >
+                {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
+              </button>
+              {showProviderDebug && (
+                <pre className="mt-2 p-3 rounded text-xs text-white/60 bg-white/5 border border-white/10 overflow-x-auto max-h-40">
+                  {JSON.stringify({
+                    amazon: providersStatus.amazon,
+                    ebay: providersStatus.ebay,
+                    hasMore,
+                    totalResults,
+                    page,
+                    incomplete,
+                  }, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
 
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />

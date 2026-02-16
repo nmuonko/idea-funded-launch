@@ -59,6 +59,7 @@ export default function SearchResults() {
   const [totalResults, setTotalResults] = useState(0);
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Persistent seenIds across pages — reset on new search
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -132,6 +133,7 @@ export default function SearchResults() {
       searchIdentityRef.current = currentIdentity;
       setLoading(true);
       setIncomplete(false);
+      setSearchError(null);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
@@ -142,15 +144,22 @@ export default function SearchResults() {
         method: 'GET',
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         signal: controller.signal,
       });
 
       if (controller.signal.aborted) return;
-      if (!response.ok) throw new Error(`Search failed: ${response.status}`);
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error('[SEARCH_ERROR] status:', response.status, 'body:', errText);
+        throw new Error(`Search failed: ${response.status}`);
+      }
 
       const data = await response.json();
+      console.log('[SEARCH_DEBUG] response:', { page: pageNum, returnedCount: data?.items?.length, hasMore: data?.hasMore, incomplete: data?.incomplete, partial: data?.partial, providersStatus: data?.providersStatus });
       const mappedProducts = mapItems(data?.items || []);
 
       // Track incomplete (provider timeouts)
@@ -190,6 +199,7 @@ export default function SearchResults() {
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Search error:', err);
+      setSearchError(err.message || 'Search failed');
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -206,7 +216,9 @@ export default function SearchResults() {
         method: 'GET',
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
       });
 
@@ -436,15 +448,33 @@ export default function SearchResults() {
           {/* No Results */}
           {!loading && products.length === 0 && (
             <div className="text-center py-20">
-              <p className="text-white/60 mb-4">{shop.noProductsFound || 'No products found'} "{query}"</p>
-              <Button
-                onClick={() => navigate('/')}
-                variant="outline"
-                className="border-white/20 text-white hover:bg-white/10"
-              >
-                <X className="h-4 w-4 mr-2" />
-                {shop.clearSearch || 'Clear Search'}
-              </Button>
+              {searchError ? (
+                <>
+                  <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-3" />
+                  <p className="text-red-400 mb-2 font-medium">{shop.searchError || 'Search error'}</p>
+                  <p className="text-white/40 text-sm mb-4">{searchError}</p>
+                  <Button
+                    onClick={() => { setSearchError(null); fetchProducts(0, false); }}
+                    variant="outline"
+                    className="border-white/20 text-white hover:bg-white/10"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    {shop.retry || 'Retry'}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="text-white/60 mb-4">{shop.noProductsFound || 'No products found'} "{query}"</p>
+                  <Button
+                    onClick={() => navigate('/')}
+                    variant="outline"
+                    className="border-white/20 text-white hover:bg-white/10"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    {shop.clearSearch || 'Clear Search'}
+                  </Button>
+                </>
+              )}
             </div>
           )}
         </div>

@@ -4035,6 +4035,9 @@ export type Database = {
       referral_payout_claims: {
         Row: {
           created_at: string
+          delivery_error: string | null
+          delivery_status: string | null
+          delivery_tx_id: string | null
           id: string
           paid_at: string | null
           payout_amount_usd: number
@@ -4046,6 +4049,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          delivery_error?: string | null
+          delivery_status?: string | null
+          delivery_tx_id?: string | null
           id?: string
           paid_at?: string | null
           payout_amount_usd: number
@@ -4057,6 +4063,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          delivery_error?: string | null
+          delivery_status?: string | null
+          delivery_tx_id?: string | null
           id?: string
           paid_at?: string | null
           payout_amount_usd?: number
@@ -4085,26 +4094,38 @@ export type Database = {
       }
       referral_payout_rules: {
         Row: {
+          airtime_amount: number | null
           created_at: string
+          data_mb: number | null
           id: string
           is_enabled: boolean
+          operator_country_code: string
           payout_amount_usd: number
+          reward_type: string
           threshold_verified_count: number
           updated_at: string
         }
         Insert: {
+          airtime_amount?: number | null
           created_at?: string
+          data_mb?: number | null
           id?: string
           is_enabled?: boolean
+          operator_country_code?: string
           payout_amount_usd: number
+          reward_type?: string
           threshold_verified_count: number
           updated_at?: string
         }
         Update: {
+          airtime_amount?: number | null
           created_at?: string
+          data_mb?: number | null
           id?: string
           is_enabled?: boolean
+          operator_country_code?: string
           payout_amount_usd?: number
+          reward_type?: string
           threshold_verified_count?: number
           updated_at?: string
         }
@@ -4159,6 +4180,68 @@ export type Database = {
             columns: ["referrer_id"]
             isOneToOne: false
             referencedRelation: "referrers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_topup_log: {
+        Row: {
+          amount: number | null
+          claim_id: string | null
+          country_code: string | null
+          created_at: string
+          data_mb: number | null
+          error_message: string | null
+          id: string
+          operator_id: string | null
+          operator_name: string | null
+          phone: string
+          raw_response: Json | null
+          referrer_id: string
+          reloadly_tx_id: string | null
+          status: string
+          topup_type: string
+        }
+        Insert: {
+          amount?: number | null
+          claim_id?: string | null
+          country_code?: string | null
+          created_at?: string
+          data_mb?: number | null
+          error_message?: string | null
+          id?: string
+          operator_id?: string | null
+          operator_name?: string | null
+          phone: string
+          raw_response?: Json | null
+          referrer_id: string
+          reloadly_tx_id?: string | null
+          status?: string
+          topup_type?: string
+        }
+        Update: {
+          amount?: number | null
+          claim_id?: string | null
+          country_code?: string | null
+          created_at?: string
+          data_mb?: number | null
+          error_message?: string | null
+          id?: string
+          operator_id?: string | null
+          operator_name?: string | null
+          phone?: string
+          raw_response?: Json | null
+          referrer_id?: string
+          reloadly_tx_id?: string | null
+          status?: string
+          topup_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_topup_log_claim_id_fkey"
+            columns: ["claim_id"]
+            isOneToOne: false
+            referencedRelation: "referral_payout_claims"
             referencedColumns: ["id"]
           },
         ]

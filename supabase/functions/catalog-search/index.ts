@@ -54,6 +54,7 @@ import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 const DEFAULT_LIMIT = 100;   // Default page size
 const MAX_LIMIT = 100;       // Max page size (eBay hard limit = 100)
 const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
+const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
 const TOTAL_BUDGET_MS = 4000; // Slightly more budget for fast-first strategy
@@ -260,6 +261,12 @@ Deno.serve(async (req: Request) => {
     const hasAccents = qNormLower !== qNoAccents;
     const isFrenchLikely = lang === "fr" || hasAccents;
 
+    // ─── FR STOP-WORD REMOVAL for better static map matching ────────────────
+    // "jupes pour dames" → "jupes dames", "robe de soirée" → "robe soirée"
+    const FR_STOP_WORDS = new Set(["pour", "de", "du", "des", "le", "la", "les", "un", "une", "en", "a", "à"]);
+    const qNormNoStops = qNormLower.split(/\s+/).filter(w => !FR_STOP_WORDS.has(w)).join(" ");
+    const qNoAccentsNoStops = qNoAccents.split(/\s+/).filter(w => !FR_STOP_WORDS.has(w)).join(" ");
+
     let frFallbackApplied = false;
     const originalQNormBeforeFrFallback = qNorm;
 
@@ -282,7 +289,9 @@ Deno.serve(async (req: Request) => {
         translateMs = Date.now() - translateStart;
       } else {
         // [Step 2] Static FR_EN_FALLBACK (existing logic)
-        const directMatch = FR_EN_FALLBACK[qNormLower] || FR_EN_FALLBACK[qNoAccents];
+        // Try exact match, then without accents, then without stop words
+        const directMatch = FR_EN_FALLBACK[qNormLower] || FR_EN_FALLBACK[qNoAccents]
+          || FR_EN_FALLBACK[qNormNoStops] || FR_EN_FALLBACK[qNoAccentsNoStops];
         if (directMatch) {
           console.log(`[CATALOG_SEARCH] requestId=${requestId} fr_fallback: "${qNorm}" → "${directMatch}"`);
           qNorm = directMatch;
@@ -297,7 +306,7 @@ Deno.serve(async (req: Request) => {
           // Sort by key length descending so multi-word phrases match before single words
           const sortedEntries = Object.entries(FR_EN_FALLBACK)
             .sort((a, b) => b[0].length - a[0].length);
-          let translated = qNormLower;
+          let translated = qNormNoStops; // Use stop-word-stripped version for better matching
           let anyMatch = false;
           for (const [frTerm, enTerm] of sortedEntries) {
             const frTermNoAccents = removeAccentsFn(frTerm);

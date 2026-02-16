@@ -117,12 +117,14 @@ Deno.serve(async (req: Request) => {
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || url.searchParams.get("pageSize") || String(DEFAULT_LIMIT), 10)));
   const pageParam = Math.max(0, parseInt(url.searchParams.get("page") || "0", 10));
   const providerParam = url.searchParams.get("provider") || null;
-  const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
+  const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("categoryKey") || url.searchParams.get("category") || url.searchParams.get("_recipeKey") || url.searchParams.get("recipeKey") || null;
   const lang = url.searchParams.get("lang") || "fr";
   const envName = getEnvironmentFromRequest(req);
 
   // ─── CATEGORY RESOLUTION (deferred to parallel block below) ──────────────
-  let categoryKey = rawCategoryKey;
+  // Treat home/accueil/all as no category filter
+  const IGNORED_CATS = new Set(["all", "home", "accueil", ""]);
+  let categoryKey = (rawCategoryKey && !IGNORED_CATS.has(rawCategoryKey.toLowerCase())) ? rawCategoryKey : null;
 
   // ─── FIX A: ENV FALLBACK — public clients auto-use production ───────────
   const authHeader = req.headers.get("authorization") || "";
@@ -223,14 +225,16 @@ Deno.serve(async (req: Request) => {
       ]);
       searchMeta = searchMetaResult2;
       settings = settingsResult;
-      if (catResult && rawCategoryKey) {
+      if (catResult && categoryKey) {
         if (catResult.resolved) {
           categoryKey = catResult.resolved;
           if (categoryKey !== rawCategoryKey) {
             console.log(`[CATALOG_SEARCH] requestId=${requestId} category_resolved: "${rawCategoryKey}" → "${categoryKey}" (${catResult.method})`);
           }
         } else {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} category_unresolved: "${rawCategoryKey}" — passing raw`);
+          // FAIL-OPEN: unknown category → remove filter instead of returning 0
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} category_unresolved: "${rawCategoryKey}" — fail-open, clearing category filter`);
+          categoryKey = null;
         }
       }
     } catch {

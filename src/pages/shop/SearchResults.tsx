@@ -85,13 +85,19 @@ export default function SearchResults() {
 
   /** Build URL for a given page */
   const buildFetchUrl = useCallback((pageNum: number) => {
-    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
+    const IGNORED_CATEGORIES = new Set(['', 'all', 'home', 'accueil']);
+    const effectiveCategory = IGNORED_CATEGORIES.has(category.toLowerCase()) ? '' : category;
+    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
     const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
-    url.searchParams.set('q', normalizeQuery(searchQuery));
+    // Send raw query — backend handles its own normalization
+    url.searchParams.set('q', searchQuery.trim());
     url.searchParams.set('limit', String(PAGE_SIZE));
     url.searchParams.set('page', String(pageNum));
 
-    if (category) url.searchParams.set('category_key', category);
+    // Only send category when it's a real filter, not home/accueil
+    if (effectiveCategory) {
+      url.searchParams.set('category_key', effectiveCategory);
+    }
     if (sort && sort !== 'relevance') url.searchParams.set('sort', sort);
 
     const filters: Record<string, number> = {};
@@ -101,6 +107,7 @@ export default function SearchResults() {
       url.searchParams.set('filters', stableStringify(filters));
     }
 
+    console.log('[SEARCH_DEBUG] fetchUrl:', url.toString());
     return url.toString();
   }, [query, category, sort, priceRange]);
 

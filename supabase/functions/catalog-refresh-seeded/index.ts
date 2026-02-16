@@ -291,7 +291,7 @@ async function searchEbayForSeed(
       price_usd: priceUsd,
       image_url: images[0] || null,
       images: images.slice(0, 10),
-      product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
+      product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId?.startsWith('v1|') ? item.itemId.split('|')[1] : item.itemId}`,
       in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
       rating: null,
       unified_category: finalCategory,

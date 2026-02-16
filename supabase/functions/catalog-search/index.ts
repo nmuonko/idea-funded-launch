@@ -58,14 +58,15 @@ const SESSION_LIMIT = 500;   // Max items per search session (5 pages × 100)
 const MAX_PAGES = 5;         // Maximum number of pages per search session
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
-const PAGE0_DEADLINE_MS = 1800;  // Hard deadline for page 0 (leave ~200ms for JSON/edge)
-const TOTAL_BUDGET_MS = 4000;    // Budget for page > 0
+const PAGE0_DEADLINE_MS = 3500;  // Hard deadline for page 0 (generous for Amazon)
+const TOTAL_BUDGET_MS = 5000;    // Budget for page > 0
 const FAST_MIN_FIRST_PAGE = 60;  // Return page 0 as soon as we have this many items
 const REWRITE_BUDGET_MS = 600;   // Tighter rewrite budget
 const DB_BUDGET_MS_P0 = 400;     // DB budget on page 0
 const DB_BUDGET_MS = 500;        // DB budget on page > 0
-const PROVIDER_TIMEOUT_P0 = 1200; // Provider timeout on page 0
-const PROVIDER_TIMEOUT_PN = 3000; // Provider timeout on page > 0
+const AMAZON_TIMEOUT_P0 = 2500;  // Amazon-specific timeout on page 0
+const EBAY_TIMEOUT_P0 = 2500;    // eBay-specific timeout on page 0
+const PROVIDER_TIMEOUT_PN = 4000; // Provider timeout on page > 0
 const AI_TIMEOUT_P0 = 300;       // AI refiner/translator timeout on page 0
 const ALT_QUERIES_MAX = 1;
 
@@ -753,64 +754,105 @@ Deno.serve(async (req: Request) => {
 
 
     const providerStartMs = Date.now();
-    // ─── FAST-FIRST: tight timeouts on page 0, relaxed on page > 0 ──────────
+    // ─── INDEPENDENT PER-PROVIDER TIMEOUTS ──────────────────────────────────
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
     const elapsedBeforeProviders = Date.now() - startTime;
-    // Page 0: enforce hard deadline minus elapsed time; page > 0: generous
-    const remainingBudget = isFirstPage
-      ? Math.max(800, PAGE0_DEADLINE_MS - elapsedBeforeProviders - 100)
-      : Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
-    const PROVIDER_TIMEOUT_MS = isFirstPage
-      ? Math.min(PROVIDER_TIMEOUT_P0, remainingBudget)
-      : Math.min(isVehicleIntent ? 4000 : PROVIDER_TIMEOUT_PN, remainingBudget);
+
+    // Per-provider timeouts: each provider gets its own deadline
+    const amazonTimeoutMs = isFirstPage
+      ? Math.max(1000, AMAZON_TIMEOUT_P0 - Math.max(0, elapsedBeforeProviders - 500))
+      : Math.min(isVehicleIntent ? 5000 : PROVIDER_TIMEOUT_PN, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
+    const ebayTimeoutMs = isFirstPage
+      ? Math.max(1000, EBAY_TIMEOUT_P0 - Math.max(0, elapsedBeforeProviders - 500))
+      : Math.min(isVehicleIntent ? 5000 : PROVIDER_TIMEOUT_PN, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200);
+
+    // Overall page deadline (generous: max of both provider timeouts + buffer)
+    const overallDeadlineMs = isFirstPage
+      ? Math.max(amazonTimeoutMs, ebayTimeoutMs) + 500
+      : Math.max(amazonTimeoutMs, ebayTimeoutMs) + 300;
+
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} provider_timeouts: amazon=${amazonTimeoutMs}ms ebay=${ebayTimeoutMs}ms overall=${overallDeadlineMs}ms elapsed_before=${elapsedBeforeProviders}ms`);
 
     // For vehicle_listing intent, force eBay Motors category
     const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };
 
-    // ─── TRUE HARD DEADLINE: non-blocking provider fetch ────────────────────
-    // Track provider completion with flags + partial results.
-    // On page 0, we NEVER await providers after the deadline — return immediately.
+    // ─── INDEPENDENT PROVIDER FETCH WITH PER-PROVIDER TIMEOUTS ──────────────
     let amazonDone = false;
     let ebayDone = false;
     let amazonResult: any = null;
     let ebayResult: any = null;
     let amazonError: string | null = null;
     let ebayError: string | null = null;
+    let amazonTimedOut = false;
+    let ebayTimedOut = false;
     let providerTimedOut = false;
 
-    const amazonPromise = (skipAmazon
-      ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
-      : fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId })
-    ).then(r => { amazonResult = r; amazonDone = true; return r; })
-     .catch(e => { amazonError = String(e?.message || "unknown").slice(0, 100); amazonDone = true; return null; });
+    // Helper: wrap a promise with an independent timeout
+    const withTimeout = <T>(p: Promise<T>, ms: number, tag: string): Promise<{ ok: true; value: T } | { ok: false; timedOut: true; tag: string }> => {
+      const timer = new Promise<{ ok: false; timedOut: true; tag: string }>(resolve =>
+        setTimeout(() => resolve({ ok: false, timedOut: true, tag }), ms)
+      );
+      return Promise.race([
+        p.then(value => ({ ok: true as const, value })),
+        timer,
+      ]);
+    };
 
-    const ebayPromise = fetchEbayItems(ebayParamsForIntent)
-      .then(r => { ebayResult = r; ebayDone = true; return r; })
-      .catch(e => { ebayError = String(e?.message || "unknown").slice(0, 100); ebayDone = true; return null; });
+    const amazonPromise = skipAmazon
+      ? Promise.resolve({ ok: true as const, value: { items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason } })
+      : withTimeout(
+          fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
+          amazonTimeoutMs,
+          "amazon"
+        );
 
-    if (isFirstPage) {
-      // ─── PAGE 0: Race providers against hard deadline, NEVER block after ───
-      const deadlineTimer = new Promise<"DEADLINE">(r => setTimeout(() => r("DEADLINE"), PROVIDER_TIMEOUT_MS));
-      
-      // Race: wait until deadline OR both providers finish, whichever first
-      const bothDone = Promise.all([amazonPromise, ebayPromise]).then(() => "DONE" as const);
-      const raceResult = await Promise.race([bothDone, deadlineTimer]);
-      
-      if (raceResult === "DEADLINE") {
-        providerTimedOut = true;
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} PAGE0_HARD_DEADLINE after ${PROVIDER_TIMEOUT_MS}ms — amazonDone=${amazonDone} ebayDone=${ebayDone}`);
-        // DO NOT await providers — use whatever we have right now
-      }
+    const ebayPromise = withTimeout(
+      fetchEbayItems(ebayParamsForIntent),
+      ebayTimeoutMs,
+      "ebay"
+    );
+
+    // Run both in parallel — each has its own timeout
+    const [amazonR, ebayR] = await Promise.all([
+      amazonPromise.catch(e => {
+        amazonError = String(e?.message || "unknown").slice(0, 100);
+        amazonDone = true;
+        return { ok: false as const, timedOut: false, tag: "amazon", error: amazonError };
+      }),
+      ebayPromise.catch(e => {
+        ebayError = String(e?.message || "unknown").slice(0, 100);
+        ebayDone = true;
+        return { ok: false as const, timedOut: false, tag: "ebay", error: ebayError };
+      }),
+    ]);
+
+    // Process Amazon result
+    if (amazonR.ok === true) {
+      amazonResult = (amazonR as any).value;
+      amazonDone = true;
+    } else if ((amazonR as any).timedOut) {
+      amazonTimedOut = true;
+      amazonDone = false;
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} AMAZON_TIMEOUT after ${amazonTimeoutMs}ms`);
     } else {
-      // ─── PAGE > 0: Standard timeout with allSettled ───────────────────────
-      const timeoutPromise = new Promise<"TIMEOUT">(r => setTimeout(() => r("TIMEOUT"), PROVIDER_TIMEOUT_MS));
-      const bothDone = Promise.all([amazonPromise, ebayPromise]).then(() => "DONE" as const);
-      const raceResult = await Promise.race([bothDone, timeoutPromise]);
-      if (raceResult === "TIMEOUT") {
-        providerTimedOut = true;
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} PROVIDER_TIMEOUT after ${PROVIDER_TIMEOUT_MS}ms (page=${pageParam})`);
-      }
+      amazonDone = true;
+      amazonError = (amazonR as any).error || "unknown_error";
     }
+
+    // Process eBay result
+    if (ebayR.ok === true) {
+      ebayResult = (ebayR as any).value;
+      ebayDone = true;
+    } else if ((ebayR as any).timedOut) {
+      ebayTimedOut = true;
+      ebayDone = false;
+      console.warn(`[CATALOG_SEARCH] requestId=${requestId} EBAY_TIMEOUT after ${ebayTimeoutMs}ms`);
+    } else {
+      ebayDone = true;
+      ebayError = (ebayR as any).error || "unknown_error";
+    }
+
+    providerTimedOut = amazonTimedOut || ebayTimedOut;
 
     const providerMs = Date.now() - providerStartMs;
     timings.providers = providerMs;
@@ -1204,8 +1246,8 @@ Deno.serve(async (req: Request) => {
       returnedCount: finalItems.length,
       totalAvailableEstimate: Math.max(ebayTotal, amazonItems.length + ebayItems.length, finalItems.length),
       providersStatus: {
-        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: !ebayDone || (providerTimedOut && !ebayDebug.ok), hasMore: ebayProviderHasMore },
-        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: !amazonDone || (providerTimedOut && !amazonDebug.ok), hasMore: amazonProviderHasMore },
+        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: ebayTimedOut || (!ebayDone && providerTimedOut), hasMore: ebayProviderHasMore, error: ebayError || undefined },
+        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: amazonTimedOut || (!amazonDone && providerTimedOut), hasMore: amazonProviderHasMore, skippedReason: skipAmazon ? "disabled" : (!effectiveMode.amazonActive ? "mode_disabled" : undefined), liveUsed: amazonLiveUsed, liveReason: amazonLiveReason, status: amazonStatus, error: amazonError || undefined },
       },
       qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
       sourcesUsed: sourceServed,

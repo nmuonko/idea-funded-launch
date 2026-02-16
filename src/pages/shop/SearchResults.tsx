@@ -286,7 +286,7 @@ export default function SearchResults() {
                   {shop.resultsFor || 'Results for'} "{query}"
                 </h1>
               )}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 {!loading && (
                   <p className="text-sm text-white/60">
                     {totalResults} {totalResults !== 1 ? (shop.productsFound || 'products found') : (shop.productFound || 'product found')}
@@ -299,8 +299,8 @@ export default function SearchResults() {
                   </span>
                 )}
                 {partialResults && !isRevalidating && !loading && (
-                  <span className="inline-flex items-center gap-1 text-xs text-amber-400/80">
-                    <AlertCircle className="h-3 w-3" />
+                  <span className="inline-flex items-center gap-1.5 text-xs text-amber-400">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                     {shop.fetchingMoreSources || 'Some sources still loading…'}
                   </span>
                 )}

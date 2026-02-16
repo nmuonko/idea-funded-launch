@@ -280,10 +280,11 @@ export default function SearchResults() {
   };
 
   const handleLoadMore = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
     const nextPage = page + 1;
     setPage(nextPage);
     fetchProducts(nextPage, true);
-  }, [page, fetchProducts]);
+  }, [page, fetchProducts, loading, loadingMore, hasMore]);
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -426,8 +427,8 @@ export default function SearchResults() {
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
-          {/* Infinite scroll sentinel — ALWAYS rendered when more pages possible */}
-          {hasMore && products.length > 0 && (
+          {/* Infinite scroll sentinel — ALWAYS rendered when hasMore */}
+          {hasMore && (
             <div ref={sentinelRef} style={{ height: 1 }} />
           )}
 

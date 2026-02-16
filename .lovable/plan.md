@@ -1,77 +1,67 @@
 
 
-# Increase Search Results Volume and Improve Speed
+# Fix: Products Not Loading Beyond 100
 
-## Problem Summary
+## Root Cause
 
-Users report two issues:
-1. **Too few search results** -- currently capped at ~90 items max (30 per page x 3 pages)
-2. **App feels slow** -- multiple layers of latency before results appear
+There are **two competing pagination systems** in `SearchResults.tsx` that both try to advance pages simultaneously:
 
-## Root Causes
+1. **`autoFillToCap`** -- an async loop that manually increments `pageRef.current` and calls `fetchProducts`
+2. **Sentinel re-check** -- a `useEffect` that calls `handleLoadMore` when loading finishes and the sentinel is still visible
 
-### Few Results
-| Layer | Current Limit | Effect |
-|-------|--------------|--------|
-| Frontend `limit` param | 30 | Only requests 30 items per API call |
-| Frontend page cap | `pageNum < 3` | Stops loading after 3 pages (90 items max) |
-| Backend `MAX_LIMIT` | 100 | Even if frontend asked for more, backend caps at 100 |
-| eBay API per-request | 100 | Hard API limit per call |
-| Amazon cap per query | 200 | Settings default |
+Both systems race to set `pageRef.current`, causing:
+- Page skips (autoFill sets page to 2 while sentinel tries page 1)
+- The `lastRequestedPageRef` guard blocking legitimate requests
+- The `loadingMoreRef` staying stale because React's `useEffect` sync hasn't fired by the time autoFill checks it
 
-### Slowness
-| Issue | Detail |
-|-------|--------|
-| Small batches | 30-item pages require many round-trips to accumulate results |
-| TanStack Query staleTime | 2 minutes -- reasonable, not the issue |
-| LRU cache size | Only 50 entries -- could evict recent searches |
+## Solution
 
-## Plan
+**Remove `autoFillToCap` entirely** and rely solely on the sentinel re-check pattern, which is simpler and self-correcting. The re-check already chains correctly:
 
-### 1. Backend: Raise MAX_LIMIT to 200
+```text
+Page 0 loads -> re-check fires -> handleLoadMore(page 1)
+Page 1 loads -> re-check fires -> handleLoadMore(page 2)
+Page 2 loads -> re-check fires -> handleLoadMore(page 3)
+...until hasMore=false or MAX_PAGES reached
+```
 
-**File: `supabase/functions/catalog-search/index.ts`**
-- Change `DEFAULT_LIMIT` from 100 to 200
-- Change `MAX_LIMIT` from 100 to 200
-- This allows the frontend to request larger batches in a single call
-- eBay will still return max 100 per call, but the mixer will combine eBay + Amazon + DB results to fill 200
+The sentinel has `rootMargin: '800px'`, meaning it's "visible" immediately after products render, so no scrolling is needed.
 
-### 2. Frontend: Request 100 items per page, allow 5 pages
+## Changes (single file: `src/pages/shop/SearchResults.tsx`)
 
-**File: `src/pages/shop/SearchResults.tsx`**
-- Change `limit: 30` to `limit: 100` (line 88) -- request 100 items per API call
-- Change page cap from `pageNum < 3` to `pageNum < 6` (lines 139, 172) -- allow up to 5 pages = 500 items
-- This gives users 100 results immediately, with "Load More" up to 500
+### 1. Remove autoFill state and refs
+Delete:
+- `autoFillRunning` state
+- `autoFillAbortRef` ref
+- `productsRef` ref and its sync effect
+- `autoFillToCap` function
+- Auto-trigger `useEffect` (lines 473-482)
 
-### 3. Frontend: Increase LRU cache size for smoother navigation
+### 2. Remove autoFill UI elements
+Delete:
+- "Chargement automatique..." spinner text
+- "Charger plus automatiquement" button
+- "Stop" button
+- `showAutoLoadDebug` and `showProviderDebug` state (already removed from UI but still declared)
 
-**File: `src/lib/catalogCache.ts`**
-- Change `LRU_MAX_SIZE` from 50 to 100 -- keeps more search results in memory for instant back-navigation
+### 3. Ensure re-check works reliably
+The existing re-check pattern is correct. Just verify:
+- Sentinel is always rendered (already done: `<div ref={sentinelRef} style={{ height: 1 }} />`)
+- Re-check fires on every `loading`/`loadingMore` state change (already done)
+- `handleLoadMore` uses refs for all guards (already done)
+- `lastRequestedPageRef` resets on new search (already done)
 
-### 4. Backend: Raise DB-first minimum threshold
+### 4. Clean up unused state declarations
+Remove `showProviderDebug`, `showAutoLoadDebug`, `autoFillRunning` declarations since their UI was already removed.
 
-**File: `supabase/functions/_shared/searchDbFirst.ts`**
-- Change `DB_MIN_RESULTS` from 4 to 8 -- require more DB matches before skipping live providers, ensuring richer results
+## Expected Behavior
 
-### 5. eBay fetcher: Request full 100 per call
+- Search "iphone 11": Page 0 loads ~100 items, then pages 1-4 auto-chain via re-check, reaching ~500
+- No user interaction needed -- sentinel with 800px rootMargin triggers immediately
+- "Load More" button remains as manual fallback
+- Clean console logs show `[SENTINEL_RECHECK]` firing for each page
 
-**File: `supabase/functions/_shared/ebayBrowseSearch.ts`**
-- Change `DEFAULT_LIMIT` from 20 to 100 -- always request the maximum from eBay API
+## Technical Detail
 
-## Expected Outcome
-
-| Metric | Before | After |
-|--------|--------|-------|
-| Items on first load | ~30 | ~100 |
-| Max items via Load More | ~90 | ~500 |
-| API calls to reach 500 items | impossible | 5 |
-| eBay items per API call | 20 | 100 |
-
-## Technical Notes
-
-- No database migrations needed -- all changes are in edge functions and frontend code
-- The memory constraint on `no-frontend-modification-rule` applies to the Replit mobile app only; the Lovable web frontend can be modified
-- eBay Browse API hard limit is 100 per request and max offset 10,000 -- both respected
-- Amazon Rainforest API returns variable counts per call -- no change needed there
-- Cache keys remain compatible (no version bump needed since the data shape is unchanged)
+The re-check `useEffect` depends on `[loading, loadingMore, hasMore, handleLoadMore]`. Each page fetch toggles `loadingMore` (true then false), which triggers the effect. The 150ms setTimeout ensures refs are synced before calling `handleLoadMore`. The `lastRequestedPageRef` guard prevents duplicate requests within the same cycle.
 

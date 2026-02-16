@@ -68,17 +68,12 @@ export default function SearchResults() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorMode, setCursorMode] = useState(false);
   const [providersStatus, setProvidersStatus] = useState<any>(null);
-  const [showProviderDebug, setShowProviderDebug] = useState(false);
-  const [showAutoLoadDebug, setShowAutoLoadDebug] = useState(false);
-  const [autoFillRunning, setAutoFillRunning] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
   const revalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageRef = useRef(0);
   const lastRequestedPageRef = useRef<number | null>(null);
-  const autoFillAbortRef = useRef(false);
-  const productsRef = useRef<Product[]>([]);
 
   const SORT_OPTIONS = [
     { value: 'relevance', label: shop.relevance || 'Relevance' },
@@ -178,8 +173,6 @@ export default function SearchResults() {
       setPrefetchingNext(false);
       setNextCursor(null);
       setCursorMode(false);
-      autoFillAbortRef.current = true;
-      setAutoFillRunning(false);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
@@ -421,65 +414,6 @@ export default function SearchResults() {
     }
   }, [loading, loadingMore, hasMore, handleLoadMore]);
 
-  // Keep productsRef in sync
-  useEffect(() => { productsRef.current = products; }, [products]);
-
-  // ─── AUTO-FILL TO CAP ──────────────────────────────────────────────────────
-  const autoFillToCap = useCallback(async () => {
-    if (loadingRef.current || loadingMoreRef.current) return;
-    if (!hasMoreRef.current) return;
-    if (productsRef.current.length >= HARD_MAX_ITEMS) return;
-
-    autoFillAbortRef.current = false;
-    setAutoFillRunning(true);
-    console.log('[AUTOFILL] Starting auto-fill to cap');
-
-    try {
-      for (let i = 0; i < MAX_PAGES - 1; i++) {
-        if (autoFillAbortRef.current) { console.log('[AUTOFILL] Aborted by user'); break; }
-        if (!hasMoreRef.current) { console.log('[AUTOFILL] No more pages'); break; }
-        if (productsRef.current.length >= HARD_MAX_ITEMS) { console.log('[AUTOFILL] Reached cap'); break; }
-
-        // Wait for any in-progress load to finish
-        while (loadingRef.current || loadingMoreRef.current) {
-          await new Promise(r => setTimeout(r, 100));
-          if (autoFillAbortRef.current) break;
-        }
-        if (autoFillAbortRef.current) break;
-
-        const nextPage = pageRef.current + 1;
-        pageRef.current = nextPage;
-        setPage(nextPage);
-        const cursorToUse = cursorModeRef.current ? nextCursorRef.current : null;
-        console.log('[AUTOFILL] Fetching page', nextPage);
-
-        const result = await fetchProducts(nextPage, true, cursorToUse);
-
-        if (!result || result.returnedCount === 0) {
-          console.log('[AUTOFILL] Empty page, stopping');
-          break;
-        }
-
-        // Small delay between pages to avoid rate limits
-        await new Promise(r => setTimeout(r, 300));
-      }
-    } finally {
-      setAutoFillRunning(false);
-      console.log('[AUTOFILL] Done, total products:', productsRef.current.length);
-    }
-  }, [fetchProducts]);
-
-  // Auto-trigger: after page 0 loads, start filling
-  useEffect(() => {
-    if (!loading && !loadingMore && hasSearched && hasMore && products.length > 0 && products.length < HARD_MAX_ITEMS && !autoFillRunning && page === 0) {
-      const timer = setTimeout(() => {
-        if (!autoFillAbortRef.current) {
-          autoFillToCap();
-        }
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [loading, loadingMore, hasSearched, hasMore, products.length, autoFillRunning, page, autoFillToCap]);
 
   const handleApplyFilters = () => {
     setPage(0);
@@ -487,7 +421,7 @@ export default function SearchResults() {
   };
 
   // Derived: only show empty state when truly done
-  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && !autoFillRunning && products.length === 0;
+  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
 
   return (
     <div className="min-h-screen bg-black">
@@ -544,34 +478,7 @@ export default function SearchResults() {
                     {shop.fetchingMoreSources || 'Loading more sources…'}
                   </span>
                 )}
-                {autoFillRunning && (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-cyan-400 whitespace-normal">
-                    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
-                    {language === 'fr' ? 'Chargement automatique…' : 'Auto-loading…'}
-                  </span>
-                )}
               </div>
-              {/* Auto-fill controls */}
-              {!loading && hasSearched && products.length > 0 && (
-                <div className="flex items-center gap-2 mt-1">
-                  {!autoFillRunning && hasMore && products.length < HARD_MAX_ITEMS && (
-                    <button
-                      onClick={() => { autoFillAbortRef.current = false; autoFillToCap(); }}
-                      className="text-xs text-cyan-400 hover:text-cyan-300 underline"
-                    >
-                      {language === 'fr' ? 'Charger plus automatiquement' : 'Auto-load more'}
-                    </button>
-                  )}
-                  {autoFillRunning && (
-                    <button
-                      onClick={() => { autoFillAbortRef.current = true; setAutoFillRunning(false); }}
-                      className="text-xs text-red-400 hover:text-red-300 underline"
-                    >
-                      Stop
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
             <div className="flex items-center gap-2">

@@ -176,6 +176,8 @@ const CANONICAL_TERMS: Record<string, string[]> = {
   "headphones": ["headphone", "headphons", "hedphones", "headfones"],
   "bluetooth": ["bluethooth", "blutooth", "bluetoth", "bluetooh"],
   "speaker": ["speakr", "speeker", "speker", "speakrs"],
+  "canon": [],          // Canon camera brand - prevent "canon" → "camon" fuzzy match
+  "nikon": [],          // Nikon camera brand - prevent fuzzy matches
   "camera": ["camra", "camara", "cammera", "camrea"],
   "printer": ["printr", "prnter", "printe", "printor"],
   "router": ["routr", "roter", "ruoter"],

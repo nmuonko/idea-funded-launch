@@ -360,6 +360,10 @@ export default function SearchResults() {
       return;
     }
     const nextPage = pageRef.current + 1;
+    if (nextPage >= MAX_PAGES) {
+      console.log('[LOADMORE_SKIP] MAX_PAGES reached', { nextPage, MAX_PAGES });
+      return;
+    }
     pageRef.current = nextPage;
     setPage(nextPage);
     const cursorToUse = cursorModeRef.current ? nextCursorRef.current : null;
@@ -633,6 +637,12 @@ export default function SearchResults() {
                   {showProviderDebug ? 'Hide' : 'Show'} Provider Debug
                 </button>
               )}
+              <button
+                onClick={() => handleLoadMore()}
+                className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+              >
+                Force Load Next Page
+              </button>
             </div>
           )}
           {showProviderDebug && providersStatus && import.meta.env.DEV && (

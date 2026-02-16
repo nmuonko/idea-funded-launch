@@ -360,22 +360,38 @@ export default function SearchResults() {
     fetchProducts(nextPage, true, cursorToUse);
   }, [fetchProducts]);
 
-  // Infinite scroll sentinel
+  // Infinite scroll sentinel — uses refs to avoid stale closures
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const sentinelVisibleRef = useRef(false);
+
   useEffect(() => {
     if (!sentinelRef.current) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
+        sentinelVisibleRef.current = entry.isIntersecting;
         if (!entry.isIntersecting) return;
-        if (loading || loadingMore) return;
-        if (!hasMore) return;
+        if (loadingRef.current || loadingMoreRef.current) return;
+        if (!hasMoreRef.current) return;
         handleLoadMore();
       },
-      { rootMargin: '400px' }
+      { rootMargin: '600px' }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, handleLoadMore]);
+  }, [handleLoadMore]);
+
+  // Re-check: after loading finishes, if sentinel is still visible, load more
+  useEffect(() => {
+    if (!loading && !loadingMore && hasMore && sentinelVisibleRef.current) {
+      const timer = setTimeout(() => {
+        if (!loadingRef.current && !loadingMoreRef.current && hasMoreRef.current && sentinelVisibleRef.current) {
+          console.log('[SENTINEL_RECHECK] Triggering load more — sentinel still visible');
+          handleLoadMore();
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, loadingMore, hasMore, handleLoadMore]);
 
   const handleApplyFilters = () => {
     setPage(0);
@@ -541,10 +557,8 @@ export default function SearchResults() {
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={12} />
 
-          {/* Infinite scroll sentinel — ALWAYS rendered when hasMore */}
-          {hasMore && (
-            <div ref={sentinelRef} style={{ height: 1 }} />
-          )}
+          {/* Infinite scroll sentinel — always rendered so observer stays attached */}
+          <div ref={sentinelRef} style={{ height: 1, visibility: hasMore ? 'visible' : 'hidden' }} />
 
           {/* Loading more indicator */}
           {(loadingMore || prefetchingNext) && (

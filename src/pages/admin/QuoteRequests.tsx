@@ -30,7 +30,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Car, ExternalLink, Clock, Send, DollarSign, Loader2, RefreshCw, Store, Calculator, Info } from "lucide-react";
+import { Car, ExternalLink, Clock, Send, DollarSign, Loader2, RefreshCw, Store, Calculator, Info, MailX, Mail } from "lucide-react";
 import { formatCurrency, type SupportedLocale } from "@/lib/formatCurrency";
 
 // Auto-refresh interval: 5 minutes
@@ -242,6 +242,7 @@ export default function QuoteRequests() {
   const [selectedRequest, setSelectedRequest] = useState<QuoteRequest | null>(null);
   const [quoteDialogOpen, setQuoteDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [settings, setSettings] = useState<PricingSettings>({ markupPercent: 15, vehicleMarkupPercent: 15, exchangeRate: 2500 });
   
   // Quote form state
@@ -460,7 +461,19 @@ export default function QuoteRequests() {
       }
 
       console.log("Quote applied successfully:", data);
-      toast.success(t.quoteSuccess);
+      
+      // Warn admin if email failed
+      if (data.emailSent === false) {
+        toast.warning(
+          language === 'fr' 
+            ? `Devis appliqué mais l'email a échoué: ${data.emailError || 'erreur inconnue'}. Utilisez "Renvoyer l'email".`
+            : `Quote applied but email FAILED: ${data.emailError || 'unknown error'}. Use "Resend Email" to retry.`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.success(t.quoteSuccess);
+      }
+      
       setQuoteDialogOpen(false);
       fetchQuoteRequests();
     } catch (error: any) {
@@ -468,6 +481,62 @@ export default function QuoteRequests() {
       toast.error(error.message || t.quoteError);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleResendEmail = async (request: QuoteRequest) => {
+    if (!request.quoted_shipping_usd || !request.quoted_total_usd) {
+      toast.error("No quote values to resend");
+      return;
+    }
+    
+    setResendingEmail(request.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-quote-email", {
+        body: {
+          quoteRequestId: request.id,
+          quotedShippingUsd: request.quoted_shipping_usd,
+          quotedTotalUsd: request.quoted_total_usd,
+          adminNotes: request.admin_notes || undefined,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Email send failed");
+
+      toast.success(
+        language === 'fr' ? "Email renvoyé avec succès" : "Quote email resent successfully"
+      );
+      
+      // Log to customer_email_logs
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("email")
+          .eq("user_id", request.user_id)
+          .single();
+        
+        if (profile?.email) {
+          const { data: { user } } = await supabase.auth.getUser();
+          await supabase.from("customer_email_logs").insert({
+            customer_id: request.user_id,
+            customer_email: profile.email,
+            sent_by: user?.id || "unknown",
+            subject: `Vehicle Quote Ready (Resent) - $${request.quoted_total_usd?.toFixed(2)} USD`,
+            body: `Resent quote for ${request.title || 'Vehicle'}: Total $${request.quoted_total_usd?.toFixed(2)} USD`,
+            status: "sent",
+          });
+        }
+      } catch (_) { /* best-effort logging */ }
+    } catch (error: any) {
+      console.error("Resend email error:", error);
+      toast.error(
+        language === 'fr' 
+          ? `Échec du renvoi: ${error.message}` 
+          : `Resend failed: ${error.message}`
+      );
+    } finally {
+      setResendingEmail(null);
     }
   };
 
@@ -638,6 +707,31 @@ export default function QuoteRequests() {
                             <DollarSign className="h-4 w-4 mr-1" />
                             {t.setQuote}
                           </Button>
+                          {/* Resend Email button for SENT quotes */}
+                          {request.status === 'SENT' && request.quoted_total_usd && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleResendEmail(request)}
+                                    disabled={resendingEmail === request.id}
+                                    className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                                  >
+                                    {resendingEmail === request.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Mail className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{language === 'fr' ? 'Renvoyer l\'email' : 'Resend Quote Email'}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                           {request.product_url && (
                             <Button
                               size="sm"

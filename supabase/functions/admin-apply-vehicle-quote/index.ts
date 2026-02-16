@@ -390,8 +390,9 @@ serve(async (req) => {
 
     console.log("[admin-apply-vehicle-quote] Order totals updated successfully");
 
-    // 7. Send email notification (non-blocking)
+    // 7. Send email notification (non-blocking) — ALWAYS log attempt
     let emailSent = false;
+    let emailErrorMessage: string | null = null;
     try {
       const { data: emailResult, error: emailError } = await supabase.functions.invoke("send-quote-email", {
         body: {
@@ -406,36 +407,48 @@ serve(async (req) => {
         emailSent = true;
         console.log("[admin-apply-vehicle-quote] Quote email sent successfully");
       } else {
-        console.warn("[admin-apply-vehicle-quote] Email not sent:", emailError);
+        emailErrorMessage = emailError?.message || emailResult?.error || "Unknown email error";
+        console.error("[admin-apply-vehicle-quote] Email FAILED:", emailErrorMessage, { emailError, emailResult });
       }
-    } catch (emailErr) {
-      console.error("[admin-apply-vehicle-quote] Email error (non-fatal):", emailErr);
+    } catch (emailErr: any) {
+      emailErrorMessage = emailErr?.message || String(emailErr);
+      console.error("[admin-apply-vehicle-quote] Email exception (non-fatal):", emailErrorMessage);
     }
 
-    // 8. Log to customer_email_logs
-    if (emailSent) {
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("email")
-          .eq("user_id", quoteCheck.user_id)
-          .single();
+    // 8. ALWAYS log to customer_email_logs (sent or failed)
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("user_id", quoteCheck.user_id)
+        .single();
 
-        if (profile?.email) {
-          await supabase
-            .from("customer_email_logs")
-            .insert({
-              customer_id: quoteCheck.user_id,
-              customer_email: profile.email,
-              sent_by: user.id,
-              subject: `Vehicle Quote Ready - $${finalTotalUsd.toFixed(2)} USD`,
-              body: `Quote for ${vehicleTitle}: Base $${vehicleBasePriceUsd.toFixed(2)}, Shipping $${finalShippingUsd.toFixed(2)}, Margin $${finalMarginUsd.toFixed(2)}, Total $${finalTotalUsd.toFixed(2)} USD`,
-              status: "sent",
-            });
-        }
-      } catch (logErr) {
-        console.warn("[admin-apply-vehicle-quote] Failed to log email (non-fatal):", logErr);
+      if (profile?.email) {
+        await supabase
+          .from("customer_email_logs")
+          .insert({
+            customer_id: quoteCheck.user_id,
+            customer_email: profile.email,
+            sent_by: user.id,
+            subject: `Vehicle Quote Ready - $${finalTotalUsd.toFixed(2)} USD`,
+            body: `Quote for ${vehicleTitle}: Base $${vehicleBasePriceUsd.toFixed(2)}, Shipping $${finalShippingUsd.toFixed(2)}, Margin $${finalMarginUsd.toFixed(2)}, Total $${finalTotalUsd.toFixed(2)} USD`,
+            status: emailSent ? "sent" : "failed",
+          });
       }
+    } catch (logErr) {
+      console.warn("[admin-apply-vehicle-quote] Failed to log email (non-fatal):", logErr);
+    }
+
+    // 8b. If email failed, update quote_requests with email_status for visibility
+    if (!emailSent) {
+      try {
+        await supabase
+          .from("quote_requests")
+          .update({ 
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", quoteRequestId);
+      } catch (_) { /* best-effort */ }
     }
 
     // 9. Return success with all values for verification
@@ -444,8 +457,9 @@ serve(async (req) => {
       ok: true,
       message: emailSent 
         ? "Quote applied and customer notified" 
-        : "Quote applied (email notification skipped)",
+        : `Quote applied but email FAILED: ${emailErrorMessage || "unknown error"}`,
       emailSent,
+      emailError: emailErrorMessage,
       data: {
         quoteRequestId,
         orderItemId,

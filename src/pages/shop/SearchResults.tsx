@@ -259,14 +259,9 @@ export default function SearchResults() {
         }, 500);
       }
 
-      return { returnedCount, backendHasMore, incomplete: isIncomplete };
-    } catch (err: any) {
-      if (err.name === 'AbortError') return null;
-      if (token !== null && token !== activeSearchTokenRef.current) return null;
-      console.error('Search error:', err);
-      setSearchError(err.message || 'Search failed');
-      setHasSearched(true);
-    } finally {
+      const fetchResult = { returnedCount, backendHasMore, incomplete: isIncomplete };
+      
+      // Cleanup in try block (finally with return overrides this)
       if (!controller.signal.aborted) {
         if (token === null || token === activeSearchTokenRef.current) {
           setLoading(false);
@@ -274,6 +269,24 @@ export default function SearchResults() {
         }
         setLoadingMore(false);
       }
+      
+      return fetchResult;
+    } catch (err: any) {
+      if (err.name === 'AbortError') return null;
+      if (token !== null && token !== activeSearchTokenRef.current) return null;
+      console.error('Search error:', err);
+      setSearchError(err.message || 'Search failed');
+      setHasSearched(true);
+      
+      // Cleanup on error
+      if (!controller.signal.aborted) {
+        if (token === null || token === activeSearchTokenRef.current) {
+          setLoading(false);
+          setHasSearched(true);
+        }
+        setLoadingMore(false);
+      }
+      
       return null;
     }
   }, [buildFetchUrl, query, category, sort]);

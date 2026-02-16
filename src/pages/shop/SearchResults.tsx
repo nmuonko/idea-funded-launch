@@ -452,8 +452,8 @@ export default function SearchResults() {
             </div>
           )}
 
-          {/* No Results */}
-          {!loading && products.length === 0 && (
+          {/* No Results — only show after ALL loading is done */}
+          {!loading && !loadingMore && products.length === 0 && (
             <div className="text-center py-20">
               {searchError ? (
                 <>

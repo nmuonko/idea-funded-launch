@@ -39,6 +39,7 @@ import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardra
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
 import { findNearMatch, assertGlobalCacheKey, removeStopwords } from "../_shared/searchCacheSimilarity.ts";
 import { FR_EN_MAP } from "../_shared/frenchEnglishMap.ts";
+import { preNormalizeQuery } from "../_shared/queryPreNormalizer.ts";
 
 // Extracted modules
 import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
@@ -179,6 +180,21 @@ Deno.serve(async (req: Request) => {
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
+  // ─── PRE-NORMALIZER (deterministic, runs before AI) ──────────────────────
+  const preNorm = preNormalizeQuery(qOriginal);
+  let preNormSkipAI = preNorm.skipAI;
+  if (preNorm.matched) {
+    // Use pre-normalizer's effective query as the working query
+    qCanonicalized = preNorm.effectiveQuery;
+    searchMeta.rewrittenQuery = preNorm.effectiveQuery;
+    searchMeta.rewriteApplied = true;
+    // Only infer category if user didn't explicitly set one
+    if (!categoryKey && preNorm.inferredCategory) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_inferred_category: ${preNorm.inferredCategory} (rule: ${preNorm.matchRule})`);
+    }
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} preNorm_matched: "${qOriginal}" → "${preNorm.effectiveQuery}" rule=${preNorm.matchRule} skipAI=${preNorm.skipAI}`);
+  }
+
   try {
     const supabase = createAdminPostgrestClient();
     const perfLog = { rewrite_ms: 0, settings_ms: 0, cache_ms: 0, flags_ms: 0 };
@@ -246,7 +262,14 @@ Deno.serve(async (req: Request) => {
     perfLog.rewrite_ms = timings.rewrite;
     let qNorm = searchMeta.rewrittenQuery;
 
-    if (searchMeta.rewriteApplied) {
+    // If preNormalizer already matched, use its effectiveQuery as qNorm and skip translation
+    if (preNorm.matched) {
+      qNorm = preNorm.effectiveQuery;
+      searchMeta.rewrittenQuery = preNorm.effectiveQuery;
+      searchMeta.rewriteApplied = true;
+    }
+
+    if (searchMeta.rewriteApplied && !preNorm.matched) {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} Query rewritten: "${qOriginal}" → "${qNorm}"`);
     }
 
@@ -271,12 +294,13 @@ Deno.serve(async (req: Request) => {
     const originalQNormBeforeFrFallback = qNorm;
 
     // ─── TRANSLATION LAYER (DB cache → static fallback → OpenAI) ─────────
-    let translateStatus = "SKIP";
+    // Skip entirely if preNormalizer already produced an English query
+    let translateStatus = preNorm.matched ? "PRE_NORM" : "SKIP";
     let translateMs = 0;
-    let translateProvider = "";
+    let translateProvider = preNorm.matched ? "preNormalizer" : "";
     const translateStart = Date.now();
 
-    if (!searchMeta.rewriteApplied || qNorm === qNormLower) {
+    if (!preNorm.matched && (!searchMeta.rewriteApplied || qNorm === qNormLower)) {
       // [Step 1] DB translation cache lookup
       const cacheHit = await lookupTranslationCache(qNormLower, requestId);
       if (cacheHit) {
@@ -404,11 +428,13 @@ Deno.serve(async (req: Request) => {
     }
 
     // ─── AI QUERY REFINER ──────────────────────────────────────────────────────
-    // Fast path: fire but don't block; normal path: await with budget
-    const directQuery = isDirectQuery(qNorm);
-    const aiRefinePromise = refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
+    // Skip AI entirely when preNormalizer matched (deterministic fast path)
+    const directQuery = isDirectQuery(qNorm) || preNormSkipAI;
+    const aiRefinePromise = preNormSkipAI
+      ? Promise.resolve(null)
+      : refineQueryWithAi(supabase, qNorm, qOriginal, lang, requestId);
     if (directQuery) {
-      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=true, skipping AI refiner await + DB-first`);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} FAST_PATH: directQuery=${isDirectQuery(qNorm)} preNormSkipAI=${preNormSkipAI}, skipping AI refiner await + DB-first`);
     }
 
     // ─── EFFECTIVE MODE ───────────────────────────────────────────────────────

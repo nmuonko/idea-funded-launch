@@ -33,6 +33,17 @@ export interface SearchResponse {
   warning?: any;
   _cacheHit?: boolean;
   _cacheAgeSec?: number;
+  // Pagination fields
+  page?: number;
+  returnedCount?: number;
+  totalAvailableEstimate?: number;
+  providersStatus?: {
+    ebay: { ok: boolean; count: number; timedOut: boolean };
+    amazon: { ok: boolean; count: number; timedOut: boolean };
+  };
+  qRefined?: string;
+  sourcesUsed?: string[];
+  partial?: boolean;
 }
 
 export function buildEmptyResponse(

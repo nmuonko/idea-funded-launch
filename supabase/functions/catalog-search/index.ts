@@ -181,7 +181,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // ─── PRE-NORMALIZER (deterministic, runs before AI) ──────────────────────
-  const preNorm = preNormalizeQuery(qOriginal);
+  const preNorm = preNormalizeQuery(qOriginal, categoryKey);
   let preNormSkipAI = preNorm.skipAI;
   if (preNorm.matched) {
     // Use pre-normalizer's effective query as the working query
@@ -1030,7 +1030,7 @@ Deno.serve(async (req: Request) => {
     const amazonProviderHasMore = amazonHasMore || (amazonSettled.status === "rejected");
     
     // Overall hasMore: true if any provider has more OR if incomplete (timeout)
-    const robustHasMore = (pageParam < (MAX_PAGES - 1)) && (
+    const robustHasMore = (pageParam < (maxPages - 1)) && (
       mixResult.hasMore || ebayProviderHasMore || amazonProviderHasMore || incomplete
     );
 
@@ -1044,10 +1044,14 @@ Deno.serve(async (req: Request) => {
 
     const DEV = Deno.env.get("ENVIRONMENT") !== "production";
 
+    // ─── FIX: Safe maxPages computation (never undefined) ─────────────────────
+    const HARD_MAX_ITEMS = 500;
+    const maxPages = Math.max(1, Math.ceil(HARD_MAX_ITEMS / limit));
+
     // Build searchDebug for meta
     const finalCount = finalItems.length;
     const searchSource = finalCount > 0 ? "providers" : (dbFallbackItems?.length ? "fallback" : "empty");
-    const searchDebug = {
+    const searchDebug: Record<string, unknown> = {
       qOriginal, qCanon: qCanonicalized, qRewrite: qRewrite || null, providerQuery,
       usedQueryForProviders: providerQuery, intentKey: effectiveIntent.intentKey,
       dbCount, ebay: ebayDebug, amazon: amazonDebug,
@@ -1055,6 +1059,19 @@ Deno.serve(async (req: Request) => {
       isVehicle, isHeavyEquipment, hasBuyingIntent,
       scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },
     };
+    // DEV-only pre-normalizer debug
+    if (DEV) {
+      searchDebug.preNorm = {
+        qRaw: qOriginal,
+        qNormalizedNoStops: preNorm.qNormalizedNoStops || null,
+        effectiveQuery: preNorm.effectiveQuery,
+        usedStaticMap: preNorm.matched,
+        matchRule: preNorm.matchRule || null,
+        inferredCategory: preNorm.inferredCategory,
+        skipAI: preNorm.skipAI,
+        category_key_applied: categoryKey || null,
+      };
+    }
 
     // Compute explicit page from cursor for response
     const pageForResponse = Math.floor(mixerCursor.ebayOffset / limit) + 1;

@@ -51,8 +51,8 @@ import {
 } from "../_shared/searchResponseBuilder.ts";
 import type { SearchTimings } from "../_shared/searchResponseBuilder.ts";
 
-const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
 
 // ─── TIME BUDGET CONSTANTS ─────────────────────────────────────────────────
 const TOTAL_BUDGET_MS = 3500;
@@ -108,6 +108,7 @@ Deno.serve(async (req: Request) => {
   const qOriginal = rawQuery.trim();
   const cursor = url.searchParams.get("cursor") || null;
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get("limit") || String(DEFAULT_LIMIT), 10)));
+  const pageParam = parseInt(url.searchParams.get("page") || "0", 10);
   const providerParam = url.searchParams.get("provider") || null;
   const rawCategoryKey = url.searchParams.get("category_key") || url.searchParams.get("category") || null;
   const lang = url.searchParams.get("lang") || "fr";
@@ -691,11 +692,14 @@ Deno.serve(async (req: Request) => {
 
 
     const providerStartMs = Date.now();
-    // Dynamic timeout: vehicle queries need more time on eBay Motors
+    // Dynamic timeout: page 0 is fast (2-2.5s), later pages get more time (3-4s)
+    // Vehicle queries also get extra time on eBay Motors
     const isVehicleIntent = effectiveIntent.intentKey === "vehicle_listing" || effectiveIntent.intentKey === "vehicle_parts";
+    const isFirstPage = pageParam === 0 && !cursor;
     const elapsedBeforeProviders = Date.now() - startTime;
+    const baseTimeout = isFirstPage ? (isVehicleIntent ? 2500 : 2000) : (isVehicleIntent ? 4000 : 3000);
     const PROVIDER_TIMEOUT_MS = Math.min(
-      isVehicleIntent ? 6000 : 4000,
+      baseTimeout,
       Math.max(2000, TOTAL_BUDGET_MS - elapsedBeforeProviders - 200)
     );
 
@@ -991,8 +995,14 @@ Deno.serve(async (req: Request) => {
       providerStats, searchMeta,
       mediaStats: DEV ? mediaStats : undefined,
       durationMs, ttlSeconds: finalItems.length > 0 ? cacheTtlSeconds : 0, error: null,
-      // New additive fields for true proxy mode
+      // Pagination fields
       page: pageForResponse,
+      returnedCount: finalItems.length,
+      totalAvailableEstimate: Math.max(ebayTotal, amazonItems.length + ebayItems.length, finalItems.length),
+      providersStatus: {
+        ebay: { ok: ebayDebug.ok, count: ebayDebug.count, timedOut: providerTimedOut && !ebayDebug.ok },
+        amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: providerTimedOut && !amazonDebug.ok },
+      },
       qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
       sourcesUsed: sourceServed,
       partial: providerTimedOut || undefined,

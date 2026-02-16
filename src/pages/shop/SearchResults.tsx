@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Loader2, SlidersHorizontal, X, RefreshCw } from 'lucide-react';
+import { Loader2, SlidersHorizontal, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
@@ -14,8 +14,18 @@ import { cachedCatalogFetchWithSwr, normalizeQuery, stableStringify } from '@/li
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
+const PAGE_SIZE = 100;
+const MAX_PAGES = 5; // 5 pages × 100 = 500 max
+
 /** Generate a unique key per product for deduplication */
 function productKey(p: Product): string {
+  // Cross-provider dedupe: use normalized URL if available, else id+provider
+  if (p.productUrl) {
+    try {
+      const u = new URL(p.productUrl);
+      return u.hostname + u.pathname;
+    } catch { /* fall through */ }
+  }
   return (p.id || '') + ':' + (p.provider || '');
 }
 
@@ -44,11 +54,12 @@ export default function SearchResults() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [isRevalidating, setIsRevalidating] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(0); // 0-based page index
   const nextCursorRef = useRef<string | null>(null);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [totalResults, setTotalResults] = useState(0);
+  const [partialResults, setPartialResults] = useState(false);
 
   // Persistent seenIds across pages — reset on new search
   const seenIdsRef = useRef<Set<string>>(new Set());
@@ -85,7 +96,8 @@ export default function SearchResults() {
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[category] || category.replace(/_/g, ' ') || 'popular';
     const params: Record<string, any> = {
       q: normalizeQuery(searchQuery),
-      limit: 100,
+      limit: PAGE_SIZE,
+      page: pageNum,
     };
 
     if (category) {
@@ -104,28 +116,27 @@ export default function SearchResults() {
       params.filters = stableStringify(filters);
     }
 
-    // Pagination: prefer cursor, fall back to page number
-    if (pageNum > 1 && nextCursorRef.current) {
+    // Cursor-based pagination for subsequent pages
+    if (pageNum > 0 && nextCursorRef.current) {
       params.cursor = nextCursorRef.current;
-    } else if (pageNum > 1) {
-      params.page = pageNum;
     }
 
     // Reset seenIds on fresh search
-    if (pageNum === 1 && !append) {
+    if (pageNum === 0 && !append) {
       seenIdsRef.current = new Set();
       setLoading(true);
-    } else if (pageNum > 1) {
+      setPartialResults(false);
+    } else if (pageNum > 0) {
       setLoadingMore(true);
     }
 
     try {
       const result = await cachedCatalogFetchWithSwr<any>('catalog-search', params, {
-        skipCache: pageNum > 1,
+        skipCache: pageNum > 0,
         signal: controller.signal,
         onUpdate: (freshData) => {
-          // Background SWR update — smoothly replace page 1 results
-          if (pageNum === 1 && !append) {
+          // Background SWR update — smoothly replace page 0 results
+          if (pageNum === 0 && !append) {
             const freshProducts = mapItems(freshData?.items || []);
             const freshSeenIds = new Set<string>();
             const deduped = dedupeWithSet(freshProducts, freshSeenIds);
@@ -133,10 +144,11 @@ export default function SearchResults() {
             setProducts(deduped);
             setTotalResults(deduped.length);
             setIsRevalidating(false);
+            setPartialResults(!!freshData?.partial);
 
             const newCursor = freshData?.nextCursor || null;
             nextCursorRef.current = newCursor;
-            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < 6);
+            setHasMore((!!newCursor || freshData?.hasMore === true) && pageNum < MAX_PAGES - 1);
           }
         },
       });
@@ -145,8 +157,13 @@ export default function SearchResults() {
 
       const { data, isStale } = result;
 
-      if (isStale && pageNum === 1) {
+      if (isStale && pageNum === 0) {
         setIsRevalidating(true);
+      }
+
+      // Track partial results from provider timeouts
+      if (data?.partial) {
+        setPartialResults(true);
       }
 
       const mappedProducts = mapItems(data?.items || []);
@@ -169,7 +186,7 @@ export default function SearchResults() {
 
       const newCursor = data?.nextCursor || null;
       nextCursorRef.current = newCursor;
-      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < 6);
+      setHasMore((!!newCursor || data?.hasMore === true) && pageNum < MAX_PAGES - 1);
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.error('Search error:', err);
@@ -197,9 +214,9 @@ export default function SearchResults() {
 
   // Initial search
   useEffect(() => {
-    setPage(1);
+    setPage(0);
     nextCursorRef.current = null;
-    fetchProducts(1, false);
+    fetchProducts(0, false);
   }, [query, category, sort]);
 
   const handleSearch = (newQuery: string) => {
@@ -233,8 +250,8 @@ export default function SearchResults() {
   }, [hasMore, loading, loadingMore, handleLoadMore]);
 
   const handleApplyFilters = () => {
-    setPage(1);
-    fetchProducts(1, false);
+    setPage(0);
+    fetchProducts(0, false);
   };
 
   return (
@@ -279,6 +296,12 @@ export default function SearchResults() {
                   <span className="inline-flex items-center gap-1 text-xs text-blue-400/80">
                     <RefreshCw className="h-3 w-3 animate-spin" />
                     {shop.updating || 'Updating…'}
+                  </span>
+                )}
+                {partialResults && !isRevalidating && !loading && (
+                  <span className="inline-flex items-center gap-1 text-xs text-amber-400/80">
+                    <AlertCircle className="h-3 w-3" />
+                    {shop.fetchingMoreSources || 'Some sources still loading…'}
                   </span>
                 )}
               </div>

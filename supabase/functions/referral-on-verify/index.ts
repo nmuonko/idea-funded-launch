@@ -114,18 +114,26 @@ serve(async (req) => {
               .maybeSingle();
 
             if (!existingClaim) {
+              // Determine initial delivery status based on reward type
+              const rewardType = rule.reward_type || 'cash';
+              const initialDeliveryStatus = (rewardType === 'data' || rewardType === 'airtime') ? 'pending' : null;
+
               // Create payout claim
-              await supabaseAdmin.from('referral_payout_claims').insert({
+              const { data: newClaim } = await supabaseAdmin.from('referral_payout_claims').insert({
                 referrer_id: referrer.id,
                 ref_code: refCode,
                 rule_id: rule.id,
                 verified_count_at_trigger: currentCount,
                 payout_amount_usd: rule.payout_amount_usd,
                 status: 'pending',
-              });
+                delivery_status: initialDeliveryStatus,
+              }).select('id').single();
 
               // Create admin in-app notification
-              const notifBody = `${referrer.full_name} (${refCode}) reached ${currentCount} verified signups. Payout $${rule.payout_amount_usd}.`;
+              const rewardLabel = rewardType === 'data' ? `${rule.data_mb || 0}MB data` :
+                                  rewardType === 'airtime' ? `${rule.airtime_amount || 0} airtime` :
+                                  `$${rule.payout_amount_usd}`;
+              const notifBody = `${referrer.full_name} (${refCode}) reached ${currentCount} verified signups. Reward: ${rewardLabel}.`;
               await supabaseAdmin.from('admin_notifications').insert({
                 type: 'REFERRER_THRESHOLD_REACHED',
                 title: 'Referrer reached payout threshold',
@@ -136,8 +144,56 @@ serve(async (req) => {
                   verified_count: currentCount,
                   threshold: rule.threshold_verified_count,
                   payout_amount_usd: rule.payout_amount_usd,
+                  reward_type: rewardType,
                 },
               });
+
+              // Auto-deliver data/airtime via Reloadly
+              if ((rewardType === 'data' || rewardType === 'airtime') && newClaim?.id) {
+                try {
+                  // Get referrer phone
+                  const { data: referrerData } = await supabaseAdmin
+                    .from('referrers')
+                    .select('phone')
+                    .eq('id', referrer.id)
+                    .single();
+
+                  if (referrerData?.phone) {
+                    const topupPayload = {
+                      phone: referrerData.phone,
+                      countryCode: rule.operator_country_code || 'CD',
+                      topupType: rewardType,
+                      amount: rewardType === 'airtime' ? rule.airtime_amount : rule.data_mb,
+                      dataMb: rewardType === 'data' ? rule.data_mb : null,
+                      claimId: newClaim.id,
+                      referrerId: referrer.id,
+                    };
+
+                    const topupRes = await fetch(
+                      `${Deno.env.get('SUPABASE_URL')}/functions/v1/reloadly-topup`,
+                      {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+                        },
+                        body: JSON.stringify(topupPayload),
+                      }
+                    );
+
+                    const topupResult = await topupRes.json();
+                    console.log('[referral-on-verify] Reloadly topup result:', JSON.stringify(topupResult));
+                  } else {
+                    console.warn('[referral-on-verify] No phone for referrer:', referrer.id);
+                    await supabaseAdmin.from('referral_payout_claims').update({
+                      delivery_status: 'delivery_failed',
+                      delivery_error: 'No phone number on file',
+                    }).eq('id', newClaim.id);
+                  }
+                } catch (topupErr: any) {
+                  console.error('[referral-on-verify] Reloadly topup error (non-fatal):', topupErr.message);
+                }
+              }
 
               // Send admin email alert
               try {
@@ -155,9 +211,9 @@ serve(async (req) => {
                       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                         <h2 style="color: #f97316;">Referral Payout Threshold Reached</h2>
                         <p><strong>${referrer.full_name}</strong> (${refCode}) has reached <strong>${currentCount}</strong> verified signups.</p>
-                        <p>Payout amount: <strong>$${rule.payout_amount_usd}</strong></p>
+                        <p>Reward: <strong>${rewardLabel}</strong></p>
                         <p>Threshold: ${rule.threshold_verified_count} verified signups</p>
-                        <p>Please process the payout in the admin dashboard.</p>
+                        ${rewardType !== 'cash' ? '<p>Auto-delivery has been triggered via Reloadly.</p>' : '<p>Please process the payout in the admin dashboard.</p>'}
                         <a href="https://afrishop-usa.com/admin/referrals" style="display:inline-block;background:#f97316;color:white;padding:10px 20px;text-decoration:none;border-radius:6px;margin-top:10px;">View Referrals Dashboard</a>
                       </div>
                     `,
@@ -169,7 +225,7 @@ serve(async (req) => {
                 console.warn('[referral-on-verify] Admin email failed (non-fatal):', emailErr.message);
               }
 
-              console.log('[referral-on-verify] Payout claim created for rule:', rule.id, 'referrer:', referrer.id);
+              console.log('[referral-on-verify] Payout claim created for rule:', rule.id, 'referrer:', referrer.id, 'reward:', rewardType);
             }
           }
         }

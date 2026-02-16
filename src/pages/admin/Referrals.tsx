@@ -11,7 +11,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Gift, Check, Users, MousePointerClick, UserCheck, Loader2, Plus, Pencil, DollarSign, Settings } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Gift, Check, Users, MousePointerClick, UserCheck, Loader2, Plus, Pencil, DollarSign, Settings, RefreshCw, Wifi, Phone } from 'lucide-react';
 
 interface Referrer {
   id: string;
@@ -34,7 +35,11 @@ interface PayoutClaim {
   status: string;
   created_at: string;
   paid_at: string | null;
+  delivery_status: string | null;
+  delivery_tx_id: string | null;
+  delivery_error: string | null;
   referrer_name?: string;
+  referrer_phone?: string;
 }
 
 interface PayoutRule {
@@ -42,6 +47,10 @@ interface PayoutRule {
   threshold_verified_count: number;
   payout_amount_usd: number;
   is_enabled: boolean;
+  reward_type: string;
+  data_mb: number | null;
+  airtime_amount: number | null;
+  operator_country_code: string;
 }
 
 export default function AdminReferrals() {
@@ -52,10 +61,18 @@ export default function AdminReferrals() {
   const [rules, setRules] = useState<PayoutRule[]>([]);
   const [stats, setStats] = useState({ clicks: 0, signups: 0, verified: 0, pendingClaims: 0 });
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [adminEmail, setAdminEmail] = useState('');
   const [ruleDialog, setRuleDialog] = useState(false);
   const [editingRule, setEditingRule] = useState<PayoutRule | null>(null);
-  const [ruleForm, setRuleForm] = useState({ threshold: 10, amount: 5 });
+  const [ruleForm, setRuleForm] = useState({
+    threshold: 10,
+    amount: 5,
+    reward_type: 'cash' as string,
+    data_mb: 100,
+    airtime_amount: 0,
+    operator_country_code: 'CD',
+  });
   const isFr = language === 'fr';
 
   const loadData = async () => {
@@ -89,11 +106,15 @@ export default function AdminReferrals() {
         const referrerIds = [...new Set(claimsData.map(c => c.referrer_id))];
         const { data: refs } = await supabase
           .from('referrers')
-          .select('id, full_name')
+          .select('id, full_name, phone')
           .in('id', referrerIds.length ? referrerIds : ['none']);
 
-        const refMap = new Map(refs?.map(r => [r.id, r.full_name]) || []);
-        setClaims(claimsData.map(c => ({ ...c, referrer_name: refMap.get(c.referrer_id) || c.ref_code })));
+        const refMap = new Map(refs?.map(r => [r.id, { name: r.full_name, phone: r.phone }]) || []);
+        setClaims(claimsData.map(c => ({
+          ...c,
+          referrer_name: refMap.get(c.referrer_id)?.name || c.ref_code,
+          referrer_phone: refMap.get(c.referrer_id)?.phone || '',
+        })));
       }
 
       // Load rules
@@ -101,7 +122,7 @@ export default function AdminReferrals() {
         .from('referral_payout_rules')
         .select('*')
         .order('threshold_verified_count', { ascending: true });
-      if (rulesData) setRules(rulesData);
+      if (rulesData) setRules(rulesData as PayoutRule[]);
 
       // Load admin email
       const { data: emailSetting } = await supabase
@@ -142,17 +163,56 @@ export default function AdminReferrals() {
     loadData();
   };
 
-  const saveRule = async () => {
-    if (editingRule) {
-      await supabase.from('referral_payout_rules').update({
-        threshold_verified_count: ruleForm.threshold,
-        payout_amount_usd: ruleForm.amount,
-      }).eq('id', editingRule.id);
-    } else {
-      await supabase.from('referral_payout_rules').insert({
-        threshold_verified_count: ruleForm.threshold,
-        payout_amount_usd: ruleForm.amount,
+  const retryDelivery = async (claim: PayoutClaim) => {
+    setRetrying(claim.id);
+    try {
+      // Find the rule to get reward details
+      const rule = rules.find(r => r.id === claim.rule_id);
+      if (!rule) {
+        toast({ title: isFr ? 'Règle introuvable' : 'Rule not found', variant: 'destructive' });
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('reloadly-topup', {
+        body: {
+          phone: claim.referrer_phone,
+          countryCode: rule.operator_country_code || 'CD',
+          topupType: rule.reward_type,
+          amount: rule.reward_type === 'airtime' ? rule.airtime_amount : rule.data_mb,
+          dataMb: rule.reward_type === 'data' ? rule.data_mb : null,
+          claimId: claim.id,
+          referrerId: claim.referrer_id,
+        },
       });
+
+      if (error) throw error;
+      if (data?.ok) {
+        toast({ title: isFr ? 'Livraison réussie!' : 'Delivery successful!' });
+      } else {
+        toast({ title: isFr ? 'Échec de livraison' : 'Delivery failed', description: data?.message, variant: 'destructive' });
+      }
+      loadData();
+    } catch (err: any) {
+      toast({ title: isFr ? 'Erreur' : 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const saveRule = async () => {
+    const payload: Record<string, unknown> = {
+      threshold_verified_count: ruleForm.threshold,
+      payout_amount_usd: ruleForm.amount,
+      reward_type: ruleForm.reward_type,
+      data_mb: ruleForm.reward_type === 'data' ? ruleForm.data_mb : null,
+      airtime_amount: ruleForm.reward_type === 'airtime' ? ruleForm.airtime_amount : null,
+      operator_country_code: ruleForm.operator_country_code,
+    };
+
+    if (editingRule) {
+      await supabase.from('referral_payout_rules').update(payload as any).eq('id', editingRule.id);
+    } else {
+      await supabase.from('referral_payout_rules').insert(payload as any);
     }
     toast({ title: isFr ? 'Sauvegardé' : 'Saved' });
     setRuleDialog(false);
@@ -168,6 +228,49 @@ export default function AdminReferrals() {
   const saveAdminEmail = async () => {
     await supabase.from('admin_settings').upsert({ key: 'ADMIN_ALERT_EMAIL', value: adminEmail }, { onConflict: 'key' });
     toast({ title: isFr ? 'Email admin sauvegardé' : 'Admin email saved' });
+  };
+
+  const getRewardLabel = (rule: PayoutRule) => {
+    switch (rule.reward_type) {
+      case 'data': return `${rule.data_mb || 0}MB`;
+      case 'airtime': return `${rule.airtime_amount || 0} airtime`;
+      default: return `$${rule.payout_amount_usd}`;
+    }
+  };
+
+  const getRewardIcon = (type: string) => {
+    switch (type) {
+      case 'data': return <Wifi className="h-4 w-4" />;
+      case 'airtime': return <Phone className="h-4 w-4" />;
+      default: return <DollarSign className="h-4 w-4" />;
+    }
+  };
+
+  const getDeliveryBadge = (status: string | null) => {
+    switch (status) {
+      case 'delivered': return <Badge className="bg-green-600">Delivered</Badge>;
+      case 'delivery_failed': return <Badge variant="destructive">Failed</Badge>;
+      case 'pending': return <Badge variant="secondary">Pending</Badge>;
+      default: return null;
+    }
+  };
+
+  const openRuleDialog = (rule?: PayoutRule) => {
+    if (rule) {
+      setEditingRule(rule);
+      setRuleForm({
+        threshold: rule.threshold_verified_count,
+        amount: rule.payout_amount_usd,
+        reward_type: rule.reward_type || 'cash',
+        data_mb: rule.data_mb || 100,
+        airtime_amount: rule.airtime_amount || 0,
+        operator_country_code: rule.operator_country_code || 'CD',
+      });
+    } else {
+      setEditingRule(null);
+      setRuleForm({ threshold: 10, amount: 5, reward_type: 'cash', data_mb: 100, airtime_amount: 0, operator_country_code: 'CD' });
+    }
+    setRuleDialog(true);
   };
 
   return (
@@ -256,8 +359,9 @@ export default function AdminReferrals() {
                       <TableHead>{isFr ? 'Parrain' : 'Referrer'}</TableHead>
                       <TableHead>Code</TableHead>
                       <TableHead>{isFr ? 'Vérifiés' : 'Verified'}</TableHead>
-                      <TableHead>{isFr ? 'Montant' : 'Amount'}</TableHead>
+                      <TableHead>{isFr ? 'Récompense' : 'Reward'}</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>{isFr ? 'Livraison' : 'Delivery'}</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -272,13 +376,28 @@ export default function AdminReferrals() {
                         <TableCell>
                           <Badge variant={c.status === 'paid' ? 'default' : 'secondary'}>{c.status}</Badge>
                         </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            {getDeliveryBadge(c.delivery_status)}
+                            {c.delivery_tx_id && <span className="text-xs text-muted-foreground">TX: {c.delivery_tx_id.slice(0, 8)}...</span>}
+                            {c.delivery_error && <span className="text-xs text-destructive">{c.delivery_error}</span>}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{new Date(c.created_at).toLocaleDateString()}</TableCell>
                         <TableCell>
-                          {c.status === 'pending' && (
-                            <Button size="sm" variant="outline" onClick={() => markClaimPaid(c.id)}>
-                              <Check className="h-3 w-3 mr-1" />{isFr ? 'Payé' : 'Mark Paid'}
-                            </Button>
-                          )}
+                          <div className="flex gap-1">
+                            {c.status === 'pending' && !c.delivery_status && (
+                              <Button size="sm" variant="outline" onClick={() => markClaimPaid(c.id)}>
+                                <Check className="h-3 w-3 mr-1" />{isFr ? 'Payé' : 'Mark Paid'}
+                              </Button>
+                            )}
+                            {c.delivery_status === 'delivery_failed' && (
+                              <Button size="sm" variant="outline" onClick={() => retryDelivery(c)} disabled={retrying === c.id}>
+                                {retrying === c.id ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                                {isFr ? 'Réessayer' : 'Retry'}
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -296,7 +415,7 @@ export default function AdminReferrals() {
               <CardTitle>{isFr ? 'Règles de paiement' : 'Payout Rules'}</CardTitle>
               <Dialog open={ruleDialog} onOpenChange={setRuleDialog}>
                 <DialogTrigger asChild>
-                  <Button size="sm" onClick={() => { setEditingRule(null); setRuleForm({ threshold: 10, amount: 5 }); }}>
+                  <Button size="sm" onClick={() => openRuleDialog()}>
                     <Plus className="h-4 w-4 mr-1" />{isFr ? 'Ajouter' : 'Add Rule'}
                   </Button>
                 </DialogTrigger>
@@ -306,13 +425,54 @@ export default function AdminReferrals() {
                   </DialogHeader>
                   <div className="space-y-4 pt-2">
                     <div>
+                      <Label>{isFr ? 'Type de récompense' : 'Reward Type'}</Label>
+                      <Select value={ruleForm.reward_type} onValueChange={v => setRuleForm(f => ({ ...f, reward_type: v }))}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cash">{isFr ? 'Argent ($)' : 'Cash ($)'}</SelectItem>
+                          <SelectItem value="data">{isFr ? 'Données mobiles (MB)' : 'Mobile Data (MB)'}</SelectItem>
+                          <SelectItem value="airtime">{isFr ? 'Crédit téléphone' : 'Airtime'}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
                       <Label>{isFr ? 'Seuil (inscriptions vérifiées)' : 'Threshold (verified signups)'}</Label>
                       <Input type="number" min={1} value={ruleForm.threshold} onChange={e => setRuleForm(f => ({ ...f, threshold: parseInt(e.target.value) || 1 }))} />
                     </div>
-                    <div>
-                      <Label>{isFr ? 'Montant ($)' : 'Amount ($)'}</Label>
-                      <Input type="number" min={0} step={0.5} value={ruleForm.amount} onChange={e => setRuleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} />
-                    </div>
+
+                    {ruleForm.reward_type === 'cash' && (
+                      <div>
+                        <Label>{isFr ? 'Montant ($)' : 'Amount ($)'}</Label>
+                        <Input type="number" min={0} step={0.5} value={ruleForm.amount} onChange={e => setRuleForm(f => ({ ...f, amount: parseFloat(e.target.value) || 0 }))} />
+                      </div>
+                    )}
+
+                    {ruleForm.reward_type === 'data' && (
+                      <div>
+                        <Label>{isFr ? 'Données (MB)' : 'Data (MB)'}</Label>
+                        <Input type="number" min={1} value={ruleForm.data_mb} onChange={e => setRuleForm(f => ({ ...f, data_mb: parseInt(e.target.value) || 100 }))} />
+                      </div>
+                    )}
+
+                    {ruleForm.reward_type === 'airtime' && (
+                      <div>
+                        <Label>{isFr ? 'Montant crédit (monnaie locale)' : 'Airtime Amount (local currency)'}</Label>
+                        <Input type="number" min={0} step={100} value={ruleForm.airtime_amount} onChange={e => setRuleForm(f => ({ ...f, airtime_amount: parseFloat(e.target.value) || 0 }))} />
+                      </div>
+                    )}
+
+                    {(ruleForm.reward_type === 'data' || ruleForm.reward_type === 'airtime') && (
+                      <div>
+                        <Label>{isFr ? 'Code pays opérateur' : 'Operator Country Code'}</Label>
+                        <Input value={ruleForm.operator_country_code} onChange={e => setRuleForm(f => ({ ...f, operator_country_code: e.target.value.toUpperCase() }))} placeholder="CD" maxLength={2} />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {isFr ? 'Ex: CD = RD Congo, KE = Kenya' : 'E.g. CD = DR Congo, KE = Kenya'}
+                        </p>
+                      </div>
+                    )}
+
                     <Button onClick={saveRule} className="w-full">{isFr ? 'Sauvegarder' : 'Save'}</Button>
                   </div>
                 </DialogContent>
@@ -326,7 +486,8 @@ export default function AdminReferrals() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>{isFr ? 'Seuil' : 'Threshold'}</TableHead>
-                      <TableHead>{isFr ? 'Montant' : 'Amount'}</TableHead>
+                      <TableHead>{isFr ? 'Type' : 'Type'}</TableHead>
+                      <TableHead>{isFr ? 'Récompense' : 'Reward'}</TableHead>
                       <TableHead>{isFr ? 'Actif' : 'Enabled'}</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -335,10 +496,16 @@ export default function AdminReferrals() {
                     {rules.map(r => (
                       <TableRow key={r.id}>
                         <TableCell>{r.threshold_verified_count} {isFr ? 'vérifiés' : 'verified'}</TableCell>
-                        <TableCell className="font-bold">${r.payout_amount_usd}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {getRewardIcon(r.reward_type || 'cash')}
+                            <span className="capitalize">{r.reward_type || 'cash'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-bold">{getRewardLabel(r)}</TableCell>
                         <TableCell><Switch checked={r.is_enabled} onCheckedChange={v => toggleRule(r.id, v)} /></TableCell>
                         <TableCell>
-                          <Button size="icon" variant="ghost" onClick={() => { setEditingRule(r); setRuleForm({ threshold: r.threshold_verified_count, amount: r.payout_amount_usd }); setRuleDialog(true); }}>
+                          <Button size="icon" variant="ghost" onClick={() => openRuleDialog(r)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
                         </TableCell>

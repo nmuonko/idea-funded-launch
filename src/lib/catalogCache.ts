@@ -11,7 +11,7 @@
 
 const CACHE_PREFIX = 'afrishop_cache:v9:';
 const DEFAULT_TTL_SECONDS = 3600; // 1 hour fallback
-const LRU_MAX_SIZE = 50;
+const LRU_MAX_SIZE = 100;
 const SWR_STALE_MULTIPLIER = 2; // Serve stale up to 2x TTL
 
 interface CacheEntry<T> {

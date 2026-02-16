@@ -26,7 +26,7 @@ export interface DbFirstResult {
   durationMs: number;
 }
 
-const DB_MIN_RESULTS = 4;
+const DB_MIN_RESULTS = 8;
 
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
   const { supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId } = params;

@@ -174,7 +174,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (user) {
       // Logged-in users get their cart from server via syncCart
-      console.log('[CART] init: logged-in user, skipping localStorage load');
+      // Set loading=true immediately so Checkout sees cartLoading=true until sync finishes
+      setLoading(true);
+      console.log('[CART] init: logged-in user, skipping localStorage load, loading=true until sync');
     } else {
       const storedCart = localStorage.getItem(CART_STORAGE_KEY);
       if (storedCart) {

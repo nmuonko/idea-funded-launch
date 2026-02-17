@@ -127,10 +127,27 @@ async function loadSeedsForRecipe(recipeId: string): Promise<SeedRow[]> {
 }
 
 async function loadRefreshSettings(env: string): Promise<RefreshSettings> {
+  // 1. Read admin-configured TTL from catalog_cache_settings (primary source)
+  const cacheSettingsUrl = `${baseUrl()}/rest/v1/catalog_cache_settings?key=eq.default&select=home_expires_minutes`;
+  const cacheSettings = await fetchJson<Array<{ home_expires_minutes: number | null }>>(cacheSettingsUrl, restHeaders());
+  const adminMinutes = cacheSettings?.[0]?.home_expires_minutes;
+
+  // 2. Read home_refresh_settings for schema versions and fallback hours
   const url = `${baseUrl()}/rest/v1/home_refresh_settings?env=eq.${encodeURIComponent(env)}`;
   const rows = await fetchJson<RefreshSettings[]>(url, restHeaders());
-  if (rows && rows.length > 0) return rows[0];
-  return { mobile_refresh_hours: 12, web_refresh_hours: 12, mobile_schema_version: 1, web_schema_version: 1 };
+  const base = rows && rows.length > 0
+    ? rows[0]
+    : { mobile_refresh_hours: 12, web_refresh_hours: 12, mobile_schema_version: 1, web_schema_version: 1 };
+
+  // 3. Override refresh hours with admin TTL if available (minutes → hours)
+  if (adminMinutes && adminMinutes > 0) {
+    const adminHours = adminMinutes / 60;
+    base.web_refresh_hours = adminHours;
+    base.mobile_refresh_hours = adminHours;
+    console.log(`[loadRefreshSettings] Using admin TTL: ${adminMinutes} min (${adminHours} h)`);
+  }
+
+  return base;
 }
 
 // ─── FETCH ITEMS FROM SEEDS ───────────────────────────────────────────────────
@@ -227,7 +244,7 @@ async function fetchItemsFromDB(
   const perSeedPromises = activeSeedQueries.map(seed => {
     const candidateLimit = 30; // fetch 30 candidates, filter down to max_items
     const titleFilter = `title.ilike.*${seed.query.replace(/ /g, "+")}*`;
-    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=updated_at.desc.nullslast&limit=${candidateLimit}`;
+    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=price_usd.desc.nullslast,created_at.desc.nullslast&limit=${candidateLimit}`;
     if (maxPrice && maxPrice > 0) {
       filters += `&price_usd=lte.${maxPrice}`;
     }

@@ -52,17 +52,20 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   const t = translations[language] || translations.en;
   const shop = t.shop;
 
-  // Build default tabs with i18n
+  // Build default tabs with i18n — keys MUST match backend recipe keys exactly
   const getDefaultTabs = (): CategoryTab[] => [
     { key: 'all', title: shop.all, icon: <Home className="h-4 w-4" /> },
-    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'phones', title: shop.phones || 'Téléphones', icon: <Smartphone className="h-4 w-4" /> },
+    { key: 'electronics', title: shop.electronics || 'Électronique', icon: <Cpu className="h-4 w-4" /> },
     { key: 'vehicles', title: shop.vehicles, icon: <Car className="h-4 w-4" /> },
-    { key: 'home', title: shop.homeGarden || shop.home, icon: <Home className="h-4 w-4" /> },
-    { key: 'fashion', title: shop.clothingFashion || shop.fashion, icon: <Shirt className="h-4 w-4" /> },
-    { key: 'toys', title: shop.toys || shop.toysGames, icon: <Gamepad2 className="h-4 w-4" /> },
-    { key: 'sporting_goods', title: shop.sportingGoods || shop.sportsOutdoors, icon: <Dumbbell className="h-4 w-4" /> },
-    { key: 'watches', title: shop.jewelryWatches || shop.watches, icon: <Watch className="h-4 w-4" /> },
-    { key: 'refurbished', title: shop.refurbished || 'Refurbished', icon: <Sparkles className="h-4 w-4" /> },
+    { key: 'gaming', title: shop.gaming, icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'clothing', title: shop.clothingFashion || shop.fashion || 'Mode', icon: <Shirt className="h-4 w-4" /> },
+    { key: 'home_garden', title: shop.homeGarden || shop.home || 'Maison', icon: <Home className="h-4 w-4" /> },
+    { key: 'toys', title: shop.toys || shop.toysGames || 'Jouets', icon: <Gamepad2 className="h-4 w-4" /> },
+    { key: 'sporting_goods', title: shop.sportingGoods || shop.sportsOutdoors || 'Sport', icon: <Dumbbell className="h-4 w-4" /> },
+    { key: 'jewelry_watches', title: shop.jewelryWatches || shop.watches || 'Montres', icon: <Watch className="h-4 w-4" /> },
+    { key: 'parts_accessories', title: shop.partsAccessories || 'Pièces Auto', icon: <Package className="h-4 w-4" /> },
+    { key: 'refurbished', title: shop.refurbished || 'Reconditionné', icon: <Sparkles className="h-4 w-4" /> },
   ];
 
   // Update tabs when language changes
@@ -95,9 +98,9 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
           };
           
           // Get localized title based on language
-          // Filter out business_industrial and electronics (replaced by gaming)
+          // Only filter out business_industrial; keep all other valid tabs
           const filteredTabs = data.tabs
-            .filter((tab: any) => tab.key !== 'business_industrial' && tab.key !== 'electronics');
+            .filter((tab: any) => tab.key !== 'business_industrial');
           
           const seen = new Set<string>();
           seen.add('all');

@@ -126,14 +126,18 @@ async function loadRecipes(target: "mobile" | "web"): Promise<RecipeRow[]> {
 }
 
 async function loadSeedsForRecipe(recipeId: string): Promise<SeedRow[]> {
-  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=sort_order.asc&select=id,recipe_id,query,weight,enabled,sort_order,max_items,required_terms,excluded_terms`;
+  const url = `${baseUrl()}/rest/v1/home_recipe_seeds?recipe_id=eq.${recipeId}&enabled=eq.true&order=sort_order.asc.nullslast&select=id,recipe_id,query,weight,enabled,sort_order,max_items,required_terms,excluded_terms`;
   const rows = await fetchJson<SeedRow[]>(url, restHeaders());
-  return (rows || []).map(r => ({
-    ...r,
-    max_items: r.max_items ?? 3,
-    required_terms: r.required_terms ?? [],
-    excluded_terms: r.excluded_terms ?? [],
-  }));
+  return (rows || [])
+    .map(r => ({
+      ...r,
+      sort_order: Number(r.sort_order) || 0,
+      max_items: (r as Record<string, unknown>).max_items as number ?? (r as Record<string, unknown>).maxItems as number ?? 3,
+      required_terms: r.required_terms ?? [],
+      excluded_terms: r.excluded_terms ?? [],
+    }))
+    // Defensive numeric sort to prevent lexicographic ordering ("10" < "2")
+    .sort((a, b) => a.sort_order - b.sort_order);
 }
 
 async function loadRefreshSettings(env: string): Promise<RefreshSettings> {
@@ -245,7 +249,10 @@ async function fetchItemsFromDB(
 ): Promise<RecipeItem[]> {
   if (seeds.length === 0) return [];
 
-  const activeSeedQueries = seeds.slice(0, 20);
+  // Enforce numeric sort_order in code as safety net
+  const sortedSeeds = [...seeds].sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+  const activeSeedQueries = sortedSeeds.slice(0, 20);
+  console.log(`[fetchItemsFromDB] ${activeSeedQueries.length} seeds in order: ${activeSeedQueries.map(s => `#${s.sort_order}:"${s.query}"(max=${s.max_items})`).join(", ")}`);
   const priceFloor = (minPrice && minPrice > 0) ? minPrice : 0;
   const headers = restHeaders();
   const base = baseUrl();
@@ -321,6 +328,12 @@ async function fetchItemsFromDB(
     perSeedItems.push(seedItems);
   }
 
+  // Log per-seed item counts for diagnostics
+  for (let si = 0; si < perSeedItems.length; si++) {
+    const seed = activeSeedQueries[si];
+    console.log(`[fetchItemsFromDB] seed #${seed.sort_order} "${seed.query}": ${perSeedItems[si].length}/${seed.max_items} items`);
+  }
+
   // Round-robin interleave: s1[0], s2[0], s3[0], s1[1], s2[1], s3[1], ...
   const interleaved: RecipeItem[] = [];
   const maxRound = Math.max(...perSeedItems.map(s => s.length), 0);
@@ -333,6 +346,7 @@ async function fetchItemsFromDB(
     }
   }
 
+  console.log(`[fetchItemsFromDB] final interleaved: ${interleaved.length} items (target=${targetCount})`);
   return interleaved;
 }
 

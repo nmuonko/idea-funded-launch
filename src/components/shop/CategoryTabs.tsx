@@ -148,25 +148,29 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   };
 
   return (
-    <ScrollArea className={cn("w-full", className)}>
-      <div className="flex gap-2 py-2 snap-x snap-mandatory">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => handleTabClick(tab.key)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[44px] snap-start",
-              currentCategory === tab.key
-                ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
-                : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/10"
-            )}
-          >
-            {tab.icon}
-            <span className="whitespace-nowrap">{tab.title}</span>
-          </button>
-        ))}
-      </div>
-      <ScrollBar orientation="horizontal" className="invisible" />
-    </ScrollArea>
+    <div className={cn("relative w-full", className)}>
+      {/* Right fade indicator to show more tabs exist */}
+      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 md:w-16" />
+      <ScrollArea className="w-full">
+        <div className="flex gap-2 py-2 snap-x snap-mandatory pr-12 md:pr-16">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleTabClick(tab.key)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[44px] snap-start",
+                currentCategory === tab.key
+                  ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
+                  : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/10"
+              )}
+            >
+              {tab.icon}
+              <span className="whitespace-nowrap">{tab.title}</span>
+            </button>
+          ))}
+        </div>
+        <ScrollBar orientation="horizontal" className="invisible" />
+      </ScrollArea>
+    </div>
   );
 }

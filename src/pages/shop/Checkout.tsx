@@ -31,7 +31,7 @@ export default function Checkout() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const { 
-    items, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 
+    items, loading: cartLoading, initialized, totalUsd, savePendingCheckout, restoreFromPendingCheckout, 
     vehicleQuoteStatus, serverTotalUsd,
     selectedItems, selectedTotalUsd, selectedHasVehicleItems, selectedCanProceedToPayment
   } = useShopCart();
@@ -62,21 +62,25 @@ export default function Checkout() {
   const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
   const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
-  // Restore cart from pending checkout only if cart is genuinely empty (not mid-sync), attempt once
+  // Restore cart from pending checkout only if cart is genuinely empty AFTER initialization + loading, attempt once
   const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
     if (didAttemptRestoreRef.current) return;
-    if (!loading && items.length === 0) {
+    if (!initialized) return;
+
+    if (!cartLoading && items.length === 0) {
       didAttemptRestoreRef.current = true;
       const restored = restoreFromPendingCheckout();
       if (restored) {
         console.log('[CHECKOUT] Cart restored from pending snapshot (confirmed empty)');
       }
+      return;
     }
-    if (!loading && items.length > 0) {
+
+    if (!cartLoading && items.length > 0) {
       didAttemptRestoreRef.current = true;
     }
-  }, [loading, items.length]);
+  }, [initialized, cartLoading, items.length]);
 
   // Load profile data
   useEffect(() => {

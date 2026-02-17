@@ -109,6 +109,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const syncInProgressRef = useRef(false);
   const pendingSyncRef = useRef(false);
 
+  // --- Only force loading=true on first server hydration, not on token refresh ---
+  const didInitialServerHydrateRef = useRef(false);
+
   // --- Item selection state ---
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
@@ -172,11 +175,11 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
 
   // Load cart from localStorage on init — ONLY for guests
   useEffect(() => {
-    if (user) {
-      // Logged-in users get their cart from server via syncCart
-      // Set loading=true immediately so Checkout sees cartLoading=true until sync finishes
+    if (user && !didInitialServerHydrateRef.current) {
+      // First mount for logged-in user: keep loading=true until syncCart finishes
+      didInitialServerHydrateRef.current = true;
       setLoading(true);
-      console.log('[CART] init: logged-in user, skipping localStorage load, loading=true until sync');
+      console.log('[CART] init: logged-in user, loading=true for initial hydration');
     } else {
       const storedCart = localStorage.getItem(CART_STORAGE_KEY);
       if (storedCart) {

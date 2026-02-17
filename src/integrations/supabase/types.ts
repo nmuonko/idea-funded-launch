@@ -5383,6 +5383,25 @@ export type Database = {
         Args: { p_primary_id: string; p_secondary_ids: string[] }
         Returns: Json
       }
+      search_catalog_items_ranked: {
+        Args: {
+          p_limit?: number
+          p_max_price?: number
+          p_min_price?: number
+          p_query: string
+        }
+        Returns: {
+          brand: string
+          id: string
+          image_url: string
+          price_usd: number
+          product_url: string
+          provider: string
+          provider_product_id: string
+          relevance: number
+          title: string
+        }[]
+      }
       search_submission_by_code: {
         Args: { search_code: string }
         Returns: {

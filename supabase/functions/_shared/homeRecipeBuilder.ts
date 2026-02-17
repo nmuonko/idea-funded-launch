@@ -448,6 +448,8 @@ async function getEbayToken(): Promise<string | null> {
 /**
  * Fetch items for a recipe (DB + optional eBay)
  */
+const DEFAULT_SEED_MAX_ITEMS = 3;
+
 async function fetchItemsForRecipe(
   recipe: RecipeRow,
   seeds: SeedRow[],
@@ -455,16 +457,26 @@ async function fetchItemsForRecipe(
   _ebayToken: string | null
 ): Promise<RecipeItem[]> {
   // Compute the strict maximum from seeds: sum of all seed max_items
-  const seedMax = seeds.reduce((sum, s) => sum + (s.max_items || 3), 0);
+  const seedMax = seeds.reduce((sum, s) => sum + (s.max_items || DEFAULT_SEED_MAX_ITEMS), 0);
   // Never exceed seed-controlled max — this preserves round-robin ordering
   const effectiveTarget = Math.min(targetCount, seedMax);
+
+  // TEMP DIAGNOSTIC — remove after verification
+  console.log(`[fetchItemsForRecipe] recipe="${recipe.key}" seedMax=${seedMax} effectiveTarget=${effectiveTarget}`);
 
   // DB items with round-robin interleaving (respects seed sort_order + max_items)
   const dbItems = await fetchItemsFromDB(seeds, effectiveTarget, recipe.min_price_usd, recipe.max_price_usd);
 
-  // Return only the interleaved DB items — no eBay live fallback
-  // eBay live would append bulk items and destroy the seeded order
-  return dbItems;
+  // TEMP DIAGNOSTIC — remove after verification
+  console.log(`[fetchItemsForRecipe] recipe="${recipe.key}" dbLen=${dbItems.length} seedMax=${seedMax}`);
+
+  // Hard cap: never return more than seedMax regardless of DB results
+  const curated = dbItems.slice(0, seedMax);
+
+  // Return only the curated DB items — eBay live items are NOT mixed here.
+  // If product needs eBay live deals, they should be served as a separate
+  // "live_deals" section (built independently, not interleaved with seeds).
+  return curated;
 }
 
 // ─── BUILD MOBILE HOMEPAGE ───────────────────────────────────────────────────

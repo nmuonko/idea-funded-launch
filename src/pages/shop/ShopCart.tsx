@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText, CheckSquare, Square } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Trash2, Plus, Minus, Car, Loader2, FileText, CheckSquare, Square, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -8,6 +8,17 @@ import { PriceBreakdown } from '@/components/shop/PriceBreakdown';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { useShopCart } from '@/contexts/ShopCartContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -94,15 +105,41 @@ export default function ShopCart() {
             </div>
 
             {items.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => clearCart()}
-                className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {shop.clearCart || 'Clear Cart'}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    {shop.clearCart || 'Clear Cart'}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-zinc-900 border-white/10">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-white">
+                      {language === 'fr' ? 'Vider votre panier ?' : 'Clear your cart?'}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="text-white/60">
+                      {language === 'fr'
+                        ? 'Tous les articles seront supprimés de votre panier. Cette action est irréversible.'
+                        : 'This will remove all items from your cart. This action cannot be undone.'}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="bg-white/5 border-white/10 text-white hover:bg-white/10">
+                      {language === 'fr' ? 'Annuler' : 'Cancel'}
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => clearCart()}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                    >
+                      {language === 'fr' ? 'Oui, vider' : 'Yes, clear it'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
           </div>
 

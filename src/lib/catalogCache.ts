@@ -274,20 +274,7 @@ export function clearExpiredCache(): void {
   keysToRemove.forEach(key => localStorage.removeItem(key));
 }
 
-// ─── ROTATION KEY ─────────────────────────────────────────────────────────────
-
-/**
- * Get current rotation key (matches backend homeRotation.ts)
- */
-function getCurrentRotationKey(): string {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  const hour = now.getUTCHours();
-  const bucketIndex = Math.floor(hour / 12);
-  return `${year}-${month}-${day}-b${bucketIndex}`;
-}
+// ─── (rotation key removed — client now respects server ttlSeconds directly) ──
 
 // ─── MAIN FETCH FUNCTIONS ─────────────────────────────────────────────────────
 
@@ -300,13 +287,7 @@ export async function cachedCatalogFetch<T>(
   params: Record<string, any> = {},
   options: { skipCache?: boolean } = {}
 ): Promise<T> {
-  const isHomeEndpoint = endpoint === 'catalog-home';
-  const rotationKey = isHomeEndpoint ? getCurrentRotationKey() : null;
-  
-  const cacheKeyParams = rotationKey 
-    ? { ...params, _rotation: rotationKey }
-    : params;
-  const cacheKey = generateCacheKey(endpoint, cacheKeyParams);
+  const cacheKey = generateCacheKey(endpoint, params);
   
   // Check cache first (fresh only)
   if (!options.skipCache) {
@@ -339,15 +320,8 @@ export async function cachedCatalogFetch<T>(
   
   const data = await response.json();
   
-  let ttlSeconds = parseTtlFromResponse(response, data);
-  
-  if (isHomeEndpoint) {
-    const now = new Date();
-    const hoursInBucket = now.getUTCHours() % 12;
-    const minutesRemaining = (12 - hoursInBucket) * 60 - now.getUTCMinutes();
-    const secondsRemaining = minutesRemaining * 60;
-    ttlSeconds = Math.min(ttlSeconds, Math.max(secondsRemaining, 300));
-  }
+  // Use server ttlSeconds directly — no client-side TTL cap
+  const ttlSeconds = parseTtlFromResponse(response, data);
   
   setCache(cacheKey, data, ttlSeconds);
   

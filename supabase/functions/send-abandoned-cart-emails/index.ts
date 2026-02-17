@@ -88,6 +88,11 @@ serve(async (req) => {
         const userName = (cart.profiles as any)?.full_name || (cart.profiles as any)?.name || 'Valued Customer';
         const itemCount = cart.order_items?.length || 0;
 
+        if (itemCount === 0) {
+          console.log('[send-abandoned-cart-emails] Skipping cart with 0 items:', cart.id);
+          continue;
+        }
+
         // Generate email HTML
         const itemsList = cart.order_items
           ?.slice(0, 3)

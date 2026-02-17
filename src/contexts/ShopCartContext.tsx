@@ -116,6 +116,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
   // Keep selectedItemIds in sync with items (auto-select new items, remove stale selections)
+  // Vehicle items that need a quote are NOT auto-selected so they don't block checkout for other items
   useEffect(() => {
     setSelectedItemIds(prev => {
       const currentIds = new Set(items.map(i => i.id));
@@ -125,15 +126,18 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         if (currentIds.has(id)) next.add(id);
       }
       // Auto-select any new items not previously known
-      for (const id of currentIds) {
-        if (!prev.has(id) && !deletedItemIdsRef.current.has(id)) {
-          // If prev was empty (first load), select all; otherwise select new items
-          next.add(id);
+      for (const item of items) {
+        if (!prev.has(item.id) && !deletedItemIdsRef.current.has(item.id)) {
+          // Skip auto-selecting vehicle items that need a quote
+          const needsQuote = item.isVehicle && vehicleQuoteStatus !== 'quoted';
+          if (!needsQuote) {
+            next.add(item.id);
+          }
         }
       }
       return next;
     });
-  }, [items]);
+  }, [items, vehicleQuoteStatus]);
 
   const toggleItemSelection = useCallback((id: string) => {
     setSelectedItemIds(prev => {

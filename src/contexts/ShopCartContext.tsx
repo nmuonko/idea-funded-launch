@@ -104,6 +104,10 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   // --- Race condition fix: track items being deleted with TTL ---
   const deletedItemIdsRef = useRef<Map<string, number>>(new Map());
 
+  // --- Sync lock: prevent overlapping syncCart() calls ---
+  const syncInProgressRef = useRef(false);
+  const pendingSyncRef = useRef(false);
+
   // --- Item selection state ---
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
 
@@ -293,9 +297,22 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     return false;
   }, [getPendingCheckout]);
 
-  // Sync cart when user logs in — filters out deleted items
+  // --- Helpers for optimistic local item preservation ---
+  const isLocalId = (id?: string) => typeof id === 'string' && id.startsWith('local_');
+
+  const cartKey = (item: CartItem) =>
+    [item.provider || 'unknown', item.productId || 'unknown'].join('|');
+
+  // Sync cart when user logs in — filters out deleted items, preserves optimistic local items
   const syncCart = useCallback(async () => {
     if (!user || !session) return;
+
+    // Lock: avoid overlapping syncs
+    if (syncInProgressRef.current) {
+      pendingSyncRef.current = true;
+      return;
+    }
+    syncInProgressRef.current = true;
     
     setLoading(true);
     try {
@@ -326,9 +343,19 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         for (const [delId, ts] of deletedItemIdsRef.current) {
           if (now - ts > DELETED_TTL_MS) deletedItemIdsRef.current.delete(delId);
         }
-        const filtered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
-        setItems(filtered);
-        console.log('[CART] init source=server items=', mappedItems.length, 'afterFilter=', filtered.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
+        const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
+
+        // CRITICAL: Preserve optimistic local_ items not yet confirmed by server
+        const serverKeys = new Set(serverFiltered.map(cartKey));
+
+        setItems(current => {
+          const localOptimistic = (current ?? [])
+            .filter(it => isLocalId(it.id))
+            .filter(it => !serverKeys.has(cartKey(it)));
+
+          console.log('[CART] sync merge: server=', serverFiltered.length, 'localOptimistic=', localOptimistic.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
+          return [...serverFiltered, ...localOptimistic];
+        });
         
         // Update vehicle flags from summary
         const summary = data.summary || data;
@@ -346,14 +373,22 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       console.error('[CART] Failed to sync cart:', error);
     } finally {
       setLoading(false);
+      syncInProgressRef.current = false;
+
+      // If something tried to sync while we were syncing, run once more
+      if (pendingSyncRef.current) {
+        pendingSyncRef.current = false;
+        syncCart();
+      }
     }
   }, [user, session]);
 
+  const userId = user?.id;
   useEffect(() => {
-    if (user && initialized) {
+    if (userId && initialized) {
       syncCart();
     }
-  }, [user, initialized, syncCart]);
+  }, [userId, initialized, syncCart]);
 
   const addItem = async (item: Omit<CartItem, 'id'>) => {
     const newItem: CartItem = {
@@ -473,10 +508,30 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // clearCart - for general cart clearing (NOT on checkout prepare)
+  // clearCart - for general cart clearing: delete server items + clear local state
   const clearCart = async () => {
-    console.log('[CART] clearCart called - setting items to empty');
-    setItems([]);
+    console.log('[CART] clearCart called - deleting server items and clearing local state');
+    setLoading(true);
+    try {
+      if (user && session) {
+        // Delete each server item (skip local_ optimistic items)
+        const serverItems = items.filter(item => !isLocalId(item.id));
+        const deletePromises = serverItems.map(item =>
+          supabase.functions.invoke('mobile-delete-cart-item', {
+            body: { cart_item_id: item.id },
+          }).catch(err => console.error('[CART] Failed to delete item during clearCart:', item.id, err))
+        );
+        await Promise.all(deletePromises);
+      }
+      // Clear all refs and local state
+      deletedItemIdsRef.current = new Map();
+      setItems([]);
+      setSelectedItemIds(new Set());
+    } catch (error) {
+      console.error('[CART] clearCart failed:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // clearCartOnPaymentSuccess - only call this after confirmed payment

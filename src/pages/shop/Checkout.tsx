@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Loader2, CreditCard, Building2, Smartphone, CheckCircle2, MapPin, Edit3, Car } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -62,15 +62,21 @@ export default function Checkout() {
   const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
   const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
-  // Restore cart from pending checkout only if cart is genuinely empty (not mid-sync)
+  // Restore cart from pending checkout only if cart is genuinely empty (not mid-sync), attempt once
+  const didAttemptRestoreRef = useRef(false);
   useEffect(() => {
-    if (items.length === 0 && !loading) {
+    if (didAttemptRestoreRef.current) return;
+    if (!loading && items.length === 0) {
+      didAttemptRestoreRef.current = true;
       const restored = restoreFromPendingCheckout();
       if (restored) {
-        console.log('[CHECKOUT] Cart restored from pending snapshot (cart confirmed empty)');
+        console.log('[CHECKOUT] Cart restored from pending snapshot (confirmed empty)');
       }
     }
-  }, [loading]);
+    if (!loading && items.length > 0) {
+      didAttemptRestoreRef.current = true;
+    }
+  }, [loading, items.length]);
 
   // Load profile data
   useEffect(() => {

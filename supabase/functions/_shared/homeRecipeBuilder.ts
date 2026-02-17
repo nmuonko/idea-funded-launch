@@ -244,7 +244,7 @@ async function fetchItemsFromDB(
   const perSeedPromises = activeSeedQueries.map(seed => {
     const candidateLimit = 30; // fetch 30 candidates, filter down to max_items
     const titleFilter = `title.ilike.*${seed.query.replace(/ /g, "+")}*`;
-    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=created_at.desc.nullslast&limit=${candidateLimit}`;
+    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=id.asc&limit=${candidateLimit}`;
     if (maxPrice && maxPrice > 0) {
       filters += `&price_usd=lte.${maxPrice}`;
     }

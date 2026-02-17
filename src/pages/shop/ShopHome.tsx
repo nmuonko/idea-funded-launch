@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -41,16 +42,19 @@ interface HomeFeedResponse {
 
 export default function ShopHome() {
   const { language } = useLanguage();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0); // Will be set from backend response
-  const [poolSize, setPoolSize] = useState(0); // Track actual pool size for debugging
+  const [totalPages, setTotalPages] = useState(0);
+  const [poolSize, setPoolSize] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [isLiveMode, setIsLiveMode] = useState(false); // Track if we're in live mode
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [isLiveMode, setIsLiveMode] = useState(false);
+
+  // Read active category from URL ?tab= param so Back button restores it
+  const activeCategory = searchParams.get('tab') || 'all';
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -193,7 +197,12 @@ export default function ShopHome() {
 
   const handleCategoryChange = (category: string) => {
     if (category === activeCategory) return;
-    setActiveCategory(category);
+    // Update URL param so Back button restores this tab
+    if (category === 'all') {
+      setSearchParams({}, { replace: true });
+    } else {
+      setSearchParams({ tab: category }, { replace: true });
+    }
     setCurrentPage(1);
     setTotalPages(0);
     setProducts([]);

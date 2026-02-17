@@ -101,6 +101,11 @@ serve(async (req) => {
           const userName = (cart.profiles as any)?.full_name || (cart.profiles as any)?.name || 'Valued Customer';
           const itemCount = cart.order_items?.length || 0;
 
+          if (itemCount === 0) {
+            console.log('[send-abandoned-cart-recovery] Skipping cart with 0 items:', cart.id);
+            continue;
+          }
+
           // Generate email content based on segment
           let emailSubject = '';
           let emailIntro = '';
@@ -147,7 +152,7 @@ serve(async (req) => {
               ${segment === 'high_value' ? '<p style="margin: 10px 0 0 0; color: #92400e; font-weight: bold;">✨ Priority processing for high-value orders!</p>' : ''}
               </div>
 
-              <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/orders" 
+              <a href="${Deno.env.get('FRONTEND_BASE_URL') || 'https://afrishop-usa.com'}/cart" 
                  style="display: inline-block; padding: 12px 24px; background: #1e40af; color: white; text-decoration: none; border-radius: 5px; margin: 20px 0;">
                 Complete Your Order
               </a>

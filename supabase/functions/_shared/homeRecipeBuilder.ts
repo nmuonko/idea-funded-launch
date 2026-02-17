@@ -438,46 +438,19 @@ async function fetchItemsForRecipe(
   recipe: RecipeRow,
   seeds: SeedRow[],
   targetCount: number,
-  ebayToken: string | null
+  _ebayToken: string | null
 ): Promise<RecipeItem[]> {
-  const usedIds = new Set<string>();
-  const results: RecipeItem[] = [];
-  const policy = recipe.provider_policy || {};
+  // Compute the strict maximum from seeds: sum of all seed max_items
+  const seedMax = seeds.reduce((sum, s) => sum + (s.max_items || 3), 0);
+  // Never exceed seed-controlled max — this preserves round-robin ordering
+  const effectiveTarget = Math.min(targetCount, seedMax);
 
-  // 1) DB items (always tried)
-  const dbItems = await fetchItemsFromDB(seeds, targetCount, recipe.min_price_usd, recipe.max_price_usd);
-  for (const item of dbItems) {
-    if (!usedIds.has(item.id) && results.length < targetCount) {
-      usedIds.add(item.id);
-      results.push(item);
-    }
-  }
+  // DB items with round-robin interleaving (respects seed sort_order + max_items)
+  const dbItems = await fetchItemsFromDB(seeds, effectiveTarget, recipe.min_price_usd, recipe.max_price_usd);
 
-  // 2) eBay live items (if enabled and need more)
-  if (ebayToken && policy.ebay !== false && results.length < targetCount) {
-    const needed = targetCount - results.length;
-    const topSeeds = seeds.slice(0, 4);
-    const perSeed = Math.ceil(needed / Math.max(topSeeds.length, 1));
-    
-    const ebayPromises = topSeeds.map(s => fetchEbayItemsForSeed(s.query, perSeed, ebayToken));
-    const ebayResults = await Promise.allSettled(ebayPromises);
-    
-    for (const result of ebayResults) {
-      if (result.status === "fulfilled") {
-        for (const item of result.value) {
-          if (!usedIds.has(item.id) && results.length < targetCount) {
-            // Apply price filters
-            if (recipe.min_price_usd && (item.price_usd || 0) < recipe.min_price_usd) continue;
-            if (recipe.max_price_usd && (item.price_usd || 0) > recipe.max_price_usd) continue;
-            usedIds.add(item.id);
-            results.push(item);
-          }
-        }
-      }
-    }
-  }
-
-  return results;
+  // Return only the interleaved DB items — no eBay live fallback
+  // eBay live would append bulk items and destroy the seeded order
+  return dbItems;
 }
 
 // ─── BUILD MOBILE HOMEPAGE ───────────────────────────────────────────────────

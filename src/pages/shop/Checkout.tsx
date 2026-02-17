@@ -62,15 +62,15 @@ export default function Checkout() {
   const checkoutItems = selectedItems.length > 0 ? selectedItems : items;
   const checkoutTotal = selectedItems.length > 0 ? selectedTotalUsd : totalUsd;
 
-  // Restore cart from pending checkout if cart is empty on mount
+  // Restore cart from pending checkout only if cart is genuinely empty (not mid-sync)
   useEffect(() => {
-    if (items.length === 0) {
+    if (items.length === 0 && !loading) {
       const restored = restoreFromPendingCheckout();
       if (restored) {
-        console.log('[CHECKOUT] Cart restored from pending snapshot');
+        console.log('[CHECKOUT] Cart restored from pending snapshot (cart confirmed empty)');
       }
     }
-  }, []);
+  }, [loading]);
 
   // Load profile data
   useEffect(() => {

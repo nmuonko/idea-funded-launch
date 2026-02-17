@@ -36,6 +36,7 @@ export interface PendingCheckoutSnapshot {
 
 interface ShopCartContextType {
   items: CartItem[];
+  initialized: boolean;
   itemCount: number;
   totalUsd: number;
   loading: boolean;
@@ -572,6 +573,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     <ShopCartContext.Provider
       value={{
         items,
+        initialized,
         itemCount,
         totalUsd,
         loading,

@@ -107,6 +107,16 @@ async function fetchJson<T>(url: string, headers: Record<string, string>): Promi
   }
 }
 
+async function fetchJsonPost<T>(url: string, headers: Record<string, string>, body: unknown): Promise<T | null> {
+  try {
+    const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    if (!res.ok) return null;
+    return await res.json() as T;
+  } catch {
+    return null;
+  }
+}
+
 // ─── LOAD RECIPES + SEEDS ─────────────────────────────────────────────────────
 
 async function loadRecipes(target: "mobile" | "web"): Promise<RecipeRow[]> {
@@ -240,16 +250,17 @@ async function fetchItemsFromDB(
   const headers = restHeaders();
   const base = baseUrl();
 
-  // Fire parallel per-seed queries (fetch more candidates for relevance filtering)
+  // Fire parallel per-seed queries using RPC for relevance-ranked results
   const perSeedPromises = activeSeedQueries.map(seed => {
-    const candidateLimit = 30; // fetch 30 candidates, filter down to max_items
-    const titleFilter = `title.ilike.*${seed.query.replace(/ /g, "+")}*`;
-    let filters = `provider=in.(amazon,ebay)&price_usd=gte.${priceFloor}&image_url=not.is.null&is_disallowed=eq.false&${titleFilter}&order=id.asc&limit=${candidateLimit}`;
-    if (maxPrice && maxPrice > 0) {
-      filters += `&price_usd=lte.${maxPrice}`;
-    }
-    const url = `${base}/rest/v1/catalog_items?${filters}`;
-    return fetchJson<Array<Record<string, unknown>>>(url, headers);
+    const candidateLimit = 30;
+    const rpcBody = {
+      p_query: seed.query,
+      p_min_price: priceFloor,
+      p_max_price: (maxPrice && maxPrice > 0) ? maxPrice : null,
+      p_limit: candidateLimit,
+    };
+    const url = `${base}/rest/v1/rpc/search_catalog_items_ranked`;
+    return fetchJsonPost<Array<Record<string, unknown>>>(url, headers, rpcBody);
   });
 
   const results = await Promise.allSettled(perSeedPromises);

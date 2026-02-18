@@ -406,20 +406,37 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userId, initialized, syncCart]);
 
+  // Build the canonical product URL that the server will store
+  const buildServerProductUrl = useCallback((item: Omit<CartItem, 'id'>) => {
+    if (item.productUrl) return item.productUrl;
+    if (!item.productId) return null;
+
+    let cleanId = item.productId;
+    const lower = cleanId.toLowerCase();
+    if (lower.startsWith('amazon_')) cleanId = cleanId.slice(7);
+    else if (lower.startsWith('rainforest_')) cleanId = cleanId.slice(11);
+    else if (lower.startsWith('ebay_')) cleanId = cleanId.slice(5);
+
+    if (item.provider === 'ebay') {
+      const ebayItemId = cleanId.startsWith('v1|') ? cleanId.split('|')[1] : cleanId;
+      return `https://www.ebay.com/itm/${ebayItemId}`;
+    }
+    return `https://www.amazon.com/dp/${cleanId}`;
+  }, []);
+
   const addItem = async (item: Omit<CartItem, 'id'>) => {
+    // Build the SAME canonical URL that gets sent to the server
+    const resolvedUrl = buildServerProductUrl(item);
+
     const newItem: CartItem = {
       ...item,
       id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      productUrl: item.productUrl || item.productId,
+      productUrl: resolvedUrl || item.productId,
     };
 
-    // Check if item already exists (match by productUrl OR productId)
-    const existingIndex = items.findIndex(
-      (i) => i.provider === item.provider && (
-        (i.productUrl && item.productUrl && i.productUrl === item.productUrl) ||
-        (i.productId === item.productId)
-      )
-    );
+    // Check if item already exists using canonical key
+    const newKey = canonicalItemKey(newItem);
+    const existingIndex = items.findIndex(i => canonicalItemKey(i) === newKey);
 
     if (existingIndex >= 0) {
       const updated = [...items];
@@ -429,50 +446,28 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       setItems((prev) => [...prev, newItem]);
     }
 
-    // If logged in, add to server then sync (respecting deletedItemIdsRef)
+    // If logged in, add to server then sync silently (no loading spinner)
     if (user && session) {
+      if (!resolvedUrl) {
+        console.error('[CART] Cannot sync item without productUrl:', item);
+        return;
+      }
+
       try {
-        let productUrl = item.productUrl;
-        if (!productUrl && item.productId) {
-          let cleanId = item.productId;
-          const lowerCleanId = cleanId.toLowerCase();
-          
-          if (lowerCleanId.startsWith('amazon_')) {
-            cleanId = cleanId.slice(7);
-          } else if (lowerCleanId.startsWith('rainforest_')) {
-            cleanId = cleanId.slice(11);
-          } else if (lowerCleanId.startsWith('ebay_')) {
-            cleanId = cleanId.slice(5);
-          }
-          
-          if (item.provider === 'ebay') {
-            // Extract numeric item ID from eBay's v1|itemId|variationId format
-            const ebayItemId = cleanId.startsWith('v1|') ? cleanId.split('|')[1] : cleanId;
-            productUrl = `https://www.ebay.com/itm/${ebayItemId}`;
-          } else {
-            productUrl = `https://www.amazon.com/dp/${cleanId}`;
-          }
-        }
-
-        if (!productUrl) {
-          console.error('[CART] Cannot sync item without productUrl:', item);
-          return;
-        }
-
         await supabase.functions.invoke('mobile-add-cart-item', {
           body: {
-            productUrl,
+            productUrl: resolvedUrl,
             productPrice: item.priceUsd,
             quantity: item.quantity,
             productTitle: item.title,
             productImageUrl: item.imageUrl,
           },
         });
-        // Resync to get server IDs — deletedItemIdsRef ensures deleted items stay gone
-        await syncCart();
       } catch (error) {
         console.error('[CART] Failed to add item to server:', error);
       }
+      // Background sync to get server IDs — no await, no loading spinner
+      syncCart();
     }
   };
 

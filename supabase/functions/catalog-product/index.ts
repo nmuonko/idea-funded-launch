@@ -271,17 +271,36 @@ function mapDbItemToResponse(item: any): CatalogItem {
     variants = raw.variants
       .filter((v: any) => v.asin)
       .slice(0, 30)
-      .map((v: any) => ({
-        asin: v.asin,
-        title: v.title || undefined,
-        dimensions: Array.isArray(v.dimensions)
+      .map((v: any) => {
+        // Build dimensions from explicit dimensions array
+        let dims = Array.isArray(v.dimensions)
           ? v.dimensions.map((d: any) => ({ name: d.name || '', value: d.value || '' }))
-          : undefined,
-        image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || undefined,
-        link: v.link || undefined,
-        price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
-        isCurrent: v.is_current === true,
-      }));
+          : [];
+        
+        // Fallback: if no Size dimension found, check variation_values or top-level size field
+        const hasSize = dims.some((d: any) => d.name.toLowerCase() === 'size');
+        if (!hasSize) {
+          const sizeVal = v.variation_values?.Size || v.variation_values?.size || v.size;
+          if (sizeVal) {
+            dims.push({ name: 'Size', value: String(sizeVal) });
+          }
+        }
+        
+        return {
+          asin: v.asin,
+          title: v.title || undefined,
+          dimensions: dims.length > 0 ? dims : undefined,
+          image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || undefined,
+          link: v.link || undefined,
+          price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
+          isCurrent: v.is_current === true,
+        };
+      });
+  }
+  
+  // Additional fallback: check raw.variation_values for variant dimensions not in variants array
+  if (raw && !variants && raw.variation_values && typeof raw.variation_values === 'object') {
+    console.log(`[CATALOG_PRODUCT] No variants array, checking variation_values for ${item.id}`);
   }
   
   return {

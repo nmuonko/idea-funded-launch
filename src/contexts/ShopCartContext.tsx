@@ -311,7 +311,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   const isLocalId = (id?: string) => typeof id === 'string' && id.startsWith('local_');
 
   const cartKey = (item: CartItem) =>
-    [item.provider || 'unknown', item.productId || 'unknown'].join('|');
+    [item.provider || 'unknown', item.productUrl || item.productId || 'unknown'].join('|');
 
   // Sync cart when user logs in — filters out deleted items, preserves optimistic local items
   const syncCart = useCallback(async () => {
@@ -404,6 +404,7 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     const newItem: CartItem = {
       ...item,
       id: `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      productUrl: item.productUrl || item.productId,
     };
 
     // Check if item already exists

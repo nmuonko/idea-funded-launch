@@ -1,42 +1,57 @@
 
 
-# Fix: Cart Item Duplication (Root Cause Confirmed)
+# Fix: "Mes commandes" Showing Empty
 
 ## Root Cause
 
-The `canonicalItemKey` function joins `provider` with the normalized URL. But:
+There are two issues:
 
-- Local optimistic items get `provider = "amazon"` (lowercase, from the catalog/frontend)
-- Server items get `provider = "AMAZON"` (uppercase, from `detectStore()` in the edge function)
+1. **Missing status in tab filters**: All orders in the database have status `PENDING_PAYMENT`, which only appears under the "En cours" (Active) tab. When the user clicks "Historique" (Past), it filters for `DELIVERED`, `COMPLETED`, `CANCELLED` only -- so it shows nothing. But `PENDING_PAYMENT` is also NOT showing under "En cours" if there's an additional problem.
 
-This means the canonical keys never match:
-- Local: `amazon|www.amazon.com/dp/B0CQRG5LP6`  
-- Server: `AMAZON|www.amazon.com/dp/B0CQRG5LP6`
+2. **`PENDING` status not included**: The `ACTIVE_STATUSES` array includes `PENDING_PAYMENT` but not plain `PENDING`. If any order has status `PENDING`, it falls through both filters and is invisible.
 
-So the `syncCart` merge logic keeps BOTH the server item AND the local optimistic item, causing the duplicate.
+3. **Default tab UX**: User lands on "Historique" (from their screenshot) and sees nothing because all orders are `PENDING_PAYMENT`. There's no "All Orders" view.
 
-## Fix
+## Fix (in `src/pages/shop/MyOrders.tsx`)
 
-In `src/contexts/ShopCartContext.tsx`, normalize the provider to lowercase in `canonicalItemKey`:
+### Change 1: Add an "All" tab as default
+Add a third tab option "Tous" / "All" that shows all non-draft orders, and make it the default. This ensures users always see their orders when they open the page.
 
-```typescript
-const canonicalItemKey = (item: CartItem) => {
-  const urlOrId = item.productUrl || (item as any).product_url || (item as any).canonical_url || item.productId || 'unknown';
-  const normalized = urlOrId.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-  const provider = (item.provider || 'unknown').toLowerCase();
-  return [provider, normalized].join('|');
-};
-```
+### Change 2: Expand status lists to catch edge cases
+- Add `PENDING` to `ACTIVE_STATUSES`
+- Add `REFUNDED` to `PAST_STATUSES`
+- The "All" tab shows everything regardless of status
 
-One line change: `item.provider || 'unknown'` becomes `(item.provider || 'unknown').toLowerCase()`.
+### Change 3: Show order count on each tab
+Already implemented but will now work correctly with the "All" tab.
 
-## Files Changed
+## Technical Details
 
 | File | Change |
 |------|--------|
-| `src/contexts/ShopCartContext.tsx` | Add `.toLowerCase()` to provider in `canonicalItemKey` (line 318) |
+| `src/pages/shop/MyOrders.tsx` | Add "All" tab as default, expand status arrays, ensure all orders are visible |
 
-## Why This Is the Permanent Fix
+### Key Code Changes
 
-This is the ONLY place where local and server items are compared for deduplication. Once the keys match correctly, the existing merge logic (`serverKeys.has(canonicalItemKey(it))`) will correctly identify the local item as a duplicate of the server item and drop it. No other changes needed.
+```typescript
+// Add new tab type
+type OrderTab = 'all' | 'active' | 'past';
+
+// Expand statuses
+const ACTIVE_STATUSES = ['PENDING', 'PENDING_PAYMENT', 'PAID', 'PROCESSING', 'SHIPPED'];
+const PAST_STATUSES = ['DELIVERED', 'COMPLETED', 'CANCELLED', 'REFUNDED'];
+
+// Default to 'all'
+const [activeTab, setActiveTab] = useState<OrderTab>('all');
+
+// Filter logic
+const filteredOrders = orders.filter(order => {
+  if (activeTab === 'all') return true;
+  const statusUpper = order.status.toUpperCase();
+  if (activeTab === 'active') return ACTIVE_STATUSES.includes(statusUpper);
+  return PAST_STATUSES.includes(statusUpper);
+});
+```
+
+A new "Tous" / "All" tab button will be added before the existing "En cours" and "Historique" tabs, styled consistently with the existing tab design.
 

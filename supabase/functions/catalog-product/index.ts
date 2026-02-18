@@ -267,9 +267,12 @@ function mapDbItemToResponse(item: any): CatalogItem {
   // Extract variants from raw data if available
   let variants: CatalogItem["variants"] = undefined;
   const raw = item.raw as Record<string, any> | null;
+  const variantSources: string[] = [];
+  
   if (raw?.variants && Array.isArray(raw.variants)) {
+    variantSources.push('variants');
     variants = raw.variants
-      .filter((v: any) => v.asin)
+      .filter((v: any) => v.asin || v.id || v.itemId)
       .slice(0, 30)
       .map((v: any) => {
         // Build dimensions from explicit dimensions array
@@ -277,20 +280,28 @@ function mapDbItemToResponse(item: any): CatalogItem {
           ? v.dimensions.map((d: any) => ({ name: d.name || '', value: d.value || '' }))
           : [];
         
-        // Fallback: if no Size dimension found, check variation_values or top-level size field
-        const hasSize = dims.some((d: any) => d.name.toLowerCase() === 'size');
-        if (!hasSize) {
-          const sizeVal = v.variation_values?.Size || v.variation_values?.size || v.size;
-          if (sizeVal) {
-            dims.push({ name: 'Size', value: String(sizeVal) });
+        // Fallback 1: merge from per-variant variation_values (Rainforest)
+        if (v.variation_values && typeof v.variation_values === 'object') {
+          for (const [dimName, dimVal] of Object.entries(v.variation_values)) {
+            const exists = dims.some((d: any) => d.name.toLowerCase() === dimName.toLowerCase());
+            if (!exists && dimVal) {
+              dims.push({ name: dimName, value: String(dimVal) });
+            }
+          }
+        }
+        
+        // Fallback 2: top-level fields (size, color, style)
+        for (const field of ['size', 'color', 'style', 'model']) {
+          if (v[field] && !dims.some((d: any) => d.name.toLowerCase() === field)) {
+            dims.push({ name: field.charAt(0).toUpperCase() + field.slice(1), value: String(v[field]) });
           }
         }
         
         return {
-          asin: v.asin,
+          asin: v.asin || v.id || v.itemId,
           title: v.title || undefined,
           dimensions: dims.length > 0 ? dims : undefined,
-          image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || undefined,
+          image: typeof v.main_image === 'string' ? v.main_image : v.main_image?.link || v.image || undefined,
           link: v.link || undefined,
           price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
           isCurrent: v.is_current === true,
@@ -298,9 +309,88 @@ function mapDbItemToResponse(item: any): CatalogItem {
       });
   }
   
-  // Additional fallback: check raw.variation_values for variant dimensions not in variants array
-  if (raw && !variants && raw.variation_values && typeof raw.variation_values === 'object') {
-    console.log(`[CATALOG_PRODUCT] No variants array, checking variation_values for ${item.id}`);
+  // Fallback: build variants from raw.variants_v2 (alternative Rainforest format)
+  if (raw && (!variants || variants.length === 0) && raw.variants_v2 && Array.isArray(raw.variants_v2)) {
+    variantSources.push('variants_v2');
+    variants = raw.variants_v2
+      .filter((v: any) => v.asin || v.id)
+      .slice(0, 30)
+      .map((v: any) => {
+        const dims: Array<{ name: string; value: string }> = [];
+        if (v.dimensions && typeof v.dimensions === 'object') {
+          for (const [name, value] of Object.entries(v.dimensions)) {
+            if (value) dims.push({ name, value: String(value) });
+          }
+        }
+        return {
+          asin: v.asin || v.id,
+          title: v.title || undefined,
+          dimensions: dims.length > 0 ? dims : undefined,
+          image: v.image || v.main_image || undefined,
+          link: v.link || undefined,
+          price: v.price?.value ? { value: v.price.value, currency: v.price.currency || 'USD' } : undefined,
+          isCurrent: v.is_current === true,
+        };
+      });
+  }
+  
+  // Fallback: build synthetic variants from raw.variation_values (top-level dimension groups)
+  // This handles products where Rainforest returns { variation_values: { Size: ["S","M","L"], Color: ["Red","Blue"] } }
+  if (raw && (!variants || variants.length === 0) && raw.variation_values && typeof raw.variation_values === 'object') {
+    variantSources.push('variation_values');
+    // variation_values is { DimensionName: [values] } — create a synthetic variant per combination isn't practical,
+    // but we can at least ensure dimensions are available on the current variant
+    // The frontend uses variantGroups which iterates variants[].dimensions — so we need at least one variant entry
+    const dims: Array<{ name: string; value: string }> = [];
+    for (const [dimName, values] of Object.entries(raw.variation_values)) {
+      if (Array.isArray(values) && values.length > 0) {
+        dims.push({ name: dimName, value: String(values[0]) });
+      } else if (typeof values === 'string') {
+        dims.push({ name: dimName, value: values });
+      }
+    }
+    if (dims.length > 0) {
+      variants = [{ asin: item.provider_product_id, dimensions: dims, isCurrent: true }];
+    }
+  }
+  
+  // Fallback: eBay aspects format { name: "Size", values: ["10"] }
+  if (raw && (!variants || variants.length === 0) && raw.aspects && Array.isArray(raw.aspects)) {
+    variantSources.push('aspects');
+    const dims: Array<{ name: string; value: string }> = [];
+    for (const aspect of raw.aspects) {
+      if (aspect.name && aspect.values && Array.isArray(aspect.values) && aspect.values.length > 0) {
+        dims.push({ name: aspect.name, value: String(aspect.values[0]) });
+      }
+    }
+    if (dims.length > 0) {
+      variants = [{ asin: item.provider_product_id, dimensions: dims, isCurrent: true }];
+    }
+  }
+  
+  // Enrich existing variants: if variants exist but Size is missing globally, check top-level raw fields
+  if (variants && variants.length > 0 && raw) {
+    const anyHasSize = variants.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size'));
+    if (!anyHasSize) {
+      // Check raw.variation_values.Size for available sizes
+      const sizeValues = raw.variation_values?.Size || raw.variation_values?.size;
+      if (Array.isArray(sizeValues) && sizeValues.length > 0) {
+        variantSources.push('size_enrichment');
+        // Add first size value to current variant as fallback indicator
+        for (const v of variants) {
+          if (v.isCurrent && v.dimensions) {
+            v.dimensions.push({ name: 'Size', value: String(sizeValues[0]) });
+            break;
+          }
+        }
+      }
+    }
+  }
+  
+  // Log variant sources for debugging
+  const hasSizeAfter = variants?.some(v => v.dimensions?.some(d => d.name.toLowerCase() === 'size')) || false;
+  if (variantSources.length > 0) {
+    console.log(`[CATALOG_PRODUCT] ${item.id} variant_sources=[${variantSources.join(',')}] count=${variants?.length || 0} hasSize=${hasSizeAfter}`);
   }
   
   return {

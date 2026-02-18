@@ -434,17 +434,17 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       productUrl: resolvedUrl || item.productId,
     };
 
-    // Check if item already exists using canonical key
+    // Dedup INSIDE the updater so rapid clicks can't produce duplicates
     const newKey = canonicalItemKey(newItem);
-    const existingIndex = items.findIndex(i => canonicalItemKey(i) === newKey);
-
-    if (existingIndex >= 0) {
-      const updated = [...items];
-      updated[existingIndex].quantity += item.quantity;
-      setItems(updated);
-    } else {
-      setItems((prev) => [...prev, newItem]);
-    }
+    setItems(prev => {
+      const existingIndex = prev.findIndex(i => canonicalItemKey(i) === newKey);
+      if (existingIndex >= 0) {
+        return prev.map((it, idx) =>
+          idx === existingIndex ? { ...it, quantity: it.quantity + item.quantity } : it
+        );
+      }
+      return [...prev, newItem];
+    });
 
     // If logged in, add to server then sync silently (no loading spinner)
     if (user && session) {

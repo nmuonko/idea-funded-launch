@@ -58,10 +58,19 @@ export default function PaymentCallback() {
   
   const t = translations[language as keyof typeof translations] || translations.en;
   
-  const orderId = searchParams.get("orderId");
+  const orderId = searchParams.get("orderId") || searchParams.get("order_id");
   const provider = searchParams.get("provider");
-  const depositId = searchParams.get("depositId");
+  const depositId = searchParams.get("depositId") || searchParams.get("deposit_id");
   const reference = searchParams.get("reference");
+  const sessionId = searchParams.get("session_id");
+  const transactionId = searchParams.get("transaction_id");
+  const paymentIntent = searchParams.get("payment_intent");
+
+  // Determine effective order identifier and provider
+  const effectiveOrderId = orderId || null;
+  const effectiveProvider = provider || (sessionId ? 'stripe' : (depositId ? 'pawapay' : null));
+  // Any valid identifier means we should try to verify
+  const hasValidParams = !!(effectiveOrderId || sessionId || depositId || transactionId || paymentIntent || reference);
 
   const [status, setStatus] = useState<PaymentStatus>("pending");
   const [confirmationCode, setConfirmationCode] = useState<string | null>(null);
@@ -82,7 +91,14 @@ export default function PaymentCallback() {
       setNetworkError(false);
       
       const { data, error: fnError } = await supabase.functions.invoke("mobile-verify-payment", {
-        body: { orderId, depositId },
+        body: { 
+          orderId: effectiveOrderId, 
+          depositId, 
+          sessionId, 
+          transactionId, 
+          paymentIntent,
+          reference,
+        },
       });
 
       if (abortSignal.aborted) return false;
@@ -91,44 +107,41 @@ export default function PaymentCallback() {
         console.error("Verify payment error:", fnError);
         pollCountRef.current += 1;
         setDisplayPollCount(pollCountRef.current);
-        return pollCountRef.current < MAX_POLLS; // continue polling if under limit
+        return pollCountRef.current < MAX_POLLS;
       }
 
       const paymentStatus = data?.status || data?.payment_status;
       
-      // Handle all success variants: 'paid', 'succeeded', 'PAID', 'success'
       if (paymentStatus === "paid" || paymentStatus === "succeeded" || paymentStatus === "PAID" || paymentStatus === "success") {
         setStatus("succeeded");
         setConfirmationCode(data?.confirmation_code || reference);
-        return false; // stop polling
+        return false;
       }
 
-      // Handle all failure variants
       if (paymentStatus === "failed" || paymentStatus === "FAILED" || paymentStatus === "cancelled" || paymentStatus === "expired") {
         setStatus("failed");
         setError(data?.error || t.paymentNotCompleted);
-        return false; // stop polling
+        return false;
       }
 
-      // Still pending, continue polling
       pollCountRef.current += 1;
       setDisplayPollCount(pollCountRef.current);
       
       if (pollCountRef.current >= MAX_POLLS) {
         setStatus("timeout");
-        return false; // stop polling
+        return false;
       }
       
-      return true; // continue polling
+      return true;
     } catch (err) {
       console.error("Poll error:", err);
       setNetworkError(true);
-      return false; // stop on network error, allow manual retry
+      return false;
     }
-  }, [orderId, depositId, reference, t.paymentNotCompleted]);
+  }, [effectiveOrderId, depositId, sessionId, transactionId, paymentIntent, reference, t.paymentNotCompleted]);
 
   useEffect(() => {
-    if (!orderId || provider !== "pawapay") {
+    if (!hasValidParams) {
       setError(t.invalidParams);
       setStatus("failed");
       return;
@@ -162,7 +175,7 @@ export default function PaymentCallback() {
   }, [orderId, provider, t.invalidParams, pollStatus]);
 
   const handleGoToOrders = () => {
-    navigate("/orders");
+    navigate("/my-orders");
   };
 
   const handleRetry = () => {

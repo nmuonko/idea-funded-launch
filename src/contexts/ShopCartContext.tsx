@@ -310,8 +310,14 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
   // --- Helpers for optimistic local item preservation ---
   const isLocalId = (id?: string) => typeof id === 'string' && id.startsWith('local_');
 
-  const cartKey = (item: CartItem) =>
-    [item.provider || 'unknown', item.productUrl || item.productId || 'unknown'].join('|');
+  // Canonical dedup key — normalize URL-based IDs so local optimistic items match server items
+  const canonicalItemKey = (item: CartItem) => {
+    // Prefer productUrl (most reliable), then product_url, then productId
+    const urlOrId = item.productUrl || (item as any).product_url || (item as any).canonical_url || item.productId || 'unknown';
+    // Strip protocol & trailing slashes for consistency
+    const normalized = urlOrId.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    return [item.provider || 'unknown', normalized].join('|');
+  };
 
   // Sync cart when user logs in — filters out deleted items, preserves optimistic local items
   const syncCart = useCallback(async () => {
@@ -341,9 +347,9 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
           priceUsd: item.basePriceUsd || item.base_price_usd || 0,
           quantity: item.quantity || 1,
           productUrl: item.productUrl || item.product_url,
-          isVehicle: item.isVehicle || false,
-          requiresManualQuote: item.requiresManualQuote || false,
-          vehicleQuoteApplied: item.vehicleQuoteApplied || false,
+          isVehicle: item.isVehicle || item.is_vehicle || false,
+          requiresManualQuote: item.requiresManualQuote || item.requires_manual_quote || false,
+          vehicleQuoteApplied: item.vehicleQuoteApplied || item.vehicle_quote_applied || false,
         }));
 
         // CRITICAL: Filter out items that are currently being deleted locally (with TTL cleanup)
@@ -356,12 +362,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
         const serverFiltered = mappedItems.filter(item => !deletedItemIdsRef.current.has(item.id));
 
         // CRITICAL: Preserve optimistic local_ items not yet confirmed by server
-        const serverKeys = new Set(serverFiltered.map(cartKey));
+        const serverKeys = new Set(serverFiltered.map(canonicalItemKey));
 
         setItems(current => {
           const localOptimistic = (current ?? [])
             .filter(it => isLocalId(it.id))
-            .filter(it => !serverKeys.has(cartKey(it)));
+            .filter(it => !serverKeys.has(canonicalItemKey(it)));
 
           console.log('[CART] sync merge: server=', serverFiltered.length, 'localOptimistic=', localOptimistic.length, 'pendingDeletes=', deletedItemIdsRef.current.size);
           return [...serverFiltered, ...localOptimistic];
@@ -407,9 +413,12 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
       productUrl: item.productUrl || item.productId,
     };
 
-    // Check if item already exists
+    // Check if item already exists (match by productUrl OR productId)
     const existingIndex = items.findIndex(
-      (i) => i.productId === item.productId && i.provider === item.provider
+      (i) => i.provider === item.provider && (
+        (i.productUrl && item.productUrl && i.productUrl === item.productUrl) ||
+        (i.productId === item.productId)
+      )
     );
 
     if (existingIndex >= 0) {

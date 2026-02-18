@@ -149,7 +149,7 @@ export default function MyOrders() {
               <h2 className="text-xl font-semibold text-white mb-2">
                 {shop?.signInToViewOrders || 'Sign in to view your orders'}
               </h2>
-              <Link to="/auth">
+              <Link to="/shop-auth">
                 <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6 mt-4">
                   {shop?.signIn || 'Sign In'}
                 </Button>

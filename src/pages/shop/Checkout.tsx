@@ -226,7 +226,7 @@ export default function Checkout() {
       }
 
       // Handle different payment flows
-      if (data?.status === 'awaiting_provider_selection' && data?.checkout_session_id) {
+      if ((data?.status === 'awaiting_provider_selection' || data?.payment_flow === 'CHOICE_REQUIRED') && data?.checkout_session_id) {
         console.log('[WEB_CHECKOUT] Step 3: Selecting payment provider...');
         
         const providerMap: Record<string, string> = {

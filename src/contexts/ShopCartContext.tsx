@@ -316,7 +316,8 @@ export function ShopCartProvider({ children }: { children: React.ReactNode }) {
     const urlOrId = item.productUrl || (item as any).product_url || (item as any).canonical_url || item.productId || 'unknown';
     // Strip protocol & trailing slashes for consistency
     const normalized = urlOrId.replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    return [item.provider || 'unknown', normalized].join('|');
+    const provider = (item.provider || 'unknown').toLowerCase();
+    return [provider, normalized].join('|');
   };
 
   // Sync cart when user logs in — filters out deleted items, preserves optimistic local items

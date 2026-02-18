@@ -21,7 +21,7 @@ interface Order {
   confirmation_code?: string;
 }
 
-type OrderTab = 'active' | 'past';
+type OrderTab = 'all' | 'active' | 'past';
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
@@ -35,9 +35,9 @@ const statusColors: Record<string, string> = {
 };
 
 // Active statuses (orders in progress)
-const ACTIVE_STATUSES = ['PENDING_PAYMENT', 'PAID', 'PROCESSING', 'SHIPPED'];
+const ACTIVE_STATUSES = ['PENDING', 'PENDING_PAYMENT', 'PAID', 'PROCESSING', 'SHIPPED'];
 // Past statuses (completed or cancelled)
-const PAST_STATUSES = ['DELIVERED', 'COMPLETED', 'CANCELLED'];
+const PAST_STATUSES = ['DELIVERED', 'COMPLETED', 'CANCELLED', 'REFUNDED'];
 
 export default function MyOrders() {
   const { user } = useAuth();
@@ -47,7 +47,7 @@ export default function MyOrders() {
   
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<OrderTab>('active');
+  const [activeTab, setActiveTab] = useState<OrderTab>('all');
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -109,14 +109,13 @@ export default function MyOrders() {
 
   // Filter orders by tab
   const filteredOrders = orders.filter(order => {
+    if (activeTab === 'all') return true;
     const statusUpper = order.status.toUpperCase();
-    if (activeTab === 'active') {
-      return ACTIVE_STATUSES.includes(statusUpper);
-    } else {
-      return PAST_STATUSES.includes(statusUpper);
-    }
+    if (activeTab === 'active') return ACTIVE_STATUSES.includes(statusUpper);
+    return PAST_STATUSES.includes(statusUpper);
   });
 
+  const allCount = orders.length;
   const activeCount = orders.filter(o => ACTIVE_STATUSES.includes(o.status.toUpperCase())).length;
   const pastCount = orders.filter(o => PAST_STATUSES.includes(o.status.toUpperCase())).length;
 
@@ -164,6 +163,21 @@ export default function MyOrders() {
               {/* Tabs */}
               <div className="flex gap-2 mb-6">
                 <button
+                  onClick={() => setActiveTab('all')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors",
+                    activeTab === 'all'
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
+                      : "bg-white/10 text-white/60 hover:bg-white/20"
+                  )}
+                >
+                  <Package className="h-4 w-4" />
+                  {language === 'fr' ? 'Tous' : 'All'}
+                  {allCount > 0 && (
+                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">{allCount}</span>
+                  )}
+                </button>
+                <button
                   onClick={() => setActiveTab('active')}
                   className={cn(
                     "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors",
@@ -203,14 +217,18 @@ export default function MyOrders() {
                 >
                   <ShoppingBag className="h-16 w-16 text-white/20 mx-auto mb-4" />
                   <h2 className="text-xl font-semibold text-white mb-2">
-                    {activeTab === 'active' 
-                      ? (language === 'fr' ? 'Aucune commande en cours' : 'No active orders')
-                      : (language === 'fr' ? 'Aucune commande passée' : 'No past orders')}
+                    {activeTab === 'all'
+                      ? (language === 'fr' ? 'Aucune commande' : 'No orders yet')
+                      : activeTab === 'active' 
+                        ? (language === 'fr' ? 'Aucune commande en cours' : 'No active orders')
+                        : (language === 'fr' ? 'Aucune commande passée' : 'No past orders')}
                   </h2>
                   <p className="text-white/60 mb-6">
-                    {activeTab === 'active'
-                      ? (language === 'fr' ? 'Vos commandes actives apparaîtront ici' : 'Your active orders will appear here')
-                      : (language === 'fr' ? 'Votre historique de commandes apparaîtra ici' : 'Your order history will appear here')}
+                    {activeTab === 'all'
+                      ? (language === 'fr' ? 'Vos commandes apparaîtront ici' : 'Your orders will appear here')
+                      : activeTab === 'active'
+                        ? (language === 'fr' ? 'Vos commandes actives apparaîtront ici' : 'Your active orders will appear here')
+                        : (language === 'fr' ? 'Votre historique de commandes apparaîtra ici' : 'Your order history will appear here')}
                   </p>
                   <Link to="/">
                     <Button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-6">

@@ -1,57 +1,67 @@
 
 
-# Fix: "Mes commandes" Showing Empty
+# Fix: "Mes commandes" Empty on Production
 
 ## Root Cause
 
-There are two issues:
+The production database is missing the `confirmation_code` column on the `orders` table. The MyOrders page query includes this column:
 
-1. **Missing status in tab filters**: All orders in the database have status `PENDING_PAYMENT`, which only appears under the "En cours" (Active) tab. When the user clicks "Historique" (Past), it filters for `DELIVERED`, `COMPLETED`, `CANCELLED` only -- so it shows nothing. But `PENDING_PAYMENT` is also NOT showing under "En cours" if there's an additional problem.
+```typescript
+.select('id, created_at, status, total_usd, confirmation_code')
+```
 
-2. **`PENDING` status not included**: The `ACTIVE_STATUSES` array includes `PENDING_PAYMENT` but not plain `PENDING`. If any order has status `PENDING`, it falls through both filters and is invisible.
+When this query runs against the Live database, it throws:
+```
+column orders.confirmation_code does not exist
+```
 
-3. **Default tab UX**: User lands on "Historique" (from their screenshot) and sees nothing because all orders are `PENDING_PAYMENT`. There's no "All Orders" view.
+This causes the entire query to fail silently, so zero orders are returned -- regardless of which tab is selected.
 
-## Fix (in `src/pages/shop/MyOrders.tsx`)
+## Fix
 
-### Change 1: Add an "All" tab as default
-Add a third tab option "Tous" / "All" that shows all non-draft orders, and make it the default. This ensures users always see their orders when they open the page.
+Make the `confirmation_code` column **optional** in the query so it doesn't break if missing, OR publish the schema changes to production so the column exists.
 
-### Change 2: Expand status lists to catch edge cases
-- Add `PENDING` to `ACTIVE_STATUSES`
-- Add `REFUNDED` to `PAST_STATUSES`
-- The "All" tab shows everything regardless of status
+The safest approach is both:
 
-### Change 3: Show order count on each tab
-Already implemented but will now work correctly with the "All" tab.
+1. **Publish the project** to sync the database schema (including the `confirmation_code` column) from Test to Live.
+2. **As a defensive measure**, update the query in `MyOrders.tsx` to handle the error gracefully -- if the initial query fails, retry without `confirmation_code`.
 
-## Technical Details
+### File Changes
 
 | File | Change |
 |------|--------|
-| `src/pages/shop/MyOrders.tsx` | Add "All" tab as default, expand status arrays, ensure all orders are visible |
+| `src/pages/shop/MyOrders.tsx` | Add fallback query without `confirmation_code` if the primary query fails |
 
-### Key Code Changes
+### Code Change (lines 60-68)
 
 ```typescript
-// Add new tab type
-type OrderTab = 'all' | 'active' | 'past';
+// Try fetching with confirmation_code first, fall back without it
+let data, error;
+({ data, error } = await supabase
+  .from('orders')
+  .select('id, created_at, status, total_usd, confirmation_code')
+  .eq('user_id', user.id)
+  .neq('status', 'DRAFT')
+  .order('created_at', { ascending: false })
+  .limit(100));
 
-// Expand statuses
-const ACTIVE_STATUSES = ['PENDING', 'PENDING_PAYMENT', 'PAID', 'PROCESSING', 'SHIPPED'];
-const PAST_STATUSES = ['DELIVERED', 'COMPLETED', 'CANCELLED', 'REFUNDED'];
+// Fallback if confirmation_code column doesn't exist yet
+if (error) {
+  ({ data, error } = await supabase
+    .from('orders')
+    .select('id, created_at, status, total_usd')
+    .eq('user_id', user.id)
+    .neq('status', 'DRAFT')
+    .order('created_at', { ascending: false })
+    .limit(100));
+}
 
-// Default to 'all'
-const [activeTab, setActiveTab] = useState<OrderTab>('all');
-
-// Filter logic
-const filteredOrders = orders.filter(order => {
-  if (activeTab === 'all') return true;
-  const statusUpper = order.status.toUpperCase();
-  if (activeTab === 'active') return ACTIVE_STATUSES.includes(statusUpper);
-  return PAST_STATUSES.includes(statusUpper);
-});
+if (error) throw error;
 ```
 
-A new "Tous" / "All" tab button will be added before the existing "En cours" and "Historique" tabs, styled consistently with the existing tab design.
+This makes the page work on both the current production schema (without `confirmation_code`) and after publishing (with it).
+
+## After Implementation
+
+You should also **publish the project** so the Live database schema gets the `confirmation_code` column and all other recent fixes (cart dedup, tabs, etc.) go live.
 

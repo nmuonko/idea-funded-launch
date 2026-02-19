@@ -324,11 +324,6 @@ export default function ShopHome() {
         <DeliveryHeroBanner />
       </motion.section>
 
-      <section className="mb-6">
-        <div className="container mx-auto px-4">
-          <CategoryTabs activeCategory={activeCategory} />
-        </div>
-      </section>
 
       <main className="pb-8">
         <div className="container mx-auto px-4">

@@ -111,44 +111,46 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         className
       )}
     >
-      {/* Image Container — white bg for product visibility */}
+      {/* Image Container — white bg, uniform height, eBay-like */}
       <div className={cn(
-        "relative overflow-hidden bg-white",
-        compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
+        "relative overflow-hidden bg-white rounded-t-xl",
+        compact ? "h-[160px] sm:h-[170px]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img
           src={product.imageUrl || '/placeholder.svg'}
           alt={product.title}
           className={cn(
-            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
-            compact ? "p-1.5" : "p-2.5 sm:p-4"
+            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 mix-blend-multiply",
+            compact ? "p-3" : "p-3 sm:p-4"
           )}
           loading="lazy"
         />
         
-        {/* Provider Badge */}
+        {/* Provider Badge — smaller, subtler */}
         <Badge 
           variant="outline" 
           className={cn(
-            "absolute top-2 left-2",
+            "absolute top-1.5 left-1.5 opacity-80",
             providerColor,
-            compact ? "text-[10px] px-1.5 py-0.5" : "text-xs"
+            "text-[10px] px-1.5 py-0.5"
           )}
         >
           {getProviderDisplayName(product.provider)}
         </Badge>
 
-        {/* Save Button */}
+        {/* Save Button — subtler, stronger on hover */}
         <button
           onClick={handleToggleSaved}
           className={cn(
-            "absolute top-2 right-2 p-2 rounded-full transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center",
+            "absolute top-1.5 right-1.5 p-1.5 rounded-full transition-all",
+            compact ? "min-h-[28px] min-w-[28px]" : "min-h-[32px] min-w-[32px]",
+            "flex items-center justify-center",
             isSaved 
               ? "bg-red-500/20 text-red-400" 
-              : "bg-black/40 text-white/60 hover:text-white"
+              : "bg-black/30 text-white/40 hover:text-white hover:bg-black/50"
           )}
         >
-          <Heart className={cn("h-4 w-4", isSaved && "fill-current")} />
+          <Heart className={cn("h-3.5 w-3.5", isSaved && "fill-current")} />
         </button>
 
         {/* Out of Stock Overlay */}

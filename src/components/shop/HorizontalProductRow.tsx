@@ -120,7 +120,7 @@ export function HorizontalProductRow({
           <ProductCard 
             key={`${product.provider}-${product.id}`} 
             product={product} 
-            className="w-40 flex-shrink-0"
+            className="w-44 sm:w-48 flex-shrink-0"
             compact
           />
         ))}

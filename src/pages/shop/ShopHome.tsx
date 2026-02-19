@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { SectionBlock } from '@/components/shop/SectionBlock';
-import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
+import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
+import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
@@ -230,9 +231,9 @@ export default function ShopHome() {
       <ShopHeader />
       <div className="pt-16 md:pt-20" />
 
-      {/* 1) Hero Banner */}
+      {/* 1) Hero Banner Carousel */}
       <motion.section initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }} className="mb-5">
-        <DeliveryHeroBanner />
+        <HeroBannerCarousel />
       </motion.section>
 
       <main className="pb-8">
@@ -279,6 +280,7 @@ export default function ShopHome() {
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
                   items={trendingFeed}
                   mode="scroll"
+                  seeAllLink="/category/all"
                 />
               )}
 
@@ -309,6 +311,9 @@ export default function ShopHome() {
                   ))}
                 </div>
               )}
+
+              {/* 6) Category Icons Row */}
+              <CategoryIconsRow />
 
               {/* End of Feed CTA */}
               {trendingFeed.length > 0 && (

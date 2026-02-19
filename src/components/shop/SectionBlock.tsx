@@ -1,6 +1,9 @@
 import { Product } from '@/components/shop/ProductCard';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { CategoryCard } from '@/components/shop/CategoryCard';
+import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SectionBlockProps {
   title?: string;
@@ -9,9 +12,12 @@ interface SectionBlockProps {
   loading?: boolean;
   mode?: 'scroll' | 'grid';
   categoryKey?: string;
+  seeAllLink?: string;
 }
 
-export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey }: SectionBlockProps) {
+export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink }: SectionBlockProps) {
+  const { language } = useLanguage();
+
   if (!loading && items.length === 0) return null;
 
   if (mode === 'grid') {
@@ -28,7 +34,15 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
   return (
     <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
       {title && !hideTitle && (
-        <h2 className="text-lg font-semibold text-white/95 mb-3 px-1">{title}</h2>
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h2 className="text-lg font-semibold text-white/95">{title}</h2>
+          {seeAllLink && (
+            <Link to={seeAllLink} className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors">
+              {language === 'fr' ? 'Voir plus' : 'See more'}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
+        </div>
       )}
       {loading && !hideTitle && !title && (
         <div className="h-5 w-40 bg-white/[0.08] rounded mb-3 shimmer" />

@@ -55,21 +55,21 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
 };
 
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
-  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'living room', 'bedding', 'comforter', 'blanket', 'yoga', 'exercise', 'workout', 'sport', 'clothing', 'fashion', 'phone case', 'car charger', 'screen protector', 'car touch', 'quad lock', 'mag phone', 'protective case', 'phone mount'],
-  gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'shoes', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'usb-c', 'car charger', 'phone case', 'screen protector', 'for rog ally', 'dock station'],
+  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'living room', 'bedding', 'comforter', 'blanket', 'yoga', 'exercise', 'workout', 'sport', 'clothing', 'fashion', 'phone case', 'car charger', 'screen protector', 'car touch', 'quad lock', 'mag phone', 'protective case', 'phone mount', 'ps5', 'playstation', 'xbox', 'nintendo', 'console', 'game disc', 'guitar', 'drum', 'piano'],
+  gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'shoes', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'usb-c', 'car charger', 'phone case', 'screen protector', 'for rog ally', 'dock station', 'speaker', 'guitar', 'piano', 'perfume', 'sofa set', 'dining table'],
   phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'shoes', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount', 'film', 'adapter', 'earphones', 'earbuds', 'headphone'],
-  vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'touch screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender'],
-  home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console'],
-  toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable'],
-  sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable'],
-  jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'tool', 'appliance', 'furniture'],
-  parts_accessories: ['dress', 'shirt', 'sofa', 'bed'],
-  beauty_health: ['sofa', 'bed', 'mattress'],
-  collectibles: ['sofa', 'bed', 'mattress'],
-  audio_music: ['case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'watch band', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'toy', 'lego'],
-  shoes_sneakers: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'lego', 'toy', 'car part', 'brake pad'],
-  cameras_photo: ['sofa', 'bed', 'mattress', 'phone case', 'dress', 'shirt', 'shoes', 'sneakers', 'toy', 'lego', 'car part', 'charger cable'],
+  vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'touch screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio', 'brake pad', 'oil filter', 'wiper', 'spark plug', 'alternator', 'bumper cover'],
+  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'watch', 'necklace', 'sneaker', 'running shoe'],
+  home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console', 'hdmi', 'usb', 'cable', 'apple watch', 'smartwatch', 'airpods', 'headphones', 'samsung galaxy', 'trading card', 'pokemon', 'sneakers', 'jordan', 'nike', 'adidas'],
+  toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable', 'brake pad', 'oil filter'],
+  sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable', 'console', 'playstation', 'xbox', 'nintendo', 'trading card', 'pokemon'],
+  jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'tool', 'appliance', 'furniture', 'sneakers', 'shoes', 'brake pad'],
+  parts_accessories: ['iphone', 'samsung galaxy', 'macbook', 'laptop', 'ps5', 'playstation', 'xbox', 'nintendo', 'sofa', 'bed', 'dress', 'shirt', 'shoes', 'sneakers', 'watch', 'necklace', 'ring', 'earring', 'perfume', 'makeup', 'toy', 'lego', 'doll', 'trading card', 'pokemon', 'tablet', 'airpods', 'headphones', 'speaker'],
+  beauty_health: ['sofa', 'bed', 'mattress', 'iphone', 'ps5', 'laptop', 'console', 'sneakers', 'brake pad', 'car part', 'watch', 'cable', 'charger'],
+  collectibles: ['sofa', 'bed', 'mattress', 'iphone', 'laptop', 'ps5', 'brake pad', 'oil filter', 'charger', 'cable', 'sneakers'],
+  audio_music: ['ps5', 'playstation', 'xbox', 'nintendo', 'console', 'controller', 'game disc', 'gaming chair', 'cooling fan', 'video game', 'case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'watch band', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'toy', 'lego', 'iphone', 'samsung galaxy', 'laptop', 'brake pad', 'oil filter'],
+  shoes_sneakers: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'lego', 'toy', 'car part', 'brake pad', 'watch', 'necklace', 'ring', 'earring', 'console', 'gaming'],
+  cameras_photo: ['sofa', 'bed', 'mattress', 'phone case', 'dress', 'shirt', 'shoes', 'sneakers', 'toy', 'lego', 'car part', 'charger cable', 'ps5', 'playstation', 'xbox', 'console', 'brake pad', 'oil filter', 'watch', 'necklace'],
   refurbished: [],
 };
 
@@ -288,23 +288,21 @@ export default function ShopHome() {
         const relaxedDedicated = pickRelevant(sortByLuxury(dedicated), catKey, 4 - items.length, false);
         items = [...items, ...relaxedDedicated];
       }
-      // Step 4 (emergency): grab unused accueil items, still enforce THIS category's excludes
+      // Step 4 (emergency): grab unused accueil items WITH include+exclude checks (no random items)
       if (items.length < 4) {
-        const excludes = CATEGORY_EXCLUDE_KEYWORDS[catKey] || [];
-        for (const p of sortByLuxury(accueilProducts)) {
-          if (items.length >= 4) break;
-          if (dedup.has(p.id) || p.priceUsd <= 20) continue;
-          const titleLower = (p.title || '').toLowerCase();
-          if (excludes.some(ex => titleLower.includes(ex))) continue;
-          items.push(p);
-          dedup.add(p.id);
-        }
+        const moreFromPool = pickRelevant(sortByLuxury(accueilProducts), catKey, 4 - items.length, true);
+        items = [...items, ...moreFromPool];
+      }
+      // Step 5 (last resort): if STILL < 4, allow relaxed (no include check) but WITH excludes from accueil
+      if (items.length < 4) {
+        const relaxedAccueil = pickRelevant(sortByLuxury(accueilProducts), catKey, 4 - items.length, false);
+        items = [...items, ...relaxedAccueil];
       }
       return items.slice(0, 4);
     };
 
     // 1) TRENDING (16 items, round-robin luxury-biased from 6 premium cats)
-    const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'clothing'];
+    const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'clothing', 'audio_music', 'cameras_photo'];
     const trending: Product[] = [];
     for (const cat of trendingCats) {
       const items = getCandidates(cat);
@@ -323,7 +321,7 @@ export default function ShopHome() {
     }
     // Fill remaining from accueil — only premium items from appealing categories
     if (trending.length < 16) {
-      const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing'];
+      const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing', 'audio_music', 'cameras_photo'];
       const validAccueil = accueilProducts.filter(p => {
         if ((p.priceUsd || 0) < 50) return false;
         const title = (p.title || '').toLowerCase();

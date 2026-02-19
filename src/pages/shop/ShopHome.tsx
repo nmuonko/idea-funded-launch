@@ -227,52 +227,46 @@ export default function ShopHome() {
     }
   };
 
-  // Variety feed via round-robin with cross-category dedupe
-  const varietyFeed = useMemo(() => {
-    const categoryItems = Object.values(categorySections);
-    if (categoryItems.length === 0) return accueilProducts.slice(0, 20);
-    const mixed: Product[] = [];
-    const seenIds = new Set<string>();
-    for (let round = 0; round < 5; round++) {
-      for (const catItems of categoryItems) {
-        const item = catItems[round];
-        if (item && !seenIds.has(item.id)) {
-          seenIds.add(item.id);
-          mixed.push(item);
-        }
-      }
-    }
-    // Fill from accueil to ensure variety
-    for (const p of accueilProducts) {
-      if (!seenIds.has(p.id) && mixed.length < 40) {
-        seenIds.add(p.id);
-        mixed.push(p);
-      }
-    }
-    return mixed;
-  }, [accueilProducts, categorySections]);
+  // Trending feed — use accueil products directly (not category previews)
+  const trendingFeed = useMemo(() => {
+    return accueilProducts.slice(0, 20);
+  }, [accueilProducts]);
 
   // Build deduplicated category preview data for Accueil
+  // Only dedupe ACROSS categories (not against trending row)
   const deduplicatedCategoryPreviews = useMemo(() => {
-    const globalSeenIds = new Set<string>();
-    // Add trending/variety feed items to seen set
-    varietyFeed.forEach(p => globalSeenIds.add(p.id));
+    const crossCatSeen = new Set<string>();
     
     const result: Array<{ key: string; items: Product[] }> = [];
     for (const catKey of CATEGORY_KEYS) {
       const items = categorySections[catKey];
       if (!items || items.length === 0) continue;
       
-      // Filter already-shown items, take first 4
-      const filtered = items.filter(p => !globalSeenIds.has(p.id));
-      // If too few after filtering, allow some from this category even if seen
-      const display = filtered.length >= 4 ? filtered.slice(0, 4) : items.slice(0, 4);
+      // Take items not already used by another category, up to 4
+      const display: Product[] = [];
+      for (const p of items) {
+        if (display.length >= 4) break;
+        if (!crossCatSeen.has(p.id)) {
+          display.push(p);
+        }
+      }
+      // Fallback: if <4 unique, fill from category even if seen elsewhere
+      if (display.length < 4) {
+        for (const p of items) {
+          if (display.length >= 4) break;
+          if (!display.some(d => d.id === p.id)) {
+            display.push(p);
+          }
+        }
+      }
       
-      display.forEach(p => globalSeenIds.add(p.id));
-      result.push({ key: catKey, items: display });
+      display.forEach(p => crossCatSeen.add(p.id));
+      if (display.length > 0) {
+        result.push({ key: catKey, items: display });
+      }
     }
     return result;
-  }, [categorySections, varietyFeed, CATEGORY_KEYS]);
+  }, [categorySections, CATEGORY_KEYS]);
 
   // ====== EFFECTS ======
   useEffect(() => {
@@ -372,10 +366,10 @@ export default function ShopHome() {
             /* ===== ACCUEIL VIEW ===== */
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-6">
               {/* Trending row */}
-              {varietyFeed.length > 0 && (
+              {trendingFeed.length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={varietyFeed}
+                  items={trendingFeed}
                   mode="scroll"
                 />
               )}
@@ -450,7 +444,7 @@ export default function ShopHome() {
           )}
 
           {/* End of Feed CTA — only show once, no "(1/1)" widget */}
-          {!currentLoading && !error && (isAccueil ? varietyFeed.length > 0 : catPoolItems.length > 0) && !hasMoreToReveal && (
+          {!currentLoading && !error && (isAccueil ? trendingFeed.length > 0 : catPoolItems.length > 0) && !hasMoreToReveal && (
             <div className="mt-10 py-8 border-t border-white/[0.08]">
               <div className="text-center space-y-4">
                 <h3 className="text-lg font-semibold text-white/90">

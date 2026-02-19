@@ -96,7 +96,7 @@ export function HorizontalProductRow({
         variant="ghost"
         size="icon"
         onClick={() => scroll('left')}
-        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex border border-white/10"
+        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-100 transition-opacity hidden md:flex border border-white/10"
       >
         <ChevronLeft className="h-5 w-5" />
       </Button>
@@ -105,7 +105,7 @@ export function HorizontalProductRow({
         variant="ghost"
         size="icon"
         onClick={() => scroll('right')}
-        className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex border border-white/10"
+        className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-100 transition-opacity hidden md:flex border border-white/10"
       >
         <ChevronRight className="h-5 w-5" />
       </Button>

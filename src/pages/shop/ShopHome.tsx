@@ -45,7 +45,7 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   toys: ['toy', 'jouet', 'lego', 'doll', 'puzzle', 'action figure', 'barbie', 'nerf', 'playset', 'plush', 'stuffed animal', 'board game', 'play-doh', 'hot wheels', 'building blocks', 'toy set'],
   sporting_goods: ['fitness equipment', 'gym equipment', 'yoga mat', 'running shoe', 'bicycle', 'soccer ball', 'basketball', 'tennis racket', 'golf club', 'camping', 'hiking', 'treadmill', 'dumbbell', 'exercise bike', 'kayak', 'garmin watch'],
   jewelry_watches: ['watch ', 'montre', 'bracelet', 'necklace', 'ring ', 'earring', 'jewelry', 'bijou', 'gold necklace', 'gold ring', 'gold bracelet', 'silver necklace', 'silver ring', 'diamond', 'rolex', 'casio watch', 'seiko', 'fossil watch', 'pendant', 'luxury watch', '14k', '18k', '10k gold'],
-  parts_accessories: ['auto part', 'car part', 'brake pad', 'oil filter', 'alternator', 'car battery', 'headlight assembly', 'bumper', 'wiper blade', 'spark plug', 'transmission', 'radiator', 'pièce auto', 'oem part', 'catalytic converter', 'carplay', 'car stereo', 'dash cam', 'car gps'],
+  parts_accessories: ['auto part', 'car part', 'brake pad', 'oil filter', 'alternator', 'car battery', 'headlight assembly', 'bumper', 'wiper blade', 'spark plug', 'transmission', 'radiator', 'pièce auto', 'oem part', 'catalytic converter', 'exhaust', 'strut', 'control arm', 'axle', 'wheel bearing', 'fuel pump', 'thermostat', 'serpentine belt', 'timing belt'],
   refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified pre-owned', 'factory refurbished'],
   beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'fragrance', 'cosmetic', 'face cream', 'nail polish', 'lotion', 'vitamins'],
   collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin', 'yugioh'],
@@ -69,7 +69,7 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'speaker', 'guitar', 'piano', 'perfume', 'sofa set', 'dining table', 'makeup', 'cologne'],
   phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount', 'film', 'adapter', 'earphones', 'earbuds', 'headphone'],
   vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio', 'brake pad', 'oil filter', 'wiper', 'spark plug', 'alternator', 'bumper cover', 'perfume', 'cologne'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'lingerie', 'bikini', 'thong', 'lace bra', 'sexy', 'lingerie set'],
+  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'lingerie', 'bikini', 'thong', 'lace bra', 'sexy', 'lingerie set', 'sneaker', 'sneakers', 'air max', 'air force 1', 'dunk low', 'dunk high', 'yeezy', 'running shoe', 'basketball shoe', 'hiking boot'],
   home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console', 'hdmi', 'usb', 'cable', 'apple watch', 'smartwatch', 'airpods', 'headphones', 'samsung galaxy', 'trading card', 'pokemon', 'carplay', 'stereo', 'perfume', 'cologne', 'makeup'],
   toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable', 'brake pad', 'oil filter', 'perfume', 'cologne'],
   sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable', 'console', 'playstation', 'xbox', 'nintendo', 'trading card', 'pokemon', 'perfume', 'cologne'],
@@ -365,8 +365,9 @@ export default function ShopHome() {
         shortCats.map(async (cat) => {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-category', {
             category: cat,
-            limit: 120,
+            limit: 300,
             client: 'web',
+            language,
           });
           const items = data?.sections?.[0]?.items?.map(mapItemToProduct).filter((p: Product) => p.id && p.priceUsd > 0) || [];
           return { cat, items };
@@ -380,9 +381,9 @@ export default function ShopHome() {
       setTopUpPools(pools);
     })();
     return () => { cancelled = true; };
-  }, [categoryGrids]);
+  }, [categoryGrids, language]);
 
-  // Merge top-up pools into grids (strict filtering)
+  // Merge top-up pools into grids (STRICT include+exclude filtering)
   const finalCategoryGrids = useMemo(() => {
     if (Object.keys(topUpPools).length === 0) return categoryGrids;
     const usedIds = new Set(categoryGrids.flatMap(g => g.items.map(i => i.id)));
@@ -391,12 +392,22 @@ export default function ShopHome() {
       const pool = topUpPools[g.key];
       if (!pool) return g;
       const effectiveExcludes = getEffectiveExcludes(g.key);
+      const keywords = CATEGORY_KEYWORDS[g.key];
       const extra: Product[] = [];
-      for (const p of pool) {
+      // Sort pool by luxury before picking
+      const sorted = [...pool].sort((a, b) => {
+        const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
+        const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
+        if (bLux !== aLux) return bLux - aLux;
+        return (b.priceUsd || 0) - (a.priceUsd || 0);
+      });
+      for (const p of sorted) {
         if (g.items.length + extra.length >= 4) break;
         if (usedIds.has(p.id)) continue;
         const titleLower = (p.title || '').toLowerCase();
-        // Exclude-only: trust catalog-category backend feed
+        // STRICT: must match include keywords (except refurbished which has very specific terms)
+        if (keywords && keywords.length > 0 && !keywords.some(kw => titleLower.includes(kw))) continue;
+        // Must NOT match any exclude
         if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
         extra.push(p);
         usedIds.add(p.id);

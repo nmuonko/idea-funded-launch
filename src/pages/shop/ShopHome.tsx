@@ -31,6 +31,8 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
   collectibles: { fr: 'Collections', en: 'Collectibles' },
   audio_music: { fr: 'Audio & Musique', en: 'Audio & Music' },
+  shoes_sneakers: { fr: 'Chaussures & Sneakers', en: 'Shoes & Sneakers' },
+  cameras_photo: { fr: 'Caméras & Photo', en: 'Cameras & Photo' },
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -48,6 +50,8 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'fragrance', 'cosmetic', 'face cream', 'nail polish'],
   collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin'],
   audio_music: ['bose', 'sony', 'jbl', 'harman kardon', 'bang & olufsen', 'b&o', 'sennheiser', 'beats', 'marshall', 'speaker', 'subwoofer', 'soundbar', 'home theater', 'amplifier', 'receiver', 'headphones', 'earbuds', 'bluetooth speaker', 'studio monitor', 'pa speaker', 'guitar', 'electric guitar', 'acoustic guitar', 'bass guitar', 'digital piano', 'midi controller', 'drum', 'drum kit', 'microphone', 'audio interface', 'turntable', 'hi-fi', 'surround sound', 'wireless speaker', 'portable speaker'],
+  shoes_sneakers: ['nike', 'adidas', 'jordan', 'air max', 'new balance', 'puma', 'reebok', 'converse', 'vans', 'sneakers', 'running shoe', 'basketball shoe', 'yeezy', 'air force 1', 'dunk low', 'dunk high', 'boot', 'loafer', 'sandal', 'trail shoe', 'hiking boot', 'timberland', 'skechers', 'asics', 'under armour'],
+  cameras_photo: ['canon', 'nikon', 'sony camera', 'fujifilm', 'gopro', 'dslr', 'mirrorless camera', 'camera lens', 'tripod', 'ring light', 'camera bag', 'drone camera', 'action camera', 'instant camera', 'polaroid', 'digital camera', 'camcorder', 'camera body', 'telephoto lens', 'wide angle lens', 'sony alpha', 'canon eos', 'nikon z'],
 };
 
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
@@ -64,6 +68,8 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   beauty_health: ['sofa', 'bed', 'mattress'],
   collectibles: ['sofa', 'bed', 'mattress'],
   audio_music: ['case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'watch band', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'toy', 'lego'],
+  shoes_sneakers: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'lego', 'toy', 'car part', 'brake pad'],
+  cameras_photo: ['sofa', 'bed', 'mattress', 'phone case', 'dress', 'shirt', 'shoes', 'sneakers', 'toy', 'lego', 'car part', 'charger cable'],
   refurbished: [],
 };
 
@@ -118,7 +124,7 @@ const ALL_HOMEPAGE_CATEGORIES = [
   'phones', 'electronics', 'audio_music', 'gaming', 'vehicles',
   'clothing', 'home_garden', 'toys', 'sporting_goods',
   'jewelry_watches', 'parts_accessories', 'refurbished',
-  'beauty_health', 'collectibles',
+  'beauty_health', 'collectibles', 'shoes_sneakers', 'cameras_photo',
 ];
 // Categories fetched from backend (those with dedicated recipe feeds)
 const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];

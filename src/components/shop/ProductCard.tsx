@@ -139,7 +139,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     >
       {/* Image Container */}
       <div className={cn(
-        "relative overflow-hidden bg-white",
+        "relative overflow-hidden bg-neutral-200",
         compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img

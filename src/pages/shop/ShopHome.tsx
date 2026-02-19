@@ -330,12 +330,31 @@ export default function ShopHome() {
               transition={{ delay: 0.1 }}
               className="space-y-4"
             >
-              {/* Accueil section - auto-scrolling horizontal row */}
-              {products.length > 0 && (
+              {/* Accueil section - eBay-style mixed trending/variety row */}
+              {(products.length > 0 || Object.keys(categorySections).length > 0) && (
                 <div id="section-accueil">
                   <SectionBlock
                     title={language === 'fr' ? 'Accueil' : 'Home'}
-                    items={products}
+                    items={(() => {
+                      // Mix products from all categories for variety
+                      const categoryItems = Object.values(categorySections);
+                      if (categoryItems.length === 0) return products;
+                      const mixed: Product[] = [];
+                      const maxRounds = 5;
+                      for (let round = 0; round < maxRounds; round++) {
+                        for (const catItems of categoryItems) {
+                          if (catItems[round]) {
+                            mixed.push(catItems[round]);
+                          }
+                        }
+                      }
+                      // Add remaining main feed products
+                      const mixedIds = new Set(mixed.map(p => p.id));
+                      for (const p of products) {
+                        if (!mixedIds.has(p.id)) mixed.push(p);
+                      }
+                      return mixed;
+                    })()}
                     mode="scroll"
                   />
                 </div>

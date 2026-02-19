@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Search, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
@@ -216,13 +216,6 @@ export default function ShopHome() {
     loadRecentlyViewed();
   }, [user?.id]);
 
-  const focusSearchBar = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setTimeout(() => {
-      const searchInput = document.querySelector('header input[type="text"]') as HTMLInputElement;
-      if (searchInput) searchInput.focus();
-    }, 500);
-  };
 
   const isLoading = accueilLoading && categoryLoading;
 
@@ -258,7 +251,17 @@ export default function ShopHome() {
           ) : (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-6">
 
-              {/* 2) Promo Tiles — top 4 categories (Amazon-style 2x2 thumbnail cards) */}
+              {/* 2) Trending Grid (static, right after hero) */}
+              {trendingFeed.length > 0 && (
+                <SectionBlock
+                  title={language === 'fr' ? 'Tendances' : 'Trending Now'}
+                  items={trendingFeed}
+                  mode="static-grid"
+                  seeAllLink="/category/all"
+                />
+              )}
+
+              {/* 3) Promo Tiles — top 4 categories (Amazon-style 2x2 thumbnail cards) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {promoPreviews.map(({ key: catKey, items }) => (
                   <SectionBlock
@@ -273,16 +276,6 @@ export default function ShopHome() {
                   <SectionBlock key={`promo-loading-${i}`} items={[]} loading mode="grid" />
                 ))}
               </div>
-
-              {/* 3) Trending Row */}
-              {trendingFeed.length > 0 && (
-                <SectionBlock
-                  title={language === 'fr' ? 'Tendances' : 'Trending Now'}
-                  items={trendingFeed}
-                  mode="scroll"
-                  seeAllLink="/category/all"
-                />
-              )}
 
               {/* 4) Recently Viewed */}
               {recentlyViewed.length > 0 && (
@@ -315,29 +308,7 @@ export default function ShopHome() {
               {/* 6) Category Icons Row */}
               <CategoryIconsRow />
 
-              {/* End of Feed CTA */}
-              {trendingFeed.length > 0 && (
-                <div className="mt-6 py-8 border-t border-white/[0.06]">
-                  <div className="text-center space-y-4">
-                    <h3 className="text-lg font-semibold text-white/90">
-                      {language === 'fr' ? "Vous ne trouvez pas ce que vous cherchez ?" : "Don't find what you're looking for?"}
-                    </h3>
-                    <p className="text-white/50 text-sm">
-                      {language === 'fr' ? "Recherchez n'importe quel produit d'Amazon et eBay" : "Search for any product from Amazon & eBay"}
-                    </p>
-                    <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="w-64 mx-auto">
-                      <Button
-                        onClick={focusSearchBar}
-                        className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white rounded-full px-8 py-3 text-base font-medium"
-                        size="lg"
-                      >
-                        <Search className="h-4 w-4 mr-2" />
-                        {language === 'fr' ? 'Rechercher des produits' : 'Search Products'}
-                      </Button>
-                    </motion.div>
-                  </div>
-                </div>
-              )}
+              {/* End of feed — no CTA */}
             </motion.div>
           )}
         </div>

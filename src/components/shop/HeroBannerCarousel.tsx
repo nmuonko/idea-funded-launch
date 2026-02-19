@@ -3,6 +3,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
+import heroGaming from '@/assets/hero-gaming.jpg';
+import heroPhones from '@/assets/hero-phones.jpg';
 
 interface Slide {
   titleFr: string;
@@ -26,7 +28,7 @@ const SLIDES: Slide[] = [
     ctaEn: 'See deals',
     ctaLink: '/category/gaming',
     gradient: 'from-indigo-900/90 via-purple-900/70 to-transparent',
-    image: '/hero-airplane.jpg',
+    image: heroGaming,
   },
   {
     titleFr: 'Livraison en 2-4 Semaines',
@@ -40,15 +42,15 @@ const SLIDES: Slide[] = [
     image: '/hero-airplane.jpg',
   },
   {
-    titleFr: 'Smartphones à prix réduit',
-    titleEn: 'Smartphones at Low Prices',
-    subtitleFr: 'iPhone, Samsung, Xiaomi — les meilleurs prix garantis',
-    subtitleEn: 'iPhone, Samsung, Xiaomi — best prices guaranteed',
+    titleFr: 'Smartphones Premium',
+    titleEn: 'Premium Smartphones',
+    subtitleFr: 'iPhone, Samsung Galaxy — les meilleurs prix garantis',
+    subtitleEn: 'iPhone, Samsung Galaxy — best prices guaranteed',
     ctaFr: 'Voir les téléphones',
     ctaEn: 'See phones',
     ctaLink: '/category/phones',
     gradient: 'from-emerald-900/80 via-teal-900/60 to-transparent',
-    image: '/hero-airplane.jpg',
+    image: heroPhones,
   },
 ];
 
@@ -76,7 +78,6 @@ export function HeroBannerCarousel() {
       onMouseLeave={() => setPaused(false)}
     >
       <div className="relative overflow-hidden rounded-2xl h-[170px] sm:h-[220px] md:h-[300px] lg:h-[340px] border border-white/10">
-        {/* Background Image */}
         <AnimatePresence mode="wait">
           <motion.div
             key={current}
@@ -97,7 +98,6 @@ export function HeroBannerCarousel() {
           </motion.div>
         </AnimatePresence>
 
-        {/* Content */}
         <div className="relative z-10 h-full flex flex-col justify-center px-6 md:px-12 max-w-xl">
           <AnimatePresence mode="wait">
             <motion.div
@@ -123,7 +123,6 @@ export function HeroBannerCarousel() {
           </AnimatePresence>
         </div>
 
-        {/* Arrows */}
         <button
           onClick={prev}
           className="absolute left-2 md:left-3 top-1/2 -translate-y-1/2 z-20 bg-black/40 hover:bg-black/60 text-white rounded-full p-1.5 md:p-2 transition-colors backdrop-blur-sm border border-white/10"
@@ -139,7 +138,6 @@ export function HeroBannerCarousel() {
           <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
         </button>
 
-        {/* Dots */}
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
           {SLIDES.map((_, i) => (
             <button

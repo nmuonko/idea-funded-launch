@@ -1,72 +1,92 @@
 
 
-# Amazon-Style Category Card Grid + Auto-Scroll Accueil
+# Amazon-Style Homepage Layout Redesign
 
 ## What Changes
 
-1. **Accueil section** keeps the current horizontal auto-scrolling row (unchanged)
-2. **All other category sections** switch from horizontal scrolling rows to **Amazon-style card blocks** -- each category is a dark card containing a **2x2 grid of product images** with titles underneath, like in the Amazon screenshot
-3. Category cards are arranged in a **responsive grid**: 1 column on mobile, 2 on tablet, 3-4 on desktop -- so multiple category blocks sit side by side
+The homepage will be restructured to match the reference screenshot layout while keeping the dark theme. Here's the section-by-section breakdown:
 
-## Visual Layout
+### 1. Hero Banner Carousel (Full-Width, with Arrows + Dots)
+- Replace the current static `DeliveryHeroBanner` with a full-width image carousel
+- Add left/right navigation arrows and dot indicators
+- Support multiple slides (deals for gamers, delivery promo, etc.)
+- Responsive heights: ~300px desktop, ~200px tablet, ~170px mobile
+- Slides will have gradient overlay with text + CTA button ("Voir les offres")
 
-```text
-+------------------------------------------+
-| [Header + Search]                        |
-| [Accueil] [Phones] [Electronique] [...]  |
-+------------------------------------------+
-| Delivery Banner                          |
-+------------------------------------------+
-| Accueil (auto-scrolling horizontal row)  |
-| [====> products scroll ====>]            |
-+------------------------------------------+
-| +-- Telephones --+ +-- Electronique ---+ |
-| | [img1] [img2]  | | [img1]   [img2]   | |
-| | label   label  | | label    label    | |
-| | [img3] [img4]  | | [img3]   [img4]   | |
-| | label   label  | | label    label    | |
-| | See more       | | See more          | |
-| +----------------+ +-------------------+ |
-| +-- Jeux Video --+ +-- Vehicules ------+ |
-| | [img1] [img2]  | | [img1]   [img2]   | |
-| | ...            | | ...               | |
-| +----------------+ +-------------------+ |
-+------------------------------------------+
-```
+### 2. Category Promo Tiles (4-Column Grid Below Banner)
+- Keep the existing 4-column `CategoryCard` grid (Telephones, Electronique, Jeux Video, Vehicules)
+- Each card shows a 2x2 grid of product thumbnails with titles beneath each thumbnail
+- "Voir plus >" link at the bottom of each card
+- Already working correctly -- just needs minor spacing tweaks to match reference
+
+### 3. Trending Row ("Tendances") -- Single Horizontal Carousel
+- Keep ONE "Tendances" row with horizontal scroll, left/right arrows, and dot indicators
+- Remove any duplicate "Tendances" sections (the reference shows TWO -- we will keep only ONE as per prior requirements)
+- Product cards: clean white image background, product title, provider badge, price in USD + CDF, cart button
+
+### 4. "Economisez sur les categories" -- Category Icons Row
+- NEW section at the bottom: a horizontal row of circular category icons with labels
+- Shows categories: Telephones, Electronique, Jeux Video, Vehicules, Cuisine & Salon, Jouets, Montres, etc.
+- Each icon is a circular container with a representative image/icon
+- "Voir toutes les categories >" link
+- Clicking a category navigates to `/category/:key`
+
+### 5. Remove Duplicate Sections
+- Ensure only ONE trending row exists (no duplicated "Tendances" block)
+- No duplicate category tab bars
+
+### 6. Recently Viewed (Keep as-is, below Trending)
 
 ## Technical Details
 
-### 1. New Component: `CategoryCard.tsx`
-A single Amazon-style category card block:
-- Dark card background (`bg-white/[0.04] border border-white/[0.08] rounded-2xl`)
-- Bold title at top
-- 2x2 grid of products inside, each showing:
-  - Square image (larger than current -- `aspect-square`, ~140-160px)
-  - Short product title underneath (1 line, truncated)
-  - No price/cart button in the grid view (clean, Amazon-style)
-- "See more" link at bottom that scrolls to / navigates to the full category
-- Shows exactly 4 products per card
+### Files to Create
+- **`src/components/shop/HeroBannerCarousel.tsx`** -- New full-width carousel component with arrows, dots, auto-play, and swipe support. Uses hardcoded slide data (title, subtitle, CTA, background gradient/image) that can later be driven by backend.
+- **`src/components/shop/CategoryIconsRow.tsx`** -- New horizontal scrollable row of circular category icons with labels and "Voir toutes les categories" link.
 
-### 2. Update `SectionBlock.tsx`
-- Add a `mode` prop: `'scroll'` (horizontal auto-scroll, current behavior) or `'grid'` (Amazon card grid)
-- Default to `'grid'` mode
-- In `'grid'` mode, render the new `CategoryCard` layout instead of `HorizontalProductRow`
+### Files to Modify
+- **`src/pages/shop/ShopHome.tsx`**
+  - Replace `<DeliveryHeroBanner />` with `<HeroBannerCarousel />`
+  - Add `<CategoryIconsRow />` section after the "More Category Grid Cards"
+  - Ensure only one trending row renders
+  - Adjust spacing between sections to match reference
 
-### 3. Update `ShopHome.tsx`
-- Accueil section: pass `mode="scroll"` to keep auto-scrolling
-- All category sections: render as a **responsive grid of `CategoryCard` components** instead of stacked `SectionBlock` rows
-- Grid layout: `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4`
+- **`src/components/shop/CategoryCard.tsx`**
+  - Minor tweaks: ensure product title is shown below each thumbnail (already done)
+  - Slightly increase card padding and font sizes to match reference density
 
-### 4. Product Image Sizing
-- Inside category cards, images use `aspect-square` with `object-contain` on a light/neutral background (matching Amazon's white product image style)
-- Images are larger than current compact cards -- roughly 140-160px squares
-- Padding inside image container for clean product display
+- **`src/components/shop/HorizontalProductRow.tsx`**
+  - Add dot indicators below the carousel (pagination dots showing current scroll position)
+  - Ensure arrow buttons are always visible on desktop (not just on hover)
 
-## Files
+- **`src/components/shop/SectionBlock.tsx`**
+  - Add "Voir plus >" link in the header area (right-aligned) for the trending section
+  - This links to a general trending/all products page
 
-| File | Change |
-|------|--------|
-| `src/components/shop/CategoryCard.tsx` | **New** -- Amazon-style 2x2 product grid card |
-| `src/components/shop/SectionBlock.tsx` | Add `mode` prop to toggle between scroll and grid |
-| `src/pages/shop/ShopHome.tsx` | Accueil keeps scroll mode; categories render as grid of CategoryCards |
+### Component Structure
+
+```text
+ShopHome
+  |-- HeroBannerCarousel (NEW - full width with arrows + dots)
+  |-- Promo Tiles Grid (4x CategoryCard - existing)
+  |-- Tendances Row (SectionBlock mode=scroll - existing, with dots added)
+  |-- Recently Viewed (existing)
+  |-- More Category Grids (existing)
+  |-- CategoryIconsRow (NEW - circular icons with labels)
+  |-- End of Feed CTA (existing)
+  |-- ShopFooter
+```
+
+### Hero Banner Carousel Details
+- Uses `useState` for active slide index
+- Auto-advances every 5 seconds
+- Slides array with: title, subtitle, CTA text, background CSS gradient or image URL
+- Left/right `ChevronLeft`/`ChevronRight` buttons
+- Dot indicators at bottom center
+- Pauses auto-play on hover
+
+### Category Icons Row Details
+- Uses the existing `CATEGORY_TITLE_MAP` for labels
+- Each category rendered as a circular container (~80px) with a representative icon from `lucide-react` (Smartphone, Monitor, Gamepad2, Car, Sofa, Gift, Watch, etc.)
+- Horizontally scrollable on mobile with arrows on desktop
+- "Voir toutes les categories >" link navigates to a future all-categories page or scrolls to category grids
 

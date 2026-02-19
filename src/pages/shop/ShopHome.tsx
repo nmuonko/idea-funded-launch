@@ -28,11 +28,14 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   jewelry_watches: { fr: 'Montres & Bijoux', en: 'Jewelry & Watches' },
   parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
   refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
+  music_instruments: { fr: 'Instruments de Musique', en: 'Music Instruments' },
+  beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
+  collectibles: { fr: 'Collections', en: 'Collectibles' },
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   phones: ['iphone', 'samsung', 'galaxy', 'pixel', 'phone', 'smartphone', 'android', 'unlocked', 'mobile', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'nokia', 'huawei', 'oppo', 'vivo', 'realme'],
-  electronics: ['laptop', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'tv', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'ram', 'usb', 'bluetooth', 'wireless', 'electronic', 'smart', 'apple', 'macbook', 'ipad', 'dell', 'hp', 'lenovo', 'asus', 'acer', 'keyboard', 'mouse'],
+  electronics: ['laptop', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'tv', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'ram', 'usb', 'bluetooth', 'wireless', 'electronic', 'macbook', 'ipad', 'dell', 'lenovo', 'asus', 'acer', 'keyboard', 'mouse'],
   gaming: ['ps5', 'playstation', 'xbox', 'nintendo', 'switch', 'gaming', 'console', 'controller', 'pc gamer', 'gpu', 'game', 'jeu', 'gamer', 'steam', 'rtx', 'geforce', 'razer', 'logitech g', 'corsair'],
   vehicles: ['car', 'voiture', 'suv', 'truck', 'pickup', 'toyota', 'honda', 'bmw', 'ford', 'engine', 'gps', 'dash', 'tire', 'auto', 'vehicle', 'motorcycle', 'moto', 'jeep', 'nissan', 'mercedes', 'audi', 'hyundai', 'kia', 'chevrolet'],
   clothing: ['shirt', 'dress', 'pants', 'jacket', 'shoes', 'sneakers', 'boot', 'fashion', 'mode', 'vêtement', 'jeans', 'hoodie', 'coat', 'skirt', 'bag', 'handbag', 'hat', 'cap', 'nike', 'adidas', 'puma', 'zara', 'levi'],
@@ -42,6 +45,15 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   jewelry_watches: ['watch', 'montre', 'bracelet', 'necklace', 'ring', 'earring', 'jewelry', 'bijou', 'gold', 'silver', 'diamond', 'rolex', 'casio', 'seiko', 'fossil', 'pendant'],
   parts_accessories: ['auto part', 'car part', 'brake', 'filter', 'alternator', 'battery', 'headlight', 'bumper', 'mirror', 'wiper', 'spark plug', 'oil', 'transmission', 'radiator', 'pièce', 'accessoire auto'],
   refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified', 'pre-owned', 'used', 'occasion'],
+  music_instruments: ['guitar', 'piano', 'keyboard', 'drum', 'violin', 'saxophone', 'trumpet', 'ukulele', 'microphone', 'amplifier', 'dj', 'mixer', 'synthesizer', 'bass guitar', 'flute', 'harmonica'],
+  beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair', 'grooming', 'razor', 'fragrance', 'lotion', 'beauty'],
+  collectibles: ['coin', 'stamp', 'trading card', 'pokemon', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic', 'figurine', 'medal', 'rare'],
+};
+
+const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
+  electronics: ['sofa', 'couch', 'table', 'chair', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego'],
+  gaming: ['charger', 'case', 'screen protector', 'sofa', 'chair', 'desk', 'table'],
+  phones: ['case', 'screen protector', 'charger', 'sofa', 'furniture'],
 };
 
 function isRelevantToCategory(product: Product, categoryKey: string): boolean {
@@ -49,7 +61,11 @@ function isRelevantToCategory(product: Product, categoryKey: string): boolean {
   const keywords = CATEGORY_KEYWORDS[categoryKey];
   if (!keywords) return true;
   const titleLower = (product.title || '').toLowerCase();
-  return keywords.some(kw => titleLower.includes(kw));
+  const matches = keywords.some(kw => titleLower.includes(kw));
+  if (!matches) return false;
+  const excludes = CATEGORY_EXCLUDE_KEYWORDS[categoryKey];
+  if (excludes && excludes.some(ex => titleLower.includes(ex))) return false;
+  return true;
 }
 
 function getCategoryTitle(key: string, lang: string): string {
@@ -85,9 +101,12 @@ interface HomeFeedResponse {
 }
 
 // Split categories into "promo tiles" (first 4) and "more grids" (rest)
-const CATEGORY_KEYS = Object.keys(CATEGORY_TITLE_MAP);
-const PROMO_CATEGORIES = CATEGORY_KEYS.slice(0, 4);
-const MORE_CATEGORIES = CATEGORY_KEYS.slice(4);
+// Only use the original 11 categories for fetching; new 3 are keyword-only
+const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];
+const PROMO_CATEGORIES = FETCH_CATEGORY_KEYS.slice(0, 4);
+const MORE_CATEGORIES = FETCH_CATEGORY_KEYS.slice(4);
+// New categories that source items from accueil feed via keyword matching
+const EXTRA_CATEGORIES = ['music_instruments', 'beauty_health', 'collectibles'];
 
 export default function ShopHome() {
   const { language } = useLanguage();
@@ -140,7 +159,7 @@ export default function ShopHome() {
     setCategoryLoading(true);
     try {
       const results = await Promise.allSettled(
-        CATEGORY_KEYS.map(async (cat) => {
+        FETCH_CATEGORY_KEYS.map(async (cat) => {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
             category: cat,
             page: 1,
@@ -175,8 +194,34 @@ export default function ShopHome() {
     }
   };
 
-  // Trending feed — use accueil products
-  const trendingFeed = useMemo(() => accueilProducts.slice(0, 20), [accueilProducts]);
+  // Trending feed — round-robin from all categories for variety
+  const trendingFeed = useMemo(() => {
+    const categoryOrder = ['phones', 'vehicles', 'electronics', 'clothing', 'jewelry_watches', 'gaming', 'sporting_goods', 'home_garden'];
+    const seen = new Set<string>();
+    const result: Product[] = [];
+    // Round-robin: pick 2 from each category
+    for (const cat of categoryOrder) {
+      const items = categorySections[cat] || [];
+      let count = 0;
+      for (const p of items) {
+        if (count >= 2) break;
+        if (!seen.has(p.id)) {
+          result.push(p);
+          seen.add(p.id);
+          count++;
+        }
+      }
+    }
+    // If still under 16, fill from accueilProducts
+    for (const p of accueilProducts) {
+      if (result.length >= 16) break;
+      if (!seen.has(p.id)) {
+        result.push(p);
+        seen.add(p.id);
+      }
+    }
+    return result.slice(0, 16);
+  }, [categorySections, accueilProducts]);
 
   // Build deduplicated category previews
   const buildCategoryPreviews = (keys: string[]) => {
@@ -202,8 +247,35 @@ export default function ShopHome() {
     return result;
   };
 
+  // Build extra category previews from accueil products via keyword matching
+  const extraPreviews = useMemo(() => {
+    const shownKeys = new Set([...PROMO_CATEGORIES, ...MORE_CATEGORIES]);
+    const result: Array<{ key: string; items: Product[] }> = [];
+    for (const catKey of EXTRA_CATEGORIES) {
+      if (shownKeys.has(catKey)) continue;
+      const matched = accueilProducts.filter(p => isRelevantToCategory(p, catKey)).slice(0, 4);
+      if (matched.length > 0) result.push({ key: catKey, items: matched });
+    }
+    return result;
+  }, [accueilProducts]);
+
   const promoPreviews = useMemo(() => buildCategoryPreviews(PROMO_CATEGORIES), [categorySections]);
   const morePreviews = useMemo(() => buildCategoryPreviews(MORE_CATEGORIES), [categorySections]);
+
+  // Combine more + extra for the bottom grid, then pad to fill rows of 4
+  const bottomGridPreviews = useMemo(() => {
+    const combined = [...morePreviews, ...extraPreviews];
+    // Deduplicate by key
+    const seen = new Set<string>();
+    const unique = combined.filter(({ key }) => {
+      // Also exclude promo keys
+      if (PROMO_CATEGORIES.includes(key)) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return unique;
+  }, [morePreviews, extraPreviews]);
 
   // ====== EFFECTS ======
   useEffect(() => {
@@ -290,10 +362,10 @@ export default function ShopHome() {
                 </div>
               )}
 
-              {/* 5) More Category Grid Cards */}
-              {morePreviews.length > 0 && (
+              {/* 5) More Category Grid Cards — unique categories, no duplicates */}
+              {bottomGridPreviews.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {morePreviews.map(({ key: catKey, items }) => (
+                  {bottomGridPreviews.map(({ key: catKey, items }) => (
                     <SectionBlock
                       key={catKey}
                       title={getCategoryTitle(catKey, language)}
@@ -302,19 +374,6 @@ export default function ShopHome() {
                       categoryKey={catKey}
                     />
                   ))}
-                  {/* Pad with promo categories to fill row of 4 */}
-                  {(() => {
-                    const remaining = (4 - (morePreviews.length % 4)) % 4;
-                    return promoPreviews.slice(0, remaining).map(({ key: catKey, items }) => (
-                      <SectionBlock
-                        key={`pad-${catKey}`}
-                        title={getCategoryTitle(catKey, language)}
-                        items={items}
-                        mode="grid"
-                        categoryKey={catKey}
-                      />
-                    ));
-                  })()}
                 </div>
               )}
 

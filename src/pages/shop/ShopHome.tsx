@@ -15,6 +15,25 @@ import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
+const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
+  phones: { fr: 'Téléphones', en: 'Phones' },
+  electronics: { fr: 'Électronique', en: 'Electronics' },
+  gaming: { fr: 'Jeux Vidéo', en: 'Gaming' },
+  vehicles: { fr: 'Véhicules', en: 'Vehicles' },
+  clothing: { fr: 'Mode', en: 'Fashion' },
+  home_garden: { fr: 'Salon, Salle à Manger & Cuisine', en: 'Home & Living' },
+  toys: { fr: 'Jouets', en: 'Toys' },
+  sporting_goods: { fr: 'Sport', en: 'Sports' },
+  jewelry_watches: { fr: 'Montres & Bijoux', en: 'Jewelry & Watches' },
+  parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
+  refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
+};
+
+function getCategoryTitle(key: string, lang: string): string {
+  return CATEGORY_TITLE_MAP[key]?.[lang] || CATEGORY_TITLE_MAP[key]?.en || key;
+}
+
+
 interface HomeFeedResponse {
   ok: boolean;
   sections: Array<{
@@ -55,8 +74,12 @@ export default function ShopHome() {
   const [hasMore, setHasMore] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(false);
 
-  // Read active category from URL ?tab= param so Back button restores it
+  // Category tabs now scroll to sections; keep URL param for deep links
   const activeCategory = searchParams.get('tab') || 'all';
+
+  // Per-category data for vertical sections
+  const [categorySections, setCategorySections] = useState<Record<string, Product[]>>({});
+  const [categoryLoading, setCategoryLoading] = useState(true);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -93,9 +116,7 @@ export default function ShopHome() {
         pageSize: PAGE_SIZE,
         client: 'web',
       };
-      if (activeCategory && activeCategory !== 'all') {
-        params.category = activeCategory;
-      }
+      // Main feed always fetches "all" - categories are separate sections
       if (shouldUseLive) {
         params.live = '1';
       }
@@ -202,22 +223,50 @@ export default function ShopHome() {
     }
   };
 
+  // Fetch per-category sections for vertical layout
+  const CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];
+
+  const fetchCategorySections = async () => {
+    setCategoryLoading(true);
+    try {
+      const results = await Promise.allSettled(
+        CATEGORY_KEYS.map(async (cat) => {
+          const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+            category: cat,
+            page: 1,
+            pageSize: 30,
+            client: 'web',
+          });
+          const items = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
+          return { cat, items };
+        })
+      );
+      const map: Record<string, Product[]> = {};
+      results.forEach((r) => {
+        if (r.status === 'fulfilled' && r.value.items.length > 0) {
+          map[r.value.cat] = r.value.items;
+        }
+      });
+      setCategorySections(map);
+    } catch (err) {
+      console.error('[ShopHome] category sections fetch error', err);
+    } finally {
+      setCategoryLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchFeed(1);
-  }, [language, activeCategory]);
+    fetchCategorySections();
+  }, [language]);
 
+  // Scroll to section when tab is clicked
   const handleCategoryChange = (category: string) => {
-    if (category === activeCategory) return;
-    // Update URL param so Back button restores this tab
-    if (category === 'all') {
-      setSearchParams({}, { replace: true });
-    } else {
-      setSearchParams({ tab: category }, { replace: true });
+    const sectionId = category === 'all' ? 'section-accueil' : `section-${category}`;
+    const el = document.getElementById(sectionId);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    setCurrentPage(1);
-    setTotalPages(0);
-    setProducts([]);
-    setHasMore(true);
   };
 
   const focusSearchBar = () => {
@@ -254,7 +303,7 @@ export default function ShopHome() {
         </div>
       </section>
 
-      {/* Unified Vertical Feed - NO section headers */}
+      {/* Vertical Category Sections - Amazon/eBay style */}
       <main className="pb-8">
         <div className="container mx-auto px-4">
           {loading ? (
@@ -274,33 +323,46 @@ export default function ShopHome() {
                 {shop.tryAgain}
               </Button>
             </div>
-          ) : products.length === 0 ? (
-            <div className="text-center py-20">
-              <p className="text-white/60">{shop.noProducts}</p>
-            </div>
-          ) : sections.length >= 1 ? (
+          ) : (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
               className="space-y-4"
             >
-              {sections.map((sec) => (
-                <SectionBlock
-                  key={sec.key}
-                  title={sec.title}
-                  hideTitle={sec.hideTitle}
-                  items={sec.items}
-                />
-              ))}
-            </motion.div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
-              <VerticalProductGrid products={products} />
+              {/* Accueil section - mixed products */}
+              {products.length > 0 && (
+                <div id="section-accueil">
+                  <SectionBlock
+                    title={language === 'fr' ? 'Accueil' : 'Home'}
+                    items={products}
+                  />
+                </div>
+              )}
+
+              {/* Per-category sections */}
+              {CATEGORY_KEYS.map((catKey) => {
+                const items = categorySections[catKey];
+                if (!items || items.length === 0) return null;
+                const catTitle = getCategoryTitle(catKey, language);
+                return (
+                  <div key={catKey} id={`section-${catKey}`}>
+                    <SectionBlock
+                      title={catTitle}
+                      items={items}
+                    />
+                  </div>
+                );
+              })}
+
+              {/* Loading placeholders for category sections */}
+              {categoryLoading && (
+                <>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <SectionBlock key={`cat-loading-${i}`} items={[]} loading />
+                  ))}
+                </>
+              )}
             </motion.div>
           )}
 

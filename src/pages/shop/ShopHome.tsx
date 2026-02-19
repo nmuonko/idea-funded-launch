@@ -34,37 +34,37 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  phones: ['iphone', 'samsung', 'galaxy', 'pixel', 'phone', 'smartphone', 'android', 'unlocked', 'mobile', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'nokia', 'huawei', 'oppo', 'vivo', 'realme'],
-  electronics: ['laptop', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'tv', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'ram', 'usb', 'bluetooth', 'wireless', 'electronic', 'macbook', 'ipad', 'dell', 'lenovo', 'asus', 'acer', 'oled', 'qled', 'gpu', 'cpu'],
-  gaming: ['ps5', 'playstation', 'xbox', 'nintendo', 'switch', 'gaming', 'console', 'controller', 'pc gamer', 'game', 'jeu', 'gamer', 'steam', 'rtx', 'geforce', 'razer', 'logitech g', 'corsair'],
-  vehicles: ['car', 'voiture', 'suv', 'truck', 'pickup', 'toyota', 'honda', 'bmw', 'ford', 'engine', 'gps', 'dash', 'tire', 'auto', 'vehicle', 'motorcycle', 'moto', 'jeep', 'nissan', 'mercedes', 'audi', 'hyundai', 'kia', 'chevrolet', 'land cruiser', 'mustang', 'rav4', 'cr-v'],
-  clothing: ['shirt', 'dress', 'pants', 'jacket', 'shoes', 'sneakers', 'boot', 'fashion', 'mode', 'vêtement', 'jeans', 'hoodie', 'coat', 'skirt', 'bag', 'handbag', 'hat', 'cap', 'nike', 'adidas', 'puma', 'zara', 'levi'],
-  home_garden: ['sofa', 'couch', 'table', 'chair', 'bed', 'mattress', 'kitchen', 'blender', 'microwave', 'oven', 'fridge', 'refrigerator', 'lamp', 'furniture', 'décor', 'decor', 'garden', 'jardin', 'maison', 'salon', 'curtain', 'rug', 'pillow', 'shelf', 'cabinet', 'desk', 'air conditioner', 'washer', 'dryer'],
-  toys: ['toy', 'jouet', 'lego', 'doll', 'puzzle', 'action figure', 'barbie', 'nerf', 'playset', 'rc car', 'plush', 'stuffed', 'board game', 'kid', 'enfant', 'children'],
-  sporting_goods: ['sport', 'fitness', 'gym', 'yoga', 'running', 'bicycle', 'bike', 'soccer', 'football', 'basketball', 'tennis', 'golf', 'camping', 'hiking', 'outdoor', 'exercise', 'weight', 'dumbbell', 'treadmill'],
-  jewelry_watches: ['watch', 'montre', 'bracelet', 'necklace', 'ring', 'earring', 'jewelry', 'bijou', 'gold', 'silver', 'diamond', 'rolex', 'casio', 'seiko', 'fossil', 'pendant', 'luxury'],
-  parts_accessories: ['auto part', 'car part', 'brake', 'filter', 'alternator', 'battery', 'headlight', 'bumper', 'mirror', 'wiper', 'spark plug', 'oil', 'transmission', 'radiator', 'pièce', 'accessoire auto'],
-  refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified', 'pre-owned', 'used', 'occasion'],
-  music_instruments: ['guitar', 'piano', 'keyboard instrument', 'drum', 'violin', 'saxophone', 'trumpet', 'ukulele', 'microphone', 'amplifier', 'dj', 'mixer', 'synthesizer', 'bass guitar', 'flute', 'harmonica', 'instrument'],
-  beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'grooming', 'razor', 'fragrance', 'lotion', 'beauty', 'cosmetic'],
-  collectibles: ['coin', 'stamp', 'trading card', 'pokemon', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic', 'figurine', 'medal', 'rare'],
+  phones: ['iphone', 'samsung galaxy', 'pixel phone', 'smartphone', 'android phone', 'unlocked phone', 'cellphone', 'téléphone', 'oneplus', 'xiaomi phone', 'motorola phone', 'nokia phone', 'huawei phone', 'oppo phone', 'vivo phone', 'realme phone', 'galaxy s2', 'galaxy s3', 'galaxy z', 'galaxy a'],
+  electronics: ['laptop', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'gpu', 'cpu', 'bluetooth speaker', 'wireless earbuds', 'macbook', 'ipad', 'dell laptop', 'lenovo', 'asus laptop', 'acer laptop', 'oled tv', 'qled tv', '4k tv', 'smart tv', 'mechanical keyboard', 'webcam', 'projector'],
+  gaming: ['ps5', 'playstation', 'xbox', 'nintendo', 'switch oled', 'console', 'video game', 'pc gamer', 'steam deck', 'rtx', 'geforce', 'gaming laptop', 'gaming monitor', 'gaming headset', 'dualsense', 'joycon', 'game disc', 'ps4', 'xbox series'],
+  vehicles: ['car ', 'voiture', 'suv ', 'truck ', 'pickup', 'toyota', 'honda', 'bmw', 'ford ', 'vehicle', 'motorcycle', 'moto ', 'jeep', 'nissan', 'mercedes', 'audi', 'hyundai', 'kia ', 'chevrolet', 'land cruiser', 'mustang', 'rav4', 'cr-v', 'sedan', 'coupe', 'convertible', 'minivan'],
+  clothing: ['shirt', 'dress', 'pants', 'jacket', 'sneakers', 'boot', 'fashion', 'mode', 'vêtement', 'jeans', 'hoodie', 'coat', 'skirt', 'handbag', 'hat ', 'cap ', 'nike shoe', 'adidas shoe', 'puma shoe', 'levi jeans', 'blouse', 'sweater', 'cardigan', 'trousers'],
+  home_garden: ['sofa', 'couch', 'dining table', 'bed frame', 'mattress', 'kitchen appliance', 'blender', 'microwave', 'oven', 'refrigerator', 'lamp', 'furniture', 'garden', 'jardin', 'curtain', 'rug', 'shelf', 'cabinet', 'air conditioner', 'washer', 'dryer', 'dishwasher', 'vacuum', 'coffee maker'],
+  toys: ['toy', 'jouet', 'lego', 'doll', 'puzzle', 'action figure', 'barbie', 'nerf', 'playset', 'rc car', 'plush', 'stuffed animal', 'board game', 'play-doh', 'hot wheels'],
+  sporting_goods: ['fitness', 'gym equipment', 'yoga mat', 'running shoe', 'bicycle', 'soccer ball', 'football', 'basketball', 'tennis racket', 'golf club', 'camping gear', 'hiking', 'treadmill', 'dumbbell', 'exercise bike', 'kayak', 'garmin'],
+  jewelry_watches: ['watch', 'montre', 'bracelet', 'necklace', 'ring', 'earring', 'jewelry', 'bijou', 'gold ', 'silver ', 'diamond', 'rolex', 'casio watch', 'seiko', 'fossil watch', 'pendant', 'luxury watch'],
+  parts_accessories: ['auto part', 'car part', 'brake pad', 'oil filter', 'alternator', 'car battery', 'headlight', 'bumper', 'wiper', 'spark plug', 'transmission', 'radiator', 'pièce auto', 'accessoire auto', 'oem part'],
+  refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified pre-owned', 'factory refurbished'],
+  music_instruments: ['guitar', 'piano', 'drum kit', 'violin', 'saxophone', 'trumpet', 'ukulele', 'amplifier', 'synthesizer', 'bass guitar', 'flute', 'harmonica', 'musical instrument', 'acoustic guitar', 'electric guitar', 'drum set'],
+  beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'grooming', 'fragrance', 'beauty', 'cosmetic', 'face cream', 'nail polish'],
+  collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin', 'stamp collection'],
 };
 
-// Strict exclude keywords per category to prevent cross-contamination
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
-  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'kitchen set', 'living room', 'table cloth', 'chair cover', 'bedding', 'comforter', 'blanket'],
-  gaming: ['sofa', 'couch', 'chair cover', 'bed', 'mattress', 'furniture', 'table cloth', 'kitchen', 'garden', 'dress', 'shirt', 'shoes'],
-  phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'shoes', 'mattress'],
-  vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'phone', 'smartphone', 'dress', 'shirt', 'sofa', 'bed'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave'],
-  home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds'],
-  toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'vehicle', 'car'],
-  sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet'],
-  jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case'],
-  parts_accessories: ['iphone', 'macbook', 'ps5', 'laptop', 'dress', 'shirt', 'sofa', 'bed'],
-  music_instruments: ['sofa', 'iphone', 'ps5', 'macbook', 'laptop', 'bed', 'mattress', 'phone case'],
-  beauty_health: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'car', 'vehicle'],
-  collectibles: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress'],
+  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'kitchen set', 'living room', 'table cloth', 'chair cover', 'bedding', 'comforter', 'blanket', 'yoga', 'exercise', 'workout', 'sport', 'clothing', 'fashion', 'phone case', 'car charger'],
+  gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'shoes', 'charger', 'cable', 'fan', 'cooling fan', 'chair', 'desk', 'case', 'skin', 'decal', 'stand', 'mount', 'replacement', 'gaming chair', 'usb-c', 'car charger', 'phone case'],
+  phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'shoes', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount'],
+  vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'phone', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter'],
+  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part'],
+  home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game'],
+  toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'vehicle', 'car ', 'phone case'],
+  sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming'],
+  jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'watch band', 'watch strap'],
+  parts_accessories: ['iphone', 'macbook', 'ps5', 'laptop', 'dress', 'shirt', 'sofa', 'bed', 'phone case', 'gaming'],
+  music_instruments: ['sofa', 'iphone', 'ps5', 'macbook', 'laptop', 'bed', 'mattress', 'phone case', 'gaming', 'keyboard case', 'keyboard cover'],
+  beauty_health: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'car', 'vehicle', 'phone case', 'gaming'],
+  collectibles: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'gaming'],
+  refurbished: ['sofa', 'bed', 'mattress', 'furniture', 'garden', 'toy', 'doll'],
 };
 
 function isRelevantToCategory(product: Product, categoryKey: string): boolean {
@@ -180,7 +180,7 @@ export default function ShopHome() {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
             category: cat,
             page: 1,
-            pageSize: 30,
+            pageSize: 60,
             client: 'web',
           });
           const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
@@ -212,116 +212,95 @@ export default function ShopHome() {
     }
   };
 
-  // ====== GLOBAL DEDUP SET ======
-  // All product IDs used across all homepage sections to prevent ANY duplicate
-  const globalDedup = useMemo(() => new Set<string>(), [categorySections, accueilProducts]);
+  // ====== UNIFIED SECTION BUILDER (single useMemo, deterministic dedup) ======
+  const { trendingFeed, promoPreviews, bottomGridPreviews } = useMemo(() => {
+    const dedup = new Set<string>();
 
-  // Helper: claim items from globalDedup
-  const claimItems = (items: Product[], max: number): Product[] => {
-    const result: Product[] = [];
-    for (const p of items) {
-      if (result.length >= max) break;
-      if (!globalDedup.has(p.id)) {
-        result.push(p);
-        globalDedup.add(p.id);
+    const claim = (items: Product[], max: number): Product[] => {
+      const result: Product[] = [];
+      for (const p of items) {
+        if (result.length >= max) break;
+        if (!dedup.has(p.id)) {
+          result.push(p);
+          dedup.add(p.id);
+        }
       }
-    }
-    return result;
-  };
+      return result;
+    };
 
-  // ====== TRENDING FEED (16 items, round-robin, luxury bias) ======
-  const trendingFeed = useMemo(() => {
-    const categoryOrder = ['phones', 'vehicles', 'electronics', 'clothing', 'jewelry_watches', 'gaming', 'sporting_goods', 'home_garden'];
-    const result: Product[] = [];
-
-    // Sort each category's items to put luxury/premium items first
-    const sortByLuxury = (items: Product[]) => {
-      return [...items].sort((a, b) => {
+    const sortByLuxury = (items: Product[]) =>
+      [...items].sort((a, b) => {
         const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
         const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
         if (bLux !== aLux) return bLux - aLux;
-        return (b.priceUsd || 0) - (a.priceUsd || 0); // Higher price = more premium
+        return (b.priceUsd || 0) - (a.priceUsd || 0);
       });
-    };
 
-    // Round-robin: pick 2 from each category (luxury-first)
-    for (const cat of categoryOrder) {
-      const items = sortByLuxury(categorySections[cat] || []);
+    // 1) TRENDING (16 items, round-robin luxury-biased)
+    const trendingCats = ['phones', 'vehicles', 'electronics', 'clothing', 'jewelry_watches', 'gaming', 'sporting_goods', 'home_garden'];
+    const trending: Product[] = [];
+    for (const cat of trendingCats) {
+      const items = sortByLuxury((categorySections[cat] || []).filter(p => isRelevantToCategory(p, cat)));
       let count = 0;
       for (const p of items) {
         if (count >= 2) break;
-        if (!globalDedup.has(p.id)) {
-          result.push(p);
-          globalDedup.add(p.id);
+        if (!dedup.has(p.id)) {
+          trending.push(p);
+          dedup.add(p.id);
           count++;
         }
       }
     }
-
-    // Fill remaining slots from accueilProducts (luxury-first)
-    if (result.length < 16) {
+    if (trending.length < 16) {
       const remaining = sortByLuxury(accueilProducts);
       for (const p of remaining) {
-        if (result.length >= 16) break;
-        if (!globalDedup.has(p.id)) {
-          result.push(p);
-          globalDedup.add(p.id);
+        if (trending.length >= 16) break;
+        if (!dedup.has(p.id)) {
+          trending.push(p);
+          dedup.add(p.id);
         }
       }
     }
 
-    return result.slice(0, 16);
-  }, [categorySections, accueilProducts]);
-
-  // ====== PROMO PREVIEWS (top 4 categories, 4 items each, deduped) ======
-  const promoPreviews = useMemo(() => {
-    const result: Array<{ key: string; items: Product[] }> = [];
+    // 2) PROMO PREVIEWS (top 4 categories, 4 items each)
+    const promo: Array<{ key: string; items: Product[] }> = [];
     for (const catKey of PROMO_CATEGORIES) {
-      const items = categorySections[catKey];
-      if (!items || items.length === 0) continue;
-      const relevant = items.filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claimItems(relevant, 4);
-      if (claimed.length > 0) result.push({ key: catKey, items: claimed });
+      const items = (categorySections[catKey] || []).filter(p => isRelevantToCategory(p, catKey));
+      const claimed = claim(items, 4);
+      if (claimed.length > 0) promo.push({ key: catKey, items: claimed });
     }
-    return result;
-  }, [categorySections, trendingFeed]); // depends on trendingFeed to ensure it runs after
 
-  // ====== MORE CATEGORY PREVIEWS (deduped, unique keys) ======
-  const morePreviews = useMemo(() => {
-    const result: Array<{ key: string; items: Product[] }> = [];
+    // 3) MORE CATEGORIES
+    const more: Array<{ key: string; items: Product[] }> = [];
     for (const catKey of MORE_CATEGORIES) {
-      const items = categorySections[catKey];
-      if (!items || items.length === 0) continue;
-      const relevant = items.filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claimItems(relevant, 4);
-      if (claimed.length > 0) result.push({ key: catKey, items: claimed });
+      const items = (categorySections[catKey] || []).filter(p => isRelevantToCategory(p, catKey));
+      const claimed = claim(items, 4);
+      if (claimed.length > 0) more.push({ key: catKey, items: claimed });
     }
-    return result;
-  }, [categorySections, promoPreviews]);
 
-  // ====== EXTRA CATEGORIES from accueil feed (music, beauty, collectibles) ======
-  const extraPreviews = useMemo(() => {
-    const result: Array<{ key: string; items: Product[] }> = [];
+    // 4) EXTRA CATEGORIES from accueil (music, beauty, collectibles)
+    const extra: Array<{ key: string; items: Product[] }> = [];
     for (const catKey of EXTRA_CATEGORIES) {
       const matched = accueilProducts.filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claimItems(matched, 4);
-      if (claimed.length > 0) result.push({ key: catKey, items: claimed });
+      const claimed = claim(matched, 4);
+      if (claimed.length > 0) extra.push({ key: catKey, items: claimed });
     }
-    return result;
-  }, [accueilProducts, morePreviews]);
 
-  // ====== BOTTOM GRID: more + extra, no duplicated category keys ======
-  const bottomGridPreviews = useMemo(() => {
-    const combined = [...morePreviews, ...extraPreviews];
-    const seenKeys = new Set(PROMO_CATEGORIES);
-    const unique: Array<{ key: string; items: Product[] }> = [];
-    for (const entry of combined) {
-      if (seenKeys.has(entry.key)) continue;
-      seenKeys.add(entry.key);
-      unique.push(entry);
+    // 5) Combine bottom grid (more + extra), skip keys already in promo
+    const promoKeys = new Set(promo.map(p => p.key));
+    const bottom: Array<{ key: string; items: Product[] }> = [];
+    for (const entry of [...more, ...extra]) {
+      if (!promoKeys.has(entry.key)) {
+        bottom.push(entry);
+      }
     }
-    return unique;
-  }, [morePreviews, extraPreviews]);
+
+    return {
+      trendingFeed: trending.slice(0, 16),
+      promoPreviews: promo,
+      bottomGridPreviews: bottom,
+    };
+  }, [categorySections, accueilProducts]);
 
   // ====== EFFECTS ======
   useEffect(() => {

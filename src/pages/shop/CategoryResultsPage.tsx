@@ -9,6 +9,7 @@ import { ProductCard, Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { isRelevantToCategory } from '@/lib/categoryRelevance';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   phones: { fr: 'Téléphones', en: 'Phones' },
@@ -85,7 +86,9 @@ export default function CategoryResultsPage() {
 
     const items = data?.sections?.[0]?.items
       ?.map(mapItem)
-      .filter(p => p.id && p.priceUsd > 0 && !seenIdsRef.current.has(p.id)) || [];
+      .filter(p => p.id && p.priceUsd > 0 && !seenIdsRef.current.has(p.id))
+      // Apply strict relevance filtering on the category results page too
+      .filter(p => isRelevantToCategory(p, categoryKey)) || [];
 
     items.forEach(p => seenIdsRef.current.add(p.id));
 
@@ -96,7 +99,6 @@ export default function CategoryResultsPage() {
     return items;
   }, [categoryKey]);
 
-  // Initial load — fetch multiple pages to fill pool
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -127,7 +129,6 @@ export default function CategoryResultsPage() {
     const nextVisible = visibleCount + VISIBLE_STEP;
     setVisibleCount(nextVisible);
 
-    // If we're nearing the end of the pool and not exhausted, fetch more
     if (nextVisible >= products.length - VISIBLE_STEP && !exhaustedRef.current && !loadingMore) {
       setLoadingMore(true);
       fetchPage(pageRef.current).then(items => {
@@ -148,7 +149,6 @@ export default function CategoryResultsPage() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
-          {/* Back + Title */}
           <div className="flex items-center gap-3 mb-5 mt-2">
             <Button
               variant="ghost"

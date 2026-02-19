@@ -5,7 +5,6 @@ import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { SectionBlock } from '@/components/shop/SectionBlock';
 import { HeroBannerCarousel } from '@/components/shop/HeroBannerCarousel';
-import { CategoryIconsRow } from '@/components/shop/CategoryIconsRow';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
@@ -15,6 +14,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
 import { getRecentlyViewed } from '@/lib/recentlyViewed';
+import { isRelevantToCategory } from '@/lib/categoryRelevance';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   phones: { fr: 'Téléphones', en: 'Phones' },
@@ -29,28 +29,6 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
   refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
 };
-
-const CATEGORY_KEYWORDS: Record<string, string[]> = {
-  phones: ['iphone', 'samsung', 'galaxy', 'pixel', 'phone', 'smartphone', 'android', 'unlocked', 'mobile', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'nokia', 'huawei', 'oppo', 'vivo', 'realme'],
-  electronics: ['laptop', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'tv', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'ram', 'usb', 'bluetooth', 'wireless', 'electronic', 'smart', 'apple', 'macbook', 'ipad', 'dell', 'hp', 'lenovo', 'asus', 'acer', 'keyboard', 'mouse'],
-  gaming: ['ps5', 'playstation', 'xbox', 'nintendo', 'switch', 'gaming', 'console', 'controller', 'pc gamer', 'gpu', 'game', 'jeu', 'gamer', 'steam', 'rtx', 'geforce', 'razer', 'logitech g', 'corsair'],
-  vehicles: ['car', 'voiture', 'suv', 'truck', 'pickup', 'toyota', 'honda', 'bmw', 'ford', 'engine', 'gps', 'dash', 'tire', 'auto', 'vehicle', 'motorcycle', 'moto', 'jeep', 'nissan', 'mercedes', 'audi', 'hyundai', 'kia', 'chevrolet'],
-  clothing: ['shirt', 'dress', 'pants', 'jacket', 'shoes', 'sneakers', 'boot', 'fashion', 'mode', 'vêtement', 'jeans', 'hoodie', 'coat', 'skirt', 'bag', 'handbag', 'hat', 'cap', 'nike', 'adidas', 'puma', 'zara', 'levi'],
-  home_garden: ['sofa', 'couch', 'table', 'chair', 'bed', 'mattress', 'kitchen', 'blender', 'microwave', 'oven', 'fridge', 'refrigerator', 'lamp', 'furniture', 'décor', 'decor', 'garden', 'jardin', 'maison', 'salon', 'curtain', 'rug', 'pillow', 'shelf', 'cabinet', 'desk'],
-  toys: ['toy', 'jouet', 'lego', 'doll', 'puzzle', 'action figure', 'barbie', 'nerf', 'playset', 'rc car', 'plush', 'stuffed', 'board game', 'kid', 'enfant', 'children'],
-  sporting_goods: ['sport', 'fitness', 'gym', 'yoga', 'running', 'bicycle', 'bike', 'soccer', 'football', 'basketball', 'tennis', 'golf', 'camping', 'hiking', 'outdoor', 'exercise', 'weight', 'dumbbell', 'treadmill'],
-  jewelry_watches: ['watch', 'montre', 'bracelet', 'necklace', 'ring', 'earring', 'jewelry', 'bijou', 'gold', 'silver', 'diamond', 'rolex', 'casio', 'seiko', 'fossil', 'pendant'],
-  parts_accessories: ['auto part', 'car part', 'brake', 'filter', 'alternator', 'battery', 'headlight', 'bumper', 'mirror', 'wiper', 'spark plug', 'oil', 'transmission', 'radiator', 'pièce', 'accessoire auto'],
-  refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified', 'pre-owned', 'used', 'occasion'],
-};
-
-function isRelevantToCategory(product: Product, categoryKey: string): boolean {
-  if (categoryKey === 'all') return true;
-  const keywords = CATEGORY_KEYWORDS[categoryKey];
-  if (!keywords) return true;
-  const titleLower = (product.title || '').toLowerCase();
-  return keywords.some(kw => titleLower.includes(kw));
-}
 
 function getCategoryTitle(key: string, lang: string): string {
   return CATEGORY_TITLE_MAP[key]?.[lang] || CATEGORY_TITLE_MAP[key]?.en || key;
@@ -84,7 +62,6 @@ interface HomeFeedResponse {
   _meta?: { source?: string; poolSize?: number; isStale?: boolean };
 }
 
-// Split categories into "promo tiles" (first 4) and "more grids" (rest)
 const CATEGORY_KEYS = Object.keys(CATEGORY_TITLE_MAP);
 const PROMO_CATEGORIES = CATEGORY_KEYS.slice(0, 4);
 const MORE_CATEGORIES = CATEGORY_KEYS.slice(4);
@@ -114,7 +91,6 @@ export default function ShopHome() {
     productUrl: item.product_url,
   });
 
-  // ====== ACCUEIL DATA ======
   const fetchAccueilFeed = async () => {
     setAccueilLoading(true);
     setError(null);
@@ -135,7 +111,6 @@ export default function ShopHome() {
     }
   };
 
-  // Fetch per-category previews (for promo tiles + category grids)
   const fetchCategorySections = async () => {
     setCategoryLoading(true);
     try {
@@ -148,6 +123,7 @@ export default function ShopHome() {
             client: 'web',
           });
           const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
+          // Apply strict relevance filtering
           const filtered = rawItems.filter(p => isRelevantToCategory(p, cat));
           return { cat, items: filtered };
         })
@@ -169,16 +145,22 @@ export default function ShopHome() {
   const loadRecentlyViewed = async () => {
     try {
       const items = await getRecentlyViewed(user?.id, 12);
-      setRecentlyViewed(items);
+      // Deduplicate by product id
+      const seen = new Set<string>();
+      const deduped = items.filter(p => {
+        const key = `${p.provider}:${p.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      setRecentlyViewed(deduped);
     } catch (err) {
       console.warn('[ShopHome] recently viewed fetch failed', err);
     }
   };
 
-  // Trending feed — use accueil products
   const trendingFeed = useMemo(() => accueilProducts.slice(0, 20), [accueilProducts]);
 
-  // Build deduplicated category previews
   const buildCategoryPreviews = (keys: string[]) => {
     const crossCatSeen = new Set<string>();
     const result: Array<{ key: string; items: Product[] }> = [];
@@ -190,13 +172,8 @@ export default function ShopHome() {
         if (display.length >= 4) break;
         if (!crossCatSeen.has(p.id)) display.push(p);
       }
-      if (display.length < 4) {
-        for (const p of items) {
-          if (display.length >= 4) break;
-          if (!display.some(d => d.id === p.id)) display.push(p);
-        }
-      }
       display.forEach(p => crossCatSeen.add(p.id));
+      // Only add if we have at least 1 real item — no padding
       if (display.length > 0) result.push({ key: catKey, items: display });
     }
     return result;
@@ -205,7 +182,6 @@ export default function ShopHome() {
   const promoPreviews = useMemo(() => buildCategoryPreviews(PROMO_CATEGORIES), [categorySections]);
   const morePreviews = useMemo(() => buildCategoryPreviews(MORE_CATEGORIES), [categorySections]);
 
-  // ====== EFFECTS ======
   useEffect(() => {
     fetchAccueilFeed();
     fetchCategorySections();
@@ -240,7 +216,6 @@ export default function ShopHome() {
         <div className="container mx-auto px-3 sm:px-4">
           {isLoading ? (
             <div className="space-y-5">
-              {/* Promo skeleton */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <SectionBlock key={i} items={[]} loading mode="grid" />
@@ -258,7 +233,7 @@ export default function ShopHome() {
           ) : (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-6">
 
-              {/* 2) Promo Tiles — top 4 categories (Amazon-style 2x2 thumbnail cards) */}
+              {/* 2) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {promoPreviews.map(({ key: catKey, items }) => (
                   <SectionBlock
@@ -311,9 +286,6 @@ export default function ShopHome() {
                   ))}
                 </div>
               )}
-
-              {/* 6) Category Icons Row */}
-              <CategoryIconsRow />
 
               {/* End of Feed CTA */}
               {trendingFeed.length > 0 && (

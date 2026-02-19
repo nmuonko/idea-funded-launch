@@ -97,6 +97,7 @@ import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
 
 // Shop pages
 import ShopHome from "./pages/shop/ShopHome";
+import CategoryResultsPage from "./pages/shop/CategoryResultsPage";
 import SearchResults from "./pages/shop/SearchResults";
 import ProductDetails from "./pages/shop/ProductDetails";
 import { ProductDetailErrorBoundary } from "@/components/shop/ProductDetailErrorBoundary";
@@ -169,6 +170,7 @@ const App = () => {
             <Route path="/shop-auth/register" element={<Navigate to="/shop-auth" replace />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/search" element={<SearchResults />} />
+            <Route path="/category/:key" element={<CategoryResultsPage />} />
             <Route path="/product/:provider/:id" element={<ProductDetailErrorBoundary><ProductDetails /></ProductDetailErrorBoundary>} />
             <Route path="/cart" element={<ShopCart />} />
             <Route path="/saved" element={<SavedItems />} />

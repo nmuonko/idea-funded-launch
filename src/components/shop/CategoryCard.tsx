@@ -48,8 +48,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   }
 
   const handleVoirPlus = () => {
-    navigate(`/?tab=${categoryKey}`);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigate(`/category/${categoryKey}`);
   };
 
   return (

@@ -1,26 +1,23 @@
 
 
-# Fix Tendances Grid Alignment and Fill Empty Spaces
+# Fix Tendances Count and Fill Category Grid Rows
 
 ## Problem
-From the screenshot:
-1. **Tendances** shows 12 products across 2 rows (8 on top, 4 on bottom), leaving 4 empty spaces on the second row
-2. Product images in the grid are not squared -- they use a fixed height which creates inconsistent sizing
-3. **Reconditionne** category card has empty space when fewer than 4 products are available (though the repeat logic exists, it may not be working for this section)
+1. **Tendances** currently shows only 8 products (1 row). User wants 16 products arranged in 2 full rows of 8.
+2. **More Categories section** (where "Reconditionne" appears) has an incomplete last row. If only 1 or 2 categories have data, the rest of the row is empty. Need to always fill rows of 4.
 
-## Solution
+## Changes
 
-### 1. Limit Tendances to exactly 8 items (one full row on xl)
-In `src/components/shop/SectionBlock.tsx`, change `items.slice(0, 12)` to `items.slice(0, 8)` so the grid fills exactly one row at `xl:grid-cols-8` with no leftover empty spaces.
+### 1. Tendances: 16 products (2 rows of 8)
+**File: `src/components/shop/SectionBlock.tsx`** (line 49)
+- Change `items.slice(0, 8)` to `items.slice(0, 16)` so the grid shows 16 products, filling exactly 2 rows on desktop (xl:grid-cols-8).
 
-### 2. Make compact ProductCard images squared
-In `src/components/shop/ProductCard.tsx`, change the compact image container from `h-[160px] sm:h-[170px]` to `aspect-square` so images are uniformly squared and naturally smaller.
-
-### 3. Ensure Reconditionne grid matches the same density
-In `src/pages/shop/ShopHome.tsx`, the "more categories" grid (`morePreviews`) already uses `CategoryCard` which fills 4 slots by repeating. This should already work -- but we need to verify data is flowing. The `CategoryCard` repeat logic (lines 36-39) already handles this correctly.
+### 2. More Categories: Always fill rows of 4
+**File: `src/pages/shop/ShopHome.tsx`** (lines 294-305)
+- After rendering the `morePreviews` cards, calculate how many empty slots remain to complete the last row of 4.
+- Fill remaining slots by re-using categories from `promoPreviews` (the top 4 categories) so every row is fully populated with real category grid cards, no empty space.
+- Example: if `morePreviews` has 5 items (5 mod 4 = 1 leftover), add 3 more cards from promoPreviews to complete the row.
 
 ## Files to Modify
-
-- **`src/components/shop/SectionBlock.tsx`** (line 49): Change `.slice(0, 12)` to `.slice(0, 8)`
-- **`src/components/shop/ProductCard.tsx`** (line 117): Change `compact ? "h-[160px] sm:h-[170px]"` to `compact ? "aspect-square"`
-
+- **`src/components/shop/SectionBlock.tsx`** -- line 49: change slice from 8 to 16
+- **`src/pages/shop/ShopHome.tsx`** -- lines 294-305: pad morePreviews grid with extra category cards to fill rows of 4

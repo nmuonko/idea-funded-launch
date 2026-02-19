@@ -26,12 +26,12 @@ export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll'
   }
 
   return (
-    <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-3 sm:p-4">
+    <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
       {title && !hideTitle && (
-        <h2 className="text-lg font-semibold text-white mb-3 px-1">{title}</h2>
+        <h2 className="text-lg font-semibold text-white/95 mb-3 px-1">{title}</h2>
       )}
       {loading && !hideTitle && !title && (
-        <div className="h-5 w-40 bg-white/10 rounded mb-3 shimmer" />
+        <div className="h-5 w-40 bg-white/[0.08] rounded mb-3 shimmer" />
       )}
       <HorizontalProductRow 
         products={items} 

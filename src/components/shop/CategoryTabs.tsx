@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Smartphone, Car, Gamepad2, Shirt, Home, Sparkles, Watch, Dumbbell, Cpu, Package } from 'lucide-react';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Smartphone, Car, Gamepad2, Shirt, Home, Sparkles, Watch, Dumbbell, Cpu, Package, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -47,6 +46,9 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   const { language } = useLanguage();
   const [tabs, setTabs] = useState<CategoryTab[]>([]);
   const currentCategory = activeCategory || searchParams.get('tab') || 'all';
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
@@ -128,14 +130,37 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
     fetchTabs();
   }, [language]);
 
+  // Scroll state detection
+  const updateScrollState = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener('scroll', updateScrollState, { passive: true });
+    const ro = new ResizeObserver(updateScrollState);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateScrollState);
+      ro.disconnect();
+    };
+  }, [tabs]);
+
+  const scroll = (dir: 'left' | 'right') => {
+    scrollRef.current?.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' });
+  };
+
   const handleTabClick = (category: string) => {
-    // Always update URL with ?tab= param for proper back-button support
     if (category === 'all') {
       navigate('/');
     } else {
       navigate(`/?tab=${category}`);
     }
-    // Also call parent callback if provided
     if (onCategoryChange) {
       onCategoryChange(category);
     }
@@ -143,27 +168,52 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
 
   return (
     <div className={cn("relative w-full", className)}>
-      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 md:w-16" />
-      <ScrollArea className="w-full">
-        <div className="flex gap-2 py-2 snap-x snap-mandatory pr-12 md:pr-16">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => handleTabClick(tab.key)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[44px] snap-start",
-                currentCategory === tab.key
-                  ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-md shadow-blue-500/20"
-                  : "bg-white/[0.08] text-white/70 hover:bg-white/[0.12] hover:text-white border border-white/10"
-              )}
-            >
-              {tab.icon}
-              <span className="whitespace-nowrap">{tab.title}</span>
-            </button>
-          ))}
-        </div>
-        <ScrollBar orientation="horizontal" className="invisible" />
-      </ScrollArea>
+      {/* Left arrow */}
+      {canScrollLeft && (
+        <button
+          onClick={() => scroll('left')}
+          className="absolute left-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-[#111318]/90 border border-white/10 text-white/80 hover:text-white hover:bg-[#1a1d23] shadow-lg"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+      )}
+      
+      {/* Right fade gradient */}
+      {canScrollRight && (
+        <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-14 bg-gradient-to-l from-[#111318] to-transparent z-10" />
+      )}
+      
+      {/* Right arrow */}
+      {canScrollRight && (
+        <button
+          onClick={() => scroll('right')}
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 h-9 w-9 flex items-center justify-center rounded-full bg-[#111318]/90 border border-white/10 text-white/80 hover:text-white hover:bg-[#1a1d23] shadow-lg"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      )}
+
+      <div
+        ref={scrollRef}
+        className="flex gap-2 py-2 overflow-x-auto scrollbar-none pr-6"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => handleTabClick(tab.key)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[40px] flex-shrink-0",
+              currentCategory === tab.key
+                ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-md shadow-blue-500/20"
+                : "bg-white/[0.08] text-white/70 hover:bg-white/[0.12] hover:text-white border border-white/10"
+            )}
+          >
+            {tab.icon}
+            <span>{tab.title}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

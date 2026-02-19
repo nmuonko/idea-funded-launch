@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { Product } from '@/components/shop/ProductCard';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { ArrowRight } from 'lucide-react';
 
 interface CategoryCardProps {
   title: string;
@@ -16,13 +17,13 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
 
   if (loading) {
     return (
-      <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-4 flex flex-col h-full shadow-md">
-        <div className="h-5 w-32 bg-white/[0.08] rounded mb-3 shimmer" />
-        <div className="grid grid-cols-2 gap-3 flex-1">
+      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
+        <div className="h-5 w-32 bg-white/[0.08] rounded mb-3 animate-pulse" />
+        <div className="grid grid-cols-2 gap-2 flex-1">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <div className="aspect-square bg-white/[0.06] rounded-lg shimmer" />
-              <div className="h-3 w-full bg-white/[0.06] rounded shimmer" />
+            <div key={i} className="space-y-1.5">
+              <div className="aspect-square bg-white/[0.06] rounded-lg animate-pulse" />
+              <div className="h-3 w-full bg-white/[0.06] rounded animate-pulse" />
             </div>
           ))}
         </div>
@@ -52,16 +53,18 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   };
 
   return (
-    <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-4 flex flex-col h-full shadow-md hover:border-white/[0.18] transition-colors">
-      <h3 className="text-base font-bold text-white/95 mb-3">{title}</h3>
+    <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20 hover:border-white/[0.18] transition-colors">
+      <div className="flex items-center justify-between mb-2.5">
+        <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
+      </div>
 
-      {/* 2x2 preview grid — always exactly 4 slots, no load-more */}
-      <div className="grid grid-cols-2 gap-3 flex-1">
+      {/* 2x2 preview grid */}
+      <div className="grid grid-cols-2 gap-2 flex-1">
         {paddedItems.map((product, idx) => {
           if (!product) {
             return (
               <div key={`empty-${idx}`} className="flex flex-col">
-                <div className="aspect-square rounded-lg bg-white/[0.04] border border-white/[0.06]" />
+                <div className="aspect-square rounded-lg bg-white/[0.03] border border-white/[0.06]" />
               </div>
             );
           }
@@ -72,7 +75,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
               state={{ product }}
               className="group flex flex-col"
             >
-              <div className="aspect-square rounded-lg bg-white overflow-hidden p-2 border border-white/[0.06] shadow-sm">
+              <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
                 <img
                   src={product.imageUrl || '/placeholder.svg'}
                   alt={product.title}
@@ -80,7 +83,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
                   loading="lazy"
                 />
               </div>
-              <p className="mt-1.5 text-xs text-white/75 line-clamp-2 leading-tight">
+              <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
                 {product.title}
               </p>
             </Link>
@@ -90,9 +93,10 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
 
       <button
         onClick={handleVoirPlus}
-        className="mt-3 text-sm text-blue-400 hover:text-blue-300 font-medium text-left transition-colors"
+        className="mt-2.5 flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
       >
         {language === 'fr' ? 'Voir plus' : 'See more'}
+        <ArrowRight className="h-3.5 w-3.5" />
       </button>
     </div>
   );

@@ -16,7 +16,7 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
   if (loading) {
     return (
       <div className={cn(
-        "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
+        "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4",
         className
       )}>
         {Array.from({ length: skeletonCount }).map((_, i) => (
@@ -36,7 +36,7 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
 
   return (
     <div className={cn(
-      "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4",
+      "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4",
       className
     )}>
       {products.map((product) => (
@@ -53,9 +53,9 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
 
 function ProductCardSkeleton() {
   return (
-    <div className="bg-white/5 border border-white/[0.15] rounded-2xl overflow-hidden">
-      <Skeleton className="aspect-square bg-white/20" />
-      <div className="p-4 space-y-3">
+    <div className="bg-white/5 border border-white/[0.15] rounded-xl sm:rounded-2xl overflow-hidden">
+      <Skeleton className="aspect-[4/3] sm:aspect-square bg-white/20" />
+      <div className="p-2.5 sm:p-4 space-y-2 sm:space-y-3">
         <Skeleton className="h-4 w-full bg-white/10" />
         <Skeleton className="h-4 w-2/3 bg-white/10" />
         <div className="flex items-center justify-between">

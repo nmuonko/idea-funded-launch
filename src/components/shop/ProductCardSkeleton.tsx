@@ -9,20 +9,20 @@ export function ProductCardSkeleton({ compact = false, className }: ProductCardS
   return (
     <div
       className={cn(
-        "block bg-white/5 border border-white/[0.15] rounded-2xl overflow-hidden",
+        "block bg-white/5 border border-white/[0.15] rounded-xl sm:rounded-2xl overflow-hidden",
         className
       )}
     >
       {/* Image skeleton with shimmer */}
       <div className={cn(
         "relative overflow-hidden bg-white/20",
-        compact ? "aspect-square" : "aspect-square"
+        compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <div className="absolute inset-0 shimmer" />
       </div>
 
       {/* Content skeleton */}
-      <div className={cn("p-3 space-y-2", compact && "p-2 space-y-1.5")}>
+      <div className={cn("p-2.5 sm:p-3 space-y-1.5 sm:space-y-2", compact && "p-1.5 sm:p-2 space-y-1 sm:space-y-1.5")}>
         {/* Title skeleton - 2 lines */}
         <div className="space-y-1.5">
           <div className="h-3 bg-white/10 rounded shimmer" />

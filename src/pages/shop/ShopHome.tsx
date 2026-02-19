@@ -278,7 +278,7 @@ export default function ShopHome() {
             <div className="text-center py-20">
               <p className="text-white/60">{shop.noProducts}</p>
             </div>
-          ) : sections.length > 1 ? (
+          ) : sections.length >= 1 ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

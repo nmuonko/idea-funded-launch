@@ -32,11 +32,8 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
 
   if (items.length === 0) return null;
 
-  // Always fill 4 slots by repeating items if needed
-  const displayItems: Product[] = [];
-  for (let i = 0; i < 4; i++) {
-    displayItems.push(items[i % items.length]);
-  }
+  // Show only actual items (up to 4), never placeholders or repeated items
+  const displayItems = items.slice(0, 4);
 
   const getProductLink = (product: Product) => {
     const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();

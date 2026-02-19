@@ -160,8 +160,8 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap min-h-[44px] snap-start",
                 currentCategory === tab.key
-                  ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white"
-                  : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white border border-white/10"
+                  ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-md shadow-blue-500/20"
+                  : "bg-white/[0.08] text-white/70 hover:bg-white/[0.12] hover:text-white border border-white/10"
               )}
             >
               {tab.icon}

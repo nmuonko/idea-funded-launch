@@ -34,12 +34,15 @@ export function ShopHeader() {
   const currentLanguage = languages.find(l => l.code === language) || languages[0];
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-white/10">
+    <header className="fixed top-0 left-0 right-0 z-50">
+      {/* Accent gradient line */}
+      <div className="h-[2px] bg-gradient-to-r from-blue-500 via-cyan-400 to-blue-500" />
+      <div className="bg-black/90 backdrop-blur-xl border-b border-white/10">
       <div className="container mx-auto px-3 md:px-4 py-2 md:py-3">
         <div className="flex items-center gap-2 md:gap-3">
           {/* Logo - Far Left */}
           <Link to="/" className="flex-shrink-0">
-            <img src={afrishopLogo} alt="AfriShop" className="h-8" />
+            <img src={afrishopLogo} alt="AfriShop" className="h-9" />
           </Link>
 
           {/* Search Bar - Takes most space */}
@@ -192,6 +195,7 @@ export function ShopHeader() {
             </Sheet>
           </div>
         </div>
+      </div>
       </div>
     </header>
   );

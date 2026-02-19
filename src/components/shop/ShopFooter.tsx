@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Mail, MessageCircle } from 'lucide-react';
+import afrishopLogo from '@/assets/afrishop-logo.png';
  import { useSupportChat } from '@/contexts/SupportChatContext';
  import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
@@ -23,10 +24,16 @@ import { translations } from '@/lib/i18n/translations';
    const { openChat } = useSupportChat();
  
    return (
-     <footer className="bg-black border-t border-white/10 pb-24 md:pb-0">
-       <div className="container mx-auto px-4 py-12">
-         {/* Main Footer Content - 4 columns on desktop, 2 on tablet, 1 on mobile */}
-         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-12 gap-y-10 mb-10">
+    <footer className="bg-black pb-24 md:pb-0">
+      {/* Gradient divider */}
+      <div className="h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      <div className="container mx-auto px-4 py-12">
+        {/* Logo at top */}
+        <div className="flex items-center gap-2 mb-10">
+          <img src={afrishopLogo} alt="AfriShop" className="h-7 opacity-80" />
+        </div>
+        {/* Main Footer Content - 4 columns on desktop, 2 on tablet, 1 on mobile */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-12 gap-y-10 mb-10">
            
            {/* Column A: AfriShop */}
            <div>

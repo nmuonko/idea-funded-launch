@@ -51,20 +51,20 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
 };
 
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
-  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'living room', 'bedding', 'comforter', 'blanket', 'yoga', 'exercise', 'workout', 'sport', 'clothing', 'fashion', 'phone case', 'car charger', 'screen protector', 'car touch'],
+  electronics: ['sofa', 'couch', 'recliner', 'dining', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego', 'living room', 'bedding', 'comforter', 'blanket', 'yoga', 'exercise', 'workout', 'sport', 'clothing', 'fashion', 'phone case', 'car charger', 'screen protector', 'car touch', 'quad lock', 'mag phone', 'protective case', 'phone mount'],
   gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'shoes', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'usb-c', 'car charger', 'phone case', 'screen protector', 'for rog ally', 'dock station'],
   phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'shoes', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount', 'film', 'adapter', 'earphones', 'earbuds', 'headphone'],
   vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'touch screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance'],
+  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender'],
   home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console'],
   toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable'],
   sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable'],
   jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'tool', 'appliance', 'furniture'],
-  parts_accessories: ['iphone', 'macbook', 'ps5', 'laptop', 'dress', 'shirt', 'sofa', 'bed', 'phone case', 'gaming'],
-  music_instruments: ['sofa', 'iphone', 'ps5', 'macbook', 'laptop', 'bed', 'mattress', 'phone case', 'gaming', 'keyboard case', 'keyboard cover'],
-  beauty_health: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'vehicle', 'phone case', 'gaming', 'charger'],
-  collectibles: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'gaming'],
-  refurbished: ['sofa', 'bed', 'mattress', 'furniture', 'garden', 'toy', 'doll'],
+  parts_accessories: ['dress', 'shirt', 'sofa', 'bed'],
+  music_instruments: ['sofa', 'bed', 'mattress'],
+  beauty_health: ['sofa', 'bed', 'mattress'],
+  collectibles: ['sofa', 'bed', 'mattress'],
+  refurbished: [],
 };
 
 function isRelevantToCategory(product: Product, categoryKey: string): boolean {
@@ -113,14 +113,19 @@ interface HomeFeedResponse {
   _meta?: { source?: string; poolSize?: number; isStale?: boolean };
 }
 
-// Categories fetched from backend
+// All homepage categories in display order (source of truth — every one MUST render)
+const ALL_HOMEPAGE_CATEGORIES = [
+  'phones', 'electronics', 'gaming', 'vehicles',
+  'clothing', 'home_garden', 'toys', 'sporting_goods',
+  'jewelry_watches', 'parts_accessories', 'refurbished',
+  'music_instruments', 'beauty_health', 'collectibles',
+];
+// Categories fetched from backend (those with dedicated recipe feeds)
 const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];
 // Top 4 shown as promo tiles
-const PROMO_CATEGORIES = FETCH_CATEGORY_KEYS.slice(0, 4);
+const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 // Rest shown in bottom grid
-const MORE_CATEGORIES = FETCH_CATEGORY_KEYS.slice(4);
-// Extra categories sourced from accueil feed via keyword matching (never duplicated with above)
-const EXTRA_CATEGORIES = ['music_instruments', 'beauty_health', 'collectibles'];
+const MORE_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(4);
 
 // Luxury/premium keywords to prioritize in trending
 const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
@@ -180,7 +185,7 @@ export default function ShopHome() {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
             category: cat,
             page: 1,
-            pageSize: 60,
+            pageSize: 80,
             client: 'web',
           });
           const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
@@ -212,21 +217,9 @@ export default function ShopHome() {
     }
   };
 
-  // ====== UNIFIED SECTION BUILDER (single useMemo, deterministic dedup) ======
-  const { trendingFeed, promoPreviews, bottomGridPreviews } = useMemo(() => {
+  // ====== UNIFIED SECTION BUILDER (single useMemo, deterministic dedup, guaranteed 4 items) ======
+  const { trendingFeed, categoryGrids } = useMemo(() => {
     const dedup = new Set<string>();
-
-    const claim = (items: Product[], max: number): Product[] => {
-      const result: Product[] = [];
-      for (const p of items) {
-        if (result.length >= max) break;
-        if (!dedup.has(p.id)) {
-          result.push(p);
-          dedup.add(p.id);
-        }
-      }
-      return result;
-    };
 
     const sortByLuxury = (items: Product[]) =>
       [...items].sort((a, b) => {
@@ -236,15 +229,86 @@ export default function ShopHome() {
         return (b.priceUsd || 0) - (a.priceUsd || 0);
       });
 
-    // 1) TRENDING (16 items, round-robin luxury-biased)
+    // Helper: pick up to `max` items from candidates, applying relevance + dedup
+    const pickRelevant = (candidates: Product[], catKey: string, max: number, strictInclude: boolean): Product[] => {
+      const result: Product[] = [];
+      for (const p of candidates) {
+        if (result.length >= max) break;
+        if (dedup.has(p.id)) continue;
+        const titleLower = (p.title || '').toLowerCase();
+        // Always enforce excludes
+        const excludes = CATEGORY_EXCLUDE_KEYWORDS[catKey];
+        if (excludes?.some(ex => titleLower.includes(ex))) continue;
+        // Enforce includes only if strictInclude
+        if (strictInclude) {
+          const keywords = CATEGORY_KEYWORDS[catKey];
+          if (keywords && !keywords.some(kw => titleLower.includes(kw))) continue;
+        }
+        result.push(p);
+        dedup.add(p.id);
+      }
+      return result;
+    };
+
+    // Build category candidate pool: dedicated feed + accueil fallback
+    const getCandidates = (catKey: string): Product[] => {
+      const dedicated = categorySections[catKey] || [];
+      const fromAccueil = accueilProducts.filter(p => isRelevantToCategory(p, catKey));
+      // Merge, dedup by id within pool
+      const seen = new Set<string>();
+      const merged: Product[] = [];
+      for (const p of [...dedicated, ...fromAccueil]) {
+        if (!seen.has(p.id) && p.id && p.priceUsd > 0) {
+          seen.add(p.id);
+          merged.push(p);
+        }
+      }
+      return sortByLuxury(merged);
+    };
+
+    // Guaranteed 4-item builder for a category
+    const buildGrid4 = (catKey: string): Product[] => {
+      const candidates = getCandidates(catKey);
+      // Step 1: strict include + exclude from merged pool
+      let items = pickRelevant(candidates, catKey, 4, true);
+      // Step 2: if < 4, try ALL accueil products with strict include (broader pool)
+      if (items.length < 4) {
+        const moreFromAccueil = pickRelevant(sortByLuxury(accueilProducts), catKey, 4 - items.length, true);
+        items = [...items, ...moreFromAccueil];
+      }
+      // Step 3: if < 4, use dedicated feed items without include check but WITH excludes
+      if (items.length < 4) {
+        const dedicated = categorySections[catKey] || [];
+        const relaxedDedicated = pickRelevant(sortByLuxury(dedicated), catKey, 4 - items.length, false);
+        items = [...items, ...relaxedDedicated];
+      }
+      // Step 4 (emergency): grab unused accueil items, still enforce THIS category's excludes
+      if (items.length < 4) {
+        const excludes = CATEGORY_EXCLUDE_KEYWORDS[catKey] || [];
+        for (const p of sortByLuxury(accueilProducts)) {
+          if (items.length >= 4) break;
+          if (dedup.has(p.id) || p.priceUsd <= 20) continue;
+          const titleLower = (p.title || '').toLowerCase();
+          if (excludes.some(ex => titleLower.includes(ex))) continue;
+          items.push(p);
+          dedup.add(p.id);
+        }
+      }
+      return items.slice(0, 4);
+    };
+
+    // 1) TRENDING (16 items, round-robin luxury-biased from 6 premium cats)
     const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'clothing'];
     const trending: Product[] = [];
     for (const cat of trendingCats) {
-      const items = sortByLuxury((categorySections[cat] || []).filter(p => isRelevantToCategory(p, cat)));
+      const items = getCandidates(cat);
       let count = 0;
       for (const p of items) {
         if (count >= 2) break;
         if (!dedup.has(p.id)) {
+          const titleLower = (p.title || '').toLowerCase();
+          const excludes = CATEGORY_EXCLUDE_KEYWORDS[cat];
+          if (excludes?.some(ex => titleLower.includes(ex))) continue;
           trending.push(p);
           dedup.add(p.id);
           count++;
@@ -255,18 +319,15 @@ export default function ShopHome() {
     if (trending.length < 16) {
       const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing'];
       const validAccueil = accueilProducts.filter(p => {
-        if ((p.priceUsd || 0) < 50) return false; // Skip cheap items
+        if ((p.priceUsd || 0) < 50) return false;
         const title = (p.title || '').toLowerCase();
         return trendingAllowedCats.some(cat => {
           const kws = CATEGORY_KEYWORDS[cat];
           const exs = CATEGORY_EXCLUDE_KEYWORDS[cat];
-          const matchesInclude = kws?.some(kw => title.includes(kw));
-          const matchesExclude = exs?.some(ex => title.includes(ex));
-          return matchesInclude && !matchesExclude;
+          return kws?.some(kw => title.includes(kw)) && !exs?.some(ex => title.includes(ex));
         });
       });
-      const remaining = sortByLuxury(validAccueil);
-      for (const p of remaining) {
+      for (const p of sortByLuxury(validAccueil)) {
         if (trending.length >= 16) break;
         if (!dedup.has(p.id)) {
           trending.push(p);
@@ -275,43 +336,16 @@ export default function ShopHome() {
       }
     }
 
-    // 2) PROMO PREVIEWS (top 4 categories, 4 items each)
-    const promo: Array<{ key: string; items: Product[] }> = [];
-    for (const catKey of PROMO_CATEGORIES) {
-      const items = (categorySections[catKey] || []).filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claim(items, 4);
-      if (claimed.length > 0) promo.push({ key: catKey, items: claimed });
-    }
-
-    // 3) MORE CATEGORIES
-    const more: Array<{ key: string; items: Product[] }> = [];
-    for (const catKey of MORE_CATEGORIES) {
-      const items = (categorySections[catKey] || []).filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claim(items, 4);
-      if (claimed.length > 0) more.push({ key: catKey, items: claimed });
-    }
-
-    // 4) EXTRA CATEGORIES from accueil (music, beauty, collectibles)
-    const extra: Array<{ key: string; items: Product[] }> = [];
-    for (const catKey of EXTRA_CATEGORIES) {
-      const matched = accueilProducts.filter(p => isRelevantToCategory(p, catKey));
-      const claimed = claim(matched, 4);
-      if (claimed.length > 0) extra.push({ key: catKey, items: claimed });
-    }
-
-    // 5) Combine bottom grid (more + extra), skip keys already in promo
-    const promoKeys = new Set(promo.map(p => p.key));
-    const bottom: Array<{ key: string; items: Product[] }> = [];
-    for (const entry of [...more, ...extra]) {
-      if (!promoKeys.has(entry.key)) {
-        bottom.push(entry);
-      }
+    // 2) ALL CATEGORY GRIDS — every category in ALL_HOMEPAGE_CATEGORIES, guaranteed 4 items
+    const grids: Array<{ key: string; items: Product[] }> = [];
+    for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
+      const items = buildGrid4(catKey);
+      grids.push({ key: catKey, items });
     }
 
     return {
       trendingFeed: trending.slice(0, 16),
-      promoPreviews: promo,
-      bottomGridPreviews: bottom,
+      categoryGrids: grids,
     };
   }, [categorySections, accueilProducts]);
 
@@ -371,7 +405,7 @@ export default function ShopHome() {
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {promoPreviews.map(({ key: catKey, items }) => (
+                {categoryGrids.filter(g => PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
@@ -379,9 +413,6 @@ export default function ShopHome() {
                     mode="grid"
                     categoryKey={catKey}
                   />
-                ))}
-                {categoryLoading && promoPreviews.length < 4 && Array.from({ length: 4 - promoPreviews.length }).map((_, i) => (
-                  <SectionBlock key={`promo-loading-${i}`} items={[]} loading mode="grid" />
                 ))}
               </div>
 
@@ -398,20 +429,18 @@ export default function ShopHome() {
                 </div>
               )}
 
-              {/* 5) More Category Grid Cards — unique categories only, no duplicates */}
-              {bottomGridPreviews.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                  {bottomGridPreviews.map(({ key: catKey, items }) => (
-                    <SectionBlock
-                      key={catKey}
-                      title={getCategoryTitle(catKey, language)}
-                      items={items}
-                      mode="grid"
-                      categoryKey={catKey}
-                    />
-                  ))}
-                </div>
-              )}
+              {/* 5) Remaining Category Grid Cards — all non-promo categories */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                {categoryGrids.filter(g => !PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
+                  <SectionBlock
+                    key={catKey}
+                    title={getCategoryTitle(catKey, language)}
+                    items={items}
+                    mode="grid"
+                    categoryKey={catKey}
+                  />
+                ))}
+              </div>
 
               {/* 6) Category Icons Row */}
               <CategoryIconsRow />

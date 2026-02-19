@@ -28,10 +28,9 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   jewelry_watches: { fr: 'Montres & Bijoux', en: 'Jewelry & Watches' },
   parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
   refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
-  music_instruments: { fr: 'Instruments de Musique', en: 'Music Instruments' },
   beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
   collectibles: { fr: 'Collections', en: 'Collectibles' },
-  sound_audio: { fr: 'Son & Audio', en: 'Sound & Audio' },
+  audio_music: { fr: 'Audio & Musique', en: 'Audio & Music' },
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -46,10 +45,9 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   jewelry_watches: ['watch ', 'montre', 'bracelet', 'necklace', 'ring ', 'earring', 'jewelry', 'bijou', 'gold necklace', 'gold ring', 'gold bracelet', 'silver necklace', 'silver ring', 'diamond', 'rolex', 'casio watch', 'seiko', 'fossil watch', 'pendant', 'luxury watch', '14k', '18k', '10k gold'],
   parts_accessories: ['auto part', 'car part', 'brake pad', 'oil filter', 'alternator', 'car battery', 'headlight assembly', 'bumper', 'wiper blade', 'spark plug', 'transmission', 'radiator', 'pièce auto', 'oem part', 'catalytic converter'],
   refurbished: ['refurbished', 'renewed', 'reconditioned', 'reconditionné', 'certified pre-owned', 'factory refurbished'],
-  music_instruments: ['guitar', 'piano', 'drum kit', 'violin', 'saxophone', 'trumpet', 'ukulele', 'amplifier', 'synthesizer', 'bass guitar', 'flute', 'harmonica', 'musical instrument', 'acoustic guitar', 'electric guitar', 'drum set'],
   beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'fragrance', 'cosmetic', 'face cream', 'nail polish'],
   collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin'],
-  sound_audio: ['bose', 'jbl', 'bluetooth speaker', 'soundbar', 'subwoofer', 'home theater', 'audio', 'speaker system', 'wireless speaker', 'portable speaker', 'headphones over-ear', 'studio monitor', 'amplifier', 'receiver', 'hi-fi', 'surround sound'],
+  audio_music: ['bose', 'sony', 'jbl', 'harman kardon', 'bang & olufsen', 'b&o', 'sennheiser', 'beats', 'marshall', 'speaker', 'subwoofer', 'soundbar', 'home theater', 'amplifier', 'receiver', 'headphones', 'earbuds', 'bluetooth speaker', 'studio monitor', 'pa speaker', 'guitar', 'electric guitar', 'acoustic guitar', 'bass guitar', 'digital piano', 'midi controller', 'drum', 'drum kit', 'microphone', 'audio interface', 'turntable', 'hi-fi', 'surround sound', 'wireless speaker', 'portable speaker'],
 };
 
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
@@ -63,10 +61,9 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable'],
   jewelry_watches: ['iphone', 'ps5', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'phone case', 'charger', 'cable', 'tool', 'appliance', 'furniture'],
   parts_accessories: ['dress', 'shirt', 'sofa', 'bed'],
-  music_instruments: ['sofa', 'bed', 'mattress'],
   beauty_health: ['sofa', 'bed', 'mattress'],
   collectibles: ['sofa', 'bed', 'mattress'],
-  sound_audio: ['sofa', 'bed', 'mattress', 'phone case', 'car charger', 'toy', 'lego', 'dress', 'shirt', 'furniture'],
+  audio_music: ['case', 'cover', 'protector', 'screen protector', 'tempered glass', 'mount', 'holder', 'stand', 'adapter', 'replacement', 'spare', 'repair', 'car gps', 'carplay', 'android auto', 'dash cam', 'phone case', 'watch band', 'sofa', 'bed', 'mattress', 'furniture', 'dress', 'shirt', 'toy', 'lego'],
   refurbished: [],
 };
 
@@ -118,11 +115,10 @@ interface HomeFeedResponse {
 
 // All homepage categories in display order (source of truth — every one MUST render)
 const ALL_HOMEPAGE_CATEGORIES = [
-  'phones', 'electronics', 'gaming', 'vehicles',
+  'phones', 'electronics', 'audio_music', 'gaming', 'vehicles',
   'clothing', 'home_garden', 'toys', 'sporting_goods',
   'jewelry_watches', 'parts_accessories', 'refurbished',
-  'music_instruments', 'beauty_health', 'collectibles',
-  'sound_audio',
+  'beauty_health', 'collectibles',
 ];
 // Categories fetched from backend (those with dedicated recipe feeds)
 const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];

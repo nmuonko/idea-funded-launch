@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Product } from '@/components/shop/ProductCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 
@@ -11,6 +11,7 @@ interface CategoryCardProps {
 
 export function CategoryCard({ title, items, categoryKey, loading }: CategoryCardProps) {
   const { language } = useLanguage();
+  const navigate = useNavigate();
   const displayItems = items.slice(0, 4);
 
   if (loading) {
@@ -29,7 +30,6 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     );
   }
 
-  // Show card even with fewer than 4 items — pad with empty slots
   if (displayItems.length === 0) return null;
 
   const getProductLink = (product: Product) => {
@@ -47,12 +47,16 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     paddedItems.push(null as any);
   }
 
+  const handleVoirPlus = () => {
+    // Navigate to the category tab via URL param
+    navigate(`/?tab=${categoryKey}`);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-4 flex flex-col h-full shadow-md hover:border-white/[0.18] transition-colors">
-      {/* Title */}
       <h3 className="text-base font-bold text-white/95 mb-3">{title}</h3>
 
-      {/* 2x2 Grid */}
       <div className="grid grid-cols-2 gap-3 flex-1">
         {paddedItems.map((product, idx) => {
           if (!product) {
@@ -69,7 +73,6 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
               state={{ product }}
               className="group flex flex-col"
             >
-              {/* Image — white bg for product visibility */}
               <div className="aspect-square rounded-lg bg-white overflow-hidden p-2 border border-white/[0.06] shadow-sm">
                 <img
                   src={product.imageUrl || '/placeholder.svg'}
@@ -78,7 +81,6 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
                   loading="lazy"
                 />
               </div>
-              {/* Label */}
               <p className="mt-1.5 text-xs text-white/75 line-clamp-2 leading-tight">
                 {product.title}
               </p>
@@ -87,12 +89,8 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
         })}
       </div>
 
-      {/* See more */}
       <button
-        onClick={() => {
-          const el = document.getElementById(`section-${categoryKey}`);
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }}
+        onClick={handleVoirPlus}
         className="mt-3 text-sm text-blue-400 hover:text-blue-300 font-medium text-left transition-colors"
       >
         {language === 'fr' ? 'Voir plus' : 'See more'}

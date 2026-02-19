@@ -7,7 +7,6 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
 
-// Helper function to get localized fallback from shop translations
 const getLocalizedFallback = (key: string, shop: Record<string, string>): string | undefined => {
   const keyMap: Record<string, string> = {
     electronics: 'electronics',
@@ -47,12 +46,11 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   const [searchParams] = useSearchParams();
   const { language } = useLanguage();
   const [tabs, setTabs] = useState<CategoryTab[]>([]);
-  const currentCategory = activeCategory || searchParams.get('category') || 'all';
+  const currentCategory = activeCategory || searchParams.get('tab') || 'all';
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
 
-  // Build default tabs with i18n — keys MUST match backend recipe keys exactly
   const getDefaultTabs = (): CategoryTab[] => [
     { key: 'all', title: shop.all, icon: <Home className="h-4 w-4" /> },
     { key: 'phones', title: shop.phones || 'Téléphones', icon: <Smartphone className="h-4 w-4" /> },
@@ -68,12 +66,10 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
     { key: 'refurbished', title: shop.refurbished || 'Reconditionné', icon: <Sparkles className="h-4 w-4" /> },
   ];
 
-  // Update tabs when language changes
   useEffect(() => {
     setTabs(getDefaultTabs());
   }, [language]);
 
-  // Fetch categories from backend (optional enhancement)
   useEffect(() => {
     const fetchTabs = async () => {
       try {
@@ -97,14 +93,12 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
             toys: <Gamepad2 className="h-4 w-4" />,
           };
           
-          // Get localized title based on language
-          // Only filter out business_industrial; keep all other valid tabs
           const filteredTabs = data.tabs
             .filter((tab: any) => tab.key !== 'business_industrial');
           
           const seen = new Set<string>();
           seen.add('all');
-          seen.add('gaming'); // reserve slot for gaming tab
+          seen.add('gaming');
           const mappedTabs: CategoryTab[] = [
             { key: 'all', title: shop.all, icon: <Home className="h-4 w-4" /> },
             { key: 'gaming', title: shop.gaming || 'Gaming', icon: <Gamepad2 className="h-4 w-4" /> },
@@ -128,7 +122,6 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
         }
       } catch (error) {
         console.error('Failed to fetch category tabs:', error);
-        // Keep default tabs on error
       }
     };
     
@@ -136,20 +129,20 @@ export function CategoryTabs({ activeCategory, onCategoryChange, className }: Ca
   }, [language]);
 
   const handleTabClick = (category: string) => {
+    // Always update URL with ?tab= param for proper back-button support
+    if (category === 'all') {
+      navigate('/');
+    } else {
+      navigate(`/?tab=${category}`);
+    }
+    // Also call parent callback if provided
     if (onCategoryChange) {
       onCategoryChange(category);
-    } else {
-      if (category === 'all') {
-        navigate('/');
-      } else {
-        navigate(`/search?category=${category}`);
-      }
     }
   };
 
   return (
     <div className={cn("relative w-full", className)}>
-      {/* Right fade indicator to show more tabs exist */}
       <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-black to-transparent z-10 md:w-16" />
       <ScrollArea className="w-full">
         <div className="flex gap-2 py-2 snap-x snap-mandatory pr-12 md:pr-16">

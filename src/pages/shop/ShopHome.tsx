@@ -1,19 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Loader2 } from 'lucide-react';
+import { Search, Loader2, Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
-import { VerticalProductGrid } from '@/components/shop/VerticalProductGrid';
 import { SectionBlock } from '@/components/shop/SectionBlock';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { ShopFooter } from '@/components/shop/ShopFooter';
+import { HorizontalProductRow } from '@/components/shop/HorizontalProductRow';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { translations } from '@/lib/i18n/translations';
+import { getRecentlyViewed } from '@/lib/recentlyViewed';
 
 const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   phones: { fr: 'Téléphones', en: 'Phones' },
@@ -62,7 +64,8 @@ interface HomeFeedResponse {
 
 export default function ShopHome() {
   const { language } = useLanguage();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [sections, setSections] = useState<Array<{ key: string; title: string; hideTitle?: boolean; items: Product[] }>>([]);
   const [loading, setLoading] = useState(true);
@@ -74,17 +77,19 @@ export default function ShopHome() {
   const [hasMore, setHasMore] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(false);
 
-  // Category tabs now scroll to sections; keep URL param for deep links
   const activeCategory = searchParams.get('tab') || 'all';
 
-  // Per-category data for vertical sections
+  // Per-category data for Amazon-style grid cards
   const [categorySections, setCategorySections] = useState<Record<string, Product[]>>({});
   const [categoryLoading, setCategoryLoading] = useState(true);
+
+  // Recently viewed
+  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
   
-  const PAGE_SIZE = 100; // Match backend default
+  const PAGE_SIZE = 100;
 
   const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
     id: item.provider_product_id || item.id || '',
@@ -102,13 +107,11 @@ export default function ShopHome() {
       if (page === 1) {
         setLoading(true);
         setIsLiveMode(false);
-        setError(null); // Clear any previous error
+        setError(null);
       } else {
         setLoadingMore(true);
       }
 
-      // Determine if we should request live mode
-      // Only switch to live if we've exhausted cached pages (based on backend's totalPages)
       const shouldUseLive = totalPages > 0 && page > totalPages;
       
       const params: Record<string, any> = {
@@ -116,7 +119,6 @@ export default function ShopHome() {
         pageSize: PAGE_SIZE,
         client: 'web',
       };
-      // Main feed always fetches "all" - categories are separate sections
       if (shouldUseLive) {
         params.live = '1';
       }
@@ -134,7 +136,6 @@ export default function ShopHome() {
       
       console.log(`[ShopHome] response page=${page} ok=${data.ok} totalPages=${data.totalPages} poolSize=${data._meta?.poolSize} source=${data._meta?.source}`);
       
-      // Handle ok:false gracefully - retry once with skipCache before showing empty
       if (data.ok === false) {
         console.warn('[ShopHome] Backend returned ok:false, retrying without cache:', data.error);
         
@@ -163,7 +164,6 @@ export default function ShopHome() {
       }
       
       if (data?.sections?.length) {
-        // Map all sections with their items
         const mappedSections = data.sections
           .map(sec => ({
             key: sec.key,
@@ -175,7 +175,6 @@ export default function ShopHome() {
           }))
           .filter(sec => sec.items.length > 0);
 
-        // Flat list for pagination/fallback
         const allProducts = mappedSections.flatMap(s => s.items);
         
         if (append) {
@@ -186,7 +185,6 @@ export default function ShopHome() {
           setSections(mappedSections);
         }
         
-        // Update pagination state FROM BACKEND RESPONSE
         if (data.totalPages !== undefined && data.totalPages > 0) {
           setTotalPages(data.totalPages);
         }
@@ -204,10 +202,8 @@ export default function ShopHome() {
         setHasMore(false);
       }
     } catch (err: any) {
-      // Only show error for true network failures, not backend errors
       console.error('[ShopHome] Network/fetch error:', err);
       if (page === 1) {
-        // Show error only for actual network failures
         setError(err.message || 'Failed to load products');
       }
     } finally {
@@ -216,28 +212,34 @@ export default function ShopHome() {
     }
   };
 
-  // Load more handler - automatically switches to live after cached pages exhausted
   const handleLoadMore = () => {
     if (!loadingMore && hasMore) {
       fetchFeed(currentPage + 1, true);
     }
   };
 
-  // Fetch per-category sections for vertical layout
-  const CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];
+  // Category keys from admin-configured tabs — use the canonical recipe keys
+  const CATEGORY_KEYS = Object.keys(CATEGORY_TITLE_MAP);
 
   const fetchCategorySections = async () => {
     setCategoryLoading(true);
     try {
       const results = await Promise.allSettled(
         CATEGORY_KEYS.map(async (cat) => {
+          // Pass tab=<category> so the backend uses the correct recipe
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-            category: cat,
+            tab: cat,
             page: 1,
             pageSize: 30,
             client: 'web',
           });
           const items = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
+          
+          // Debug: log first 3 products per category for verification
+          if (items.length > 0) {
+            console.log(`[ShopHome] category=${cat} items[0..2]:`, items.slice(0, 3).map(p => p.title));
+          }
+          
           return { cat, items };
         })
       );
@@ -255,10 +257,55 @@ export default function ShopHome() {
     }
   };
 
+  // Load recently viewed
+  const loadRecentlyViewed = async () => {
+    try {
+      const items = await getRecentlyViewed(user?.id, 12);
+      setRecentlyViewed(items);
+    } catch (err) {
+      console.warn('[ShopHome] recently viewed fetch failed', err);
+    }
+  };
+
   useEffect(() => {
     fetchFeed(1);
     fetchCategorySections();
+    loadRecentlyViewed();
   }, [language]);
+
+  useEffect(() => {
+    loadRecentlyViewed();
+  }, [user?.id]);
+
+  // Build Accueil variety feed: round-robin from all categories
+  const accueilProducts = useMemo(() => {
+    const categoryItems = Object.values(categorySections);
+    if (categoryItems.length === 0) return products;
+    
+    const mixed: Product[] = [];
+    const seenIds = new Set<string>();
+    const maxRounds = 5;
+    
+    for (let round = 0; round < maxRounds; round++) {
+      for (const catItems of categoryItems) {
+        const item = catItems[round];
+        if (item && !seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          mixed.push(item);
+        }
+      }
+    }
+    
+    // Fill with main feed products not already included
+    for (const p of products) {
+      if (!seenIds.has(p.id)) {
+        seenIds.add(p.id);
+        mixed.push(p);
+      }
+    }
+    
+    return mixed;
+  }, [products, categorySections]);
 
   // Scroll to section when tab is clicked
   const handleCategoryChange = (category: string) => {
@@ -280,7 +327,7 @@ export default function ShopHome() {
   };
 
   return (
-    <div className="min-h-screen bg-black pb-20 md:pb-0">
+    <div className="min-h-screen bg-[#111318] pb-20 md:pb-0">
       <ShopHeader />
       
       {/* Spacer for fixed header */}
@@ -303,7 +350,7 @@ export default function ShopHome() {
         </div>
       </section>
 
-      {/* Vertical Category Sections - Amazon/eBay style */}
+      {/* Vertical Category Sections */}
       <main className="pb-8">
         <div className="container mx-auto px-4">
           {loading ? (
@@ -318,7 +365,7 @@ export default function ShopHome() {
               <Button 
                 onClick={() => fetchFeed(1)}
                 variant="outline"
-                className="border-white/20 text-white hover:bg-white/10"
+                className="border-white/20 text-white/90 hover:bg-white/10"
               >
                 {shop.tryAgain}
               </Button>
@@ -328,40 +375,34 @@ export default function ShopHome() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="space-y-4"
+              className="space-y-6"
             >
-              {/* Accueil section - eBay-style mixed trending/variety row */}
-              {(products.length > 0 || Object.keys(categorySections).length > 0) && (
+              {/* Accueil — eBay-style mixed variety auto-scrolling feed */}
+              {accueilProducts.length > 0 && (
                 <div id="section-accueil">
                   <SectionBlock
-                    title={language === 'fr' ? 'Accueil' : 'Home'}
-                    items={(() => {
-                      // Mix products from all categories for variety
-                      const categoryItems = Object.values(categorySections);
-                      if (categoryItems.length === 0) return products;
-                      const mixed: Product[] = [];
-                      const maxRounds = 5;
-                      for (let round = 0; round < maxRounds; round++) {
-                        for (const catItems of categoryItems) {
-                          if (catItems[round]) {
-                            mixed.push(catItems[round]);
-                          }
-                        }
-                      }
-                      // Add remaining main feed products
-                      const mixedIds = new Set(mixed.map(p => p.id));
-                      for (const p of products) {
-                        if (!mixedIds.has(p.id)) mixed.push(p);
-                      }
-                      return mixed;
-                    })()}
+                    title={language === 'fr' ? 'Tendances' : 'Trending Now'}
+                    items={accueilProducts}
                     mode="scroll"
                   />
                 </div>
               )}
 
-              {/* Category cards grid - Amazon style */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* Recently Viewed */}
+              {recentlyViewed.length > 0 && (
+                <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <Clock className="h-4 w-4 text-white/60" />
+                    <h2 className="text-lg font-semibold text-white/95">
+                      {language === 'fr' ? 'Vus récemment' : 'Recently Viewed'}
+                    </h2>
+                  </div>
+                  <HorizontalProductRow products={recentlyViewed} />
+                </div>
+              )}
+
+              {/* Category cards grid — Amazon style, responsive 4-up */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {CATEGORY_KEYS.map((catKey) => {
                   const items = categorySections[catKey];
                   if (!items || items.length === 0) return null;
@@ -388,20 +429,19 @@ export default function ShopHome() {
 
           {/* End of Feed CTA */}
           {!loading && products.length > 0 && (
-            <div className="mt-10 py-8 border-t border-white/10">
+            <div className="mt-10 py-8 border-t border-white/[0.08]">
               <div className="text-center space-y-4">
-                <h3 className="text-lg font-semibold text-white">
+                <h3 className="text-lg font-semibold text-white/90">
                   {language === 'fr' 
                     ? "Vous ne trouvez pas ce que vous cherchez ?" 
                     : "Don't find what you're looking for?"}
                 </h3>
-                <p className="text-white/60 text-sm">
+                <p className="text-white/50 text-sm">
                   {language === 'fr'
                     ? "Recherchez n'importe quel produit d'Amazon et eBay"
                     : "Search for any product from Amazon & eBay"}
                 </p>
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                  {/* Primary CTA: Search */}
                   <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="w-64">
                     <Button 
                       onClick={focusSearchBar}
@@ -413,13 +453,12 @@ export default function ShopHome() {
                     </Button>
                   </motion.div>
                   
-                  {/* Secondary: Load More */}
                   {hasMore && (
                     <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="w-64">
                       <Button
                         onClick={handleLoadMore}
                         variant="outline"
-                        className="w-full border-white/30 bg-white/5 backdrop-blur-sm text-white hover:bg-white/15 hover:border-white/50 rounded-full px-8 py-3 text-base font-medium transition-all duration-300 shadow-lg shadow-black/10"
+                        className="w-full border-white/20 bg-white/[0.04] backdrop-blur-sm text-white/90 hover:bg-white/[0.08] hover:border-white/30 rounded-full px-8 py-3 text-base font-medium transition-all duration-300"
                         size="lg"
                         disabled={loadingMore}
                       >
@@ -432,7 +471,7 @@ export default function ShopHome() {
                           <span className="flex items-center gap-3">
                             <span>{language === 'fr' ? 'Voir plus' : 'Show More'}</span>
                             {totalPages > 0 && (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/15 text-white/80">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/10 text-white/70">
                                 {currentPage} / {Math.min(totalPages, 3)}
                               </span>
                             )}

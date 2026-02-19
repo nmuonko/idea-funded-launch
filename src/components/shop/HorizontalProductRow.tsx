@@ -86,17 +86,17 @@ export function HorizontalProductRow({
       onTouchEnd={handleTouchEnd}
     >
       {/* Left fade overlay */}
-      <div className="absolute left-0 top-0 w-8 h-full bg-gradient-to-r from-[rgb(10,10,10)] to-transparent z-10 pointer-events-none" />
+      <div className="absolute left-0 top-0 w-8 h-full bg-gradient-to-r from-[#111318] to-transparent z-10 pointer-events-none" />
       
       {/* Right fade overlay */}
-      <div className="absolute right-0 top-0 w-8 h-full bg-gradient-to-l from-[rgb(10,10,10)] to-transparent z-10 pointer-events-none" />
+      <div className="absolute right-0 top-0 w-8 h-full bg-gradient-to-l from-[#111318] to-transparent z-10 pointer-events-none" />
 
       {/* Navigation arrows - desktop only */}
       <Button
         variant="ghost"
         size="icon"
         onClick={() => scroll('left')}
-        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-black/80 hover:bg-black text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex"
+        className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex border border-white/10"
       >
         <ChevronLeft className="h-5 w-5" />
       </Button>
@@ -105,7 +105,7 @@ export function HorizontalProductRow({
         variant="ghost"
         size="icon"
         onClick={() => scroll('right')}
-        className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-black/80 hover:bg-black text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex"
+        className="absolute right-0 top-1/2 -translate-y-1/2 z-20 bg-[#1a1d23]/90 hover:bg-[#1a1d23] text-white rounded-full h-10 w-10 opacity-0 group-hover:opacity-100 transition-opacity hidden md:flex border border-white/10"
       >
         <ChevronRight className="h-5 w-5" />
       </Button>

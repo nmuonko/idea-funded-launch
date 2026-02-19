@@ -41,14 +41,12 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     return `/product/${provider || 'amazon'}/${encodeURIComponent(pid)}`;
   };
 
-  // Pad to 4 items for consistent 2x2 grid
   const paddedItems = [...displayItems];
   while (paddedItems.length < 4) {
     paddedItems.push(null as any);
   }
 
   const handleVoirPlus = () => {
-    // Navigate to the category tab via URL param
     navigate(`/?tab=${categoryKey}`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -57,6 +55,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-4 flex flex-col h-full shadow-md hover:border-white/[0.18] transition-colors">
       <h3 className="text-base font-bold text-white/95 mb-3">{title}</h3>
 
+      {/* 2x2 preview grid — always exactly 4 slots, no load-more */}
       <div className="grid grid-cols-2 gap-3 flex-1">
         {paddedItems.map((product, idx) => {
           if (!product) {

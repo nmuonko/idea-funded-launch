@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Loader2, Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -64,6 +64,9 @@ interface HomeFeedResponse {
   _meta?: { source?: string; poolSize?: number; isStale?: boolean };
 }
 
+const CATEGORY_POOL_TARGET = 300;
+const VISIBLE_STEP = 24;
+
 export default function ShopHome() {
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -79,19 +82,16 @@ export default function ShopHome() {
   const [categoryLoading, setCategoryLoading] = useState(true);
   const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
 
-  // --- Category page state ---
-  const [catProducts, setCatProducts] = useState<Product[]>([]);
-  const [catLoading, setCatLoading] = useState(false);
-  const [catLoadingMore, setCatLoadingMore] = useState(false);
-  const [catPage, setCatPage] = useState(1);
-  const [catHasMore, setCatHasMore] = useState(true);
-  const [catError, setCatError] = useState<string | null>(null);
+  // --- Category pool state ---
+  const categoryPoolRef = useRef<Record<string, Product[]>>({});
+  const [catPoolItems, setCatPoolItems] = useState<Product[]>([]);
+  const [catPoolLoading, setCatPoolLoading] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
 
   const [error, setError] = useState<string | null>(null);
 
   const t = translations[language] || translations.en;
   const shop = t.shop;
-  const PAGE_SIZE = 30;
 
   const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
     id: item.provider_product_id || item.id || '',
@@ -104,9 +104,48 @@ export default function ShopHome() {
     productUrl: item.product_url,
   });
 
-  // ====== ACCUEIL DATA ======
   const CATEGORY_KEYS = Object.keys(CATEGORY_TITLE_MAP);
 
+  // ====== FETCH CATEGORY POOL (300 items) ======
+  const fetchCategoryPool = async (tab: string): Promise<Product[]> => {
+    // Check in-memory ref first
+    if (categoryPoolRef.current[tab]?.length > 0) {
+      return categoryPoolRef.current[tab];
+    }
+
+    // Fetch large pool — uses cachedCatalogFetch which respects server ttlSeconds
+    const accumulated: Product[] = [];
+    const seenIds = new Set<string>();
+    let page = 1;
+    const maxPages = 10; // safety limit
+
+    while (accumulated.length < CATEGORY_POOL_TARGET && page <= maxPages) {
+      const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+        tab,
+        page,
+        pageSize: Math.min(100, CATEGORY_POOL_TARGET),
+        client: 'web',
+      });
+
+      const items = data?.sections?.[0]?.items
+        ?.map(mapItemToProduct)
+        .filter(p => p.id && p.priceUsd > 0 && !seenIds.has(p.id)) || [];
+
+      items.forEach(p => {
+        seenIds.add(p.id);
+        accumulated.push(p);
+      });
+
+      // Stop if backend has no more
+      if (data?.hasMore === false || items.length === 0) break;
+      page++;
+    }
+
+    categoryPoolRef.current[tab] = accumulated;
+    return accumulated;
+  };
+
+  // ====== ACCUEIL DATA ======
   const fetchAccueilFeed = async () => {
     setAccueilLoading(true);
     setError(null);
@@ -165,7 +204,7 @@ export default function ShopHome() {
     }
   };
 
-  // Build variety feed via round-robin
+  // Variety feed via round-robin
   const varietyFeed = useMemo(() => {
     const categoryItems = Object.values(categorySections);
     if (categoryItems.length === 0) return accueilProducts;
@@ -189,39 +228,7 @@ export default function ShopHome() {
     return mixed;
   }, [accueilProducts, categorySections]);
 
-  // ====== CATEGORY PAGE DATA ======
-  const fetchCategoryPage = async (tab: string, page: number, append: boolean) => {
-    if (page === 1) {
-      setCatLoading(true);
-      setCatError(null);
-    } else {
-      setCatLoadingMore(true);
-    }
-    try {
-      const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-        tab,
-        page,
-        pageSize: PAGE_SIZE,
-        client: 'web',
-      });
-      const items = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
-      if (append) {
-        setCatProducts(prev => [...prev, ...items]);
-      } else {
-        setCatProducts(items);
-      }
-      setCatHasMore(data?.hasMore !== false && items.length >= PAGE_SIZE);
-      setCatPage(page);
-    } catch (err: any) {
-      if (page === 1) setCatError(err.message || 'Failed to load');
-    } finally {
-      setCatLoading(false);
-      setCatLoadingMore(false);
-    }
-  };
-
   // ====== EFFECTS ======
-  // Load accueil data once
   useEffect(() => {
     fetchAccueilFeed();
     fetchCategorySections();
@@ -232,20 +239,29 @@ export default function ShopHome() {
     loadRecentlyViewed();
   }, [user?.id]);
 
-  // When active category changes (not accueil), fetch that category
+  // When switching to a category tab, load its pool
   useEffect(() => {
     if (!isAccueil) {
-      setCatProducts([]);
-      setCatPage(1);
-      setCatHasMore(true);
-      fetchCategoryPage(activeCategory, 1, false);
+      setVisibleCount(VISIBLE_STEP);
+      // Use cached pool if available
+      if (categoryPoolRef.current[activeCategory]?.length > 0) {
+        setCatPoolItems(categoryPoolRef.current[activeCategory]);
+        setCatPoolLoading(false);
+      } else {
+        setCatPoolLoading(true);
+        setCatPoolItems([]);
+        fetchCategoryPool(activeCategory).then(items => {
+          setCatPoolItems(items);
+          setCatPoolLoading(false);
+        }).catch(() => {
+          setCatPoolLoading(false);
+        });
+      }
     }
   }, [activeCategory]);
 
-  const handleCatLoadMore = () => {
-    if (!catLoadingMore && catHasMore && !isAccueil) {
-      fetchCategoryPage(activeCategory, catPage + 1, true);
-    }
+  const handleShowMore = () => {
+    setVisibleCount(prev => prev + VISIBLE_STEP);
   };
 
   const focusSearchBar = () => {
@@ -256,8 +272,9 @@ export default function ShopHome() {
     }, 500);
   };
 
-  const currentLoading = isAccueil ? accueilLoading : catLoading;
-  const currentError = isAccueil ? error : catError;
+  const currentLoading = isAccueil ? accueilLoading : catPoolLoading;
+  const visibleCatProducts = catPoolItems.slice(0, visibleCount);
+  const hasMoreToReveal = visibleCount < catPoolItems.length;
 
   return (
     <div className="min-h-screen bg-[#111318] pb-20 md:pb-0">
@@ -299,21 +316,16 @@ export default function ShopHome() {
                 </div>
               )}
             </div>
-          ) : currentError ? (
+          ) : error && isAccueil ? (
             <div className="text-center py-20">
-              <p className="text-red-400 mb-4">{currentError}</p>
-              <Button
-                onClick={() => isAccueil ? fetchAccueilFeed() : fetchCategoryPage(activeCategory, 1, false)}
-                variant="outline"
-                className="border-white/20 text-white/90 hover:bg-white/10"
-              >
+              <p className="text-red-400 mb-4">{error}</p>
+              <Button onClick={() => fetchAccueilFeed()} variant="outline" className="border-white/20 text-white/90 hover:bg-white/10">
                 {shop.tryAgain}
               </Button>
             </div>
           ) : isAccueil ? (
             /* ===== ACCUEIL VIEW ===== */
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-6">
-              {/* Trending horizontal row */}
               {varietyFeed.length > 0 && (
                 <SectionBlock
                   title={language === 'fr' ? 'Tendances' : 'Trending Now'}
@@ -322,7 +334,6 @@ export default function ShopHome() {
                 />
               )}
 
-              {/* Recently Viewed */}
               {recentlyViewed.length > 0 && (
                 <div className="bg-[#1a1d23] border border-white/[0.1] rounded-2xl p-3 sm:p-4 shadow-md">
                   <div className="flex items-center gap-2 mb-3 px-1">
@@ -335,7 +346,7 @@ export default function ShopHome() {
                 </div>
               )}
 
-              {/* Category preview cards — rendered ONLY here on Accueil */}
+              {/* Category preview cards — ONLY on Accueil, 4 items each, no load-more */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {CATEGORY_KEYS.map((catKey) => {
                   const items = categorySections[catKey];
@@ -356,41 +367,37 @@ export default function ShopHome() {
               </div>
             </motion.div>
           ) : (
-            /* ===== CATEGORY VIEW ===== */
+            /* ===== CATEGORY VIEW — shows from pre-fetched pool ===== */
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
               <h2 className="text-xl font-bold text-white/95 mb-4">
                 {getCategoryTitle(activeCategory, language)}
               </h2>
 
-              {catProducts.length === 0 ? (
+              {catPoolItems.length === 0 ? (
                 <p className="text-white/50 text-center py-12">
                   {language === 'fr' ? 'Aucun produit trouvé' : 'No products found'}
                 </p>
               ) : (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {catProducts.map((product) => (
+                    {visibleCatProducts.map((product) => (
                       <ProductCard key={`${product.provider}-${product.id}`} product={product} />
                     ))}
                   </div>
 
-                  {catHasMore && (
+                  {/* Client-side "Show more" — no network request, just reveals more from pool */}
+                  {hasMoreToReveal && (
                     <div className="flex justify-center mt-8">
                       <Button
-                        onClick={handleCatLoadMore}
+                        onClick={handleShowMore}
                         variant="outline"
                         className="border-white/20 bg-white/[0.04] text-white/90 hover:bg-white/[0.08] hover:border-white/30 rounded-full px-8 py-3"
                         size="lg"
-                        disabled={catLoadingMore}
                       >
-                        {catLoadingMore ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            {language === 'fr' ? 'Chargement...' : 'Loading...'}
-                          </>
-                        ) : (
-                          language === 'fr' ? 'Voir plus' : 'Show More'
-                        )}
+                        {language === 'fr' ? 'Voir plus' : 'Show More'}
+                        <span className="ml-2 text-xs text-white/50">
+                          ({visibleCount} / {catPoolItems.length})
+                        </span>
                       </Button>
                     </div>
                   )}
@@ -399,8 +406,8 @@ export default function ShopHome() {
             </motion.div>
           )}
 
-          {/* End of Feed CTA — show on both views */}
-          {!currentLoading && (isAccueil ? varietyFeed.length > 0 : catProducts.length > 0) && (
+          {/* End of Feed CTA */}
+          {!currentLoading && (isAccueil ? varietyFeed.length > 0 : catPoolItems.length > 0) && (
             <div className="mt-10 py-8 border-t border-white/[0.08]">
               <div className="text-center space-y-4">
                 <h3 className="text-lg font-semibold text-white/90">

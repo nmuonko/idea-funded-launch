@@ -330,39 +330,40 @@ export default function ShopHome() {
               transition={{ delay: 0.1 }}
               className="space-y-4"
             >
-              {/* Accueil section - mixed products */}
+              {/* Accueil section - auto-scrolling horizontal row */}
               {products.length > 0 && (
                 <div id="section-accueil">
                   <SectionBlock
                     title={language === 'fr' ? 'Accueil' : 'Home'}
                     items={products}
+                    mode="scroll"
                   />
                 </div>
               )}
 
-              {/* Per-category sections */}
-              {CATEGORY_KEYS.map((catKey) => {
-                const items = categorySections[catKey];
-                if (!items || items.length === 0) return null;
-                const catTitle = getCategoryTitle(catKey, language);
-                return (
-                  <div key={catKey} id={`section-${catKey}`}>
-                    <SectionBlock
-                      title={catTitle}
-                      items={items}
-                    />
-                  </div>
-                );
-              })}
+              {/* Category cards grid - Amazon style */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {CATEGORY_KEYS.map((catKey) => {
+                  const items = categorySections[catKey];
+                  if (!items || items.length === 0) return null;
+                  const catTitle = getCategoryTitle(catKey, language);
+                  return (
+                    <div key={catKey} id={`section-${catKey}`}>
+                      <SectionBlock
+                        title={catTitle}
+                        items={items}
+                        mode="grid"
+                        categoryKey={catKey}
+                      />
+                    </div>
+                  );
+                })}
 
-              {/* Loading placeholders for category sections */}
-              {categoryLoading && (
-                <>
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <SectionBlock key={`cat-loading-${i}`} items={[]} loading />
-                  ))}
-                </>
-              )}
+                {/* Loading placeholders */}
+                {categoryLoading && Array.from({ length: 4 }).map((_, i) => (
+                  <SectionBlock key={`cat-loading-${i}`} items={[]} loading mode="grid" />
+                ))}
+              </div>
             </motion.div>
           )}
 

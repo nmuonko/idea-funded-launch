@@ -13,7 +13,6 @@ interface CategoryCardProps {
 export function CategoryCard({ title, items, categoryKey, loading }: CategoryCardProps) {
   const { language } = useLanguage();
   const navigate = useNavigate();
-  const displayItems = items.slice(0, 4);
 
   if (loading) {
     return (
@@ -31,7 +30,13 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     );
   }
 
-  if (displayItems.length === 0) return null;
+  if (items.length === 0) return null;
+
+  // Always fill 4 slots by repeating items if needed
+  const displayItems: Product[] = [];
+  for (let i = 0; i < 4; i++) {
+    displayItems.push(items[i % items.length]);
+  }
 
   const getProductLink = (product: Product) => {
     const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
@@ -41,11 +46,6 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     else if (pid.toLowerCase().startsWith('ebay_')) pid = pid.slice(5);
     return `/product/${provider || 'amazon'}/${encodeURIComponent(pid)}`;
   };
-
-  const paddedItems = [...displayItems];
-  while (paddedItems.length < 4) {
-    paddedItems.push(null as any);
-  }
 
   const handleVoirPlus = () => {
     navigate(`/category/${categoryKey}`);
@@ -57,37 +57,27 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
         <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
       </div>
 
-      {/* 2x2 preview grid */}
       <div className="grid grid-cols-2 gap-2 flex-1">
-        {paddedItems.map((product, idx) => {
-          if (!product) {
-            return (
-              <div key={`empty-${idx}`} className="flex flex-col">
-                <div className="aspect-square rounded-lg bg-white/[0.03] border border-white/[0.06]" />
-              </div>
-            );
-          }
-          return (
-            <Link
-              key={product.id}
-              to={getProductLink(product)}
-              state={{ product }}
-              className="group flex flex-col"
-            >
-              <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
-                <img
-                  src={product.imageUrl || '/placeholder.svg'}
-                  alt={product.title}
-                  className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
-                  loading="lazy"
-                />
-              </div>
-              <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
-                {product.title}
-              </p>
-            </Link>
-          );
-        })}
+        {displayItems.map((product, idx) => (
+          <Link
+            key={`${product.id}-${idx}`}
+            to={getProductLink(product)}
+            state={{ product }}
+            className="group flex flex-col"
+          >
+            <div className="aspect-square rounded-lg bg-white overflow-hidden p-1.5 border border-gray-100 shadow-sm">
+              <img
+                src={product.imageUrl || '/placeholder.svg'}
+                alt={product.title}
+                className="w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+                loading="lazy"
+              />
+            </div>
+            <p className="mt-1 text-[11px] text-white/70 line-clamp-2 leading-tight">
+              {product.title}
+            </p>
+          </Link>
+        ))}
       </div>
 
       <button

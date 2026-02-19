@@ -217,8 +217,8 @@ export default function ShopHome() {
           });
           const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
           // Strict relevance filter
-          const filtered = rawItems.filter(p => isRelevantToCategory(p, cat));
-          return { cat, items: filtered };
+          // Don't pre-filter here — buildGrid4 handles filtering with proper exclude-only for dedicated feeds
+          return { cat, items: rawItems };
         })
       );
       const map: Record<string, Product[]> = {};
@@ -256,7 +256,7 @@ export default function ShopHome() {
         return (b.priceUsd || 0) - (a.priceUsd || 0);
       });
 
-    // Helper: pick up to `max` items from candidates, strict include+exclude + dedup
+    // Helper: pick up to `max` items, strict include+exclude + dedup
     const pickStrict = (candidates: Product[], catKey: string, max: number): Product[] => {
       const result: Product[] = [];
       const effectiveExcludes = getEffectiveExcludes(catKey);
@@ -265,9 +265,7 @@ export default function ShopHome() {
         if (result.length >= max) break;
         if (dedup.has(p.id)) continue;
         const titleLower = (p.title || '').toLowerCase();
-        // ALWAYS enforce excludes (category-specific + global)
         if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        // ALWAYS enforce includes
         if (keywords && !keywords.some(kw => titleLower.includes(kw))) continue;
         result.push(p);
         dedup.add(p.id);
@@ -275,32 +273,30 @@ export default function ShopHome() {
       return result;
     };
 
-    // Build category candidate pool: dedicated feed + accueil (strict filtered)
-    const getCandidates = (catKey: string): Product[] => {
-      const dedicated = categorySections[catKey] || [];
-      const fromAccueil = accueilProducts.filter(p => isRelevantToCategory(p, catKey));
-      const seen = new Set<string>();
-      const merged: Product[] = [];
-      for (const p of [...dedicated, ...fromAccueil]) {
-        if (!seen.has(p.id) && p.id && p.priceUsd > 0) {
-          seen.add(p.id);
-          merged.push(p);
-        }
+    // Helper: pick up to `max` items, EXCLUDE-ONLY (no include check) — trusts backend feed
+    const pickExcludeOnly = (candidates: Product[], catKey: string, max: number): Product[] => {
+      const result: Product[] = [];
+      const effectiveExcludes = getEffectiveExcludes(catKey);
+      for (const p of candidates) {
+        if (result.length >= max) break;
+        if (dedup.has(p.id)) continue;
+        const titleLower = (p.title || '').toLowerCase();
+        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
+        result.push(p);
+        dedup.add(p.id);
       }
-      return sortByLuxury(merged);
+      return result;
     };
 
-    // STRICT 2-stage builder — NO relaxed fallbacks ever
+    // 2-stage builder: Stage A = exclude-only from dedicated feed, Stage B = strict from accueil
     const buildGrid4 = (catKey: string): Product[] => {
-      const candidates = getCandidates(catKey);
-      // Stage A: strict from merged pool (dedicated + accueil)
-      let items = pickStrict(candidates, catKey, 4);
-      // Stage B: if < 4, try strict from ALL accueil products (broader pool, still strict)
+      // Stage A: trust dedicated feed items (backend already categorized them)
+      const dedicated = sortByLuxury(categorySections[catKey] || []);
+      let items = pickExcludeOnly(dedicated, catKey, 4);
+      // Stage B: if < 4, pick from accueil with full strict include+exclude
       if (items.length < 4) {
         items = [...items, ...pickStrict(sortByLuxury(accueilProducts), catKey, 4 - items.length)];
       }
-      // NO relaxed/emergency steps — better to show fewer than wrong items
-      // (topUpPools effect below will async-fetch missing items from catalog-category)
       return items.slice(0, 4);
     };
 
@@ -308,9 +304,9 @@ export default function ShopHome() {
     const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'clothing', 'audio_music', 'cameras_photo'];
     const trending: Product[] = [];
     for (const cat of trendingCats) {
-      const items = getCandidates(cat);
+      const dedicated = sortByLuxury([...(categorySections[cat] || []), ...accueilProducts.filter(p => isRelevantToCategory(p, cat))]);
       let count = 0;
-      for (const p of items) {
+      for (const p of dedicated) {
         if (count >= 2) break;
         if (!dedup.has(p.id)) {
           const titleLower = (p.title || '').toLowerCase();
@@ -395,14 +391,13 @@ export default function ShopHome() {
       const pool = topUpPools[g.key];
       if (!pool) return g;
       const effectiveExcludes = getEffectiveExcludes(g.key);
-      const keywords = CATEGORY_KEYWORDS[g.key];
       const extra: Product[] = [];
       for (const p of pool) {
         if (g.items.length + extra.length >= 4) break;
         if (usedIds.has(p.id)) continue;
         const titleLower = (p.title || '').toLowerCase();
+        // Exclude-only: trust catalog-category backend feed
         if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        if (keywords && !keywords.some(kw => titleLower.includes(kw))) continue;
         extra.push(p);
         usedIds.add(p.id);
       }
@@ -466,11 +461,12 @@ export default function ShopHome() {
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {finalCategoryGrids.filter(g => PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
+                {finalCategoryGrids.filter(g => PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
                     items={items}
+                    loading={items.length === 0}
                     mode="grid"
                     categoryKey={catKey}
                   />
@@ -492,11 +488,12 @@ export default function ShopHome() {
 
               {/* 5) Remaining Category Grid Cards — all non-promo categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {finalCategoryGrids.filter(g => !PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
+                {finalCategoryGrids.filter(g => !PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
                     items={items}
+                    loading={items.length === 0}
                     mode="grid"
                     categoryKey={catKey}
                   />

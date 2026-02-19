@@ -110,6 +110,12 @@ const CATEGORY_FALLBACK_QUERIES: Record<string, string[]> = {
   refurbished: ["refurbished iphone", "renewed laptop", "certified refurbished"],
   parts_accessories: ["auto parts", "car parts", "brake pads", "oil filter"],
   vehicles_parts_accessories: ["car parts", "auto parts", "brake pads", "oil filter"],
+  // New homepage categories
+  audio_music: ["bose speaker", "jbl speaker", "headphones", "guitar", "marshall amplifier"],
+  beauty_health: ["perfume", "skincare", "makeup", "hair dryer", "electric shaver"],
+  collectibles: ["trading cards", "collectible figurine", "vintage", "funko pop"],
+  shoes_sneakers: ["nike shoes", "jordan sneakers", "adidas", "new balance"],
+  cameras_photo: ["canon camera", "gopro", "nikon dslr", "sony mirrorless"],
 };
 
 // Default Amazon queries per category (same as /catalog-home see_all.q)

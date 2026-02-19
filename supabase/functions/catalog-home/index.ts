@@ -1189,6 +1189,12 @@ serve(async (req) => {
           watches: "jewelry_watches",
           // Fallback aliases
           business_industrial: "electronics",
+          // New homepage categories
+          audio_music: "audio_music",
+          beauty_health: "beauty_health",
+          collectibles: "collectibles",
+          shoes_sneakers: "shoes_sneakers",
+          cameras_photo: "cameras_photo",
         };
         const recipeKeyFilter = TAB_TO_RECIPE[category] || category || "homepage";
 

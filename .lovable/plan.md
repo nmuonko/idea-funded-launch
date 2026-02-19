@@ -1,32 +1,56 @@
 
 
-# Auto-Scrolling Horizontal Product Rows (Amazon-Style)
+# Vertical Category Sections with Horizontal Scrolling Rows
 
 ## What Changes
 
-Replace the static grid inside each `SectionBlock` with the existing `HorizontalProductRow` component, and add **auto-scrolling** so products continuously scroll sideways like a ticker/carousel. Each section becomes a titled dark card with a horizontally scrolling row of products that moves on its own and pauses on hover/touch.
+Transform the homepage into an Amazon/eBay-style layout where each **category** (Accueil, Phones, Jeux Video, Electronique, Vehicules, etc.) gets its own **vertical section** with a **horizontally scrolling product row**. When you scroll down, you see one category after another, each labeled and each auto-scrolling its products sideways.
 
-## Changes
+The category tabs at the top remain and act as **anchor links** -- tapping "Phones" scrolls you down to the Phones section.
 
-### 1. Add Auto-Scroll to `HorizontalProductRow.tsx`
-- Add a `useEffect` that auto-scrolls the container to the right every ~3 seconds
-- When it reaches the end, loop back to the start
-- Pause auto-scroll on hover (desktop) and on touch (mobile)
-- Keep the manual left/right arrow buttons
+## Layout
 
-### 2. Update `SectionBlock.tsx` to Use Horizontal Rows
-- Replace the `grid` layout with the `HorizontalProductRow` component
-- Keep the dark card wrapper (`bg-white/[0.04]`) and section title
-- Remove `maxItems` cap so all products in a section are scrollable
-- Pass all items to the horizontal row
+```text
++------------------------------------------+
+| [Header + Search]                        |
+| [Accueil] [Phones] [Electronique] [...]  |  <-- tabs (scroll to section)
++------------------------------------------+
+| Delivery Banner                          |
++------------------------------------------+
+| Accueil (mix of all)                     |
+| [====> auto-scrolling products ====>]    |
++------------------------------------------+
+| Telephones                               |
+| [====> auto-scrolling products ====>]    |
++------------------------------------------+
+| Jeux Video                               |
+| [====> auto-scrolling products ====>]    |
++------------------------------------------+
+| Electronique                             |
+| [====> auto-scrolling products ====>]    |
++------------------------------------------+
+| ... more categories ...                  |
++------------------------------------------+
+```
 
-### 3. Update Fade Overlays
-- Change fade gradient from `from-black` to `from-[rgb(10,10,10)]` to match the dark card background better
+## Technical Details
+
+### 1. Fetch Products Per Category
+Update `ShopHome.tsx` to fetch the home feed **once** (as today), but also fire parallel requests for each major category (phones, electronics, gaming, vehicles, etc.) to populate dedicated sections. Use `cachedCatalogFetch` with the `category` param for each.
+
+### 2. Render Vertical Stack of Category Sections
+Replace the current single-section rendering with a loop over categories. Each renders a `SectionBlock` (dark card with title + `HorizontalProductRow` inside). The first "Accueil" section shows the mixed/all products from the main feed.
+
+### 3. Category Tabs Become Anchor Links
+When a tab is tapped, instead of filtering products, smooth-scroll to the matching section using `element.scrollIntoView()`. Each section gets an `id` attribute matching its category key.
+
+### 4. Keep SectionBlock + HorizontalProductRow As-Is
+No changes needed to these components -- they already handle the dark card wrapper and auto-scrolling horizontal row perfectly.
 
 ## Files Modified
 
 | File | Change |
 |------|--------|
-| `src/components/shop/HorizontalProductRow.tsx` | Add auto-scroll interval with pause on hover/touch |
-| `src/components/shop/SectionBlock.tsx` | Replace grid with `HorizontalProductRow`, keep dark card wrapper + title |
+| `src/pages/shop/ShopHome.tsx` | Fetch per-category data, render vertical stack of SectionBlocks, wire tab clicks to scroll-to-section |
+| `src/components/shop/CategoryTabs.tsx` | Add optional `scrollToSection` mode that scrolls to an anchor instead of filtering |
 

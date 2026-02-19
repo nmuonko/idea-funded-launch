@@ -62,7 +62,6 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     e.stopPropagation();
     
     if (isSaved) {
-      // Find and remove by productId and provider
       removeFromSaved(product.id);
     } else {
       addToSaved({
@@ -81,50 +80,25 @@ export function ProductCard({ product, className, compact = false }: ProductCard
     ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
     : 'bg-blue-500/20 text-blue-400 border-blue-500/30';
 
-  // Normalize provider display name
   const getProviderDisplayName = (provider: string): string => {
     const normalized = provider.toLowerCase();
-    if (normalized === 'rainforest' || normalized === 'amazon') {
-      return 'Amazon';
-    }
-    if (normalized === 'ebay') {
-      return 'Ebay';
-    }
+    if (normalized === 'rainforest' || normalized === 'amazon') return 'Amazon';
+    if (normalized === 'ebay') return 'eBay';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   };
 
-  // Strip provider prefix from ID for URL routing
-  // e.g., "amazon_B0XYZ..." -> "B0XYZ...", "ebay_v1|123|456" -> "v1|123|456"
   const getProductIdForUrl = (): string => {
     const id = product.id;
-    
-    // Strip prefix if present
-    if (id.toLowerCase().startsWith('amazon_')) {
-      return id.slice(7);
-    }
-    if (id.toLowerCase().startsWith('rainforest_')) {
-      return id.slice(11);
-    }
-    if (id.toLowerCase().startsWith('ebay_')) {
-      return id.slice(5);
-    }
-    
-    // If no prefix, return as-is
+    if (id.toLowerCase().startsWith('amazon_')) return id.slice(7);
+    if (id.toLowerCase().startsWith('rainforest_')) return id.slice(11);
+    if (id.toLowerCase().startsWith('ebay_')) return id.slice(5);
     return id;
   };
 
-  // Get provider for URL - MUST be "amazon" or "ebay" only (never "rainforest")
   const getProviderForUrl = (): string => {
     const provider = product.provider.toLowerCase();
-    // Normalize rainforest -> amazon for frontend routing
-    if (provider === 'rainforest') {
-      return 'amazon';
-    }
-    // Only allow amazon or ebay
-    if (provider === 'amazon' || provider === 'ebay') {
-      return provider;
-    }
-    // Default to amazon for unknown
+    if (provider === 'rainforest') return 'amazon';
+    if (provider === 'amazon' || provider === 'ebay') return provider;
     return 'amazon';
   };
 
@@ -133,21 +107,21 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        "group block bg-white/5 backdrop-blur-sm border border-white/[0.15] rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/25 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/10",
+        "group block bg-[#1a1d23] border border-white/10 rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-200 hover:border-white/20 hover:shadow-lg hover:shadow-black/30",
         className
       )}
     >
-      {/* Image Container */}
+      {/* Image Container — white bg for product visibility */}
       <div className={cn(
-        "relative overflow-hidden bg-neutral-200",
+        "relative overflow-hidden bg-white",
         compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img
           src={product.imageUrl || '/placeholder.svg'}
           alt={product.title}
           className={cn(
-            "w-full h-full object-contain transition-transform duration-300 group-hover:scale-105",
-            compact ? "p-1.5" : "p-2 sm:p-4"
+            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105",
+            compact ? "p-1.5" : "p-2.5 sm:p-4"
           )}
           loading="lazy"
         />
@@ -186,8 +160,8 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       </div>
 
       {/* Content */}
-      <div className={cn("space-y-1.5 sm:space-y-2", compact ? "p-1.5 sm:p-2" : "p-2.5 sm:p-4 space-y-2 sm:space-y-3")}>
-        {/* Title */}
+      <div className={cn("space-y-1.5", compact ? "p-1.5 sm:p-2" : "p-2.5 sm:p-3")}>
+        {/* Title — always 2-line clamp */}
         <h3 className={cn(
           "font-medium text-white/90 line-clamp-2",
           compact ? "text-xs min-h-[2rem]" : "text-xs sm:text-sm min-h-[2rem] sm:min-h-[2.5rem]"
@@ -214,13 +188,13 @@ export function ProductCard({ product, className, compact = false }: ProductCard
             </span>
           </div>
           
-            <Button
+          <Button
             size="sm"
             onClick={handleAddToCart}
             disabled={adding || product.inStock === false}
             className={cn(
               "rounded-full transition-all",
-              compact ? "h-9 w-9 p-0" : "min-h-[44px] min-w-[44px]",
+              compact ? "h-9 w-9 p-0" : "min-h-[40px] min-w-[40px]",
               added 
                 ? "bg-green-500 hover:bg-green-600" 
                 : "bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600"

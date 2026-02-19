@@ -1,105 +1,77 @@
 
 
-# Fix Category Relevance, Trending Variety, and Grid Padding
+# Fix Homepage Category Relevance, No Empty Slots, Luxury Mix, and Tendances Variety
 
-## Problems Identified
-1. **Electronics tab shows sofas/furniture** -- The `electronics` keyword list includes overly broad terms like `'smart'` (matches "smart sofa"), `'hp'` (matches non-electronics), and `'apple'` (could match non-tech). There are NO exclude keywords to reject furniture items that slip through.
-2. **Tendances lacks variety** -- Currently just takes the first 16 items from `accueilProducts` sequentially, which may all be from one or two categories. Needs round-robin mixing across categories (phones, cars, electronics, clothing, etc.).
-3. **Last grid row duplicates existing categories** -- The padding logic fills empty slots by re-using `promoPreviews` (Phones, Electronics, Gaming, Vehicles), which are already displayed above. User wants NEW categories like music instruments, etc.
+## Problems Found
 
-## Solution
+From the screenshot and code analysis:
 
-### 1. Add exclude keywords to electronics filter
-**File: `src/pages/shop/ShopHome.tsx`**
+1. **Tendances** shows yoga mats, sofas, and non-diverse items instead of a luxury variety mix
+2. **Jeux Video** shows "USB-C Car Charger for ASUS ROG Ally", "S Racer Gaming Chair", "Replacement Internal Cooling Fan" -- accessories, not actual games/consoles
+3. **Telephones** shows "SP CONNECT Phone Case" -- a case, not a phone
+4. **Vehicles** shows GPS/stereo accessories alongside actual cars
+5. **globalDedup** is a `useMemo(() => new Set(), [deps])` that gets mutated during render -- fragile React anti-pattern that can cause inconsistent dedup
+6. Some category grids show fewer than 4 items with empty space
 
-Add a `CATEGORY_EXCLUDE_KEYWORDS` map and update `isRelevantToCategory` to reject items matching exclude patterns. For `electronics`, exclude furniture terms like `sofa`, `couch`, `table`, `chair`, `bed`, `mattress`, `rug`, `curtain`, `furniture`, `garden`, `pillow`, `décor`.
+## Root Causes
 
-Also remove overly broad include keywords from electronics: remove `'smart'`, `'hp'`, and `'apple'` (keep `'macbook'`, `'ipad'` which are specific enough).
+- **Keywords too broad**: `gaming` matches "gaming chair", `keyboard` in electronics matches instrument keyboards, `game` matches anything
+- **Exclude lists incomplete**: phones don't exclude "case", "protector", "cable"; gaming doesn't exclude "charger", "fan", "cooling", "chair"; vehicles don't exclude "gps", "stereo", "carplay"
+- **globalDedup mutated during render**: a Set created in useMemo gets `.add()` calls during the same render cycle across multiple useMemo hooks -- works by accident but is fragile
+- **pageSize: 30** for category fetches may not yield 4 relevant items after filtering
 
-```typescript
-const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
-  electronics: ['sofa', 'couch', 'table', 'chair', 'bed', 'mattress', 'rug', 'curtain', 'furniture', 'garden', 'pillow', 'décor', 'decor', 'dress', 'shirt', 'pants', 'shoes', 'sneakers', 'toy', 'doll', 'lego'],
-  gaming: ['charger', 'case', 'screen protector', 'sofa', 'chair', 'desk', 'table'],
-  phones: ['case', 'screen protector', 'charger', 'sofa', 'furniture'],
-};
+## Changes (all in `src/pages/shop/ShopHome.tsx`)
 
-function isRelevantToCategory(product: Product, categoryKey: string): boolean {
-  if (categoryKey === 'all') return true;
-  const keywords = CATEGORY_KEYWORDS[categoryKey];
-  if (!keywords) return true;
-  const titleLower = (product.title || '').toLowerCase();
-  const matches = keywords.some(kw => titleLower.includes(kw));
-  if (!matches) return false;
-  // Check excludes
-  const excludes = CATEGORY_EXCLUDE_KEYWORDS[categoryKey];
-  if (excludes && excludes.some(ex => titleLower.includes(ex))) return false;
-  return true;
-}
-```
+### 1. Tighten CATEGORY_KEYWORDS
 
-### 2. Make Tendances feed use round-robin mixing
-**File: `src/pages/shop/ShopHome.tsx`**
+Remove overly broad terms:
+- **electronics**: remove `keyboard` (conflicts with music), keep `mechanical keyboard`
+- **gaming**: remove bare `game`, `gamer`; keep specific console/brand terms; add `video game`
+- **phones**: remove generic `phone` (matches "phone case"); keep `smartphone`, brand names, `iphone`, `galaxy`
+- **vehicles**: keep car brands but remove `gps`, `dash` (those are accessories)
 
-Replace the simple `accueilProducts.slice(0, 20)` with a round-robin builder that picks 2 items from each category section (phones, electronics, gaming, vehicles, clothing, home_garden, jewelry_watches, sporting_goods) to create a diverse 16-item feed. This ensures the trending grid shows luxury phones, cars, watches, fashion, etc.
+### 2. Expand CATEGORY_EXCLUDE_KEYWORDS significantly
 
-```typescript
-const trendingFeed = useMemo(() => {
-  const categoryOrder = ['phones', 'vehicles', 'electronics', 'clothing', 'jewelry_watches', 'gaming', 'sporting_goods', 'home_garden'];
-  const seen = new Set<string>();
-  const result: Product[] = [];
-  // Round-robin: pick 2 from each category
-  for (const cat of categoryOrder) {
-    const items = categorySections[cat] || [];
-    let count = 0;
-    for (const p of items) {
-      if (count >= 2) break;
-      if (!seen.has(p.id)) {
-        result.push(p);
-        seen.add(p.id);
-        count++;
-      }
-    }
-  }
-  // If still under 16, fill from accueilProducts
-  for (const p of accueilProducts) {
-    if (result.length >= 16) break;
-    if (!seen.has(p.id)) {
-      result.push(p);
-      seen.add(p.id);
-    }
-  }
-  return result.slice(0, 16);
+- **phones**: add `case`, `protector`, `screen protector`, `cable`, `charger`, `mount`, `holder`, `stand`, `tempered glass`, `cover`, `wallet`, `strap`, `armband`
+- **gaming**: add `charger`, `cable`, `fan`, `cooling`, `chair`, `desk`, `case`, `skin`, `decal`, `stand`, `mount`, `replacement`
+- **electronics**: add `yoga`, `exercise`, `workout`, `sport`, `clothing`, `fashion`
+- **vehicles**: add `phone`, `charger`, `cable`, `stereo`, `gps`, `carplay`, `android auto`, `dash cam` (keep only real vehicles)
+- All categories: ensure cross-contamination exclusions are comprehensive
+
+### 3. Fix globalDedup pattern
+
+Replace the fragile mutated-Set-in-useMemo pattern with a single `useMemo` that computes ALL sections at once (trending, promo, more, extra) in one pass. This ensures deterministic dedup order and no React anti-pattern.
+
+```text
+const allSections = useMemo(() => {
+  const dedup = new Set<string>();
+  // 1. Build trendingFeed (16 items, round-robin, luxury bias)
+  // 2. Build promoPreviews (top 4 cats, 4 items each)
+  // 3. Build bottomGridPreviews (remaining cats + extras, 4 items each)
+  return { trendingFeed, promoPreviews, bottomGridPreviews };
 }, [categorySections, accueilProducts]);
 ```
 
-### 3. Replace padding with NEW unique categories
-**File: `src/pages/shop/ShopHome.tsx`**
+### 4. Increase category fetch pageSize from 30 to 60
 
-Add new categories to `CATEGORY_TITLE_MAP` and `CATEGORY_KEYWORDS`:
-- `music_instruments` -- Guitars, pianos, drums, DJ equipment
-- `beauty_health` -- Perfume, skincare, makeup, grooming
-- `collectibles` -- Coins, stamps, trading cards, vintage items
+This gives more candidates to filter, reducing the chance of ending up with fewer than 4 relevant items per category.
 
-Extend `MORE_CATEGORIES` to include these new keys so the grid naturally has enough entries to fill rows of 4 (10 total = 2.5 rows, pad to 12 = 3 full rows). Replace the padding logic: instead of reusing `promoPreviews`, calculate how many slots remain and fill from a `PADDING_CATEGORIES` list that excludes already-shown categories.
+### 5. Trending feed composition (luxury-biased round-robin)
 
-```typescript
-const CATEGORY_TITLE_MAP = {
-  // ... existing 11 ...
-  music_instruments: { fr: 'Instruments de Musique', en: 'Music Instruments' },
-  beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
-  collectibles: { fr: 'Collections', en: 'Collectibles' },
-};
+Keep the existing round-robin logic but inside the unified `useMemo`. Pick 2 items per category from: phones, vehicles, electronics, clothing, jewelry_watches, gaming, sporting_goods, home_garden. Prioritize items with luxury keywords and higher prices. Fill remaining slots from accueilProducts.
 
-const CATEGORY_KEYWORDS = {
-  // ... existing ...
-  music_instruments: ['guitar', 'piano', 'keyboard', 'drum', 'violin', 'saxophone', 'trumpet', 'ukulele', 'microphone', 'amplifier', 'dj', 'mixer', 'synthesizer', 'bass guitar', 'flute', 'harmonica'],
-  beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair', 'grooming', 'razor', 'fragrance', 'lotion', 'beauty'],
-  collectibles: ['coin', 'stamp', 'trading card', 'pokemon', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic', 'figurine', 'medal', 'rare'],
-};
-```
+### 6. No UI changes needed for empty slots
 
-Remove the padding IIFE that reuses `promoPreviews` -- with 10 categories in MORE, the grid will fill more naturally. If still not a multiple of 4, pad from the new categories only (never from PROMO).
+The `CategoryCard` already renders only available items (`items.slice(0, 4)`) and returns `null` if empty. The fix is to ensure the data layer provides enough relevant items (via larger fetch + better filtering).
 
 ## Files to Modify
-- **`src/pages/shop/ShopHome.tsx`** -- All 3 changes (exclude keywords, trending round-robin, new categories, padding fix)
+
+- **`src/pages/shop/ShopHome.tsx`** -- All changes: tighten keywords, expand excludes, fix dedup pattern, increase pageSize, unify section building logic
+
+## What Will NOT Change
+
+- `CategoryCard.tsx` -- already correct (no placeholders)
+- `SectionBlock.tsx` -- already correct (16 items for static-grid)
+- Backend edge functions -- the filtering is applied client-side after fetch, which is the right approach given the data comes from multiple providers
+- "Voir plus" routing -- already works via `/category/{categoryKey}`
 

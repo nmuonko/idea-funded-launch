@@ -6,6 +6,7 @@ import { ShopHeader } from '@/components/shop/ShopHeader';
 import { BottomNavigation } from '@/components/shop/BottomNavigation';
 import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { VerticalProductGrid } from '@/components/shop/VerticalProductGrid';
+import { SectionBlock } from '@/components/shop/SectionBlock';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { ShopFooter } from '@/components/shop/ShopFooter';
 import { Product } from '@/components/shop/ProductCard';
@@ -44,6 +45,7 @@ export default function ShopHome() {
   const { language } = useLanguage();
   const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
+  const [sections, setSections] = useState<Array<{ key: string; title: string; hideTitle?: boolean; items: Product[] }>>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,19 +141,31 @@ export default function ShopHome() {
         return;
       }
       
-      if (data?.sections?.[0]?.items) {
-        const mappedProducts = data.sections[0].items
-          .map(mapItemToProduct)
-          .filter(p => p.id && p.priceUsd > 0);
+      if (data?.sections?.length) {
+        // Map all sections with their items
+        const mappedSections = data.sections
+          .map(sec => ({
+            key: sec.key,
+            title: sec.title,
+            hideTitle: sec.hideTitle,
+            items: sec.items
+              .map(mapItemToProduct)
+              .filter(p => p.id && p.priceUsd > 0),
+          }))
+          .filter(sec => sec.items.length > 0);
+
+        // Flat list for pagination/fallback
+        const allProducts = mappedSections.flatMap(s => s.items);
         
         if (append) {
-          setProducts(prev => [...prev, ...mappedProducts]);
+          setProducts(prev => [...prev, ...allProducts]);
+          setSections(prev => [...prev, ...mappedSections]);
         } else {
-          setProducts(mappedProducts);
+          setProducts(allProducts);
+          setSections(mappedSections);
         }
         
         // Update pagination state FROM BACKEND RESPONSE
-        // totalPages from backend is computed from poolSize / pageSize
         if (data.totalPages !== undefined && data.totalPages > 0) {
           setTotalPages(data.totalPages);
         }
@@ -159,16 +173,13 @@ export default function ShopHome() {
           setPoolSize(data._meta.poolSize);
         }
         
-        // Track if we're now in live mode
         const nowLive = data._meta?.source === 'live' || shouldUseLive;
         setIsLiveMode(nowLive);
-        
-        // hasMore is true as long as we got items (cache or live)
-        setHasMore(data.hasMore !== false && mappedProducts.length > 0);
+        setHasMore(data.hasMore !== false && allProducts.length > 0);
         setCurrentPage(page);
       } else if (page === 1) {
-        // No items in response - show empty state
         setProducts([]);
+        setSections([]);
         setHasMore(false);
       }
     } catch (err: any) {
@@ -247,7 +258,11 @@ export default function ShopHome() {
       <main className="pb-8">
         <div className="container mx-auto px-4">
           {loading ? (
-            <VerticalProductGrid products={[]} loading skeletonCount={12} />
+            <div className="space-y-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SectionBlock key={i} items={[]} loading />
+              ))}
+            </div>
           ) : error ? (
             <div className="text-center py-20">
               <p className="text-red-400 mb-4">{error}</p>
@@ -263,6 +278,22 @@ export default function ShopHome() {
             <div className="text-center py-20">
               <p className="text-white/60">{shop.noProducts}</p>
             </div>
+          ) : sections.length > 1 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="space-y-4"
+            >
+              {sections.map((sec) => (
+                <SectionBlock
+                  key={sec.key}
+                  title={sec.title}
+                  hideTitle={sec.hideTitle}
+                  items={sec.items}
+                />
+              ))}
+            </motion.div>
           ) : (
             <motion.div
               initial={{ opacity: 0, y: 20 }}

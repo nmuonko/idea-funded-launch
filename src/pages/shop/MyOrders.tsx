@@ -57,13 +57,26 @@ export default function MyOrders() {
       }
 
       try {
-        const { data, error } = await supabase
+        // Try fetching with confirmation_code first, fall back without it
+        let data, error;
+        ({ data, error } = await supabase
           .from('orders')
           .select('id, created_at, status, total_usd, confirmation_code')
           .eq('user_id', user.id)
-          .neq('status', 'DRAFT') // Exclude draft orders (carts)
+          .neq('status', 'DRAFT')
           .order('created_at', { ascending: false })
-          .limit(100);
+          .limit(100));
+
+        // Fallback if confirmation_code column doesn't exist yet
+        if (error) {
+          ({ data, error } = await supabase
+            .from('orders')
+            .select('id, created_at, status, total_usd')
+            .eq('user_id', user.id)
+            .neq('status', 'DRAFT')
+            .order('created_at', { ascending: false })
+            .limit(100));
+        }
 
         if (error) throw error;
         // Map data to include items as empty array since we don't query it

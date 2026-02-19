@@ -1,106 +1,87 @@
 
 
-# Pre-Launch Audit: Issues and Improvements
+# Frontend Layout Improvements for a Professional, Ad-Ready Look
 
-## CRITICAL Issues (Must Fix Before Ads)
+## Overview
 
-### 1. CSP has a stale hardcoded Supabase project ID
-**File:** `index.html` (line 7)
-
-The Content Security Policy explicitly lists `https://igmkhxffnyzoogcqvdab.supabase.co` -- an old/wrong project ID. While the wildcards `https://*.supabase.co` and `wss://*.supabase.co` already cover the actual project (`wydajcvmdoaqvovncotu`), the stale entry is misleading and should be removed to avoid confusion.
-
-**Fix:** Remove the explicit old domain from the CSP, keeping only the wildcard entries.
+Based on my review of the current homepage, product cards, and overall layout, here are targeted improvements to make the web app look more polished and trustworthy -- critical when driving paid traffic from ads.
 
 ---
 
-### 2. SEO / Social Sharing Meta Tags Say "Admin Portal"
-**File:** `index.html` (lines 12, 27-28)
+## 1. Trust Badges Strip (Below Hero Banner)
 
-The `<meta name="description">` and all OG/Twitter description tags say:
-> "AfriShop Admin Portal - Manage orders, payments, shipping, and customer support..."
+Add a horizontal strip of trust signals between the hero banner and category tabs. This is standard on professional e-commerce sites and builds instant credibility with new visitors from ads.
 
-When you run ads, link previews on Facebook, WhatsApp, Twitter, etc. will show "Admin Portal" text. This will confuse customers and hurt click-through rates.
+**What it shows (4 icons in a row):**
+- Shield icon: "Paiement Securise" / "Secure Payment"
+- Truck icon: "Livraison USA-RDC" / "USA to DRC Delivery"  
+- Headphones icon: "Support 24/7"
+- RefreshCw icon: "Remboursement" / "Money-Back Guarantee"
 
-**Fix:** Update all meta descriptions to customer-facing copy, e.g.:
-> "AfriShop - Shop from USA stores like Amazon & eBay, delivered directly to DR Congo. Fast, reliable, affordable."
-
-Also update the OG image to a customer-facing promotional image (not a preview screenshot).
-
----
-
-### 3. Hardcoded Old Project ID in Admin Webhook URLs
-**File:** `src/pages/admin/PaymentProvidersContent.tsx` (lines 466, 472)
-
-Stripe and PawaPay webhook URLs reference `igmkhxffnyzoogcqvdab` instead of the current project `wydajcvmdoaqvovncotu`. If these are copy-paste instructions for setting up webhooks, they point to the wrong endpoint.
-
-**Fix:** Replace hardcoded URLs with dynamically constructed ones using `import.meta.env.VITE_SUPABASE_URL`.
+**Implementation:** New `TrustBadgesStrip` component, added to `ShopHome.tsx` between the hero and category tabs.
 
 ---
 
-### 4. Unpublished Schema Changes (Production Out of Sync)
-The `confirmation_code` column on `orders` and the new "All" tab for My Orders only exist in Test. Production users currently see an empty orders page.
+## 2. Product Card Visual Upgrade
 
-**Fix:** Publish the project immediately after these fixes are applied.
+Current cards are dark-on-dark (`bg-white/5` with `border-white/10`), making products hard to distinguish. The improvement:
 
----
+- **White image background**: Change the image area from `bg-white/5` to `bg-white` so product photos pop against the dark page
+- **Slightly brighter card border**: Increase from `border-white/10` to `border-white/15` for better definition
+- **Add subtle shadow on hover**: `hover:shadow-lg hover:shadow-blue-500/10` for a premium feel
+- **Rating stars visible in compact mode**: Currently hidden on compact cards -- show them in a smaller format
 
-## IMPORTANT Issues (Should Fix)
-
-### 5. Database Security: 7 "Always True" RLS Policies (WARN)
-The linter found 7 RLS policies using `USING (true)` or `WITH CHECK (true)` on INSERT/UPDATE/DELETE operations. This means any authenticated user could potentially modify data in those tables.
-
-**Fix:** Audit each flagged table and tighten policies to restrict writes to the owning user or admin role only.
-
-### 6. Database Security: Extensions in Public Schema (WARN)
-Two extensions are installed in the `public` schema instead of a dedicated `extensions` schema. This is a security best practice warning.
-
-### 7. Database Security: Function Without search_path (WARN)
-One function has a mutable `search_path`, which could be exploited in edge cases.
-
-### 8. No Global Error Boundary
-Only `ProductDetails` has an error boundary. If the homepage, cart, checkout, or orders pages crash (e.g., from an unexpected API response), users see a blank white screen with no recovery option.
-
-**Fix:** Add a top-level `<ErrorBoundary>` around all routes in `App.tsx` that shows a friendly "Something went wrong" screen with a retry button.
+**Files:** `ProductCard.tsx`, `ProductCardSkeleton.tsx`
 
 ---
 
-## NICE-TO-HAVE Improvements
+## 3. "How It Works" Section on Homepage
 
-### 9. Missing `og:url` Meta Tag
-No `og:url` is set, which can cause duplicate content issues with social sharing.
+The `HowItWorks` component already exists but is not shown on the homepage. Adding the horizontal variant between the hero and product grid gives first-time visitors (from ads) an instant understanding of the service.
 
-### 10. Performance: No `loading="lazy"` on Product Images
-Product grids load all images eagerly. For a catalog with 100+ items per page, lazy loading would improve initial page load time significantly.
-
-### 11. Console Logging in Production
-The codebase has extensive `console.log` statements (e.g., `[ShopHome]`, `[Auth]`, `[WEB_CHECKOUT]`). These are helpful for debugging but expose internal logic to anyone who opens DevTools.
-
-**Recommendation:** Add a production log filter or remove verbose logs before launch.
-
-### 12. "Remember Me" UX Quirk
-If a user doesn't check "Remember me", their session is cleared on the next browser restart. This is unusual for e-commerce -- most shops keep users signed in by default. For DRC users who may have intermittent connectivity, this could cause friction.
+**Implementation:** Add `<HowItWorks variant="horizontal" />` to `ShopHome.tsx`, positioned after the trust badges strip.
 
 ---
 
-## Summary Table
+## 4. Header Polish
 
-| Priority | Issue | Impact |
-|----------|-------|--------|
-| CRITICAL | Meta tags say "Admin Portal" | Ad link previews look wrong |
-| CRITICAL | Unpublished schema changes | Orders page broken in production |
-| CRITICAL | Stale webhook URLs in admin | Payment webhooks misconfigured |
-| IMPORTANT | 7 overly permissive RLS policies | Security risk |
-| IMPORTANT | No global error boundary | White screen crashes |
-| NICE | Production console logging | Information leakage |
-| NICE | Lazy loading images | Performance |
-| NICE | "Remember Me" default | User friction |
+- **Add a thin colored accent line** at the very top of the header (2px gradient bar from blue to cyan) -- a small detail that adds a premium feel
+- **Logo area spacing**: Slightly increase logo height from `h-8` to `h-9` for better presence
 
-## Recommended Implementation Order
+**File:** `ShopHeader.tsx`
 
-1. Fix meta tags in `index.html` (descriptions + OG image)
-2. Fix hardcoded webhook URLs in admin
-3. Clean up stale CSP entry
-4. Add global error boundary
-5. Publish to production
-6. Audit and fix RLS policies
+---
+
+## 5. Category Tabs Refinement
+
+- **Active tab**: Add a subtle bottom indicator dot/line in addition to the gradient background
+- **Inactive tabs**: Slightly increase background opacity from `bg-white/5` to `bg-white/8` for better visibility
+- **Icons**: Increase from `h-4 w-4` to `h-4.5 w-4.5` (use `h-[18px] w-[18px]`) for better tap targets
+
+**File:** `CategoryTabs.tsx`
+
+---
+
+## 6. Footer Visual Cleanup
+
+- Add the AfriShop logo at the top of the footer
+- Add a subtle gradient divider instead of the plain `border-t border-white/10`
+
+**File:** `ShopFooter.tsx`
+
+---
+
+## Summary of Files to Change
+
+| File | Changes |
+|------|---------|
+| `src/components/shop/TrustBadgesStrip.tsx` | **New file** -- trust badges component |
+| `src/pages/shop/ShopHome.tsx` | Add TrustBadgesStrip + HowItWorks sections |
+| `src/components/shop/ProductCard.tsx` | White image bg, brighter borders, hover shadow, compact ratings |
+| `src/components/shop/ProductCardSkeleton.tsx` | Match card style updates |
+| `src/components/shop/ShopHeader.tsx` | Top accent bar, logo size |
+| `src/components/shop/CategoryTabs.tsx` | Active indicator, better inactive contrast |
+| `src/components/shop/ShopFooter.tsx` | Logo + gradient divider |
+
+All changes are CSS/styling and component composition -- no backend or data model changes needed.
 

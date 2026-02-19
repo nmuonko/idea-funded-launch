@@ -1,116 +1,56 @@
 
 
-# Add All 16 Categories to Admin + Backend + Ensure 300-Item Prefetch on "Voir Plus"
+# Fix Disappeared/Under-filled Category Grids
 
-## Overview
+## Root Cause
 
-Currently, only 12 categories exist in the admin portal (`home_recipes` table) and backend routing. The 5 newer categories (`beauty_health`, `collectibles`, `audio_music`, `shoes_sneakers`, `cameras_photo`) are only defined in the frontend -- they have no admin recipes, no backend recipe mapping, and no prewarm support. This means they get zero dedicated items and rely entirely on the emergency backfill from the general pool.
+Two bugs are causing grids to disappear or show fewer than 4 items:
 
-This plan adds full end-to-end support for all 16 categories (the original 11 + homepage + the 5 new ones).
+**Bug 1: Over-strict filtering on dedicated feed items**
+When the backend returns items for a specific category (e.g., `catalog-home?category=electronics`), those items are already category-relevant by design. But `pickStrict` forces them through an include-keyword check too, rejecting many valid items whose titles don't happen to contain the hardcoded keywords. For example, an HP laptop returned by the electronics recipe might not match if its title says "HP Pavilion 15" without the word "laptop".
 
----
+**Bug 2: Grids with 0 items are hidden from render**
+Lines 469 and 495 filter out `g.items.length > 0`, so any category that got 0 items after strict filtering simply vanishes. The async top-up mechanism fetches replacements, but the render still hides grids with 0 initial items because `finalCategoryGrids` only adds to existing items, it doesn't re-show hidden grids.
 
-## Changes
+Additionally, `CategoryCard` itself returns `null` when `items.length === 0` (line 33).
 
-### 1. Database: Add 5 New Recipe Rows
+## Solution (single file: `src/pages/shop/ShopHome.tsx`)
 
-Insert into `home_recipes` for target=`web`:
+### 1. Trust dedicated feed items (exclude-only filtering)
 
-| key | title_fr | title_en | sort_order |
-|-----|----------|----------|------------|
-| beauty_health | Beaute et Sante | Beauty & Health | 12 |
-| collectibles | Collections | Collectibles | 13 |
-| audio_music | Audio et Musique | Audio & Music | 14 |
-| shoes_sneakers | Chaussures et Sneakers | Shoes & Sneakers | 15 |
-| cameras_photo | Cameras et Photo | Cameras & Photo | 16 |
+Split filtering into two tiers:
+- **Dedicated feed items** (`categorySections[catKey]`): Only apply exclude checks (no include-keyword requirement). These items were fetched by the backend specifically for this category.
+- **Accueil pool items** (`accueilProducts`): Apply full strict include + exclude checks (as today).
 
-Each will be `enabled=true`, `mode='manual'`.
+This means `buildGrid4` will:
+- Stage A: Pick from dedicated feed using exclude-only filtering (up to 4)
+- Stage B: If still < 4, pick from accueil pool using strict include+exclude filtering
 
-### 2. Backend: catalog-home TAB_TO_RECIPE
+### 2. Always render all 16 category grids
 
-Add the 5 new keys to the `TAB_TO_RECIPE` map so when the frontend requests `?category=audio_music`, the backend knows which recipe key to filter by:
+Remove the `g.items.length > 0` filter from both render sections (promo tiles at line 469 and remaining grids at line 495). Every category in `ALL_HOMEPAGE_CATEGORIES` always renders. If a grid currently has 0-3 items, it still shows while the async top-up fetches more.
 
-```
-audio_music: "audio_music",
-beauty_health: "beauty_health",
-collectibles: "collectibles",
-shoes_sneakers: "shoes_sneakers",
-cameras_photo: "cameras_photo",
-```
+### 3. Show loading skeleton for empty grids instead of hiding
 
-### 3. Backend: categoryRegistry.ts Aliases
+For categories with 0 items that are still loading (top-up in progress), show the `CategoryCard` loading skeleton instead of `null`. Update the render to pass `loading={true}` when items are empty and top-up hasn't completed yet.
 
-Add fallback aliases so `catalog-category` (used by "Voir plus" / category page) can resolve these keys:
+### 4. Top-up fetches for ALL categories with < 4 items
 
-```
-audio_music -> electronics_audio (closest canonical parent)
-beauty_health -> (new canonical or fallback to general search)
-collectibles -> (general search)
-shoes_sneakers -> clothing_shoes
-cameras_photo -> electronics_cameras
-```
-
-### 4. Backend: catalog-category Fallback Queries
-
-Add default search queries for the new categories so the category page can fetch relevant items:
-
-```
-audio_music: ["bose speaker", "jbl speaker", "headphones", "guitar"]
-beauty_health: ["perfume", "skincare", "makeup", "hair dryer"]
-collectibles: ["trading cards", "collectible figurine", "vintage"]
-shoes_sneakers: ["nike shoes", "jordan sneakers", "adidas"]  
-cameras_photo: ["canon camera", "gopro", "nikon dslr"]
-```
-
-### 5. Backend: catalog-prewarm-home
-
-Add the 5 new sections to `HOME_PREWARM_SECTIONS` so the "Publish All" button in admin prewarms these categories too.
-
-### 6. Frontend: ShopHome.tsx
-
-Update `FETCH_CATEGORY_KEYS` to include all 16 categories (currently only 11 are fetched from the backend). This ensures each category grid gets dedicated items instead of relying on emergency backfill:
-
-```
-const FETCH_CATEGORY_KEYS = [
-  'phones', 'electronics', 'gaming', 'vehicles', 'clothing',
-  'home_garden', 'toys', 'sporting_goods', 'jewelry_watches',
-  'parts_accessories', 'refurbished', 'beauty_health', 'collectibles',
-  'audio_music', 'shoes_sneakers', 'cameras_photo',
-];
-```
-
-### 7. Frontend: CategoryResultsPage.tsx
-
-Add the 5 missing keys to `CATEGORY_TITLE_MAP` so the category page shows correct titles when navigating via "Voir plus":
-
-```
-audio_music: { fr: 'Audio & Musique', en: 'Audio & Music' },
-beauty_health: { fr: 'Beaute & Sante', en: 'Beauty & Health' },
-collectibles: { fr: 'Collections', en: 'Collectibles' },
-shoes_sneakers: { fr: 'Chaussures & Sneakers', en: 'Shoes & Sneakers' },
-cameras_photo: { fr: 'Cameras & Photo', en: 'Cameras & Photo' },
-```
-
-The existing 300-item prefetch pool (`POOL_TARGET = 300`) and pagination logic already work correctly -- the fix is just ensuring the backend can resolve and return items for these category keys.
-
-### 8. No Regressions
-
-- No changes to existing category logic, filtering, dedup, or backfill pipeline
-- No changes to the Tendances section
-- No changes to mobile feed behavior
-- The `catalog-home` function's fallback behavior (line 1193: `TAB_TO_RECIPE[category] || category || "homepage"`) already passes unknown keys through, so existing categories continue to work even during deployment
-
----
+The existing top-up `useEffect` already handles this correctly -- it triggers for any category with < 4 items. No changes needed here, it just wasn't getting a chance to display results because the render was hiding the grids.
 
 ## Technical Details
 
-### Files Modified
+### Changes in `src/pages/shop/ShopHome.tsx`
 
-1. **Database migration** -- INSERT 5 rows into `home_recipes`
-2. `supabase/functions/catalog-home/index.ts` -- Add 5 entries to `TAB_TO_RECIPE`
-3. `supabase/functions/catalog-category/index.ts` -- Add fallback queries for 5 new keys
-4. `supabase/functions/_shared/categoryRegistry.ts` -- Add alias mappings
-5. `supabase/functions/catalog-prewarm-home/index.ts` -- Add 5 sections to `HOME_PREWARM_SECTIONS`
-6. `src/pages/shop/ShopHome.tsx` -- Expand `FETCH_CATEGORY_KEYS`
-7. `src/pages/shop/CategoryResultsPage.tsx` -- Expand `CATEGORY_TITLE_MAP`
+1. **New helper `pickExcludeOnly`**: Like `pickStrict` but skips the include-keyword check. Used for dedicated feed items.
+
+2. **Updated `buildGrid4`**:
+   - Stage A: `pickExcludeOnly(dedicatedFeed, catKey, 4)` -- trust backend's category selection
+   - Stage B: `pickStrict(accueilPool, catKey, 4 - items.length)` -- strict for general pool
+
+3. **Remove `g.items.length > 0`** from lines 469 and 495 render filters
+
+4. **Pass `loading` prop** to `SectionBlock` for grids with 0 items while top-up is pending
+
+No backend changes. No layout changes. No other files modified.
 

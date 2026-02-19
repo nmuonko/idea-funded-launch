@@ -1,56 +1,70 @@
 
 
-# Fix Disappeared/Under-filled Category Grids
+# Fix Wrong Items + Guarantee 4 Items Per Grid
 
 ## Root Cause
 
-Two bugs are causing grids to disappear or show fewer than 4 items:
-
-**Bug 1: Over-strict filtering on dedicated feed items**
-When the backend returns items for a specific category (e.g., `catalog-home?category=electronics`), those items are already category-relevant by design. But `pickStrict` forces them through an include-keyword check too, rejecting many valid items whose titles don't happen to contain the hardcoded keywords. For example, an HP laptop returned by the electronics recipe might not match if its title says "HP Pavilion 15" without the word "laptop".
-
-**Bug 2: Grids with 0 items are hidden from render**
-Lines 469 and 495 filter out `g.items.length > 0`, so any category that got 0 items after strict filtering simply vanishes. The async top-up mechanism fetches replacements, but the render still hides grids with 0 initial items because `finalCategoryGrids` only adds to existing items, it doesn't re-show hidden grids.
-
-Additionally, `CategoryCard` itself returns `null` when `items.length === 0` (line 33).
+The `pickExcludeOnly` helper (used for dedicated backend feeds) skips include-keyword checks entirely. This means ANY item from the backend feed passes through as long as it doesn't match an exclude term. Since exclude lists are incomplete (e.g., cameras_photo doesn't exclude "iphone" or "laptop"), wrong items leak in:
+- Cameras shows iPhones and gaming laptops
+- Beauty shows phone cases
+- Parts Auto shows screen protectors
+- Some grids only show 2 items because the wrong items consumed dedup slots
 
 ## Solution (single file: `src/pages/shop/ShopHome.tsx`)
 
-### 1. Trust dedicated feed items (exclude-only filtering)
+### 1. Remove `pickExcludeOnly` entirely -- use `pickStrict` everywhere
 
-Split filtering into two tiers:
-- **Dedicated feed items** (`categorySections[catKey]`): Only apply exclude checks (no include-keyword requirement). These items were fetched by the backend specifically for this category.
-- **Accueil pool items** (`accueilProducts`): Apply full strict include + exclude checks (as today).
+Delete the `pickExcludeOnly` helper function. Change `buildGrid4` to use `pickStrict` for BOTH dedicated feeds AND accueil pool. This guarantees every item in every grid matches at least one include keyword for that category.
 
-This means `buildGrid4` will:
-- Stage A: Pick from dedicated feed using exclude-only filtering (up to 4)
-- Stage B: If still < 4, pick from accueil pool using strict include+exclude filtering
+### 2. Broaden include keywords to prevent under-filling
 
-### 2. Always render all 16 category grids
+The reason strict matching previously caused empty grids was overly narrow keywords. Add broader terms:
 
-Remove the `g.items.length > 0` filter from both render sections (promo tiles at line 469 and remaining grids at line 495). Every category in `ALL_HOMEPAGE_CATEGORIES` always renders. If a grid currently has 0-3 items, it still shows while the async top-up fetches more.
+- **cameras_photo**: Add `camera`, `photo`, `photography`, `lumix`, `leica`, `olympus`, `panasonic camera`, `flash`, `studio light`, `softbox`, `backdrop`
+- **beauty_health**: Add `beauty`, `health`, `cream`, `body wash`, `soap`, `deodorant`, `hair`, `skin`, `nail`, `brush`, `curling iron`, `straightener`, `derma`, `sunscreen`, `anti-aging`, `cleanser`, `toner`, `mascara`, `eyeshadow`, `blush`, `concealer`, `primer`
+- **parts_accessories**: Add `car accessory`, `vehicle part`, `engine`, `muffler`, `caliper`, `rotor`, `gasket`, `clutch`, `differential`, `suspension`, `tie rod`, `ball joint`, `sway bar`, `power steering`, `water pump`, `oxygen sensor`, `mass air flow`, `ignition coil`
+- **home_garden**: Add `kitchen`, `living room`, `garden`, `patio`, `outdoor`, `indoor`, `planter`, `grill`, `lawn`, `mower`, `fan`, `heater`, `humidifier`, `dehumidifier`, `iron`, `toaster`, `mixer`, `food processor`, `pressure cooker`, `instant pot`, `air fryer`, `slow cooker`
+- **clothing**: Add `apparel`, `outfit`, `fashion`, `wear`, `garment`, `uniform`, `vest`, `cape`, `poncho`, `scarf`, `shawl`, `hat`, `cap`, `glove`, `belt`, `tie`, `tuxedo`, `kimono`, `dashiki`, `boubou`
+- **sporting_goods**: Add `sport`, `athletic`, `exercise`, `outdoor`, `football`, `baseball`, `volleyball`, `cricket`, `boxing`, `martial arts`, `swimming`, `surfboard`, `skateboard`, `roller skate`, `helmet`, `knee pad`, `elbow pad`, `resistance band`, `jump rope`, `pull up bar`, `bench press`, `weight`, `barbell`, `kettlebell`
+- **electronics**: Add `electronic`, `tech`, `gadget`, `smart home`, `alexa`, `echo`, `google home`, `fire stick`, `chromecast`, `apple tv`, `roku`, `modem`, `switch`, `network`, `server`, `nas`, `external drive`, `flash drive`, `usb hub`, `power strip`, `ups`, `surge protector`
+- **collectibles**: Add `collection`, `limited edition`, `signed`, `autograph`, `first edition`, `mint condition`, `graded`, `psa`, `cgc`, `funko pop`, `hot toys`, `statue`, `bust`, `replica`, `prop`
+- **refurbished**: Add `pre-owned`, `used`, `open box`, `like new`, `grade a`, `grade b`, `restored`, `geek squad certified`
 
-### 3. Show loading skeleton for empty grids instead of hiding
+### 3. Add cross-category excludes that are currently missing
 
-For categories with 0 items that are still loading (top-up in progress), show the `CategoryCard` loading skeleton instead of `null`. Update the render to pass `loading={true}` when items are empty and top-up hasn't completed yet.
+Add to exclude lists to plug remaining holes:
 
-### 4. Top-up fetches for ALL categories with < 4 items
+- **cameras_photo**: Add `iphone`, `samsung galaxy`, `laptop`, `macbook`, `gaming`, `alienware`, `msi`, `dell`, `lenovo`, `asus`, `acer`, `hp pavilion`, `tablet`, `ipad`, `android`, `smartphone`, `phone`, `cellphone`
+- **beauty_health**: Add `phone`, `iphone`, `samsung`, `case`, `protector`, `laptop`, `computer`, `tablet`, `gaming`
+- **parts_accessories**: Add `screen protector`, `tempered glass`, `phone`, `tablet`, `laptop`, `iphone`, `samsung`
+- **home_garden**: Add `phone`, `iphone`, `samsung`, `laptop`, `tablet`
+- **audio_music**: Add `phone`, `iphone`, `samsung`, `laptop`, `tablet`, `camera`, `lens`
 
-The existing top-up `useEffect` already handles this correctly -- it triggers for any category with < 4 items. No changes needed here, it just wasn't getting a chance to display results because the render was hiding the grids.
+### 4. Top-up fetches for ALL 16 categories (not just short ones)
 
-## Technical Details
+Currently the top-up only fires for categories with <4 items. Change it to fire for ALL categories so we always have a deep pool to pick from. This ensures that even if the initial strict pass gets 2-3 items, the top-up pool provides enough candidates to reach 4.
 
-### Changes in `src/pages/shop/ShopHome.tsx`
+Change the useEffect trigger: instead of `shortCats = categoryGrids.filter(g => g.items.length < 4)`, fetch pools for ALL categories. This pre-warms the pools so `finalCategoryGrids` can always fill to 4.
 
-1. **New helper `pickExcludeOnly`**: Like `pickStrict` but skips the include-keyword check. Used for dedicated feed items.
+### 5. Fix `finalCategoryGrids` to use strict filtering on top-up pool too
 
-2. **Updated `buildGrid4`**:
-   - Stage A: `pickExcludeOnly(dedicatedFeed, catKey, 4)` -- trust backend's category selection
-   - Stage B: `pickStrict(accueilPool, catKey, 4 - items.length)` -- strict for general pool
+Currently uses exclude-only on top-up pool items. Change to use the same strict include+exclude logic, since we've now broadened include keywords enough.
 
-3. **Remove `g.items.length > 0`** from lines 469 and 495 render filters
+### 6. Fix CategoryCard to show skeleton instead of disappearing
 
-4. **Pass `loading` prop** to `SectionBlock` for grids with 0 items while top-up is pending
+`CategoryCard` returns `null` when `items.length === 0` (line 33). The `SectionBlock` already passes `loading={items.length === 0}` which shows a skeleton. But the `CategoryCard` checks items before checking loading. Fix: check loading FIRST, then check items.
 
-No backend changes. No layout changes. No other files modified.
+This is already handled correctly (lines 17-31 check loading before line 33 checks items.length). So this is fine as long as we pass `loading={true}` when items are empty.
+
+## Summary of Changes
+
+All in `src/pages/shop/ShopHome.tsx`:
+1. Delete `pickExcludeOnly` helper
+2. Update `buildGrid4` to use `pickStrict` for both dedicated feeds and accueil pool  
+3. Expand `CATEGORY_KEYWORDS` with broader include terms for all 16 categories
+4. Expand `CATEGORY_EXCLUDE_KEYWORDS` with missing cross-category terms
+5. Change top-up effect to fetch ALL categories (not just short ones)
+6. Change `finalCategoryGrids` to use strict include+exclude on top-up items
+
+No backend changes. No layout changes. No other files.
 

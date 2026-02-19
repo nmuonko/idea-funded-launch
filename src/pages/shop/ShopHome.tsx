@@ -383,7 +383,7 @@ export default function ShopHome() {
     return () => { cancelled = true; };
   }, [categoryGrids, language]);
 
-  // Merge top-up pools into grids (STRICT include+exclude filtering)
+  // Merge top-up pools into grids (EXCLUDE-ONLY — catalog-category items are already category-specific)
   const finalCategoryGrids = useMemo(() => {
     if (Object.keys(topUpPools).length === 0) return categoryGrids;
     const usedIds = new Set(categoryGrids.flatMap(g => g.items.map(i => i.id)));
@@ -392,7 +392,6 @@ export default function ShopHome() {
       const pool = topUpPools[g.key];
       if (!pool) return g;
       const effectiveExcludes = getEffectiveExcludes(g.key);
-      const keywords = CATEGORY_KEYWORDS[g.key];
       const extra: Product[] = [];
       // Sort pool by luxury before picking
       const sorted = [...pool].sort((a, b) => {
@@ -405,9 +404,7 @@ export default function ShopHome() {
         if (g.items.length + extra.length >= 4) break;
         if (usedIds.has(p.id)) continue;
         const titleLower = (p.title || '').toLowerCase();
-        // STRICT: must match include keywords (except refurbished which has very specific terms)
-        if (keywords && keywords.length > 0 && !keywords.some(kw => titleLower.includes(kw))) continue;
-        // Must NOT match any exclude
+        // Exclude-only: trust catalog-category backend feed (already category-specific)
         if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
         extra.push(p);
         usedIds.add(p.id);

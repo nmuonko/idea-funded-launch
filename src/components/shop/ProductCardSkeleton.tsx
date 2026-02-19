@@ -15,7 +15,7 @@ export function ProductCardSkeleton({ compact = false, className }: ProductCardS
     >
       {/* Image skeleton with shimmer */}
       <div className={cn(
-        "relative overflow-hidden bg-white/20",
+        "relative overflow-hidden bg-neutral-200/20",
         compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <div className="absolute inset-0 shimmer" />

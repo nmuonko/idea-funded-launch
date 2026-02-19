@@ -8,8 +8,6 @@ import { CategoryTabs } from '@/components/shop/CategoryTabs';
 import { VerticalProductGrid } from '@/components/shop/VerticalProductGrid';
 import { DeliveryHeroBanner } from '@/components/shop/DeliveryHeroBanner';
 import { ShopFooter } from '@/components/shop/ShopFooter';
-import { TrustBadgesStrip } from '@/components/shop/TrustBadgesStrip';
-import { HowItWorks } from '@/components/shop/HowItWorks';
 import { Product } from '@/components/shop/ProductCard';
 import { Button } from '@/components/ui/button';
 import { cachedCatalogFetch } from '@/lib/catalogCache';
@@ -237,18 +235,6 @@ export default function ShopHome() {
       >
         <DeliveryHeroBanner />
       </motion.section>
-
-      {/* Trust Badges */}
-      <section className="mb-5">
-        <TrustBadgesStrip />
-      </section>
-
-      {/* How It Works - compact horizontal */}
-      <section className="mb-6">
-        <div className="container mx-auto px-4">
-          <HowItWorks variant="horizontal" />
-        </div>
-      </section>
 
       {/* Category Tabs */}
       <section className="mb-6">

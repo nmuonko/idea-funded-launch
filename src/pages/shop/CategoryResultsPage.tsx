@@ -81,11 +81,13 @@ export default function CategoryResultsPage() {
   });
 
   const fetchPage = useCallback(async (page: number): Promise<Product[]> => {
-    const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+    const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-category', {
       category: categoryKey,
+      limit: POOL_TARGET,
       page,
       pageSize: PAGE_SIZE,
       client: 'web',
+      language,
     });
 
     const items = data?.sections?.[0]?.items
@@ -99,7 +101,7 @@ export default function CategoryResultsPage() {
     }
 
     return items;
-  }, [categoryKey]);
+  }, [categoryKey, language]);
 
   // Initial load — fetch multiple pages to fill pool
   useEffect(() => {

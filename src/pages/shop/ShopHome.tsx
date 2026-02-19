@@ -127,7 +127,7 @@ const ALL_HOMEPAGE_CATEGORIES = [
   'beauty_health', 'collectibles', 'shoes_sneakers', 'cameras_photo',
 ];
 // Categories fetched from backend (those with dedicated recipe feeds)
-const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];
+const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished', 'beauty_health', 'collectibles', 'audio_music', 'shoes_sneakers', 'cameras_photo'];
 // Top 4 shown as promo tiles
 const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 // Rest shown in bottom grid

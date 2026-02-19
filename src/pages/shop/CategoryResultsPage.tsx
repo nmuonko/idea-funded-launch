@@ -22,6 +22,11 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   jewelry_watches: { fr: 'Montres & Bijoux', en: 'Jewelry & Watches' },
   parts_accessories: { fr: 'Pièces Auto', en: 'Parts & Accessories' },
   refurbished: { fr: 'Reconditionné', en: 'Refurbished' },
+  audio_music: { fr: 'Audio & Musique', en: 'Audio & Music' },
+  beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
+  collectibles: { fr: 'Collections', en: 'Collectibles' },
+  shoes_sneakers: { fr: 'Chaussures & Sneakers', en: 'Shoes & Sneakers' },
+  cameras_photo: { fr: 'Caméras & Photo', en: 'Cameras & Photo' },
 };
 
 interface HomeFeedResponse {

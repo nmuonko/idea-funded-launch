@@ -176,6 +176,13 @@ const FALLBACK_ALIAS_MAP: Record<string, string> = {
   vehicle_parts: "vehicles_parts_accessories",
   auto_parts: "vehicles_parts_accessories",
   
+  // New homepage category aliases
+  audio_music: "electronics_audio",
+  beauty_health: "clothing_shoes_accessories",
+  collectibles: "toys",
+  shoes_sneakers: "clothing_shoes",
+  cameras_photo: "electronics_cameras",
+  
   // Tab aliases (including camelCase frontend keys)
   sportinggoods: "sporting_goods",
   sporting_goods: "sporting_goods",

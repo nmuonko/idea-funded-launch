@@ -38,6 +38,11 @@ const HOME_PREWARM_SECTIONS = [
   { key: "jewelry_watches", categoryKey: "jewelry_watches" },
   { key: "refurbished", categoryKey: "refurbished" },
   { key: "parts_accessories", categoryKey: "parts_accessories" },
+  { key: "beauty_health", categoryKey: "beauty_health" },
+  { key: "collectibles", categoryKey: "collectibles" },
+  { key: "audio_music", categoryKey: "electronics_audio" },
+  { key: "shoes_sneakers", categoryKey: "clothing_shoes" },
+  { key: "cameras_photo", categoryKey: "electronics_cameras" },
 ];
 
 function generateRequestId(): string {

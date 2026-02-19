@@ -1181,6 +1181,7 @@ serve(async (req) => {
           gaming: "gaming",
           phones: "phones",
           // Aliases (tab key differs from recipe key)
+          clothing: "clothing",
           clothing_shoes_accessories: "clothing",
           // Legacy aliases (old frontend keys)
           home: "home_garden",

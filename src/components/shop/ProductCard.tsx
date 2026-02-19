@@ -133,21 +133,21 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        "group block bg-white/5 backdrop-blur-sm border border-white/[0.15] rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/25 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/10",
+        "group block bg-white/5 backdrop-blur-sm border border-white/[0.15] rounded-xl sm:rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/25 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/10",
         className
       )}
     >
       {/* Image Container */}
       <div className={cn(
         "relative overflow-hidden bg-white",
-        compact ? "aspect-square" : "aspect-square"
+        compact ? "aspect-[4/3]" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img
           src={product.imageUrl || '/placeholder.svg'}
           alt={product.title}
           className={cn(
             "w-full h-full object-contain transition-transform duration-300 group-hover:scale-105",
-            compact ? "p-2" : "p-4"
+            compact ? "p-1.5" : "p-2 sm:p-4"
           )}
           loading="lazy"
         />
@@ -186,11 +186,11 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       </div>
 
       {/* Content */}
-      <div className={cn("space-y-2", compact ? "p-2" : "p-4 space-y-3")}>
+      <div className={cn("space-y-1.5 sm:space-y-2", compact ? "p-1.5 sm:p-2" : "p-2.5 sm:p-4 space-y-2 sm:space-y-3")}>
         {/* Title */}
         <h3 className={cn(
           "font-medium text-white/90 line-clamp-2",
-          compact ? "text-xs min-h-[2rem]" : "text-sm min-h-[2.5rem]"
+          compact ? "text-xs min-h-[2rem]" : "text-xs sm:text-sm min-h-[2rem] sm:min-h-[2.5rem]"
         )}>
           {product.title}
         </h3>
@@ -206,7 +206,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         {/* Price & Add to Cart */}
         <div className="flex items-center justify-between gap-2">
           <div>
-            <span className={cn("font-bold text-white", compact ? "text-sm" : "text-lg")}>
+            <span className={cn("font-bold text-white", compact ? "text-sm" : "text-base sm:text-lg")}>
               ${product.priceUsd.toFixed(2)}
             </span>
             <span className={cn("text-white/50 block", compact ? "text-[10px]" : "text-xs")}>

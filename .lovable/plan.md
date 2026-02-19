@@ -1,92 +1,55 @@
 
 
-# Amazon-Style Homepage Layout Redesign
+# Homepage Improvements
 
-## What Changes
+## Changes Overview
 
-The homepage will be restructured to match the reference screenshot layout while keeping the dark theme. Here's the section-by-section breakdown:
+### 1. Hero Banner Carousel -- Better Slide Images & Content
+- **Gaming slide**: Use a high-quality image URL of premium consoles (PS5, Xbox Series X, Nintendo Switch) instead of the generic `/hero-airplane.jpg`
+- **Delivery slide**: Keep as-is (already shows "Livraison 2-4 Semaines")
+- **Smartphones slide**: Use a luxury phone image URL (iPhone, Samsung Galaxy flagship) instead of `/hero-airplane.jpg`
+- Source images from free stock photo URLs (e.g., Unsplash) showing real premium products
 
-### 1. Hero Banner Carousel (Full-Width, with Arrows + Dots)
-- Replace the current static `DeliveryHeroBanner` with a full-width image carousel
-- Add left/right navigation arrows and dot indicators
-- Support multiple slides (deals for gamers, delivery promo, etc.)
-- Responsive heights: ~300px desktop, ~200px tablet, ~170px mobile
-- Slides will have gradient overlay with text + CTA button ("Voir les offres")
+### 2. Category Cards -- No Empty Skeleton Slots
+- In `CategoryCard.tsx`, remove the padding logic that fills empty slots with blank placeholders
+- If a category has fewer than 4 items, only render the items it has (show 1, 2, or 3) without empty gray squares
+- Alternatively, duplicate items from the same category to always fill 4 slots (no cross-category mixing)
 
-### 2. Category Promo Tiles (4-Column Grid Below Banner)
-- Keep the existing 4-column `CategoryCard` grid (Telephones, Electronique, Jeux Video, Vehicules)
-- Each card shows a 2x2 grid of product thumbnails with titles beneath each thumbnail
-- "Voir plus >" link at the bottom of each card
-- Already working correctly -- just needs minor spacing tweaks to match reference
+### 3. Tendances Section -- Static Grid, Not Scrolling, Moved to Top
+- Change "Tendances" from a horizontal scrolling row to a static multi-column grid (e.g., 4-6 columns on desktop, 2-3 on mobile)
+- Move it directly below the hero carousel (before the promo tiles)
+- Show premium product images in a clean grid layout
+- Remove `autoScroll` behavior for this section
 
-### 3. Trending Row ("Tendances") -- Single Horizontal Carousel
-- Keep ONE "Tendances" row with horizontal scroll, left/right arrows, and dot indicators
-- Remove any duplicate "Tendances" sections (the reference shows TWO -- we will keep only ONE as per prior requirements)
-- Product cards: clean white image background, product title, provider badge, price in USD + CDF, cart button
+### 4. "Economisez sur les categories" -- Real Product Images
+- Replace lucide-react icons with actual product thumbnail images from each category's feed data
+- Each circular icon container will show a real product image from the corresponding category instead of a generic icon
+- Pass category product data down to `CategoryIconsRow`
 
-### 4. "Economisez sur les categories" -- Category Icons Row
-- NEW section at the bottom: a horizontal row of circular category icons with labels
-- Shows categories: Telephones, Electronique, Jeux Video, Vehicules, Cuisine & Salon, Jouets, Montres, etc.
-- Each icon is a circular container with a representative image/icon
-- "Voir toutes les categories >" link
-- Clicking a category navigates to `/category/:key`
-
-### 5. Remove Duplicate Sections
-- Ensure only ONE trending row exists (no duplicated "Tendances" block)
-- No duplicate category tab bars
-
-### 6. Recently Viewed (Keep as-is, below Trending)
+### 5. Remove "Rechercher des produits" Button
+- Delete the entire "End of Feed CTA" section at the bottom of the page (the "Vous ne trouvez pas..." block with the search button)
 
 ## Technical Details
 
-### Files to Create
-- **`src/components/shop/HeroBannerCarousel.tsx`** -- New full-width carousel component with arrows, dots, auto-play, and swipe support. Uses hardcoded slide data (title, subtitle, CTA, background gradient/image) that can later be driven by backend.
-- **`src/components/shop/CategoryIconsRow.tsx`** -- New horizontal scrollable row of circular category icons with labels and "Voir toutes les categories" link.
-
 ### Files to Modify
-- **`src/pages/shop/ShopHome.tsx`**
-  - Replace `<DeliveryHeroBanner />` with `<HeroBannerCarousel />`
-  - Add `<CategoryIconsRow />` section after the "More Category Grid Cards"
-  - Ensure only one trending row renders
-  - Adjust spacing between sections to match reference
 
-- **`src/components/shop/CategoryCard.tsx`**
-  - Minor tweaks: ensure product title is shown below each thumbnail (already done)
-  - Slightly increase card padding and font sizes to match reference density
+**`src/components/shop/HeroBannerCarousel.tsx`**
+- Update `SLIDES` array: replace `/hero-airplane.jpg` with Unsplash URLs for gaming consoles and luxury smartphones
+- Keep the delivery slide image as-is or use a shipping/delivery themed image
 
-- **`src/components/shop/HorizontalProductRow.tsx`**
-  - Add dot indicators below the carousel (pagination dots showing current scroll position)
-  - Ensure arrow buttons are always visible on desktop (not just on hover)
+**`src/components/shop/CategoryCard.tsx`**
+- Change the empty slot logic: when items < 4, repeat items from same category to fill the grid, or render fewer columns -- no empty gray boxes
 
-- **`src/components/shop/SectionBlock.tsx`**
-  - Add "Voir plus >" link in the header area (right-aligned) for the trending section
-  - This links to a general trending/all products page
+**`src/pages/shop/ShopHome.tsx`**
+- Reorder sections: Hero -> Tendances (static grid) -> Promo Tiles -> Recently Viewed -> More Categories -> Category Icons -> Footer
+- Remove the "End of Feed CTA" block (lines 319-340)
+- Change Tendances rendering from `mode="scroll"` to a new static grid display
 
-### Component Structure
+**`src/components/shop/SectionBlock.tsx`**
+- Add a new `mode="static-grid"` option that renders products in a responsive grid (not scrolling)
+- Grid: 2 cols mobile, 3 cols tablet, 5-6 cols desktop
 
-```text
-ShopHome
-  |-- HeroBannerCarousel (NEW - full width with arrows + dots)
-  |-- Promo Tiles Grid (4x CategoryCard - existing)
-  |-- Tendances Row (SectionBlock mode=scroll - existing, with dots added)
-  |-- Recently Viewed (existing)
-  |-- More Category Grids (existing)
-  |-- CategoryIconsRow (NEW - circular icons with labels)
-  |-- End of Feed CTA (existing)
-  |-- ShopFooter
-```
-
-### Hero Banner Carousel Details
-- Uses `useState` for active slide index
-- Auto-advances every 5 seconds
-- Slides array with: title, subtitle, CTA text, background CSS gradient or image URL
-- Left/right `ChevronLeft`/`ChevronRight` buttons
-- Dot indicators at bottom center
-- Pauses auto-play on hover
-
-### Category Icons Row Details
-- Uses the existing `CATEGORY_TITLE_MAP` for labels
-- Each category rendered as a circular container (~80px) with a representative icon from `lucide-react` (Smartphone, Monitor, Gamepad2, Car, Sofa, Gift, Watch, etc.)
-- Horizontally scrollable on mobile with arrows on desktop
-- "Voir toutes les categories >" link navigates to a future all-categories page or scrolls to category grids
+**`src/components/shop/CategoryIconsRow.tsx`**
+- Accept optional `categoryImages` prop mapping category keys to image URLs
+- Replace icon components with `<img>` tags showing real product thumbnails inside the circular containers
 

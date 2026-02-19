@@ -15,7 +15,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
 
   if (loading) {
     return (
-      <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-4 flex flex-col h-full">
+      <div className="bg-white/[0.08] border border-white/[0.12] rounded-2xl p-4 flex flex-col h-full">
         <div className="h-5 w-32 bg-white/10 rounded mb-3 shimmer" />
         <div className="grid grid-cols-2 gap-3 flex-1">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -29,7 +29,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     );
   }
 
-  if (displayItems.length === 0) return null;
+  if (displayItems.length < 4) return null;
 
   const getProductLink = (product: Product) => {
     const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
@@ -41,7 +41,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   };
 
   return (
-    <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-4 flex flex-col h-full">
+    <div className="bg-white/[0.08] border border-white/[0.12] rounded-2xl p-4 flex flex-col h-full">
       {/* Title */}
       <h3 className="text-base font-bold text-white mb-3">{title}</h3>
 
@@ -55,7 +55,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
             className="group flex flex-col"
           >
             {/* Image */}
-            <div className="aspect-square rounded-lg bg-neutral-100 overflow-hidden p-2">
+            <div className="aspect-square rounded-lg bg-white/90 overflow-hidden p-2">
               <img
                 src={product.imageUrl || '/placeholder.svg'}
                 alt={product.title}

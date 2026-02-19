@@ -53,8 +53,8 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
 
 function ProductCardSkeleton() {
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-      <Skeleton className="aspect-square bg-white/10" />
+    <div className="bg-white/5 border border-white/[0.15] rounded-2xl overflow-hidden">
+      <Skeleton className="aspect-square bg-white/20" />
       <div className="p-4 space-y-3">
         <Skeleton className="h-4 w-full bg-white/10" />
         <Skeleton className="h-4 w-2/3 bg-white/10" />

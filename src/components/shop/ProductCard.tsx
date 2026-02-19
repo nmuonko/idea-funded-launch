@@ -133,13 +133,13 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       to={`/product/${getProviderForUrl()}/${encodeURIComponent(getProductIdForUrl())}`}
       state={{ product: { id: product.id, provider: product.provider, title: product.title, imageUrl: product.imageUrl, priceUsd: product.priceUsd, rating: product.rating, productUrl: product.productUrl } }}
       className={cn(
-        "group block bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-[1.02]",
+        "group block bg-white/5 backdrop-blur-sm border border-white/[0.15] rounded-2xl overflow-hidden transition-all duration-300 hover:bg-white/10 hover:border-white/25 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-500/10",
         className
       )}
     >
       {/* Image Container */}
       <div className={cn(
-        "relative overflow-hidden bg-white/5",
+        "relative overflow-hidden bg-white",
         compact ? "aspect-square" : "aspect-square"
       )}>
         <img
@@ -195,11 +195,11 @@ export function ProductCard({ product, className, compact = false }: ProductCard
           {product.title}
         </h3>
 
-        {/* Rating - hide on compact */}
-        {!compact && product.rating && (
+        {/* Rating */}
+        {product.rating && (
           <div className="flex items-center gap-1">
-            <span className="text-yellow-400">★</span>
-            <span className="text-xs text-white/60">{product.rating.toFixed(1)}</span>
+            <span className={cn("text-yellow-400", compact ? "text-xs" : "")}>★</span>
+            <span className={cn("text-white/60", compact ? "text-[10px]" : "text-xs")}>{product.rating.toFixed(1)}</span>
           </div>
         )}
 

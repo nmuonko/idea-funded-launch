@@ -9,13 +9,13 @@ export function ProductCardSkeleton({ compact = false, className }: ProductCardS
   return (
     <div
       className={cn(
-        "block bg-white/5 border border-white/10 rounded-2xl overflow-hidden",
+        "block bg-white/5 border border-white/[0.15] rounded-2xl overflow-hidden",
         className
       )}
     >
       {/* Image skeleton with shimmer */}
       <div className={cn(
-        "relative overflow-hidden bg-white/5",
+        "relative overflow-hidden bg-white/20",
         compact ? "aspect-square" : "aspect-square"
       )}>
         <div className="absolute inset-0 shimmer" />

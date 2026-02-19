@@ -31,6 +31,7 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   music_instruments: { fr: 'Instruments de Musique', en: 'Music Instruments' },
   beauty_health: { fr: 'Beauté & Santé', en: 'Beauty & Health' },
   collectibles: { fr: 'Collections', en: 'Collectibles' },
+  sound_audio: { fr: 'Son & Audio', en: 'Sound & Audio' },
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -48,6 +49,7 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   music_instruments: ['guitar', 'piano', 'drum kit', 'violin', 'saxophone', 'trumpet', 'ukulele', 'amplifier', 'synthesizer', 'bass guitar', 'flute', 'harmonica', 'musical instrument', 'acoustic guitar', 'electric guitar', 'drum set'],
   beauty_health: ['perfume', 'cologne', 'skincare', 'makeup', 'lipstick', 'foundation', 'serum', 'moisturizer', 'shampoo', 'hair dryer', 'fragrance', 'cosmetic', 'face cream', 'nail polish'],
   collectibles: ['trading card', 'pokemon card', 'vintage', 'antique', 'collectible', 'memorabilia', 'comic book', 'figurine', 'rare coin'],
+  sound_audio: ['bose', 'jbl', 'bluetooth speaker', 'soundbar', 'subwoofer', 'home theater', 'audio', 'speaker system', 'wireless speaker', 'portable speaker', 'headphones over-ear', 'studio monitor', 'amplifier', 'receiver', 'hi-fi', 'surround sound'],
 };
 
 const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
@@ -64,6 +66,7 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   music_instruments: ['sofa', 'bed', 'mattress'],
   beauty_health: ['sofa', 'bed', 'mattress'],
   collectibles: ['sofa', 'bed', 'mattress'],
+  sound_audio: ['sofa', 'bed', 'mattress', 'phone case', 'car charger', 'toy', 'lego', 'dress', 'shirt', 'furniture'],
   refurbished: [],
 };
 
@@ -119,6 +122,7 @@ const ALL_HOMEPAGE_CATEGORIES = [
   'clothing', 'home_garden', 'toys', 'sporting_goods',
   'jewelry_watches', 'parts_accessories', 'refurbished',
   'music_instruments', 'beauty_health', 'collectibles',
+  'sound_audio',
 ];
 // Categories fetched from backend (those with dedicated recipe feeds)
 const FETCH_CATEGORY_KEYS = ['phones', 'electronics', 'gaming', 'vehicles', 'clothing', 'home_garden', 'toys', 'sporting_goods', 'jewelry_watches', 'parts_accessories', 'refurbished'];

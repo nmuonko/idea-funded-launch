@@ -114,7 +114,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
       {/* Image Container — white bg, uniform height, eBay-like */}
       <div className={cn(
         "relative overflow-hidden bg-white rounded-t-xl",
-        compact ? "h-[160px] sm:h-[170px]" : "aspect-[4/3] sm:aspect-square"
+        compact ? "aspect-square" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img
           src={product.imageUrl || '/placeholder.svg'}

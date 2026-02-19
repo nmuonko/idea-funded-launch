@@ -142,7 +142,7 @@ export default function ShopHome() {
 
     while (accumulated.length < CATEGORY_POOL_TARGET && page <= maxPages) {
       const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-        tab,
+        category: tab,
         page,
         pageSize: Math.min(100, CATEGORY_POOL_TARGET),
         client: 'web',
@@ -193,7 +193,7 @@ export default function ShopHome() {
       const results = await Promise.allSettled(
         CATEGORY_KEYS.map(async (cat) => {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-            tab: cat,
+            category: cat,
             page: 1,
             pageSize: 30,
             client: 'web',

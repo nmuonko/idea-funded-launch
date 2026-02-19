@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { ProductCard, Product } from '@/components/shop/ProductCard';
 import { ProductCardSkeleton } from '@/components/shop/ProductCardSkeleton';
@@ -10,24 +10,54 @@ interface HorizontalProductRowProps {
   loading?: boolean;
   skeletonCount?: number;
   className?: string;
+  autoScroll?: boolean;
+  autoScrollInterval?: number;
 }
 
 export function HorizontalProductRow({ 
   products, 
   loading = false, 
   skeletonCount = 6,
-  className 
+  className,
+  autoScroll = false,
+  autoScrollInterval = 3000,
 }: HorizontalProductRowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [paused, setPaused] = useState(false);
 
   const scroll = (direction: 'left' | 'right') => {
     if (!scrollRef.current) return;
-    const scrollAmount = 280; // Roughly 1.5 cards
+    const scrollAmount = 280;
     scrollRef.current.scrollBy({
       left: direction === 'left' ? -scrollAmount : scrollAmount,
       behavior: 'smooth',
     });
   };
+
+  // Auto-scroll logic
+  useEffect(() => {
+    if (!autoScroll || paused || loading || products.length === 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const interval = setInterval(() => {
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (el.scrollLeft >= maxScroll - 2) {
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        el.scrollBy({ left: 200, behavior: 'smooth' });
+      }
+    }, autoScrollInterval);
+
+    return () => clearInterval(interval);
+  }, [autoScroll, paused, loading, products.length, autoScrollInterval]);
+
+  const handleMouseEnter = useCallback(() => setPaused(true), []);
+  const handleMouseLeave = useCallback(() => setPaused(false), []);
+  const handleTouchStart = useCallback(() => setPaused(true), []);
+  const handleTouchEnd = useCallback(() => {
+    setTimeout(() => setPaused(false), 2000);
+  }, []);
 
   if (loading) {
     return (
@@ -48,12 +78,18 @@ export function HorizontalProductRow({
   }
 
   return (
-    <div className={cn("relative group", className)}>
+    <div 
+      className={cn("relative group", className)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* Left fade overlay */}
-      <div className="absolute left-0 top-0 w-8 h-full bg-gradient-to-r from-black to-transparent z-10 pointer-events-none" />
+      <div className="absolute left-0 top-0 w-8 h-full bg-gradient-to-r from-[rgb(10,10,10)] to-transparent z-10 pointer-events-none" />
       
       {/* Right fade overlay */}
-      <div className="absolute right-0 top-0 w-8 h-full bg-gradient-to-l from-black to-transparent z-10 pointer-events-none" />
+      <div className="absolute right-0 top-0 w-8 h-full bg-gradient-to-l from-[rgb(10,10,10)] to-transparent z-10 pointer-events-none" />
 
       {/* Navigation arrows - desktop only */}
       <Button

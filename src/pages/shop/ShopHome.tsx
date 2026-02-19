@@ -302,6 +302,19 @@ export default function ShopHome() {
                       categoryKey={catKey}
                     />
                   ))}
+                  {/* Pad with promo categories to fill row of 4 */}
+                  {(() => {
+                    const remaining = (4 - (morePreviews.length % 4)) % 4;
+                    return promoPreviews.slice(0, remaining).map(({ key: catKey, items }) => (
+                      <SectionBlock
+                        key={`pad-${catKey}`}
+                        title={getCategoryTitle(catKey, language)}
+                        items={items}
+                        mode="grid"
+                        categoryKey={catKey}
+                      />
+                    ));
+                  })()}
                 </div>
               )}
 

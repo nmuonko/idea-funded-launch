@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -130,6 +131,7 @@ const App = () => {
   });
 
   return (
+    <GlobalErrorBoundary>
     <SupabaseConfigGuard>
       {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
       <QueryClientProvider client={queryClient}>
@@ -407,6 +409,7 @@ const App = () => {
         </LanguageProvider>
       </QueryClientProvider>
     </SupabaseConfigGuard>
+    </GlobalErrorBoundary>
   );
 };
 

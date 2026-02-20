@@ -443,54 +443,35 @@ export default function ShopHome() {
             return true;
           };
 
-          const ENGINE_TERMS = ['engine', 'moteur', 'long block', 'short block', 'engine assembly'];
-          const isEngine = (p: Product) => ENGINE_TERMS.some(t => (p.title || '').toLowerCase().includes(t));
+          // Use broad queries known to return auto parts results
+          const AUTO_PARTS_QUERIES = [
+            'brake pad rotor', 'car headlight assembly', 'alternator',
+            'car battery', 'spark plug set', 'oil filter', 'air filter car',
+            'wiper blade', 'car bumper', 'wheel bearing', 'serpentine belt',
+            'ignition coil', 'oxygen sensor', 'power steering pump',
+            'water pump car', 'strut assembly', 'tie rod end',
+            'brake caliper', 'radiator', 'fuel pump',
+          ];
 
-          // Phase 1: Get at least 1 engine item
-          const engineQueries = ['car engine assembly', 'engine assembly', 'moteur voiture', 'moteur complet', 'long block engine', 'short block engine'];
-          const engines: Product[] = [];
-          for (const q of engineQueries) {
-            if (engines.length >= 1) break;
+          const allParts: Product[] = [];
+          for (const q of AUTO_PARTS_QUERIES) {
+            if (allParts.length >= 8) break; // collect extras for variety
             try {
               const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
               const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotJunk);
               for (const p of searchItems) {
-                if (engines.length >= 1) break;
-                if (isEngine(p)) addUnique(p, engines);
+                if (allParts.length >= 8) break;
+                // Only accept items that look like auto parts (not blenders, phones, etc.)
+                const t = (p.title || '').toLowerCase();
+                const looksAutoPart = ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
+                if (looksAutoPart) addUnique(p, allParts);
               }
             } catch (e) { /* continue */ }
           }
 
-          // Phase 2: Fill remaining 3 slots with varied parts
-          const partsQueries = [
-            'transmission assembly', 'turbocharger', 'alternator car',
-            'starter motor', 'radiator assembly', 'brake caliper',
-            'suspension kit', 'control arm assembly', 'catalytic converter',
-            'fuel pump assembly', 'fuel injectors',
-          ];
-          const parts: Product[] = [];
-          for (const q of partsQueries) {
-            if (parts.length >= 5) break; // get extras for variety
-            try {
-              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 6 });
-              const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotJunk);
-              for (const p of searchItems) {
-                if (parts.length >= 5) break;
-                addUnique(p, parts);
-              }
-            } catch (e) { /* continue */ }
-          }
-
-          // Assemble: 1 engine + up to 3 parts
-          items = [...engines.slice(0, 1), ...parts.slice(0, 3)];
-          // If engine missing, just use parts
-          if (items.length < 4) {
-            for (const p of parts) {
-              if (items.length >= 4) break;
-              if (!items.includes(p)) items.push(p);
-            }
-          }
-          items = items.slice(0, 4);
+          // Sort by price descending to prefer substantial parts
+          allParts.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+          items = allParts.slice(0, 4);
           console.log('[AutoParts] selected titles:', items.map(p => p.title));
 
         } else {

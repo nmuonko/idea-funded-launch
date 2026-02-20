@@ -103,6 +103,49 @@ function isDirectQuery(q: string): boolean {
   return false;
 }
 
+// ─── QUERY BROADENING (eBay-style progressive relaxation) ──────────────────
+// Strips year, qualifiers, and progressively shortens to generate broader queries
+const QUALIFIER_WORDS = new Set([
+  "plaid","used","new","certified","cpo","rebuilt","salvage","clean",
+  "loaded","limited","premium","ultimate","sport","base","se","sel",
+  "xle","xse","touring","diesel","hybrid","electric","ev",
+]);
+
+function generateBroadenedQueries(query: string): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  const original = query.toLowerCase().trim();
+  seen.add(original);
+
+  // Step 1: Strip 4-digit year numbers
+  const noYear = original.replace(/\b(19|20)\d{2}\b/g, "").replace(/\s+/g, " ").trim();
+  if (noYear && noYear !== original && !seen.has(noYear)) {
+    results.push(noYear);
+    seen.add(noYear);
+  }
+
+  // Step 2: Strip qualifier words from the no-year version
+  const tokens = (noYear || original).split(/\s+/).filter(t => !QUALIFIER_WORDS.has(t));
+  const noQualifiers = tokens.join(" ").trim();
+  if (noQualifiers && !seen.has(noQualifiers) && noQualifiers !== noYear) {
+    results.push(noQualifiers);
+    seen.add(noQualifiers);
+  }
+
+  // Step 3: Progressive shortening (keep first N tokens, min 2)
+  const baseTokens = (noQualifiers || noYear || original).split(/\s+/);
+  for (let len = baseTokens.length - 1; len >= 2; len--) {
+    const shortened = baseTokens.slice(0, len).join(" ");
+    if (!seen.has(shortened)) {
+      results.push(shortened);
+      seen.add(shortened);
+    }
+    if (results.length >= 3) break; // Max 3 broadened variants
+  }
+
+  return results.slice(0, 3);
+}
+
 function generateRequestId(): string {
   return crypto.randomUUID().slice(0, 8);
 }
@@ -968,6 +1011,64 @@ Deno.serve(async (req: Request) => {
       console.log(`[CATALOG_SEARCH] requestId=${requestId} SKIPPING_ALT_QUERIES: fast path`);
     }
     timings.altQueries = Date.now() - altQueriesStart;
+
+    // ─── DIRECT QUERY BROADENING (eBay-style, fills sparse results) ────────
+    // When a specific query like "2024 tesla model x" returns few results,
+    // broaden by stripping year/qualifiers to fetch related items.
+    const BROADEN_THRESHOLD = 30;
+    const BROADEN_TARGET = 80;
+    const totalAfterPrimary = amazonItems.length + ebayItems.length;
+    if (directQuery && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
+      const broadenBudgetMs = isFirstPage ? 3000 : 4000;
+      const broadenDeadline = startTime + (isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS);
+      const broadenedQueries = generateBroadenedQueries(providerQuery);
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} broaden_start: primaryCount=${totalAfterPrimary} queries=${JSON.stringify(broadenedQueries)}`);
+
+      if (broadenedQueries.length > 0) {
+        const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
+        const broadenStart = Date.now();
+
+        for (const bq of broadenedQueries) {
+          if (amazonItems.length + ebayItems.length >= BROADEN_TARGET) break;
+          if (Date.now() > broadenDeadline - 200) break;
+          if (Date.now() - broadenStart > broadenBudgetMs) break;
+
+          const perQueryTimeout = Math.min(2500, broadenDeadline - Date.now() - 100);
+          if (perQueryTimeout <= 300) break;
+
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} broaden_fetch q="${bq}" timeout=${perQueryTimeout}ms`);
+          try {
+            const bPromise = Promise.allSettled([
+              skipAmazon
+                ? Promise.resolve({ items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped", liveUsed: false, liveReason: "disabled" as AmazonLiveReason })
+                : fetchAmazonItems({ supabase, query: bq, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId: requestId + "-brd" }),
+              fetchEbayItems({ supabase, query: bq, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId: requestId + "-brd" }),
+            ]);
+            const bTimeoutP = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("BROADEN_TIMEOUT")), perQueryTimeout));
+            const bSettled = await Promise.race([bPromise, bTimeoutP]) as [PromiseSettledResult<any>, PromiseSettledResult<any>];
+
+            if (!skipAmazon && bSettled[0].status === "fulfilled") {
+              const newItems = bSettled[0].value.items.filter((i: any) => !existingIds.has(i.id));
+              newItems.forEach((i: any) => existingIds.add(i.id));
+              amazonItems = [...amazonItems, ...newItems];
+              amazonDebug.count = amazonItems.length;
+            }
+            if (bSettled[1].status === "fulfilled") {
+              const newItems = bSettled[1].value.items.filter((i: any) => !existingIds.has(i.id));
+              newItems.forEach((i: any) => existingIds.add(i.id));
+              ebayItems = [...ebayItems, ...newItems];
+              ebayDebug.count = ebayItems.length;
+            }
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} broaden_result q="${bq}" total=${amazonItems.length + ebayItems.length}`);
+          } catch {
+            console.warn(`[CATALOG_SEARCH] requestId=${requestId} broaden_timeout q="${bq}"`);
+          }
+        }
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} broaden_done: final=${amazonItems.length + ebayItems.length} elapsed=${Date.now() - broadenStart}ms`);
+      }
+    } else if (directQuery && totalAfterPrimary >= BROADEN_THRESHOLD) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} broaden_skip: enough results (${totalAfterPrimary})`);
+    }
 
     // ─── DETERMINISTIC SYNONYM FALLBACK (no AI, strict timeout) ─────────────
     // When preNorm matched and providers returned < 10 items, try synonym queries

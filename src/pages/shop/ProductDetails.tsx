@@ -425,6 +425,7 @@ export default function ProductDetailsPage() {
       return {
         ...prev,
         id: asin,
+        priceUsd: clickedVariant.price?.value ?? prev.priceUsd,
         images: newImage ? [newImage] : prev.images,
         variants: updatedVariants,
       };

@@ -29,24 +29,32 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   cameras_photo: { fr: 'Caméras & Photo', en: 'Cameras & Photo' },
 };
 
-interface HomeFeedResponse {
-  ok: boolean;
-  sections: Array<{
-    items: Array<{
-      id?: string;
-      provider_product_id?: string;
-      provider?: string;
-      title?: string;
-      image_url?: string;
-      imageUrl?: string;
-      price_usd?: number;
-      priceUsd?: number;
-      rating?: number;
-      in_stock?: boolean;
-      product_url?: string;
-    }>;
-  }>;
-  hasMore?: boolean;
+interface CategoryItem {
+  id?: string;
+  provider_product_id?: string;
+  providerProductId?: string;
+  provider?: string;
+  title?: string;
+  image_url?: string;
+  imageUrl?: string;
+  mainImageUrl?: string;
+  price_usd?: number;
+  priceUsd?: number;
+  rating?: number;
+  in_stock?: boolean;
+  inStock?: boolean;
+  product_url?: string;
+  productUrl?: string;
+}
+
+interface CategoryResponse {
+  status: string;
+  items: CategoryItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+  // Also support legacy sections format from catalog-home
+  sections?: Array<{ items: CategoryItem[] }>;
 }
 
 const POOL_TARGET = 300;
@@ -69,19 +77,20 @@ export default function CategoryResultsPage() {
   const pageRef = useRef(1);
   const exhaustedRef = useRef(false);
 
-  const mapItem = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
-    id: item.provider_product_id || item.id || '',
+  const mapItem = (item: CategoryItem): Product => ({
+    id: item.providerProductId || item.provider_product_id || item.id || '',
     provider: item.provider || 'amazon',
     title: item.title || 'Product',
-    imageUrl: item.image_url || item.imageUrl || '',
+    imageUrl: item.mainImageUrl || item.image_url || item.imageUrl || '',
     priceUsd: item.price_usd || item.priceUsd || 0,
     rating: item.rating,
-    inStock: item.in_stock !== false,
-    productUrl: item.product_url,
+    inStock: (item.in_stock ?? item.inStock) !== false,
+    productUrl: item.productUrl || item.product_url,
   });
 
   const fetchPage = useCallback(async (page: number): Promise<Product[]> => {
-    const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-category', {
+    console.log('[CategoryPage] fetching page', page, 'for', categoryKey);
+    const data = await cachedCatalogFetch<CategoryResponse>('catalog-category', {
       category: categoryKey,
       limit: POOL_TARGET,
       page,
@@ -90,11 +99,16 @@ export default function CategoryResultsPage() {
       language,
     });
 
-    const items = data?.sections?.[0]?.items
-      ?.map(mapItem)
-      .filter(p => p.id && p.priceUsd > 0 && !seenIdsRef.current.has(p.id)) || [];
+    // catalog-category returns data.items directly; fallback to sections format
+    const rawItems: CategoryItem[] = data?.items || data?.sections?.[0]?.items || [];
+    
+    const items = rawItems
+      .map(mapItem)
+      .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
 
     items.forEach(p => seenIdsRef.current.add(p.id));
+
+    console.log('[CategoryPage] fetched:', items.length, 'items from page', page);
 
     if (data?.hasMore === false || items.length === 0) {
       exhaustedRef.current = true;

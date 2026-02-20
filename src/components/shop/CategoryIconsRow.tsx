@@ -38,7 +38,7 @@ export function CategoryIconsRow() {
           {language === 'fr' ? 'Économisez sur les catégories' : 'Save on categories'}
         </h2>
         <button
-          onClick={() => navigate('/shop')}
+          onClick={() => navigate('/category/all')}
           className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
         >
           {language === 'fr' ? 'Voir tout' : 'See all'}

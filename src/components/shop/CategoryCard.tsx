@@ -30,7 +30,24 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     );
   }
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && !loading) {
+    // Show skeleton with title while search fallback is loading
+    return (
+      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
+        <div className="flex items-center justify-between mb-2.5">
+          <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-2 flex-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="aspect-square bg-white/[0.06] rounded-lg animate-pulse" />
+              <div className="h-3 w-full bg-white/[0.06] rounded animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   // Show only actual items (up to 4), never placeholders or repeated items
   const displayItems = items.slice(0, 4);

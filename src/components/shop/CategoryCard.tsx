@@ -14,44 +14,6 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   const { language } = useLanguage();
   const navigate = useNavigate();
 
-  if (loading) {
-    return (
-      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
-        <div className="h-5 w-32 bg-white/[0.08] rounded mb-3 animate-pulse" />
-        <div className="grid grid-cols-2 gap-2 flex-1">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="aspect-square bg-white/[0.06] rounded-lg animate-pulse" />
-              <div className="h-3 w-full bg-white/[0.06] rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (items.length === 0 && !loading) {
-    // Show skeleton with title while search fallback is loading
-    return (
-      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
-        <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
-        </div>
-        <div className="grid grid-cols-2 gap-2 flex-1">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-1.5">
-              <div className="aspect-square bg-white/[0.06] rounded-lg animate-pulse" />
-              <div className="h-3 w-full bg-white/[0.06] rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Show only actual items (up to 4), never placeholders or repeated items
-  const displayItems = items.slice(0, 4);
-
   const getProductLink = (product: Product) => {
     const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
     let pid = product.id;
@@ -64,6 +26,52 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   const handleVoirPlus = () => {
     navigate(`/category/${categoryKey}`);
   };
+
+  // Loading state: show skeleton
+  if (loading) {
+    return (
+      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="h-5 w-32 bg-white/[0.08] rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-2 gap-2 flex-1">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="aspect-square bg-white/[0.06] rounded-lg animate-pulse" />
+              <div className="h-3 w-full bg-white/[0.06] rounded animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state: show title + message + see more link (never hide)
+  if (items.length === 0) {
+    return (
+      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
+        <div className="flex items-center justify-between mb-2.5">
+          <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
+        </div>
+        <div className="flex-1 flex items-center justify-center min-h-[160px]">
+          <p className="text-xs text-white/40 text-center">
+            {language === 'fr' ? 'Aucun produit disponible' : 'No products available'}
+          </p>
+        </div>
+        <button
+          onClick={handleVoirPlus}
+          className="mt-2.5 flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
+        >
+          {language === 'fr' ? 'Voir plus' : 'See more'}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
+  // Normal state: show up to 4 items, fill remaining with subtle placeholders
+  const displayItems = items.slice(0, 4);
+  const emptySlots = Math.max(0, 4 - displayItems.length);
 
   return (
     <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20 hover:border-white/[0.18] transition-colors">
@@ -91,6 +99,12 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
               {product.title}
             </p>
           </Link>
+        ))}
+        {/* Subtle empty placeholders for missing slots */}
+        {emptySlots > 0 && Array.from({ length: emptySlots }).map((_, i) => (
+          <div key={`empty-${i}`} className="flex flex-col">
+            <div className="aspect-square rounded-lg bg-white/[0.03] border border-white/[0.05]" />
+          </div>
         ))}
       </div>
 

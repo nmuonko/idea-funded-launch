@@ -1,79 +1,82 @@
 
 
-## Fix: 4-Minute Load Time + Irrelevant Products in "Jeux Video"
+## Make Category Pages Load Instantly (~0-2 seconds)
 
-There are two separate bugs causing the poor experience.
+### Strategy: Prefetch on Hover + Instant Cache Hit
 
----
-
-### Problem 1: 4-Minute Load (Frontend)
-
-The current code fetches ALL 300 products in a sequential `while` loop and shows nothing until every request completes. With the backend returning ~50 items per request, that's 6+ sequential API calls — each taking 2-5 seconds — all happening before ANY product is displayed.
-
-**Fix: Progressive rendering ("show first, load rest in background")**
-
-Instead of accumulating 300 items in a hidden buffer, show the first batch (~50 items) immediately and load additional pages in the background while the user is already browsing.
-
-Changes to `src/pages/shop/CategoryResultsPage.tsx`:
-- Split the single `while` loop into two phases:
-  - **Phase 1 (instant)**: Fetch one page, set `loading=false`, render products immediately.
-  - **Phase 2 (background)**: Continue fetching remaining pages using `setTimeout` / async loop, appending to `products` state progressively. The user sees the product count grow in real time (e.g., "48... 96... 150... 250... 303") while browsing the first batch.
-- Remove the `loadProgress` skeleton-only state entirely — users see real products within 2-3 seconds.
+Right now, clicking "Voir plus" navigates to `/category/:key`, which starts a fresh network request. Even with progressive rendering, the first request still takes 2-5 seconds. The fix: **start fetching before the user clicks**.
 
 ---
 
-### Problem 2: Irrelevant Products (Backend)
+### Change 1: Prefetch on Hover/Touch (CategoryCard.tsx)
 
-The `gaming` category resolves to `electronics_gaming` which uses eBay category **1249** ("Video Games & Consoles"). This is a broad parent category that includes gaming laptops, monitors, mice, keyboards, and PC peripherals — hence the Alienware laptops and MSI monitors in the results.
+When the user hovers over or touches the "Voir plus" button (or the entire category card), fire a **silent background fetch** for that category's first page. This means:
 
-According to the project's gaming console logic, it should use eBay category **139971** (Video Game Consoles) with stricter filtering.
+- On desktop: `onMouseEnter` on the card or "Voir plus" button triggers a prefetch
+- On mobile: `onTouchStart` on the "Voir plus" button triggers a prefetch
 
-**Fix: Update category registry to use the correct eBay category**
+The prefetch calls `cachedCatalogFetch('catalog-category', { category, pageSize: 100, ... })` -- the exact same call `CategoryResultsPage` will make. Since `cachedCatalogFetch` stores results in the LRU memory cache and localStorage, the page's `fetchPage(null)` call will get an instant cache hit (< 1ms).
 
-Change in `supabase/functions/_shared/categoryRegistry.ts`:
-- Update the `electronics_gaming` entry's `ebayCategory` from `"1249"` to `"139971"` (Video Game Consoles).
-- Add `minPrice: 20` to filter out cheap accessories that slip through.
+**Implementation:**
+- Add a `prefetchCategory` function that calls `cachedCatalogFetch` silently (fire-and-forget, no error handling needed)
+- Attach `onMouseEnter` to the category card container
+- Attach `onTouchStart` to the "Voir plus" button
+- Use a module-level `Set` to avoid duplicate prefetch calls for the same category
 
-This single change ensures the eBay Browse API only returns actual gaming consoles and controllers, not laptops or monitors.
+---
+
+### Change 2: Prefetch Visible Categories on Idle (ShopHome.tsx)
+
+As a secondary optimization, after the homepage finishes loading its own data, use `requestIdleCallback` (or `setTimeout` fallback) to prefetch the first page for all visible category grids. This means even without hovering, if the user has been on the homepage for a few seconds, the category data is already cached.
+
+**Implementation:**
+- After all homepage sections finish loading, schedule idle prefetch for each category key
+- Use the same `cachedCatalogFetch` call so cache keys match exactly
+- Limit to 3-4 categories at a time to avoid overwhelming the network
+
+---
+
+### Change 3: Use Navigator Link Prefetch Hint (CategoryCard.tsx)
+
+Change the "Voir plus" `<button onClick={navigate(...)}>` to a `<Link to={...}>` with `onMouseEnter` prefetch. This also lets the browser preload the route component chunk.
 
 ---
 
 ### Technical Details
 
-**File 1: `src/pages/shop/CategoryResultsPage.tsx`**
+**File 1: `src/lib/catalogCache.ts`**
+- Add a new exported `prefetchCatalogCategory(categoryKey, language)` helper function:
+  ```
+  const prefetchedKeys = new Set<string>();
+  export function prefetchCatalogCategory(category: string, language: string) {
+    const key = `${category}:${language}`;
+    if (prefetchedKeys.has(key)) return;
+    prefetchedKeys.add(key);
+    cachedCatalogFetch('catalog-category', {
+      category, pageSize: 100, client: 'web', language
+    }).catch(() => {});  // silent, fire-and-forget
+  }
+  ```
 
-Replace the initial load `useEffect` with a two-phase approach:
+**File 2: `src/components/shop/CategoryCard.tsx`**
+- Import `prefetchCatalogCategory` from `catalogCache`
+- Add `onMouseEnter` handler on the card container that calls `prefetchCatalogCategory(categoryKey, language)`
+- Add `onTouchStart` handler on the "Voir plus" button that calls the same function
+- Convert "Voir plus" button to `<Link>` for better navigation semantics
 
-```
-Phase 1 (lines ~134-155):
-  - Fetch first page (cursorRef = null)
-  - setProducts(firstBatch)
-  - setLoading(false)  // <-- products visible NOW
-
-Phase 2 (continues in same effect, after setLoading):
-  - while (accumulated < POOL_TARGET && !exhausted && requestCount < 10)
-    - fetchPage(cursorRef.current)
-    - setProducts(prev => [...prev, ...newItems])  // <-- appends live
-    - requestCount++
-  - No separate loading state needed
-```
-
-The user sees products in ~2 seconds. Background loading adds more items transparently.
-
-**File 2: `supabase/functions/_shared/categoryRegistry.ts`**
-
-```
-Line 259:
-BEFORE: electronics_gaming: { ..., ebayCategory: "1249", minPrice: 0, ... }
-AFTER:  electronics_gaming: { ..., ebayCategory: "139971", minPrice: 20, ... }
-```
-
----
+**File 3: `src/pages/shop/ShopHome.tsx`**
+- After homepage data loads, schedule idle prefetch for the visible category keys using `requestIdleCallback` or `setTimeout(..., 3000)`
+- Call `prefetchCatalogCategory` for each category, staggered by ~500ms to avoid network congestion
 
 ### Expected Result
 
-- Products appear in 2-3 seconds (first ~50 items)
-- Remaining items load in background, visible count updates live
-- Only gaming consoles and controllers appear (no laptops, monitors, mice)
-- Total still reaches ~300 items if available
+- **Hover then click**: Data already cached, page renders in < 500ms (just React mount time)
+- **Quick click (no hover)**: Same as current behavior (~2-3 seconds for first batch)
+- **Idle on homepage > 3 seconds**: All categories pre-cached, any click is instant
+- Second visit to same category: Always instant (localStorage cache with 1-hour TTL)
+
+### No changes to
+- Backend / edge functions
+- CategoryResultsPage.tsx (already has progressive rendering)
+- Cache TTL or storage strategy
 

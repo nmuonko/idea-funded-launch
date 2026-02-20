@@ -55,24 +55,24 @@ const SLIDES: Slide[] = [
   {
     titleFr: 'Laptops & Ordinateurs',
     titleEn: 'Laptops & Computers',
-    subtitleFr: 'MacBook, Dell, HP — puissance et performance',
-    subtitleEn: 'MacBook, Dell, HP — power and performance',
+    subtitleFr: 'MacBook Pro, Microsoft Surface — puissance et performance',
+    subtitleEn: 'MacBook Pro, Microsoft Surface — power and performance',
     ctaFr: 'Voir les laptops',
     ctaEn: 'See laptops',
     ctaLink: '/category/computers',
     gradient: 'from-slate-900/90 via-blue-900/70 to-transparent',
-    image: 'https://images.unsplash.com/photo-1517336714460-d13f82280306?w=1600&q=80&auto=format&fit=crop',
+    image: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?w=1600&q=80&auto=format&fit=crop',
   },
   {
     titleFr: 'Audio & Casques',
     titleEn: 'Audio & Headphones',
-    subtitleFr: 'AirPods, Sony, Bose — son premium garanti',
-    subtitleEn: 'AirPods, Sony, Bose — premium sound guaranteed',
+    subtitleFr: 'Bose, Sony, AirPods — son premium garanti',
+    subtitleEn: 'Bose, Sony, AirPods — premium sound guaranteed',
     ctaFr: 'Voir les casques',
     ctaEn: 'See headphones',
     ctaLink: '/category/audio',
     gradient: 'from-amber-900/90 via-orange-900/70 to-transparent',
-    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=1600&q=80&auto=format&fit=crop',
+    image: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=1600&q=80&auto=format&fit=crop',
   },
   {
     titleFr: 'Maison Connectée',
@@ -98,7 +98,7 @@ export function HeroBannerCarousel() {
 
   useEffect(() => {
     if (paused) return;
-    const timer = setInterval(next, 30000);
+    const timer = setInterval(next, 10000);
     return () => clearInterval(timer);
   }, [paused, next]);
 

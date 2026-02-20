@@ -263,12 +263,27 @@ export default function ShopHome() {
       return result;
     };
 
-    // STRICT ONLY builder — no relaxed fallback
+    // EXCLUDE-ONLY pick: trust backend categorization, just block contaminants
+    const pickExcludeOnly = (candidates: Product[], catKey: string, max: number): Product[] => {
+      const result: Product[] = [];
+      const effectiveExcludes = getEffectiveExcludes(catKey);
+      for (const p of candidates) {
+        if (result.length >= max) break;
+        if (dedup.has(p.id)) continue;
+        const titleLower = (p.title || '').toLowerCase();
+        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
+        result.push(p);
+        dedup.add(p.id);
+      }
+      return result;
+    };
+
+    // TWO-TIER builder: exclude-only for dedicated feeds, strict for general pool
     const buildGrid4 = (catKey: string): Product[] => {
-      // Stage A: strict from dedicated feed
+      // Stage A: EXCLUDE-ONLY from dedicated feed (backend already categorized these)
       const dedicated = sortByLuxury(categorySections[catKey] || []);
-      let items = pickStrict(dedicated, catKey, 4);
-      // Stage B: strict from accueil pool
+      let items = pickExcludeOnly(dedicated, catKey, 4);
+      // Stage B: STRICT from accueil pool (uncategorized, must prove relevance)
       if (items.length < 4) {
         items = [...items, ...pickStrict(sortByLuxury(accueilProducts), catKey, 4 - items.length)];
       }
@@ -357,7 +372,7 @@ export default function ShopHome() {
     return () => { cancelled = true; };
   }, [categoryLoading, accueilLoading, language]);
 
-  // Merge top-up pools into grids — STRICT include+exclude filtering
+  // Merge top-up pools into grids — EXCLUDE-ONLY for top-up (backend categorized)
   const finalCategoryGrids = useMemo(() => {
     if (Object.keys(topUpPools).length === 0) return categoryGrids;
     const usedIds = new Set(categoryGrids.flatMap(g => g.items.map(i => i.id)));
@@ -369,7 +384,6 @@ export default function ShopHome() {
       const pool = topUpPools[g.key];
       if (!pool) return g;
       const effectiveExcludes = getEffectiveExcludes(g.key);
-      const keywords = CATEGORY_KEYWORDS[g.key];
       const extra: Product[] = [];
       const sorted = [...pool].sort((a, b) => {
         const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
@@ -381,9 +395,7 @@ export default function ShopHome() {
         if (g.items.length + extra.length >= 4) break;
         if (usedIds.has(p.id)) continue;
         const titleLower = (p.title || '').toLowerCase();
-        // STRICT: must match include keywords
-        if (keywords && !keywords.some(kw => titleLower.includes(kw))) continue;
-        // STRICT: must not match excludes
+        // EXCLUDE-ONLY: trust backend categorization, just block contaminants
         if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
         extra.push(p);
         usedIds.add(p.id);

@@ -42,7 +42,7 @@ const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
   shoes_sneakers: ['Nike Air Max sneakers', 'Adidas Yeezy shoes', 'Jordan retro basketball shoe', 'New Balance running shoe'],
   cameras_photo: ['Canon EOS DSLR camera', 'Sony Alpha mirrorless camera', 'GoPro action camera', 'camera lens tripod'],
   electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
-  clothing: ['designer jacket coat', 'premium dress fashion', 'hoodie sweater men', 'handbag luxury leather'],
+  clothing: ['mens jacket hoodie', 'women dress fashion', 'polo shirt men', 'women blazer coat'],
   collectibles: ['Funko Pop vinyl figure', 'Pokemon cards booster', 'vintage antique collectible', 'sports memorabilia signed autograph'],
   refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
   parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
@@ -74,7 +74,7 @@ const GLOBAL_WATCH_JEWELRY_TERMS = ['watch', 'smartwatch', 'apple watch', 'rolex
 const GLOBAL_TOY_TERMS = ['toy', 'toys', 'lego', 'puzzle', 'doll', 'action figure', 'barbie', 'building set', 'playset', 'jouet', 'nerf', 'plush', 'stuffed animal', 'hot wheels', 'play-doh'];
 
 // Categories that OWN each global group (exempt from those excludes)
-const SHOE_OWNER_CATS = new Set(['shoes_sneakers', 'sporting_goods']);
+const SHOE_OWNER_CATS = new Set(['shoes_sneakers', 'sporting_goods', 'clothing']);
 const WATCH_JEWELRY_OWNER_CATS = new Set(['jewelry_watches']);
 const TOY_OWNER_CATS = new Set(['toys', 'collectibles']);
 

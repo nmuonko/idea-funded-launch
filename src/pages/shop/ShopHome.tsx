@@ -292,11 +292,16 @@ export default function ShopHome() {
       return result;
     };
 
+    // Categories where backend feed is unreliable — always use strict include filtering
+    const STRICT_FEED_CATS = new Set(['clothing']);
+
     // TWO-TIER builder: exclude-only for dedicated feeds, strict for general pool
     const buildGrid4 = (catKey: string): Product[] => {
-      // Stage A: EXCLUDE-ONLY from dedicated feed (backend already categorized these)
       const dedicated = sortByLuxury(categorySections[catKey] || []);
-      let items = pickExcludeOnly(dedicated, catKey, 4);
+      // Stage A: Use strict for unreliable feeds, exclude-only for trusted feeds
+      let items = STRICT_FEED_CATS.has(catKey)
+        ? pickStrict(dedicated, catKey, 4)
+        : pickExcludeOnly(dedicated, catKey, 4);
       // Stage B: STRICT from accueil pool (uncategorized, must prove relevance)
       if (items.length < 4) {
         items = [...items, ...pickStrict(sortByLuxury(accueilProducts), catKey, 4 - items.length)];

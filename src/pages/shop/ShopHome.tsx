@@ -289,6 +289,20 @@ export default function ShopHome() {
     }
   }, []);
 
+  // ====== MODE (clothing) SPECIAL OVERRIDE QUERIES ======
+  const MODE_OVERRIDE_QUERIES = [
+    'women long maxi dress elegant',
+    'mens jacket coat fashion',
+    'abaya kaftan dress women',
+    'blazer suit women professional',
+    'hoodie sweatshirt men',
+    'handbag designer leather',
+    'jeans denim pants',
+    'robe longue femme',
+    'veste homme',
+    'sac à main cuir',
+  ];
+
   // ====== PER-CATEGORY INDEPENDENT FETCH ======
   const fetchAllCategoryItems = useCallback(async () => {
     const tasks = ALL_HOMEPAGE_CATEGORIES.map((catKey) => async () => {
@@ -296,38 +310,65 @@ export default function ShopHome() {
       try {
         let items: Product[] = [];
 
-        // Stage 1: Try dedicated category feed
-        try {
-          const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-            category: catKey,
-            page: 1,
-            pageSize: 80,
-            client: 'web',
-          });
-          const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(isValidProduct) || [];
-          items = filterForCategory(rawItems, catKey);
-        } catch (e) {
-          // Ignore, proceed to search fallback
-        }
-
-        // Stage 2: If not enough, try search queries
-        if (items.length < 4) {
-          const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
-          for (const q of queries.slice(0, 4)) {
-            if (items.length >= 8) break;
+        // ===== SPECIAL PATH FOR "clothing" (Mode) =====
+        if (catKey === 'clothing') {
+          // Try override queries sequentially until we have 4 valid items
+          const seenIds = new Set<string>();
+          for (const q of MODE_OVERRIDE_QUERIES) {
+            if (items.length >= 4) break;
             try {
-              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
               const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
-              items.push(...searchItems);
+              const excludes = getEffectiveExcludes('clothing');
+              for (const p of searchItems) {
+                if (items.length >= 4) break;
+                if (seenIds.has(p.id)) continue;
+                const titleLower = (p.title || '').toLowerCase();
+                if (excludes.some(ex => titleLower.includes(ex))) continue;
+                items.push(p);
+                seenIds.add(p.id);
+              }
+              console.log(`[Mode] query tried: "${q}", valid so far: ${items.length}`);
             } catch (e) {
-              // Continue with next query
+              console.warn(`[Mode] query "${q}" failed`, e);
             }
           }
-          items = filterForCategory(items, catKey);
-        }
+          items = sortByLuxury(items).slice(0, 4);
+        } else {
+          // ===== STANDARD PATH FOR ALL OTHER CATEGORIES =====
+          // Stage 1: Try dedicated category feed
+          try {
+            const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+              category: catKey,
+              page: 1,
+              pageSize: 80,
+              client: 'web',
+            });
+            const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(isValidProduct) || [];
+            items = filterForCategory(rawItems, catKey);
+          } catch (e) {
+            // Ignore, proceed to search fallback
+          }
 
-        // Deduplicate and take first 4
-        items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
+          // Stage 2: If not enough, try search queries
+          if (items.length < 4) {
+            const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
+            for (const q of queries.slice(0, 4)) {
+              if (items.length >= 8) break;
+              try {
+                const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
+                const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
+                items.push(...searchItems);
+              } catch (e) {
+                // Continue with next query
+              }
+            }
+            items = filterForCategory(items, catKey);
+          }
+
+          // Deduplicate and take first 4
+          items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
+        }
 
         console.log(`[ShopHome] Category ${catKey}: fetched=${items.length}, shown=${Math.min(items.length, 4)}`);
 

@@ -74,7 +74,7 @@ export default function CategoryResultsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
   const seenIdsRef = useRef(new Set<string>());
-  const pageRef = useRef(1);
+  const cursorRef = useRef<string | null>(null);
   const exhaustedRef = useRef(false);
 
   const mapItem = (item: CategoryItem): Product => ({
@@ -88,17 +88,21 @@ export default function CategoryResultsPage() {
     productUrl: item.productUrl || item.product_url,
   });
 
-  const fetchPage = useCallback(async (page: number): Promise<Product[]> => {
-    console.log('[CategoryPage] fetching page', page, 'for', categoryKey);
-    const data = await cachedCatalogFetch<CategoryResponse>('catalog-category', {
+  const fetchPage = useCallback(async (cursor: string | null): Promise<Product[]> => {
+    console.log('[CategoryPage] fetching cursor', cursor, 'for', categoryKey);
+    const params: Record<string, unknown> = {
       category: categoryKey,
-      page,
       pageSize: PAGE_SIZE,
       client: 'web',
       language,
-    });
+    };
+    if (cursor) params.cursor = cursor;
 
-    // catalog-category returns data.items directly; fallback to sections format
+    const data = await cachedCatalogFetch<CategoryResponse>('catalog-category', params);
+
+    // Store cursor for next request
+    cursorRef.current = data?.nextCursor || null;
+
     const rawItems: CategoryItem[] = data?.items || data?.sections?.[0]?.items || [];
     
     const items = rawItems
@@ -107,9 +111,9 @@ export default function CategoryResultsPage() {
 
     items.forEach(p => seenIdsRef.current.add(p.id));
 
-    console.log('[CategoryPage] fetched:', items.length, 'items from page', page);
+    console.log('[CategoryPage] fetched:', items.length, 'new items, nextCursor:', cursorRef.current);
 
-    if (data?.hasMore === false || items.length === 0) {
+    if (!cursorRef.current || data?.hasMore === false || items.length === 0) {
       exhaustedRef.current = true;
     }
 
@@ -122,17 +126,18 @@ export default function CategoryResultsPage() {
     setLoading(true);
     setProducts([]);
     seenIdsRef.current.clear();
-    pageRef.current = 1;
+    cursorRef.current = null;
     exhaustedRef.current = false;
     setVisibleCount(VISIBLE_STEP);
 
     (async () => {
       const accumulated: Product[] = [];
-      while (accumulated.length < POOL_TARGET && !exhaustedRef.current && pageRef.current <= 10) {
-        const items = await fetchPage(pageRef.current);
+      let requestCount = 0;
+      while (accumulated.length < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
+        const items = await fetchPage(cursorRef.current);
         if (cancelled) return;
         accumulated.push(...items);
-        pageRef.current++;
+        requestCount++;
       }
       if (!cancelled) {
         setProducts(accumulated);
@@ -150,8 +155,7 @@ export default function CategoryResultsPage() {
     // If we're nearing the end of the pool and not exhausted, fetch more
     if (nextVisible >= products.length - VISIBLE_STEP && !exhaustedRef.current && !loadingMore) {
       setLoadingMore(true);
-      fetchPage(pageRef.current).then(items => {
-        pageRef.current++;
+      fetchPage(cursorRef.current).then(items => {
         setProducts(prev => [...prev, ...items]);
         setLoadingMore(false);
       }).catch(() => setLoadingMore(false));

@@ -24,9 +24,10 @@ interface ProductCardProps {
   product: Product;
   className?: string;
   compact?: boolean;
+  coverImage?: boolean;
 }
 
-export function ProductCard({ product, className, compact = false }: ProductCardProps) {
+export function ProductCard({ product, className, compact = false, coverImage = false }: ProductCardProps) {
   const { addItem, addToSaved, removeFromSaved, isItemSaved, exchangeRate } = useShopCart();
   const [adding, setAdding] = useState(false);
   const [added, setAdded] = useState(false);
@@ -121,8 +122,11 @@ export function ProductCard({ product, className, compact = false }: ProductCard
           src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
           alt={product.title}
           className={cn(
-            "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 mix-blend-multiply",
-            compact ? "p-3" : "p-3 sm:p-4"
+            "w-full h-full transition-transform duration-200 group-hover:scale-105",
+            compact && coverImage
+              ? "object-cover"
+              : "object-contain mix-blend-multiply",
+            !coverImage && (compact ? "p-3" : "p-3 sm:p-4")
           )}
           loading="lazy"
         />

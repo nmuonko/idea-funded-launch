@@ -1,64 +1,79 @@
 
 
-## Fix: Slow Loading + Only 67 Products
+## Fix: 4-Minute Load Time + Irrelevant Products in "Jeux Video"
 
-### Root Cause
+There are two separate bugs causing the poor experience.
 
-Two issues causing only 67 products and slow loading:
+---
 
-**1. False exhaustion after dedup filtering (line 116)**
-The code marks the pool as exhausted when `items.length === 0` -- but this checks items AFTER dedup filtering. If a page returns items that overlap with previously seen items (common with eBay), all get filtered out, `items.length === 0`, and the loop stops prematurely even though `hasMore=true` and `nextCursor` exists.
+### Problem 1: 4-Minute Load (Frontend)
 
-**2. Backend caps at ~50 items per request**
-The backend returns 46-50 items per call regardless of `pageSize=100`. To reach 300, we need ~6 requests. Currently the loop stops early due to the false exhaustion bug above.
+The current code fetches ALL 300 products in a sequential `while` loop and shows nothing until every request completes. With the backend returning ~50 items per request, that's 6+ sequential API calls — each taking 2-5 seconds — all happening before ANY product is displayed.
 
-### Fix (single file: `src/pages/shop/CategoryResultsPage.tsx`)
+**Fix: Progressive rendering ("show first, load rest in background")**
 
-**1. Separate "no raw items" from "no new items after dedup"**
-- Only set `exhaustedRef.current = true` when:
-  - `hasMore === false`, OR
-  - `!nextCursor`, OR  
-  - `rawItems.length === 0` (backend returned nothing)
-- Do NOT exhaust when filtered/deduped items is 0 but raw items existed -- this just means overlap, not end of catalog.
+Instead of accumulating 300 items in a hidden buffer, show the first batch (~50 items) immediately and load additional pages in the background while the user is already browsing.
 
-**2. Add an empty-page counter to prevent infinite loops**
-- Track consecutive pages that yield 0 new items after dedup.
-- If 3 consecutive pages return 0 new items, then mark exhausted (safety valve).
-- Reset the counter whenever new items are found.
+Changes to `src/pages/shop/CategoryResultsPage.tsx`:
+- Split the single `while` loop into two phases:
+  - **Phase 1 (instant)**: Fetch one page, set `loading=false`, render products immediately.
+  - **Phase 2 (background)**: Continue fetching remaining pages using `setTimeout` / async loop, appending to `products` state progressively. The user sees the product count grow in real time (e.g., "48... 96... 150... 250... 303") while browsing the first batch.
+- Remove the `loadProgress` skeleton-only state entirely — users see real products within 2-3 seconds.
 
-**3. Show a progress indicator during initial load**
-- Replace the static skeleton with a progress message showing how many items have loaded so far (e.g., "Loading... 150 products found").
-- This gives users feedback during the ~6 sequential requests.
+---
+
+### Problem 2: Irrelevant Products (Backend)
+
+The `gaming` category resolves to `electronics_gaming` which uses eBay category **1249** ("Video Games & Consoles"). This is a broad parent category that includes gaming laptops, monitors, mice, keyboards, and PC peripherals — hence the Alienware laptops and MSI monitors in the results.
+
+According to the project's gaming console logic, it should use eBay category **139971** (Video Game Consoles) with stricter filtering.
+
+**Fix: Update category registry to use the correct eBay category**
+
+Change in `supabase/functions/_shared/categoryRegistry.ts`:
+- Update the `electronics_gaming` entry's `ebayCategory` from `"1249"` to `"139971"` (Video Game Consoles).
+- Add `minPrice: 20` to filter out cheap accessories that slip through.
+
+This single change ensures the eBay Browse API only returns actual gaming consoles and controllers, not laptops or monitors.
+
+---
 
 ### Technical Details
 
-```
-Line 116: Change exhaustion condition
-  BEFORE: if (!cursorRef.current || data?.hasMore === false || items.length === 0)
-  AFTER:  if (!cursorRef.current || data?.hasMore === false || rawItems.length === 0)
+**File 1: `src/pages/shop/CategoryResultsPage.tsx`**
 
-Lines 133-141: Add empty-page safety counter
-  let emptyStreak = 0;
-  while (accumulated.length < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
-    const items = await fetchPage(cursorRef.current);
-    if (items.length === 0) { emptyStreak++; if (emptyStreak >= 3) break; }
-    else { emptyStreak = 0; }
-    accumulated.push(...items);
-    requestCount++;
-  }
+Replace the initial load `useEffect` with a two-phase approach:
 
-Lines 193-201: Add loading progress
-  Show accumulated count during loading: "{count} products found..."
 ```
+Phase 1 (lines ~134-155):
+  - Fetch first page (cursorRef = null)
+  - setProducts(firstBatch)
+  - setLoading(false)  // <-- products visible NOW
+
+Phase 2 (continues in same effect, after setLoading):
+  - while (accumulated < POOL_TARGET && !exhausted && requestCount < 10)
+    - fetchPage(cursorRef.current)
+    - setProducts(prev => [...prev, ...newItems])  // <-- appends live
+    - requestCount++
+  - No separate loading state needed
+```
+
+The user sees products in ~2 seconds. Background loading adds more items transparently.
+
+**File 2: `supabase/functions/_shared/categoryRegistry.ts`**
+
+```
+Line 259:
+BEFORE: electronics_gaming: { ..., ebayCategory: "1249", minPrice: 0, ... }
+AFTER:  electronics_gaming: { ..., ebayCategory: "139971", minPrice: 20, ... }
+```
+
+---
 
 ### Expected Result
-- Loop continues past dedup-empty pages, correctly using cursor pagination
-- Reaches 300 items in ~6 requests (at ~50 items/request from backend)
-- Progress feedback keeps users informed during the 5-10 second load
-- Safety valve (3 empty streaks) prevents infinite loops
 
-### No changes to
-- Backend / edge functions
-- ShopHome.tsx / grids
-- catalogCache.ts
+- Products appear in 2-3 seconds (first ~50 items)
+- Remaining items load in background, visible count updates live
+- Only gaming consoles and controllers appear (no laptops, monitors, mice)
+- Total still reaches ~300 items if available
 

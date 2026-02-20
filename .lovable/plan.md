@@ -1,55 +1,45 @@
 
+## Fix: "See More" Only Shows ~34 Products + Slow Loading
 
-## Fix: "Pieces Auto" and "Vehicules" Category Grids
+### Root Cause
 
-### Root Cause Analysis
+The backend `catalog-category` uses **cursor-based pagination** (it returns a `nextCursor` token with each response). However, the current `CategoryResultsPage` sends `page: 1`, `page: 2`, `page: 3`... which the backend ignores. So every request returns the **same first ~50 items**, they get deduplicated to 0 new items, and the loop exits -- resulting in only ~34-50 products shown after multiple wasted network calls.
 
-**Pieces Auto (parts_accessories)**: The `isNotJunk` filter contains the word `"parts"` in its blocklist (`JUNK_TERMS`). Since nearly every auto parts product title contains the word "parts" (e.g., "Power Stop Brake Pads with Drilled & Slotted Brake Rotors Kit"), they all get filtered out. The search backend returns valid results (confirmed: 5 items at $400-500+ each for "brake pad rotor"), but they are discarded before reaching the grid.
+### The Fix
 
-**Vehicules (vehicles)**: The `searchValidItems` helper function does NOT apply category exclude keywords. When searching "Tesla Model X", the backend returns accessories like "J1772 to Tesla Adapter" ($39.99) instead of actual Tesla vehicles. The vehicles exclude list already contains terms like "charger", "adapter", "cable" — but `searchValidItems` never checks them.
+Store the `nextCursor` from each response and pass it as the `cursor` parameter on the next request -- exactly how `SearchResults.tsx` already does it.
 
----
+### Changes (single file: `src/pages/shop/CategoryResultsPage.tsx`)
 
-### Plan
+**1. Add a cursor ref to track pagination state**
+- Add `cursorRef = useRef<string | null>(null)` alongside the existing `pageRef` and `exhaustedRef`.
 
-#### 1. Fix the JUNK_TERMS filter for auto parts context
-**File**: `src/pages/shop/ShopHome.tsx`
+**2. Update `fetchPage` to accept and send cursor**
+- Change `fetchPage(page)` to `fetchPage(cursor)`.
+- Pass `cursor` to `cachedCatalogFetch` params (alongside existing `category`, `pageSize`, `language`).
+- Remove the `page` param (backend ignores it for cursor-based pagination).
+- After each response, store `data.nextCursor` in `cursorRef`.
+- Mark exhausted when `nextCursor` is null/empty or 0 new items returned.
 
-- Change the `JUNK_TERMS` entry from `'parts'` to `'for parts'` (which targets "sold for parts" junk listings without blocking legitimate "auto parts" or "brake parts" titles).
-- This single change unblocks the auto parts pipeline since the backend already returns valid items.
+**3. Update initial load loop**
+- Reset `cursorRef.current = null` on category change.
+- Loop condition: `accumulated.length < POOL_TARGET && !exhaustedRef.current && requestCount < 10`.
+- Each iteration calls `fetchPage(cursorRef.current)` -- first call sends null (page 1), subsequent calls send the cursor from the previous response.
 
-#### 2. Apply vehicle exclude keywords inside the vehicles curated path
-**File**: `src/pages/shop/ShopHome.tsx`
+**4. Update `handleShowMore` to pass cursor**
+- When fetching more items on scroll, pass `cursorRef.current` instead of `pageRef.current`.
 
-- In the vehicles special path, pass the existing `CATEGORY_EXCLUDE_KEYWORDS['vehicles']` as the `excludes` parameter to `searchValidItems()`.
-- This will block accessories ("charger", "adapter", "cable", "phone mount", etc.) from appearing as Tesla or SUV results.
-- Also add vehicle-specific terms to the excludes: `'adapter'`, `'j1772'`, `'charging station'`, `'wall connector'`, `'floor mat'`, `'seat cover'`, `'phone'`, `'accessory'`.
+**5. Speed improvement (automatic)**
+- Currently 3+ requests return duplicate data and waste time. With cursor pagination, each request returns truly new items, so 3 requests at 100 items each reaches 300 items with no wasted calls.
 
-#### 3. Apply similar excludes to the auto parts path
-**File**: `src/pages/shop/ShopHome.tsx`
+### Expected Result
+- First request: ~50-100 items (new)
+- Second request: ~50-100 more items (new, via cursor)
+- Third request: ~50-100 more items (new, via cursor)
+- Total: up to 300 unique items, loaded in 3 fast sequential requests instead of 10 wasted ones.
+- "34 products" issue is resolved since no items are lost to false deduplication.
 
-- Also pass `CATEGORY_EXCLUDE_KEYWORDS['parts_accessories']` through the `isNotJunk` + exclusion check in the auto parts loop to block phones, laptops, etc. from appearing.
-
----
-
-### Technical Details
-
-Changes are scoped to two blocks in `src/pages/shop/ShopHome.tsx`:
-
-1. **Line ~293**: Change `JUNK_TERMS` from `['cheap', 'lot', 'bundle', 'parts', ...]` to `['cheap', 'lot', 'bundle', 'for parts', ...]`
-
-2. **Lines ~361-384 (vehicles path)**: Add excludes parameter:
-```text
-const vehicleExcludes = [
-  ...CATEGORY_EXCLUDE_KEYWORDS['vehicles'],
-  'adapter', 'j1772', 'charging station', 'wall connector',
-  'accessory', 'accessories', 'floor mat', 'seat cover',
-  'phone holder', 'cup holder',
-];
-const teslas = await searchValidItems(teslaQueries, 1, seenIds, vehicleExcludes);
-const suvs = await searchValidItems(suvQueries, 3, seenIds, vehicleExcludes);
-```
-
-3. **Lines ~446-474 (auto parts path)**: The existing `looksAutoPart` filter is sufficient once the `"parts"` term is fixed in JUNK_TERMS. No other structural changes needed.
-
-No other categories are affected.
+### No changes to
+- Backend / edge functions
+- ShopHome.tsx / grids
+- catalogCache.ts (cache key already includes all params, so `cursor=xyz` makes each page's cache unique)

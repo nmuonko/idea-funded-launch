@@ -124,7 +124,7 @@ export function ProductCard({ product, className, compact = false, coverImage = 
           className={cn(
             "w-full h-full transition-transform duration-200 group-hover:scale-105",
             compact && coverImage
-              ? "object-cover"
+              ? "object-contain p-2"
               : "object-contain mix-blend-multiply",
             !coverImage && (compact ? "p-3" : "p-3 sm:p-4")
           )}

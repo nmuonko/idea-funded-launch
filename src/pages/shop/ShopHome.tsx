@@ -424,6 +424,75 @@ export default function ShopHome() {
           items.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
           console.log('[WatchesJewelry] selected:', items.map(p => p.title));
 
+        // ===== SPECIAL PATH FOR "parts_accessories" (Pièces Auto) =====
+        } else if (catKey === 'parts_accessories') {
+          const seenIds = new Set<string>();
+          const seenImages = new Set<string>();
+          const seenTitleKeys = new Set<string>();
+
+          const addUnique = (p: Product, bucket: Product[]) => {
+            const titleKey = (p.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+            const imgKey = (p.imageUrl || '').split('?')[0];
+            if (seenIds.has(p.id)) return false;
+            if (titleKey && seenTitleKeys.has(titleKey)) return false;
+            if (imgKey && seenImages.has(imgKey)) return false;
+            seenIds.add(p.id);
+            seenTitleKeys.add(titleKey);
+            if (imgKey) seenImages.add(imgKey);
+            bucket.push(p);
+            return true;
+          };
+
+          const ENGINE_TERMS = ['engine', 'moteur', 'long block', 'short block', 'engine assembly'];
+          const isEngine = (p: Product) => ENGINE_TERMS.some(t => (p.title || '').toLowerCase().includes(t));
+
+          // Phase 1: Get at least 1 engine item
+          const engineQueries = ['car engine assembly', 'engine assembly', 'moteur voiture', 'moteur complet', 'long block engine', 'short block engine'];
+          const engines: Product[] = [];
+          for (const q of engineQueries) {
+            if (engines.length >= 1) break;
+            try {
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
+              const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotJunk);
+              for (const p of searchItems) {
+                if (engines.length >= 1) break;
+                if (isEngine(p)) addUnique(p, engines);
+              }
+            } catch (e) { /* continue */ }
+          }
+
+          // Phase 2: Fill remaining 3 slots with varied parts
+          const partsQueries = [
+            'transmission assembly', 'turbocharger', 'alternator car',
+            'starter motor', 'radiator assembly', 'brake caliper',
+            'suspension kit', 'control arm assembly', 'catalytic converter',
+            'fuel pump assembly', 'fuel injectors',
+          ];
+          const parts: Product[] = [];
+          for (const q of partsQueries) {
+            if (parts.length >= 5) break; // get extras for variety
+            try {
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 6 });
+              const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotJunk);
+              for (const p of searchItems) {
+                if (parts.length >= 5) break;
+                addUnique(p, parts);
+              }
+            } catch (e) { /* continue */ }
+          }
+
+          // Assemble: 1 engine + up to 3 parts
+          items = [...engines.slice(0, 1), ...parts.slice(0, 3)];
+          // If engine missing, just use parts
+          if (items.length < 4) {
+            for (const p of parts) {
+              if (items.length >= 4) break;
+              if (!items.includes(p)) items.push(p);
+            }
+          }
+          items = items.slice(0, 4);
+          console.log('[AutoParts] selected titles:', items.map(p => p.title));
+
         } else {
           // ===== STANDARD PATH FOR ALL OTHER CATEGORIES =====
           // Stage 1: Try dedicated category feed

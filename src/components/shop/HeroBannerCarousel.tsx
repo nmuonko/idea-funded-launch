@@ -65,7 +65,7 @@ export function HeroBannerCarousel() {
 
   useEffect(() => {
     if (paused) return;
-    const timer = setInterval(next, 5000);
+    const timer = setInterval(next, 30000);
     return () => clearInterval(timer);
   }, [paused, next]);
 

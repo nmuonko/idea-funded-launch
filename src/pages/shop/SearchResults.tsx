@@ -598,7 +598,7 @@ export default function SearchResults() {
 
 
           {/* Products */}
-          <ProductGrid products={products} loading={loading} skeletonCount={12} />
+          <ProductGrid products={products} loading={loading} skeletonCount={16} />
 
           {/* Infinite scroll sentinel — always rendered so observer stays attached */}
           <div ref={sentinelRef} style={{ height: 1 }} />

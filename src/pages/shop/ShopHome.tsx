@@ -182,15 +182,32 @@ const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Pr
   productUrl: item.product_url,
 });
 
+const parsePrice = (item: any): number => {
+  const candidates = [
+    item.priceUsd, item.price_usd, item.price,
+    item.sellingStatus?.currentPrice?.value,
+    item.offer?.price, item.offers?.[0]?.price,
+  ];
+  for (const v of candidates) {
+    if (v == null) continue;
+    if (typeof v === 'number' && v > 0) return v;
+    if (typeof v === 'string') {
+      const n = parseFloat(v.replace(/[$,]/g, ''));
+      if (!isNaN(n) && n > 0) return n;
+    }
+  }
+  return 0;
+};
+
 const mapSearchItemToProduct = (item: any): Product => ({
-  id: item.id || item.providerProductId || '',
+  id: item.id || item.providerProductId || item.provider_product_id || item.itemId || item.asin || item.productUrl || item.product_url || item.url || '',
   provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
   title: item.title || 'Product',
-  imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || '',
-  priceUsd: item.priceUsd || item.price_usd || 0,
+  imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || item.image || '',
+  priceUsd: parsePrice(item),
   rating: item.rating,
   inStock: item.inStock !== false,
-  productUrl: item.productUrl || item.product_url,
+  productUrl: item.productUrl || item.product_url || item.url,
 });
 
 const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl;
@@ -397,19 +414,17 @@ export default function ShopHome() {
         } else if (catKey === 'vehicles') {
           const vehicleExcludes = [
             ...(CATEGORY_EXCLUDE_KEYWORDS['vehicles'] || []),
-            'adapter', 'j1772', 'charger', 'charging', 'cable', 'wall connector',
-            'floor mat', 'seat cover', 'phone holder', 'mount', 'case',
-            'keychain', 'sticker', 'decal', 'remote', 'toy', 'hot wheels',
-            'model car', 'diecast', 'scale model', 'matchbox', 'cover', 'protector',
+            'adapter', 'j1772', 'wall connector',
+            'floor mat', 'seat cover', 'phone holder', 'mount',
+            'keychain', 'sticker', 'decal', 'toy', 'hot wheels',
+            'model car', 'diecast', 'scale model', 'matchbox',
           ];
           const isVehicleItem = (p: Product): boolean => {
             if (!p.id || !p.imageUrl) return false;
+            if ((p.priceUsd || 0) < 500) return false; // price floor eliminates accessories
             const t = (p.title || '').toLowerCase();
             if (vehicleExcludes.some(ex => t.includes(ex))) return false;
-            // Accept if price >= 500 OR title looks like a real vehicle listing
-            if ((p.priceUsd || 0) >= 500) return true;
-            if (looksLikeVehicle(p.title || '')) return true;
-            return false;
+            return true;
           };
           const seenIds = new Set<string>();
 
@@ -418,15 +433,17 @@ export default function ShopHome() {
             const data = await cachedCatalogFetch<any>('catalog-category', {
               category: 'vehicles', limit: 50, page: 1, pageSize: 50, client: 'web',
             });
-            const rawItems = (data?.items || []).map((item: any) => ({
-              id: item.providerProductId || item.provider_product_id || item.id || '',
+            const allMapped = (data?.items || []).map((item: any) => ({
+              id: item.providerProductId || item.provider_product_id || item.id || item.itemId || '',
               provider: item.provider || 'ebay',
               title: item.title || '',
-              imageUrl: item.mainImageUrl || item.imageUrl || item.image_url || '',
-              priceUsd: item.priceUsd || item.price_usd || 0,
+              imageUrl: item.mainImageUrl || item.imageUrl || item.image_url || item.image || '',
+              priceUsd: parsePrice(item),
               rating: item.rating, inStock: true,
-              productUrl: item.productUrl || item.product_url || '',
-            } as Product)).filter(isVehicleItem);
+              productUrl: item.productUrl || item.product_url || item.url || '',
+            } as Product));
+            console.log('[Vehicles] catalog-category raw mapped:', allMapped.slice(0, 5).map((p: Product) => `${p.title} $${p.priceUsd} id=${p.id}`));
+            const rawItems = allMapped.filter(isVehicleItem);
             console.log('[Vehicles] catalog-category raw:', rawItems.slice(0, 8).map((p: Product) => `${p.title} ($${p.priceUsd})`));
             for (const p of rawItems) {
               if (items.length >= 4) break;

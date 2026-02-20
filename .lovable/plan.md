@@ -1,37 +1,33 @@
 
 
-## Fix Trending Grid Images to Look Clean and Uniform
+## Fix Stretched Images in the Trending Grid
 
 ### Problem
-The "Tendances" (Trending Now) grid images look uneven and stretched because they use `object-contain` inside square containers. This preserves original image proportions but leaves empty whitespace around non-square images, making the grid look inconsistent.
+The Trending Now ("Tendances") grid images use `object-cover`, which zooms into and crops product photos to fill the square container. This makes products like phones and laptops look stretched and unnatural because the image is being clipped and enlarged to fill the space.
 
 ### Solution
-Use `object-cover` instead of `object-contain` for product cards when displayed in the trending grid. This crops images to fill the square container uniformly, creating a clean, polished look (similar to how Amazon and eBay display grid thumbnails).
-
-Since `object-cover` should only apply to the trending grid (not all product cards), we'll add a new prop `coverImage` to `ProductCard` and pass it from the `SectionBlock` static-grid mode.
+Switch the `coverImage` mode from `object-cover` to `object-contain` with a clean white/light background. This keeps each image fully visible and properly proportioned inside its square container, with consistent padding so the grid looks uniform and polished -- no stretching, no cropping.
 
 ### Changes
 
 **File: `src/components/shop/ProductCard.tsx`**
 
-1. Add an optional `coverImage` prop to `ProductCardProps`
-2. When `coverImage` is true, use `object-cover` instead of `object-contain` and remove `mix-blend-multiply` (cover-cropped images on white backgrounds don't need blend mode)
-3. Remove the inner padding (`p-3`) when using cover mode so the image fills edge-to-edge
+Update the image className logic for `coverImage` mode:
+- Change from `object-cover` to `object-contain` so images maintain their natural proportions
+- Add small padding (`p-2`) so images don't touch the container edges
+- Keep the white background on the container for a clean, uniform look
 
-**File: `src/components/shop/SectionBlock.tsx`**
+The change is just one line in the className conditional:
 
-1. Pass `coverImage` to `ProductCard` when rendering in `static-grid` mode (the Tendances grid)
+```
+// Before (crops and stretches):
+compact && coverImage ? "object-cover"
+
+// After (fits nicely, no stretch):
+compact && coverImage ? "object-contain p-2"
+```
 
 ### Result
-- Trending grid: All 16 images fill their square containers uniformly with no whitespace gaps
-- Category grids and other cards: Unchanged (still use `object-contain` with padding)
-- The grid will look cohesive and professional like Amazon/eBay trending sections
-
-### Technical Detail
-
-```
-// ProductCard.tsx - image className changes
-compact && coverImage
-  ? "w-full h-full object-cover"                          // fills container, crops excess
-  : "w-full h-full object-contain mix-blend-multiply p-3" // current behavior
-```
+- All trending grid images will be fully visible with correct proportions
+- Uniform square containers with centered, non-stretched product photos
+- Clean, polished appearance similar to major e-commerce product grids

@@ -5,6 +5,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { useNavigate } from 'react-router-dom';
 import heroGaming from '@/assets/hero-gaming.jpg';
 import heroPhones from '@/assets/hero-phones.jpg';
+import boseHeadphones from '@/assets/bose-headphones.png';
 
 interface Slide {
   titleFr: string;
@@ -72,7 +73,7 @@ const SLIDES: Slide[] = [
     ctaEn: 'See headphones',
     ctaLink: '/category/audio',
     gradient: 'from-amber-900/90 via-orange-900/70 to-transparent',
-    image: 'https://images.unsplash.com/photo-1625245488600-f03fef636a3c?w=1600&q=80&auto=format&fit=crop',
+    image: boseHeadphones,
   },
   {
     titleFr: 'Maison Connectée',

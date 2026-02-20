@@ -289,6 +289,29 @@ export default function ShopHome() {
     }
   }, []);
 
+  // ====== CURATED CATEGORY HELPERS ======
+  const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'parts', 'broken', 'for repair', 'for parts', 'as is', 'not working'];
+  const isNotJunk = (p: Product) => !JUNK_TERMS.some(t => (p.title || '').toLowerCase().includes(t));
+
+  async function searchValidItems(queries: string[], max: number, seenIds: Set<string>, excludes?: string[]): Promise<Product[]> {
+    const results: Product[] = [];
+    for (const q of queries) {
+      if (results.length >= max) break;
+      try {
+        const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
+        const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotJunk);
+        for (const p of searchItems) {
+          if (results.length >= max) break;
+          if (seenIds.has(p.id)) continue;
+          if (excludes && excludes.some(ex => (p.title || '').toLowerCase().includes(ex))) continue;
+          results.push(p);
+          seenIds.add(p.id);
+        }
+      } catch (e) { /* continue */ }
+    }
+    return results;
+  }
+
   // ====== MODE (clothing) SPECIAL OVERRIDE QUERIES ======
   const MODE_OVERRIDE_QUERIES = [
     'women long maxi dress elegant',
@@ -312,14 +335,13 @@ export default function ShopHome() {
 
         // ===== SPECIAL PATH FOR "clothing" (Mode) =====
         if (catKey === 'clothing') {
-          // Try override queries sequentially until we have 4 valid items
           const seenIds = new Set<string>();
+          const excludes = getEffectiveExcludes('clothing');
           for (const q of MODE_OVERRIDE_QUERIES) {
             if (items.length >= 4) break;
             try {
               const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
               const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
-              const excludes = getEffectiveExcludes('clothing');
               for (const p of searchItems) {
                 if (items.length >= 4) break;
                 if (seenIds.has(p.id)) continue;
@@ -334,6 +356,74 @@ export default function ShopHome() {
             }
           }
           items = sortByLuxury(items).slice(0, 4);
+
+        // ===== SPECIAL PATH FOR "vehicles" (Véhicules) =====
+        } else if (catKey === 'vehicles') {
+          const seenIds = new Set<string>();
+          // Slot 1: Get 1 Tesla
+          const teslaQueries = ['Tesla Model X', 'Tesla Model S', 'Tesla Model Y', 'Tesla Model 3'];
+          const teslas = await searchValidItems(teslaQueries, 1, seenIds);
+          // Slots 2-4: Get 3 luxury SUVs
+          const suvQueries = [
+            'Range Rover SUV', 'Mercedes G Class SUV', 'Mercedes GLS SUV',
+            'BMW X7 SUV', 'BMW X5 SUV', 'Audi Q8 SUV',
+            'Porsche Cayenne SUV', 'Cadillac Escalade SUV',
+            'Lincoln Navigator SUV', 'Lexus LX SUV',
+          ];
+          const suvs = await searchValidItems(suvQueries, 3, seenIds);
+          items = [...teslas, ...suvs];
+          // If Tesla failed, backfill with more SUVs
+          if (items.length < 4) {
+            const moreSuvs = await searchValidItems(
+              ['Land Rover Discovery', 'Mercedes GLE SUV', 'Audi Q7 SUV', 'Volvo XC90'],
+              4 - items.length, seenIds
+            );
+            items.push(...moreSuvs);
+          }
+          items = items.slice(0, 4);
+          console.log('[Vehicles] selected:', items.map(p => p.title));
+
+        // ===== SPECIAL PATH FOR "jewelry_watches" (Montres & Bijoux) =====
+        } else if (catKey === 'jewelry_watches') {
+          const seenIds = new Set<string>();
+          // Phase 1: Collect watches (aim 2+)
+          const watchQueries = [
+            'Rolex watch', 'Cartier watch', 'Omega watch',
+            'Tag Heuer watch', 'Breitling watch', 'Tudor watch',
+            'luxury watch men', 'luxury watch women',
+          ];
+          const watches = await searchValidItems(watchQueries, 4, seenIds);
+          // Phase 2: Collect rings (aim 1+)
+          const ringQueries = [
+            'diamond ring', 'gold ring luxury', 'Cartier ring',
+            'Tiffany ring', 'engagement ring diamond',
+          ];
+          const rings = await searchValidItems(ringQueries, 2, seenIds);
+          // Phase 3: Optional filler
+          const fillerQueries = [
+            'Cartier bracelet', 'diamond bracelet',
+            'luxury necklace', 'diamond necklace',
+          ];
+
+          // Assemble with mix: 2 watches + 1 ring + 1 best remaining
+          const assembled: Product[] = [];
+          // Add up to 2 watches
+          for (const w of watches) { if (assembled.length < 2) assembled.push(w); }
+          // Add at least 1 ring
+          for (const r of rings) { if (assembled.length < 3) assembled.push(r); }
+          // Fill remaining from leftover watches, rings, or filler
+          const leftover = [...watches.slice(2), ...rings.slice(1)];
+          for (const p of leftover) { if (assembled.length < 4) assembled.push(p); }
+          // If still < 4, fetch filler
+          if (assembled.length < 4) {
+            const filler = await searchValidItems(fillerQueries, 4 - assembled.length, seenIds);
+            assembled.push(...filler);
+          }
+          items = assembled.slice(0, 4);
+          // Sort by price (highest first) for luxury feel
+          items.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+          console.log('[WatchesJewelry] selected:', items.map(p => p.title));
+
         } else {
           // ===== STANDARD PATH FOR ALL OTHER CATEGORIES =====
           // Stage 1: Try dedicated category feed

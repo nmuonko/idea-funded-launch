@@ -152,10 +152,10 @@ interface HomeFeedResponse {
 
 // All homepage categories in display order
 const ALL_HOMEPAGE_CATEGORIES = [
-  'phones', 'electronics', 'audio_music', 'gaming', 'vehicles',
-  'clothing', 'home_garden', 'toys', 'sporting_goods',
+  'phones', 'electronics', 'audio_music', 'gaming',
+  'vehicles', 'home_garden', 'toys', 'sporting_goods',
   'jewelry_watches', 'parts_accessories', 'refurbished',
-  'beauty_health', 'collectibles', 'shoes_sneakers', 'cameras_photo',
+  'collectibles', 'cameras_photo',
 ];
 const FETCH_CATEGORY_KEYS = ALL_HOMEPAGE_CATEGORIES;
 const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);

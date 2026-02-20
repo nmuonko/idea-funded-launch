@@ -10,13 +10,16 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, generateCacheKey, getCached } from '@/lib/catalogCache';
+import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, cachedCatalogFetch, generateCacheKey, getCached } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { expandQuery, relevanceScore } from '@/lib/expandQuery';
 
 const PAGE_SIZE = 100;
 const HARD_MAX_ITEMS = 500;
 const MAX_PAGES = Math.ceil(HARD_MAX_ITEMS / PAGE_SIZE); // 5
+const BROADEN_THRESHOLD = 30; // If primary returns fewer, start broadening
+const BROADEN_TARGET = 200; // Stop broadening when we reach this
 
 /** Generate a unique key per product for deduplication — provider-aware */
 function productKey(p: Product): string {
@@ -42,6 +45,20 @@ function dedupeWithSet(list: Product[], seenIds: Set<string>): Product[] {
   });
 }
 
+/** Map raw API items to Product interface */
+function mapItems(items: any[]): Product[] {
+  return items.map((item: any) => ({
+    id: item.provider_product_id || item.id,
+    provider: item.provider || 'amazon',
+    title: item.title || 'Product',
+    imageUrl: item.image_url || item.imageUrl || '',
+    priceUsd: item.price_usd || item.priceUsd || 0,
+    rating: item.rating,
+    inStock: item.in_stock !== false,
+    productUrl: item.product_url,
+  }));
+}
+
 export default function SearchResults() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -60,7 +77,6 @@ export default function SearchResults() {
   const [page, setPage] = useState(0);
   const [sort, setSort] = useState(initialSort);
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
-  // totalResults removed — use products.length directly
   const [incomplete, setIncomplete] = useState(false);
   const [prefetchingNext, setPrefetchingNext] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -68,6 +84,7 @@ export default function SearchResults() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorMode, setCursorMode] = useState(false);
   const [providersStatus, setProvidersStatus] = useState<any>(null);
+  const [isBroadening, setIsBroadening] = useState(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeSearchTokenRef = useRef(0);
@@ -95,10 +112,10 @@ export default function SearchResults() {
   };
 
   /** Build params object for cachedCatalogFetchWithSwr */
-  const buildSearchParams = useCallback((pageNum: number, cursor?: string | null): Record<string, string> => {
+  const buildSearchParams = useCallback((pageNum: number, cursor?: string | null, queryOverride?: string): Record<string, string> => {
     const IGNORED_CATEGORIES = new Set(['', 'all', 'home', 'accueil']);
     const effectiveCategory = IGNORED_CATEGORIES.has(category.toLowerCase()) ? '' : category;
-    const searchQuery = query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
+    const searchQuery = queryOverride || query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
     
     const params: Record<string, string> = {
       q: searchQuery.trim(),
@@ -127,19 +144,62 @@ export default function SearchResults() {
 
   const searchIdentityRef = useRef('');
 
-  /** Map raw API items to Product interface */
-  function mapItems(items: any[]): Product[] {
-    return items.map((item: any) => ({
-      id: item.provider_product_id || item.id,
-      provider: item.provider || 'amazon',
-      title: item.title || 'Product',
-      imageUrl: item.image_url || item.imageUrl || '',
-      priceUsd: item.price_usd || item.priceUsd || 0,
-      rating: item.rating,
-      inStock: item.in_stock !== false,
-      productUrl: item.product_url,
-    }));
-  }
+  /**
+   * Tier 2: Background broadening — fetch similar queries and append results.
+   * Runs after primary results are shown, in the background.
+   */
+  const runBroadening = useCallback(async (
+    primaryQuery: string,
+    token: number,
+    existingSeenIds: Set<string>,
+    signal: AbortSignal
+  ) => {
+    const expanded = expandQuery(primaryQuery);
+    if (expanded.similars.length === 0) return;
+
+    setIsBroadening(true);
+    console.log('[BROADEN] Starting broadening with queries:', expanded.similars);
+
+    for (const sq of expanded.similars) {
+      if (signal.aborted || token !== activeSearchTokenRef.current) break;
+
+      try {
+        const params = buildSearchParams(0, null, sq);
+        const data = await cachedCatalogFetch<any>('catalog-search', params);
+        if (signal.aborted || token !== activeSearchTokenRef.current) break;
+
+        const mapped = mapItems(data?.items || []);
+        const newUnique = dedupeWithSet(mapped, existingSeenIds);
+
+        if (newUnique.length > 0) {
+          // Score and sort the new items by relevance to original query
+          const scored = newUnique.map(p => ({
+            product: p,
+            score: relevanceScore(p.title || '', expanded.tokens, expanded.year),
+          }));
+          scored.sort((a, b) => b.score - a.score);
+
+          const sortedProducts = scored.map(s => s.product);
+          console.log(`[BROADEN] "${sq}" added ${sortedProducts.length} new items`);
+
+          setProducts(prev => [...prev, ...sortedProducts]);
+        }
+
+        // Check if we've reached the target
+        if (existingSeenIds.size >= BROADEN_TARGET) {
+          console.log('[BROADEN] Reached target, stopping');
+          break;
+        }
+      } catch (err) {
+        if ((err as any)?.name === 'AbortError') break;
+        console.warn(`[BROADEN] Query "${sq}" failed:`, err);
+      }
+    }
+
+    if (token === activeSearchTokenRef.current) {
+      setIsBroadening(false);
+    }
+  }, [buildSearchParams]);
 
   const fetchProducts = useCallback(async (pageNum: number, append: boolean = false, cursorVal?: string | null): Promise<{ returnedCount: number; backendHasMore: boolean; incomplete: boolean } | null> => {
     if (pageNum === 0 && abortControllerRef.current) {
@@ -168,13 +228,13 @@ export default function SearchResults() {
       setHasSearched(false);
       setHasMore(true);
       setProducts([]);
-      // products cleared above — no totalResults needed
       setIncomplete(false);
       setSearchError(null);
       setIsRevalidating(false);
       setPrefetchingNext(false);
       setNextCursor(null);
       setCursorMode(false);
+      setIsBroadening(false);
     } else if (pageNum > 0) {
       setLoadingMore(true);
     }
@@ -186,7 +246,6 @@ export default function SearchResults() {
     try {
       const params = buildSearchParams(pageNum, effectiveCursor);
       
-      // Use cachedCatalogFetchWithSwr for page 0 (benefits from SWR), raw for pagination
       let data: any;
       let fromCache = false;
       
@@ -194,12 +253,10 @@ export default function SearchResults() {
         const swrResult = await cachedCatalogFetchWithSwr<any>('catalog-search', params, {
           signal: controller.signal,
           onUpdate: (freshData) => {
-            // SWR background refresh completed — merge new results
             if (token !== null && token !== activeSearchTokenRef.current) return;
             const mappedFresh = mapItems(freshData?.items || []);
             const freshDeduped = dedupeWithSet(mappedFresh, new Set(seenIdsRef.current));
             if (freshDeduped.length > 0) {
-              // Replace with full fresh set
               seenIdsRef.current = new Set();
               const allFresh = dedupeWithSet(mapItems(freshData?.items || []), seenIdsRef.current);
               setProducts(allFresh);
@@ -217,7 +274,6 @@ export default function SearchResults() {
           setIsRevalidating(true);
         }
       } else {
-        // For pagination pages, use direct fetch (cursor/page-based, not cacheable in same way)
         const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined && value !== null && value !== '') {
@@ -254,17 +310,14 @@ export default function SearchResults() {
       const isIncomplete = !!data?.incomplete || !!data?.partial;
       const backendHasMore = data?.hasMore === true;
 
-      // Extract cursor from any possible location in response
       const responseCursor = data?.cursor || data?.nextCursor || data?.cursorNext || data?.meta?.cursor || data?.meta?.nextCursor || null;
 
       console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, fromCache, totalFromBackend: data?.total });
 
-      // Store provider debug info
       if (data?.providersStatus) {
         setProvidersStatus(data.providersStatus);
       }
 
-      // If backend returns a cursor, switch to cursor mode
       if (responseCursor) {
         setCursorMode(true);
         setNextCursor(responseCursor);
@@ -280,10 +333,20 @@ export default function SearchResults() {
       } else {
         seenIdsRef.current = new Set();
         const deduped = dedupeWithSet(mappedProducts, seenIdsRef.current);
+
+        // Sort primary results by relevance to original query
+        if (query) {
+          const expanded = expandQuery(query);
+          deduped.sort((a, b) => {
+            const scoreA = relevanceScore(a.title || '', expanded.tokens, expanded.year);
+            const scoreB = relevanceScore(b.title || '', expanded.tokens, expanded.year);
+            return scoreB - scoreA;
+          });
+        }
+
         setProducts(deduped);
       }
 
-      // hasMore: trust backend, treat incomplete as "more may exist", enforce hard cap
       const reachedCap = pageNum >= MAX_PAGES - 1;
       const computedHasMore = !reachedCap && (backendHasMore || isIncomplete || !!responseCursor || returnedCount === PAGE_SIZE);
       setHasMore(computedHasMore);
@@ -291,7 +354,7 @@ export default function SearchResults() {
 
       console.log('[SEARCH_PAGINATION]', { pageNum, computedHasMore, backendHasMore, isIncomplete, hasCursor: !!responseCursor, returnedCount, maxPages: MAX_PAGES });
 
-      // Auto-revalidate page 0 if incomplete AND not already from SWR stale path
+      // Auto-revalidate page 0 if incomplete
       if (pageNum === 0 && isIncomplete && !append && !fromCache) {
         const capturedToken = token ?? activeSearchTokenRef.current;
         revalidateTimerRef.current = setTimeout(() => {
@@ -308,6 +371,14 @@ export default function SearchResults() {
           setHasSearched(true);
         }
         setLoadingMore(false);
+      }
+
+      // ── TIER 2: Auto-broaden if primary returned few results ──
+      if (pageNum === 0 && !append && query && returnedCount < BROADEN_THRESHOLD) {
+        const capturedToken = token ?? activeSearchTokenRef.current;
+        console.log(`[BROADEN] Primary returned ${returnedCount} < ${BROADEN_THRESHOLD}, starting broadening`);
+        // Fire broadening in background (non-blocking)
+        runBroadening(query, capturedToken, seenIdsRef.current, controller.signal);
       }
       
       return fetchResult;
@@ -328,7 +399,7 @@ export default function SearchResults() {
       
       return null;
     }
-  }, [buildSearchParams, query, category, sort]);
+  }, [buildSearchParams, query, category, sort, runBroadening]);
 
   /** Background revalidation to enrich incomplete page-0 results */
   const revalidateInBackground = useCallback(async (token: number) => {
@@ -422,7 +493,6 @@ export default function SearchResults() {
       console.log('[LOADMORE_SKIP] MAX_PAGES reached', { nextPage, MAX_PAGES });
       return;
     }
-    // Prevent re-requesting the same page
     if (lastRequestedPageRef.current === nextPage) return;
     lastRequestedPageRef.current = nextPage;
 
@@ -433,7 +503,7 @@ export default function SearchResults() {
     fetchProducts(nextPage, true, cursorToUse);
   }, [fetchProducts]);
 
-  // Infinite scroll sentinel — uses refs to avoid stale closures
+  // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   const sentinelVisibleRef = useRef(false);
 
@@ -471,7 +541,7 @@ export default function SearchResults() {
   };
 
   // Derived: only show empty state when truly done
-  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && products.length === 0;
+  const showEmpty = hasSearched && !loading && !loadingMore && !prefetchingNext && !isRevalidating && !incomplete && !isBroadening && products.length === 0;
 
   return (
     <div className="min-h-screen bg-black">
@@ -509,7 +579,7 @@ export default function SearchResults() {
                 {!loading && hasSearched && (
                   <p className="text-sm text-white/60 whitespace-normal break-words leading-snug">
                     {products.length} {language === 'fr' ? 'produits affichés' : 'products shown'}
-                    {(hasMore || incomplete) && (
+                    {(hasMore || incomplete || isBroadening) && (
                       <span className="ml-2 text-xs text-white/40">
                         — {language === 'fr' ? 'Plus de résultats disponibles…' : 'More results available…'}
                       </span>
@@ -522,7 +592,13 @@ export default function SearchResults() {
                     {shop.updating || 'Updating…'}
                   </span>
                 )}
-                {prefetchingNext && !loading && (
+                {isBroadening && !loading && (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 whitespace-normal">
+                    <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                    {language === 'fr' ? 'Recherche de résultats similaires…' : 'Finding similar results…'}
+                  </span>
+                )}
+                {prefetchingNext && !loading && !isBroadening && (
                   <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 whitespace-normal">
                     <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
                     {shop.fetchingMoreSources || 'Loading more sources…'}
@@ -596,22 +672,21 @@ export default function SearchResults() {
 
 
 
-
           {/* Products */}
           <ProductGrid products={products} loading={loading} skeletonCount={16} />
 
-          {/* Infinite scroll sentinel — always rendered so observer stays attached */}
+          {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} style={{ height: 1 }} />
 
           {/* Loading more indicator */}
-          {(loadingMore || prefetchingNext) && (
+          {(loadingMore || prefetchingNext || isBroadening) && (
             <div className="flex justify-center mt-8">
               <Loader2 className="h-6 w-6 animate-spin text-white/60" />
             </div>
           )}
 
           {/* Load More fallback button */}
-          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && (
+          {!loading && hasMore && products.length > 0 && !loadingMore && !prefetchingNext && !isBroadening && (
             <div className="text-center mt-4">
               <Button
                 onClick={handleLoadMore}
@@ -623,7 +698,7 @@ export default function SearchResults() {
             </div>
           )}
 
-          {/* No Results — ONLY after all loading/revalidation/incomplete done */}
+          {/* No Results */}
           {showEmpty && (
             <div className="text-center py-20">
               {searchError ? (

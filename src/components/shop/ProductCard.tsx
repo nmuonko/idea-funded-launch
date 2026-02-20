@@ -7,6 +7,7 @@ import { useShopCart } from '@/contexts/ShopCartContext';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
+import { resizeImageUrl, IMAGE_SIZE_THUMB } from '@/lib/imageResize';
 
 export interface Product {
   id: string;
@@ -117,7 +118,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
         compact ? "aspect-square" : "aspect-[4/3] sm:aspect-square"
       )}>
         <img
-          src={product.imageUrl || '/placeholder.svg'}
+          src={resizeImageUrl(product.imageUrl || '/placeholder.svg', IMAGE_SIZE_THUMB)}
           alt={product.title}
           className={cn(
             "w-full h-full object-contain transition-transform duration-200 group-hover:scale-105 mix-blend-multiply",
@@ -143,7 +144,7 @@ export function ProductCard({ product, className, compact = false }: ProductCard
           onClick={handleToggleSaved}
           className={cn(
             "absolute top-1.5 right-1.5 p-1.5 rounded-full transition-all",
-            compact ? "min-h-[28px] min-w-[28px]" : "min-h-[32px] min-w-[32px]",
+            compact ? "min-h-[44px] min-w-[44px]" : "min-h-[44px] min-w-[44px]",
             "flex items-center justify-center",
             isSaved 
               ? "bg-red-500/20 text-red-400" 

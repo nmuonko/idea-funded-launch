@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import heroGaming from '@/assets/hero-gaming.jpg';
 import heroPhones from '@/assets/hero-phones.jpg';
 import boseHeadphones from '@/assets/bose-headphones.png';
+import heroSmarthome from '@/assets/hero-smarthome.png';
 
 interface Slide {
   titleFr: string;
@@ -84,7 +85,7 @@ const SLIDES: Slide[] = [
     ctaEn: 'See accessories',
     ctaLink: '/category/accessories',
     gradient: 'from-rose-900/90 via-pink-900/70 to-transparent',
-    image: 'https://images.unsplash.com/photo-1558089687-f282ffcbc126?w=1600&q=80&auto=format&fit=crop',
+    image: heroSmarthome,
   },
 ];
 

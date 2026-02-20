@@ -304,7 +304,7 @@ export default function ShopHome() {
     };
 
     // 1) TRENDING (16 items, round-robin luxury-biased)
-    const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'clothing', 'audio_music', 'cameras_photo', 'beauty_health', 'shoes_sneakers'];
+    const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'audio_music', 'cameras_photo', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished', 'collectibles'];
     const trending: Product[] = [];
     for (const cat of trendingCats) {
       const dedicated = sortByLuxury([...(categorySections[cat] || []), ...accueilProducts.filter(p => isRelevantToCategory(p, cat))]);
@@ -322,7 +322,7 @@ export default function ShopHome() {
       }
     }
     if (trending.length < 16) {
-      const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing', 'audio_music', 'cameras_photo', 'beauty_health', 'shoes_sneakers'];
+      const trendingAllowedCats = ALL_HOMEPAGE_CATEGORIES;
       const validAccueil = accueilProducts.filter(p => {
         if ((p.priceUsd || 0) < 20) return false;
         const title = (p.title || '').toLowerCase();

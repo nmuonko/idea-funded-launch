@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -37,16 +37,22 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
 
 // Fallback search queries for categories that lack dedicated backend recipes
 const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
+  phones: ['iPhone 15 Pro Max', 'Samsung Galaxy S24 Ultra', 'Google Pixel 8 Pro', 'OnePlus 12 smartphone'],
+  electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
+  gaming: ['PS5 console bundle', 'Nintendo Switch OLED', 'Xbox Series X', 'Steam Deck gaming'],
+  vehicles: ['Toyota Land Cruiser', 'BMW sedan', 'Ford Mustang', 'Mercedes Benz SUV'],
+  clothing: ['women long maxi dress', 'mens jacket coat', 'abaya kaftan long dress', 'women blazer suit'],
+  home_garden: ['sofa living room furniture', 'kitchen appliance blender', 'bed frame mattress', 'garden outdoor patio'],
+  toys: ['LEGO building set', 'Barbie doll playset', 'Nerf blaster gun', 'puzzle board game'],
+  sporting_goods: ['treadmill home gym', 'dumbbell weight set', 'yoga mat fitness', 'bicycle mountain bike'],
+  jewelry_watches: ['Rolex luxury watch', 'gold diamond necklace', 'Casio Seiko watch', 'silver bracelet jewelry'],
+  parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
+  refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
   beauty_health: ['perfume fragrance', 'skincare serum moisturizer', 'makeup cosmetics lipstick', 'hair dryer curling iron'],
+  collectibles: ['Funko Pop vinyl figure', 'Pokemon cards booster', 'vintage antique collectible', 'sports memorabilia signed autograph'],
   audio_music: ['bluetooth speaker JBL Bose', 'headphones wireless noise cancelling', 'electric guitar acoustic', 'turntable vinyl record player'],
   shoes_sneakers: ['Nike Air Max sneakers', 'Adidas Yeezy shoes', 'Jordan retro basketball shoe', 'New Balance running shoe'],
   cameras_photo: ['Canon EOS DSLR camera', 'Sony Alpha mirrorless camera', 'GoPro action camera', 'camera lens tripod'],
-  electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
-  clothing: ['women long maxi dress', 'mens jacket coat', 'abaya kaftan long dress', 'women blazer suit'],
-  collectibles: ['Funko Pop vinyl figure', 'Pokemon cards booster', 'vintage antique collectible', 'sports memorabilia signed autograph'],
-  refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
-  parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
-  sporting_goods: ['treadmill home gym', 'dumbbell weight set', 'yoga mat fitness', 'bicycle mountain bike'],
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -83,7 +89,7 @@ const CATEGORY_EXCLUDE_KEYWORDS: Record<string, string[]> = {
   gaming: ['sofa', 'couch', 'bed', 'mattress', 'furniture', 'kitchen', 'garden', 'dress', 'shirt', 'charger', 'cable', 'cooling fan', 'internal fan', 'replacement fan', 'gaming chair', 'chair', 'desk', 'skin', 'decal', 'speaker', 'guitar', 'piano', 'perfume', 'sofa set', 'dining table', 'makeup', 'cologne'],
   phones: ['sofa', 'bed', 'table', 'chair', 'furniture', 'kitchen', 'garden', 'dress', 'mattress', 'case', 'protector', 'screen protector', 'cable', 'charger', 'mount', 'holder', 'stand', 'tempered glass', 'cover', 'wallet', 'strap', 'armband', 'phone case', 'phone mount', 'phone holder', 'phone stand', 'phone charger', 'phone cable', 'car mount', 'film', 'adapter', 'earphones', 'earbuds', 'headphone'],
   vehicles: ['iphone', 'macbook', 'ps5', 'laptop', 'tablet', 'smartphone', 'dress', 'shirt', 'sofa', 'bed', 'charger', 'cable', 'stereo', 'gps', 'carplay', 'android auto', 'dash cam', 'phone mount', 'car charger', 'phone holder', 'bluetooth adapter', 'fm transmitter', 'screen protector', 'tempered glass', 'floor mat', 'seat cover', 'phone', 'head unit', 'radio', 'brake pad', 'oil filter', 'wiper', 'spark plug', 'alternator', 'bumper cover', 'perfume', 'cologne'],
-  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'lingerie', 'bikini', 'thong', 'lace bra', 'sexy', 'lingerie set', 'sneaker', 'sneakers', 'air max', 'air force 1', 'dunk low', 'dunk high', 'yeezy', 'running shoe', 'basketball shoe', 'hiking boot', 'camera', 'lens', 'tripod', 'mini dress', 'short dress', 'crop top', 'tank top', 'camisole', 'bralette'],
+  clothing: ['iphone', 'ps5', 'macbook', 'laptop', 'tablet', 'sofa', 'couch', 'bed', 'mattress', 'fridge', 'microwave', 'phone case', 'car part', 'charger', 'cable', 'electronic', 'appliance', 'lego', 'toy', 'puzzle', 'doll', 'action figure', 'building block', 'playset', 'yoga mat', 'treadmill', 'dumbbell', 'exercise', 'auto part', 'brake pad', 'oil filter', 'car battery', 'headlight', 'spark plug', 'wiper', 'sofa set', 'dining table', 'refrigerator', 'vacuum', 'blender', 'lingerie', 'bikini', 'thong', 'lace bra', 'sexy', 'lingerie set', 'sneaker', 'sneakers', 'air max', 'air force 1', 'dunk low', 'dunk high', 'yeezy', 'running shoe', 'basketball shoe', 'hiking boot', 'camera', 'lens', 'tripod', 'mini dress', 'short dress', 'crop top', 'tank top', 'camisole', 'bralette', 'console', 'playstation', 'xbox', 'nintendo', 'game', 'controller', 'smartphone', 'samsung', 'pixel', 'android'],
   home_garden: ['iphone', 'ps5', 'macbook', 'laptop', 'smartphone', 'playstation', 'xbox', 'nintendo', 'gpu', 'earbuds', 'phone case', 'gaming', 'video game', 'console', 'hdmi', 'usb', 'cable', 'apple watch', 'smartwatch', 'airpods', 'headphones', 'samsung galaxy', 'trading card', 'pokemon', 'carplay', 'stereo', 'perfume', 'cologne', 'makeup', 'phone', 'samsung', 'tablet'],
   toys: ['iphone', 'macbook', 'laptop', 'sofa', 'bed', 'mattress', 'ps5', 'phone case', 'charger', 'cable', 'brake pad', 'oil filter', 'perfume', 'cologne'],
   sporting_goods: ['iphone', 'macbook', 'ps5', 'sofa', 'bed', 'mattress', 'laptop', 'tablet', 'phone case', 'gaming', 'charger', 'cable', 'console', 'playstation', 'xbox', 'nintendo', 'trading card', 'pokemon', 'perfume', 'cologne'],
@@ -158,39 +164,112 @@ const ALL_HOMEPAGE_CATEGORIES = [
   'jewelry_watches', 'parts_accessories', 'refurbished',
   'clothing', 'cameras_photo',
 ];
-const FETCH_CATEGORY_KEYS = ALL_HOMEPAGE_CATEGORIES;
 const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
-const MORE_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(4);
 
 const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
+const CONCURRENCY_LIMIT = 4;
+
+// ====== HELPERS ======
+
+const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
+  id: item.provider_product_id || item.id || '',
+  provider: item.provider || 'amazon',
+  title: item.title || 'Product',
+  imageUrl: item.image_url || item.imageUrl || '',
+  priceUsd: item.price_usd || item.priceUsd || 0,
+  rating: item.rating,
+  inStock: item.in_stock !== false,
+  productUrl: item.product_url,
+});
+
+const mapSearchItemToProduct = (item: any): Product => ({
+  id: item.id || item.providerProductId || '',
+  provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
+  title: item.title || 'Product',
+  imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || '',
+  priceUsd: item.priceUsd || item.price_usd || 0,
+  rating: item.rating,
+  inStock: item.inStock !== false,
+  productUrl: item.productUrl || item.product_url,
+});
+
+const isValidProduct = (p: Product) => p.id && p.priceUsd > 0 && p.imageUrl;
+
+/** Run async tasks with a concurrency limit */
+async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = [];
+  let index = 0;
+  async function worker() {
+    while (index < tasks.length) {
+      const i = index++;
+      results[i] = await tasks[i]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.allSettled(workers);
+  return results;
+}
+
+/** Deduplicate products by ID within a list */
+function deduplicateProducts(items: Product[]): Product[] {
+  const seen = new Set<string>();
+  return items.filter(p => {
+    const key = p.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Filter products by category relevance */
+function filterForCategory(items: Product[], catKey: string): Product[] {
+  const excludes = getEffectiveExcludes(catKey);
+  const keywords = CATEGORY_KEYWORDS[catKey];
+  return items.filter(p => {
+    const titleLower = (p.title || '').toLowerCase();
+    if (excludes.some(ex => titleLower.includes(ex))) return false;
+    // For strict categories, require keyword match
+    if (keywords && !keywords.some(kw => titleLower.includes(kw))) return false;
+    return true;
+  });
+}
+
+/** Sort by luxury/price */
+function sortByLuxury(items: Product[]): Product[] {
+  return [...items].sort((a, b) => {
+    const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
+    const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
+    if (bLux !== aLux) return bLux - aLux;
+    return (b.priceUsd || 0) - (a.priceUsd || 0);
+  });
+}
 
 export default function ShopHome() {
   const { language } = useLanguage();
   const { user } = useAuth();
 
-  const [accueilProducts, setAccueilProducts] = useState<Product[]>([]);
-  const [accueilLoading, setAccueilLoading] = useState(true);
-  const [categorySections, setCategorySections] = useState<Record<string, Product[]>>({});
-  const [categoryLoading, setCategoryLoading] = useState(true);
-  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
   const t = translations[language] || translations.en;
   const shop = t.shop;
 
-  const mapItemToProduct = (item: HomeFeedResponse['sections'][0]['items'][0]): Product => ({
-    id: item.provider_product_id || item.id || '',
-    provider: item.provider || 'amazon',
-    title: item.title || 'Product',
-    imageUrl: item.image_url || item.imageUrl || '',
-    priceUsd: item.price_usd || item.priceUsd || 0,
-    rating: item.rating,
-    inStock: item.in_stock !== false,
-    productUrl: item.product_url,
+  // ====== STATE ======
+  // Trending: still uses shared feed
+  const [accueilProducts, setAccueilProducts] = useState<Product[]>([]);
+  const [accueilLoading, setAccueilLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Per-category independent items and loading states
+  const [categoryItems, setCategoryItems] = useState<Record<string, Product[]>>({});
+  const [categoryLoadingMap, setCategoryLoadingMap] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    ALL_HOMEPAGE_CATEGORIES.forEach(k => { init[k] = true; });
+    return init;
   });
 
-  // ====== ACCUEIL DATA ======
-  const fetchAccueilFeed = async () => {
+  const [recentlyViewed, setRecentlyViewed] = useState<Product[]>([]);
+  const fetchedRef = useRef(false);
+
+  // ====== ACCUEIL (trending only) ======
+  const fetchAccueilFeed = useCallback(async () => {
     setAccueilLoading(true);
     setError(null);
     try {
@@ -208,145 +287,93 @@ export default function ShopHome() {
     } finally {
       setAccueilLoading(false);
     }
-  };
+  }, []);
 
-  const fetchCategorySections = async () => {
-    setCategoryLoading(true);
-    try {
-      const results = await Promise.allSettled(
-        FETCH_CATEGORY_KEYS.map(async (cat) => {
+  // ====== PER-CATEGORY INDEPENDENT FETCH ======
+  const fetchAllCategoryItems = useCallback(async () => {
+    const tasks = ALL_HOMEPAGE_CATEGORIES.map((catKey) => async () => {
+      setCategoryLoadingMap(prev => ({ ...prev, [catKey]: true }));
+      try {
+        let items: Product[] = [];
+
+        // Stage 1: Try dedicated category feed
+        try {
           const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-            category: cat,
+            category: catKey,
             page: 1,
             pageSize: 80,
             client: 'web',
           });
-          const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(p => p.id && p.priceUsd > 0) || [];
-          return { cat, items: rawItems };
-        })
-      );
-      const map: Record<string, Product[]> = {};
-      results.forEach((r) => {
-        if (r.status === 'fulfilled' && r.value.items.length > 0) {
-          map[r.value.cat] = r.value.items;
+          const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(isValidProduct) || [];
+          items = filterForCategory(rawItems, catKey);
+        } catch (e) {
+          // Ignore, proceed to search fallback
         }
-      });
-      setCategorySections(map);
-    } catch (err) {
-      console.error('[ShopHome] category sections fetch error', err);
-    } finally {
-      setCategoryLoading(false);
-    }
-  };
 
-  const loadRecentlyViewed = async () => {
+        // Stage 2: If not enough, try search queries
+        if (items.length < 4) {
+          const queries = CATEGORY_SEARCH_QUERIES[catKey] || [catKey.replace('_', ' ')];
+          for (const q of queries.slice(0, 4)) {
+            if (items.length >= 8) break;
+            try {
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
+              const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct);
+              items.push(...searchItems);
+            } catch (e) {
+              // Continue with next query
+            }
+          }
+          items = filterForCategory(items, catKey);
+        }
+
+        // Deduplicate and take first 4
+        items = deduplicateProducts(sortByLuxury(items)).slice(0, 4);
+
+        console.log(`[ShopHome] Category ${catKey}: fetched=${items.length}, shown=${Math.min(items.length, 4)}`);
+
+        setCategoryItems(prev => ({ ...prev, [catKey]: items }));
+      } catch (err) {
+        console.warn(`[ShopHome] Category ${catKey} fetch failed:`, err);
+        setCategoryItems(prev => ({ ...prev, [catKey]: [] }));
+      } finally {
+        setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+      }
+    });
+
+    await runWithConcurrency(tasks, CONCURRENCY_LIMIT);
+  }, []);
+
+  const loadRecentlyViewed = useCallback(async () => {
     try {
       const items = await getRecentlyViewed(user?.id, 12);
       setRecentlyViewed(items);
     } catch (err) {
       console.warn('[ShopHome] recently viewed fetch failed', err);
     }
-  };
+  }, [user?.id]);
 
-  // ====== UNIFIED SECTION BUILDER ======
-  const { trendingFeed, categoryGrids } = useMemo(() => {
+  // ====== TRENDING FEED (from shared accueil pool) ======
+  const trendingFeed = useMemo(() => {
     const dedup = new Set<string>();
-
-    const sortByLuxury = (items: Product[]) =>
-      [...items].sort((a, b) => {
-        const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-        const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-        if (bLux !== aLux) return bLux - aLux;
-        return (b.priceUsd || 0) - (a.priceUsd || 0);
-      });
-
-    // STRICT pick: must match include keyword AND not match any exclude keyword
-    const pickStrict = (candidates: Product[], catKey: string, max: number): Product[] => {
-      const result: Product[] = [];
-      const effectiveExcludes = getEffectiveExcludes(catKey);
-      const keywords = CATEGORY_KEYWORDS[catKey];
-      for (const p of candidates) {
-        if (result.length >= max) break;
-        if (dedup.has(p.id)) continue;
-        const titleLower = (p.title || '').toLowerCase();
-        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        if (keywords && !keywords.some(kw => titleLower.includes(kw))) continue;
-        result.push(p);
-        dedup.add(p.id);
-      }
-      return result;
-    };
-
-    // EXCLUDE-ONLY pick: trust backend categorization, just block contaminants
-    const pickExcludeOnly = (candidates: Product[], catKey: string, max: number): Product[] => {
-      const result: Product[] = [];
-      const effectiveExcludes = getEffectiveExcludes(catKey);
-      for (const p of candidates) {
-        if (result.length >= max) break;
-        if (dedup.has(p.id)) continue;
-        const titleLower = (p.title || '').toLowerCase();
-        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        result.push(p);
-        dedup.add(p.id);
-      }
-      return result;
-    };
-
-    // Categories where backend feed is unreliable — always use strict include filtering
-    const STRICT_FEED_CATS = new Set(['clothing']);
-
-    // TWO-TIER builder: exclude-only for dedicated feeds, strict for general pool
-    const buildGrid4 = (catKey: string): Product[] => {
-      const dedicated = sortByLuxury(categorySections[catKey] || []);
-      // Stage A: Use strict for unreliable feeds, exclude-only for trusted feeds
-      let items = STRICT_FEED_CATS.has(catKey)
-        ? pickStrict(dedicated, catKey, 4)
-        : pickExcludeOnly(dedicated, catKey, 4);
-      // Stage B: STRICT from accueil pool (uncategorized, must prove relevance)
-      if (items.length < 4) {
-        items = [...items, ...pickStrict(sortByLuxury(accueilProducts), catKey, 4 - items.length)];
-      }
-      return items.slice(0, 4);
-    };
-
-    // 1) TRENDING (16 items, round-robin luxury-biased)
     const trendingCats = ['phones', 'electronics', 'vehicles', 'jewelry_watches', 'gaming', 'audio_music', 'cameras_photo', 'home_garden', 'sporting_goods', 'toys', 'parts_accessories', 'refurbished', 'collectibles'];
     const trending: Product[] = [];
+
+    // Round-robin from accueil products by category
     for (const cat of trendingCats) {
-      const dedicated = sortByLuxury([...(categorySections[cat] || []), ...accueilProducts.filter(p => isRelevantToCategory(p, cat))]);
+      const relevant = accueilProducts.filter(p => isRelevantToCategory(p, cat));
+      const sorted = sortByLuxury(relevant);
       let count = 0;
-      for (const p of dedicated) {
+      for (const p of sorted) {
         if (count >= 2) break;
         if (!dedup.has(p.id)) {
-          const titleLower = (p.title || '').toLowerCase();
-          const excludes = getEffectiveExcludes(cat);
-          if (excludes.some(ex => titleLower.includes(ex))) continue;
           trending.push(p);
           dedup.add(p.id);
           count++;
         }
       }
     }
-    if (trending.length < 16) {
-      const trendingAllowedCats = ALL_HOMEPAGE_CATEGORIES;
-      const validAccueil = accueilProducts.filter(p => {
-        if ((p.priceUsd || 0) < 20) return false;
-        const title = (p.title || '').toLowerCase();
-        return trendingAllowedCats.some(cat => {
-          const kws = CATEGORY_KEYWORDS[cat];
-          const exs = getEffectiveExcludes(cat);
-          return kws?.some(kw => title.includes(kw)) && !exs.some(ex => title.includes(ex));
-        });
-      });
-      for (const p of sortByLuxury(validAccueil)) {
-        if (trending.length >= 16) break;
-        if (!dedup.has(p.id)) {
-          trending.push(p);
-          dedup.add(p.id);
-        }
-      }
-    }
-    // Last-resort backfill from any accueil product with price > 0
+
+    // Backfill
     if (trending.length < 16) {
       for (const p of sortByLuxury(accueilProducts)) {
         if (trending.length >= 16) break;
@@ -357,170 +384,30 @@ export default function ShopHome() {
       }
     }
 
-    // 2) ALL CATEGORY GRIDS
-    const grids: Array<{ key: string; items: Product[] }> = [];
-    for (const catKey of ALL_HOMEPAGE_CATEGORIES) {
-      const items = buildGrid4(catKey);
-      grids.push({ key: catKey, items });
-    }
-
-    return {
-      trendingFeed: trending.slice(0, 16),
-      categoryGrids: grids,
-    };
-  }, [categorySections, accueilProducts]);
-
-  // ====== ASYNC TOP-UP: fetch from catalog-category for ALL categories ======
-  const [topUpPools, setTopUpPools] = useState<Record<string, Product[]>>({});
-
-  useEffect(() => {
-    // Fetch top-up pools for ALL categories to ensure deep candidate pools
-    if (categoryLoading || accueilLoading) return;
-    let cancelled = false;
-    console.debug('[ShopHome] Top-up: fetching pools for all categories');
-    (async () => {
-      const results = await Promise.allSettled(
-        ALL_HOMEPAGE_CATEGORIES.map(async (cat) => {
-          const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-category', {
-            category: cat,
-            limit: 300,
-            client: 'web',
-            language,
-          });
-          const items = data?.sections?.[0]?.items?.map(mapItemToProduct).filter((p: Product) => p.id && p.priceUsd > 0) || [];
-          return { cat, items };
-        })
-      );
-      if (cancelled) return;
-      const pools: Record<string, Product[]> = {};
-      results.forEach(r => {
-        if (r.status === 'fulfilled') pools[r.value.cat] = r.value.items;
-      });
-      setTopUpPools(pools);
-    })();
-    return () => { cancelled = true; };
-  }, [categoryLoading, accueilLoading, language]);
-
-  // Merge top-up pools into grids — EXCLUDE-ONLY for top-up (backend categorized)
-  const finalCategoryGrids = useMemo(() => {
-    if (Object.keys(topUpPools).length === 0) return categoryGrids;
-    const usedIds = new Set(categoryGrids.flatMap(g => g.items.map(i => i.id)));
-    // Also add trending IDs to avoid cross-contamination
-    trendingFeed.forEach(p => usedIds.add(p.id));
-    
-    return categoryGrids.map(g => {
-      if (g.items.length >= 4) return g;
-      const pool = topUpPools[g.key];
-      if (!pool) return g;
-      const effectiveExcludes = getEffectiveExcludes(g.key);
-      const extra: Product[] = [];
-      const sorted = [...pool].sort((a, b) => {
-        const aLux = LUXURY_KEYWORDS.some(kw => (a.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-        const bLux = LUXURY_KEYWORDS.some(kw => (b.title || '').toLowerCase().includes(kw)) ? 1 : 0;
-        if (bLux !== aLux) return bLux - aLux;
-        return (b.priceUsd || 0) - (a.priceUsd || 0);
-      });
-      for (const p of sorted) {
-        if (g.items.length + extra.length >= 4) break;
-        if (usedIds.has(p.id)) continue;
-        const titleLower = (p.title || '').toLowerCase();
-        // EXCLUDE-ONLY: trust backend categorization, just block contaminants
-        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        extra.push(p);
-        usedIds.add(p.id);
-      }
-      return { key: g.key, items: [...g.items, ...extra].slice(0, 4) };
-    });
-  }, [categoryGrids, topUpPools, trendingFeed]);
-
-  // ====== SEARCH FALLBACK: for categories still empty after top-up ======
-  const [searchFallbacks, setSearchFallbacks] = useState<Record<string, Product[]>>({});
-
-  useEffect(() => {
-    if (Object.keys(topUpPools).length === 0) return; // Wait for top-up to finish first
-    const emptyKeys = finalCategoryGrids.filter(g => g.items.length < 4).map(g => g.key);
-    if (emptyKeys.length === 0) return;
-
-    let cancelled = false;
-    console.debug('[ShopHome] Search fallback for:', emptyKeys);
-    (async () => {
-      const results = await Promise.allSettled(
-        emptyKeys.map(async (cat) => {
-          const queries = CATEGORY_SEARCH_QUERIES[cat] || [CATEGORY_KEYWORDS[cat]?.[0] || cat.replace('_', ' ')];
-          const allItems: Product[] = [];
-          for (const q of queries.slice(0, 4)) {
-            if (allItems.length >= 12) break;
-            try {
-              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
-              const items = (data?.items || []).map((item: any) => ({
-                id: item.id || item.providerProductId || '',
-                provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
-                title: item.title || 'Product',
-                imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || '',
-                priceUsd: item.priceUsd || item.price_usd || 0,
-                rating: item.rating,
-                inStock: item.inStock !== false,
-                productUrl: item.productUrl || item.product_url,
-              })).filter((p: Product) => p.id && p.priceUsd > 0 && p.imageUrl);
-              allItems.push(...items);
-            } catch (e) {
-              console.warn(`[ShopHome] search fallback failed for "${q}"`, e);
-            }
-          }
-          return { cat, items: allItems };
-        })
-      );
-      if (cancelled) return;
-      const fb: Record<string, Product[]> = {};
-      results.forEach(r => {
-        if (r.status === 'fulfilled' && r.value.items.length > 0) {
-          fb[r.value.cat] = r.value.items;
-        }
-      });
-      if (Object.keys(fb).length > 0) {
-        setSearchFallbacks(prev => ({ ...prev, ...fb }));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [finalCategoryGrids, topUpPools]);
-
-  // Merge search fallbacks into final grids
-  const displayGrids = useMemo(() => {
-    if (Object.keys(searchFallbacks).length === 0) return finalCategoryGrids;
-    const usedIds = new Set(finalCategoryGrids.flatMap(g => g.items.map(i => i.id)));
-    trendingFeed.forEach(p => usedIds.add(p.id));
-
-    return finalCategoryGrids.map(g => {
-      if (g.items.length >= 4) return g;
-      const pool = searchFallbacks[g.key];
-      if (!pool) return g;
-      const effectiveExcludes = getEffectiveExcludes(g.key);
-      const extra: Product[] = [];
-      for (const p of pool) {
-        if (g.items.length + extra.length >= 4) break;
-        if (usedIds.has(p.id)) continue;
-        const titleLower = (p.title || '').toLowerCase();
-        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
-        extra.push(p);
-        usedIds.add(p.id);
-      }
-      return { key: g.key, items: [...g.items, ...extra].slice(0, 4) };
-    });
-  }, [finalCategoryGrids, searchFallbacks, trendingFeed]);
+    return trending.slice(0, 16);
+  }, [accueilProducts]);
 
   // ====== EFFECTS ======
   useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
     fetchAccueilFeed();
-    fetchCategorySections();
+    fetchAllCategoryItems();
     loadRecentlyViewed();
+  }, []);
+
+  // Re-fetch on language change
+  useEffect(() => {
+    if (!fetchedRef.current) return;
+    fetchAccueilFeed();
+    fetchAllCategoryItems();
   }, [language]);
 
   useEffect(() => {
     loadRecentlyViewed();
   }, [user?.id]);
 
-
-  const isLoading = accueilLoading && categoryLoading;
+  const isInitialLoading = accueilLoading && Object.values(categoryLoadingMap).every(v => v);
 
   return (
     <div className="min-h-screen bg-[#0f1115] pb-20 md:pb-0">
@@ -534,7 +421,7 @@ export default function ShopHome() {
 
       <main className="pb-8">
         <div className="container mx-auto px-3 sm:px-4">
-          {isLoading ? (
+          {isInitialLoading ? (
             <div className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -565,12 +452,12 @@ export default function ShopHome() {
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {displayGrids.filter(g => PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
+                {PROMO_CATEGORIES.map(catKey => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={items}
-                    loading={items.length === 0}
+                    items={categoryItems[catKey] ?? []}
+                    loading={categoryLoadingMap[catKey] === true}
                     mode="grid"
                     categoryKey={catKey}
                   />
@@ -592,12 +479,12 @@ export default function ShopHome() {
 
               {/* 5) Remaining Category Grid Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {displayGrids.filter(g => !PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
+                {ALL_HOMEPAGE_CATEGORIES.filter(k => !PROMO_CATEGORIES.includes(k)).map(catKey => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
-                    items={items}
-                    loading={items.length === 0}
+                    items={categoryItems[catKey] ?? []}
+                    loading={categoryLoadingMap[catKey] === true}
                     mode="grid"
                     categoryKey={catKey}
                   />

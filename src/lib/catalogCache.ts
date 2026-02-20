@@ -442,5 +442,26 @@ export function clearCatalogHomeCache(): number {
   return keysToRemove.length;
 }
 
+// ─── PREFETCH HELPER ──────────────────────────────────────────────────────────
+
+const prefetchedKeys = new Set<string>();
+
+/**
+ * Silently prefetch a category's first page into the cache.
+ * Fire-and-forget — no UI impact, no error surfacing.
+ * Uses the exact same cache key as CategoryResultsPage so it gets an instant hit.
+ */
+export function prefetchCatalogCategory(category: string, language: string): void {
+  const key = `${category}:${language}`;
+  if (prefetchedKeys.has(key)) return;
+  prefetchedKeys.add(key);
+  cachedCatalogFetch('catalog-category', {
+    category,
+    pageSize: 100,
+    client: 'web',
+    language,
+  }).catch(() => {});
+}
+
 // Clear expired cache on module load
 clearExpiredCache();

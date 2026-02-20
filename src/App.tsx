@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { GlobalErrorBoundary } from "@/components/GlobalErrorBoundary";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -29,73 +29,76 @@ import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
 import Profile from "./pages/Profile";
-
 import NotFound from "./pages/NotFound";
-import AdminDashboard from "./pages/admin/Dashboard";
-import AdminOrders from "./pages/admin/Orders";
-import AdminOrderDetail from "./pages/admin/OrderDetail";
-import AdminFeesSettings from "./pages/admin/FeesSettings";
-import AdminUsers from "./pages/admin/Users";
-import AdminCustomers from "./pages/admin/Customers";
-import AdminShipping from "./pages/admin/Shipping";
-import AdminShippingTypes from "./pages/admin/ShippingTypes";
-import AdminAnalytics from "./pages/admin/Analytics";
-import AdminPayments from "./pages/admin/Payments";
-import AdminSupportInbox from "./pages/admin/SupportInbox";
-import SupportContactSettings from "./pages/admin/SupportContactSettings";
-import ChatRouting from "./pages/admin/ChatRouting";
-import KnowledgeBase from "./pages/KnowledgeBase";
-import AdminKnowledgeBase from "./pages/admin/KnowledgeBase";
-import CartsManagement from "./pages/admin/CartsManagement";
-import ABTestResults from "./pages/admin/ABTestResults";
-import ThemeSettings from "./pages/admin/ThemeSettings";
-import AdminAccessDenied from "./pages/admin/AccessDenied";
-import AuditLog from "./pages/admin/AuditLog";
-import QuoteRequests from "./pages/admin/QuoteRequests";
-import PriceConfirmations from "./pages/admin/PriceConfirmations";
-import TransferProofs from "./pages/admin/TransferProofs";
-import AdminHealth from "./pages/admin/Health";
-import BankTransferSettings from "./pages/admin/BankTransferSettings";
-import CacheSettings from "./pages/admin/CacheSettings";
-import CatalogSourcesSettings from "./pages/admin/CatalogSourcesSettings";
-import CarsSettings from "./pages/admin/CarsSettings";
-// HomeCuration removed - consolidated into HomeRecipes
-import HomeRecipes from "./pages/admin/HomeRecipes";
-import SearchRelevancy from "./pages/admin/SearchRelevancy";
-import Cars from "./pages/Cars";
-import AdminReferrals from "./pages/admin/Referrals";
 
-import PaymentsSettings from "./pages/admin/PaymentsSettings";
-import ServiceZones from "./pages/admin/ServiceZones";
+// Lazy-loaded admin pages
+const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const AdminOrders = lazy(() => import("./pages/admin/Orders"));
+const AdminOrderDetail = lazy(() => import("./pages/admin/OrderDetail"));
+const AdminFeesSettings = lazy(() => import("./pages/admin/FeesSettings"));
+const AdminUsers = lazy(() => import("./pages/admin/Users"));
+const AdminCustomers = lazy(() => import("./pages/admin/Customers"));
+const AdminShipping = lazy(() => import("./pages/admin/Shipping"));
+const AdminShippingTypes = lazy(() => import("./pages/admin/ShippingTypes"));
+const AdminAnalytics = lazy(() => import("./pages/admin/Analytics"));
+const AdminPayments = lazy(() => import("./pages/admin/Payments"));
+const AdminSupportInbox = lazy(() => import("./pages/admin/SupportInbox"));
+const SupportContactSettings = lazy(() => import("./pages/admin/SupportContactSettings"));
+const ChatRouting = lazy(() => import("./pages/admin/ChatRouting"));
+const AdminKnowledgeBase = lazy(() => import("./pages/admin/KnowledgeBase"));
+const CartsManagement = lazy(() => import("./pages/admin/CartsManagement"));
+const ABTestResults = lazy(() => import("./pages/admin/ABTestResults"));
+const ThemeSettings = lazy(() => import("./pages/admin/ThemeSettings"));
+const AdminAccessDenied = lazy(() => import("./pages/admin/AccessDenied"));
+const AuditLog = lazy(() => import("./pages/admin/AuditLog"));
+const QuoteRequests = lazy(() => import("./pages/admin/QuoteRequests"));
+const PriceConfirmations = lazy(() => import("./pages/admin/PriceConfirmations"));
+const TransferProofs = lazy(() => import("./pages/admin/TransferProofs"));
+const AdminHealth = lazy(() => import("./pages/admin/Health"));
+const BankTransferSettings = lazy(() => import("./pages/admin/BankTransferSettings"));
+const CacheSettings = lazy(() => import("./pages/admin/CacheSettings"));
+const CatalogSourcesSettings = lazy(() => import("./pages/admin/CatalogSourcesSettings"));
+const CarsSettings = lazy(() => import("./pages/admin/CarsSettings"));
+const HomeRecipes = lazy(() => import("./pages/admin/HomeRecipes"));
+const SearchRelevancy = lazy(() => import("./pages/admin/SearchRelevancy"));
+const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
+const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
+const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
+
+// Lazy-loaded secondary pages
+const Cars = lazy(() => import("./pages/Cars"));
+const KnowledgeBase = lazy(() => import("./pages/KnowledgeBase"));
+const About = lazy(() => import("./pages/About"));
+const Coverage = lazy(() => import("./pages/Coverage"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Terms = lazy(() => import("./pages/Terms"));
+const PaymentsCompliance = lazy(() => import("./pages/PaymentsCompliance"));
+const Refunds = lazy(() => import("./pages/Refunds"));
+const Payouts = lazy(() => import("./pages/Payouts"));
+const Contact = lazy(() => import("./pages/Contact"));
+const DownloadPage = lazy(() => import("./pages/Download"));
+const GetApp = lazy(() => import("./pages/GetApp"));
+const DeleteAccount = lazy(() => import("./pages/DeleteAccount"));
+const HowItWorks = lazy(() => import("./pages/HowItWorks"));
+const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
+
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import MaishaCallback from "./pages/MaishaCallback";
 import MaishapayCheckout from "./pages/MaishapayCheckout";
 import MaishapayResult from "./pages/MaishapayResult";
-import AcceptInvite from "./pages/AcceptInvite";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFail from "./pages/PaymentFail";
 import PaymentCallback from "./pages/PaymentCallback";
 import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
 import BankTransferInfo from "./pages/BankTransferInfo";
-import HowItWorks from "./pages/HowItWorks";
-import Privacy from "./pages/Privacy";
-import Terms from "./pages/Terms";
-import PaymentsCompliance from "./pages/PaymentsCompliance";
-import Refunds from "./pages/Refunds";
-import Payouts from "./pages/Payouts";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import DownloadPage from "./pages/Download";
-import GetApp from "./pages/GetApp";
-import Coverage from "./pages/Coverage";
-import DeleteAccount from "./pages/DeleteAccount";
+
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
  import { SupportChatProvider } from "@/contexts/SupportChatContext";
 
-// Shop pages
+// Shop pages — eagerly loaded (primary user flow)
 import ShopHome from "./pages/shop/ShopHome";
 import CategoryResultsPage from "./pages/shop/CategoryResultsPage";
 import SearchResults from "./pages/shop/SearchResults";
@@ -111,6 +114,15 @@ import Onboarding from "./pages/shop/Onboarding";
 import PaymentPending from "./pages/shop/PaymentPending";
 import CardPayment from "./pages/shop/CardPayment";
 import ShopPaymentSuccess from "./pages/shop/PaymentSuccess";
+
+// Suspense fallback for lazy-loaded routes
+function LazyFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+    </div>
+  );
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -147,6 +159,7 @@ const App = () => {
                    <BrowserRouter>
                      {/* Global floating contact widget for shop */}
                      <FloatingContactWidget />
+                     <Suspense fallback={<LazyFallback />}>
           <Routes>
         <Route path="/" element={<ShopHome />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
@@ -403,6 +416,7 @@ const App = () => {
             
             <Route path="*" element={<NotFound />} />
           </Routes>
+                     </Suspense>
               </BrowserRouter>
                  </TooltipProvider>
                </SupportChatProvider>

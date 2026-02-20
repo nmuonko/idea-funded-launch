@@ -156,7 +156,7 @@ const ALL_HOMEPAGE_CATEGORIES = [
   'phones', 'electronics', 'audio_music', 'gaming',
   'vehicles', 'home_garden', 'toys', 'sporting_goods',
   'jewelry_watches', 'parts_accessories', 'refurbished',
-  'collectibles', 'cameras_photo',
+  'clothing', 'cameras_photo',
 ];
 const FETCH_CATEGORY_KEYS = ALL_HOMEPAGE_CATEGORIES;
 const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);

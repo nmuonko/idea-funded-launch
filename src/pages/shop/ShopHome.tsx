@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { prefetchCatalogCategory } from '@/lib/catalogCache';
 import { Clock } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { ShopHeader } from '@/components/shop/ShopHeader';
@@ -724,11 +725,26 @@ export default function ShopHome() {
   }, [accueilProducts]);
 
   // ====== EFFECTS ======
+  // Idle prefetch: warm category caches after homepage loads
+  const scheduleCategoryPrefetch = useCallback(() => {
+    const schedule = typeof requestIdleCallback === 'function'
+      ? requestIdleCallback
+      : (cb: () => void) => setTimeout(cb, 3000);
+
+    schedule(() => {
+      ALL_HOMEPAGE_CATEGORIES.forEach((catKey, i) => {
+        setTimeout(() => {
+          prefetchCatalogCategory(catKey, language);
+        }, i * 500); // stagger 500ms apart
+      });
+    });
+  }, [language]);
+
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     fetchAccueilFeed();
-    fetchAllCategoryItems();
+    fetchAllCategoryItems().then(scheduleCategoryPrefetch);
     loadRecentlyViewed();
   }, []);
 

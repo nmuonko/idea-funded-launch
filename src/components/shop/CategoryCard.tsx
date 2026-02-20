@@ -1,7 +1,9 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Product } from '@/components/shop/ProductCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { ArrowRight } from 'lucide-react';
+import { prefetchCatalogCategory } from '@/lib/catalogCache';
+import { useCallback } from 'react';
 
 interface CategoryCardProps {
   title: string;
@@ -12,7 +14,10 @@ interface CategoryCardProps {
 
 export function CategoryCard({ title, items, categoryKey, loading }: CategoryCardProps) {
   const { language } = useLanguage();
-  const navigate = useNavigate();
+
+  const handlePrefetch = useCallback(() => {
+    prefetchCatalogCategory(categoryKey, language);
+  }, [categoryKey, language]);
 
   const getProductLink = (product: Product) => {
     const provider = product.provider?.toLowerCase() === 'rainforest' ? 'amazon' : product.provider?.toLowerCase();
@@ -23,9 +28,7 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
     return `/product/${provider || 'amazon'}/${encodeURIComponent(pid)}`;
   };
 
-  const handleVoirPlus = () => {
-    navigate(`/category/${categoryKey}`);
-  };
+  const categoryLink = `/category/${categoryKey}`;
 
   // Loading state: show skeleton
   if (loading) {
@@ -49,7 +52,10 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   // Empty state: show title + message + see more link (never hide)
   if (items.length === 0) {
     return (
-      <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20">
+      <div
+        className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20"
+        onMouseEnter={handlePrefetch}
+      >
         <div className="flex items-center justify-between mb-2.5">
           <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
         </div>
@@ -58,13 +64,14 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
             {language === 'fr' ? 'Aucun produit disponible' : 'No products available'}
           </p>
         </div>
-        <button
-          onClick={handleVoirPlus}
+        <Link
+          to={categoryLink}
+          onTouchStart={handlePrefetch}
           className="mt-2.5 flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
         >
           {language === 'fr' ? 'Voir plus' : 'See more'}
           <ArrowRight className="h-3.5 w-3.5" />
-        </button>
+        </Link>
       </div>
     );
   }
@@ -74,7 +81,10 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
   const emptySlots = Math.max(0, 4 - displayItems.length);
 
   return (
-    <div className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20 hover:border-white/[0.18] transition-colors">
+    <div
+      className="bg-[#1a1d23] border border-white/10 rounded-2xl p-3 flex flex-col h-full shadow-md shadow-black/20 hover:border-white/[0.18] transition-colors"
+      onMouseEnter={handlePrefetch}
+    >
       <div className="flex items-center justify-between mb-2.5">
         <h3 className="text-sm font-bold text-white/95 truncate">{title}</h3>
       </div>
@@ -108,13 +118,14 @@ export function CategoryCard({ title, items, categoryKey, loading }: CategoryCar
         ))}
       </div>
 
-      <button
-        onClick={handleVoirPlus}
+      <Link
+        to={categoryLink}
+        onTouchStart={handlePrefetch}
         className="mt-2.5 flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 font-medium transition-colors"
       >
         {language === 'fr' ? 'Voir plus' : 'See more'}
         <ArrowRight className="h-3.5 w-3.5" />
-      </button>
+      </Link>
     </div>
   );
 }

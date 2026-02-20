@@ -72,6 +72,7 @@ export default function CategoryResultsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   const [visibleCount, setVisibleCount] = useState(VISIBLE_STEP);
   const seenIdsRef = useRef(new Set<string>());
   const cursorRef = useRef<string | null>(null);
@@ -113,7 +114,7 @@ export default function CategoryResultsPage() {
 
     console.log('[CategoryPage] fetched:', items.length, 'new items, nextCursor:', cursorRef.current);
 
-    if (!cursorRef.current || data?.hasMore === false || items.length === 0) {
+    if (!cursorRef.current || data?.hasMore === false || rawItems.length === 0) {
       exhaustedRef.current = true;
     }
 
@@ -133,10 +134,18 @@ export default function CategoryResultsPage() {
     (async () => {
       const accumulated: Product[] = [];
       let requestCount = 0;
+      let emptyStreak = 0;
       while (accumulated.length < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
         const items = await fetchPage(cursorRef.current);
         if (cancelled) return;
-        accumulated.push(...items);
+        if (items.length === 0) {
+          emptyStreak++;
+          if (emptyStreak >= 3) { exhaustedRef.current = true; break; }
+        } else {
+          emptyStreak = 0;
+          accumulated.push(...items);
+          setLoadProgress(accumulated.length);
+        }
         requestCount++;
       }
       if (!cancelled) {
@@ -191,14 +200,23 @@ export default function CategoryResultsPage() {
           </div>
 
           {loading ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="bg-[#1a1d23] border border-white/[0.08] rounded-xl p-3 animate-pulse">
-                  <div className="aspect-square bg-white/[0.06] rounded-lg mb-2" />
-                  <div className="h-3 w-3/4 bg-white/[0.06] rounded mb-1" />
-                  <div className="h-3 w-1/2 bg-white/[0.06] rounded" />
+            <div>
+              {loadProgress > 0 && (
+                <div className="text-center mb-4">
+                  <p className="text-white/60 text-sm">
+                    {language === 'fr' ? 'Chargement...' : 'Loading...'} {loadProgress} {language === 'fr' ? 'produits trouvés' : 'products found'}
+                  </p>
                 </div>
-              ))}
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="bg-[#1a1d23] border border-white/[0.08] rounded-xl p-3 animate-pulse">
+                    <div className="aspect-square bg-white/[0.06] rounded-lg mb-2" />
+                    <div className="h-3 w-3/4 bg-white/[0.06] rounded mb-1" />
+                    <div className="h-3 w-1/2 bg-white/[0.06] rounded" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : products.length === 0 ? (
             <div className="text-center py-20">

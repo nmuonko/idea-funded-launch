@@ -16,11 +16,11 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
   if (loading) {
     return (
       <div className={cn(
-        "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4",
+        "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2",
         className
       )}>
         {Array.from({ length: skeletonCount }).map((_, i) => (
-          <ProductCardSkeleton key={i} />
+          <ProductCardSkeleton key={i} compact />
         ))}
       </div>
     );
@@ -36,31 +36,31 @@ export function ProductGrid({ products, loading, skeletonCount = 8, className }:
 
   return (
     <div className={cn(
-      "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-4",
+      "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2",
       className
     )}>
       {products.map((product) => (
         <div
           key={`${product.provider}-${product.id}`}
-          style={{ contentVisibility: 'auto', containIntrinsicSize: '0 320px' }}
+          style={{ contentVisibility: 'auto', containIntrinsicSize: '0 280px' }}
         >
-          <MemoizedProductCard product={product} />
+          <MemoizedProductCard product={product} compact />
         </div>
       ))}
     </div>
   );
 }
 
-function ProductCardSkeleton() {
+function ProductCardSkeleton({ compact = true }: { compact?: boolean }) {
   return (
-    <div className="bg-white/5 border border-white/[0.15] rounded-xl sm:rounded-2xl overflow-hidden">
-      <Skeleton className="aspect-[4/3] sm:aspect-square bg-white/20" />
-      <div className="p-2.5 sm:p-4 space-y-2 sm:space-y-3">
-        <Skeleton className="h-4 w-full bg-white/10" />
-        <Skeleton className="h-4 w-2/3 bg-white/10" />
+    <div className="bg-white/5 border border-white/[0.15] rounded-xl overflow-hidden">
+      <Skeleton className={cn("bg-white/20", compact ? "aspect-square" : "aspect-[4/3] sm:aspect-square")} />
+      <div className={cn("space-y-1.5", compact ? "p-1.5 sm:p-2" : "p-2.5 sm:p-4 space-y-2 sm:space-y-3")}>
+        <Skeleton className="h-3 w-full bg-white/10" />
+        <Skeleton className="h-3 w-2/3 bg-white/10" />
         <div className="flex items-center justify-between">
-          <Skeleton className="h-6 w-20 bg-white/10" />
-          <Skeleton className="h-8 w-8 rounded-full bg-white/10" />
+          <Skeleton className={cn("bg-white/10", compact ? "h-4 w-14" : "h-6 w-20")} />
+          <Skeleton className={cn("rounded-full bg-white/10", compact ? "h-7 w-7" : "h-8 w-8")} />
         </div>
       </div>
     </div>

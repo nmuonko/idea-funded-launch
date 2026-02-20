@@ -58,8 +58,8 @@ interface CategoryResponse {
 }
 
 const POOL_TARGET = 300;
-const PAGE_SIZE = 30;
-const VISIBLE_STEP = 24;
+const PAGE_SIZE = 100;
+const VISIBLE_STEP = 48;
 
 export default function CategoryResultsPage() {
   const { key } = useParams<{ key: string }>();
@@ -92,7 +92,6 @@ export default function CategoryResultsPage() {
     console.log('[CategoryPage] fetching page', page, 'for', categoryKey);
     const data = await cachedCatalogFetch<CategoryResponse>('catalog-category', {
       category: categoryKey,
-      limit: POOL_TARGET,
       page,
       pageSize: PAGE_SIZE,
       client: 'web',

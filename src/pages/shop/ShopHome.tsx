@@ -43,9 +43,10 @@ const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
   cameras_photo: ['Canon EOS DSLR camera', 'Sony Alpha mirrorless camera', 'GoPro action camera', 'camera lens tripod'],
   electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
   clothing: ['designer jacket coat', 'premium dress fashion', 'hoodie sweater men', 'handbag luxury leather'],
-  collectibles: ['Pokemon trading card graded', 'vintage collectible figurine', 'Funko Pop limited edition', 'signed memorabilia'],
+  collectibles: ['Funko Pop vinyl figure', 'Pokemon cards booster', 'vintage antique collectible', 'sports memorabilia signed autograph'],
   refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
   parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
+  sporting_goods: ['treadmill home gym', 'dumbbell weight set', 'yoga mat fitness', 'bicycle mountain bike'],
 };
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
@@ -442,8 +443,8 @@ export default function ShopHome() {
         emptyKeys.map(async (cat) => {
           const queries = CATEGORY_SEARCH_QUERIES[cat] || [CATEGORY_KEYWORDS[cat]?.[0] || cat.replace('_', ' ')];
           const allItems: Product[] = [];
-          for (const q of queries.slice(0, 3)) {
-            if (allItems.length >= 8) break;
+          for (const q of queries.slice(0, 4)) {
+            if (allItems.length >= 12) break;
             try {
               const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
               const items = (data?.items || []).map((item: any) => ({

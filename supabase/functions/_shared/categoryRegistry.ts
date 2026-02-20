@@ -256,7 +256,7 @@ export const CATEGORY_META: Record<string, CategoryMeta> = {
   // Electronics subtabs
   electronics_phones: { titleEn: "Phones", titleFr: "Téléphones", ebayCategory: "9355", minPrice: 0, isVehicle: false, isParts: false },
   electronics_computers: { titleEn: "Computers & Tablets", titleFr: "Ordinateurs & Tablettes", ebayCategory: "58058", minPrice: 0, isVehicle: false, isParts: false },
-  electronics_gaming: { titleEn: "Gaming", titleFr: "Jeux Vidéo", ebayCategory: "1249", minPrice: 0, isVehicle: false, isParts: false },
+  electronics_gaming: { titleEn: "Gaming", titleFr: "Jeux Vidéo", ebayCategory: "139971", minPrice: 20, isVehicle: false, isParts: false },
   electronics_cameras: { titleEn: "Cameras & Photo", titleFr: "Appareils Photo", ebayCategory: "625", minPrice: 0, isVehicle: false, isParts: false },
   electronics_audio: { titleEn: "Audio", titleFr: "Audio", ebayCategory: "293", minPrice: 0, isVehicle: false, isParts: false },
   

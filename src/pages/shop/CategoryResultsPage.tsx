@@ -121,7 +121,7 @@ export default function CategoryResultsPage() {
     return items;
   }, [categoryKey, language]);
 
-  // Initial load — fetch multiple pages to fill pool
+  // Initial load — two-phase: show first batch immediately, load rest in background
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -130,12 +130,24 @@ export default function CategoryResultsPage() {
     cursorRef.current = null;
     exhaustedRef.current = false;
     setVisibleCount(VISIBLE_STEP);
+    setLoadProgress(0);
 
     (async () => {
-      const accumulated: Product[] = [];
-      let requestCount = 0;
+      // Phase 1: Fetch first page and show immediately
+      const firstBatch = await fetchPage(null);
+      if (cancelled) return;
+      setProducts(firstBatch);
+      setLoading(false); // Products visible NOW (~2 seconds)
+      setLoadProgress(firstBatch.length);
+
+      if (firstBatch.length === 0 || exhaustedRef.current) return;
+
+      // Phase 2: Continue fetching in background, appending live
+      let totalAccumulated = firstBatch.length;
+      let requestCount = 1;
       let emptyStreak = 0;
-      while (accumulated.length < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
+
+      while (totalAccumulated < POOL_TARGET && !exhaustedRef.current && requestCount < 10) {
         const items = await fetchPage(cursorRef.current);
         if (cancelled) return;
         if (items.length === 0) {
@@ -143,14 +155,11 @@ export default function CategoryResultsPage() {
           if (emptyStreak >= 3) { exhaustedRef.current = true; break; }
         } else {
           emptyStreak = 0;
-          accumulated.push(...items);
-          setLoadProgress(accumulated.length);
+          totalAccumulated += items.length;
+          setProducts(prev => [...prev, ...items]); // Live append
+          setLoadProgress(totalAccumulated);
         }
         requestCount++;
-      }
-      if (!cancelled) {
-        setProducts(accumulated);
-        setLoading(false);
       }
     })();
 

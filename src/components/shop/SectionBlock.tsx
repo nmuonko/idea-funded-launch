@@ -18,7 +18,9 @@ interface SectionBlockProps {
 export function SectionBlock({ title, hideTitle, items, loading, mode = 'scroll', categoryKey, seeAllLink }: SectionBlockProps) {
   const { language } = useLanguage();
 
-  if (!loading && items.length === 0) return null;
+  // For grid mode, always render (show loading skeleton if empty)
+  // For other modes, hide if no items and not loading
+  if (!loading && items.length === 0 && mode !== 'grid') return null;
 
   if (mode === 'grid') {
     return (

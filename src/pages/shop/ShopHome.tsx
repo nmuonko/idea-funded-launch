@@ -35,6 +35,19 @@ const CATEGORY_TITLE_MAP: Record<string, Record<string, string>> = {
   cameras_photo: { fr: 'Caméras & Photo', en: 'Cameras & Photo' },
 };
 
+// Fallback search queries for categories that lack dedicated backend recipes
+const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
+  beauty_health: ['perfume fragrance', 'skincare serum moisturizer', 'makeup cosmetics lipstick', 'hair dryer curling iron'],
+  audio_music: ['bluetooth speaker JBL Bose', 'headphones wireless noise cancelling', 'electric guitar acoustic', 'turntable vinyl record player'],
+  shoes_sneakers: ['Nike Air Max sneakers', 'Adidas Yeezy shoes', 'Jordan retro basketball shoe', 'New Balance running shoe'],
+  cameras_photo: ['Canon EOS DSLR camera', 'Sony Alpha mirrorless camera', 'GoPro action camera', 'camera lens tripod'],
+  electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
+  clothing: ['designer jacket coat', 'premium dress fashion', 'hoodie sweater men', 'handbag luxury leather'],
+  collectibles: ['Pokemon trading card graded', 'vintage collectible figurine', 'Funko Pop limited edition', 'signed memorabilia'],
+  refurbished: ['refurbished iPhone certified', 'renewed MacBook laptop', 'refurbished iPad tablet', 'certified pre-owned Samsung'],
+  parts_accessories: ['brake pad rotor', 'car headlight assembly', 'OEM auto parts', 'catalytic converter exhaust'],
+};
+
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   phones: ['iphone', 'samsung galaxy', 'pixel phone', 'google pixel', 'smartphone', 'android phone', 'unlocked phone', 'cellphone', 'téléphone', 'oneplus', 'xiaomi', 'motorola', 'galaxy s2', 'galaxy s3', 'galaxy z fold', 'galaxy z flip', 'galaxy a5', 'galaxy a7', 'galaxy s24', 'galaxy s23', 'galaxy s22', 'galaxy note', 'iphone 1', 'iphone pro', 'iphone plus'],
   electronics: ['laptop', 'notebook', 'computer', 'tablet', 'monitor', 'headphone', 'speaker', 'camera', 'drone', 'television', 'earbuds', 'printer', 'router', 'hard drive', 'ssd', 'gpu', 'cpu', 'macbook', 'ipad', 'dell laptop', 'lenovo laptop', 'asus laptop', 'acer laptop', 'oled tv', 'qled tv', '4k tv', 'smart tv', 'mechanical keyboard', 'webcam', 'projector', 'soundbar', 'electronic', 'tech', 'gadget', 'smart home', 'alexa', 'echo', 'google home', 'fire stick', 'chromecast', 'apple tv', 'roku', 'modem', 'switch', 'network', 'server', 'nas', 'external drive', 'flash drive', 'usb hub', 'power strip', 'ups', 'surge protector'],
@@ -309,9 +322,9 @@ export default function ShopHome() {
       }
     }
     if (trending.length < 16) {
-      const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing', 'audio_music', 'cameras_photo'];
+      const trendingAllowedCats = ['phones', 'electronics', 'gaming', 'vehicles', 'jewelry_watches', 'clothing', 'audio_music', 'cameras_photo', 'beauty_health', 'shoes_sneakers'];
       const validAccueil = accueilProducts.filter(p => {
-        if ((p.priceUsd || 0) < 50) return false;
+        if ((p.priceUsd || 0) < 20) return false;
         const title = (p.title || '').toLowerCase();
         return trendingAllowedCats.some(cat => {
           const kws = CATEGORY_KEYWORDS[cat];
@@ -322,6 +335,16 @@ export default function ShopHome() {
       for (const p of sortByLuxury(validAccueil)) {
         if (trending.length >= 16) break;
         if (!dedup.has(p.id)) {
+          trending.push(p);
+          dedup.add(p.id);
+        }
+      }
+    }
+    // Last-resort backfill from any accueil product with price > 0
+    if (trending.length < 16) {
+      for (const p of sortByLuxury(accueilProducts)) {
+        if (trending.length >= 16) break;
+        if (!dedup.has(p.id) && (p.priceUsd || 0) > 0) {
           trending.push(p);
           dedup.add(p.id);
         }
@@ -404,6 +427,81 @@ export default function ShopHome() {
     });
   }, [categoryGrids, topUpPools, trendingFeed]);
 
+  // ====== SEARCH FALLBACK: for categories still empty after top-up ======
+  const [searchFallbacks, setSearchFallbacks] = useState<Record<string, Product[]>>({});
+
+  useEffect(() => {
+    if (Object.keys(topUpPools).length === 0) return; // Wait for top-up to finish first
+    const emptyKeys = finalCategoryGrids.filter(g => g.items.length < 4).map(g => g.key);
+    if (emptyKeys.length === 0) return;
+
+    let cancelled = false;
+    console.debug('[ShopHome] Search fallback for:', emptyKeys);
+    (async () => {
+      const results = await Promise.allSettled(
+        emptyKeys.map(async (cat) => {
+          const queries = CATEGORY_SEARCH_QUERIES[cat] || [CATEGORY_KEYWORDS[cat]?.[0] || cat.replace('_', ' ')];
+          const allItems: Product[] = [];
+          for (const q of queries.slice(0, 3)) {
+            if (allItems.length >= 8) break;
+            try {
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 8 });
+              const items = (data?.items || []).map((item: any) => ({
+                id: item.id || item.providerProductId || '',
+                provider: item.provider === 'rainforest' ? 'amazon' : (item.provider || 'amazon'),
+                title: item.title || 'Product',
+                imageUrl: item.imageUrl || item.mainImageUrl || item.image_url || '',
+                priceUsd: item.priceUsd || item.price_usd || 0,
+                rating: item.rating,
+                inStock: item.inStock !== false,
+                productUrl: item.productUrl || item.product_url,
+              })).filter((p: Product) => p.id && p.priceUsd > 0 && p.imageUrl);
+              allItems.push(...items);
+            } catch (e) {
+              console.warn(`[ShopHome] search fallback failed for "${q}"`, e);
+            }
+          }
+          return { cat, items: allItems };
+        })
+      );
+      if (cancelled) return;
+      const fb: Record<string, Product[]> = {};
+      results.forEach(r => {
+        if (r.status === 'fulfilled' && r.value.items.length > 0) {
+          fb[r.value.cat] = r.value.items;
+        }
+      });
+      if (Object.keys(fb).length > 0) {
+        setSearchFallbacks(prev => ({ ...prev, ...fb }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [finalCategoryGrids, topUpPools]);
+
+  // Merge search fallbacks into final grids
+  const displayGrids = useMemo(() => {
+    if (Object.keys(searchFallbacks).length === 0) return finalCategoryGrids;
+    const usedIds = new Set(finalCategoryGrids.flatMap(g => g.items.map(i => i.id)));
+    trendingFeed.forEach(p => usedIds.add(p.id));
+
+    return finalCategoryGrids.map(g => {
+      if (g.items.length >= 4) return g;
+      const pool = searchFallbacks[g.key];
+      if (!pool) return g;
+      const effectiveExcludes = getEffectiveExcludes(g.key);
+      const extra: Product[] = [];
+      for (const p of pool) {
+        if (g.items.length + extra.length >= 4) break;
+        if (usedIds.has(p.id)) continue;
+        const titleLower = (p.title || '').toLowerCase();
+        if (effectiveExcludes.some(ex => titleLower.includes(ex))) continue;
+        extra.push(p);
+        usedIds.add(p.id);
+      }
+      return { key: g.key, items: [...g.items, ...extra].slice(0, 4) };
+    });
+  }, [finalCategoryGrids, searchFallbacks, trendingFeed]);
+
   // ====== EFFECTS ======
   useEffect(() => {
     fetchAccueilFeed();
@@ -414,6 +512,7 @@ export default function ShopHome() {
   useEffect(() => {
     loadRecentlyViewed();
   }, [user?.id]);
+
 
   const isLoading = accueilLoading && categoryLoading;
 
@@ -460,11 +559,12 @@ export default function ShopHome() {
 
               {/* 3) Promo Tiles — top 4 categories */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {finalCategoryGrids.filter(g => PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
+                {displayGrids.filter(g => PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
                     items={items}
+                    loading={items.length === 0}
                     mode="grid"
                     categoryKey={catKey}
                   />
@@ -486,11 +586,12 @@ export default function ShopHome() {
 
               {/* 5) Remaining Category Grid Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                {finalCategoryGrids.filter(g => !PROMO_CATEGORIES.includes(g.key) && g.items.length > 0).map(({ key: catKey, items }) => (
+                {displayGrids.filter(g => !PROMO_CATEGORIES.includes(g.key)).map(({ key: catKey, items }) => (
                   <SectionBlock
                     key={catKey}
                     title={getCategoryTitle(catKey, language)}
                     items={items}
+                    loading={items.length === 0}
                     mode="grid"
                     categoryKey={catKey}
                   />

@@ -169,6 +169,27 @@ const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 
 const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
 const CONCURRENCY_LIMIT = 4;
+const CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const SLOW_CATEGORIES = new Set(['vehicles', 'parts_accessories', 'jewelry_watches', 'clothing']);
+
+function getCachedCategoryResult(catKey: string): Product[] | null {
+  try {
+    const raw = localStorage.getItem(`afrishop_curated:${catKey}`);
+    if (!raw) return null;
+    const { items, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CURATED_CACHE_TTL_MS) return null;
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return items;
+  } catch { return null; }
+}
+
+function setCachedCategoryResult(catKey: string, items: Product[]) {
+  try {
+    if (items.length > 0) {
+      localStorage.setItem(`afrishop_curated:${catKey}`, JSON.stringify({ items, ts: Date.now() }));
+    }
+  } catch { /* quota exceeded, ignore */ }
+}
 
 // ====== HELPERS ======
 
@@ -383,6 +404,17 @@ export default function ShopHome() {
   const fetchAllCategoryItems = useCallback(async () => {
     const tasks = ALL_HOMEPAGE_CATEGORIES.map((catKey) => async () => {
       setCategoryLoadingMap(prev => ({ ...prev, [catKey]: true }));
+      // For slow categories, show cached curated result instantly
+      let backgroundRefresh = false;
+      if (SLOW_CATEGORIES.has(catKey)) {
+        const cached = getCachedCategoryResult(catKey);
+        if (cached) {
+          setCategoryItems(prev => ({ ...prev, [catKey]: cached }));
+          setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+          backgroundRefresh = true; // still run pipeline to refresh cache silently
+        }
+      }
+
       try {
         let items: Product[] = [];
 
@@ -668,12 +700,24 @@ export default function ShopHome() {
 
         console.log(`[ShopHome] Category ${catKey}: fetched=${items.length}, shown=${Math.min(items.length, 4)}`);
 
-        setCategoryItems(prev => ({ ...prev, [catKey]: items }));
+        // Cache curated result for slow categories
+        if (SLOW_CATEGORIES.has(catKey)) {
+          setCachedCategoryResult(catKey, items);
+        }
+
+        // Only update UI if we got results (don't blank out cached display with empty)
+        if (items.length > 0 || !backgroundRefresh) {
+          setCategoryItems(prev => ({ ...prev, [catKey]: items }));
+        }
       } catch (err) {
         console.warn(`[ShopHome] Category ${catKey} fetch failed:`, err);
-        setCategoryItems(prev => ({ ...prev, [catKey]: [] }));
+        if (!backgroundRefresh) {
+          setCategoryItems(prev => ({ ...prev, [catKey]: [] }));
+        }
       } finally {
-        setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+        if (!backgroundRefresh) {
+          setCategoryLoadingMap(prev => ({ ...prev, [catKey]: false }));
+        }
       }
     });
 

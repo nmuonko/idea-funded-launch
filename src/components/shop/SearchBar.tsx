@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 import { cn } from '@/lib/utils';
+import { prefetchCatalogSearch } from '@/lib/catalogCache';
 
 const RECENT_SEARCHES_KEY = 'afrishop_recent_searches';
 const MAX_RECENT_SEARCHES = 5;
@@ -41,6 +42,15 @@ export function SearchBar({ defaultValue = '', className, onSearch, autoFocus }:
       }
     }
   }, []);
+
+  // Debounced search prefetch while typing (400ms idle)
+  useEffect(() => {
+    if (query.trim().length < 2) return;
+    const timeout = setTimeout(() => {
+      prefetchCatalogSearch(query.trim(), language);
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [query, language]);
 
   // Close dropdown on outside click
   useEffect(() => {

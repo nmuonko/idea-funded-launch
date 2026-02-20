@@ -463,5 +463,31 @@ export function prefetchCatalogCategory(category: string, language: string): voi
   }).catch(() => {});
 }
 
+// ─── SEARCH PREFETCH HELPER ───────────────────────────────────────────────────
+
+const prefetchedSearchKeys = new Set<string>();
+
+/**
+ * Silently prefetch search results into the cache.
+ * Fire-and-forget — no UI impact, no error surfacing.
+ * Uses the exact same cache key as SearchResults will use via cachedCatalogFetchWithSwr.
+ */
+export function prefetchCatalogSearch(query: string, language: string): void {
+  const normalized = normalizeQuery(query);
+  if (!normalized || normalized.length < 2) return;
+  const key = `search:${normalized}:${language}`;
+  if (prefetchedSearchKeys.has(key)) return;
+  prefetchedSearchKeys.add(key);
+  cachedCatalogFetch('catalog-search', {
+    q: query.trim(),
+    limit: String(PAGE_SIZE_SEARCH),
+    page: '0',
+    client: 'web',
+    language,
+  }).catch(() => {});
+}
+
+const PAGE_SIZE_SEARCH = 100;
+
 // Clear expired cache on module load
 clearExpiredCache();

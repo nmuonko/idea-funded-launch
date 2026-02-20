@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Slider } from '@/components/ui/slider';
-import { normalizeQuery, stableStringify } from '@/lib/catalogCache';
+import { normalizeQuery, stableStringify, cachedCatalogFetchWithSwr, generateCacheKey, getCached } from '@/lib/catalogCache';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { translations } from '@/lib/i18n/translations';
 
@@ -94,33 +94,35 @@ export default function SearchResults() {
     refurbished: 'refurbished phone laptop',
   };
 
-  const buildFetchUrl = useCallback((pageNum: number, cursor?: string | null) => {
+  /** Build params object for cachedCatalogFetchWithSwr */
+  const buildSearchParams = useCallback((pageNum: number, cursor?: string | null): Record<string, string> => {
     const IGNORED_CATEGORIES = new Set(['', 'all', 'home', 'accueil']);
     const effectiveCategory = IGNORED_CATEGORIES.has(category.toLowerCase()) ? '' : category;
     const searchQuery = query || DEFAULT_CATEGORY_QUERIES[effectiveCategory] || effectiveCategory.replace(/_/g, ' ') || 'popular';
-    const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
-    url.searchParams.set('q', searchQuery.trim());
-    url.searchParams.set('limit', String(PAGE_SIZE));
+    
+    const params: Record<string, string> = {
+      q: searchQuery.trim(),
+      limit: String(PAGE_SIZE),
+      page: String(pageNum),
+    };
 
-    // Use cursor if in cursor mode and cursor exists, otherwise use page number
     if (cursor) {
-      url.searchParams.set('cursor', cursor);
+      params.cursor = cursor;
     }
-    url.searchParams.set('page', String(pageNum));
 
     if (effectiveCategory) {
-      url.searchParams.set('category_key', effectiveCategory);
+      params.category_key = effectiveCategory;
     }
-    if (sort && sort !== 'relevance') url.searchParams.set('sort', sort);
+    if (sort && sort !== 'relevance') params.sort = sort;
 
     const filters: Record<string, number> = {};
     if (priceRange[0] > 0) filters.minPrice = priceRange[0];
     if (priceRange[1] < 5000) filters.maxPrice = priceRange[1];
     if (Object.keys(filters).length > 0) {
-      url.searchParams.set('filters', stableStringify(filters));
+      params.filters = stableStringify(filters);
     }
 
-    return url.toString();
+    return params;
   }, [query, category, sort, priceRange]);
 
   const searchIdentityRef = useRef('');
@@ -182,28 +184,72 @@ export default function SearchResults() {
     console.log('[SEARCH_REQ]', { page: pageNum, cursor: effectiveCursor, limit: PAGE_SIZE, q: query, category, sort });
 
     try {
-      const fetchUrl = buildFetchUrl(pageNum, effectiveCursor);
-      const response = await fetch(fetchUrl, {
-        method: 'GET',
-        headers: {
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        signal: controller.signal,
-      });
+      const params = buildSearchParams(pageNum, effectiveCursor);
+      
+      // Use cachedCatalogFetchWithSwr for page 0 (benefits from SWR), raw for pagination
+      let data: any;
+      let fromCache = false;
+      
+      if (pageNum === 0 && !append) {
+        const swrResult = await cachedCatalogFetchWithSwr<any>('catalog-search', params, {
+          signal: controller.signal,
+          onUpdate: (freshData) => {
+            // SWR background refresh completed — merge new results
+            if (token !== null && token !== activeSearchTokenRef.current) return;
+            const mappedFresh = mapItems(freshData?.items || []);
+            const freshDeduped = dedupeWithSet(mappedFresh, new Set(seenIdsRef.current));
+            if (freshDeduped.length > 0) {
+              // Replace with full fresh set
+              seenIdsRef.current = new Set();
+              const allFresh = dedupeWithSet(mapItems(freshData?.items || []), seenIdsRef.current);
+              setProducts(allFresh);
+            }
+            const bHasMore = freshData?.hasMore === true;
+            const bIncomplete = !!freshData?.incomplete || !!freshData?.partial;
+            setHasMore(bHasMore || bIncomplete);
+            setIncomplete(bIncomplete);
+            setIsRevalidating(false);
+          },
+        });
+        data = swrResult.data;
+        fromCache = swrResult.fromCache;
+        if (swrResult.isStale) {
+          setIsRevalidating(true);
+        }
+      } else {
+        // For pagination pages, use direct fetch (cursor/page-based, not cacheable in same way)
+        const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') {
+            url.searchParams.set(key, String(value));
+          }
+        });
+        const response = await fetch(url.toString(), {
+          method: 'GET',
+          headers: {
+            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          signal: controller.signal,
+        });
+
+        if (controller.signal.aborted) return null;
+        if (token !== null && token !== activeSearchTokenRef.current) return null;
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error('[SEARCH_ERROR] status:', response.status, 'body:', errText);
+          throw new Error(`Search failed: ${response.status}`);
+        }
+
+        data = await response.json();
+      }
 
       if (controller.signal.aborted) return null;
       if (token !== null && token !== activeSearchTokenRef.current) return null;
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('[SEARCH_ERROR] status:', response.status, 'body:', errText);
-        throw new Error(`Search failed: ${response.status}`);
-      }
-
-      const data = await response.json();
       const returnedCount = data?.items?.length || 0;
       const isIncomplete = !!data?.incomplete || !!data?.partial;
       const backendHasMore = data?.hasMore === true;
@@ -211,7 +257,7 @@ export default function SearchResults() {
       // Extract cursor from any possible location in response
       const responseCursor = data?.cursor || data?.nextCursor || data?.cursorNext || data?.meta?.cursor || data?.meta?.nextCursor || null;
 
-      console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, totalFromBackend: data?.total, providersStatus: data?.providersStatus });
+      console.log('[SEARCH_RES]', { page: pageNum, got: returnedCount, hasMore: backendHasMore, incomplete: isIncomplete, nextCursor: responseCursor, fromCache, totalFromBackend: data?.total });
 
       // Store provider debug info
       if (data?.providersStatus) {
@@ -245,8 +291,8 @@ export default function SearchResults() {
 
       console.log('[SEARCH_PAGINATION]', { pageNum, computedHasMore, backendHasMore, isIncomplete, hasCursor: !!responseCursor, returnedCount, maxPages: MAX_PAGES });
 
-      // Auto-revalidate page 0 if incomplete (background enrichment)
-      if (pageNum === 0 && isIncomplete && !append) {
+      // Auto-revalidate page 0 if incomplete AND not already from SWR stale path
+      if (pageNum === 0 && isIncomplete && !append && !fromCache) {
         const capturedToken = token ?? activeSearchTokenRef.current;
         revalidateTimerRef.current = setTimeout(() => {
           if (capturedToken !== activeSearchTokenRef.current) return;
@@ -256,7 +302,6 @@ export default function SearchResults() {
 
       const fetchResult = { returnedCount, backendHasMore, incomplete: isIncomplete };
       
-      // Cleanup in try block (finally with return overrides this)
       if (!controller.signal.aborted) {
         if (token === null || token === activeSearchTokenRef.current) {
           setLoading(false);
@@ -273,7 +318,6 @@ export default function SearchResults() {
       setSearchError(err.message || 'Search failed');
       setHasSearched(true);
       
-      // Cleanup on error
       if (!controller.signal.aborted) {
         if (token === null || token === activeSearchTokenRef.current) {
           setLoading(false);
@@ -284,7 +328,7 @@ export default function SearchResults() {
       
       return null;
     }
-  }, [buildFetchUrl, query, category, sort]);
+  }, [buildSearchParams, query, category, sort]);
 
   /** Background revalidation to enrich incomplete page-0 results */
   const revalidateInBackground = useCallback(async (token: number) => {
@@ -292,8 +336,14 @@ export default function SearchResults() {
     setIsRevalidating(true);
     setPrefetchingNext(true);
     try {
-      const fetchUrl = buildFetchUrl(0);
-      const response = await fetch(fetchUrl, {
+      const params = buildSearchParams(0);
+      const url = new URL(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/catalog-search`);
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          url.searchParams.set(key, String(value));
+        }
+      });
+      const response = await fetch(url.toString(), {
         method: 'GET',
         headers: {
           'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
@@ -327,7 +377,7 @@ export default function SearchResults() {
         setPrefetchingNext(false);
       }
     }
-  }, [buildFetchUrl]);
+  }, [buildSearchParams]);
 
   // Initial search
   useEffect(() => {

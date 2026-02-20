@@ -1,47 +1,86 @@
 
 
-## Show 4 Specific Luxury Cars in the Vehicles Homepage Grid
+## Make Search Return More Results (eBay-Style Broadening)
 
-### Current Behavior
-The vehicles section runs a broad 3-step search pipeline (eBay Motors cache, catalog-home feed, then generic SUV/Tesla searches) and picks the first 4 results that pass the vehicle filter. This means the displayed cars change unpredictably.
+### Problem
+When you search "2024 tesla model x", only 7 results come back because:
+1. The query contains a digit and a known model token ("tesla"), so the system classifies it as a **"direct query"** and takes the **fast path**
+2. The fast path skips the AI query refiner, DB-first search, and synonym fallbacks
+3. Both providers (eBay + Amazon) return only exact matches for that very specific query
+4. No broadening happens -- if providers return 7 items, you get 7 items
 
-### What We'll Do
-Replace the entire vehicles search pipeline with **4 exact search queries** targeting your chosen cars:
+eBay.com does better because it shows exact matches first, then automatically broadens to related items (other years, similar models).
 
-1. **2023 Tesla Model X Plaid Full Self Driving White**
-2. **2025 GMC Yukon XL AT4 Ultimate 4WD Lifted 22 Vossens DVD Diesel**
-3. **2025 Ford Explorer Active AWD**
-4. **2025 Hyundai Santa Fe XRT Sport Utility**
+### Solution: Auto-Broadening for Low-Result Direct Queries
+
+Add a new "query broadening" step in the backend search pipeline. When the primary query returns fewer than ~30 items, the system will automatically generate broader fallback queries and fetch additional results to fill the page.
+
+### How It Works
+
+For a query like "2024 tesla model x":
+
+1. **Primary fetch** runs as-is -- returns 7 exact matches (these stay at the top)
+2. **Broadening kicks in** because 7 < 30 threshold
+3. System generates broadened queries by progressively relaxing the original:
+   - Remove the year: "tesla model x" (catches 2023, 2025, etc.)
+   - Shorten to brand + line: "tesla model" (catches Model S, Model Y, etc.)
+4. Each broadened query fetches from both providers, deduplicating against already-seen items
+5. Results are appended after the exact matches, giving you 50-100 items total
 
 ### Changes
 
-**File: `src/pages/shop/ShopHome.tsx`**
+**File: `supabase/functions/catalog-search/index.ts`**
 
-Replace the vehicles special path (lines ~447-521) with a simplified approach:
+After the existing alt-queries block (around line 970) and before the synonym fallback block, add a new "direct query broadening" section:
 
-1. Define an array of 4 exact vehicle search queries matching your chosen cars
-2. Run each query one at a time, taking the first valid result from each (price > $500, passes vehicle filter)
-3. Remove the old 3-step pipeline (catalog-category, catalog-home, generic fallback queries)
-4. Keep all existing vehicle exclusion filters (accessories, toys, etc.) to avoid false matches
+1. Check if the query was classified as `directQuery` AND total provider items are below a threshold (30)
+2. Generate broadened queries by:
+   - Stripping year patterns (4-digit numbers like 2024, 2023)
+   - Stripping trailing qualifier words (e.g., "plaid", "used", "new")
+   - Taking progressively shorter token prefixes
+3. Run each broadened query against both providers (with a per-query timeout budget)
+4. Deduplicate new results against existing items
+5. Stop once we reach 80+ total items or exhaust the broadened queries
+
+The broadening logic is guarded by a time budget (max 3 seconds on page 0, 4 seconds on page > 0) so it never causes timeouts.
 
 ```text
-// New approach (simplified):
-const EXACT_VEHICLE_QUERIES = [
-  '2023 Tesla Model X Plaid Full Self Driving White',
-  '2025 GMC Yukon XL AT4 Ultimate 4WD Lifted Vossens',
-  '2025 Ford Explorer Active AWD SUV',
-  '2025 Hyundai Santa Fe XRT Sport Utility',
-];
+// Pseudocode for the broadening step:
 
-// Search each query, take first valid match per query
-for (const q of EXACT_VEHICLE_QUERIES) {
-  if (items.length >= 4) break;
-  const results = await searchVehicles([q], 1, seenIds, vehicleExcludes);
-  items.push(...results);
+const BROADEN_THRESHOLD = 30;
+const totalAfterPrimary = amazonItems.length + ebayItems.length;
+
+if (directQuery && totalAfterPrimary < BROADEN_THRESHOLD && !providerTimedOut) {
+  const broadenedQueries = generateBroadenedQueries(providerQuery);
+  // e.g. "2024 tesla model x" -> ["tesla model x", "tesla model"]
+  
+  const existingIds = new Set([...amazonItems, ...ebayItems].map(i => i.id));
+  
+  for (const bq of broadenedQueries) {
+    if (amazonItems.length + ebayItems.length >= 80) break;
+    if (Date.now() - startTime > budgetLimit) break;
+    
+    // Fetch from both providers with the broader query
+    const [amzResult, ebayResult] = await Promise.allSettled([
+      fetchAmazonItems({...params, query: bq}),
+      fetchEbayItems({...params, query: bq}),
+    ]);
+    
+    // Append only new (unseen) items
+    // ...deduplication logic...
+  }
 }
 ```
 
-### Result
-- The homepage vehicles grid will show exactly those 4 cars (or the closest eBay listing match for each query)
-- The "Voir plus" (See More) page is unaffected -- it still uses the full 27-seed recipe for deep browsing
-- If any specific car isn't found on eBay, the slot stays empty rather than showing a random vehicle
+**Helper function `generateBroadenedQueries`** (added to the same file or a shared module):
+- Strips 4-digit year numbers from the query
+- Progressively shortens remaining tokens
+- Returns 2-3 broadened variants, ordered from most specific to broadest
+- Example: "2024 tesla model x plaid" -> ["tesla model x plaid", "tesla model x", "tesla model"]
+
+### What Won't Change
+- The fast path is still fast -- broadening only runs when results are low
+- Exact matches always appear first (they come from the primary fetch)
+- Pagination, caching, and all other search behaviors are untouched
+- The "Voir plus" / infinite scroll still works normally
+- No database changes needed

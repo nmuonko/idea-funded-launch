@@ -454,68 +454,38 @@ export default function ShopHome() {
           ];
           const isVehicleItem = (p: Product): boolean => {
             if (!p.id || !p.imageUrl) return false;
-            if ((p.priceUsd || 0) < 500) return false; // price floor eliminates accessories
+            if ((p.priceUsd || 0) < 500) return false;
             const t = (p.title || '').toLowerCase();
             if (vehicleExcludes.some(ex => t.includes(ex))) return false;
             return true;
           };
           const seenIds = new Set<string>();
 
-          // Attempt 1: catalog-category (eBay Motors DB cache)
-          try {
-            const data = await cachedCatalogFetch<any>('catalog-category', {
-              category: 'vehicles', limit: 50, page: 1, pageSize: 50, client: 'web',
-            });
-            const allMapped = (data?.items || []).map((item: any) => ({
-              id: item.providerProductId || item.provider_product_id || item.id || item.itemId || '',
-              provider: item.provider || 'ebay',
-              title: item.title || '',
-              imageUrl: item.mainImageUrl || item.imageUrl || item.image_url || item.image || '',
-              priceUsd: parsePrice(item),
-              rating: item.rating, inStock: true,
-              productUrl: item.productUrl || item.product_url || item.url || '',
-            } as Product));
-            console.log('[Vehicles] catalog-category raw mapped:', allMapped.slice(0, 5).map((p: Product) => `${p.title} $${p.priceUsd} id=${p.id}`));
-            const rawItems = allMapped.filter(isVehicleItem);
-            console.log('[Vehicles] catalog-category raw:', rawItems.slice(0, 8).map((p: Product) => `${p.title} ($${p.priceUsd})`));
-            for (const p of rawItems) {
-              if (items.length >= 4) break;
-              const key = p.id + '|' + (p.title || '').slice(0, 30);
-              if (seenIds.has(key)) continue;
-              seenIds.add(key);
-              items.push(p);
-            }
-          } catch (e) { console.warn('[Vehicles] catalog-category failed:', e); }
+          // Exact vehicle queries for the 4 luxury cars
+          const EXACT_VEHICLE_QUERIES = [
+            '2023 Tesla Model X Plaid Full Self Driving White',
+            '2025 GMC Yukon XL AT4 Ultimate 4WD Lifted Vossens',
+            '2025 Ford Explorer Active AWD SUV',
+            '2025 Hyundai Santa Fe XRT Sport Utility',
+          ];
 
-          // Attempt 2: catalog-home feed (DB-cached items)
-          if (items.length < 4) {
+          for (const q of EXACT_VEHICLE_QUERIES) {
+            if (items.length >= 4) break;
             try {
-              const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
-                category: 'vehicles', page: 1, pageSize: 80, client: 'web',
-              });
-              const feedItems = (data?.sections?.flatMap(s => s.items) || [])
-                .map(mapItemToProduct).filter(isValidProduct).filter(isVehicleItem);
-              console.log('[Vehicles] catalog-home raw:', feedItems.slice(0, 8).map((p: Product) => `${p.title} ($${p.priceUsd})`));
-              for (const p of feedItems) {
+              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 5 });
+              const searchItems = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isVehicleItem);
+              for (const p of searchItems) {
                 if (items.length >= 4) break;
                 const key = p.id + '|' + (p.title || '').slice(0, 30);
                 if (seenIds.has(key)) continue;
                 seenIds.add(key);
                 items.push(p);
+                break; // take only first valid match per query
               }
-            } catch (e) { console.warn('[Vehicles] catalog-home fallback failed:', e); }
-          }
-
-          // Attempt 3: live search with vehicle-intent queries (SUVs + Tesla)
-          if (items.length < 4) {
-            const vehicleSearchQueries = [
-              'Tesla Model X used car', 'Tesla Model S luxury car',
-              'Range Rover SUV used', 'Mercedes GLS SUV used',
-              'BMW X7 SUV used', 'Porsche Cayenne SUV used',
-              'Cadillac Escalade SUV used', 'Land Rover Discovery SUV',
-            ];
-            const searchResults = await searchVehicles(vehicleSearchQueries, 4 - items.length, seenIds, vehicleExcludes);
-            items.push(...searchResults);
+              console.log(`[Vehicles] exact query "${q}" → found ${searchItems.length} valid, total so far: ${items.length}`);
+            } catch (e) {
+              console.warn(`[Vehicles] exact query "${q}" failed:`, e);
+            }
           }
 
           items = items.slice(0, 4);

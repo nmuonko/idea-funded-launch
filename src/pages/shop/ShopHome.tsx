@@ -290,7 +290,7 @@ export default function ShopHome() {
   }, []);
 
   // ====== CURATED CATEGORY HELPERS ======
-  const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'parts', 'broken', 'for repair', 'for parts', 'as is', 'not working'];
+  const JUNK_TERMS = ['cheap', 'lot', 'bundle', 'for parts', 'broken', 'for repair', 'as is', 'not working'];
   const isNotJunk = (p: Product) => !JUNK_TERMS.some(t => (p.title || '').toLowerCase().includes(t));
 
   async function searchValidItems(queries: string[], max: number, seenIds: Set<string>, excludes?: string[]): Promise<Product[]> {
@@ -360,9 +360,15 @@ export default function ShopHome() {
         // ===== SPECIAL PATH FOR "vehicles" (Véhicules) =====
         } else if (catKey === 'vehicles') {
           const seenIds = new Set<string>();
+          const vehicleExcludes = [
+            ...(CATEGORY_EXCLUDE_KEYWORDS['vehicles'] || []),
+            'adapter', 'j1772', 'charging station', 'wall connector',
+            'accessory', 'accessories', 'floor mat', 'seat cover',
+            'phone holder', 'cup holder', 'charger', 'cable', 'phone mount',
+          ];
           // Slot 1: Get 1 Tesla
           const teslaQueries = ['Tesla Model X', 'Tesla Model S', 'Tesla Model Y', 'Tesla Model 3'];
-          const teslas = await searchValidItems(teslaQueries, 1, seenIds);
+          const teslas = await searchValidItems(teslaQueries, 1, seenIds, vehicleExcludes);
           // Slots 2-4: Get 3 luxury SUVs
           const suvQueries = [
             'Range Rover SUV', 'Mercedes G Class SUV', 'Mercedes GLS SUV',
@@ -370,13 +376,13 @@ export default function ShopHome() {
             'Porsche Cayenne SUV', 'Cadillac Escalade SUV',
             'Lincoln Navigator SUV', 'Lexus LX SUV',
           ];
-          const suvs = await searchValidItems(suvQueries, 3, seenIds);
+          const suvs = await searchValidItems(suvQueries, 3, seenIds, vehicleExcludes);
           items = [...teslas, ...suvs];
           // If Tesla failed, backfill with more SUVs
           if (items.length < 4) {
             const moreSuvs = await searchValidItems(
               ['Land Rover Discovery', 'Mercedes GLE SUV', 'Audi Q7 SUV', 'Volvo XC90'],
-              4 - items.length, seenIds
+              4 - items.length, seenIds, vehicleExcludes
             );
             items.push(...moreSuvs);
           }

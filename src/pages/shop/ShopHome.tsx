@@ -40,7 +40,7 @@ const CATEGORY_SEARCH_QUERIES: Record<string, string[]> = {
   phones: ['iPhone 15 Pro Max', 'Samsung Galaxy S24 Ultra', 'Google Pixel 8 Pro', 'OnePlus 12 smartphone'],
   electronics: ['laptop notebook computer', 'tablet iPad Samsung', 'monitor 4K display', 'drone camera'],
   gaming: ['PS5 console bundle', 'Nintendo Switch OLED', 'Xbox Series X', 'Steam Deck gaming'],
-  vehicles: ['Toyota Land Cruiser', 'BMW sedan', 'Ford Mustang', 'Mercedes Benz SUV'],
+  vehicles: ['Tesla Model X used car', 'Range Rover SUV used', 'Mercedes GLS SUV used', 'BMW X7 SUV used'],
   clothing: ['women long maxi dress', 'mens jacket coat', 'abaya kaftan long dress', 'women blazer suit'],
   home_garden: ['sofa living room furniture', 'kitchen appliance blender', 'bed frame mattress', 'garden outdoor patio'],
   toys: ['LEGO building set', 'Barbie doll playset', 'Nerf blaster gun', 'puzzle board game'],
@@ -393,19 +393,30 @@ export default function ShopHome() {
           items = sortByLuxury(items).slice(0, 4);
 
         // ===== SPECIAL PATH FOR "vehicles" (Véhicules) =====
-        // Try catalog-category (eBay Motors), then fall back to catalog-home feed
+        // Goal: 1 Tesla luxury + 3 SUVs. Try DB-cached sources first, then live search fallback.
         } else if (catKey === 'vehicles') {
           const vehicleExcludes = [
             ...(CATEGORY_EXCLUDE_KEYWORDS['vehicles'] || []),
             'adapter', 'j1772', 'charger', 'charging', 'cable', 'wall connector',
             'floor mat', 'seat cover', 'phone holder', 'mount', 'case',
             'keychain', 'sticker', 'decal', 'remote', 'toy', 'hot wheels',
-            'model car', 'diecast', 'scale model', 'matchbox',
+            'model car', 'diecast', 'scale model', 'matchbox', 'cover', 'protector',
           ];
-          // Attempt 1: catalog-category (eBay Motors)
+          const isVehicleItem = (p: Product): boolean => {
+            if (!p.id || !p.imageUrl) return false;
+            const t = (p.title || '').toLowerCase();
+            if (vehicleExcludes.some(ex => t.includes(ex))) return false;
+            // Accept if price >= 500 OR title looks like a real vehicle listing
+            if ((p.priceUsd || 0) >= 500) return true;
+            if (looksLikeVehicle(p.title || '')) return true;
+            return false;
+          };
+          const seenIds = new Set<string>();
+
+          // Attempt 1: catalog-category (eBay Motors DB cache)
           try {
             const data = await cachedCatalogFetch<any>('catalog-category', {
-              category: 'vehicles', limit: 36, page: 1, pageSize: 36, client: 'web',
+              category: 'vehicles', limit: 50, page: 1, pageSize: 50, client: 'web',
             });
             const rawItems = (data?.items || []).map((item: any) => ({
               id: item.providerProductId || item.provider_product_id || item.id || '',
@@ -415,39 +426,48 @@ export default function ShopHome() {
               priceUsd: item.priceUsd || item.price_usd || 0,
               rating: item.rating, inStock: true,
               productUrl: item.productUrl || item.product_url || '',
-            } as Product)).filter((p: Product) => {
-              if (!p.id || !p.imageUrl || (p.priceUsd || 0) < 500) return false;
-              const t = (p.title || '').toLowerCase();
-              return !vehicleExcludes.some(ex => t.includes(ex));
-            });
-            const seenIds = new Set<string>();
+            } as Product)).filter(isVehicleItem);
+            console.log('[Vehicles] catalog-category raw:', rawItems.slice(0, 8).map((p: Product) => `${p.title} ($${p.priceUsd})`));
             for (const p of rawItems) {
               if (items.length >= 4) break;
-              const key = p.id + '|' + (p.title || '').slice(0, 40);
+              const key = p.id + '|' + (p.title || '').slice(0, 30);
               if (seenIds.has(key)) continue;
               seenIds.add(key);
               items.push(p);
             }
           } catch (e) { console.warn('[Vehicles] catalog-category failed:', e); }
 
-          // Attempt 2: fall back to catalog-home feed (DB-cached items)
+          // Attempt 2: catalog-home feed (DB-cached items)
           if (items.length < 4) {
             try {
               const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
                 category: 'vehicles', page: 1, pageSize: 80, client: 'web',
               });
               const feedItems = (data?.sections?.flatMap(s => s.items) || [])
-                .map(mapItemToProduct).filter(isValidProduct)
-                .filter((p: Product) => {
-                  const t = (p.title || '').toLowerCase();
-                  return !vehicleExcludes.some(ex => t.includes(ex)) && (p.priceUsd || 0) >= 100;
-                });
+                .map(mapItemToProduct).filter(isValidProduct).filter(isVehicleItem);
+              console.log('[Vehicles] catalog-home raw:', feedItems.slice(0, 8).map((p: Product) => `${p.title} ($${p.priceUsd})`));
               for (const p of feedItems) {
                 if (items.length >= 4) break;
+                const key = p.id + '|' + (p.title || '').slice(0, 30);
+                if (seenIds.has(key)) continue;
+                seenIds.add(key);
                 items.push(p);
               }
             } catch (e) { console.warn('[Vehicles] catalog-home fallback failed:', e); }
           }
+
+          // Attempt 3: live search with vehicle-intent queries (SUVs + Tesla)
+          if (items.length < 4) {
+            const vehicleSearchQueries = [
+              'Tesla Model X used car', 'Tesla Model S luxury car',
+              'Range Rover SUV used', 'Mercedes GLS SUV used',
+              'BMW X7 SUV used', 'Porsche Cayenne SUV used',
+              'Cadillac Escalade SUV used', 'Land Rover Discovery SUV',
+            ];
+            const searchResults = await searchVehicles(vehicleSearchQueries, 4 - items.length, seenIds, vehicleExcludes);
+            items.push(...searchResults);
+          }
+
           items = items.slice(0, 4);
           console.log('[Vehicles] selected:', items.map(p => `${p.title} ($${p.priceUsd})`));
 
@@ -521,20 +541,70 @@ export default function ShopHome() {
             'brake caliper', 'radiator', 'fuel pump',
           ];
 
+          const partsExcludes = CATEGORY_EXCLUDE_KEYWORDS['parts_accessories'] || [];
+          const isAutoPartItem = (p: Product): boolean => {
+            if (!p.id || !p.imageUrl || !p.priceUsd) return false;
+            const t = (p.title || '').toLowerCase();
+            if (partsExcludes.some(ex => t.includes(ex))) return false;
+            if (AUTO_PARTS_JUNK_TERMS.some(jt => t.includes(jt))) return false;
+            return ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
+          };
+
           const allParts: Product[] = [];
-          for (const q of AUTO_PARTS_QUERIES) {
-            if (allParts.length >= 8) break;
+
+          // Attempt 1: catalog-category (DB-cached auto parts)
+          try {
+            const data = await cachedCatalogFetch<any>('catalog-category', {
+              category: 'parts_accessories', limit: 50, page: 1, pageSize: 50, client: 'web',
+            });
+            const rawItems = (data?.items || []).map((item: any) => ({
+              id: item.providerProductId || item.provider_product_id || item.id || '',
+              provider: item.provider || 'ebay',
+              title: item.title || '',
+              imageUrl: item.mainImageUrl || item.imageUrl || item.image_url || '',
+              priceUsd: item.priceUsd || item.price_usd || 0,
+              rating: item.rating, inStock: true,
+              productUrl: item.productUrl || item.product_url || '',
+            } as Product)).filter(isAutoPartItem);
+            console.log('[AutoParts] catalog-category raw:', rawItems.slice(0, 5).map((p: Product) => `${p.title} ($${p.priceUsd})`));
+            for (const p of rawItems) {
+              if (allParts.length >= 8) break;
+              addUnique(p, allParts);
+            }
+          } catch (e) { console.warn('[AutoParts] catalog-category failed:', e); }
+
+          // Attempt 2: catalog-home feed (DB-cached)
+          if (allParts.length < 4) {
             try {
-              const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
-              const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotAutoPartsJunk);
-              console.log(`[AutoParts] query "${q}" raw:`, raw.slice(0, 3).map((x: Product) => x.title));
-              for (const p of raw) {
+              const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+                category: 'parts_accessories', page: 1, pageSize: 80, client: 'web',
+              });
+              const feedItems = (data?.sections?.flatMap(s => s.items) || [])
+                .map(mapItemToProduct).filter(isValidProduct).filter(isAutoPartItem);
+              console.log('[AutoParts] catalog-home raw:', feedItems.slice(0, 5).map((p: Product) => `${p.title} ($${p.priceUsd})`));
+              for (const p of feedItems) {
                 if (allParts.length >= 8) break;
-                const t = (p.title || '').toLowerCase();
-                const looksAutoPart = ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
-                if (looksAutoPart) addUnique(p, allParts);
+                addUnique(p, allParts);
               }
-            } catch (e) { /* continue */ }
+            } catch (e) { console.warn('[AutoParts] catalog-home fallback failed:', e); }
+          }
+
+          // Attempt 3: live search fallback
+          if (allParts.length < 4) {
+            for (const q of AUTO_PARTS_QUERIES) {
+              if (allParts.length >= 8) break;
+              try {
+                const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 10 });
+                const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isNotAutoPartsJunk);
+                console.log(`[AutoParts] search "${q}" raw:`, raw.slice(0, 3).map((x: Product) => x.title));
+                for (const p of raw) {
+                  if (allParts.length >= 8) break;
+                  const t = (p.title || '').toLowerCase();
+                  const looksAutoPart = ['brake', 'rotor', 'pad', 'headlight', 'alternator', 'battery', 'spark', 'filter', 'wiper', 'bumper', 'bearing', 'belt', 'coil', 'sensor', 'steering', 'pump', 'strut', 'tie rod', 'caliper', 'radiator', 'fuel', 'exhaust', 'muffler', 'axle', 'transmission', 'clutch', 'gasket', 'suspension', 'engine', 'motor', 'turbo', 'injector', 'catalytic', 'car', 'auto', 'vehicle'].some(k => t.includes(k));
+                  if (looksAutoPart) addUnique(p, allParts);
+                }
+              } catch (e) { /* continue */ }
+            }
           }
 
           // Sort by price descending to prefer substantial parts

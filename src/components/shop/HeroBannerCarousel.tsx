@@ -72,7 +72,7 @@ const SLIDES: Slide[] = [
     ctaEn: 'See headphones',
     ctaLink: '/category/audio',
     gradient: 'from-amber-900/90 via-orange-900/70 to-transparent',
-    image: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=1600&q=80&auto=format&fit=crop',
+    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=1600&q=80&auto=format&fit=crop',
   },
   {
     titleFr: 'Maison Connectée',

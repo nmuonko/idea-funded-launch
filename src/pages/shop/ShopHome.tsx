@@ -463,7 +463,7 @@ export default function ShopHome() {
 
           // Exact vehicle queries for the 4 luxury cars
           const EXACT_VEHICLE_QUERIES = [
-            '2023 Tesla Model X Plaid Full Self Driving White',
+            '2026 Tesla Model Y Long Range',
             '2025 GMC Yukon XL AT4 Ultimate 4WD Lifted Vossens',
             '2025 Ford Explorer Active AWD SUV',
             '2025 Hyundai Santa Fe XRT Sport Utility',

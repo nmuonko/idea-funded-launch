@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getProviderHealthSummary } from "../_shared/providerHealth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,6 +73,7 @@ Deno.serve(async (req) => {
             popular: popular || [],
             promotions: promotions || [],
             stats: { total24h: total24h || 0, uniqueQueries: (popular || []).length, liveHits, promoted },
+            providerHealth: getProviderHealthSummary(),
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );

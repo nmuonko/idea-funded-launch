@@ -291,7 +291,6 @@ export async function updateCatalogSetting(
     "mixed_blend_ratio",
     "search_cache_ttl_seconds",
     "home_cache_ttl_seconds",
-    // Home rotation settings
     "home_rotation_interval_minutes",
     "home_rotation_mode",
     "home_avoid_repeat_days",
@@ -302,6 +301,11 @@ export async function updateCatalogSetting(
     "ebay_cache_ttl_seconds",
     "amazon_category_allowlist",
     "enable_category_rules",
+    // TTL / DB-first settings
+    "global_max_item_age_days",
+    "global_price_refresh_days",
+    "global_availability_refresh_days",
+    "db_search_min_results",
   ];
 
   if (!validKeys.includes(key)) {

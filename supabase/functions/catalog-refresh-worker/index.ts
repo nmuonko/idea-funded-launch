@@ -47,7 +47,14 @@ function checkAuth(req: Request, serviceKey: string): boolean {
   const adminKey = req.headers.get("x-admin-key");
   if (adminKey && adminKey === Deno.env.get("CRON_SECRET")) return true;
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ") && auth.replace("Bearer ", "") === serviceKey) return true;
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.replace("Bearer ", "");
+    // Accept service_role key
+    if (token === serviceKey) return true;
+    // Accept anon key (for pg_cron scheduled calls)
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (anonKey && token === anonKey) return true;
+  }
   return false;
 }
 

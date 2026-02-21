@@ -195,6 +195,9 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
 }
 
 // ─── TIER A: Token-based ilike search ─────────────────────────────────────────
+// Only select columns needed for search results — avoids transferring large metadata/images JSON
+const DB_SELECT_COLS = "id,provider,provider_product_id,title,image_url,product_url,price_usd,currency,unified_category,category_key,rating,in_stock,is_disallowed,is_active,updated_at,popularity_score,last_seen_at,data_updated_at";
+
 async function tierASearch(
   supabase: SupabaseClientAny,
   tokens: string[],
@@ -204,7 +207,7 @@ async function tierASearch(
 ): Promise<Record<string, unknown>[]> {
   let dbQuery = supabase
     .from("catalog_items")
-    .select("*")
+    .select(DB_SELECT_COLS)
     .eq("is_disallowed", false)
     .eq("is_active", true)
     .not("image_url", "is", null)
@@ -259,11 +262,11 @@ async function tierBFuzzySearch(
     if (categoryKey) {
       // RPC doesn't filter by category, do post-filter
       // For efficiency, just use the IDs and fetch from catalog_items
-      const ids = results.map((r: any) => r.id);
+    const ids = results.map((r: any) => r.id);
       if (ids.length > 0) {
         const { data: fullItems } = await supabase
           .from("catalog_items")
-          .select("*")
+          .select(DB_SELECT_COLS)
           .in("id", ids)
           .or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`)
           .eq("is_active", true)
@@ -277,7 +280,7 @@ async function tierBFuzzySearch(
     if (ids.length > 0) {
       const { data: fullItems } = await supabase
         .from("catalog_items")
-        .select("*")
+        .select(DB_SELECT_COLS)
         .in("id", ids)
         .eq("is_active", true)
         .eq("is_disallowed", false);

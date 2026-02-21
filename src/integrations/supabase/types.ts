@@ -4483,6 +4483,51 @@ export type Database = {
         }
         Relationships: []
       }
+      search_query_log: {
+        Row: {
+          auto_cached_count: number | null
+          category_guess: string | null
+          created_at: string
+          db_count: number | null
+          duration_ms: number | null
+          expansion_used: boolean | null
+          fuzzy_used: boolean | null
+          id: string
+          live_count: number | null
+          q_norm: string
+          q_original: string | null
+          used_live: boolean | null
+        }
+        Insert: {
+          auto_cached_count?: number | null
+          category_guess?: string | null
+          created_at?: string
+          db_count?: number | null
+          duration_ms?: number | null
+          expansion_used?: boolean | null
+          fuzzy_used?: boolean | null
+          id?: string
+          live_count?: number | null
+          q_norm: string
+          q_original?: string | null
+          used_live?: boolean | null
+        }
+        Update: {
+          auto_cached_count?: number | null
+          category_guess?: string | null
+          created_at?: string
+          db_count?: number | null
+          duration_ms?: number | null
+          expansion_used?: boolean | null
+          fuzzy_used?: boolean | null
+          id?: string
+          live_count?: number | null
+          q_norm?: string
+          q_original?: string | null
+          used_live?: boolean | null
+        }
+        Relationships: []
+      }
       search_relevancy_report_rows: {
         Row: {
           category: string | null
@@ -5289,6 +5334,10 @@ export type Database = {
       }
     }
     Functions: {
+      _cron_call_refresh_worker: {
+        Args: { p_body?: Json; p_mode: string }
+        Returns: undefined
+      }
       admin_catalog_category_counts: {
         Args: never
         Returns: {

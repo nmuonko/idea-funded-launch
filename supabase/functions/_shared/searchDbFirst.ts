@@ -2,6 +2,11 @@
  * DB-First Search — queries catalog_items before hitting live providers.
  * Returns results instantly when DB has data, even if APIs are down.
  * 
+ * TIERED SEARCH:
+ *   Tier A: Token ilike match (fast, indexed)
+ *   Tier B: pg_trgm fuzzy similarity (typo-tolerant)
+ *   Tier C: Query expansion (strip year, add synonyms, nearby years)
+ * 
  * Uses TTL policy for dynamic thresholds and freshness filtering.
  */
 
@@ -26,6 +31,54 @@ export interface DbFirstResult {
   fallbackItems: any[] | null;
   dbCount: number;
   durationMs: number;
+  /** Which tier produced the results */
+  tier: "A" | "B" | "C" | "none";
+  fuzzyUsed: boolean;
+  expansionUsed: boolean;
+}
+
+// ─── FR/EN SYNONYMS for Tier C expansion ────────────────────────────────────
+const EXPANSION_SYNONYMS: Record<string, string[]> = {
+  "earbuds": ["écouteurs", "wireless earbuds", "earphones"],
+  "écouteurs": ["earbuds", "wireless earbuds"],
+  "headphones": ["casque", "casque audio", "headphone"],
+  "casque": ["headphones", "headphone"],
+  "phone": ["téléphone", "smartphone"],
+  "téléphone": ["phone", "smartphone"],
+  "watch": ["montre", "smartwatch"],
+  "montre": ["watch", "smartwatch"],
+  "shoes": ["chaussures", "sneakers", "baskets"],
+  "chaussures": ["shoes", "sneakers"],
+  "refrigerator": ["frigo", "fridge", "réfrigérateur"],
+  "frigo": ["refrigerator", "fridge"],
+  "laptop": ["ordinateur portable", "notebook"],
+  "speaker": ["enceinte", "haut-parleur"],
+  "tv": ["television", "smart tv", "télévision"],
+  "tablet": ["tablette", "ipad"],
+  "camera": ["appareil photo", "caméra"],
+  "dress": ["robe"],
+  "robe": ["dress", "maxi dress"],
+  "jacket": ["veste", "manteau"],
+  "pants": ["pantalon", "trousers"],
+};
+
+function mapDbItem(item: Record<string, unknown>, categoryKey: string | null): Record<string, unknown> {
+  return {
+    id: item.external_id || item.id,
+    title: item.title,
+    priceUsd: item.price_usd,
+    price_usd: item.price_usd,
+    currency: item.currency || "USD",
+    imageUrl: item.image_url,
+    image_url: item.image_url,
+    productUrl: item.product_url,
+    product_url: item.product_url,
+    provider: item.provider,
+    rating: item.rating,
+    imageCount: (item.image_count as number) || 1,
+    category: item.unified_category || categoryKey,
+    store: item.provider === "ebay" ? "ebay" : "amazon",
+  };
 }
 
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
@@ -41,15 +94,114 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   }
 
   const DB_MIN_RESULTS = policy.dbMinResults;
+  const TARGET_RESULTS = 100; // Target for expansion tiers
 
   // Build tokens from primary query
   const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
   const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
 
   if (topTokens.length === 0) {
-    return { items: null, fallbackItems: null, dbCount: 0, durationMs: Date.now() - dbStartMs };
+    return { items: null, fallbackItems: null, dbCount: 0, durationMs: Date.now() - dbStartMs, tier: "none", fuzzyUsed: false, expansionUsed: false };
   }
 
+  // ─── TIER A: Token ilike match (fast, indexed) ─────────────────────────────
+  const tierAItems = await tierASearch(supabase, topTokens, categoryKey, limit, requestId);
+  const tierACount = tierAItems.length;
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_A q="${qNorm}" tokens=${JSON.stringify(topTokens)} count=${tierACount} minRequired=${DB_MIN_RESULTS}`);
+
+  if (tierACount >= DB_MIN_RESULTS) {
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+    const { allowed } = filterDisallowedItems(
+      mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+      `[DB_TIER_A] requestId=${requestId}`
+    );
+    return { items: allowed, fallbackItems: null, dbCount: tierACount, durationMs: Date.now() - dbStartMs, tier: "A", fuzzyUsed: false, expansionUsed: false };
+  }
+
+  // ─── TIER B: Fuzzy pg_trgm similarity (typo-tolerant) ─────────────────────
+  const elapsed = Date.now() - dbStartMs;
+  if (elapsed < 350) { // Only if we have time budget
+    const tierBItems = await tierBFuzzySearch(supabase, qNorm, categoryKey, limit, requestId);
+    // Merge and dedupe with Tier A
+    const seenIds = new Set(tierAItems.map((i: any) => i.id));
+    const newBItems = tierBItems.filter((i: any) => !seenIds.has(i.id));
+    const mergedAB = [...tierAItems, ...newBItems];
+    const mergedCount = mergedAB.length;
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_B fuzzy q="${qNorm}" new=${newBItems.length} merged=${mergedCount}`);
+
+    if (mergedCount >= DB_MIN_RESULTS) {
+      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+      const { allowed } = filterDisallowedItems(
+        mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+        `[DB_TIER_B] requestId=${requestId}`
+      );
+      return { items: allowed, fallbackItems: null, dbCount: mergedCount, durationMs: Date.now() - dbStartMs, tier: "B", fuzzyUsed: true, expansionUsed: false };
+    }
+
+    // ─── TIER C: Query expansion ──────────────────────────────────────────────
+    const elapsed2 = Date.now() - dbStartMs;
+    if (elapsed2 < 400 && mergedCount < TARGET_RESULTS) {
+      const expansionQueries = generateExpansionQueries(qNorm);
+      let pool = [...mergedAB];
+      const poolIds = new Set(pool.map((i: any) => i.id));
+
+      for (const eq of expansionQueries) {
+        if (pool.length >= TARGET_RESULTS) break;
+        if (Date.now() - dbStartMs > 450) break;
+
+        const eqTokens = eq.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
+        const eqTop = [...eqTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
+        if (eqTop.length === 0) continue;
+
+        const exItems = await tierASearch(supabase, eqTop, categoryKey, 50, requestId);
+        const newItems = exItems.filter((i: any) => !poolIds.has(i.id));
+        newItems.forEach((i: any) => poolIds.add(i.id));
+        pool = [...pool, ...newItems];
+      }
+
+      const expansionCount = pool.length - mergedCount;
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} db_tier_C expansion queries=${expansionQueries.length} new=${expansionCount} total=${pool.length}`);
+
+      if (pool.length >= DB_MIN_RESULTS) {
+        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+        const { allowed } = filterDisallowedItems(
+          mapped.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
+          `[DB_TIER_C] requestId=${requestId}`
+        );
+        return { items: allowed, fallbackItems: null, dbCount: pool.length, durationMs: Date.now() - dbStartMs, tier: "C", fuzzyUsed: true, expansionUsed: true };
+      }
+
+      // Return whatever we have as fallback
+      if (pool.length > 0) {
+        const mapped = pool.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+        return { items: null, fallbackItems: mapped, dbCount: pool.length, durationMs: Date.now() - dbStartMs, tier: "C", fuzzyUsed: true, expansionUsed: true };
+      }
+    }
+
+    // Partial from Tier A+B
+    if (mergedAB.length > 0) {
+      const mapped = mergedAB.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+      return { items: null, fallbackItems: mapped, dbCount: mergedCount, durationMs: Date.now() - dbStartMs, tier: "B", fuzzyUsed: true, expansionUsed: false };
+    }
+  }
+
+  // Partial from Tier A only
+  if (tierACount > 0) {
+    const mapped = tierAItems.map((item: Record<string, unknown>) => mapDbItem(item, categoryKey));
+    return { items: null, fallbackItems: mapped, dbCount: tierACount, durationMs: Date.now() - dbStartMs, tier: "A", fuzzyUsed: false, expansionUsed: false };
+  }
+
+  return { items: null, fallbackItems: null, dbCount: 0, durationMs: Date.now() - dbStartMs, tier: "none", fuzzyUsed: false, expansionUsed: false };
+}
+
+// ─── TIER A: Token-based ilike search ─────────────────────────────────────────
+async function tierASearch(
+  supabase: SupabaseClientAny,
+  tokens: string[],
+  categoryKey: string | null,
+  limit: number,
+  requestId: string,
+): Promise<Record<string, unknown>[]> {
   let dbQuery = supabase
     .from("catalog_items")
     .select("*")
@@ -58,57 +210,135 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     .filter("image_url", "not.is", "null")
     .gt("price_usd", 0);
 
-  // Category filter
   if (categoryKey) {
     dbQuery = dbQuery.or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`);
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first category_filter="${categoryKey}"`);
   }
 
-  for (const token of topTokens) {
+  for (const token of tokens) {
     dbQuery = dbQuery.ilike("title", `%${token}%`);
   }
 
-  const { data: dbItems, error: dbErr } = await dbQuery
+  const { data, error } = await dbQuery
     .order("rating", { ascending: false, nullsFirst: false })
     .limit(limit);
 
-  const dbMs = Date.now() - dbStartMs;
-  const dbCount = dbItems?.length || 0;
+  if (error) {
+    console.warn(`[DB_TIER_A] requestId=${requestId} error: ${error.message}`);
+    return [];
+  }
+  return data || [];
+}
 
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first q="${qNorm}" tokens=${JSON.stringify(topTokens)} dbCount=${dbCount} minRequired=${DB_MIN_RESULTS} ms=${dbMs}`);
+// ─── TIER B: pg_trgm fuzzy similarity search ─────────────────────────────────
+async function tierBFuzzySearch(
+  supabase: SupabaseClientAny,
+  qNorm: string,
+  categoryKey: string | null,
+  limit: number,
+  requestId: string,
+): Promise<Record<string, unknown>[]> {
+  try {
+    // Use the existing search_catalog_items_ranked RPC which uses pg_trgm similarity
+    const { data, error } = await supabase.rpc("search_catalog_items_ranked", {
+      p_query: qNorm,
+      p_min_price: 0,
+      p_max_price: null,
+      p_limit: Math.min(limit, 50),
+    });
 
-  if (!dbItems || dbCount === 0) {
-    return { items: null, fallbackItems: null, dbCount: 0, durationMs: dbMs };
+    if (error) {
+      console.warn(`[DB_TIER_B] requestId=${requestId} rpc error: ${error.message}`);
+      return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    // The RPC returns a simplified shape, we need to fetch full records for matching IDs
+    // Filter by category if needed
+    let results = data;
+    if (categoryKey) {
+      // RPC doesn't filter by category, do post-filter
+      // For efficiency, just use the IDs and fetch from catalog_items
+      const ids = results.map((r: any) => r.id);
+      if (ids.length > 0) {
+        const { data: fullItems } = await supabase
+          .from("catalog_items")
+          .select("*")
+          .in("id", ids)
+          .or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`)
+          .eq("is_active", true)
+          .eq("is_disallowed", false);
+        return fullItems || [];
+      }
+    }
+
+    // No category filter — fetch full records by IDs
+    const ids = results.map((r: any) => r.id);
+    if (ids.length > 0) {
+      const { data: fullItems } = await supabase
+        .from("catalog_items")
+        .select("*")
+        .in("id", ids)
+        .eq("is_active", true)
+        .eq("is_disallowed", false);
+      return fullItems || [];
+    }
+
+    return [];
+  } catch (err) {
+    console.warn(`[DB_TIER_B] requestId=${requestId} error: ${(err as Error).message}`);
+    return [];
+  }
+}
+
+// ─── TIER C: Query Expansion Generator ────────────────────────────────────────
+function generateExpansionQueries(qNorm: string): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  seen.add(qNorm);
+
+  // 1. Strip year tokens: "2024 tesla model x" → "tesla model x"
+  const yearMatch = qNorm.match(/\b(19|20)\d{2}\b/);
+  const noYear = qNorm.replace(/\b(19|20)\d{2}\b/g, "").replace(/\s+/g, " ").trim();
+  if (noYear && noYear !== qNorm && !seen.has(noYear)) {
+    results.push(noYear);
+    seen.add(noYear);
   }
 
-  // Map DB items to response format
-  const mappedItems = dbItems.map((item: Record<string, unknown>) => ({
-    id: item.external_id || item.id,
-    title: item.title,
-    priceUsd: item.price_usd,
-    price_usd: item.price_usd,
-    currency: item.currency || "USD",
-    imageUrl: item.image_url,
-    image_url: item.image_url,
-    productUrl: item.product_url,
-    product_url: item.product_url,
-    provider: item.provider,
-    rating: item.rating,
-    imageCount: item.image_count || 1,
-    category: item.unified_category || categoryKey,
-    store: item.provider === "ebay" ? "ebay" : "amazon",
-  }));
-
-  if (dbCount >= DB_MIN_RESULTS) {
-    // Apply content filtering
-    const { allowed: filteredDbItems } = filterDisallowedItems(
-      mappedItems.map((item: any) => ({ ...item, title: item.title, productUrl: item.productUrl, category: item.category })),
-      `[DB_FIRST] requestId=${requestId}`
-    );
-    return { items: filteredDbItems, fallbackItems: null, dbCount, durationMs: dbMs };
+  // 2. Add nearby years if year was found
+  if (yearMatch) {
+    const year = parseInt(yearMatch[0]);
+    const nearYears = [year - 1, year - 2, year + 1].filter(y => y >= 2015 && y <= 2026);
+    const base = noYear || qNorm.replace(yearMatch[0], "").trim();
+    for (const ny of nearYears) {
+      const q = `${ny} ${base}`.trim();
+      if (!seen.has(q)) {
+        results.push(q);
+        seen.add(q);
+      }
+    }
   }
 
-  // Partial results — save as fallback
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_partial dbCount=${dbCount} saved as fallback`);
-  return { items: null, fallbackItems: mappedItems, dbCount, durationMs: dbMs };
+  // 3. Add FR/EN synonyms for tokens
+  const tokens = qNorm.split(/\s+/);
+  for (const token of tokens) {
+    const synonyms = EXPANSION_SYNONYMS[token.toLowerCase()];
+    if (synonyms) {
+      for (const syn of synonyms.slice(0, 2)) {
+        const q = qNorm.replace(new RegExp(`\\b${escapeRegex(token)}\\b`, "i"), syn).trim();
+        if (!seen.has(q)) {
+          results.push(q);
+          seen.add(q);
+        }
+        if (results.length >= 5) break;
+      }
+    }
+    if (results.length >= 5) break;
+  }
+
+  return results.slice(0, 5);
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

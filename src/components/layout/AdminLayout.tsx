@@ -12,7 +12,7 @@ import {
   Truck, BarChart, Wallet, MessageSquare, BarChart3, BookOpen, Home,
   ShoppingCart, TestTube, Menu, X, ChevronLeft, ChevronRight, Bookmark,
   Palette, Shield, Car, Activity, Headphones, FileCheck, Building2, DollarSign, Globe,
-  ChevronDown, Database, Store, Search, Gift
+  ChevronDown, Database, Store, Search, Gift, Archive
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdminNotificationsBell } from '@/components/admin/AdminNotificationsBell';
@@ -95,6 +95,7 @@ export function AdminLayout() {
         { to: '/admin/catalog-sources', icon: Store, label: language === 'fr' ? 'Sources Catalogue' : 'Catalog Sources', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/cars-settings', icon: Car, label: language === 'fr' ? 'Voitures' : 'Cars API', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/cache-settings', icon: Database, label: language === 'fr' ? 'Cache' : 'Cache', exact: false, permission: 'can_view_settings' as const },
+        { to: '/admin/catalog-cache', icon: Archive, label: language === 'fr' ? 'Cache Catalogue' : 'Catalog Cache', exact: false, permission: 'can_view_settings' as const },
         { to: '/admin/health', icon: Activity, label: t.sidebar.health || 'Health', exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/audit-log', icon: Shield, label: t.sidebar.auditLog, exact: false, permission: 'can_view_dashboard' as const },
         { to: '/admin/search-relevancy', icon: Search, label: language === 'fr' ? 'Pertinence Recherche' : 'Search Relevancy', exact: false, permission: 'can_view_dashboard' as const },

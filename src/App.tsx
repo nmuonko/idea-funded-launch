@@ -61,6 +61,7 @@ const CatalogSourcesSettings = lazy(() => import("./pages/admin/CatalogSourcesSe
 const CarsSettings = lazy(() => import("./pages/admin/CarsSettings"));
 const HomeRecipes = lazy(() => import("./pages/admin/HomeRecipes"));
 const SearchRelevancy = lazy(() => import("./pages/admin/SearchRelevancy"));
+const CatalogCache = lazy(() => import("./pages/admin/CatalogCache"));
 const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
 const PaymentsSettings = lazy(() => import("./pages/admin/PaymentsSettings"));
 const ServiceZones = lazy(() => import("./pages/admin/ServiceZones"));
@@ -383,6 +384,11 @@ const App = () => {
               <Route path="cache-settings" element={
                 <AdminRouteGuard requiredPermission="can_view_settings">
                   <CacheSettings />
+                </AdminRouteGuard>
+              } />
+              <Route path="catalog-cache" element={
+                <AdminRouteGuard requiredPermission="can_view_settings">
+                  <CatalogCache />
                 </AdminRouteGuard>
               } />
               <Route path="cars-settings" element={

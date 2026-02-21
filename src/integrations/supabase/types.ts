@@ -5289,6 +5289,14 @@ export type Database = {
       }
     }
     Functions: {
+      admin_catalog_category_counts: {
+        Args: never
+        Returns: {
+          active_count: number
+          category_key: string
+          inactive_count: number
+        }[]
+      }
       admin_clear_search_cache: { Args: never; Returns: Json }
       admin_get_all_device_tokens: {
         Args: never

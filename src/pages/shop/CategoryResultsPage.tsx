@@ -209,7 +209,13 @@ export default function CategoryResultsPage() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate(-1)}
+              onClick={() => {
+                if (window.history.length > 1) {
+                  navigate(-1);
+                } else {
+                  navigate('/');
+                }
+              }}
               className="text-white/70 hover:text-white hover:bg-white/10 rounded-full h-10 w-10"
             >
               <ArrowLeft className="h-5 w-5" />

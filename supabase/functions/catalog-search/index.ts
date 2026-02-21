@@ -33,6 +33,7 @@ import {
 import type { SearchIntent } from "../_shared/vehicleDetection.ts";
 import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
+import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
@@ -212,6 +213,12 @@ Deno.serve(async (req: Request) => {
     rulePriority: null,
     categoryKey,
   };
+
+  // AI Rewrite state — populated if AI rewrite succeeds
+  let aiRewriteResult: AiRewriteResult | null = null;
+  let aiRewriteMustExclude: string[] = [];
+  let aiRewriteDidYouMean: string | null = null;
+  let aiRewriteExpansions: string[] = [];
 
   console.log(`[CATALOG_SEARCH] requestId=${requestId} request`, JSON.stringify({ q: qOriginal, category_key: categoryKey, cursor, limit, provider: providerParam, lang }));
 
@@ -437,6 +444,44 @@ Deno.serve(async (req: Request) => {
         }
       }
       translateMs = Date.now() - translateStart;
+    }
+
+    // ─── AI QUERY REWRITE (French-first: typo fix + translation + intent) ────
+    // Skip if preNormalizer already matched OR if query is a known direct query
+    // Race with tight timeout to never block page 0
+    const qBeforeAiRewrite = qNorm;
+    if (!preNorm.matched && !isDirectQuery(qNorm)) {
+      try {
+        const aiRewriteTimeout = isFirstPage ? 800 : 1200;
+        const aiRewritePromise = aiQueryRewrite(supabase, qOriginal, lang, categoryKey, requestId);
+        const rewriteRaceResult = await Promise.race([
+          aiRewritePromise,
+          new Promise<null>((r) => setTimeout(() => r(null), aiRewriteTimeout)),
+        ]);
+        if (rewriteRaceResult) {
+          aiRewriteResult = rewriteRaceResult;
+          aiRewriteMustExclude = rewriteRaceResult.must_exclude;
+          aiRewriteDidYouMean = rewriteRaceResult.did_you_mean;
+          aiRewriteExpansions = rewriteRaceResult.expansions;
+
+          // Use AI's English query as primary when confidence is sufficient
+          if (rewriteRaceResult.query_en && rewriteRaceResult.query_en.length >= 2 && rewriteRaceResult.confidence >= 0.3) {
+            qNorm = rewriteRaceResult.query_en;
+            searchMeta.rewrittenQuery = rewriteRaceResult.query_en;
+            searchMeta.rewriteApplied = true;
+            frFallbackApplied = true;
+
+            if (!categoryKey && rewriteRaceResult.category_guess) {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_category_hint: ${rewriteRaceResult.category_guess}`);
+            }
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_applied: "${qOriginal}" → "${rewriteRaceResult.query_en}" cat=${rewriteRaceResult.category_guess} dym="${rewriteRaceResult.did_you_mean}" expansions=${rewriteRaceResult.expansions.length} conf=${rewriteRaceResult.confidence}`);
+          }
+        } else {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_timeout (${aiRewriteTimeout}ms)`);
+        }
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_error: ${(e as Error).message}`);
+      }
     }
 
     // ─── CANONICALIZATION + INTENT DETECTION (post-translation) ──────────────
@@ -796,6 +841,46 @@ Deno.serve(async (req: Request) => {
     // - All others (including vehicle_listing): both providers
     const skipAmazon = false; // True proxy mode: always call both providers
 
+    // ─── AI QUERY REWRITE (French-first: typo fix + translation + intent) ────
+    // Skip if preNormalizer already matched OR if query is a known direct query
+    // Race with tight timeout to never block page 0
+    if (!preNorm.matched && !isDirectQuery(qNorm)) {
+      try {
+        const aiRewriteTimeout = isFirstPage ? 800 : 1200;
+        const aiRewritePromise = aiQueryRewrite(supabase, qOriginal, lang, categoryKey, requestId);
+        const raceResult = await Promise.race([
+          aiRewritePromise,
+          new Promise<null>((r) => setTimeout(() => r(null), aiRewriteTimeout)),
+        ]);
+        if (raceResult) {
+          aiRewriteResult = raceResult;
+          aiRewriteMustExclude = raceResult.must_exclude;
+          aiRewriteDidYouMean = raceResult.did_you_mean;
+          aiRewriteExpansions = raceResult.expansions;
+
+          // Use AI's English query as the primary search query
+          if (raceResult.query_en && raceResult.query_en.length >= 2 && raceResult.confidence >= 0.3) {
+            qNorm = raceResult.query_en;
+            searchMeta.rewrittenQuery = raceResult.query_en;
+            searchMeta.rewriteApplied = true;
+            frFallbackApplied = true; // prevent further translation attempts
+
+            // Use AI's category guess if user didn't explicitly set one
+            if (!categoryKey && raceResult.category_guess) {
+              console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_category: ${raceResult.category_guess}`);
+              // Don't override explicit category, but note it in meta
+            }
+
+            console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_applied: "${qOriginal}" → "${raceResult.query_en}" cat=${raceResult.category_guess} dym="${raceResult.did_you_mean}" conf=${raceResult.confidence}`);
+          }
+        } else {
+          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_timeout (${aiRewriteTimeout}ms) — using existing pipeline`);
+        }
+      } catch (e) {
+        console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_error: ${(e as Error).message}`);
+      }
+    }
+
 
     const providerStartMs = Date.now();
     // ─── INDEPENDENT PER-PROVIDER TIMEOUTS ──────────────────────────────────
@@ -953,7 +1038,7 @@ Deno.serve(async (req: Request) => {
     // ─── ALT QUERIES (max 1, with time budget) ──────────────────────────────
     const altQueriesStart = Date.now();
     const totalProviderItems = amazonItems.length + ebayItems.length;
-    const altQueries = aiRefineResult?.alt || [];
+    const altQueries = aiRewriteExpansions.length > 0 ? aiRewriteExpansions.slice(1) : (aiRefineResult?.alt || []);
     const elapsedSoFar = Date.now() - startTime;
     const activeBudget = isFirstPage ? PAGE0_DEADLINE_MS : TOTAL_BUDGET_MS;
     const budgetExceeded = elapsedSoFar > activeBudget;
@@ -1231,6 +1316,20 @@ Deno.serve(async (req: Request) => {
         console.log(`[CATALOG_SEARCH] requestId=${requestId} CATEGORY_GUARD(${effectiveIntent.intentKey}): dropped ${guardDropped} wrong-category items`);
       }
     }
+    // ─── AI MUST_EXCLUDE FILTER ───────────────────────────────────────────────
+    // Drop items whose titles contain AI-specified exclusion terms
+    if (aiRewriteMustExclude.length > 0 && finalItems.length > 0) {
+      const beforeExclude = finalItems.length;
+      finalItems = finalItems.filter(item => {
+        const t = ((item as any).title || "").toLowerCase();
+        return !aiRewriteMustExclude.some(kw => t.includes(kw));
+      });
+      const excludeDropped = beforeExclude - finalItems.length;
+      if (excludeDropped > 0) {
+        console.log(`[CATALOG_SEARCH] requestId=${requestId} AI_MUST_EXCLUDE: dropped ${excludeDropped} items (keywords: ${aiRewriteMustExclude.join(",")})`);
+      }
+    }
+
     // Sort (only if explicit sort requested — scoring already ranks by relevance)
     if (sort !== "relevance") {
       finalItems = postSortItems(finalItems, sort) as typeof finalItems;
@@ -1298,6 +1397,15 @@ Deno.serve(async (req: Request) => {
       finalCount, source: searchSource,
       isVehicle, isHeavyEquipment, hasBuyingIntent,
       scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },
+      aiRewrite: aiRewriteResult ? {
+        query_en: aiRewriteResult.query_en,
+        category_guess: aiRewriteResult.category_guess,
+        did_you_mean: aiRewriteResult.did_you_mean,
+        expansions: aiRewriteExpansions.length,
+        must_exclude: aiRewriteMustExclude,
+        confidence: aiRewriteResult.confidence,
+        cached: aiRewriteResult.cached,
+      } : null,
     };
     // DEV-only pre-normalizer + deadline debug
     if (DEV) {
@@ -1348,9 +1456,20 @@ Deno.serve(async (req: Request) => {
         amazon: { ok: amazonDebug.ok, count: amazonDebug.count, timedOut: amazonTimedOut || (!amazonDone && providerTimedOut), hasMore: amazonProviderHasMore, skippedReason: skipAmazon ? "disabled" : (!effectiveMode.amazonActive ? "mode_disabled" : undefined), liveUsed: amazonLiveUsed, liveReason: amazonLiveReason, status: amazonStatus, error: amazonError || undefined },
       },
       qRefined: searchMeta.rewriteApplied ? searchMeta.rewrittenQuery : undefined,
+      didYouMean: aiRewriteDidYouMean || undefined,
       sourcesUsed: sourceServed,
       partial: incomplete || undefined,
       incomplete: incomplete || undefined,
+      aiRewrite: aiRewriteResult ? {
+        usedRewrite: true,
+        language: aiRewriteResult.language,
+        category_guess: aiRewriteResult.category_guess,
+        year: aiRewriteResult.year,
+        brand: aiRewriteResult.brand,
+        model: aiRewriteResult.model,
+        confidence: aiRewriteResult.confidence,
+        cached: aiRewriteResult.cached,
+      } : undefined,
       meta: { source: searchSource, isStale: false, envUsed, cacheEnvUsed: effectiveEnv, envRequested: envName, correlationId: requestId, ts: new Date().toISOString(), providerTimedOut: providerTimedOut || undefined, searchDebug } as any,
     };
 

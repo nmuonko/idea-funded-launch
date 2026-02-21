@@ -4629,6 +4629,36 @@ export type Database = {
         }
         Relationships: []
       }
+      search_rewrite_cache: {
+        Row: {
+          category_hint: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          lang: string
+          payload: Json
+          q_norm: string
+        }
+        Insert: {
+          category_hint?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          lang?: string
+          payload?: Json
+          q_norm: string
+        }
+        Update: {
+          category_hint?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          lang?: string
+          payload?: Json
+          q_norm?: string
+        }
+        Relationships: []
+      }
       search_rewrites: {
         Row: {
           category_key: string | null

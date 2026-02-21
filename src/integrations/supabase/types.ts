@@ -856,6 +856,39 @@ export type Database = {
         }
         Relationships: []
       }
+      catalog_category_ttl: {
+        Row: {
+          availability_refresh_days: number | null
+          category_key: string
+          db_min_results: number | null
+          enabled: boolean | null
+          max_item_age_days: number | null
+          price_refresh_days: number | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          availability_refresh_days?: number | null
+          category_key: string
+          db_min_results?: number | null
+          enabled?: boolean | null
+          max_item_age_days?: number | null
+          price_refresh_days?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          availability_refresh_days?: number | null
+          category_key?: string
+          db_min_results?: number | null
+          enabled?: boolean | null
+          max_item_age_days?: number | null
+          price_refresh_days?: number | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       catalog_collection_cache: {
         Row: {
           collection_key: string
@@ -1089,14 +1122,23 @@ export type Database = {
           brand: string | null
           buying_options: string[] | null
           category_key: string | null
+          condition: string | null
+          currency: string | null
+          data_hash: string | null
+          data_updated_at: string | null
+          expires_at: string | null
           id: string
           image_url: string | null
           images: Json | null
           in_stock: boolean | null
+          is_active: boolean | null
           is_disallowed: boolean | null
+          last_seen_at: string | null
           listing_type: string | null
           metadata: Json | null
           parts_subkey: string | null
+          popularity_score: number | null
+          price_updated_at: string | null
           price_usd: number | null
           product_url: string | null
           provider: string | null
@@ -1114,14 +1156,23 @@ export type Database = {
           brand?: string | null
           buying_options?: string[] | null
           category_key?: string | null
+          condition?: string | null
+          currency?: string | null
+          data_hash?: string | null
+          data_updated_at?: string | null
+          expires_at?: string | null
           id: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
+          is_active?: boolean | null
           is_disallowed?: boolean | null
+          last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
           parts_subkey?: string | null
+          popularity_score?: number | null
+          price_updated_at?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -1139,14 +1190,23 @@ export type Database = {
           brand?: string | null
           buying_options?: string[] | null
           category_key?: string | null
+          condition?: string | null
+          currency?: string | null
+          data_hash?: string | null
+          data_updated_at?: string | null
+          expires_at?: string | null
           id?: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
+          is_active?: boolean | null
           is_disallowed?: boolean | null
+          last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
           parts_subkey?: string | null
+          popularity_score?: number | null
+          price_updated_at?: string | null
           price_usd?: number | null
           product_url?: string | null
           provider?: string | null
@@ -1481,6 +1541,51 @@ export type Database = {
           last_error?: string | null
           last_run?: string | null
           slug?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      catalog_refresh_queue: {
+        Row: {
+          attempts: number | null
+          category_key: string
+          created_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          priority: number | null
+          provider: string
+          query: string
+          scheduled_at: string | null
+          status: string | null
+        }
+        Insert: {
+          attempts?: number | null
+          category_key: string
+          created_at?: string | null
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          priority?: number | null
+          provider: string
+          query: string
+          scheduled_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          attempts?: number | null
+          category_key?: string
+          created_at?: string | null
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          priority?: number | null
+          provider?: string
+          query?: string
+          scheduled_at?: string | null
           status?: string | null
         }
         Relationships: []

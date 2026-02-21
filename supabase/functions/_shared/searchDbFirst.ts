@@ -1,12 +1,14 @@
 /**
  * DB-First Search — queries catalog_items before hitting live providers.
  * Returns results instantly when DB has data, even if APIs are down.
+ * 
+ * Uses TTL policy for dynamic thresholds and freshness filtering.
  */
 
-// Use 'any' type to avoid importing the Supabase SDK
 type SupabaseClientAny = any;
 
 import { filterDisallowedItems } from "./contentBlocker.ts";
+import { getTtlPolicy, TtlPolicy } from "./ttlPolicy.ts";
 
 export interface DbFirstParams {
   supabase: SupabaseClientAny;
@@ -18,22 +20,29 @@ export interface DbFirstParams {
 }
 
 export interface DbFirstResult {
-  /** Mapped items ready for response (>= DB_MIN_RESULTS) */
+  /** Mapped items ready for response (>= dbMinResults) */
   items: any[] | null;
-  /** Partial fallback items (1..DB_MIN_RESULTS-1) */
+  /** Partial fallback items (1..dbMinResults-1) */
   fallbackItems: any[] | null;
   dbCount: number;
   durationMs: number;
 }
 
-const DB_MIN_RESULTS = 8;
-
 export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResult> {
   const { supabase, qNorm, aiExpandedTerms, limit, categoryKey, requestId } = params;
   const dbStartMs = Date.now();
 
+  // Resolve TTL policy (global or per-category)
+  let policy: TtlPolicy;
+  try {
+    policy = await getTtlPolicy(supabase, categoryKey);
+  } catch {
+    policy = { maxItemAgeDays: 30, priceRefreshDays: 3, availabilityRefreshDays: 3, dbMinResults: 5, enabled: true };
+  }
+
+  const DB_MIN_RESULTS = policy.dbMinResults;
+
   // Build tokens from primary query
-  // Fix #2: exclude pure-number tokens AND single numeric-like tokens
   const searchTokens = qNorm.split(/\s+/).filter((t: string) => t.length >= 2 && !/^\d+$/.test(t));
   const topTokens = [...searchTokens].sort((a: string, b: string) => b.length - a.length).slice(0, 3);
 
@@ -45,12 +54,12 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     .from("catalog_items")
     .select("*")
     .eq("is_disallowed", false)
+    .eq("is_active", true)
     .filter("image_url", "not.is", "null")
     .gt("price_usd", 0);
 
-  // Category filter: constrain DB results to selected category
+  // Category filter
   if (categoryKey) {
-    // For top-level tabs, also match subtab categories (e.g. electronics matches electronics_phones)
     dbQuery = dbQuery.or(`unified_category.eq.${categoryKey},unified_category.like.${categoryKey}_%`);
     console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first category_filter="${categoryKey}"`);
   }
@@ -66,7 +75,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
   const dbMs = Date.now() - dbStartMs;
   const dbCount = dbItems?.length || 0;
 
-  console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first q="${qNorm}" tokens=${JSON.stringify(topTokens)} dbCount=${dbCount} ms=${dbMs}`);
+  console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first q="${qNorm}" tokens=${JSON.stringify(topTokens)} dbCount=${dbCount} minRequired=${DB_MIN_RESULTS} ms=${dbMs}`);
 
   if (!dbItems || dbCount === 0) {
     return { items: null, fallbackItems: null, dbCount: 0, durationMs: dbMs };
@@ -99,7 +108,7 @@ export async function searchDbFirst(params: DbFirstParams): Promise<DbFirstResul
     return { items: filteredDbItems, fallbackItems: null, dbCount, durationMs: dbMs };
   }
 
-  // Fix #2: Partial results (1..DB_MIN_RESULTS-1) — ALWAYS save as fallback, never discard
+  // Partial results — save as fallback
   console.log(`[CATALOG_SEARCH] requestId=${requestId} db_first_partial dbCount=${dbCount} saved as fallback`);
   return { items: null, fallbackItems: mappedItems, dbCount, durationMs: dbMs };
 }

@@ -43,6 +43,9 @@ const CANONICAL_CATEGORIES = [
   { key: 'jewelry_watches', label: 'Jewelry & Watches' },
   { key: 'refurbished', label: 'Refurbished' },
   { key: 'parts_accessories', label: 'Parts & Accessories' },
+  { key: 'beauty_health', label: 'Beauty & Health' },
+  { key: 'cameras_photo', label: 'Cameras & Photo' },
+  { key: 'collectibles', label: 'Collectibles' },
 ];
 
 interface CategoryOverride {

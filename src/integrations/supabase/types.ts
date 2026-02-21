@@ -1127,12 +1127,14 @@ export type Database = {
           data_hash: string | null
           data_updated_at: string | null
           expires_at: string | null
+          fail_count: number | null
           id: string
           image_url: string | null
           images: Json | null
           in_stock: boolean | null
           is_active: boolean | null
           is_disallowed: boolean | null
+          last_checked_at: string | null
           last_seen_at: string | null
           listing_type: string | null
           metadata: Json | null
@@ -1145,6 +1147,7 @@ export type Database = {
           provider_product_id: string | null
           rating: number | null
           search_text: string | null
+          status_reason: string | null
           tags: string[] | null
           title: string | null
           unified_category: string | null
@@ -1161,12 +1164,14 @@ export type Database = {
           data_hash?: string | null
           data_updated_at?: string | null
           expires_at?: string | null
+          fail_count?: number | null
           id: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
           is_active?: boolean | null
           is_disallowed?: boolean | null
+          last_checked_at?: string | null
           last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
@@ -1179,6 +1184,7 @@ export type Database = {
           provider_product_id?: string | null
           rating?: number | null
           search_text?: string | null
+          status_reason?: string | null
           tags?: string[] | null
           title?: string | null
           unified_category?: string | null
@@ -1195,12 +1201,14 @@ export type Database = {
           data_hash?: string | null
           data_updated_at?: string | null
           expires_at?: string | null
+          fail_count?: number | null
           id?: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null
           is_active?: boolean | null
           is_disallowed?: boolean | null
+          last_checked_at?: string | null
           last_seen_at?: string | null
           listing_type?: string | null
           metadata?: Json | null
@@ -1213,6 +1221,7 @@ export type Database = {
           provider_product_id?: string | null
           rating?: number | null
           search_text?: string | null
+          status_reason?: string | null
           tags?: string[] | null
           title?: string | null
           unified_category?: string | null

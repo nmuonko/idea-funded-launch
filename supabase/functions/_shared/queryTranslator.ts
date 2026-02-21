@@ -99,9 +99,9 @@ export async function callOpenAiTranslation(
         input: query,
         temperature: 0,
         max_output_tokens: 60,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
+        text: {
+          format: {
+            type: "json_schema",
             name: "translation",
             strict: true,
             schema: {

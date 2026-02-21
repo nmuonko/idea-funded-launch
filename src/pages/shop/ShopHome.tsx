@@ -632,6 +632,87 @@ export default function ShopHome() {
           items = allParts.slice(0, 4);
           console.log('[AutoParts] selected titles:', items.map(p => `${p.title} ($${p.priceUsd})`));
 
+        // ===== SPECIAL PATH FOR "cameras_photo" =====
+        } else if (catKey === 'cameras_photo') {
+          const cameraExcludes = CATEGORY_EXCLUDE_KEYWORDS['cameras_photo'] || [];
+          const cameraKeywords = CATEGORY_KEYWORDS['cameras_photo'] || [];
+          const seenIds = new Set<string>();
+
+          const isCameraItem = (p: Product): boolean => {
+            if (!p.id || !p.imageUrl || !p.priceUsd) return false;
+            const t = (p.title || '').toLowerCase();
+            if (cameraExcludes.some(ex => t.includes(ex))) return false;
+            return cameraKeywords.some(kw => t.includes(kw));
+          };
+
+          const addUniqueCamera = (p: Product, bucket: Product[]): boolean => {
+            if (seenIds.has(p.id)) return false;
+            seenIds.add(p.id);
+            bucket.push(p);
+            return true;
+          };
+
+          const allCameras: Product[] = [];
+
+          // Attempt 1: catalog-category (DB-cached camera items)
+          try {
+            const data = await cachedCatalogFetch<any>('catalog-category', {
+              category: 'cameras_photo', limit: 50, page: 1, pageSize: 50, client: 'web',
+            });
+            const rawItems = (data?.items || []).map((item: any) => ({
+              id: item.providerProductId || item.provider_product_id || item.id || '',
+              provider: item.provider || 'ebay',
+              title: item.title || '',
+              imageUrl: item.mainImageUrl || item.imageUrl || item.image_url || '',
+              priceUsd: item.priceUsd || item.price_usd || 0,
+              rating: item.rating, inStock: true,
+              productUrl: item.productUrl || item.product_url || '',
+            } as Product)).filter(isCameraItem);
+            for (const p of rawItems) {
+              if (allCameras.length >= 8) break;
+              addUniqueCamera(p, allCameras);
+            }
+          } catch (e) { console.warn('[Cameras] catalog-category failed:', e); }
+
+          // Attempt 2: catalog-home feed
+          if (allCameras.length < 4) {
+            try {
+              const data = await cachedCatalogFetch<HomeFeedResponse>('catalog-home', {
+                category: 'cameras_photo', page: 1, pageSize: 80, client: 'web',
+              });
+              const feedItems = (data?.sections?.flatMap(s => s.items) || [])
+                .map(mapItemToProduct).filter(isValidProduct).filter(isCameraItem);
+              for (const p of feedItems) {
+                if (allCameras.length >= 8) break;
+                addUniqueCamera(p, allCameras);
+              }
+            } catch (e) { console.warn('[Cameras] catalog-home failed:', e); }
+          }
+
+          // Attempt 3: broad search queries
+          if (allCameras.length < 4) {
+            const CAMERA_QUERIES = [
+              'DSLR camera', 'mirrorless camera Sony Canon Nikon',
+              'GoPro action camera', 'camera lens', 'digital camera',
+              'camera tripod', 'Nikon camera', 'Fujifilm camera',
+            ];
+            for (const q of CAMERA_QUERIES) {
+              if (allCameras.length >= 8) break;
+              try {
+                const data = await cachedCatalogFetch<any>('catalog-search', { q, limit: 15 });
+                const raw = (data?.items || []).map(mapSearchItemToProduct).filter(isValidProduct).filter(isCameraItem);
+                for (const p of raw) {
+                  if (allCameras.length >= 8) break;
+                  addUniqueCamera(p, allCameras);
+                }
+              } catch (e) { /* continue */ }
+            }
+          }
+
+          allCameras.sort((a, b) => (b.priceUsd || 0) - (a.priceUsd || 0));
+          items = allCameras.slice(0, 4);
+          console.log('[Cameras] selected:', items.map(p => `${p.title?.slice(0, 40)} ($${p.priceUsd})`));
+
         } else {
           // ===== STANDARD PATH FOR ALL OTHER CATEGORIES =====
           // Stage 1: Try dedicated category feed

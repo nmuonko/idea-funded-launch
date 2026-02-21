@@ -35,6 +35,7 @@ import { scoreAndRankItems } from "../_shared/searchIntentScorer.ts";
 import { refineQueryWithAi, AiRefineResult } from "../_shared/searchAiExpand.ts";
 import { aiQueryRewrite, AiRewriteResult } from "../_shared/aiQueryRewrite.ts";
 import { probeEbayVehicleCategory } from "../_shared/vehicleProbe.ts";
+import { isProviderHealthy, recordProviderFailure, recordProviderSuccess, getProviderHealthSummary } from "../_shared/providerHealth.ts";
 import { resolveCategoryWithDb } from "../_shared/categoryRegistry.ts";
 import { applyVehicleGuardrails, isVehicleLikeQuery as isVehicleLikeQueryGuardrail } from "../_shared/vehicleGuardrails.ts";
 import { lookupTranslationCache, callOpenAiTranslation, writeTranslationCache } from "../_shared/queryTranslator.ts";
@@ -837,15 +838,22 @@ Deno.serve(async (req: Request) => {
     const ebayDebug = { ok: false, status: null as number | null, count: 0, ms: 0, error: null as string | null };
     const amazonDebug = { ok: false, status: null as number | null, count: 0, ms: 0, error: null as string | null };
 
-    // ─── PARALLEL PROVIDER FETCH — uses providerQuery (English) ───────────────
-    // Intent-based provider routing:
-    // - gaming: eBay only (Amazon returns wrong results for console queries)
-    // - All others (including vehicle_listing): both providers
-    const skipAmazon = false; // True proxy mode: always call both providers
+    // ─── CIRCUIT BREAKER: Check provider health before calling ────────────────
+    const amazonHealth = isProviderHealthy("amazon");
+    const ebayHealth = isProviderHealthy("ebay");
+    const skipAmazonCB = !amazonHealth.healthy;
+    const skipEbayCB = !ebayHealth.healthy;
+    if (skipAmazonCB) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} CIRCUIT_BREAKER: Amazon SKIPPED (reason=${amazonHealth.reason}, retryIn=${Math.ceil(amazonHealth.retryAfterMs / 1000)}s)`);
+      amazonDebug.error = `circuit_breaker:${amazonHealth.reason}`;
+    }
+    if (skipEbayCB) {
+      console.log(`[CATALOG_SEARCH] requestId=${requestId} CIRCUIT_BREAKER: eBay SKIPPED (reason=${ebayHealth.reason}, retryIn=${Math.ceil(ebayHealth.retryAfterMs / 1000)}s)`);
+      ebayDebug.error = `circuit_breaker:${ebayHealth.reason}`;
+    }
 
-    // ─── DUPLICATE AI REWRITE REMOVED ─────────────────────────────────────────
-    // AI rewrite already runs at lines 449-485. This duplicate block was removed
-    // to prevent double API calls and wasted AI budget.
+    // ─── PARALLEL PROVIDER FETCH — uses providerQuery (English) ───────────────
+    const skipAmazon = skipAmazonCB;
 
     const providerStartMs = Date.now();
     // ─── INDEPENDENT PER-PROVIDER TIMEOUTS ──────────────────────────────────
@@ -861,18 +869,18 @@ Deno.serve(async (req: Request) => {
       ? Math.max(amazonTimeoutMs, ebayTimeoutMs) + 500
       : Math.max(amazonTimeoutMs, ebayTimeoutMs) + 300;
 
-    console.log(`[CATALOG_SEARCH] requestId=${requestId} provider_timeouts: amazon=${amazonTimeoutMs}ms ebay=${ebayTimeoutMs}ms overall=${overallDeadlineMs}ms elapsed_before=${elapsedBeforeProviders}ms`);
+    console.log(`[CATALOG_SEARCH] requestId=${requestId} provider_timeouts: amazon=${amazonTimeoutMs}ms ebay=${ebayTimeoutMs}ms overall=${overallDeadlineMs}ms elapsed_before=${elapsedBeforeProviders}ms skipAmazon=${skipAmazon} skipEbay=${skipEbayCB}`);
 
     // For vehicle_listing intent, force eBay Motors category
     const ebayParamsForIntent = { ...{ supabase, query: providerQuery, effectiveMode, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, page, limit, catalogFilters, requestId } };
 
     // ─── INDEPENDENT PROVIDER FETCH WITH PER-PROVIDER TIMEOUTS ──────────────
-    let amazonDone = false;
-    let ebayDone = false;
-    let amazonResult: any = null;
-    let ebayResult: any = null;
-    let amazonError: string | null = null;
-    let ebayError: string | null = null;
+    let amazonDone = skipAmazon;
+    let ebayDone = skipEbayCB;
+    let amazonResult: any = skipAmazon ? null : null;
+    let ebayResult: any = skipEbayCB ? null : null;
+    let amazonError: string | null = skipAmazon ? `circuit_breaker:${amazonHealth.reason}` : null;
+    let ebayError: string | null = skipEbayCB ? `circuit_breaker:${ebayHealth.reason}` : null;
     let amazonTimedOut = false;
     let ebayTimedOut = false;
     let providerTimedOut = false;
@@ -889,18 +897,20 @@ Deno.serve(async (req: Request) => {
     };
 
     const amazonPromise = skipAmazon
-      ? Promise.resolve({ ok: true as const, value: { items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_intent", liveUsed: false, liveReason: "disabled" as AmazonLiveReason } })
+      ? Promise.resolve({ ok: true as const, value: { items: [], hasMore: false, cacheHit: false, budgetRemaining: null, status: "skipped_circuit_breaker", liveUsed: false, liveReason: "disabled" as AmazonLiveReason } })
       : withTimeout(
           fetchAmazonItems({ supabase, query: providerQuery, settings, effectiveMode, mixerCursor, isVehicle, hasBuyingIntent, isHeavyEquipment, categoryKey: categoryKey || undefined, limit, catalogFilters, requestId }),
           amazonTimeoutMs,
           "amazon"
         );
 
-    const ebayPromise = withTimeout(
-      fetchEbayItems(ebayParamsForIntent),
-      ebayTimeoutMs,
-      "ebay"
-    );
+    const ebayPromise = skipEbayCB
+      ? Promise.resolve({ ok: true as const, value: { items: [], hasMore: false, total: 0 } })
+      : withTimeout(
+          fetchEbayItems(ebayParamsForIntent),
+          ebayTimeoutMs,
+          "ebay"
+        );
 
     // Run both in parallel — each has its own timeout
     const [amazonR, ebayR] = await Promise.all([
@@ -956,30 +966,36 @@ Deno.serve(async (req: Request) => {
     let amazonLiveUsed = false;
     let amazonLiveReason: AmazonLiveReason = "disabled";
 
-    if (amazonDone && amazonResult) {
+    if (amazonDone && amazonResult && !skipAmazonCB) {
       const r = amazonResult;
       amazonItems = r.items; amazonHasMore = r.hasMore; amazonCacheHit = r.cacheHit;
       amazonBudgetRemaining = r.budgetRemaining; amazonStatus = r.status;
       amazonLiveUsed = r.liveUsed; amazonLiveReason = r.liveReason;
       amazonDebug.ok = true; amazonDebug.count = r.items.length; amazonDebug.ms = providerMs;
-    } else if (amazonDone && amazonError) {
+      // Record success for circuit breaker
+      if (r.items.length > 0) recordProviderSuccess("amazon");
+    } else if (amazonDone && amazonError && !skipAmazonCB) {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} amazon_err:`, amazonError);
       amazonStatus = "error";
       amazonDebug.error = amazonError;
       amazonDebug.ms = providerMs;
-    } else if (!amazonDone) {
-      // Provider didn't finish before deadline
+      // Record failure for circuit breaker — detect HTTP status from error message
+      const statusMatch = amazonError.match(/\b(402|429|500|502|503)\b/);
+      if (statusMatch) recordProviderFailure("amazon", parseInt(statusMatch[1]));
+    } else if (!amazonDone && !skipAmazonCB) {
       amazonStatus = "timeout";
       amazonDebug.error = "deadline_exceeded";
       amazonDebug.ms = providerMs;
       console.log(`[CATALOG_SEARCH] requestId=${requestId} amazon_not_done_at_deadline`);
+    } else if (skipAmazonCB) {
+      amazonStatus = "circuit_breaker";
     }
 
     let ebayItems: CatalogItem[] = [];
     let ebayHasMore = false;
     let ebayTotal = 0;
 
-    if (ebayDone && ebayResult) {
+    if (ebayDone && ebayResult && !skipEbayCB) {
       const r = ebayResult;
       ebayItems = r.items; ebayHasMore = r.hasMore; ebayTotal = r.total;
       ebayDebug.ok = true; ebayDebug.count = r.items.length; ebayDebug.ms = providerMs;
@@ -987,14 +1003,21 @@ Deno.serve(async (req: Request) => {
       (ebayDebug as any).mappedCount = r.mappedCount ?? r.items.length;
       (ebayDebug as any).filteredCount = r.filteredCount ?? r.items.length;
       (ebayDebug as any).failOpenUsed = r.failOpenUsed ?? false;
-    } else if (ebayDone && ebayError) {
+      // Record success for circuit breaker
+      if (r.items.length > 0) recordProviderSuccess("ebay");
+    } else if (ebayDone && ebayError && !skipEbayCB) {
       console.error(`[CATALOG_SEARCH] requestId=${requestId} ebay_err:`, ebayError);
       ebayDebug.error = ebayError;
       ebayDebug.ms = providerMs;
-    } else if (!ebayDone) {
+      // Record failure for circuit breaker
+      const statusMatch = ebayError.match(/\b(402|429|500|502|503)\b/);
+      if (statusMatch) recordProviderFailure("ebay", parseInt(statusMatch[1]));
+    } else if (!ebayDone && !skipEbayCB) {
       ebayDebug.error = "deadline_exceeded";
       ebayDebug.ms = providerMs;
       console.log(`[CATALOG_SEARCH] requestId=${requestId} ebay_not_done_at_deadline`);
+    } else if (skipEbayCB) {
+      // Already logged above
     }
 
     const providerItemCount = amazonItems.length + ebayItems.length;
@@ -1358,7 +1381,11 @@ Deno.serve(async (req: Request) => {
     const searchDebug: Record<string, unknown> = {
       qOriginal, qCanon: qCanonicalized, qRewrite: qRewrite || null, providerQuery,
       usedQueryForProviders: providerQuery, intentKey: effectiveIntent.intentKey,
-      dbCount, ebay: ebayDebug, amazon: amazonDebug,
+      dbCount,
+      providerRaw: { ebay: (ebayDebug as any).rawCount ?? ebayDebug.count, amazon: amazonDebug.count },
+      providerKept: { ebay: ebayDebug.count, amazon: amazonDebug.count },
+      providerHealth: getProviderHealthSummary(),
+      ebay: ebayDebug, amazon: amazonDebug,
       finalCount, source: searchSource,
       isVehicle, isHeavyEquipment, hasBuyingIntent,
       scoring: { dropped: scoreResult.dropped, topScores: scoreResult.topScores },

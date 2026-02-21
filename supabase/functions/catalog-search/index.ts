@@ -46,6 +46,7 @@ import { expandQueryWithAi } from "../_shared/searchAiExpand.ts";
 import { CatalogItem } from "../_shared/catalogItemMapper.ts";
 import { searchDbFirst } from "../_shared/searchDbFirst.ts";
 import { validateCacheHit, filterCachedItems } from "../_shared/searchCacheGuard.ts";
+import { autoCacheLiveResults, logSearchQuery, enqueueRefreshJob } from "../_shared/searchAutoCache.ts";
 import {
   buildEmptyResponse, buildResponseHeaders, corsHeaders,
   SearchResponse, SearchMeta,
@@ -1444,6 +1445,32 @@ Deno.serve(async (req: Request) => {
         return new Response(JSON.stringify(fbResponse), { status: 200, headers: fbHeaders });
       }
     }
+
+    // ─── AUTO-CACHE: Upsert live provider items into catalog_items (fire-and-forget) ──
+    const allProviderItems = [...amazonItems, ...ebayItems];
+    const usedLive = allProviderItems.length > 0;
+    let autoCachedCount = 0;
+    if (usedLive && allProviderItems.length > 0) {
+      autoCacheLiveResults(supabase, allProviderItems as any[], categoryKey, requestId)
+        .then(r => { autoCachedCount = r.upserted; })
+        .catch(() => {});
+      // Enqueue refresh job for this query (fire-and-forget)
+      enqueueRefreshJob(supabase, qNorm, categoryKey, "mixed", requestId).catch(() => {});
+    }
+
+    // ─── SEARCH QUERY LOG (fire-and-forget) ─────────────────────────────────────
+    logSearchQuery(supabase, {
+      qNorm,
+      qOriginal,
+      categoryGuess: categoryKey || preNorm.inferredCategory || null,
+      dbCount,
+      liveCount: allProviderItems.length,
+      usedLive,
+      fuzzyUsed: false,
+      expansionUsed: false,
+      autoCachedCount,
+      durationMs: Date.now() - startTime,
+    }).catch(() => {});
 
     // ─── FINAL CACHE WRITE (overwrite early cache with complete response) ────
     const cacheMeta = {

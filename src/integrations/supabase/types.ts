@@ -366,6 +366,9 @@ export type Database = {
           created_at: string
           first_seen_at: string
           id: string
+          last_refresh_count: number | null
+          last_refresh_status: string | null
+          last_refreshed_at: string | null
           promoted_at: string | null
           query_normalized: string
           search_count: number
@@ -379,6 +382,9 @@ export type Database = {
           created_at?: string
           first_seen_at?: string
           id?: string
+          last_refresh_count?: number | null
+          last_refresh_status?: string | null
+          last_refreshed_at?: string | null
           promoted_at?: string | null
           query_normalized: string
           search_count?: number
@@ -392,6 +398,9 @@ export type Database = {
           created_at?: string
           first_seen_at?: string
           id?: string
+          last_refresh_count?: number | null
+          last_refresh_status?: string | null
+          last_refreshed_at?: string | null
           promoted_at?: string | null
           query_normalized?: string
           search_count?: number

@@ -221,6 +221,18 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
         attempts: (job.attempts || 0) + 1,
       }).eq("id", job.id);
 
+      // Update promotion heartbeat if this job came from auto-learning
+      await supabase
+        .from("auto_seed_promotions")
+        .update({
+          last_refreshed_at: now,
+          last_refresh_count: upsertRows.length,
+          last_refresh_status: upsertRows.length > 0 ? "success" : "empty",
+          updated_at: now,
+        })
+        .eq("query_normalized", job.query)
+        .eq("status", "promoted");
+
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown";
       console.error(`[WORKER] Job ${job.id} failed:`, msg);

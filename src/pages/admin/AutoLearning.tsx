@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload } from "lucide-react";
+import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 
@@ -27,6 +27,15 @@ interface Promotion {
   created_at: string;
   admin_notes: string | null;
   category_key: string | null;
+  last_refreshed_at: string | null;
+  last_refresh_count: number | null;
+  last_refresh_status: string | null;
+}
+
+interface ProviderHealth {
+  healthy: boolean;
+  reason: string | null;
+  retryAfterSec: number;
 }
 
 export default function AutoLearning() {
@@ -36,6 +45,7 @@ export default function AutoLearning() {
   const [promoting, setPromoting] = useState(false);
   const [enqueuingId, setEnqueueingId] = useState<string | null>(null);
   const [stats, setStats] = useState({ total24h: 0, uniqueQueries: 0, liveHits: 0, promoted: 0 });
+  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -46,6 +56,7 @@ export default function AutoLearning() {
       setPopularQueries(d.popular || []);
       setPromotions(d.promotions || []);
       setStats(d.stats || { total24h: 0, uniqueQueries: 0, liveHits: 0, promoted: 0 });
+      setProviderHealth(d.providerHealth || {});
     } catch (err: any) {
       console.error("Failed to fetch auto-learning data:", err);
     }
@@ -108,6 +119,13 @@ export default function AutoLearning() {
     );
   };
 
+  const formatRetryAfter = (seconds: number) => {
+    if (seconds <= 0) return "";
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.ceil(seconds / 60)}m`;
+    return `${(seconds / 3600).toFixed(1)}h`;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -131,6 +149,47 @@ export default function AutoLearning() {
           </Button>
         </div>
       </div>
+
+      {/* Provider Health Panel */}
+      {Object.keys(providerHealth).length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Provider Health
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(providerHealth).map(([provider, health]) => (
+                <div
+                  key={provider}
+                  className={`flex items-center gap-3 rounded-lg border p-3 ${
+                    health.healthy
+                      ? "border-green-500/30 bg-green-500/5"
+                      : "border-destructive/30 bg-destructive/5"
+                  }`}
+                >
+                  <div className={`h-3 w-3 rounded-full ${health.healthy ? "bg-green-500" : "bg-destructive animate-pulse"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold capitalize text-sm">{provider}</p>
+                    {health.healthy ? (
+                      <p className="text-xs text-muted-foreground">Healthy</p>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3 text-destructive" />
+                        <p className="text-xs text-destructive truncate">
+                          {health.reason}{health.retryAfterSec > 0 ? ` · retry ${formatRetryAfter(health.retryAfterSec)}` : ""}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -266,6 +325,7 @@ export default function AutoLearning() {
                       <TableHead>Category</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Promoted At</TableHead>
+                      <TableHead>Last Refresh</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -284,9 +344,23 @@ export default function AutoLearning() {
                         <TableCell className="text-xs text-muted-foreground">
                           {p.promoted_at ? new Date(p.promoted_at).toLocaleString() : "—"}
                         </TableCell>
+                        <TableCell>
+                          {p.last_refreshed_at ? (
+                            <div className="text-xs">
+                              <span className={`font-medium ${p.last_refresh_status === "success" ? "text-green-600" : "text-muted-foreground"}`}>
+                                {p.last_refresh_count ?? 0} items
+                              </span>
+                              <br />
+                              <span className="text-muted-foreground">
+                                {new Date(p.last_refreshed_at).toLocaleString()}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex gap-1 justify-end">
-                            {/* Manual enqueue button */}
                             {p.status !== "rejected" && (
                               <Button
                                 size="sm"

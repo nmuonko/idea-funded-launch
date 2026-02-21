@@ -139,31 +139,21 @@ function computeHash(title: string, price: number | null, imageUrl: string | nul
 // ─── Process queue jobs ──────────────────────────────────────────────────────
 
 async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: number) {
-  // Claim jobs with SKIP LOCKED via RPC or direct query
+  // Atomic claim with SKIP LOCKED — prevents double-processing
   const lockId = crypto.randomUUID().slice(0, 8);
   const now = new Date().toISOString();
 
-  // Fetch queued jobs that are due
-  const { data: jobs, error } = await supabase
-    .from("catalog_refresh_queue")
-    .select("*")
-    .eq("status", "queued")
-    .lte("scheduled_at", now)
-    .order("priority", { ascending: true })
-    .order("scheduled_at", { ascending: true })
-    .limit(maxJobs);
+  const { data: jobs, error } = await supabase.rpc("claim_refresh_queue_jobs", {
+    p_max_jobs: maxJobs,
+    p_lock_id: lockId,
+  });
 
   if (error || !jobs?.length) {
-    console.log(`[WORKER] No queue jobs found`);
+    console.log(`[WORKER] No queue jobs found (rpc: ${error?.message || "ok"})`);
     return { processed: 0, upserted: 0 };
   }
 
-  // Lock jobs
-  const jobIds = jobs.map((j: any) => j.id);
-  await supabase
-    .from("catalog_refresh_queue")
-    .update({ status: "running", locked_at: now, locked_by: lockId })
-    .in("id", jobIds);
+  console.log(`[WORKER] Claimed ${jobs.length} jobs atomically (lock=${lockId})`);
 
   let totalUpserted = 0;
 
@@ -403,8 +393,13 @@ async function ensureCategoryPools(supabase: any) {
 
   // Find categories below min pool
   const thinCategories: string[] = [];
+  // Must match the granular keys stored in catalog_items + seeds
   const allCats = [
-    "electronics", "vehicles", "home_garden", "clothing_shoes_accessories",
+    "electronics_phones", "electronics_gaming", "electronics_audio",
+    "electronics_computers", "electronics_tablets", "electronics_monitors",
+    "electronics_tv", "electronics_wearables", "electronics_accessories",
+    "vehicles", "vehicles_cars_trucks", "vehicles_motorcycles",
+    "home_garden", "clothing_shoes_accessories",
     "toys", "sporting_goods", "business_industrial", "jewelry_watches",
     "refurbished", "parts_accessories", "beauty_health", "collectibles",
     "cameras_photo",

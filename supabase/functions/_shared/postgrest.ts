@@ -146,6 +146,15 @@ export class PostgrestQueryBuilder<T = unknown> {
     this._filters.push(`${column}=${operator}.${encodeURIComponent(String(value))}`);
     return this;
   }
+
+  /**
+   * Negate a filter - e.g. .not("image_url", "is", null) → image_url=not.is.null
+   */
+  not(column: string, operator: string, value: unknown): this {
+    const v = value === null ? "null" : encodeURIComponent(String(value));
+    this._filters.push(`${column}=not.${operator}.${v}`);
+    return this;
+  }
   
   // ─── ORDER METHODS ──────────────────────────────────────────────────────────
   

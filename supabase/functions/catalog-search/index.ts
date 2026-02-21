@@ -64,8 +64,8 @@ const PAGE0_DEADLINE_MS = 8000;  // Hard deadline for page 0 (generous for both 
 const TOTAL_BUDGET_MS = 10000;   // Budget for page > 0
 const FAST_MIN_FIRST_PAGE = 60;  // Return page 0 as soon as we have this many items
 const REWRITE_BUDGET_MS = 600;   // Tighter rewrite budget
-const DB_BUDGET_MS_P0 = 400;     // DB budget on page 0
-const DB_BUDGET_MS = 500;        // DB budget on page > 0
+const DB_BUDGET_MS_P0 = 800;     // DB budget on page 0 (generous — DB is fast and providers may be down)
+const DB_BUDGET_MS = 800;        // DB budget on page > 0
 const AMAZON_TIMEOUT_P0 = 5000;  // Amazon-specific timeout on page 0
 const EBAY_TIMEOUT_P0 = 5000;    // eBay-specific timeout on page 0
 const PROVIDER_TIMEOUT_PN = 6000; // Provider timeout on page > 0
@@ -779,12 +779,14 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[CATALOG_SEARCH] requestId=${requestId} query_pipeline: qOriginal="${qOriginal}" qCanon="${qCanonicalized}" qRewrite="${qRewrite}" providerQuery="${providerQuery}"`);
 
-    // ─── DB-FIRST SEARCH (skip for fast path + time budget) ─────────────────
+    // ─── DB-FIRST SEARCH (always run — providers may be down/rate-limited) ──
     let dbFallbackItems: any[] | null = null;
     let dbCount = 0;
     const dbFirstStart = Date.now();
 
-    if (!directQuery && !cursor && !hasBuyingIntent) {
+    // Always attempt DB-first for page 0 without cursor, including direct queries.
+    // This ensures results even when providers are rate-limited (429) or down (402).
+    if (!cursor) {
       try {
         const dbTimeout = new Promise<null>((r) => setTimeout(() => r(null), isFirstPage ? DB_BUDGET_MS_P0 : DB_BUDGET_MS));
         const dbWork = searchDbFirst({

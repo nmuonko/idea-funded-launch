@@ -5548,6 +5548,17 @@ export type Database = {
         }[]
       }
       get_language_for_country: { Args: { p_country: string }; Returns: string }
+      get_popular_queries: {
+        Args: { p_limit?: number; p_window_hours?: number }
+        Returns: {
+          avg_db: number
+          avg_live: number
+          category_guess: string
+          last_seen: string
+          q_norm: string
+          search_count: number
+        }[]
+      }
       get_price_instability: {
         Args: { product_key_input: string; store_input: string }
         Returns: Json

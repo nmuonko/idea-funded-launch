@@ -642,7 +642,7 @@ export default function ShopHome() {
               pageSize: 80,
               client: 'web',
             });
-            const rawItems = data?.sections?.[0]?.items?.map(mapItemToProduct).filter(isValidProduct) || [];
+            const rawItems = (data?.sections?.flatMap(s => s.items) || []).map(mapItemToProduct).filter(isValidProduct);
             items = filterForCategory(rawItems, catKey);
           } catch (e) {
             // Ignore, proceed to search fallback

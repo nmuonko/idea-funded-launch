@@ -182,7 +182,6 @@ async function processQueueJobs(supabase: any, ebayToken: string, maxJobs: numbe
           const hash = computeHash(item.title, priceUsd, imageUrl);
 
           return {
-            id: `ebay:${item.itemId}`,
             provider: "ebay",
             provider_product_id: item.itemId,
             title: item.title,
@@ -539,7 +538,6 @@ async function runSeedBackfill(supabase: any, ebayToken: string) {
             const hash = computeHash(item.title, priceUsd, imageUrl);
 
             return {
-              id: `ebay:${item.itemId}`,
               provider: "ebay",
               provider_product_id: item.itemId,
               title: item.title,

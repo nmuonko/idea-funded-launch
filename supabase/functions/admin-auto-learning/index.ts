@@ -147,18 +147,20 @@ Deno.serve(async (req) => {
         }
 
         // Force enqueue regardless of avg_result_count
+        // Use raw insert to avoid ON CONFLICT target issues with partial unique index
         const { error: enqErr } = await serviceClient
           .from("catalog_refresh_queue")
-          .upsert({
+          .insert({
             category_key: promo.category_key || "general",
             provider: "ebay",
             query: promo.query_normalized,
             priority: 3,
             status: "queued",
             scheduled_at: new Date().toISOString(),
-          }, { onConflict: "provider,category_key,query", ignoreDuplicates: true });
+          });
 
-        if (enqErr) throw enqErr;
+        // Ignore duplicate errors (23505) from partial unique index
+        if (enqErr && !enqErr.message?.includes("duplicate")) throw enqErr;
 
         // Mark as promoted
         await serviceClient

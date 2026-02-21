@@ -89,6 +89,19 @@ export default function CategoryResultsPage() {
     productUrl: item.productUrl || item.product_url,
   });
 
+  // Filter out phone accessories from Pièces Auto results
+  const PARTS_PHONE_JUNK = [
+    'phone mount', 'phone holder', 'phone case', 'phone cradle', 'cell phone',
+    'iphone', 'samsung galaxy', 'screen protector', 'tempered glass', 'phone stand',
+    'tablet holder', 'tablet mount', 'mama bear', 'magnetic case for iphone',
+    'usb c charger for lg', 'usb-c laptop car charger',
+  ];
+  const isRelevantPartsItem = (p: Product): boolean => {
+    if (categoryKey !== 'parts_accessories') return true;
+    const t = (p.title || '').toLowerCase();
+    return !PARTS_PHONE_JUNK.some(junk => t.includes(junk));
+  };
+
   const fetchPage = useCallback(async (cursor: string | null): Promise<Product[]> => {
     console.log('[CategoryPage] fetching cursor', cursor, 'for', categoryKey);
     const params: Record<string, unknown> = {
@@ -108,7 +121,8 @@ export default function CategoryResultsPage() {
     
     const items = rawItems
       .map(mapItem)
-      .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id));
+      .filter(p => p.id && p.imageUrl && p.priceUsd > 0 && !seenIdsRef.current.has(p.id))
+      .filter(isRelevantPartsItem);
 
     items.forEach(p => seenIdsRef.current.add(p.id));
 

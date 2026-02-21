@@ -194,8 +194,13 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
 
   const event = JSON.parse(body);
   
-  // Only handle specific events
-  const allowedEvents = ['payment_intent.succeeded', 'payment_intent.payment_failed'];
+  // Handle both PaymentIntent and Checkout Session events
+  const allowedEvents = [
+    'payment_intent.succeeded', 
+    'payment_intent.payment_failed',
+    'checkout.session.completed',
+    'checkout.session.expired',
+  ];
   if (!allowedEvents.includes(event.type)) {
     console.log('[payments-webhook/stripe] Ignoring event type:', event.type);
     return new Response(
@@ -212,7 +217,127 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
     payload: event,
   });
 
-  // Process webhook
+  // ==================== Handle checkout.session.completed ====================
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.expired') {
+    const session = event.data.object;
+    const sessionId = session.id; // cs_xxx
+    const paymentStatus = session.payment_status; // 'paid' | 'unpaid'
+    const orderId = session.metadata?.order_id;
+    const isCompleted = event.type === 'checkout.session.completed' && paymentStatus === 'paid';
+    const isExpired = event.type === 'checkout.session.expired';
+
+    console.log('[PAYMENT_WEBHOOK]', {
+      provider: 'stripe_checkout',
+      eventType: event.type,
+      sessionId,
+      paymentStatus,
+      orderId,
+      isCompleted,
+    });
+
+    // Find payment by checkout session ID (stored as provider_deposit_id with provider_key 'stripe_checkout')
+    const { data: payment, error: paymentError } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('provider_key', 'stripe_checkout')
+      .eq('provider_deposit_id', sessionId)
+      .maybeSingle();
+
+    if (paymentError || !payment) {
+      console.warn('[payments-webhook/stripe] Payment not found for Checkout Session:', sessionId);
+      return new Response(
+        JSON.stringify({ success: true, warning: 'Payment record not found for checkout session' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Idempotency: skip if already succeeded
+    if (payment.status === 'succeeded') {
+      console.log('[payments-webhook/stripe] Payment already succeeded, idempotent skip:', payment.id);
+      return new Response(
+        JSON.stringify({ success: true, received: true, idempotent: true }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const newStatus = isCompleted ? 'succeeded' : isExpired ? 'failed' : 'pending';
+
+    const updateData: any = {
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+      raw_events: [...(payment.raw_events || []), event],
+    };
+
+    if (newStatus === 'succeeded') {
+      updateData.paid_at = new Date().toISOString();
+      updateData.provider_transaction_id = session.payment_intent || sessionId;
+    }
+
+    const { error: updateError } = await supabase
+      .from('payments')
+      .update(updateData)
+      .eq('id', payment.id);
+
+    if (updateError) {
+      console.error('[payments-webhook/stripe] Failed to update payment:', updateError);
+    } else {
+      console.log('[payments-webhook/stripe] Checkout payment updated:', payment.id, newStatus);
+    }
+
+    // Update order status on success
+    if (newStatus === 'succeeded' && payment.order_id) {
+      // Idempotent order update - only if not already PAID
+      const { data: currentOrder } = await supabase
+        .from('orders')
+        .select('status')
+        .eq('id', payment.order_id)
+        .single();
+
+      if (currentOrder && currentOrder.status !== 'PAID') {
+        await supabase
+          .from('orders')
+          .update({ 
+            status: 'PAID',
+            payment_verified_at: new Date().toISOString(),
+          })
+          .eq('id', payment.order_id);
+
+        console.log('[payments-webhook/stripe] Order marked as PAID via checkout webhook:', payment.order_id);
+      }
+      
+      // Clear original cart items
+      const { data: checkoutSession } = await supabase
+        .from('checkout_sessions')
+        .select('id, metadata')
+        .eq('order_id', payment.order_id)
+        .maybeSingle();
+      
+      if (checkoutSession?.id) {
+        await supabase.from('checkout_sessions').update({
+          status: 'paid',
+          paid_at: new Date().toISOString(),
+        }).eq('id', checkoutSession.id);
+        
+        const metadata = checkoutSession.metadata as any;
+        const originalCartItemIds = metadata?.original_cart_item_ids || metadata?.cart_item_ids;
+        
+        if (originalCartItemIds && Array.isArray(originalCartItemIds) && originalCartItemIds.length > 0) {
+          console.log('[payments-webhook/stripe] Deleting original cart items:', originalCartItemIds.length);
+          await supabase.from('order_items').delete().in('id', originalCartItemIds);
+        }
+      }
+      
+      // Send payment confirmation email (idempotent)
+      await sendPaymentConfirmationEmailIfNeeded(supabase, payment.order_id, 'stripe-checkout-webhook');
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, received: true }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // ==================== Handle payment_intent events (for PaymentSheet flow) ====================
   const result = handleStripeWebhook(event);
 
   console.log('[PAYMENT_WEBHOOK]', {
@@ -234,19 +359,48 @@ async function handleStripe(req: Request, supabase: any): Promise<Response> {
   const internalStatus = mapStripeStatusToInternal(result.status);
 
   // Find the payment record by provider_deposit_id (PaymentIntent ID)
+  // Search BOTH 'stripe' and 'stripe_checkout' provider keys for robustness
   if (result.payment_intent_id) {
-    const { data: payment, error: paymentError } = await supabase
+    let payment: any = null;
+    let paymentError: any = null;
+
+    // Try 'stripe' first (PaymentSheet flow)
+    const { data: p1, error: e1 } = await supabase
       .from('payments')
       .select('*')
       .eq('provider_key', 'stripe')
       .eq('provider_deposit_id', result.payment_intent_id)
-      .single();
+      .maybeSingle();
 
-    if (paymentError || !payment) {
+    if (p1) {
+      payment = p1;
+    } else {
+      // Fallback: try 'stripe_checkout' where PI ID might be stored as transaction ref
+      const { data: p2, error: e2 } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('provider_key', 'stripe_checkout')
+        .eq('provider_transaction_id', result.payment_intent_id)
+        .maybeSingle();
+      
+      payment = p2;
+      paymentError = e2;
+    }
+
+    if (!payment) {
       console.warn('[payments-webhook/stripe] Payment not found for PaymentIntent:', result.payment_intent_id);
       // Still return 200 to acknowledge receipt
       return new Response(
         JSON.stringify({ success: true, warning: 'Payment record not found' }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Idempotency: skip if already succeeded
+    if (payment.status === 'succeeded') {
+      console.log('[payments-webhook/stripe] Payment already succeeded, idempotent skip:', payment.id);
+      return new Response(
+        JSON.stringify({ success: true, received: true, idempotent: true }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

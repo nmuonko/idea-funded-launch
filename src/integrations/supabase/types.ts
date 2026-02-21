@@ -5384,6 +5384,29 @@ export type Database = {
         Args: { p_key: string; p_limit: number; p_window_minutes: number }
         Returns: Json
       }
+      claim_refresh_queue_jobs: {
+        Args: { p_lock_id?: string; p_max_jobs?: number }
+        Returns: {
+          attempts: number | null
+          category_key: string
+          created_at: string | null
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          priority: number | null
+          provider: string
+          query: string
+          scheduled_at: string | null
+          status: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "catalog_refresh_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       clean_expired_capture_cache: { Args: never; Returns: undefined }
       clean_expired_hot_cache: { Args: never; Returns: undefined }
       clean_expired_price_cache: { Args: never; Returns: undefined }

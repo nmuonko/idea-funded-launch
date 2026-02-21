@@ -328,6 +328,7 @@ Deno.serve(async (req) => {
   const filtersParam = url.searchParams.get("filters") || null;
   const catalogFilters = parseFilters(filtersParam);
   const providerParam = url.searchParams.get("provider") || null;
+  const subtabParam = url.searchParams.get("subtab") || null;
 
   // Build empty provider stats helper
   const buildEmptyProviderStats = (): ProviderStats => buildProviderStats({
@@ -417,11 +418,12 @@ Deno.serve(async (req) => {
   const resolved = resolution as CategoryResolution;
   const canonicalKey = resolved.resolved!;
   const parentTab = resolved.parentTab || canonicalKey;
-  const subtabKey = resolved.subtabKey;
+  // Use subtab from URL param if resolver didn't set one
+  const subtabKey = resolved.subtabKey || subtabParam || null;
   const isVehicle = resolved.isVehicle;
   const isParts = resolved.isParts;
 
-  console.log(`[CATALOG] requestId=${requestId} categoryResolved=${canonicalKey} method=${resolved.method} isVehicle=${isVehicle} isParts=${isParts}`);
+  console.log(`[CATALOG] requestId=${requestId} categoryResolved=${canonicalKey} method=${resolved.method} isVehicle=${isVehicle} isParts=${isParts} subtab=${subtabKey}`);
 
   // Get category metadata
   const meta = getCategoryMeta(canonicalKey);
@@ -626,17 +628,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ─── DB FALLBACK: if both providers returned 0, try cached items from DB ──
-    if (amazonItems.length === 0 && ebayItems.length === 0) {
+    // ─── DB FALLBACK: if providers returned 0 items, OR if subtab is specified
+    //     but eBay (the subtab-aware provider) returned nothing ──
+    const totalProviderItems = amazonItems.length + ebayItems.length;
+    const needsDbFallback = totalProviderItems === 0 || (subtabKey && ebayItems.length === 0);
+    if (needsDbFallback) {
       try {
-        console.log(`[CATALOG] requestId=${requestId} Both providers empty, trying DB fallback for ${canonicalKey}`);
+        const resolvedSub = subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null;
+        console.log(`[CATALOG] requestId=${requestId} DB fallback triggered (providerItems=${totalProviderItems}, subtab=${resolvedSub}) for ${canonicalKey}`);
         let dbFallbackQ = supabase.from("catalog_items").select("*")
           .eq("unified_category", parentTab)
           .or("is_disallowed.is.null,is_disallowed.eq.false")
           .neq("image_url", null)
           .gt("price_usd", 0);
-        if (subtabKey) {
-          dbFallbackQ = dbFallbackQ.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
+        if (resolvedSub) {
+          dbFallbackQ = dbFallbackQ.eq("unified_subcategory", resolvedSub);
         }
         const { data: dbFallbackItems } = await dbFallbackQ
           .order("rating", { ascending: false, nullsFirst: false })
@@ -644,11 +650,13 @@ Deno.serve(async (req) => {
 
         if (dbFallbackItems && dbFallbackItems.length > 0) {
           const mapped = dbFallbackItems.map((item: Record<string, unknown>) => 
-            normalizeDbItem(item, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
+            normalizeDbItem(item, parentTab, resolvedSub)
           );
-          // Treat DB-cached eBay items as ebay results for the mixer
-          ebayItems = mapped;
-          console.log(`[CATALOG] requestId=${requestId} DB fallback returned ${mapped.length} cached items`);
+          // Merge with existing results (deduped by id)
+          const existingIds = new Set([...amazonItems, ...ebayItems].map((i: any) => i.id));
+          const newItems = mapped.filter((i: any) => !existingIds.has(i.id));
+          ebayItems = [...ebayItems, ...newItems];
+          console.log(`[CATALOG] requestId=${requestId} DB fallback added ${newItems.length} items (total ebay now: ${ebayItems.length})`);
         }
       } catch (dbErr) {
         console.error(`[CATALOG] requestId=${requestId} DB fallback error:`, dbErr);

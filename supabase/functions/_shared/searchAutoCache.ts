@@ -74,9 +74,9 @@ export async function autoCacheLiveResults(
   const now = new Date().toISOString();
   const records = validItems.map(item => {
     const providerProductId = item.providerProductId || item.provider_product_id || item.id || "";
-    const compositeId = `${item.provider}:${providerProductId}`;
     return {
-      id: compositeId,
+      // Do NOT set `id` — let DB keep existing PK or auto-generate.
+      // Upsert matches on (provider, provider_product_id) unique constraint.
       provider: item.provider,
       provider_product_id: providerProductId,
       title: item.title,

@@ -207,7 +207,7 @@ async function tierASearch(
     .select("*")
     .eq("is_disallowed", false)
     .eq("is_active", true)
-    .filter("image_url", "not.is", "null")
+    .not("image_url", "is", null)
     .gt("price_usd", 0);
 
   if (categoryKey) {
@@ -272,7 +272,7 @@ async function tierBFuzzySearch(
       }
     }
 
-    // No category filter — fetch full records by IDs
+    // No category filter — fetch full records by IDs, preserving relevance order
     const ids = results.map((r: any) => r.id);
     if (ids.length > 0) {
       const { data: fullItems } = await supabase
@@ -281,6 +281,11 @@ async function tierBFuzzySearch(
         .in("id", ids)
         .eq("is_active", true)
         .eq("is_disallowed", false);
+      if (fullItems && fullItems.length > 0) {
+        // Preserve RPC relevance order using array_position
+        const idOrder = new Map(ids.map((id: string, idx: number) => [id, idx]));
+        fullItems.sort((a: any, b: any) => (idOrder.get(a.id) ?? 999) - (idOrder.get(b.id) ?? 999));
+      }
       return fullItems || [];
     }
 

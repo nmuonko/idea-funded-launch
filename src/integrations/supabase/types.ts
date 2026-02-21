@@ -5504,6 +5504,7 @@ export type Database = {
       }
       cleanup_invitation_attempts: { Args: never; Returns: Json }
       cleanup_search_query_log: { Args: { p_days?: number }; Returns: Json }
+      enqueue_all_seeds_ebay: { Args: { p_limit?: number }; Returns: Json }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string

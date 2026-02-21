@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,14 +6,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 interface SearchLogAgg {
   q_norm: string;
   search_count: number;
   avg_live: number;
   avg_db: number;
-  last_searched: string;
-  category: string | null;
+  last_seen: string;
+  category_guess: string | null;
 }
 
 interface Promotion {
@@ -36,89 +36,30 @@ export default function AutoLearning() {
   const [promoting, setPromoting] = useState(false);
   const [stats, setStats] = useState({ total24h: 0, uniqueQueries: 0, liveHits: 0, promoted: 0 });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch popular queries (last 24h aggregated)
-      const { data: logs } = await supabase
-        .from("search_query_log")
-        .select("q_norm, live_count, db_count, category_guess, created_at")
-        .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-        .order("created_at", { ascending: false })
-        .limit(1000);
-
-      if (logs) {
-        // Aggregate by query
-        const map = new Map<string, { count: number; liveTotals: number; dbTotals: number; last: string; cat: string | null }>();
-        logs.forEach((l: any) => {
-          const key = l.q_norm;
-          const existing = map.get(key);
-          if (existing) {
-            existing.count++;
-            existing.liveTotals += l.live_count || 0;
-            existing.dbTotals += l.db_count || 0;
-            if (l.created_at > existing.last) existing.last = l.created_at;
-          } else {
-            map.set(key, {
-              count: 1,
-              liveTotals: l.live_count || 0,
-              dbTotals: l.db_count || 0,
-              last: l.created_at,
-              cat: l.category_guess,
-            });
-          }
-        });
-
-        const agg: SearchLogAgg[] = Array.from(map.entries())
-          .map(([q, v]) => ({
-            q_norm: q,
-            search_count: v.count,
-            avg_live: v.count > 0 ? Math.round(v.liveTotals / v.count) : 0,
-            avg_db: v.count > 0 ? Math.round(v.dbTotals / v.count) : 0,
-            last_searched: v.last,
-            category: v.cat,
-          }))
-          .sort((a, b) => b.search_count - a.search_count);
-
-        setPopularQueries(agg);
-        setStats({
-          total24h: logs.length,
-          uniqueQueries: map.size,
-          liveHits: logs.filter((l: any) => l.live_count > 0).length,
-          promoted: 0,
-        });
-      }
-
-      // Fetch promotions
-      const { data: promos } = await supabase
-        .from("auto_seed_promotions")
-        .select("*")
-        .order("updated_at", { ascending: false })
-        .limit(100);
-
-      if (promos) {
-        setPromotions(promos as Promotion[]);
-        setStats(s => ({ ...s, promoted: promos.filter((p: any) => p.status === "promoted").length }));
-      }
-    } catch (err) {
+      const result = await api.get<any>("admin-auto-learning?action=dashboard");
+      if (result.error) throw new Error(result.error);
+      const d = result.data;
+      setPopularQueries(d.popular || []);
+      setPromotions(d.promotions || []);
+      setStats(d.stats || { total24h: 0, uniqueQueries: 0, liveHits: 0, promoted: 0 });
+    } catch (err: any) {
       console.error("Failed to fetch auto-learning data:", err);
     }
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const runPromotion = async () => {
     setPromoting(true);
     try {
-      const { data, error } = await supabase.rpc("promote_popular_searches", {
-        p_min_searches: 3,
-        p_window_hours: 24,
-        p_auto_enqueue: true,
-      });
-      if (error) throw error;
-      const result = data as any;
-      toast.success(`Promoted ${result.promoted} queries, enqueued ${result.enqueued} refresh jobs`);
+      const result = await api.get<any>("admin-auto-learning?action=run-promotion");
+      if (result.error) throw new Error(result.error);
+      const data = result.data;
+      toast.success(`Promoted ${data.promoted} queries, enqueued ${data.enqueued} refresh jobs`);
       fetchData();
     } catch (err: any) {
       toast.error("Promotion failed: " + err.message);
@@ -127,15 +68,13 @@ export default function AutoLearning() {
   };
 
   const updatePromotionStatus = async (id: string, status: string) => {
-    const { error } = await supabase
-      .from("auto_seed_promotions")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", id);
-    if (error) {
-      toast.error("Failed to update: " + error.message);
-    } else {
+    try {
+      const result = await api.post<any>("admin-auto-learning?action=update-status", { id, status });
+      if (result.error) throw new Error(result.error);
       toast.success(`Status updated to ${status}`);
       fetchData();
+    } catch (err: any) {
+      toast.error("Failed to update: " + err.message);
     }
   };
 
@@ -253,24 +192,24 @@ export default function AutoLearning() {
                     <TableBody>
                       {popularQueries.slice(0, 50).map((q) => {
                         const isPromoted = promotions.some(p => p.query_normalized === q.q_norm && p.status === "promoted");
-                        const needsCaching = q.avg_db < 5 && q.search_count >= 3;
+                        const needsCaching = Number(q.avg_db) < 5 && Number(q.search_count) >= 3;
                         return (
                           <TableRow key={q.q_norm} className={needsCaching ? "bg-destructive/5" : ""}>
                             <TableCell className="font-mono text-sm">{q.q_norm}</TableCell>
                             <TableCell className="text-center font-bold">{q.search_count}</TableCell>
                             <TableCell className="text-center">
-                              <span className={q.avg_db < 5 ? "text-destructive font-bold" : ""}>
+                              <span className={Number(q.avg_db) < 5 ? "text-destructive font-bold" : ""}>
                                 {q.avg_db}
                               </span>
                             </TableCell>
                             <TableCell className="text-center">{q.avg_live}</TableCell>
                             <TableCell>
-                              {q.category ? (
-                                <Badge variant="outline" className="text-xs">{q.category}</Badge>
+                              {q.category_guess ? (
+                                <Badge variant="outline" className="text-xs">{q.category_guess}</Badge>
                               ) : "—"}
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">
-                              {new Date(q.last_searched).toLocaleTimeString()}
+                              {new Date(q.last_seen).toLocaleTimeString()}
                             </TableCell>
                             <TableCell className="text-center">
                               {isPromoted ? (

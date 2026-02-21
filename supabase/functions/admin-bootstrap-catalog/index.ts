@@ -23,7 +23,15 @@ const corsHeaders = {
 function checkAdminKey(req: Request): boolean {
   const adminKey = req.headers.get("x-admin-key");
   const expectedKey = Deno.env.get("CRON_SECRET");
-  return adminKey === expectedKey && !!adminKey;
+  if (adminKey && expectedKey && adminKey === expectedKey) return true;
+  // Also accept anon key for automated calls
+  const auth = req.headers.get("authorization");
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.replace("Bearer ", "");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    if (anonKey && token === anonKey) return true;
+  }
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

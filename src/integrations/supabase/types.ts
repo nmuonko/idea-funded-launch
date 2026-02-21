@@ -358,6 +358,48 @@ export type Database = {
         }
         Relationships: []
       }
+      auto_seed_promotions: {
+        Row: {
+          admin_notes: string | null
+          avg_result_count: number | null
+          category_key: string | null
+          created_at: string
+          first_seen_at: string
+          id: string
+          promoted_at: string | null
+          query_normalized: string
+          search_count: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          avg_result_count?: number | null
+          category_key?: string | null
+          created_at?: string
+          first_seen_at?: string
+          id?: string
+          promoted_at?: string | null
+          query_normalized: string
+          search_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          avg_result_count?: number | null
+          category_key?: string | null
+          created_at?: string
+          first_seen_at?: string
+          id?: string
+          promoted_at?: string | null
+          query_normalized?: string
+          search_count?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bank_transfer_settings: {
         Row: {
           account_number_or_iban: string
@@ -5452,6 +5494,7 @@ export type Database = {
         Returns: Json
       }
       cleanup_invitation_attempts: { Args: never; Returns: Json }
+      cleanup_search_query_log: { Args: { p_days?: number }; Returns: Json }
       finalize_paid_order: {
         Args: {
           p_operator_ref?: string
@@ -5605,6 +5648,14 @@ export type Database = {
       }
       merge_draft_orders: {
         Args: { p_primary_id: string; p_secondary_ids: string[] }
+        Returns: Json
+      }
+      promote_popular_searches: {
+        Args: {
+          p_auto_enqueue?: boolean
+          p_min_searches?: number
+          p_window_hours?: number
+        }
         Returns: Json
       }
       search_catalog_items_ranked: {

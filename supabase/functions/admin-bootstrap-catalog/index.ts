@@ -20,16 +20,38 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, x-cron-secret, x-admin-key",
 };
 
-function checkAdminKey(req: Request): boolean {
-  // 1. x-admin-key or x-cron-secret header
-  const adminKey = req.headers.get("x-admin-key");
+async function checkAdminAuth(req: Request): Promise<boolean> {
+  // 1. x-cron-secret header (for scheduled/cron calls)
   const cronSecret = req.headers.get("x-cron-secret");
   const expectedKey = Deno.env.get("CRON_SECRET");
-  if (expectedKey && (adminKey === expectedKey || cronSecret === expectedKey)) return true;
-  // 2. Service role key only (for manual admin debugging)
+  if (expectedKey && cronSecret === expectedKey) return true;
+
+  // 2. Service role key (for manual server-side calls)
   const auth = req.headers.get("authorization");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (serviceKey && auth === `Bearer ${serviceKey}`) return true;
+
+  // 3. Admin user JWT — verify user + check role
+  if (auth?.startsWith("Bearer ")) {
+    try {
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: auth } } }
+      );
+      const { data, error } = await supabase.auth.getClaims(auth.replace("Bearer ", ""));
+      if (!error && data?.claims?.sub) {
+        const { data: roleData } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", data.claims.sub)
+          .eq("role", "admin")
+          .maybeSingle();
+        if (roleData) return true;
+      }
+    } catch { /* fall through */ }
+  }
+
   // NEVER accept anon key — it's public
   return false;
 }
@@ -385,7 +407,7 @@ Deno.serve(async (req) => {
   // Auth check
   let isAuthorized = false;
   
-  if (checkAdminKey(req)) {
+  if (await checkAdminAuth(req)) {
     isAuthorized = true;
   }
   

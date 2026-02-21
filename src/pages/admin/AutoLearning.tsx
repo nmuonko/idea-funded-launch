@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle } from "lucide-react";
+import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle, Rocket, Database } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 
@@ -38,6 +38,11 @@ interface ProviderHealth {
   retryAfterSec: number;
 }
 
+interface BackfillStatus {
+  queue: { queued: number; running: number };
+  categories: { category_key: string; active_count: number; inactive_count: number }[];
+}
+
 export default function AutoLearning() {
   const [popularQueries, setPopularQueries] = useState<SearchLogAgg[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -46,6 +51,9 @@ export default function AutoLearning() {
   const [enqueuingId, setEnqueueingId] = useState<string | null>(null);
   const [stats, setStats] = useState({ total24h: 0, uniqueQueries: 0, liveHits: 0, promoted: 0 });
   const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<any>(null);
+  const [backfillStatus, setBackfillStatus] = useState<BackfillStatus | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -103,6 +111,39 @@ export default function AutoLearning() {
     setEnqueueingId(null);
   };
 
+  const runSeedBackfill = async () => {
+    setBackfillRunning(true);
+    setBackfillResult(null);
+    toast.info("🚀 eBay Seed Backfill started — this may take several minutes...");
+    try {
+      const result = await api.post<any>("admin-auto-learning?action=run-seed-backfill", {});
+      if (result.error) throw new Error(result.error);
+      setBackfillResult(result.data);
+      const sb = result.data.seedBackfill || result.data;
+      toast.success(
+        `Backfill complete! Enqueued: ${sb.enqueued ?? "?"}, Processed: ${sb.processed ?? "?"}, Upserted: ${sb.upserted ?? "?"}, Errors: ${sb.errors ?? 0}`
+      );
+      // Refresh verification status
+      fetchBackfillStatus();
+      fetchData();
+    } catch (err: any) {
+      toast.error("Backfill failed: " + err.message);
+    }
+    setBackfillRunning(false);
+  };
+
+  const fetchBackfillStatus = async () => {
+    try {
+      const result = await api.post<BackfillStatus>("admin-auto-learning?action=backfill-status", {});
+      if (result.error) throw new Error(result.error);
+      setBackfillStatus(result.data);
+    } catch (err: any) {
+      console.error("Failed to fetch backfill status:", err);
+    }
+  };
+
+  useEffect(() => { fetchBackfillStatus(); }, []);
+
   const statusBadge = (status: string) => {
     const map: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: any }> = {
       promoted: { variant: "default", icon: CheckCircle },
@@ -149,6 +190,108 @@ export default function AutoLearning() {
           </Button>
         </div>
       </div>
+
+      {/* eBay Seed Backfill Section */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Rocket className="h-5 w-5 text-primary" />
+            eBay Seed Backfill
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Enqueue ALL enabled seed queries from <code>catalog_seed_queries</code> as eBay-only jobs, then process them in controlled batches with rate limiting. Results are upserted into <code>catalog_items</code>.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={runSeedBackfill}
+              disabled={backfillRunning}
+              size="lg"
+              className="gap-2"
+            >
+              <Rocket className={`h-4 w-4 ${backfillRunning ? "animate-bounce" : ""}`} />
+              {backfillRunning ? "Running Backfill..." : "🚀 Run eBay Seed Backfill Now"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={fetchBackfillStatus}>
+              <Database className="h-4 w-4 mr-1" />
+              Refresh Status
+            </Button>
+          </div>
+
+          {/* Backfill Result */}
+          {backfillResult && (
+            <div className="rounded-lg border p-4 bg-background space-y-2">
+              <h4 className="font-semibold text-sm">Last Backfill Result</h4>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                {[
+                  { label: "Enqueued", value: backfillResult.seedBackfill?.enqueued ?? backfillResult.enqueued ?? "—" },
+                  { label: "Processed", value: backfillResult.seedBackfill?.processed ?? backfillResult.processed ?? "—" },
+                  { label: "Upserted", value: backfillResult.seedBackfill?.upserted ?? backfillResult.upserted ?? "—" },
+                  { label: "Errors", value: backfillResult.seedBackfill?.errors ?? backfillResult.errors ?? 0 },
+                  { label: "Duration", value: `${((backfillResult.totalDurationMs || backfillResult.durationMs || 0) / 1000).toFixed(1)}s` },
+                ].map((item) => (
+                  <div key={item.label} className="text-center">
+                    <p className="text-muted-foreground text-xs">{item.label}</p>
+                    <p className="font-bold text-lg">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Verification Block */}
+          {backfillStatus && (
+            <div className="rounded-lg border p-4 bg-background space-y-3">
+              <h4 className="font-semibold text-sm flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Queue & Catalog Status
+              </h4>
+
+              <div className="flex gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Queued (eBay):</span>{" "}
+                  <span className="font-bold">{backfillStatus.queue.queued}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Running:</span>{" "}
+                  <span className="font-bold">{backfillStatus.queue.running}</span>
+                </div>
+              </div>
+
+              {backfillStatus.categories.length > 0 && (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Category</TableHead>
+                        <TableHead className="text-center">Active Items</TableHead>
+                        <TableHead className="text-center">Inactive</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {backfillStatus.categories
+                        .sort((a, b) => b.active_count - a.active_count)
+                        .slice(0, 20)
+                        .map((cat) => (
+                          <TableRow key={cat.category_key}>
+                            <TableCell className="font-mono text-sm">{cat.category_key}</TableCell>
+                            <TableCell className="text-center">
+                              <span className={Number(cat.active_count) < 100 ? "text-destructive font-bold" : "font-bold"}>
+                                {cat.active_count}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center text-muted-foreground">{cat.inactive_count}</TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Provider Health Panel */}
       {Object.keys(providerHealth).length > 0 && (

@@ -38,6 +38,8 @@ const MAX_CONCURRENCY = 3;
 const DEACTIVATE_FAIL_THRESHOLD = 3;
 const DEACTIVATE_NOT_SEEN_DAYS = 90;
 const RATE_LIMIT_DELAY_MS = 600;
+const SEED_BACKFILL_BATCH = 25;
+const SEED_BACKFILL_DELAY_MS = 800; // 700-900ms range, use 800 average
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -469,6 +471,175 @@ async function ensureCategoryPools(supabase: any) {
   return { thinCategories, enqueued };
 }
 
+// ─── Seed Backfill Mode ──────────────────────────────────────────────────────
+
+async function runSeedBackfill(supabase: any, ebayToken: string) {
+  console.log("[WORKER] === SEED BACKFILL MODE ===");
+
+  // Step 1: Enqueue all seeds via the DB function
+  const { data: enqueueResult, error: enqErr } = await supabase.rpc("enqueue_all_seeds_ebay", { p_limit: 2000 });
+  if (enqErr) {
+    console.error("[WORKER] enqueue_all_seeds_ebay failed:", enqErr.message);
+    return { error: enqErr.message };
+  }
+  console.log("[WORKER] Seeds enqueued:", JSON.stringify(enqueueResult));
+
+  // Step 2: Loop through queue in batches until drained
+  let totalProcessed = 0;
+  let totalUpserted = 0;
+  let totalErrors = 0;
+  let batchNum = 0;
+
+  while (true) {
+    batchNum++;
+    const lockId = `seed-${crypto.randomUUID().slice(0, 8)}`;
+    const now = new Date().toISOString();
+
+    const { data: jobs, error: claimErr } = await supabase.rpc("claim_refresh_queue_jobs", {
+      p_max_jobs: SEED_BACKFILL_BATCH,
+      p_lock_id: lockId,
+    });
+
+    if (claimErr || !jobs?.length) {
+      console.log(`[WORKER] Batch ${batchNum}: queue drained (${claimErr?.message || "no jobs"})`);
+      break;
+    }
+
+    console.log(`[WORKER] Batch ${batchNum}: claimed ${jobs.length} jobs`);
+
+    for (const job of jobs) {
+      try {
+        const items = await searchEbay(ebayToken, job.query, 20);
+
+        if (items.length === 0) {
+          await supabase.from("catalog_refresh_queue").update({
+            status: "done",
+            attempts: (job.attempts || 0) + 1,
+            last_error: "no_results",
+          }).eq("id", job.id);
+
+          // Update promotion heartbeat
+          await supabase.from("auto_seed_promotions").update({
+            last_refreshed_at: now,
+            last_refresh_count: 0,
+            last_refresh_status: "empty",
+            updated_at: now,
+          }).eq("query_normalized", job.query).eq("status", "promoted");
+
+          totalProcessed++;
+          continue;
+        }
+
+        // Build upsert rows
+        const upsertRows = items
+          .filter((item: any) => item.title && item.itemId)
+          .map((item: any) => {
+            const priceUsd = item.price?.value ? parseFloat(item.price.value) : null;
+            const imageUrl = item.image?.imageUrl?.replace(/^http:/, "https:") || null;
+            const hash = computeHash(item.title, priceUsd, imageUrl);
+
+            return {
+              id: `ebay:${item.itemId}`,
+              provider: "ebay",
+              provider_product_id: item.itemId,
+              title: item.title,
+              price_usd: priceUsd,
+              image_url: imageUrl,
+              product_url: item.itemWebUrl || `https://www.ebay.com/itm/${item.itemId}`,
+              in_stock: item.itemAvailability?.availabilityStatus !== "OUT_OF_STOCK",
+              category_key: job.category_key,
+              unified_category: job.category_key,
+              last_seen_at: now,
+              data_updated_at: now,
+              price_updated_at: now,
+              data_hash: hash,
+              is_active: true,
+              status_reason: "active",
+              fail_count: 0,
+              last_checked_at: now,
+              updated_at: now,
+              tags: [job.category_key],
+              buying_options: item.buyingOptions || ["FIXED_PRICE"],
+            };
+          });
+
+        if (upsertRows.length > 0) {
+          const { error: upsertErr } = await supabase
+            .from("catalog_items")
+            .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
+
+          if (upsertErr) {
+            console.error(`[WORKER] Upsert error job ${job.id}:`, upsertErr.message);
+            totalErrors++;
+          } else {
+            totalUpserted += upsertRows.length;
+          }
+        }
+
+        await supabase.from("catalog_refresh_queue").update({
+          status: "done",
+          attempts: (job.attempts || 0) + 1,
+        }).eq("id", job.id);
+
+        // Update promotion heartbeat
+        await supabase.from("auto_seed_promotions").update({
+          last_refreshed_at: now,
+          last_refresh_count: upsertRows.length,
+          last_refresh_status: upsertRows.length > 0 ? "success" : "empty",
+          updated_at: now,
+        }).eq("query_normalized", job.query).eq("status", "promoted");
+
+        totalProcessed++;
+
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Unknown";
+        console.error(`[WORKER] Seed job ${job.id} failed:`, msg);
+        totalErrors++;
+
+        // Handle 429: reschedule instead of failing
+        const is429 = msg.includes("429") || msg.includes("rate limit");
+        const attempts = (job.attempts || 0) + 1;
+
+        if (is429) {
+          const retryAt = new Date(Date.now() + 30 * 60_000).toISOString();
+          await supabase.from("catalog_refresh_queue").update({
+            status: "queued",
+            attempts,
+            last_error: "rate_limited_429",
+            scheduled_at: retryAt,
+            locked_at: null,
+            locked_by: null,
+          }).eq("id", job.id);
+          // Wait extra on 429
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          await supabase.from("catalog_refresh_queue").update({
+            status: attempts >= 5 ? "failed" : "queued",
+            attempts,
+            last_error: msg,
+            scheduled_at: new Date(Date.now() + Math.pow(2, attempts) * 10 * 60_000).toISOString(),
+            locked_at: null,
+            locked_by: null,
+          }).eq("id", job.id);
+        }
+      }
+
+      // Rate limit between eBay calls
+      await new Promise(r => setTimeout(r, SEED_BACKFILL_DELAY_MS));
+    }
+  }
+
+  const summary = {
+    ...enqueueResult,
+    processed: totalProcessed,
+    upserted: totalUpserted,
+    errors: totalErrors,
+    batches: batchNum,
+  };
+  console.log("[WORKER] Seed backfill complete:", JSON.stringify(summary));
+  return summary;
+}
+
 // ─── Main Handler ────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -487,7 +658,7 @@ Deno.serve(async (req) => {
   }
 
   let maxJobs = 10;
-  let mode = "queue"; // queue | stale | pool-fill | all
+  let mode = "queue"; // queue | stale | pool-fill | all | seed-backfill
   try {
     const body = await req.json().catch(() => ({}));
     maxJobs = body.maxJobs || 10;
@@ -506,20 +677,24 @@ Deno.serve(async (req) => {
     // Get eBay token
     const ebayToken = await getEbayToken(supabase);
 
-    if (mode === "queue" || mode === "all") {
-      results.queue = await processQueueJobs(supabase, ebayToken, maxJobs);
-    }
+    if (mode === "seed-backfill") {
+      results.seedBackfill = await runSeedBackfill(supabase, ebayToken);
+    } else {
+      if (mode === "queue" || mode === "all") {
+        results.queue = await processQueueJobs(supabase, ebayToken, maxJobs);
+      }
 
-    if (mode === "stale" || mode === "all") {
-      results.stale = await refreshStaleItems(supabase, ebayToken, maxJobs);
-    }
+      if (mode === "stale" || mode === "all") {
+        results.stale = await refreshStaleItems(supabase, ebayToken, maxJobs);
+      }
 
-    if (mode === "pool-fill" || mode === "all") {
-      results.poolFill = await ensureCategoryPools(supabase);
-    }
+      if (mode === "pool-fill" || mode === "all") {
+        results.poolFill = await ensureCategoryPools(supabase);
+      }
 
-    // Always deactivate old items
-    results.deactivated = await deactivateOldItems(supabase);
+      // Always deactivate old items
+      results.deactivated = await deactivateOldItems(supabase);
+    }
 
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";

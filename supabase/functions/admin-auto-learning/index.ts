@@ -149,7 +149,6 @@ Deno.serve(async (req) => {
         }
 
         // Force enqueue regardless of avg_result_count
-        // Use raw insert to avoid ON CONFLICT target issues with partial unique index
         const { error: enqErr } = await serviceClient
           .from("catalog_refresh_queue")
           .insert({
@@ -161,16 +160,67 @@ Deno.serve(async (req) => {
             scheduled_at: new Date().toISOString(),
           });
 
-        // Ignore duplicate errors (23505) from partial unique index
         if (enqErr && !enqErr.message?.includes("duplicate")) throw enqErr;
 
-        // Mark as promoted
         await serviceClient
           .from("auto_seed_promotions")
           .update({ status: "promoted", promoted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
           .eq("id", id);
 
         return new Response(JSON.stringify({ ok: true, enqueued: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "run-seed-backfill") {
+        // Trigger the catalog-refresh-worker in seed-backfill mode
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+        const workerUrl = `${supabaseUrl}/functions/v1/catalog-refresh-worker`;
+        const startTime = Date.now();
+
+        const workerRes = await fetch(workerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ mode: "seed-backfill" }),
+        });
+
+        const workerData = await workerRes.json();
+        const durationMs = Date.now() - startTime;
+
+        return new Response(JSON.stringify({
+          ok: true,
+          ...workerData,
+          totalDurationMs: durationMs,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "backfill-status") {
+        // Get queue status + category counts for verification
+        const { count: queuedCount } = await serviceClient
+          .from("catalog_refresh_queue")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "queued")
+          .eq("provider", "ebay");
+
+        const { count: runningCount } = await serviceClient
+          .from("catalog_refresh_queue")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "running")
+          .eq("provider", "ebay");
+
+        const { data: categoryCounts } = await serviceClient.rpc("admin_catalog_category_counts");
+
+        return new Response(JSON.stringify({
+          queue: { queued: queuedCount || 0, running: runningCount || 0 },
+          categories: categoryCounts || [],
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }

@@ -841,46 +841,9 @@ Deno.serve(async (req: Request) => {
     // - All others (including vehicle_listing): both providers
     const skipAmazon = false; // True proxy mode: always call both providers
 
-    // ─── AI QUERY REWRITE (French-first: typo fix + translation + intent) ────
-    // Skip if preNormalizer already matched OR if query is a known direct query
-    // Race with tight timeout to never block page 0
-    if (!preNorm.matched && !isDirectQuery(qNorm)) {
-      try {
-        const aiRewriteTimeout = isFirstPage ? 800 : 1200;
-        const aiRewritePromise = aiQueryRewrite(supabase, qOriginal, lang, categoryKey, requestId);
-        const raceResult = await Promise.race([
-          aiRewritePromise,
-          new Promise<null>((r) => setTimeout(() => r(null), aiRewriteTimeout)),
-        ]);
-        if (raceResult) {
-          aiRewriteResult = raceResult;
-          aiRewriteMustExclude = raceResult.must_exclude;
-          aiRewriteDidYouMean = raceResult.did_you_mean;
-          aiRewriteExpansions = raceResult.expansions;
-
-          // Use AI's English query as the primary search query
-          if (raceResult.query_en && raceResult.query_en.length >= 2 && raceResult.confidence >= 0.3) {
-            qNorm = raceResult.query_en;
-            searchMeta.rewrittenQuery = raceResult.query_en;
-            searchMeta.rewriteApplied = true;
-            frFallbackApplied = true; // prevent further translation attempts
-
-            // Use AI's category guess if user didn't explicitly set one
-            if (!categoryKey && raceResult.category_guess) {
-              console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_category: ${raceResult.category_guess}`);
-              // Don't override explicit category, but note it in meta
-            }
-
-            console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_applied: "${qOriginal}" → "${raceResult.query_en}" cat=${raceResult.category_guess} dym="${raceResult.did_you_mean}" conf=${raceResult.confidence}`);
-          }
-        } else {
-          console.log(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_timeout (${aiRewriteTimeout}ms) — using existing pipeline`);
-        }
-      } catch (e) {
-        console.warn(`[CATALOG_SEARCH] requestId=${requestId} ai_rewrite_error: ${(e as Error).message}`);
-      }
-    }
-
+    // ─── DUPLICATE AI REWRITE REMOVED ─────────────────────────────────────────
+    // AI rewrite already runs at lines 449-485. This duplicate block was removed
+    // to prevent double API calls and wasted AI budget.
 
     const providerStartMs = Date.now();
     // ─── INDEPENDENT PER-PROVIDER TIMEOUTS ──────────────────────────────────
@@ -1517,7 +1480,7 @@ Deno.serve(async (req: Request) => {
           .or(orFilter)
           .in("provider", ["rainforest", "amazon", "ebay"])
           .gt("price_usd", 0)
-          .filter("image_url", "not.is", "null")
+          .not("image_url", "is", null)
           .eq("is_disallowed", false)
           .order("updated_at", { ascending: false })
           .limit(40);
@@ -1568,28 +1531,33 @@ Deno.serve(async (req: Request) => {
     // ─── AUTO-CACHE: Upsert live provider items into catalog_items (fire-and-forget) ──
     const allProviderItems = [...amazonItems, ...ebayItems];
     const usedLive = allProviderItems.length > 0;
-    let autoCachedCount = 0;
     if (usedLive && allProviderItems.length > 0) {
+      // Fire-and-forget: auto-cache + log with accurate count inside .then()
       autoCacheLiveResults(supabase, allProviderItems as any[], categoryKey, requestId)
-        .then(r => { autoCachedCount = r.upserted; })
+        .then(r => {
+          logSearchQuery(supabase, {
+            qNorm, qOriginal,
+            categoryGuess: categoryKey || preNorm.inferredCategory || null,
+            dbCount, liveCount: allProviderItems.length, usedLive: true,
+            fuzzyUsed: false, expansionUsed: false,
+            autoCachedCount: r.upserted,
+            durationMs: Date.now() - startTime,
+          }).catch(() => {});
+        })
         .catch(() => {});
       // Enqueue refresh job for this query (fire-and-forget)
       enqueueRefreshJob(supabase, qNorm, categoryKey, "mixed", requestId).catch(() => {});
+    } else {
+      // No live results — log immediately with 0 cached
+      logSearchQuery(supabase, {
+        qNorm, qOriginal,
+        categoryGuess: categoryKey || preNorm.inferredCategory || null,
+        dbCount, liveCount: 0, usedLive: false,
+        fuzzyUsed: false, expansionUsed: false,
+        autoCachedCount: 0,
+        durationMs: Date.now() - startTime,
+      }).catch(() => {});
     }
-
-    // ─── SEARCH QUERY LOG (fire-and-forget) ─────────────────────────────────────
-    logSearchQuery(supabase, {
-      qNorm,
-      qOriginal,
-      categoryGuess: categoryKey || preNorm.inferredCategory || null,
-      dbCount,
-      liveCount: allProviderItems.length,
-      usedLive,
-      fuzzyUsed: false,
-      expansionUsed: false,
-      autoCachedCount,
-      durationMs: Date.now() - startTime,
-    }).catch(() => {});
 
     // ─── FINAL CACHE WRITE (overwrite early cache with complete response) ────
     const cacheMeta = {

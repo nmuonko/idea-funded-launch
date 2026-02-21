@@ -31,20 +31,20 @@ async function checkAdminAuth(req: Request): Promise<boolean> {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (serviceKey && auth === `Bearer ${serviceKey}`) return true;
 
-  // 3. Admin user JWT — verify user + check role
+  // 3. Admin user JWT — verify user + check role via service-role client
   if (auth?.startsWith("Bearer ")) {
     try {
-      const supabase = createClient(
+      const token = auth.slice(7);
+      const adminClient = createClient(
         Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: auth } } }
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       );
-      const { data, error } = await supabase.auth.getClaims(auth.replace("Bearer ", ""));
-      if (!error && data?.claims?.sub) {
-        const { data: roleData } = await supabase
+      const { data: userData, error: userError } = await adminClient.auth.getUser(token);
+      if (!userError && userData?.user?.id) {
+        const { data: roleData } = await adminClient
           .from("user_roles")
           .select("role")
-          .eq("user_id", data.claims.sub)
+          .eq("user_id", userData.user.id)
           .eq("role", "admin")
           .maybeSingle();
         if (roleData) return true;

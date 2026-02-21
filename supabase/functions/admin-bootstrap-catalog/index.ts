@@ -21,16 +21,16 @@ const corsHeaders = {
 };
 
 function checkAdminKey(req: Request): boolean {
+  // 1. x-admin-key or x-cron-secret header
   const adminKey = req.headers.get("x-admin-key");
+  const cronSecret = req.headers.get("x-cron-secret");
   const expectedKey = Deno.env.get("CRON_SECRET");
-  if (adminKey && expectedKey && adminKey === expectedKey) return true;
-  // Also accept anon key for automated calls
+  if (expectedKey && (adminKey === expectedKey || cronSecret === expectedKey)) return true;
+  // 2. Service role key only (for manual admin debugging)
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.replace("Bearer ", "");
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (anonKey && token === anonKey) return true;
-  }
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceKey && auth === `Bearer ${serviceKey}`) return true;
+  // NEVER accept anon key — it's public
   return false;
 }
 

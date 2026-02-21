@@ -42,19 +42,16 @@ const RATE_LIMIT_DELAY_MS = 600;
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 function checkAuth(req: Request, serviceKey: string): boolean {
+  // 1. x-cron-secret header (used by pg_cron scheduled calls)
   const cronSecret = req.headers.get("x-cron-secret");
   if (cronSecret && cronSecret === Deno.env.get("CRON_SECRET")) return true;
+  // 2. x-admin-key header (legacy, same secret)
   const adminKey = req.headers.get("x-admin-key");
   if (adminKey && adminKey === Deno.env.get("CRON_SECRET")) return true;
+  // 3. Service role key only (for manual admin debugging)
   const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.replace("Bearer ", "");
-    // Accept service_role key
-    if (token === serviceKey) return true;
-    // Accept anon key (for pg_cron scheduled calls)
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (anonKey && token === anonKey) return true;
-  }
+  if (auth?.startsWith("Bearer ") && auth.replace("Bearer ", "") === serviceKey) return true;
+  // NEVER accept anon key — it's public and would let anyone trigger refreshes
   return false;
 }
 

@@ -626,6 +626,35 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ─── DB FALLBACK: if both providers returned 0, try cached items from DB ──
+    if (amazonItems.length === 0 && ebayItems.length === 0) {
+      try {
+        console.log(`[CATALOG] requestId=${requestId} Both providers empty, trying DB fallback for ${canonicalKey}`);
+        let dbFallbackQ = supabase.from("catalog_items").select("*")
+          .eq("unified_category", parentTab)
+          .or("is_disallowed.is.null,is_disallowed.eq.false")
+          .neq("image_url", null)
+          .gt("price_usd", 0);
+        if (subtabKey) {
+          dbFallbackQ = dbFallbackQ.eq("unified_subcategory", subtabKey.replace(`${parentTab}_`, ""));
+        }
+        const { data: dbFallbackItems } = await dbFallbackQ
+          .order("rating", { ascending: false, nullsFirst: false })
+          .limit(limit);
+
+        if (dbFallbackItems && dbFallbackItems.length > 0) {
+          const mapped = dbFallbackItems.map((item: Record<string, unknown>) => 
+            normalizeDbItem(item, parentTab, subtabKey ? subtabKey.replace(`${parentTab}_`, "") : null)
+          );
+          // Treat DB-cached eBay items as ebay results for the mixer
+          ebayItems = mapped;
+          console.log(`[CATALOG] requestId=${requestId} DB fallback returned ${mapped.length} cached items`);
+        }
+      } catch (dbErr) {
+        console.error(`[CATALOG] requestId=${requestId} DB fallback error:`, dbErr);
+      }
+    }
+
     // ─── MIX RESULTS ──────────────────────────────────────────────────────────
     // UNIFIED: Use same mixer as catalog-search for consistent behavior
 

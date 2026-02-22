@@ -229,6 +229,75 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (action === "export-seeds") {
+        // Export all seed queries as JSON (for cross-environment sync)
+        const { data: seeds, error: seedErr } = await serviceClient
+          .from("catalog_seed_queries")
+          .select("id,category,ebay_category_id,enabled,filters,provider,query,seed_key,ttl_minutes")
+          .eq("enabled", true)
+          .order("category")
+          .limit(1000);
+        if (seedErr) throw seedErr;
+
+        return new Response(JSON.stringify({ seeds: seeds || [], count: (seeds || []).length }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (action === "import-seeds") {
+        // Import seed queries from JSON body (for cross-environment sync)
+        const body = await req.json();
+        const seeds = body.seeds;
+        if (!Array.isArray(seeds) || seeds.length === 0) {
+          return new Response(JSON.stringify({ error: "Missing or empty seeds array" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Check current count
+        const { count: existing } = await serviceClient
+          .from("catalog_seed_queries")
+          .select("*", { count: "exact", head: true });
+
+        // Upsert in batches of 50
+        let inserted = 0;
+        let errors = 0;
+        for (let i = 0; i < seeds.length; i += 50) {
+          const batch = seeds.slice(i, i + 50).map((s: any) => ({
+            id: s.id,
+            category: s.category,
+            ebay_category_id: s.ebay_category_id || null,
+            enabled: s.enabled ?? true,
+            filters: s.filters || {},
+            provider: s.provider || "ebay",
+            query: s.query,
+            seed_key: s.seed_key,
+            ttl_minutes: s.ttl_minutes || 360,
+          }));
+
+          const { error: upsertErr } = await serviceClient
+            .from("catalog_seed_queries")
+            .upsert(batch, { onConflict: "id" });
+
+          if (upsertErr) {
+            console.error(`Batch ${i} error:`, upsertErr);
+            errors++;
+          } else {
+            inserted += batch.length;
+          }
+        }
+
+        return new Response(JSON.stringify({
+          ok: true,
+          imported: inserted,
+          errors,
+          existingBefore: existing || 0,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       if (action === "backfill-status") {
         // Get queue status + category counts for verification
         const { count: queuedCount } = await serviceClient

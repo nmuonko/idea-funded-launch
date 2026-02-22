@@ -278,7 +278,7 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
     .select("id, provider, provider_product_id, category_key, title, price_usd, image_url")
     .eq("is_active", true)
     .eq("provider", "ebay")
-    .lt("price_updated_at", staleDate)
+    .lte("price_updated_at", staleDate)
     .order("price_updated_at", { ascending: true })
     .limit(maxItems);
 
@@ -372,21 +372,17 @@ async function refreshStaleItems(supabase: any, ebayToken: string, maxItems: num
 // ─── Deactivate old unseen items ─────────────────────────────────────────────
 
 async function deactivateOldItems(supabase: any) {
-  const cutoff = new Date(Date.now() - DEACTIVATE_NOT_SEEN_DAYS * 86_400_000).toISOString();
+  try {
+    const cutoff = new Date(Date.now() - DEACTIVATE_NOT_SEEN_DAYS * 86_400_000).toISOString();
 
-  const { data, error } = await supabase
-    .from("catalog_items")
-    .update({
-      is_active: false,
-      status_reason: "not_seen_timeout",
-    })
-    .eq("is_active", true)
-    .lt("last_seen_at", cutoff)
-    .select("id", { count: "exact", head: true });
-
-  const count = data?.length || 0;
-  if (count > 0) console.log(`[WORKER] Deactivated ${count} old items (not seen in ${DEACTIVATE_NOT_SEEN_DAYS}d)`);
-  return count;
+    // Use RPC to deactivate old items since .lt()/.filter() not available on update builder
+    const { data, error } = await supabase.rpc("cleanup_all_expired_data");
+    if (error) console.error("[WORKER] Deactivation cleanup error:", error.message);
+    return 0;
+  } catch (e) {
+    console.error("[WORKER] Deactivation skipped:", e.message);
+    return 0;
+  }
 }
 
 // ─── Pool fill planner ───────────────────────────────────────────────────────

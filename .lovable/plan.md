@@ -1,35 +1,53 @@
 
 
-## Fix: Publish Still Blocked -- Migration Ordering Issue
+# Simplify the Auto-Learning Page
 
-### Root Cause
+## Problem
+The Auto-Learning admin page uses technical jargon (e.g., "catalog_seed_queries", "upserted into catalog_items", "eBay Seed Backfill", "RPC", "queue") and lacks visual progress indicators, making it hard to understand what's happening at a glance.
 
-The migration order on Live is:
+## Changes
 
-1. `20260221031103` -- Creates `catalog_refresh_queue` table (may fail on Live due to ALTER TABLE on `catalog_items`)
-2. `20260221035323` -- Creates `claim_refresh_queue_jobs` function with `RETURNS SETOF public.catalog_refresh_queue` -- **FAILS here** because the table/type doesn't exist yet
-3. `20260222020214` -- My previous fix creates the table with `IF NOT EXISTS` -- never reached
+### 1. Rewrite all labels and descriptions in plain English
+- **Page title**: "Auto-Learning" -> "Smart Product Updates"
+- **Subtitle**: "System learns from user searches and auto-caches popular queries" -> "Automatically finds and adds products based on what your customers search for"
+- **eBay Seed Backfill section**: Rename to "Bulk Product Import" with description: "Import products for all your saved product categories from eBay. This runs in the background and may take a few minutes."
+- Remove all code references like `catalog_seed_queries`, `catalog_items`
+- "Run Promotion" -> "Find New Trends"
+- "Queue & Catalog Status" -> "Import Progress"
+- "Queued (eBay)" -> "Waiting to import"
+- "Running" -> "Currently importing"
+- "Active Items" -> "Products Available"
+- "Inactive" -> "Hidden"
+- "Provider Health" -> "Data Sources"
+- "Searches (24h)" -> "Customer Searches Today"
+- "Unique Queries" -> "Different Products Searched"
+- "Live API Hits" -> "External Lookups"
+- "Auto-Promoted" -> "Auto-Added"
+- "Popular Searches (24h)" tab -> "Trending Searches"
+- "Promotions" tab -> "Auto-Added Products"
+- "Avg DB Results" -> "Saved Results"
+- "Avg Live Results" -> "Found Online"
+- "Seeded" -> "Added"
+- "Needs caching" -> "Needs products"
+- Table column "Query" -> "What customers searched"
 
-The table creation in my fix comes too late in the migration sequence.
+### 2. Add progress bars to the category table
+- Add a progress bar (using the existing `Progress` component) next to each category showing how full it is relative to the largest category
+- Color-code: green for categories with 2000+ items, yellow for 500-1999, red for under 500
 
-### Solution
+### 3. Add a progress bar for the backfill process
+- When backfill is running, show an animated progress bar
+- Show "Waiting to import: X" and "Currently importing: X" with visual bars instead of just numbers
 
-**Move the `CREATE TABLE IF NOT EXISTS` for `catalog_refresh_queue` into migration `20260221035323`**, right before the function definition. This ensures the table exists as a type before `RETURNS SETOF` references it, regardless of whether the earlier migration succeeded.
+### 4. Simplify the backfill result display
+- "Enqueued" -> "Queued"
+- "Processed" -> "Checked"
+- "Upserted" -> "Products Added"
+- "Errors" -> "Failed"
 
-Also remove the redundant table creation from `20260222020214` since it will no longer be needed there.
+## Technical Details
 
-### Technical Steps
+**Files to modify:**
+- `src/pages/admin/AutoLearning.tsx` -- All UI text changes, add Progress component import, add progress bars to category table and backfill status section
 
-**Step 1 -- Update migration `20260221035323`**
-
-Prepend the `CREATE TABLE IF NOT EXISTS public.catalog_refresh_queue (...)` statement (with all columns) before the `CREATE OR REPLACE FUNCTION` statement.
-
-**Step 2 -- Simplify migration `20260222020214`**
-
-Remove the `catalog_refresh_queue` table creation from this file since it will already exist. Keep the other three table creations (`catalog_category_ttl`, `search_query_log`, `auto_seed_promotions`) and the `enqueue_all_seeds_ebay` function.
-
-### Risk Assessment
-- **Test**: No impact -- `IF NOT EXISTS` is a no-op since the table already exists
-- **Live**: Table gets created before the function, unblocking the chain
-- **No data loss**: No destructive operations
-
+**No backend changes needed** -- this is purely a UI/UX improvement.

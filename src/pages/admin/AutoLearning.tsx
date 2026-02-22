@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle, Rocket, Database } from "lucide-react";
+import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle, Rocket, Database, Square } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 
@@ -67,6 +67,8 @@ export default function AutoLearning() {
   const [backfillRunning, setBackfillRunning] = useState(false);
   const [backfillResult, setBackfillResult] = useState<any>(null);
   const [backfillStatus, setBackfillStatus] = useState<BackfillStatus | null>(null);
+  const [autoPolling, setAutoPolling] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -124,6 +126,57 @@ export default function AutoLearning() {
     setEnqueueingId(null);
   };
 
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    setAutoPolling(false);
+  }, []);
+
+  const startPolling = useCallback(() => {
+    stopPolling(); // clear any existing
+    setAutoPolling(true);
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        // Fetch current status
+        const statusResult = await api.post<BackfillStatus>("admin-auto-learning?action=backfill-status", {});
+        if (statusResult.error) throw new Error(statusResult.error);
+        setBackfillStatus(statusResult.data);
+
+        const queued = statusResult.data?.queue?.queued ?? 0;
+        if (queued === 0) {
+          toast.success("✅ All products imported! Queue is empty.");
+          stopPolling();
+          fetchData();
+          return;
+        }
+
+        // Trigger another batch via continue-backfill (queue mode)
+        const batchResult = await api.post<any>("admin-auto-learning?action=continue-backfill", {});
+        if (batchResult.error) {
+          console.warn("Continue-backfill batch error:", batchResult.error);
+        } else {
+          setBackfillResult(batchResult.data);
+        }
+
+        // Refresh status after batch
+        const updatedStatus = await api.post<BackfillStatus>("admin-auto-learning?action=backfill-status", {});
+        if (!updatedStatus.error) setBackfillStatus(updatedStatus.data);
+      } catch (err: any) {
+        console.error("Polling error:", err);
+      }
+    }, 30000); // every 30 seconds
+  }, [stopPolling, fetchData]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
   const runSeedBackfill = async () => {
     setBackfillRunning(true);
     setBackfillResult(null);
@@ -134,10 +187,12 @@ export default function AutoLearning() {
       setBackfillResult(result.data);
       const sb = result.data.seedBackfill || result.data;
       toast.success(
-        `Import complete! Queued: ${sb.enqueued ?? "?"}, Checked: ${sb.processed ?? "?"}, Products Added: ${sb.upserted ?? "?"}, Failed: ${sb.errors ?? 0}`
+        `Import batch done! Queued: ${sb.enqueued ?? "?"}, Checked: ${sb.processed ?? "?"}, Products Added: ${sb.upserted ?? "?"}, Failed: ${sb.errors ?? 0}`
       );
       fetchBackfillStatus();
       fetchData();
+      // Start auto-polling to drain remaining queue
+      startPolling();
     } catch (err: any) {
       toast.error("Import failed: " + err.message);
     }
@@ -224,21 +279,44 @@ export default function AutoLearning() {
           <div className="flex items-center gap-3">
             <Button
               onClick={runSeedBackfill}
-              disabled={backfillRunning}
+              disabled={backfillRunning || autoPolling}
               size="lg"
               className="gap-2"
             >
               <Rocket className={`h-4 w-4 ${backfillRunning ? "animate-bounce" : ""}`} />
               {backfillRunning ? "Importing Products..." : "🚀 Start Bulk Import"}
             </Button>
+            {autoPolling && (
+              <Button variant="destructive" size="sm" onClick={stopPolling} className="gap-2">
+                <Square className="h-4 w-4" />
+                Stop Import
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => fetchBackfillStatus(true)}>
               <Database className="h-4 w-4 mr-1" />
               Refresh Status
             </Button>
           </div>
 
+          {/* Auto-polling indicator */}
+          {autoPolling && backfillStatus && (
+            <div className="space-y-2 rounded-lg border border-primary/30 p-3 bg-primary/5">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                Auto-importing: {backfillStatus.queue.queued} jobs remaining
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Processing 50 products every 30 seconds. You can leave this page — the background cron will continue processing.
+              </p>
+              <Progress 
+                value={backfillStatus.queue.queued > 0 ? Math.max(5, 100 - (backfillStatus.queue.queued / 5)) : 100} 
+                className="h-2" 
+              />
+            </div>
+          )}
+
           {/* Backfill progress bar when running */}
-          {backfillRunning && (
+          {backfillRunning && !autoPolling && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />

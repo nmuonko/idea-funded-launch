@@ -201,6 +201,34 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (action === "continue-backfill") {
+        // Process existing queued jobs without re-enqueuing all seeds
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const workerUrl = `${supabaseUrl}/functions/v1/catalog-refresh-worker`;
+        const startTime = Date.now();
+
+        const workerRes = await fetch(workerUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ mode: "queue", maxJobs: 50 }),
+        });
+
+        const workerData = await workerRes.json();
+        const durationMs = Date.now() - startTime;
+
+        return new Response(JSON.stringify({
+          ok: true,
+          ...workerData,
+          totalDurationMs: durationMs,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       if (action === "backfill-status") {
         // Get queue status + category counts for verification
         const { count: queuedCount } = await serviceClient

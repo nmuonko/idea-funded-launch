@@ -45,6 +45,8 @@ interface BackfillStatus {
 }
 
 const formatCategoryName = (key: string) => {
+  // Hide raw numeric keys — they're not meaningful category names
+  if (/^\d+$/.test(key)) return null;
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
 
@@ -142,13 +144,15 @@ export default function AutoLearning() {
     setBackfillRunning(false);
   };
 
-  const fetchBackfillStatus = async () => {
+  const fetchBackfillStatus = async (showToast = false) => {
     try {
       const result = await api.post<BackfillStatus>("admin-auto-learning?action=backfill-status", {});
       if (result.error) throw new Error(result.error);
       setBackfillStatus(result.data);
+      if (showToast) toast.success("Status refreshed");
     } catch (err: any) {
       console.error("Failed to fetch backfill status:", err);
+      if (showToast) toast.error("Failed to refresh status");
     }
   };
 
@@ -227,7 +231,7 @@ export default function AutoLearning() {
               <Rocket className={`h-4 w-4 ${backfillRunning ? "animate-bounce" : ""}`} />
               {backfillRunning ? "Importing Products..." : "🚀 Start Bulk Import"}
             </Button>
-            <Button variant="outline" size="sm" onClick={fetchBackfillStatus}>
+            <Button variant="outline" size="sm" onClick={() => fetchBackfillStatus(true)}>
               <Database className="h-4 w-4 mr-1" />
               Refresh Status
             </Button>
@@ -306,6 +310,7 @@ export default function AutoLearning() {
                     </TableHeader>
                     <TableBody>
                       {backfillStatus.categories
+                        .filter((cat) => !/^\d+$/.test(cat.category_key))
                         .sort((a, b) => b.active_count - a.active_count)
                         .slice(0, 20)
                         .map((cat) => {

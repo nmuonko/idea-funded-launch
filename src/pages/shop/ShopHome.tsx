@@ -170,7 +170,7 @@ const PROMO_CATEGORIES = ALL_HOMEPAGE_CATEGORIES.slice(0, 4);
 const LUXURY_KEYWORDS = ['pro', 'max', 'ultra', 'premium', 'oled', 'macbook', 'rolex', 'diamond', 'gold', 'luxury', 'designer', '4k', '8k', 'titanium'];
 const CONCURRENCY_LIMIT = 4;
 const CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const SLOW_CATEGORIES = new Set(['vehicles', 'parts_accessories', 'jewelry_watches', 'clothing']);
+const SLOW_CATEGORIES = new Set(ALL_HOMEPAGE_CATEGORIES);
 
 function getCachedCategoryResult(catKey: string): Product[] | null {
   try {

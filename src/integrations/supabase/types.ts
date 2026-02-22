@@ -1216,7 +1216,7 @@ export type Database = {
           data_updated_at?: string | null
           expires_at?: string | null
           fail_count?: number | null
-          id: string
+          id?: string
           image_url?: string | null
           images?: Json | null
           in_stock?: boolean | null

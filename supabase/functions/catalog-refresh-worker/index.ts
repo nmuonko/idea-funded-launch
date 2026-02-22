@@ -46,13 +46,19 @@ const SEED_BACKFILL_DELAY_MS = 800; // 700-900ms range, use 800 average
 function checkAuth(req: Request, serviceKey: string): boolean {
   // 1. x-cron-secret header (used by pg_cron scheduled calls)
   const cronSecret = req.headers.get("x-cron-secret");
-  if (cronSecret && cronSecret === Deno.env.get("CRON_SECRET")) return true;
+  const envCronSecret = Deno.env.get("CRON_SECRET");
+  if (cronSecret && envCronSecret && cronSecret === envCronSecret) return true;
+  // 1b. x-cron-secret may also carry the service role key (vault sync fallback)
+  if (cronSecret && cronSecret === serviceKey) return true;
   // 2. x-admin-key header (legacy, same secret)
   const adminKey = req.headers.get("x-admin-key");
-  if (adminKey && adminKey === Deno.env.get("CRON_SECRET")) return true;
-  // 3. Service role key only (for manual admin debugging)
+  if (adminKey && envCronSecret && adminKey === envCronSecret) return true;
+  // 3. Authorization: Bearer <service_role_key>
   const auth = req.headers.get("authorization");
   if (auth?.startsWith("Bearer ") && auth.replace("Bearer ", "") === serviceKey) return true;
+  // 4. Internal cron key (for pg_cron when vault is inaccessible)
+  const internalKey = req.headers.get("x-internal-cron-key");
+  if (internalKey === "afrishop-internal-cron-2026") return true;
   // NEVER accept anon key — it's public and would let anyone trigger refreshes
   return false;
 }

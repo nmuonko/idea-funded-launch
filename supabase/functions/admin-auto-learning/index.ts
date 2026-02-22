@@ -244,6 +244,43 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (action === "generate-seeds-sql") {
+        // Generate SQL INSERT statements for cross-environment sync via SQL editor
+        const { data: seeds, error: seedErr } = await serviceClient
+          .from("catalog_seed_queries")
+          .select("id,category,ebay_category_id,enabled,filters,provider,query,seed_key,ttl_minutes")
+          .eq("enabled", true)
+          .order("category")
+          .limit(1000);
+        if (seedErr) throw seedErr;
+
+        if (!seeds || seeds.length === 0) {
+          return new Response("-- No seeds found\n", {
+            headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+          });
+        }
+
+        const escSql = (s: string | null) => s ? `'${s.replace(/'/g, "''")}'` : "NULL";
+        
+        // Build INSERT in batches of 50 for readability
+        let sql = "-- Auto-generated seed queries INSERT (" + seeds.length + " rows)\n";
+        sql += "-- Run this in the Live SQL editor\n\n";
+        
+        for (let i = 0; i < seeds.length; i += 50) {
+          const batch = seeds.slice(i, i + 50);
+          sql += "INSERT INTO catalog_seed_queries (id, category, ebay_category_id, enabled, filters, provider, query, seed_key, ttl_minutes) VALUES\n";
+          sql += batch.map((s: any) => {
+            const filters = s.filters && Object.keys(s.filters).length > 0 ? escSql(JSON.stringify(s.filters)) : "'{}'::jsonb";
+            return `  (${escSql(s.id)}, ${escSql(s.category)}, ${escSql(s.ebay_category_id)}, ${s.enabled}, ${filters}, ${escSql(s.provider)}, ${escSql(s.query)}, ${escSql(s.seed_key)}, ${s.ttl_minutes || 360})`;
+          }).join(",\n");
+          sql += "\nON CONFLICT (id) DO NOTHING;\n\n";
+        }
+
+        return new Response(sql, {
+          headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+        });
+      }
+
       if (action === "import-seeds") {
         // Import seed queries from JSON body (for cross-environment sync)
         const body = await req.json();

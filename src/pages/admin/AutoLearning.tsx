@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Progress } from "@/components/ui/progress";
 import { Brain, TrendingUp, RefreshCw, Ban, CheckCircle, Clock, Search, Zap, Upload, Activity, AlertTriangle, Rocket, Database } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -42,6 +43,16 @@ interface BackfillStatus {
   queue: { queued: number; running: number };
   categories: { category_key: string; active_count: number; inactive_count: number }[];
 }
+
+const formatCategoryName = (key: string) => {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const getCategoryColor = (count: number) => {
+  if (count >= 2000) return "bg-green-500";
+  if (count >= 500) return "bg-yellow-500";
+  return "bg-red-500";
+};
 
 export default function AutoLearning() {
   const [popularQueries, setPopularQueries] = useState<SearchLogAgg[]>([]);
@@ -114,20 +125,19 @@ export default function AutoLearning() {
   const runSeedBackfill = async () => {
     setBackfillRunning(true);
     setBackfillResult(null);
-    toast.info("🚀 eBay Seed Backfill started — this may take several minutes...");
+    toast.info("🚀 Bulk product import started — this may take several minutes...");
     try {
       const result = await api.post<any>("admin-auto-learning?action=run-seed-backfill", {});
       if (result.error) throw new Error(result.error);
       setBackfillResult(result.data);
       const sb = result.data.seedBackfill || result.data;
       toast.success(
-        `Backfill complete! Enqueued: ${sb.enqueued ?? "?"}, Processed: ${sb.processed ?? "?"}, Upserted: ${sb.upserted ?? "?"}, Errors: ${sb.errors ?? 0}`
+        `Import complete! Queued: ${sb.enqueued ?? "?"}, Checked: ${sb.processed ?? "?"}, Products Added: ${sb.upserted ?? "?"}, Failed: ${sb.errors ?? 0}`
       );
-      // Refresh verification status
       fetchBackfillStatus();
       fetchData();
     } catch (err: any) {
-      toast.error("Backfill failed: " + err.message);
+      toast.error("Import failed: " + err.message);
     }
     setBackfillRunning(false);
   };
@@ -167,15 +177,19 @@ export default function AutoLearning() {
     return `${(seconds / 3600).toFixed(1)}h`;
   };
 
+  const maxActiveCount = backfillStatus?.categories
+    ? Math.max(...backfillStatus.categories.map((c) => c.active_count), 1)
+    : 1;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Brain className="h-6 w-6 text-primary" />
           <div>
-            <h1 className="text-2xl font-bold">Auto-Learning</h1>
+            <h1 className="text-2xl font-bold">Smart Product Updates</h1>
             <p className="text-sm text-muted-foreground">
-              System learns from user searches and auto-caches popular queries
+              Automatically finds and adds products based on what your customers search for
             </p>
           </div>
         </div>
@@ -186,22 +200,22 @@ export default function AutoLearning() {
           </Button>
           <Button onClick={runPromotion} disabled={promoting}>
             <Zap className={`h-4 w-4 mr-2 ${promoting ? "animate-spin" : ""}`} />
-            Run Promotion
+            Find New Trends
           </Button>
         </div>
       </div>
 
-      {/* eBay Seed Backfill Section */}
+      {/* Bulk Product Import Section */}
       <Card className="border-primary/30 bg-primary/5">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center gap-2">
             <Rocket className="h-5 w-5 text-primary" />
-            eBay Seed Backfill
+            Bulk Product Import
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Enqueue ALL enabled seed queries from <code>catalog_seed_queries</code> as eBay-only jobs, then process them in controlled batches with rate limiting. Results are upserted into <code>catalog_items</code>.
+            Import products for all your saved product categories from eBay. This runs in the background and may take a few minutes.
           </p>
           <div className="flex items-center gap-3">
             <Button
@@ -211,7 +225,7 @@ export default function AutoLearning() {
               className="gap-2"
             >
               <Rocket className={`h-4 w-4 ${backfillRunning ? "animate-bounce" : ""}`} />
-              {backfillRunning ? "Running Backfill..." : "🚀 Run eBay Seed Backfill Now"}
+              {backfillRunning ? "Importing Products..." : "🚀 Start Bulk Import"}
             </Button>
             <Button variant="outline" size="sm" onClick={fetchBackfillStatus}>
               <Database className="h-4 w-4 mr-1" />
@@ -219,16 +233,27 @@ export default function AutoLearning() {
             </Button>
           </div>
 
+          {/* Backfill progress bar when running */}
+          {backfillRunning && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Importing products...
+              </div>
+              <Progress value={undefined} className="h-2 [&>div]:animate-pulse" />
+            </div>
+          )}
+
           {/* Backfill Result */}
           {backfillResult && (
             <div className="rounded-lg border p-4 bg-background space-y-2">
-              <h4 className="font-semibold text-sm">Last Backfill Result</h4>
+              <h4 className="font-semibold text-sm">Last Import Result</h4>
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
                 {[
-                  { label: "Enqueued", value: backfillResult.seedBackfill?.enqueued ?? backfillResult.enqueued ?? "—" },
-                  { label: "Processed", value: backfillResult.seedBackfill?.processed ?? backfillResult.processed ?? "—" },
-                  { label: "Upserted", value: backfillResult.seedBackfill?.upserted ?? backfillResult.upserted ?? "—" },
-                  { label: "Errors", value: backfillResult.seedBackfill?.errors ?? backfillResult.errors ?? 0 },
+                  { label: "Queued", value: backfillResult.seedBackfill?.enqueued ?? backfillResult.enqueued ?? "—" },
+                  { label: "Checked", value: backfillResult.seedBackfill?.processed ?? backfillResult.processed ?? "—" },
+                  { label: "Products Added", value: backfillResult.seedBackfill?.upserted ?? backfillResult.upserted ?? "—" },
+                  { label: "Failed", value: backfillResult.seedBackfill?.errors ?? backfillResult.errors ?? 0 },
                   { label: "Duration", value: `${((backfillResult.totalDurationMs || backfillResult.durationMs || 0) / 1000).toFixed(1)}s` },
                 ].map((item) => (
                   <div key={item.label} className="text-center">
@@ -240,22 +265,32 @@ export default function AutoLearning() {
             </div>
           )}
 
-          {/* Verification Block */}
+          {/* Import Progress Block */}
           {backfillStatus && (
             <div className="rounded-lg border p-4 bg-background space-y-3">
               <h4 className="font-semibold text-sm flex items-center gap-2">
                 <Database className="h-4 w-4" />
-                Queue & Catalog Status
+                Import Progress
               </h4>
 
-              <div className="flex gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Queued (eBay):</span>{" "}
-                  <span className="font-bold">{backfillStatus.queue.queued}</span>
+              <div className="flex gap-6 text-sm">
+                <div className="flex-1 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Waiting to import</span>
+                    <span className="font-bold">{backfillStatus.queue.queued}</span>
+                  </div>
+                  {backfillStatus.queue.queued > 0 && (
+                    <Progress value={100} className="h-2 [&>div]:bg-yellow-500" />
+                  )}
                 </div>
-                <div>
-                  <span className="text-muted-foreground">Running:</span>{" "}
-                  <span className="font-bold">{backfillStatus.queue.running}</span>
+                <div className="flex-1 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Currently importing</span>
+                    <span className="font-bold">{backfillStatus.queue.running}</span>
+                  </div>
+                  {backfillStatus.queue.running > 0 && (
+                    <Progress value={100} className="h-2 [&>div]:bg-blue-500 [&>div]:animate-pulse" />
+                  )}
                 </div>
               </div>
 
@@ -265,25 +300,41 @@ export default function AutoLearning() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Category</TableHead>
-                        <TableHead className="text-center">Active Items</TableHead>
-                        <TableHead className="text-center">Inactive</TableHead>
+                        <TableHead>Products Available</TableHead>
+                        <TableHead className="text-center">Hidden</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {backfillStatus.categories
                         .sort((a, b) => b.active_count - a.active_count)
                         .slice(0, 20)
-                        .map((cat) => (
-                          <TableRow key={cat.category_key}>
-                            <TableCell className="font-mono text-sm">{cat.category_key}</TableCell>
-                            <TableCell className="text-center">
-                              <span className={Number(cat.active_count) < 100 ? "text-destructive font-bold" : "font-bold"}>
-                                {cat.active_count}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-center text-muted-foreground">{cat.inactive_count}</TableCell>
-                          </TableRow>
-                        ))}
+                        .map((cat) => {
+                          const pct = (cat.active_count / maxActiveCount) * 100;
+                          const colorClass = getCategoryColor(cat.active_count);
+                          return (
+                            <TableRow key={cat.category_key}>
+                              <TableCell className="font-medium text-sm">
+                                {formatCategoryName(cat.category_key)}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-3">
+                                  <div className="flex-1 min-w-[120px]">
+                                    <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all ${colorClass}`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <span className={`text-sm font-bold min-w-[50px] text-right ${cat.active_count < 100 ? "text-destructive" : ""}`}>
+                                    {cat.active_count.toLocaleString()}
+                                  </span>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center text-muted-foreground">{cat.inactive_count.toLocaleString()}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                     </TableBody>
                   </Table>
                 </div>
@@ -293,13 +344,13 @@ export default function AutoLearning() {
         </CardContent>
       </Card>
 
-      {/* Provider Health Panel */}
+      {/* Data Sources Panel */}
       {Object.keys(providerHealth).length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Provider Health
+              Data Sources
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -340,7 +391,7 @@ export default function AutoLearning() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Search className="h-4 w-4" />
-              Searches (24h)
+              Customer Searches Today
             </div>
             <p className="text-2xl font-bold mt-1">{stats.total24h}</p>
           </CardContent>
@@ -349,7 +400,7 @@ export default function AutoLearning() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <TrendingUp className="h-4 w-4" />
-              Unique Queries
+              Different Products Searched
             </div>
             <p className="text-2xl font-bold mt-1">{stats.uniqueQueries}</p>
           </CardContent>
@@ -358,7 +409,7 @@ export default function AutoLearning() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Zap className="h-4 w-4" />
-              Live API Hits
+              External Lookups
             </div>
             <p className="text-2xl font-bold mt-1">{stats.liveHits}</p>
           </CardContent>
@@ -367,7 +418,7 @@ export default function AutoLearning() {
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <CheckCircle className="h-4 w-4" />
-              Auto-Promoted
+              Auto-Added
             </div>
             <p className="text-2xl font-bold mt-1">{stats.promoted}</p>
           </CardContent>
@@ -376,14 +427,14 @@ export default function AutoLearning() {
 
       <Tabs defaultValue="popular" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="popular">Popular Searches (24h)</TabsTrigger>
-          <TabsTrigger value="promotions">Promotions</TabsTrigger>
+          <TabsTrigger value="popular">Trending Searches</TabsTrigger>
+          <TabsTrigger value="promotions">Auto-Added Products</TabsTrigger>
         </TabsList>
 
         <TabsContent value="popular">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Top User Searches</CardTitle>
+              <CardTitle className="text-lg">Top Customer Searches</CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -394,10 +445,10 @@ export default function AutoLearning() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Query</TableHead>
+                      <TableHead>What customers searched</TableHead>
                       <TableHead className="text-center">Searches</TableHead>
-                      <TableHead className="text-center">Avg DB Results</TableHead>
-                      <TableHead className="text-center">Avg Live Results</TableHead>
+                      <TableHead className="text-center">Saved Results</TableHead>
+                      <TableHead className="text-center">Found Online</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Last Searched</TableHead>
                       <TableHead className="text-center">Status</TableHead>
@@ -409,7 +460,7 @@ export default function AutoLearning() {
                       const needsCaching = Number(q.avg_db) < 5 && Number(q.search_count) >= 3;
                       return (
                         <TableRow key={q.q_norm} className={needsCaching ? "bg-destructive/5" : ""}>
-                          <TableCell className="font-mono text-sm">{q.q_norm}</TableCell>
+                          <TableCell className="font-medium text-sm">{q.q_norm}</TableCell>
                           <TableCell className="text-center font-bold">{q.search_count}</TableCell>
                           <TableCell className="text-center">
                             <span className={Number(q.avg_db) < 5 ? "text-destructive font-bold" : ""}>
@@ -428,11 +479,11 @@ export default function AutoLearning() {
                           <TableCell className="text-center">
                             {isPromoted ? (
                               <Badge variant="default" className="gap-1">
-                                <CheckCircle className="h-3 w-3" /> Seeded
+                                <CheckCircle className="h-3 w-3" /> Added
                               </Badge>
                             ) : needsCaching ? (
                               <Badge variant="destructive" className="gap-1">
-                                Needs caching
+                                Needs products
                               </Badge>
                             ) : (
                               <Badge variant="secondary">OK</Badge>
@@ -451,23 +502,23 @@ export default function AutoLearning() {
         <TabsContent value="promotions">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Auto-Seed Promotions</CardTitle>
+              <CardTitle className="text-lg">Auto-Added Products</CardTitle>
             </CardHeader>
             <CardContent>
               {promotions.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">
-                  No promotions yet. Click "Run Promotion" to analyze popular searches.
+                  No auto-added products yet. Click "Find New Trends" to analyze popular searches.
                 </p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Query</TableHead>
+                      <TableHead>What customers searched</TableHead>
                       <TableHead className="text-center">Searches</TableHead>
                       <TableHead className="text-center">Avg Results</TableHead>
                       <TableHead>Category</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Promoted At</TableHead>
+                      <TableHead>Added At</TableHead>
                       <TableHead>Last Refresh</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -475,12 +526,12 @@ export default function AutoLearning() {
                   <TableBody>
                     {promotions.map((p) => (
                       <TableRow key={p.id}>
-                        <TableCell className="font-mono text-sm">{p.query_normalized}</TableCell>
+                        <TableCell className="font-medium text-sm">{p.query_normalized}</TableCell>
                         <TableCell className="text-center font-bold">{p.search_count}</TableCell>
                         <TableCell className="text-center">{Number(p.avg_result_count).toFixed(0)}</TableCell>
                         <TableCell>
                           {p.category_key ? (
-                            <Badge variant="outline" className="text-xs">{p.category_key}</Badge>
+                            <Badge variant="outline" className="text-xs">{formatCategoryName(p.category_key)}</Badge>
                           ) : "—"}
                         </TableCell>
                         <TableCell>{statusBadge(p.status)}</TableCell>
@@ -508,7 +559,7 @@ export default function AutoLearning() {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                title="Force enqueue for refresh"
+                                title="Force refresh"
                                 disabled={enqueuingId === p.id}
                                 onClick={() => manualEnqueue(p.id)}
                               >
@@ -519,7 +570,7 @@ export default function AutoLearning() {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                title="Reject — never promote again"
+                                title="Reject — never add again"
                                 onClick={() => updatePromotionStatus(p.id, "rejected")}
                               >
                                 <Ban className="h-3 w-3" />
@@ -529,7 +580,7 @@ export default function AutoLearning() {
                               <Button
                                 size="sm"
                                 variant="default"
-                                title="Re-promote"
+                                title="Re-add"
                                 onClick={() => updatePromotionStatus(p.id, "promoted")}
                               >
                                 <CheckCircle className="h-3 w-3" />

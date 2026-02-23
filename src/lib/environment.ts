@@ -28,7 +28,7 @@ export const isShopRoute = (): boolean => {
   // Root path "/" is now the shop, along with other shop paths
   const shopPaths = ['/', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
   // Exclude admin and other non-shop paths
-  const excludedPaths = ['/admin', '/auth', '/how-it-works', '/about', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/payouts', '/contact', '/delete-account', '/download', '/cars', '/knowledge-base', '/track-order', '/bank-transfer', '/manual-transfer', '/maishapay', '/payment', '/orders', '/profile', '/support', '/accept-invite', '/email-confirmed'];
+  const excludedPaths = ['/admin', '/auth', '/how-it-works', '/about', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/payouts', '/contact', '/delete-account', '/download', '/cars', '/knowledge-base', '/track-order', '/payment', '/orders', '/profile', '/support', '/accept-invite', '/email-confirmed'];
   if (excludedPaths.some(p => path === p || path.startsWith(p + '/') || path.startsWith(p + '?'))) {
     return false;
   }

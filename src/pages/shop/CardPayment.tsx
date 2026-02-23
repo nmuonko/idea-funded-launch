@@ -118,7 +118,7 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
        const { error: submitError, paymentIntent } = await stripe.confirmPayment({
          elements,
          confirmParams: {
-           return_url: `${window.location.origin}/shop/payment-success?order_id=${orderId}`,
+           return_url: `${window.location.origin}/payment-success-shop?order_id=${orderId}`,
          },
          redirect: 'if_required',
        });
@@ -130,7 +130,7 @@ async function getStripePromise(forceReload = false): Promise<Stripe | null> {
        
        if (paymentIntent?.status === 'succeeded') {
          // Payment succeeded, redirect to success page
-         navigate(`/shop/payment-success?order_id=${orderId}&provider=stripe`);
+         navigate(`/payment-success-shop?order_id=${orderId}&provider=stripe`);
        } else if (paymentIntent?.status === 'requires_action') {
          // 3D Secure or other action needed - Stripe will handle redirect
        } else {

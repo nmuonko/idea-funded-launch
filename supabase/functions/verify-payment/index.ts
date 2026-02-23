@@ -330,7 +330,7 @@ serve(async (req) => {
             id: orderId,
             orderRef,
             status: 'PENDING_PAYMENT',
-            paymentStatus: maishapayStatus,
+            paymentStatus: normalizedStatus,
             totalUsd: order.total_usd,
             totalCdf: order.total_cdf,
           },

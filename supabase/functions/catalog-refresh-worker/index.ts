@@ -889,6 +889,8 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
           .from("catalog_items")
           .upsert(upsertRows, { onConflict: "provider,provider_product_id" });
 
+        let duplicateRatio = 0;
+
         if (upsertErr) {
           console.error(`[BUILDER] Upsert error source ${source.id}:`, upsertErr.message);
         } else {
@@ -905,7 +907,7 @@ async function runCatalogBuilder(supabase: any, ebayToken: string, providerFilte
 
           const newItems = newCount ?? 0;
           const duplicateCount = productIds.length - newItems;
-          const duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
+          duplicateRatio = productIds.length > 0 ? duplicateCount / productIds.length : 0;
 
           totalNewUnique += newItems;
           totalDuplicatesSkipped += duplicateCount;

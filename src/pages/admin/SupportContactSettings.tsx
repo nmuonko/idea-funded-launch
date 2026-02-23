@@ -36,10 +36,8 @@ const SupportContactSettings = () => {
     const fetchSettings = async () => {
       try {
         const { data, error } = await supabase
-          .from("bank_transfer_settings")
+          .from("settings")
           .select("support_whatsapp, support_email")
-          .eq("is_active", true)
-          .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
@@ -69,35 +67,20 @@ const SupportContactSettings = () => {
     setSaving(true);
     try {
       const { data: existing } = await supabase
-        .from("bank_transfer_settings")
+        .from("settings")
         .select("id")
-        .eq("is_active", true)
         .limit(1)
         .maybeSingle();
 
       let error;
       if (existing?.id) {
         const result = await supabase
-          .from("bank_transfer_settings")
+          .from("settings")
           .update({
             support_whatsapp: values.support_whatsapp,
             support_email: values.support_email,
-            updated_at: new Date().toISOString(),
           })
           .eq("id", existing.id);
-        error = result.error;
-      } else {
-        // Create new settings row with defaults for required fields
-        const result = await supabase
-          .from("bank_transfer_settings")
-          .insert({
-            beneficiary_name: "AfriShop USA LLC",
-            bank_name: "Equity BCDC",
-            account_number_or_iban: "",
-            support_whatsapp: values.support_whatsapp,
-            support_email: values.support_email,
-            is_active: true,
-          });
         error = result.error;
       }
 
@@ -209,11 +192,7 @@ const SupportContactSettings = () => {
 
           <div className="flex justify-end">
             <Button type="submit" disabled={saving} className="gap-2">
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               {language === 'fr' ? 'Sauvegarder' : 'Save Settings'}
             </Button>
           </div>

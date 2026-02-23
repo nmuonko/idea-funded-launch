@@ -175,8 +175,8 @@ function providerSupportsAmount(
 /**
  * Select the best provider based on currency, amount, and order type
  * 
- * UPDATED RULES (2026-01) - MaishaPay REMOVED:
- * 1. Vehicles → Stripe (USD) or Bank Transfer
+ * UPDATED RULES (2026-01):
+ * 1. Vehicles → Stripe (USD)
  * 2. Regular orders → pawaPay mobile money in requested currency (USD or CDF)
  */
 export async function selectProviderByLimits(

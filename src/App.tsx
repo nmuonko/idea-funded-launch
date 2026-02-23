@@ -22,9 +22,6 @@ import { LanguagePreferenceModal } from "@/components/LanguagePreferenceModal";
 import { SupabaseConfigGuard } from "@/components/SupabaseConfigGuard";
 import SplashScreen from "@/components/SplashScreen";
 import Index from "./pages/Index";
-import PublicBankTransfer from "./pages/PublicBankTransfer";
-import BankTransfer from "./pages/BankTransfer";
-import ManualTransfer from "./pages/ManualTransfer";
 import Auth from "./pages/Auth";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
@@ -80,15 +77,11 @@ const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
 
 import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
-import MaishaCallback from "./pages/MaishaCallback";
-import MaishapayCheckout from "./pages/MaishapayCheckout";
-import MaishapayResult from "./pages/MaishapayResult";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentFail from "./pages/PaymentFail";
 import PaymentCallback from "./pages/PaymentCallback";
 import TrackOrder from "./pages/TrackOrder";
 import EmailConfirmed from "./pages/EmailConfirmed";
-import BankTransferInfo from "./pages/BankTransferInfo";
 
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { FloatingContactWidget } from "@/components/shop/FloatingContactWidget";
@@ -136,7 +129,7 @@ const App = () => {
   const [showSplash, setShowSplash] = useState(() => {
     const path = window.location.pathname;
     const publicPaths = ['/', '/how-it-works', '/coverage', '/privacy', '/terms', '/payments-compliance', '/refunds', '/download', '/get', '/email-confirmed', '/knowledge-base', '/track-order', '/delete-account', '/about', '/payouts', '/contact', '/browse', '/cart', '/checkout', '/saved', '/my-orders', '/account', '/search', '/product', '/shop-auth', '/onboarding', '/payment-pending', '/card-payment', '/payment-success-shop'];
-    return !publicPaths.some(p => path === p || path.startsWith('/bank-transfer') || path.startsWith('/manual-transfer') || path.startsWith('/maishapay') || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get'));
+    return !publicPaths.some(p => path === p || path.startsWith('/payment') || path.startsWith('/browse') || path.startsWith('/product') || path.startsWith('/search') || path.startsWith('/cart') || path.startsWith('/checkout') || path.startsWith('/saved') || path.startsWith('/my-orders') || path.startsWith('/account') || path.startsWith('/shop') || path.startsWith('/get'));
   });
 
   return (
@@ -240,9 +233,6 @@ const App = () => {
                 <OrderDetail />
               </ProtectedRoute>
             } />
-            <Route path="/maisha-callback" element={<MaishaCallback />} />
-            <Route path="/maishapay/checkout" element={<MaishapayCheckout />} />
-            <Route path="/maishapay/result" element={<MaishapayResult />} />
             <Route path="/track-order" element={<TrackOrder />} />
             <Route path="/email-confirmed" element={<EmailConfirmed />} />
             <Route path="/payment/success" element={<PaymentSuccess />} />
@@ -252,10 +242,6 @@ const App = () => {
             <Route path="/payment-callback" element={<PaymentCallback />} />
             <Route path="/accept-invite" element={<AcceptInvite />} />
             <Route path="/knowledge-base" element={<KnowledgeBase />} />
-            <Route path="/bank-transfer" element={<PublicBankTransfer />} />
-            <Route path="/bank-transfer-legacy" element={<BankTransfer />} />
-            <Route path="/bank-transfer-info" element={<BankTransferInfo />} />
-            <Route path="/manual-transfer/:uploadToken" element={<ManualTransfer />} />
             
             <Route path="/admin" element={
               <ProtectedRoute requireAdmin>

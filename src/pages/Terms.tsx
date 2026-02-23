@@ -176,7 +176,7 @@ const Terms = () => {
               <div className="space-y-4 text-white/70">
                 <p>
                   Payments are processed by licensed third-party payment providers on behalf of AMERICAN GOODWILL SARL. 
-                  We accept mobile money, bank transfers, and other payment methods as available in your region.
+                  We accept mobile money, card payments, and other payment methods as available in your region.
                 </p>
                 <p>
                   For payment disputes, please contact our support team at{" "}

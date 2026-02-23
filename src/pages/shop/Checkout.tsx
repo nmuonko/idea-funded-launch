@@ -203,8 +203,6 @@ export default function Checkout() {
       
       if (paymentMethod === 'card') {
         checkoutPayload.payment_method_preference = 'CARD';
-      } else if (paymentMethod === 'bank_transfer') {
-        checkoutPayload.payment_method_preference = 'BANK_TRANSFER';
       }
       
       console.log('[WEB_CHECKOUT] Checkout payload:', checkoutPayload);
@@ -232,7 +230,6 @@ export default function Checkout() {
         const providerMap: Record<string, string> = {
           'mobile_money': 'pawapay',
           'card': 'stripe',
-          'bank_transfer': 'bank_transfer',
         };
         
         const provider = providerMap[paymentMethod] || 'pawapay';
@@ -299,15 +296,6 @@ export default function Checkout() {
           return;
         }
         
-        if (providerData?.provider === 'bank_transfer') {
-          savePendingCheckout({ 
-            orderId: providerData.order_id, 
-            paymentMethod: 'bank_transfer',
-            totalUsd: effectiveTotal 
-          });
-          navigate(`/bank-transfer-info?order_id=${providerData.order_id}`);
-          return;
-        }
         
         if (providerData?.order_id) {
           savePendingCheckout({ orderId: providerData.order_id, totalUsd: effectiveTotal });
@@ -322,9 +310,6 @@ export default function Checkout() {
       } else if (data?.payment_flow === 'PAWAPAY' && data?.redirectUrl) {
         savePendingCheckout({ orderId: data.order_id, paymentMethod: 'mobile_money', totalUsd: effectiveTotal });
         window.location.href = data.redirectUrl;
-      } else if (data?.payment_flow === 'BANK_TRANSFER') {
-        savePendingCheckout({ orderId: data.order_id, paymentMethod: 'bank_transfer', totalUsd: effectiveTotal });
-        navigate(`/bank-transfer-info?order_id=${data.order_id}`);
       } else if (data?.order_id) {
         savePendingCheckout({ orderId: data.order_id, totalUsd: effectiveTotal });
         navigate(`/orders/${data.order_id}`);

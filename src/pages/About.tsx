@@ -19,7 +19,7 @@ const About = () => {
     {
       icon: Shield,
       title: "Secure Payments",
-      desc: "Multiple payment options including mobile money and bank transfers"
+      desc: "Multiple payment options including mobile money and card payments"
     },
   ];
 
